@@ -12,9 +12,9 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-// A Responses hosted item carries its result in the same item. Its public
-// fields are for display; replay preserves the complete provider item.
-func (wire codec) decodeHostedItem(
+// A Responses provider tool item carries its result in the same item. Its
+// public fields are for display; replay preserves the complete provider item.
+func (wire codec) decodeProviderToolItem(
 	raw json.RawMessage,
 	replay *llm.Opaque,
 ) ([]llm.Content, error) {
@@ -67,7 +67,7 @@ func (wire codec) decodeHostedItem(
 	if status == "" {
 		status = "completed"
 	}
-	use := llm.HostedUse{
+	use := llm.ProviderToolUse{
 		ID:         value.ID,
 		Name:       name,
 		ServerName: value.ServerLabel,
@@ -75,7 +75,7 @@ func (wire codec) decodeHostedItem(
 		Origin:     wire.origin,
 		Status:     status,
 		Input:      input,
-		Output:     wire.hostedItemOutput(value.Results, value.Outputs),
+		Output:     wire.providerToolItemOutput(value.Results, value.Outputs),
 		IsError:    status == "failed" || nonNull(value.Error),
 	}
 	if replay.Type == "web_search_call" {
@@ -104,20 +104,20 @@ func (wire codec) decodeHostedItem(
 		return nil, providerhttp.Failure(
 			wire.origin.Provider,
 			llm.ErrorProtocol,
-			"invalid hosted item: %w",
+			"invalid provider tool item: %w",
 			err,
 		)
 	}
 	return []llm.Content{
 		{
-			Kind:      llm.ContentHostedUse,
-			HostedUse: &use,
-			Replay:    replay,
+			Kind:            llm.ContentProviderToolUse,
+			ProviderToolUse: &use,
+			Replay:          replay,
 		},
 	}, nil
 }
 
-func (wire codec) decodeHostedApproval(
+func (wire codec) decodeProviderToolApproval(
 	raw json.RawMessage,
 	replay *llm.Opaque,
 ) ([]llm.Content, error) {
@@ -130,7 +130,7 @@ func (wire codec) decodeHostedApproval(
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return nil, err
 	}
-	request := llm.HostedApprovalRequest{
+	request := llm.ProviderToolApprovalRequest{
 		ID:         value.ID,
 		Name:       value.Name,
 		ServerName: value.ServerLabel,
@@ -141,20 +141,20 @@ func (wire codec) decodeHostedApproval(
 		return nil, providerhttp.Failure(
 			wire.origin.Provider,
 			llm.ErrorProtocol,
-			"invalid hosted approval: %w",
+			"invalid provider tool approval: %w",
 			err,
 		)
 	}
 	return []llm.Content{
 		{
-			Kind:                  llm.ContentHostedApprovalRequest,
-			HostedApprovalRequest: &request,
-			Replay:                replay,
+			Kind:                        llm.ContentProviderToolApprovalRequest,
+			ProviderToolApprovalRequest: &request,
+			Replay:                      replay,
 		},
 	}, nil
 }
 
-func (wire codec) hostedItemOutput(
+func (wire codec) providerToolItemOutput(
 	results []json.RawMessage,
 	outputs []json.RawMessage,
 ) []content.Block {

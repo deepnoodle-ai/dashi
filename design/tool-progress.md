@@ -8,7 +8,7 @@ row 13, [gaps/F](gaps/F-example-ports.md) 10.1
 > `Policy`. Its `BeforeModel`, `BeforeSend`, `AuthorizeTool` and `OnStop`
 > are now the `BeforeModel`, `BeforeSend`, `BeforeTool` and `BeforeFinish`
 > hook points; `ModelAuthorization` is `SendDecision`; approvals no longer
-> carry a policy revision; and a tool with no hook opinion runs.
+> carry a policy version; and a tool with no hook opinion runs.
 
 ## The problem
 
@@ -18,21 +18,23 @@ so a UI shows a spinner and people cannot tell working from hung
 ([openai/codex#4751](https://github.com/openai/codex/issues/4751),
 [adk-go#292](https://github.com/google/adk-go/issues/292)).
 
-A **step** is a recorded fact (`tool_started`, `tool_settled`). A **preview**
+A **step** is a recorded fact (`tool_started`, `tool_finished`). A **preview**
 is a live-only event, like model text deltas, that the record supersedes.
-**Snapshot** progress replaces the previous value; **appended** output adds to it.
+**Snapshot** progress replaces the previous value; **appended** output adds to
+it.
 
 ## What others do
 
 Dive carried a reporter in the context, but ran the callback on each tool
 goroutine: it raced in parallel calls (Dive #186) and blocked tools on a slow
-consumer. Iterator-returning tools (ADK, Eino, Vercel) leaked partials into the
-result or the model ([adk-python#5947](https://github.com/google/adk-python/issues/5947),
+consumer. Iterator-returning tools (ADK, Eino, Vercel) leaked partials into
+the result or the model
+([adk-python#5947](https://github.com/google/adk-python/issues/5947),
 [ai#19080](https://github.com/vercel/ai/issues/19080)). MCP and ACP send
 replace-style snapshots; resending growing output made one ACP adapter O(n²).
-Heartbeats (Temporal) serve liveness and checkpoints, not UIs. Lessons:
-**progress is never the result and never reaches the model**, and **progress
-never fails or slows the work**.
+Heartbeats (Temporal) show a worker is alive and save checkpoints; they serve
+no UI. Lessons: **progress is never the result and never reaches the model**,
+and **progress never fails or slows the work**.
 
 ## Decisions
 
@@ -45,9 +47,11 @@ never fails or slows the work**.
 4. **Live-only.** Never recorded, replayed, or used for recovery; no crash
    checkpoint. A tool needing resumable progress keeps its own, keyed by
    `(TurnID, CallID)`.
-5. **No runner heartbeat.** Liveness for silent tools is the host's job for now.
-6. **Never blocks, never after settle, no rate limit.** Tools should report at
-   human rates (a few per second); consumers throttle rendering.
+5. **No runner heartbeat.** Showing that a silent tool is still running is
+   the host's job for now.
+6. **Never blocks, never after the call finishes, no rate limit.** Tools
+   should report at human rates (a few per second); consumers throttle
+   rendering.
 
 ## API
 
@@ -82,7 +86,8 @@ type ToolProgress struct {
 
 `Report` adjusts rather than fails: it copies `Data`, drops `Data` that is
 invalid JSON or larger than 64 KiB, and turns a non-finite `Done` or `Total`
-into 0. `Data` is raw JSON because every delivered event is deep-copied.
+into 0. `Data` is raw JSON because every event sent to a consumer is
+deep-copied.
 Progress events carry `Event.TurnID`. No `Runner` field is added.
 
 ```go
@@ -114,14 +119,14 @@ them in call order. The lock is never held while emitting, so a slow `Stream`
 consumer never blocks `Report`; snapshots merge instead. Only the runner
 goroutine emits, which removes Dive's race by construction.
 
-**Settle.** Before committing a call's `tool_settled` or `tool_waiting`,
-`settle` emits its last unsent snapshot, so a final "100/100" arrives, and then
+**Finish.** Before committing a call's `tool_finished` or `tool_waiting`, the
+runner emits its last unsent snapshot, so a final "100/100" arrives, and then
 forgets the slot. Nothing for that call follows, including reports from a
 detached call or a leaked goroutine, and nothing is emitted after `tools()`
 returns.
 
 **Lag.** Snapshots wait while the runner authorizes or commits another call.
-They merge; the latest is delivered at the next wait.
+They merge; the latest is emitted at the next wait.
 
 **Observer priority.** The Observer queue is lossy (64 events). A progress
 event is queued only while the queue is under half full, and a step or delta
@@ -138,12 +143,13 @@ docs); `tools_loop.go`; `runner.go` (`cloneEvent`, Observer doc);
 
 - `tool`: no-op without a reporter; `Data` copied; adjustments applied.
 - `Stream`: events carry `TurnID`, `CallID`, `Name`; they fall between the
-  call's `tool_started` and settle; the report just before return arrives.
+  call's `tool_started` and `tool_finished`; the report just before return
+  arrives.
 - A consumer that blocks on the first progress event: a tool reporting 10,000
-  times still returns, and its last snapshot arrives before settle.
+  times still returns, and its last snapshot arrives before `tool_finished`.
 - Parallel calls, several goroutines reporting in one tool, `ToolConcurrency`
   1 with two calls, all under `-race`.
-- Panic after reporting; a waiting or detached outcome that keeps reporting;
+- Panic after reporting; a waiting or detached call that keeps reporting;
   breaking out of `Stream` or canceling while reporting; nested runner;
   `Observer` and `Stream` together, each with its own `Data` copy.
 - A report flood never takes the Observer queue past half full.

@@ -75,7 +75,7 @@ func TestPrintModeDeniesApprovalUnlessYes(t *testing.T) {
 
 func TestPrintModeExitsNonzeroOnLimit(t *testing.T) {
 	cfg := testConfig(t, callTool("c1", "list_directory", `{}`), say("Partial."))
-	cfg.ModelAttempts = 2
+	cfg.ModelCalls = 2
 	var stdout, stderr bytes.Buffer
 	code := runPrint(t.Context(), cfg, Options{Print: "go", PrintSet: true}, &stdout, &stderr)
 	if code != 4 || !strings.Contains(stderr.String(), "limited") {

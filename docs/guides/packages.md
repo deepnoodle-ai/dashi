@@ -27,9 +27,9 @@ other.
   the runner's live previews merged in place.
 - `session`: A conversation of many turns on a `dashi.Runner`: turn numbers,
   history, the carried agent, queued and steered input, and compaction.
-- `compaction`: Shortens a long history with a summary: a `Compactor` for a
-  session's compaction turns, and `Compact` and `Project` for a host-owned
-  history.
+- `compaction`: Shortens a long history with a summary: a `Compactor` that
+  starts a session's compaction turns, and that a host with its own turns uses
+  with `Compactor.Start` and `dashi.BuildHistory`.
 - `catalog`: Documented capabilities, limits, and prices for known models at
   public provider endpoints, as embedded JSON.
 
@@ -71,8 +71,8 @@ only the standard library and stay in the root module.
 Media has provider clients for Gemini image generation/editing and Veo video
 jobs, xAI image generation/editing and video jobs, and OpenAI image
 generation/editing. The clients prepare exact JSON or multipart request bodies
-before dispatch. A video submission records accepted, rejected, or unknown
-outcome; an unknown outcome needs provider reconciliation before any retry.
+before sending. A video submission records an accepted, rejected, or unknown
+result; an unknown result must be checked with the provider before any retry.
 
 `speech` still defines values and capabilities; speech stream transports await
 adapter qualification.

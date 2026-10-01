@@ -52,14 +52,14 @@ const (
 	ContentToolCall ContentKind = "tool_call"
 	// ContentToolResult answers a tool call with its output and failure flag.
 	ContentToolResult ContentKind = "tool_result"
-	// ContentHostedUse reports a provider-executed call, never a local call.
-	ContentHostedUse ContentKind = "hosted_use"
-	// ContentHostedResult reports a separate provider-executed result block.
-	ContentHostedResult ContentKind = "hosted_result"
-	// ContentHostedApprovalRequest asks for an application decision.
-	ContentHostedApprovalRequest ContentKind = "hosted_approval_request"
-	// ContentHostedApprovalResponse records that application decision.
-	ContentHostedApprovalResponse ContentKind = "hosted_approval_response"
+	// ContentProviderToolUse reports a provider-executed call, never a local call.
+	ContentProviderToolUse ContentKind = "provider_tool_use"
+	// ContentProviderToolResult reports a separate provider-executed result block.
+	ContentProviderToolResult ContentKind = "provider_tool_result"
+	// ContentProviderToolApprovalRequest asks for an application decision.
+	ContentProviderToolApprovalRequest ContentKind = "provider_tool_approval_request"
+	// ContentProviderToolApprovalResponse records that application decision.
+	ContentProviderToolApprovalResponse ContentKind = "provider_tool_approval_response"
 	// ContentReasoning carries display reasoning and optional private replay
 	// data.
 	ContentReasoning ContentKind = "reasoning"
@@ -74,8 +74,7 @@ const (
 // Reasoning is model reasoning output, kept so it can be shown to people and
 // replayed to the provider that produced it.
 type Reasoning struct {
-	// Text is a display projection; editing it does not alter private replay
-	// data.
+	// Text is a display copy; editing it does not alter private replay data.
 	Text string `json:"text"`
 }
 
@@ -109,17 +108,17 @@ type Content struct {
 	// ToolResult is required only for ContentToolResult.
 	ToolResult *ToolResult `json:"tool_result,omitempty"`
 
-	// HostedUse is provider activity and cannot be executed locally.
-	HostedUse *HostedUse `json:"hosted_use,omitempty"`
+	// ProviderToolUse is provider activity and cannot be executed locally.
+	ProviderToolUse *ProviderToolUse `json:"provider_tool_use,omitempty"`
 
-	// HostedResult is provider activity paired with HostedUse.
-	HostedResult *HostedResult `json:"hosted_result,omitempty"`
+	// ProviderToolResult is provider activity paired with ProviderToolUse.
+	ProviderToolResult *ProviderToolResult `json:"provider_tool_result,omitempty"`
 
-	// HostedApprovalRequest requires an explicit application response.
-	HostedApprovalRequest *HostedApprovalRequest `json:"hosted_approval_request,omitempty"`
+	// ProviderToolApprovalRequest requires an explicit application response.
+	ProviderToolApprovalRequest *ProviderToolApprovalRequest `json:"provider_tool_approval_request,omitempty"`
 
-	// HostedApprovalResponse carries the application decision.
-	HostedApprovalResponse *HostedApprovalResponse `json:"hosted_approval_response,omitempty"`
+	// ProviderToolApprovalResponse carries the application decision.
+	ProviderToolApprovalResponse *ProviderToolApprovalResponse `json:"provider_tool_approval_response,omitempty"`
 
 	// Reasoning is required only for ContentReasoning.
 	Reasoning *Reasoning `json:"reasoning,omitempty"`
@@ -166,23 +165,23 @@ func Block(block content.Block) Content {
 }
 
 // sources returns pointers to every source in c: a block's source and the
-// sources in blocks of a tool result, hosted-use output, or hosted result. They
-// alias c's payload.
+// sources in blocks of a tool result, provider tool use output, or provider
+// tool result. They alias c's payload.
 func (c Content) sources() []*content.Source {
-	var block, result, hosted []content.Block
+	var block, result, providerTool []content.Block
 	if c.Block != nil {
 		block = []content.Block{*c.Block}
 	}
 	if c.ToolResult != nil {
 		result = c.ToolResult.Output.Content
 	}
-	if c.HostedResult != nil {
-		hosted = c.HostedResult.Output
+	if c.ProviderToolResult != nil {
+		providerTool = c.ProviderToolResult.Output
 	}
-	if c.HostedUse != nil {
-		hosted = append(hosted[:len(hosted):len(hosted)], c.HostedUse.Output...)
+	if c.ProviderToolUse != nil {
+		providerTool = append(providerTool[:len(providerTool):len(providerTool)], c.ProviderToolUse.Output...)
 	}
-	return contentsrc.Blocks(block, result, hosted)
+	return contentsrc.Blocks(block, result, providerTool)
 }
 
 // Validate checks a recordable content value with exactly one matching payload.
@@ -192,10 +191,10 @@ func (c Content) Validate() error {
 		c.Block != nil,
 		c.ToolCall != nil,
 		c.ToolResult != nil,
-		c.HostedUse != nil,
-		c.HostedResult != nil,
-		c.HostedApprovalRequest != nil,
-		c.HostedApprovalResponse != nil,
+		c.ProviderToolUse != nil,
+		c.ProviderToolResult != nil,
+		c.ProviderToolApprovalRequest != nil,
+		c.ProviderToolApprovalResponse != nil,
 		c.Reasoning != nil,
 		c.Refusal != nil,
 		c.Reminder != nil,
@@ -210,9 +209,9 @@ func (c Content) Validate() error {
 		if c.Kind == ContentOpaque {
 			return errors.New("llm: opaque content cannot also carry replay data")
 		}
-		if c.Kind == ContentHostedApprovalResponse {
+		if c.Kind == ContentProviderToolApprovalResponse {
 			return errors.New(
-				"llm: hosted approval response cannot carry provider replay",
+				"llm: provider tool approval response cannot carry provider replay",
 			)
 		}
 		if err := c.Replay.Validate(); err != nil {
@@ -237,16 +236,16 @@ func (c Content) Validate() error {
 			}
 		}
 		return nil
-	case c.Kind == ContentHostedUse && c.HostedUse != nil:
-		return c.HostedUse.Validate()
-	case c.Kind == ContentHostedResult && c.HostedResult != nil:
-		return c.HostedResult.Validate()
-	case c.Kind == ContentHostedApprovalRequest &&
-		c.HostedApprovalRequest != nil:
-		return c.HostedApprovalRequest.Validate()
-	case c.Kind == ContentHostedApprovalResponse &&
-		c.HostedApprovalResponse != nil:
-		return c.HostedApprovalResponse.Validate()
+	case c.Kind == ContentProviderToolUse && c.ProviderToolUse != nil:
+		return c.ProviderToolUse.Validate()
+	case c.Kind == ContentProviderToolResult && c.ProviderToolResult != nil:
+		return c.ProviderToolResult.Validate()
+	case c.Kind == ContentProviderToolApprovalRequest &&
+		c.ProviderToolApprovalRequest != nil:
+		return c.ProviderToolApprovalRequest.Validate()
+	case c.Kind == ContentProviderToolApprovalResponse &&
+		c.ProviderToolApprovalResponse != nil:
+		return c.ProviderToolApprovalResponse.Validate()
 	case c.Kind == ContentReasoning && c.Reasoning != nil:
 		return nil
 	case c.Kind == ContentRefusal && c.Refusal != nil:
@@ -310,9 +309,9 @@ type Message struct {
 	Context *MessageContext `json:"context,omitempty"`
 }
 
-// MessageContext identifies a named context slot in projected conversation
-// history. It adds no authority or provider-visible content. A nil Context on
-// Message means that the slot identity is unknown.
+// MessageContext identifies a named context slot in the conversation history
+// built for the model. It adds no authority or provider-visible content. A nil
+// Context on Message means that the slot identity is unknown.
 type MessageContext struct {
 	Origin string `json:"origin"`
 	Name   string `json:"name"`
@@ -320,7 +319,7 @@ type MessageContext struct {
 
 // MessageSource preserves response provenance when a message leaves its Result.
 // Requested comes from the frozen request; Served and ResponseID are reported
-// facts, empty when unknown. This is not an attempt or dispatch record.
+// facts, empty when unknown. This is not a model call or dispatch record.
 type MessageSource struct {
 	// Requested identifies the configured destination and requested model.
 	Requested ModelRef `json:"requested"`
@@ -418,7 +417,7 @@ type Settings struct {
 	ParallelTools *bool `json:"parallel_tools,omitempty"`
 
 	// Citations asks the model to cite passages of the request's documents,
-	// including documents in tool results; the citations arrive on the answer's
+	// including documents in tool results; the citations arrive on the reply's
 	// text blocks. It applies to every document, because Anthropic enables
 	// citations for all documents in a request or none. An API without
 	// document citations omits the setting and warns when the request carries
@@ -590,7 +589,7 @@ type Result struct {
 	Usage *Usage `json:"usage,omitempty"`
 
 	// Cost is a provider-reported amount or explicit list-price estimate for
-	// this attempt. Nil means unknown, including when usage is known.
+	// this model call. Nil means unknown, including when usage is known.
 	Cost *Cost `json:"cost,omitempty"`
 
 	// ServiceTier is the provider-reported serving tier when available. A
@@ -646,10 +645,11 @@ type Delta struct {
 type Sink func(Delta)
 
 // Client prepares model input offline and sends a request without retries.
-// Its caller owns attempt identity, recording, and retry decisions, and passes
-// that identity to Send in Call.Attempt. Deltas are
-// provisional; inspect the final result and stop before executing tool calls.
-// An error may accompany partial data or leave provider receipt uncertain.
+// Its caller owns model call identity, recording, and retry decisions, and
+// passes that identity to Send in Call.Identity. Deltas are provisional;
+// inspect the final result and stop before executing tool calls. An error may
+// accompany partial data or leave it unknown whether the provider received
+// the request.
 type Client interface {
 	// Provider returns the application's stable name for this destination.
 	Provider() string
@@ -668,8 +668,8 @@ type Client interface {
 
 	// Send performs at most one dispatch of call.Request and collects a
 	// result, reporting deltas to call.Sink. Calling Send again is a new
-	// attempt; a failure may occur before dispatch. See Attempt for what
-	// call.Attempt guarantees when it is set.
+	// model call; a failure may occur before dispatch. See CallIdentity for
+	// what call.Identity guarantees when it is set.
 	//
 	// Ending the context must stop generation at the provider, not only stop
 	// reading it: close the stream or cancel the remote job. Dashi cancels a
@@ -755,9 +755,9 @@ type Error struct {
 	// provider codes, statuses, and messages are recognized is an
 	// implementation detail that may change as providers change.
 	Reason ErrorReason
-	// Disposition records what is known about this attempt's remote effect.
+	// SendStatus records what is known about this model call's remote effect.
 	// An absent value is unknown and must not authorize a retry.
-	Disposition FailureDisposition
+	SendStatus SendStatus
 
 	// Status is the HTTP status when a response was received, or zero.
 	Status int
@@ -765,7 +765,8 @@ type Error struct {
 	// Code retains the provider error code, which may refine retry advice.
 	Code string
 	// Retryable is a hint from an explicit HTTP rejection, not permission to
-	// retry an uncertain effect. The caller owns recording and retry policy.
+	// retry a call whose effect is unknown. The caller owns recording and retry
+	// policy.
 	Retryable bool
 
 	// RetryAfter preserves the provider delay hint; zero means none was
@@ -779,17 +780,17 @@ type Error struct {
 	Cause error
 }
 
-// FailureDisposition is evidence about a failed send, independent of whether
+// SendStatus is evidence about a failed send, independent of whether
 // the error is retryable under a caller's policy.
-type FailureDisposition string
+type SendStatus string
 
 const (
-	// FailureNotDispatched means the request did not leave the client.
-	FailureNotDispatched FailureDisposition = "not_dispatched"
-	// FailureRejected means the provider explicitly rejected the request.
-	FailureRejected FailureDisposition = "rejected"
-	// FailureUnknown means dispatch or acceptance could not be established.
-	FailureUnknown FailureDisposition = "unknown"
+	// SendStatusNotSent means the request did not leave the client.
+	SendStatusNotSent SendStatus = "not_sent"
+	// SendStatusProviderRejected means the provider explicitly rejected the request.
+	SendStatusProviderRejected SendStatus = "provider_rejected"
+	// SendStatusUnknown means dispatch or acceptance could not be established.
+	SendStatusUnknown SendStatus = "unknown"
 )
 
 // Error includes provider identity, category, and any reason while retaining

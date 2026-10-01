@@ -2,7 +2,7 @@
 // hands the message to a mail service and returns before delivery is known;
 // the result arrives later, as a delivery webhook would bring it. The first
 // run starts the turn and exits while it waits. The second run records the
-// delivery result and continues the turn to its answer. Both runs share a
+// delivery result and continues the turn to its reply. Both runs share a
 // filerecorder, a durable recorder that keeps each turn in a file, which is
 // what lets the turn outlive the process.
 //
@@ -69,11 +69,11 @@ func run(ctx context.Context, mode, dir string) error {
 	if err != nil {
 		return err
 	}
-	var out dashi.Outcome
+	var out dashi.RunResult
 	switch mode {
 	case "start":
 		// Running start again repeats the same command, which returns the
-		// recorded outcome instead of starting over. The turn records its
+		// recorded result instead of starting over. The turn records its
 		// agent, so the resume process needs none.
 		out, err = runner.Run(ctx, dashi.NewTurn(turnID), dashi.Start{
 			CommandID: "start",
@@ -104,7 +104,7 @@ func run(ctx context.Context, mode, dir string) error {
 		fmt.Println("Stop: waiting. Run again with -mode=resume.")
 		return nil
 	}
-	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 	return nil
 }
 
@@ -140,24 +140,24 @@ func deliver(
 	ctx context.Context,
 	runner dashi.Runner,
 	recorder dashi.Loader,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	turn, err := recorder.Load(ctx, turnID)
 	if errors.Is(err, dashi.ErrTurnNotFound) {
-		return dashi.Outcome{}, errors.New("no saved turn; run -mode=start first")
+		return dashi.RunResult{}, errors.New("no saved turn; run -mode=start first")
 	}
 	if err != nil {
-		return dashi.Outcome{}, err
+		return dashi.RunResult{}, err
 	}
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
-		return dashi.Outcome{}, err
+		return dashi.RunResult{}, err
 	}
 	if view.Stop.Kind != dashi.StopWaiting {
-		return dashi.Outcome{Turn: turn, TurnView: view}, nil // already done
+		return dashi.RunResult{Turn: turn, TurnView: view}, nil // already done
 	}
 	for _, p := range view.Pending {
 		fmt.Printf("Webhook: %s delivered\n", messageID(p))
-		// Result only records the outcome; nothing runs until Continue.
+		// Result only records the tool's result; nothing runs until Continue.
 		out, err := runner.Run(ctx, turn, p.Result(
 			tool.Succeeded("Delivered as "+messageID(p)+"."),
 		))

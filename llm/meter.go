@@ -2,7 +2,7 @@ package llm
 
 import "strings"
 
-// Meter keys name one billable unit of provider-hosted work. Provider adapters
+// Meter keys name one billable unit of provider tool work. Provider adapters
 // count them into Usage.Requests when they decode a response, and a price
 // sheet prices them in Pricing.Requests at currency units per unit. A key
 // names the unit, not the tool the model called: Anthropic's
@@ -24,7 +24,7 @@ const (
 	MeterURLContext = "url_context"
 	// MeterCodeExecution counts one code run in a provider sandbox.
 	MeterCodeExecution = "code_execution"
-	// MeterFileSearch counts one search over provider-hosted files.
+	// MeterFileSearch counts one search over files stored with the provider.
 	MeterFileSearch = "file_search"
 	// MeterImageGeneration counts one image generation call.
 	MeterImageGeneration = "image_generation"
@@ -35,18 +35,18 @@ const (
 	// MeterXSearchProfile counts one X profile fetched by xAI's X search.
 	MeterXSearchProfile = "x_search_profile"
 
-	// MeterUnreported counts hosted uses in a response whose usage never
+	// MeterUnreported counts provider tool uses in a response whose usage never
 	// arrived, such as a stream cut off before its final usage frame. No sheet
 	// may price it: Dashi cannot tell which meter those uses billed.
 	MeterUnreported = "unreported"
 )
 
-// unrecognizedMeterPrefix marks a key for hosted work an adapter did not
+// unrecognizedMeterPrefix marks a key for provider tool work an adapter did not
 // recognize. No sheet may price such a key.
 const unrecognizedMeterPrefix = "unrecognized:"
 
-// UnrecognizedMeter returns the key an adapter records for hosted work of a
-// provider wire type it does not recognize, so the work shows as unpriced
+// UnrecognizedMeter returns the key an adapter records for provider tool work
+// of a provider wire type it does not recognize, so the work shows as unpriced
 // rather than free.
 func UnrecognizedMeter(wireType string) string {
 	return unrecognizedMeterPrefix + wireType

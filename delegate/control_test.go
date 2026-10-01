@@ -15,12 +15,12 @@ import (
 )
 
 func finalNotice(v dashi.TurnView) bool {
-	return v.Stop.Terminal || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
+	return v.Stop.Ended || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
 }
 func target(h *harness, t *testing.T) delegate.TaskTarget {
 	t.Helper()
 	v := h.view(t, childTurnID())
-	return delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), Revision: v.Revision}
+	return delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), LastSeq: v.LastSeq}
 }
 func attention(h *harness, t *testing.T) *delegate.AttentionError {
 	t.Helper()
@@ -51,45 +51,45 @@ func waitingChild(t *testing.T, store func(*dashi.MemoryRecorder) dashi.Recorder
 	return h
 }
 
-func TestTaskRunSettlesExactWaitingChildWithoutRepeatingEffect(t *testing.T) {
+func TestTaskRunFinishesExactWaitingChildWithoutRepeatingEffect(t *testing.T) {
 	h := waitingChild(t, nil)
 	original := target(h, t)
 	if h.ran.Load() != 1 {
 		t.Fatal("write was not started exactly once")
 	}
-	if out, err := h.tasks.Run(t.Context(), original, dashi.Settle{CommandID: "wrong-call", CallID: "other", Outcome: ptrOutcome(tool.Succeeded("verified"))}); err == nil {
+	if out, err := h.tasks.Run(t.Context(), original, dashi.Resolve{CommandID: "wrong-call", CallID: "other", Outcome: ptrOutcome(tool.Succeeded("verified"))}); err == nil {
 		t.Fatalf("wrong call accepted: %+v", out)
 	}
 	attention(h, t)
-	settlement := dashi.Settle{CommandID: "verify-write", CallID: "c1", Outcome: ptrOutcome(tool.Succeeded("Operator verified this exact call completed; its output was not captured."))}
-	settled, err := h.tasks.Run(t.Context(), original, settlement)
+	finish := dashi.Resolve{CommandID: "verify-write", CallID: "c1", Outcome: ptrOutcome(tool.Succeeded("Operator verified this exact call completed; its output was not captured."))}
+	finished, err := h.tasks.Run(t.Context(), original, finish)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if h.ran.Load() != 1 || len(h.tasks.List()) != 1 || h.tasks.List()[0].Turns != 1 {
 		t.Fatal("settlement dispatched or created another child")
 	}
-	if _, err = h.tasks.Run(t.Context(), original, settlement); err != nil {
+	if _, err = h.tasks.Run(t.Context(), original, finish); err != nil {
 		t.Fatalf("identical stale receipt: %v", err)
 	}
-	changed := settlement
+	changed := finish
 	changed.Outcome = ptrOutcome(tool.Succeeded("different captured output"))
-	if _, err = h.tasks.Run(t.Context(), original, changed); !errors.Is(err, dashi.ErrCommandConflict) {
+	if _, err = h.tasks.Run(t.Context(), original, changed); !errors.Is(err, dashi.ErrCommandIDReused) {
 		t.Fatalf("payload conflict: %v", err)
 	}
-	if _, err = h.tasks.Run(t.Context(), original, dashi.Continue{CommandID: "stale"}); !errors.Is(err, dashi.ErrRevisionConflict) {
+	if _, err = h.tasks.Run(t.Context(), original, dashi.Continue{CommandID: "stale"}); !errors.Is(err, dashi.ErrStaleTurn) {
 		t.Fatalf("stale action: %v", err)
 	}
-	out, err := h.tasks.Run(t.Context(), delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), Revision: settled.Revision}, dashi.Continue{CommandID: "finish"})
-	if err != nil || out.Answer != "child finished" {
-		t.Fatalf("answer=%q err=%v", out.Answer, err)
+	out, err := h.tasks.Run(t.Context(), delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), LastSeq: finished.LastSeq}, dashi.Continue{CommandID: "finish"})
+	if err != nil || out.Reply != "child finished" {
+		t.Fatalf("answer=%q err=%v", out.Reply, err)
 	}
 	event := h.next(t, delegate.TaskEnded)
 	if event.Task.State != "completed" || h.ran.Load() != 1 {
 		t.Fatalf("event=%+v writes=%d", event, h.ran.Load())
 	}
 
-	if _, err = h.tasks.Run(t.Context(), original, settlement); err != nil {
+	if _, err = h.tasks.Run(t.Context(), original, finish); err != nil {
 		t.Fatalf("receipt after later work: %v", err)
 	}
 	select {
@@ -100,7 +100,7 @@ func TestTaskRunSettlesExactWaitingChildWithoutRepeatingEffect(t *testing.T) {
 	default:
 	}
 	child := h.view(t, childTurnID())
-	if h.tasks.List()[0].ModelCalls != child.ModelAttempts {
+	if h.tasks.List()[0].ModelCalls != child.ModelCalls {
 		t.Fatal("same Turn spend/count duplicated after control")
 	}
 }
@@ -108,7 +108,7 @@ func ptrOutcome(v tool.Outcome) *tool.Outcome { return &v }
 
 func TestTaskRunLimitedChildRaiseAndDiscard(t *testing.T) {
 	sub := scout()
-	sub.Agent.Limits.ModelAttempts = 1
+	sub.Agent.Limits.ModelCalls = 1
 	h := newHarness(t, scripted(childCallsProbe), delegate.Config{Subagents: []delegate.Subagent{sub}, NoticeReady: finalNotice}, nil)
 	if _, err := h.start(t.Context()); err != nil {
 		t.Fatal(err)
@@ -118,8 +118,8 @@ func TestTaskRunLimitedChildRaiseAndDiscard(t *testing.T) {
 		t.Fatalf("state=%s", e.Tasks[0].State)
 	}
 	before := target(h, t)
-	out, err := h.tasks.Run(t.Context(), before, dashi.Continue{CommandID: "raise", ModelAttempts: 3})
-	if err != nil || out.Answer != "child finished" {
+	out, err := h.tasks.Run(t.Context(), before, dashi.Continue{CommandID: "raise", ModelCalls: 3})
+	if err != nil || out.Reply != "child finished" {
 		t.Fatalf("out=%+v err=%v", out.Stop, err)
 	}
 	h.next(t, delegate.TaskEnded)
@@ -149,7 +149,7 @@ func (r *commandAckRecorder) Commit(ctx context.Context, req dashi.CommitRequest
 	}
 	return r.MemoryRecorder.Commit(ctx, req)
 }
-func TestTaskRunUnknownCommandReconciliation(t *testing.T) {
+func TestTaskRunUnknownCommandResolution(t *testing.T) {
 	for _, mode := range []int32{1, 2} {
 		t.Run(map[int32]string{1: "absent", 2: "committed"}[mode], func(t *testing.T) {
 			var recorder *commandAckRecorder
@@ -158,7 +158,7 @@ func TestTaskRunUnknownCommandReconciliation(t *testing.T) {
 				return recorder
 			})
 			before := target(h, t)
-			cmd := dashi.Settle{CommandID: "verify", CallID: "c1", Outcome: ptrOutcome(tool.Succeeded("verified without captured output"))}
+			cmd := dashi.Resolve{CommandID: "verify", CallID: "c1", Outcome: ptrOutcome(tool.Succeeded("verified without captured output"))}
 			recorder.mode.Store(mode)
 			if _, err := h.tasks.Run(t.Context(), before, cmd); err == nil {
 				t.Fatal("lost acknowledgement not exposed")
@@ -166,7 +166,7 @@ func TestTaskRunUnknownCommandReconciliation(t *testing.T) {
 			attention(h, t)
 			if mode == 1 {
 				if _, err := h.tasks.Run(t.Context(), before, dashi.Cancel{CommandID: "new-action"}); !errors.Is(err, delegate.ErrTaskCommandUnknown) {
-					t.Fatalf("unknown write admitted different action: %v", err)
+					t.Fatalf("unknown write accepted a different action: %v", err)
 				}
 			}
 			out, err := h.tasks.Run(t.Context(), before, cmd)
@@ -176,7 +176,7 @@ func TestTaskRunUnknownCommandReconciliation(t *testing.T) {
 			if h.ran.Load() != 1 {
 				t.Fatal("effect repeated during reconciliation")
 			}
-			if _, err = h.tasks.Run(t.Context(), delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), Revision: out.Revision}, dashi.Continue{CommandID: "finish"}); err != nil {
+			if _, err = h.tasks.Run(t.Context(), delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), LastSeq: out.LastSeq}, dashi.Continue{CommandID: "finish"}); err != nil {
 				t.Fatal(err)
 			}
 			h.next(t, delegate.TaskEnded)
@@ -190,7 +190,7 @@ func TestTaskRunOwnsWorkerCancellationAndBusyFence(t *testing.T) {
 			g := newGate()
 			var calls atomic.Int32
 			sub := scout()
-			sub.Agent.Limits.ModelAttempts = 1
+			sub.Agent.Limits.ModelCalls = 1
 			child := func(ctx context.Context, in llm.Input) (llm.Result, error) {
 				if calls.Add(1) == 1 {
 					return toolCall("c1", "write", `{}`), nil
@@ -208,7 +208,7 @@ func TestTaskRunOwnsWorkerCancellationAndBusyFence(t *testing.T) {
 			before := target(h, t)
 			done := make(chan error, 1)
 			go func() {
-				_, err := h.tasks.Run(t.Context(), before, dashi.Continue{CommandID: "raise", ModelAttempts: 3})
+				_, err := h.tasks.Run(t.Context(), before, dashi.Continue{CommandID: "raise", ModelCalls: 3})
 				done <- err
 			}()
 			g.waitStarted(t)
@@ -240,7 +240,7 @@ func TestTaskPreparationAndFrozenBindings(t *testing.T) {
 	var prepared, bindings atomic.Int32
 	var h *harness
 	selected := &fakeClient{handle: func(ctx context.Context, in llm.Input) (llm.Result, error) {
-		if !strings.Contains(inputText(in), "admitted parent evidence") || in.Settings.MaxTokens != 321 {
+		if !strings.Contains(inputText(in), "accepted parent evidence") || in.Settings.MaxTokens != 321 {
 			t.Errorf("missing prepared evidence/settings: %+v", in)
 		}
 		return text("frozen child route"), nil
@@ -249,16 +249,16 @@ func TestTaskPreparationAndFrozenBindings(t *testing.T) {
 		PrepareStart: func(_ context.Context, ref dashi.CallRef, s dashi.Start) (dashi.Start, error) {
 			prepared.Add(1)
 			h.tasks.List() // callback must run outside Tasks.mu
-			s.Input = append(s.Input, llm.UserMessage(llm.Text("admitted parent evidence")))
+			s.Input = append(s.Input, llm.UserMessage(llm.Text("accepted parent evidence")))
 			s.Agent.Settings.MaxTokens = 321
 			s.Agent.NoInheritedSettings = true
-			s.Agent.Revision = "route-fingerprint"
+			s.Agent.Version = "route-fingerprint"
 			return s, nil
 		},
 		BindServices: func(_ context.Context, ref dashi.CallRef, a dashi.Agent) (delegate.ChildServices, error) {
 			bindings.Add(1)
 			h.tasks.List()
-			if a.Settings.MaxTokens != 321 || a.Revision != "route-fingerprint" {
+			if a.Settings.MaxTokens != 321 || a.Version != "route-fingerprint" {
 				t.Errorf("wrong binding agent: %+v", a)
 			}
 			return delegate.ChildServices{Client: selected}, nil
@@ -268,7 +268,7 @@ func TestTaskPreparationAndFrozenBindings(t *testing.T) {
 	if _, err := h.start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.next(t, delegate.TaskEnded).Task; got.Answer != "frozen child route" {
+	if got := h.next(t, delegate.TaskEnded).Task; got.Reply != "frozen child route" {
 		t.Fatalf("task=%+v", got)
 	}
 	h.newTasks(t)
@@ -293,7 +293,7 @@ func TestTaskPreparationRejectsProtectedFieldsAndBindingFailure(t *testing.T) {
 				case "tools":
 					s.Agent.NoTools = true
 				case "limits":
-					s.Agent.Limits.ModelAttempts = 99
+					s.Agent.Limits.ModelCalls = 99
 				case "parent":
 					s.Parent.CallID = "different"
 				case "budget":
@@ -311,7 +311,7 @@ func TestTaskPreparationRejectsProtectedFieldsAndBindingFailure(t *testing.T) {
 			h := newHarness(t, script("must not dispatch child"), cfg, nil)
 			if _, err := h.start(t.Context()); err != nil {
 				t.Fatal(err)
-			} // setup error settles the parent's tool; never creates child
+			} // setup error finishes the parent's tool; never creates child
 			if _, err := h.rec.Load(t.Context(), childTurnID()); !errors.Is(err, dashi.ErrTurnNotFound) {
 				t.Fatalf("setup failure recorded child: %v", err)
 			}

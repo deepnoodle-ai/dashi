@@ -251,8 +251,8 @@ func (h *harness) build(o Options) {
 		Client:  h.client,
 		Store:   h.store,
 
-		ModelAttempts: h.limit,
-		recorder:      h.recorder,
+		ModelCalls: h.limit,
+		recorder:   h.recorder,
 	}, h.ui)
 	if err != nil {
 		h.t.Fatal(err)

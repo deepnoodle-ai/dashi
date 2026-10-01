@@ -9,30 +9,30 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-func (r *runtime) run() Outcome {
+func (r *runtime) run() RunResult {
 	for {
 		s, e := replay(r.turn)
 		if e != nil {
 			return r.stop(StopFailed, e.Error())
 		}
-		if s.Stop.Terminal {
+		if s.Stop.Ended {
 			return r.current()
 		}
 		r.startSteering(s)
-		if s.Interruptions > max(r.agent.Limits.Interruptions, 0) {
-			return r.stop(StopLimited, "interruptions")
+		if s.Resumes > max(r.agent.Limits.Resumes, 0) {
+			return r.stop(StopLimited, string(LimitResumes))
 		}
 		if r.ctx.Err() != nil {
 			return r.contextStop()
 		}
-		if s.modelIntent != "" {
-			if o := r.recoverModelIntent(s); o != nil {
+		if s.modelCallStart != "" {
+			if o := r.recoverModelCallStart(s); o != nil {
 				return *o
 			}
 			continue
 		}
 		if s.unresolvedModel != "" {
-			return r.stop(StopUncertain, "model attempt needs reconciliation")
+			return r.stop(StopResultUnknown, "model call result unknown; the host must resolve it")
 		}
 		if s.pendingCompaction != "" {
 			if o := r.applyActiveCompaction(s); o != nil {
@@ -49,11 +49,11 @@ func (r *runtime) run() Outcome {
 			}
 			continue
 		}
-		if len(s.hosted) > 0 {
+		if len(s.providerTool) > 0 {
 			return r.stop(StopWaiting, "provider approval pending")
 		}
 		if s.Output != nil {
-			return r.stopAfterAnswer(s)
+			return r.stopAfterReply(s)
 		}
 		if submitted := submittedOutput(s); submitted != nil {
 			if o := r.commit(Step{
@@ -62,7 +62,7 @@ func (r *runtime) run() Outcome {
 			}); o != nil {
 				return *o
 			}
-			return r.stopAfterAnswer(s)
+			return r.stopAfterReply(s)
 		}
 		if s.awaitingClassification && s.latestResult != nil {
 			o, again := r.classify(*s.latestResult)
@@ -80,12 +80,12 @@ func (r *runtime) run() Outcome {
 		if stop := budgetSpentStop(s); stop != nil {
 			return r.stopWith(stop)
 		}
-		if s.attemptCap <= s.ModelAttempts {
-			return r.stop(StopLimited, "model_attempts")
+		if s.modelCallCap <= s.ModelCalls {
+			return r.stop(StopLimited, string(LimitModelCalls))
 		}
 		if !r.agent.Limits.Deadline.IsZero() &&
 			!time.Now().Before(r.agent.Limits.Deadline) {
-			return r.stop(StopLimited, "deadline")
+			return r.stop(StopLimited, string(LimitDeadline))
 		}
 		if r.pauseRequested() {
 			return r.pauseStop()
@@ -133,27 +133,27 @@ func (r *runtime) selectTools(s *replayState, tools []tool.Tool) []tool.Tool {
 	return selected
 }
 
-func (r *runtime) recoverModelIntent(s *replayState) *Outcome {
+func (r *runtime) recoverModelCallStart(s *replayState) *RunResult {
 	unsafe := false
 	for _, def := range s.modelDefs {
-		if def.Kind == tool.KindProviderHosted && !tooldef.SafeRepeat(def) {
+		if def.Kind == tool.KindProviderTool && !tooldef.SafeRepeat(def) {
 			unsafe = true
 			break
 		}
 	}
 	fact := &ModelFact{
-		AttemptID:   s.modelIntent,
-		MessageID:   s.modelMessages[s.modelIntent],
-		Error:       "worker stopped before model result",
-		Interrupted: InterruptWorker,
-		Uncertain:   unsafe,
+		ModelCallID:   s.modelCallStart,
+		MessageID:     s.modelMessages[s.modelCallStart],
+		Error:         "worker stopped before model result",
+		Interrupted:   InterruptWorker,
+		ResultUnknown: unsafe,
 	}
-	setSettlementCharge(s.modelIntents[s.modelIntent], fact)
-	if o := r.commit(Step{Kind: StepModelSettled, Model: fact}); o != nil {
+	setFinishCharge(s.startedModelCalls[s.modelCallStart], fact)
+	if o := r.commit(Step{Kind: StepModelCallFinished, Model: fact}); o != nil {
 		return o
 	}
 	if unsafe {
-		o := r.stop(StopUncertain, "provider-hosted tool may have run")
+		o := r.stop(StopResultUnknown, "provider tool may have run")
 		return &o
 	}
 	return nil
@@ -161,7 +161,7 @@ func (r *runtime) recoverModelIntent(s *replayState) *Outcome {
 
 func hasOpenTools(s *replayState) bool {
 	for _, id := range s.callOrder {
-		if s.Tools[id].Status != ToolSettled {
+		if s.Tools[id].Status != ToolFinished {
 			return true
 		}
 	}

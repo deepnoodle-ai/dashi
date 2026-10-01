@@ -87,5 +87,5 @@ func TestLiveAgentFixesFailingTest(t *testing.T) {
 	if approvals.Load() == 0 {
 		t.Fatal("the agent changed code without an approval")
 	}
-	t.Logf("model %s: answer %q, %d approvals", model, out.Answer, approvals.Load())
+	t.Logf("model %s: answer %q, %d approvals", model, out.Reply, approvals.Load())
 }

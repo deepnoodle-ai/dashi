@@ -20,7 +20,7 @@ func TestInlineCompletionPrintsOnceAndResetStartsNewSegment(t *testing.T) {
 	var output bytes.Buffer
 	i := newInlineScreen(newScreen("fixture"), &output)
 	flush := func() { i.HandleEvent(flushEvent{}) }
-	i.Emit(Block{Kind: KindAssistant, Done: true}) // Invisible settled tool-only assistant.
+	i.Emit(Block{Kind: KindAssistant, Done: true}) // Invisible finished tool-only assistant.
 	i.Emit(Block{ID: "user", Kind: KindUser, Text: "REOPENED USER", Done: true})
 	i.Emit(Block{ID: "assistant", Kind: KindAssistant, Text: "streaming"})
 	flush()
@@ -201,18 +201,18 @@ func TestInlineMediaWarningReachesScrollbackOnce(t *testing.T) {
 		}
 		i.HandleEvent(flushEvent{})
 	}
-	emit(dashi.Step{Kind: dashi.StepStarted, TurnID: "turn", Started: &dashi.StartFact{
+	emit(dashi.Step{Kind: dashi.StepTurnStarted, TurnID: "turn", Started: &dashi.StartFact{
 		Agent: dashi.Agent{ActiveCompaction: &dashi.ActiveCompactionPolicy{}}, ActiveCompactionWindow: 128000,
 	}})
 	if strings.Contains(output.String(), "text-only") {
 		t.Fatal("per-Turn protection notice reached native scrollback")
 	}
-	// The intent records the warning before the answer streams. A
-	// re-delivered warning updates the same row.
-	warn := dashi.Step{Kind: dashi.StepModelIntent, TurnID: "turn", Model: &dashi.ModelFact{AttemptID: "answer"}, Warnings: []dashi.Warning{{Code: dashi.WarningActiveCompactionMediaEstimateUnavailable}}}
+	// The model_call_started step records the warning before the reply
+	// streams. A re-delivered warning updates the same row.
+	warn := dashi.Step{Kind: dashi.StepModelCallStarted, TurnID: "turn", Model: &dashi.ModelFact{ModelCallID: "answer"}, Warnings: []dashi.Warning{{Code: dashi.WarningActiveCompactionMediaEstimateUnavailable}}}
 	emit(warn)
 	emit(warn)
-	for _, block := range r.Event(dashi.Event{AttemptID: "answer", Delta: &llm.Delta{Kind: llm.DeltaText, Text: "unfinished answer"}}) {
+	for _, block := range r.Event(dashi.Event{ModelCallID: "answer", Delta: &llm.Delta{Kind: llm.DeltaText, Text: "unfinished answer"}}) {
 		i.Emit(block)
 	}
 	i.HandleEvent(flushEvent{})

@@ -25,7 +25,7 @@ const maxWaitSeconds = 60
 // The task tool is marked idempotent when the recorder can load turns. After
 // a crash, the runner runs the call again, and the same child continues from
 // its record. Without such a recorder, a resumed parent reports the call as
-// uncertain and starts no second child.
+// result_unknown and starts no second child.
 func (ts *Tasks) Tools() tool.Toolset {
 	return taskTools{ts}
 }
@@ -369,7 +369,7 @@ func (ts *Tasks) awaitAny(ctx context.Context, wait time.Duration) []TaskView {
 	}
 }
 
-// describe writes a view for the model. With detail it adds the answer.
+// describe writes a view for the model. With detail it adds the reply.
 func describe(v TaskView, detail bool) string {
 	var sb strings.Builder
 	if detail {
@@ -382,8 +382,8 @@ func describe(v TaskView, detail bool) string {
 	}
 	fmt.Fprintf(&sb, "%d tool calls, %s", v.ToolCalls, formatSpend(v.Spend))
 	if detail {
-		if v.Answer != "" {
-			sb.WriteString("\n" + v.Answer)
+		if v.Reply != "" {
+			sb.WriteString("\n" + v.Reply)
 		}
 		if v.Reason != "" {
 			sb.WriteString("\nReason: " + v.Reason)

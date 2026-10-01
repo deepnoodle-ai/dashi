@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"github.com/deepnoodle-ai/dashi"
 	"strings"
 	"testing"
 )
@@ -101,10 +100,10 @@ func TestSessionPickerRestoresPreferencesAndDispatchesSelectedRoute(t *testing.T
 				t.Fatalf("restored agent=%+v settings=%+v", agent, agent.Settings)
 			}
 			result, err := e.Prompt(t.Context(), "after session picker")
-			if err != nil || result.Outcome.Answer != wantRoute+" answer" || len(dispatched) != 1 || dispatched[0] != wantRoute {
+			if err != nil || result.Outcome.Reply != wantRoute+" answer" || len(dispatched) != 1 || dispatched[0] != wantRoute {
 				t.Fatalf("dispatch=%v result=%+v error=%v", dispatched, result, err)
 			}
-			// The actual admitted turn retains the resolved controls, independently of convenience metadata.
+			// The actual recorded turn retains the resolved controls, independently of convenience metadata.
 			turnIndex := 0
 			for turn, err := range e.handle().Turns(t.Context()) {
 				turnIndex++
@@ -114,7 +113,7 @@ func TestSessionPickerRestoresPreferencesAndDispatchesSelectedRoute(t *testing.T
 				if err != nil {
 					t.Fatal(err)
 				}
-				view, err := dashi.Replay(turn)
+				view, err := turn.View()
 				if err != nil {
 					t.Fatal(err)
 				}

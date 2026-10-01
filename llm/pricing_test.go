@@ -268,7 +268,7 @@ func TestPricingValidateRejectsInvalidSheet(t *testing.T) {
 		},
 		{"negative rate", func(p *Pricing) { p.Base.Input = -1 }},
 		{
-			"negative hosted price",
+			"negative provider tool price",
 			func(p *Pricing) {
 				p.Requests = map[string]money.Amount{
 					"web_search": -1,

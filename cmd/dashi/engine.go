@@ -19,9 +19,9 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// defaultModelAttempts is the model-call limit of one turn. Coding reads many
+// defaultModelCalls is the model-call limit of one turn. Coding reads many
 // files, and Dashi's own default of 8 stops too early.
-const defaultModelAttempts = 40
+const defaultModelCalls = 40
 
 // EngineConfig holds what an Engine needs.
 type EngineConfig struct {
@@ -34,8 +34,8 @@ type EngineConfig struct {
 	Preferences *cliPreferences
 	Resources   *resourceManager
 	MCP         *mcpRuntime
-	// ModelAttempts is the per-turn model-call limit; zero means 40.
-	ModelAttempts int
+	// ModelCalls is the per-turn model-call limit; zero means 40.
+	ModelCalls int
 	// Emit receives every block the engine produces. It may run on any
 	// goroutine.
 	Emit    func(Block)
@@ -83,8 +83,8 @@ type Engine struct {
 
 // NewEngine returns an engine with no session. Call Open before any turn.
 func NewEngine(cfg EngineConfig) *Engine {
-	if cfg.ModelAttempts == 0 {
-		cfg.ModelAttempts = defaultModelAttempts
+	if cfg.ModelCalls == 0 {
+		cfg.ModelCalls = defaultModelCalls
 	}
 	if cfg.Emit == nil {
 		cfg.Emit = func(Block) {}
@@ -161,18 +161,18 @@ func (e *Engine) openOwned(s *sessionstore.Session, ownedUnlock func()) error {
 	chat := &session.Session{
 		ID: s.ID,
 		Runner: dashi.Runner{
-			Client:          e.cfg.Client,
-			Tools:           e.cfg.Wiring.Tools,
-			Hooks:           e.cfg.Wiring.Hooks,
-			Recorder:        recorder,
-			ContentResolver: resolver,
+			Client:        e.cfg.Client,
+			Tools:         e.cfg.Wiring.Tools,
+			Hooks:         e.cfg.Wiring.Hooks,
+			Recorder:      recorder,
+			ContentLoader: resolver,
 		},
 		Steering:  inbox,
 		Exclusive: true,
 	}
 	if stopped := e.cfg.ParentStopped; stopped != nil {
 		chat.Runner.Observer = func(ev dashi.Event) {
-			if ev.Step != nil && ev.Step.Kind == dashi.StepStopped && strings.HasPrefix(ev.TurnID, s.ID+"-") {
+			if ev.Step != nil && ev.Step.Kind == dashi.StepTurnStopped && strings.HasPrefix(ev.TurnID, s.ID+"-") {
 				// Child IDs are hashes. Only exact numbered parent identities qualify.
 				n := turnNumber(ev.TurnID)
 				if n > 0 && ev.TurnID == session.TurnID(s.ID, n) {
@@ -267,7 +267,7 @@ func (l *LastTurn) CanGoOn() bool {
 	return l != nil && (l.Next == dashi.NextContinue ||
 		l.LimitStopped() ||
 		l.Retryable() ||
-		l.Next == dashi.NextResume && l.View.ReadyToContinue)
+		l.Next == dashi.NextRecover && l.View.ReadyToContinue)
 }
 
 // Retryable reports whether the turn failed and Continue can run it again.
@@ -281,7 +281,7 @@ func (l *LastTurn) Retryable() bool {
 // request from a rate limit or an overload; a person at the terminal can,
 // so Enter retries. A refusal is not a failure, so it is never retried.
 func retryable(v dashi.TurnView) bool {
-	return v.Next() == dashi.NextResolve && v.ReadyToContinue &&
+	return v.Next() == dashi.NextFix && v.ReadyToContinue &&
 		v.Stop.Kind == dashi.StopFailed
 }
 
@@ -301,7 +301,7 @@ func (l *LastTurn) StopText() string {
 
 // LimitStopped reports whether the turn stopped at its model-call limit.
 func (l *LastTurn) LimitStopped() bool {
-	return l != nil && l.Next == dashi.NextRaiseAttempts
+	return l != nil && l.Next == dashi.NextRaiseModelCalls
 }
 
 // OpenCall returns a command the turn started and never finished, which
@@ -318,7 +318,7 @@ func (l *LastTurn) OpenCall() (id, name string) {
 		}
 		a := p.Tool.Definition.Annotations
 		safe := a.ReadOnly != nil && *a.ReadOnly || a.Idempotent != nil && *a.Idempotent
-		if p.Tool.Status == dashi.ToolUncertain ||
+		if p.Tool.Status == dashi.ToolResultUnknown ||
 			p.Tool.Status == dashi.ToolStarted && !safe {
 			return p.ID, p.Tool.Call.Name
 		}
@@ -389,7 +389,7 @@ func (e *Engine) Scrollback(ctx context.Context) []Block {
 // ran. Input queued while a turn ran, and steers that missed it, run as the
 // next turns in the same command.
 type Result struct {
-	Outcome dashi.Outcome
+	Outcome dashi.RunResult
 }
 
 // Prompt starts a new turn with text. Input queued earlier goes first. If
@@ -416,7 +416,7 @@ func (e *Engine) Prompt(ctx context.Context, text string) (Result, error) {
 		start.CommandID = dashi.NewID()
 		start.Agent = e.agent()
 		e.mu.Unlock()
-		// A first admission may skip damaged history under Exclusive. A
+		// A first recording may skip damaged history under Exclusive. A
 		// supplied key cannot bypass the library's idempotency scan. In
 		// this case retain the generated key from the first recording
 		// acknowledgment (or CommitError) before any retry.
@@ -462,10 +462,10 @@ func (e *Engine) ContinueLimit(ctx context.Context) (Result, error) {
 		return e.resumePending(ctx)
 	}
 	raised := int(last.View.Stop.Limit.Limit) * 2
-	return e.continueLast(ctx, dashi.Continue{ModelAttempts: raised}, last)
+	return e.continueLast(ctx, dashi.Continue{ModelCalls: raised}, last)
 }
 
-// Continuing a summary authorizes only that summary. Stop at its Outcome
+// Continuing a summary authorizes only that summary. Stop at its RunResult
 // before Session dispatches any queued user turn, including after reopening.
 func (e *Engine) continueLast(ctx context.Context, cmd dashi.Continue, last *LastTurn) (Result, error) {
 	if last != nil && last.View.Origin == dashi.StartCompaction {
@@ -489,7 +489,7 @@ func (e *Engine) MarkDone(ctx context.Context) (Result, error) {
 	}
 	done := tool.Succeeded("The user checked this command after dashi stopped " +
 		"and marked it done. Its output was not captured.")
-	return e.run(ctx, dashi.Settle{CallID: id, Outcome: &done})
+	return e.run(ctx, dashi.Resolve{CallID: id, Outcome: &done})
 }
 
 // Discard cancels the last turn, accepting that a command it started may
@@ -585,14 +585,14 @@ func (e *Engine) agent() dashi.Agent {
 			guidance = p.guidance
 		}
 		agent.Instructions = composedSystemPrompt(e.cfg.Dir, e.cfg.Wiring.Instructions, guidance, p.guidanceSet)
-		agent.Limits = dashi.Limits{ModelAttempts: e.cfg.ModelAttempts}
+		agent.Limits = dashi.Limits{ModelCalls: e.cfg.ModelCalls}
 		return agent
 	}
 	return dashi.Agent{
 		ID:               "dashi-cli",
 		Model:            e.model,
 		Instructions:     systemPrompt(e.cfg.Dir, e.cfg.Wiring.Instructions),
-		Limits:           dashi.Limits{ModelAttempts: e.cfg.ModelAttempts},
+		Limits:           dashi.Limits{ModelCalls: e.cfg.ModelCalls},
 		ActiveCompaction: &dashi.ActiveCompactionPolicy{},
 	}
 }
@@ -624,12 +624,12 @@ func (e *Engine) stream(
 	ctx context.Context,
 	events iter.Seq2[dashi.Event, error],
 	stopCompaction bool,
-	admission ...*dashi.Agent,
+	startAgent ...*dashi.Agent,
 ) (Result, error) {
-	return e.streamBounded(ctx, events, stopCompaction, false, admission...)
+	return e.streamBounded(ctx, events, stopCompaction, false, startAgent...)
 }
 
-func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event, error], stopCompaction, stopOutcome bool, admission ...*dashi.Agent) (Result, error) {
+func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event, error], stopCompaction, stopOutcome bool, startAgent ...*dashi.Agent) (Result, error) {
 	renderers := map[string]*Renderer{}
 	renderer := func(id string) *Renderer {
 		r := renderers[id]
@@ -637,8 +637,8 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 			r = NewRenderer(turnNumber(id), e.Model(), e.cfg.Dir)
 			if loader, ok := e.handle().Runner.Recorder.(dashi.Loader); ok {
 				if turn, err := loader.Load(ctx, id); err == nil {
-					if view, err := dashi.Replay(turn); err == nil {
-						r.Origin, r.summary = view.Origin, view.Answer
+					if view, err := turn.View(); err == nil {
+						r.Origin, r.summary = view.Origin, view.Reply
 						r.showReasoning = view.Agent.Settings.ReasoningSummary != nil && *view.Agent.Settings.ReasoningSummary
 					}
 				}
@@ -657,26 +657,26 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 			runErr = err
 			e.rememberPromptError(err)
 		}
-		if ev.Outcome != nil {
-			if len(ev.Outcome.Turn.Steps) > 0 {
-				if err := e.acknowledgePrompt(&ev.Outcome.Turn.Steps[0]); err != nil {
+		if ev.Result != nil {
+			if len(ev.Result.Turn.Steps) > 0 {
+				if err := e.acknowledgePrompt(&ev.Result.Turn.Steps[0]); err != nil {
 					e.warn("%v.", err)
 				}
 			}
-			res.Outcome, have = *ev.Outcome, true
-			if e.cfg.ParentStopped != nil && ev.Outcome.Origin != dashi.StartCompaction {
+			res.Outcome, have = *ev.Result, true
+			if e.cfg.ParentStopped != nil && ev.Result.Origin != dashi.StartCompaction {
 				e.cfg.ParentStopped(turnNumber(ev.TurnID))
 			}
-			e.settled(renderer(ev.TurnID), *ev.Outcome)
+			e.finished(renderer(ev.TurnID), *ev.Result)
 			if stopOutcome {
 				break
 			}
-			if p := e.cfg.Preferences; p != nil && ev.Outcome.Next() == dashi.NextNone {
+			if p := e.cfg.Preferences; p != nil && ev.Result.Next() == dashi.NextNone {
 				var next *dashi.Agent
-				if ev.Outcome.Origin == dashi.StartCompaction && len(admission) > 0 {
-					next = admission[0]
+				if ev.Result.Origin == dashi.StartCompaction && len(startAgent) > 0 {
+					next = startAgent[0]
 				}
-				if ev.Outcome.Origin != dashi.StartCompaction && e.Queued() > 0 {
+				if ev.Result.Origin != dashi.StartCompaction && e.Queued() > 0 {
 					agent := p.agent()
 					next = &agent
 				}
@@ -687,7 +687,7 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 					}
 				}
 			}
-			if stopCompaction && ev.Outcome.Origin == dashi.StartCompaction {
+			if stopCompaction && ev.Result.Origin == dashi.StartCompaction {
 				break
 			}
 			continue
@@ -696,7 +696,7 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 			continue
 		}
 		r := renderer(ev.TurnID)
-		if ev.Step != nil && ev.Step.Kind == dashi.StepStarted {
+		if ev.Step != nil && ev.Step.Kind == dashi.StepTurnStarted {
 			if p := e.cfg.Preferences; p != nil {
 				if err := p.bind(ctx, ev.Step.Started.Agent); err != nil {
 					runErr = err
@@ -723,7 +723,7 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 				e.cfg.Emit(b)
 			}
 		}
-		if ev.Step != nil && ev.Step.Kind == dashi.StepToolSettled &&
+		if ev.Step != nil && ev.Step.Kind == dashi.StepToolFinished &&
 			r.CallName(ev.Step.Tool.Call.ID) == "bash" {
 			if b, ok := gitDiffBlock(ctx, e.cfg.Dir, ev.Step.Seq); ok {
 				b.ID = diffID(ev.TurnID, ev.Step.Seq)
@@ -766,9 +766,9 @@ func (e *Engine) Queued() int {
 	return n + st.Queued
 }
 
-// settled shows the end of one turn: its footer, how to go on, the session's
+// finished shows the end of one turn: its footer, how to go on, the session's
 // warnings, and the steers that wait for a later turn.
-func (e *Engine) settled(r *Renderer, out dashi.Outcome) {
+func (e *Engine) finished(r *Renderer, out dashi.RunResult) {
 	for _, w := range out.SessionWarnings {
 		if w.Code == dashi.WarningTurnUnreadable ||
 			w.Code == session.WarningCompactionFailed ||
@@ -797,7 +797,7 @@ func (e *Engine) settled(r *Renderer, out dashi.Outcome) {
 	switch out.Next() {
 	case dashi.NextNone:
 		return
-	case dashi.NextRaiseAttempts:
+	case dashi.NextRaiseModelCalls:
 		// The turn can go on, so the steers that missed it stay for its
 		// continuation.
 		if n := e.queuedSteers(out.Turn.ID); n > 0 {

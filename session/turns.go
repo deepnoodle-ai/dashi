@@ -29,79 +29,79 @@ type Index interface {
 	LastTurn(ctx context.Context, sessionID string) (int, error)
 }
 
-// Liveness says whether any worker may still act on a turn.
-type Liveness string
+// WorkerStatus says whether any worker may still act on a turn.
+type WorkerStatus string
 
 const (
-	// LivenessUnknown means there is no proof either way, for example an
+	// WorkerStatusUnknown means there is no proof either way, for example an
 	// expired lease: its worker may still be inside a provider or tool call.
-	LivenessUnknown Liveness = "unknown"
-	// LivenessLive means a worker holds an unexpired claim on the turn.
-	LivenessLive Liveness = "live"
-	// LivenessStopped means the host knows no worker still acts on the
+	WorkerStatusUnknown WorkerStatus = "unknown"
+	// WorkerStatusRunning means a worker holds an unexpired claim on the turn.
+	WorkerStatusRunning WorkerStatus = "running"
+	// WorkerStatusStopped means the host knows no worker still acts on the
 	// turn: its process exited, or host fencing guarantees it. It says
 	// nothing about effects the worker started.
-	LivenessStopped Liveness = "stopped"
+	WorkerStatusStopped WorkerStatus = "stopped"
 )
 
-// TurnLiveness is an optional dashi.Recorder capability for hosts that lease
-// turns. A session asks it about a last turn with no recorded stop: live
-// refines NextResume to NextRunning, and stopped lets a new Start close the
+// WorkerChecker is an optional dashi.Recorder capability for hosts that lease
+// turns. A session asks it about a last turn with no recorded stop: running
+// refines NextRecover to NextRunning, and stopped lets a new Start close the
 // turn. An error counts as unknown, which keeps the turn busy.
-type TurnLiveness interface {
-	Liveness(ctx context.Context, turnID string) (Liveness, error)
+type WorkerChecker interface {
+	WorkerStatus(ctx context.Context, turnID string) (WorkerStatus, error)
 }
 
 // sessionTurn is a loaded turn with its view and, once built, its
-// projection. A turn that has ended never changes its projection, so the
-// cached projection is final.
+// messages. A turn that has ended never changes its messages, so the
+// cached messages are final.
 type sessionTurn struct {
 	turn             dashi.Turn
 	view             dashi.TurnView
 	messages         []llm.Message
-	projected        bool
+	messagesBuilt    bool
 	contextMessages  []llm.Message
 	contextProjected bool
-	// checked is set once a compaction turn's digest was compared, and
+	// checked is set once a compaction turn's hash was compared, and
 	// mismatch holds the warning when it differed.
 	checked  bool
 	mismatch *dashi.Warning
 }
 
 func (t *sessionTurn) ended() bool {
-	return t.view.Stop.Terminal
+	return t.view.Stop.Ended
 }
 
-// refined is a turn's Next with the liveness that refined it.
+// refined is a turn's Next with the worker status that refined it.
 type refined struct {
-	next     dashi.Next
-	liveness Liveness
+	next         dashi.Next
+	workerStatus WorkerStatus
 }
 
-// refine reads a turn's Next and refines NextResume with liveness: this
-// handle running the turn, or the recorder's TurnLiveness. The caller
+// refine reads a turn's Next and refines NextRecover with worker status: this
+// handle running the turn, or the recorder's WorkerChecker. The caller
 // holds mu.
 func (s *Session) refine(ctx context.Context, t *sessionTurn) refined {
 	next := t.view.Next()
 	switch {
 	case next == dashi.NextNone:
-		return refined{next: next, liveness: LivenessUnknown}
+		return refined{next: next, workerStatus: WorkerStatusUnknown}
 	case s.running[t.turn.ID] > 0:
-		return refined{next: dashi.NextRunning, liveness: LivenessLive}
-	case next != dashi.NextResume:
-		return refined{next: next, liveness: LivenessUnknown}
+		return refined{next: dashi.NextRunning, workerStatus: WorkerStatusRunning}
+	case next != dashi.NextRecover:
+		return refined{next: next, workerStatus: WorkerStatusUnknown}
 	}
-	l := LivenessUnknown
-	if tl, ok := s.recorder().(TurnLiveness); ok {
-		v, err := tl.Liveness(ctx, t.turn.ID)
-		if err == nil && (v == LivenessLive || v == LivenessStopped) {
+	l := WorkerStatusUnknown
+	if tl, ok := s.recorder().(WorkerChecker); ok {
+		v, err := tl.WorkerStatus(ctx, t.turn.ID)
+		if err == nil && (v == WorkerStatusRunning || v == WorkerStatusStopped) {
 			l = v
 		}
 	}
-	if l == LivenessLive {
+	if l == WorkerStatusRunning {
 		next = dashi.NextRunning
 	}
-	return refined{next: next, liveness: l}
+	return refined{next: next, workerStatus: l}
 }
 
 // busy applies the last-turn rules: it returns the error for a turn a new
@@ -112,20 +112,21 @@ func (r refined) busy(t *sessionTurn, exclusive bool) *TurnBusyError {
 	}
 	e := &TurnBusyError{TurnID: t.turn.ID, Next: r.next, Origin: t.view.Origin}
 	// A worker is known to run the turn, so its calls are in progress, not
-	// uncertain: the caller waits or steers, and settles nothing.
+	// of unknown result: the caller waits or steers, and resolves nothing.
 	if r.next == dashi.NextRunning {
 		return e
 	}
-	// A stopped worker is not a stopped effect, so an uncertain call keeps
-	// the turn busy whatever its liveness, even under Exclusive.
-	if e.CallID = uncertainCall(t); e.CallID != "" {
+	// A stopped worker is not a stopped effect, so a call whose result is
+	// unknown keeps the turn busy whatever its worker status, even under
+	// Exclusive.
+	if e.CallID = resultUnknownCall(t); e.CallID != "" {
 		return e
 	}
 	switch r.next {
-	case dashi.NextRunning, dashi.NextAnswer:
+	case dashi.NextRunning, dashi.NextResolvePending:
 		return e
-	case dashi.NextResume:
-		if r.liveness == LivenessStopped || exclusive {
+	case dashi.NextRecover:
+		if r.workerStatus == WorkerStatusStopped || exclusive {
 			return nil
 		}
 		return e
@@ -133,29 +134,29 @@ func (r refined) busy(t *sessionTurn, exclusive bool) *TurnBusyError {
 	return nil
 }
 
-// uncertainCall returns the first unsettled call whose effect may still
-// happen or may have happened: a started local call that is neither
-// read-only nor idempotent, one already marked uncertain, or a model
-// attempt that offered a provider-hosted tool unsafe to repeat.
-func uncertainCall(t *sessionTurn) string {
+// resultUnknownCall returns the first unfinished call whose effect may
+// still happen or may have happened: a started local call that is neither
+// read-only nor idempotent, one already marked result_unknown, or a model
+// call that offered a provider tool unsafe to repeat.
+func resultUnknownCall(t *sessionTurn) string {
 	for _, p := range t.view.Pending {
 		switch {
 		case p.Kind == dashi.PendingTool && p.Tool != nil &&
-			(p.Tool.Status == dashi.ToolUncertain ||
+			(p.Tool.Status == dashi.ToolResultUnknown ||
 				p.Tool.Status == dashi.ToolStarted && !tooldef.SafeRepeat(p.Tool.Definition)):
 			return p.ID
-		case p.Kind == dashi.PendingModel && offeredUnsafeHosted(t.turn, p.ID):
+		case p.Kind == dashi.PendingModel && offeredUnsafeProviderTool(t.turn, p.ID):
 			return p.ID
 		}
 	}
 	return ""
 }
 
-func offeredUnsafeHosted(turn dashi.Turn, attemptID string) bool {
+func offeredUnsafeProviderTool(turn dashi.Turn, modelCallID string) bool {
 	for _, step := range turn.Steps {
-		if step.Kind == dashi.StepModelIntent && step.Model != nil &&
-			step.Model.AttemptID == attemptID {
-			return tooldef.UnsafeHosted(step.Model.Tools)
+		if step.Kind == dashi.StepModelCallStarted && step.Model != nil &&
+			step.Model.ModelCallID == modelCallID {
+			return tooldef.UnsafeProviderTool(step.Model.Tools)
 		}
 	}
 	return false
@@ -297,7 +298,7 @@ func (s *Session) store(n int, turn dashi.Turn) error {
 	if len(turn.Steps) == 0 {
 		return nil
 	}
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		delete(s.turns, n)
 		return err
@@ -307,11 +308,11 @@ func (s *Session) store(n int, turn dashi.Turn) error {
 	return nil
 }
 
-// history returns the projected history of turns 1 through n by the rule
-// of dashi.ProjectHistory. It walks back from turn n, so a fresh handle
-// loads turns back to the newest completed compaction turn only, and it
-// keeps each ended turn's projection in the cache. A turn that fails to load
-// or project is left out with a dashi.WarningTurnUnreadable. The caller
+// history builds the history of turns 1 through n by the rule of
+// dashi.BuildHistory. It walks back from turn n, so a fresh handle loads
+// turns back to the newest completed compaction turn only, and it keeps
+// each ended turn's messages in the cache. A turn whose record or messages
+// fail to load is left out with a dashi.WarningTurnUnreadable. The caller
 // holds mu.
 func (s *Session) history(ctx context.Context, n int) ([]llm.Message, []dashi.Warning) {
 	var parts [][]llm.Message    // newest first
@@ -323,7 +324,7 @@ func (s *Session) history(ctx context.Context, n int) ([]llm.Message, []dashi.Wa
 			if !ok {
 				continue // a failed compaction replaces nothing
 			}
-			if w := s.checkDigest(ctx, t); w != nil {
+			if w := s.checkHash(ctx, t); w != nil {
 				warnings = append(warnings, *w)
 			}
 			parts = append(parts, msgs)
@@ -331,7 +332,7 @@ func (s *Session) history(ctx context.Context, n int) ([]llm.Message, []dashi.Wa
 		}
 		var msgs []llm.Message
 		if err == nil {
-			msgs, err = s.contextProjection(t)
+			msgs, err = s.modelMessages(t)
 		}
 		if err != nil {
 			warnings = append(warnings, dashi.Warning{
@@ -364,7 +365,7 @@ func (s *Session) conversation(ctx context.Context, n int) []llm.Message {
 		if err != nil || t.view.Origin == dashi.StartCompaction {
 			continue
 		}
-		msgs, err := s.projection(t)
+		msgs, err := s.turnMessages(t)
 		if err == nil {
 			out = append(out, msgs...)
 		}
@@ -372,8 +373,8 @@ func (s *Session) conversation(ctx context.Context, n int) []llm.Message {
 	return out
 }
 
-// historyFor returns the Continue history of turn n: the projected history
-// of the turns before it, or none for a compaction turn, which started with
+// historyFor returns the Continue history of turn n: the history built from
+// the turns before it, or none for a compaction turn, which started with
 // none. The caller holds mu.
 func (s *Session) historyFor(
 	ctx context.Context,
@@ -387,16 +388,16 @@ func (s *Session) historyFor(
 }
 
 // projection returns a turn's own messages. The caller holds mu.
-func (s *Session) projection(t *sessionTurn) ([]llm.Message, error) {
-	if t.projected {
+func (s *Session) turnMessages(t *sessionTurn) ([]llm.Message, error) {
+	if t.messagesBuilt {
 		return t.messages, nil
 	}
-	msgs, err := dashi.Project(t.turn)
+	msgs, err := dashi.TurnMessagesFull(t.turn)
 	if err != nil {
 		return nil, err
 	}
 	if t.ended() {
-		t.messages, t.projected = msgs, true
+		t.messages, t.messagesBuilt = msgs, true
 	}
 	return msgs, nil
 }
@@ -409,11 +410,11 @@ func (s *Session) ready() {
 	}
 }
 
-func (s *Session) contextProjection(t *sessionTurn) ([]llm.Message, error) {
+func (s *Session) modelMessages(t *sessionTurn) ([]llm.Message, error) {
 	if t.contextProjected {
 		return t.contextMessages, nil
 	}
-	msgs, err := dashi.ProjectContext(t.turn)
+	msgs, err := dashi.TurnMessages(t.turn)
 	if err != nil {
 		return nil, err
 	}

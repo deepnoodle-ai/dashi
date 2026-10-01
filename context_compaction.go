@@ -24,7 +24,7 @@ func (r *runtime) summaryMaxTokens(ordinary int) int {
 	}
 	return n
 }
-func (r *runtime) contextLimit(s *replayState, req llm.Request, reason string) Outcome {
+func (r *runtime) contextLimit(s *replayState, req llm.Request, reason string) RunResult {
 	used := llm.EstimatedInputTokens(req)
 	reserve := req.Snapshot().Effective.MaxTokens
 	if reserve > math.MaxInt-used {
@@ -33,17 +33,17 @@ func (r *runtime) contextLimit(s *replayState, req llm.Request, reason string) O
 		used += reserve
 	}
 	r.pendingWarnings = append(r.pendingWarnings, Warning{Code: WarningActiveCompactionBlocked, Message: "Active context cannot fit: " + reason + ". Preserve the work and start a new Turn with a larger window or smaller fixed input."})
-	return r.stopWith(&Stop{Kind: StopLimited, Reason: "context_window", Limit: &LimitDetail{Kind: LimitContextWindow, Limit: int64(s.ActiveCompactionWindow), Used: int64(used)}})
+	return r.stopWith(&Stop{Kind: StopLimited, Reason: string(LimitContextWindow), Limit: &LimitDetail{Kind: LimitContextWindow, Limit: int64(s.ActiveCompactionWindow), Used: int64(used)}})
 }
-func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Request) (Outcome, bool, bool) {
+func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Request) (RunResult, bool, bool) {
 	window := s.ActiveCompactionWindow
 	if window == 0 {
-		return Outcome{}, false, false
+		return RunResult{}, false, false
 	}
 	allowance := max(0, window-req.Snapshot().Effective.MaxTokens)
 	estimate := llm.EstimatedInputTokens(req)
 	if float64(estimate) < r.agent.ActiveCompaction.Fraction*float64(allowance) {
-		return Outcome{}, false, false
+		return RunResult{}, false, false
 	}
 	if !r.compactionUsed && !s.compactionUsed {
 		plan, err := r.activePlan(s, estimate, allowance)
@@ -51,8 +51,8 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 			return r.stop(StopFailed, err.Error()), false, true
 		}
 		if plan != nil {
-			if s.attemptCap-s.ModelAttempts < 2 {
-				return r.stop(StopLimited, "model_attempts"), false, true
+			if s.modelCallCap-s.ModelCalls < 2 {
+				return r.stop(StopLimited, string(LimitModelCalls)), false, true
 			}
 			copy := llmclone.Input(input)
 			r.compactionCandidate = &copy
@@ -63,17 +63,18 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 				if estimate > allowance {
 					return r.contextLimit(s, req, "protected context cannot fit even with a minimal summary"), false, true
 				}
-				return Outcome{}, false, false
+				return RunResult{}, false, false
 			}
 			if _, err := r.activeSummaryMessages(plan); err != nil {
 				r.compactionCandidate = nil
 				if estimate > allowance {
 					return r.contextLimit(s, req, "bounded summary evidence cannot fit"), false, true
 				}
-				return Outcome{}, false, false
+				return RunResult{}, false, false
 			}
 			r.compactionUsed = true
-			// Re-read deliveries committed by ordinary BeforeModel before the summary.
+			// Re-read messages added by ordinary BeforeModel before the
+			// summary.
 			current, err := replay(r.turn)
 			if err != nil {
 				return r.stop(StopFailed, err.Error()), false, true
@@ -85,10 +86,10 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 	if estimate > allowance {
 		return r.contextLimit(s, req, "protected input, prior history, replay dependencies, or retained exchanges dominate"), false, true
 	}
-	return Outcome{}, false, false
+	return RunResult{}, false, false
 }
 func (r *runtime) activePlan(s *replayState, estimate, allowance int) (*ContextCompactionPlan, error) {
-	visible, err := projectedMessages(r.turn, nil, true)
+	visible, err := turnMessages(r.turn, nil, true)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +129,7 @@ func (r *runtime) activePlan(s *replayState, estimate, allowance int) (*ContextC
 			evidence = append(evidence, m.Message)
 		}
 	}
-	plan.Digest, err = historyFingerprint(evidence)
+	plan.Hash, err = historyHash(evidence)
 	return plan, err
 }
 func groupMessages(g contextGroup) []llm.Message {
@@ -157,9 +158,10 @@ func (r *runtime) activeSummaryMessages(plan *ContextCompactionPlan) ([]llm.Mess
 		return nil, err
 	}
 	out := []llm.Message{llm.UserMessage(llm.Text(strings.Join(evidence, "\n\n")))}
-	// Use the ordinary projection for delivery lifetime, roles, and slot
-	// metadata. Raw facts retain expired deliveries but must not restore them.
-	projected, err := projectedMessages(r.turn, nil, true)
+	// Use the turn's ordinary messages for added-item lifetime, roles, and
+	// slot metadata. Raw facts retain expired added items but must not
+	// restore them.
+	visible, err := turnMessages(r.turn, nil, true)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +171,7 @@ func (r *runtime) activeSummaryMessages(plan *ContextCompactionPlan) ([]llm.Mess
 			deliveries[step.Seq] = true
 		}
 	}
-	for _, message := range projected {
+	for _, message := range visible {
 		if deliveries[message.Ref.Seq] {
 			out = append(out, message.Message.Clone())
 		}
@@ -178,25 +180,26 @@ func (r *runtime) activeSummaryMessages(plan *ContextCompactionPlan) ([]llm.Mess
 }
 
 // activeEstimateAfter verifies actual prepared bytes for the ordinary request
-// with the replacement, without dispatch or admission of that candidate.
+// with the replacement, without sending or reserving for that candidate.
 func (r *runtime) activeEstimateAfter(plan *ContextCompactionPlan, result *llm.Result) (int, error) {
 	summary, err := validActiveSummary(result)
 	if err != nil {
 		return 0, err
 	}
-	projectionTurn := r.turn
-	// An unsent/streaming summary intent is not ordinary conversation. Validate
-	// its result against the already-settled prefix without projecting an intent.
-	for i := len(projectionTurn.Steps) - 1; i >= 0; i-- {
-		step := projectionTurn.Steps[i]
-		if step.Kind == StepModelIntent && step.Model.Purpose == ModelPurposeCompaction {
-			if i == len(projectionTurn.Steps)-1 {
-				projectionTurn.Steps = projectionTurn.Steps[:i]
+	messagesTurn := r.turn
+	// A summary call that is unsent or still streaming is not ordinary
+	// conversation. Validate its result against the already-finished prefix
+	// without building messages from that call's model_call_started step.
+	for i := len(messagesTurn.Steps) - 1; i >= 0; i-- {
+		step := messagesTurn.Steps[i]
+		if step.Kind == StepModelCallStarted && step.Model.Purpose == ModelPurposeCompaction {
+			if i == len(messagesTurn.Steps)-1 {
+				messagesTurn.Steps = messagesTurn.Steps[:i]
 			}
 			break
 		}
 	}
-	messages, err := projectedMessages(projectionTurn, r.history, true)
+	messages, err := turnMessages(messagesTurn, r.history, true)
 	if err != nil {
 		return 0, err
 	}
@@ -256,10 +259,10 @@ func (r *runtime) activeOrdinaryDefinitions(s *replayState) ([]tool.Definition, 
 	}
 	return defs, nil
 }
-func (r *runtime) applyActiveCompaction(s *replayState) *Outcome {
-	attempt := s.pendingCompaction
-	plan := s.modelIntents[attempt].Compaction
-	result := s.modelSettlements[attempt].Result
+func (r *runtime) applyActiveCompaction(s *replayState) *RunResult {
+	modelCall := s.pendingCompaction
+	plan := s.startedModelCalls[modelCall].Compaction
+	result := s.modelFinishes[modelCall].Result
 	after, err := r.activeEstimateAfter(plan, result)
 	if err != nil {
 		o := r.failureOrContext(err)
@@ -267,16 +270,16 @@ func (r *runtime) applyActiveCompaction(s *replayState) *Outcome {
 	}
 	summary, _ := validActiveSummary(result)
 	r.compactionUsed = true
-	return r.commit(Step{Kind: StepContextCompacted, Compacted: &ContextCompactionFact{AttemptID: attempt, Summary: summary, EstimatedAfter: after}})
+	return r.commit(Step{Kind: StepContextCompacted, Compacted: &ContextCompactionFact{ModelCallID: modelCall, Summary: summary, EstimatedAfter: after}})
 }
 
 // activeMediaEstimateUnavailable inspects the prepared, hydrated candidate,
-// not its encoded body. It does not change policy or monetary risk admission.
+// not its encoded body. It does not change policy or cost reservations.
 func (r *runtime) activeMediaEstimateUnavailable(s *replayState, input llm.Input) bool {
 	if s.ActiveCompactionWindow == 0 || !activeInputHasMedia(input) {
 		return false
 	}
-	warning := Warning{Code: WarningActiveCompactionMediaEstimateUnavailable, Message: "Active context size cannot be estimated for this media request. Provider content preparation and actual window acceptance govern it; financial admission remains unchanged."}
+	warning := Warning{Code: WarningActiveCompactionMediaEstimateUnavailable, Message: "Active context size cannot be estimated for this media request. Provider content preparation and actual window acceptance govern it; cost checks are unchanged."}
 	hasWarning := func(w Warning) bool { return w.Code == warning.Code }
 	if !slices.ContainsFunc(s.Warnings, hasWarning) && !slices.ContainsFunc(r.pendingWarnings, hasWarning) {
 		r.pendingWarnings = append(r.pendingWarnings, warning)
@@ -299,8 +302,8 @@ func activeInputHasMedia(input llm.Input) bool {
 		for _, part := range message.Content {
 			if part.Block != nil && has([]content.Block{*part.Block}) ||
 				part.ToolResult != nil && has(part.ToolResult.Output.Content) ||
-				part.HostedUse != nil && has(part.HostedUse.Output) ||
-				part.HostedResult != nil && has(part.HostedResult.Output) {
+				part.ProviderToolUse != nil && has(part.ProviderToolUse.Output) ||
+				part.ProviderToolResult != nil && has(part.ProviderToolResult.Output) {
 				return true
 			}
 		}

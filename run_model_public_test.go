@@ -20,7 +20,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// wire answers model calls at a public endpoint without a network, so the
+// wire replies to model calls at a public endpoint without a network, so the
 // catalog and default prompt caching apply as they do in production. It
 // records each request body.
 type wire struct {
@@ -163,7 +163,7 @@ func TestTurnRequestsKeepThePromptPrefixAcrossReminders(t *testing.T) {
 					}),
 				})
 			}
-			return dashi.ModelDecision{Deliver: items}, nil
+			return dashi.ModelDecision{AddMessages: items}, nil
 		},
 	}
 	r := dashi.Runner{
@@ -176,8 +176,8 @@ func TestTurnRequestsKeepThePromptPrefixAcrossReminders(t *testing.T) {
 		Agent:     dashi.Agent{Model: "claude-sonnet-5", Instructions: "Look."},
 		Input:     []llm.Message{llm.UserMessage(llm.Text("Go."))},
 	})
-	if err != nil || out.Answer != "Done." {
-		t.Fatalf("outcome %q, %v", out.Answer, err)
+	if err != nil || out.Reply != "Done." {
+		t.Fatalf("outcome %q, %v", out.Reply, err)
 	}
 	reqs := w.requests(t)
 	if len(reqs) != 3 {
@@ -253,7 +253,7 @@ func TestRunnerCacheKeyIsTheDefaultPromptCacheKey(t *testing.T) {
 	}
 }
 
-func TestAgentRevisionIgnoresTheCacheKey(t *testing.T) {
+func TestAgentVersionIgnoresTheCacheKey(t *testing.T) {
 	revision := func(key string) string {
 		w := &wire{replies: []string{claudeText("Hi.")}}
 		client, err := messages.New(messages.Config{
@@ -273,7 +273,7 @@ func TestAgentRevisionIgnoresTheCacheKey(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return out.Turn.Steps[0].Started.Agent.Revision
+		return out.Turn.Steps[0].Started.Agent.Version
 	}
 	if a, b := revision("one"), revision("two"); a != b {
 		t.Fatalf("revisions differ by key: %s, %s", a, b)
@@ -283,7 +283,7 @@ func TestAgentRevisionIgnoresTheCacheKey(t *testing.T) {
 // A capped turn with a one-hour lifetime reserves at the one-hour write
 // rate, and cannot run on a sheet that lacks it.
 func TestOneHourCacheBudgetUsesTheOneHourRate(t *testing.T) {
-	run := func(oneHour *money.Amount) dashi.Outcome {
+	run := func(oneHour *money.Amount) dashi.RunResult {
 		t.Helper()
 		w := &wire{replies: []string{claudeText("Hi.")}}
 		pricing := &llm.Pricing{
@@ -337,20 +337,20 @@ func TestOneHourCacheBudgetUsesTheOneHourRate(t *testing.T) {
 	}
 	rate := money.MustParseAmount("6")
 	out := run(&rate)
-	var intent *dashi.ModelFact
+	var callStart *dashi.ModelFact
 	for _, step := range out.Turn.Steps {
-		if step.Kind == dashi.StepModelIntent {
-			intent = step.Model
+		if step.Kind == dashi.StepModelCallStarted {
+			callStart = step.Model
 		}
 	}
-	if out.Stop.Kind != dashi.StopCompleted || intent == nil ||
-		intent.AtRisk == nil || intent.EstimatedInputTokens == 0 {
+	if out.Stop.Kind != dashi.StopCompleted || callStart == nil ||
+		callStart.WorstCaseCost == nil || callStart.EstimatedInputTokens == 0 {
 		t.Fatalf("capped one-hour turn: %+v", out.Stop)
 	}
 	// The input bound is priced at the $6 one-hour rate, the highest.
-	want := money.AmountFromNanos(int64(intent.EstimatedInputTokens) * 6000)
-	if intent.AtRisk.Input != want {
-		t.Fatalf("reserved input %s, want %s at the one-hour rate", intent.AtRisk.Input, want)
+	want := money.AmountFromNanos(int64(callStart.EstimatedInputTokens) * 6000)
+	if callStart.WorstCaseCost.Input != want {
+		t.Fatalf("reserved input %s, want %s at the one-hour rate", callStart.WorstCaseCost.Input, want)
 	}
 	out = run(nil)
 	if out.Stop.Kind != dashi.StopLimited || out.Stop.Limit == nil ||

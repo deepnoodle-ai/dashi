@@ -13,7 +13,7 @@ import (
 type Money struct {
 	// Amount is denominated in Currency without conversion.
 	Amount money.Amount `json:"amount"`
-	// Currency must match the price sheet used for cost admission.
+	// Currency must match the price sheet used for cost reservations.
 	Currency string `json:"currency"`
 }
 
@@ -52,7 +52,8 @@ func (b Budget) Validate() error {
 	return nil
 }
 
-// BudgetRaise preserves each authorized increase for replay and audit.
+// BudgetRaise preserves each authorized increase, so rebuilding the turn's
+// state and audits see it.
 type BudgetRaise struct {
 	// Budget is the complete effective budget after the raise.
 	Budget Budget `json:"budget"`
@@ -70,14 +71,14 @@ func (r BudgetRaise) Clone() BudgetRaise {
 type LimitKind string
 
 const (
-	// LimitModelAttempts is the agent's model call ceiling.
-	LimitModelAttempts LimitKind = "model_attempts"
+	// LimitModelCalls is the agent's model call ceiling.
+	LimitModelCalls LimitKind = "model_calls"
 	// LimitContextWindow stops a request that cannot fit its pinned window.
 	LimitContextWindow LimitKind = "context_window"
 	// LimitDeadline is the agent's time ceiling.
 	LimitDeadline LimitKind = "deadline"
-	// LimitInterruptions is the agent's resume ceiling.
-	LimitInterruptions LimitKind = "interruptions"
+	// LimitResumes is the agent's resume ceiling.
+	LimitResumes LimitKind = "resumes"
 	// LimitProviderPauses is the agent's provider pause ceiling.
 	LimitProviderPauses LimitKind = "provider_pauses"
 	// LimitOutputTokens is the turn's cumulative output cap.
@@ -93,7 +94,7 @@ const (
 )
 
 // LimitDetail gives machine-readable amounts and an application code for a
-// host limit. FitTokens is advice, not an automatic request change.
+// host limit. SuggestedMaxOutputTokens is advice, not an automatic request change.
 //
 // Counts and money are separate fields so that neither passes through a
 // binary float: Limit and Used hold whole counts, and the Cost fields hold
@@ -103,8 +104,8 @@ type LimitDetail struct {
 	Kind LimitKind `json:"kind"`
 	// Code is the application's stable identifier for a host limit.
 	Code string `json:"code,omitempty"`
-	// Limit is the ceiling for a counted kind: tokens, model attempts,
-	// interruptions, or provider pauses, or Unix seconds for a deadline.
+	// Limit is the ceiling for a counted kind: tokens, model calls,
+	// resumes, or provider pauses, or Unix seconds for a deadline.
 	Limit int64 `json:"limit,omitempty"`
 	// Used is the count already consumed, or the current Unix time. A token
 	// count is only a lower bound when Spend.UsageIncomplete is true.
@@ -114,14 +115,14 @@ type LimitDetail struct {
 	CostLimit money.Amount `json:"cost_limit,omitempty"`
 	// CostUsed is the measured or estimated cost already charged.
 	CostUsed money.Amount `json:"cost_used,omitempty"`
-	// CostAtRisk is the worst-case cost of the proposed next model call.
-	CostAtRisk money.Amount `json:"cost_at_risk,omitempty"`
+	// WorstCaseCost is the worst-case cost of the proposed next model call.
+	WorstCaseCost money.Amount `json:"worst_case_cost,omitempty"`
 	// Currency is the unit of the Cost fields and is required when any of
 	// them is nonzero: an ISO 4217 code, or a host's own code for a credit
 	// unit. Dashi sets the cap's currency on LimitCost.
 	Currency string `json:"currency,omitempty"`
-	// FitTokens advises a smaller allowance without changing the request.
-	FitTokens int `json:"fit_tokens,omitempty"`
+	// SuggestedMaxOutputTokens advises a smaller allowance without changing the request.
+	SuggestedMaxOutputTokens int `json:"suggested_max_output_tokens,omitempty"`
 	// UnpricedModel identifies the model whose cost could not be bounded.
 	UnpricedModel string `json:"unpriced_model,omitempty"`
 }
@@ -129,7 +130,7 @@ type LimitDetail struct {
 // Validate checks the typed stop metadata independently of its prose reason.
 func (l LimitDetail) Validate() error {
 	switch l.Kind {
-	case LimitContextWindow, LimitModelAttempts, LimitDeadline, LimitInterruptions,
+	case LimitContextWindow, LimitModelCalls, LimitDeadline, LimitResumes,
 		LimitProviderPauses, LimitOutputTokens, LimitTotalTokens, LimitCost:
 		if l.Code != "" {
 			return errors.New("dashi: only host limits carry a code")
@@ -142,13 +143,13 @@ func (l LimitDetail) Validate() error {
 		return errors.New("dashi: invalid limit kind")
 	}
 	if l.Limit < 0 || l.Used < 0 ||
-		l.CostLimit < 0 || l.CostUsed < 0 || l.CostAtRisk < 0 {
+		l.CostLimit < 0 || l.CostUsed < 0 || l.WorstCaseCost < 0 {
 		return errors.New("dashi: limit amounts must be nonnegative")
 	}
-	if l.FitTokens < 0 {
+	if l.SuggestedMaxOutputTokens < 0 {
 		return errors.New("dashi: fit tokens cannot be negative")
 	}
-	hasMoney := l.CostLimit != 0 || l.CostUsed != 0 || l.CostAtRisk != 0
+	hasMoney := l.CostLimit != 0 || l.CostUsed != 0 || l.WorstCaseCost != 0
 	if strings.TrimSpace(l.Currency) != l.Currency ||
 		hasMoney && l.Currency == "" {
 		return errors.New("dashi: limit amounts require a currency")

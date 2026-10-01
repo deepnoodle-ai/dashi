@@ -30,7 +30,7 @@ type settingsInspection struct {
 	Unverified                 []llm.Feature                   `json:"unverified,omitempty"`
 	PreviewError               string                          `json:"preview_error,omitempty"`
 	PromptSource               string                          `json:"prompt_source"`
-	Recorded                   *recordedSettings               `json:"recorded_attempt,omitempty"`
+	Recorded                   *recordedSettings               `json:"recorded_model_call,omitempty"`
 	// ActiveTurnWindow is the last Turn's recorded Active-Turn protection
 	// window, or zero when that Turn had no protection.
 	ActiveTurnWindow int `json:"active_turn_window,omitempty"`
@@ -50,7 +50,7 @@ type inspectedControls struct {
 	MaxTokens        int      `json:"max_tokens"`
 }
 type recordedSettings struct {
-	AttemptID   string            `json:"attempt_id"`
+	ModelCallID string            `json:"model_call_id"`
 	Destination string            `json:"destination"`
 	Model       string            `json:"model"`
 	Effective   inspectedControls `json:"effective"`
@@ -90,8 +90,8 @@ func (e *Engine) inspectSettings(ctx context.Context) settingsInspection {
 		}
 	}
 	view.CredentialSource = "none required"
-	fingerprint, _ := d.fingerprint()
-	if d.Project && !d.trustedBy(p.routes.user) && !p.routes.granted(fingerprint) {
+	hash, _ := d.hash()
+	if d.Project && !d.trustedBy(p.routes.user) && !p.routes.granted(hash) {
 		view.CredentialVariable = d.Definition.CredentialEnv
 		view.CredentialSource = "project binding trust required"
 	} else {
@@ -120,7 +120,7 @@ func (e *Engine) inspectSettings(ctx context.Context) settingsInspection {
 		view.PreviewError = launch.SelectionError
 		return view
 	}
-	client, err := p.routes.factory(d, p.routes.lookup, d.trustedBy(p.routes.user) || p.routes.granted(fingerprint))
+	client, err := p.routes.factory(d, p.routes.lookup, d.trustedBy(p.routes.user) || p.routes.granted(hash))
 	if err == nil {
 		var request llm.Request
 		request, err = client.Prepare(ctx, llm.Input{Model: view.Model, Stream: true, Settings: launch.Controls.Settings, Messages: []llm.Message{llm.UserMessage(llm.Text("Preparation preview."))}})
@@ -140,16 +140,16 @@ func (e *Engine) inspectSettings(ctx context.Context) settingsInspection {
 		turn, err := loader.Load(ctx, last.View.ID)
 		if err == nil {
 			for _, step := range turn.Steps {
-				if started := step.Started; step.Kind == dashi.StepStarted && started != nil &&
+				if started := step.Started; step.Kind == dashi.StepTurnStarted && started != nil &&
 					started.Agent.ActiveCompaction != nil && !started.Agent.ActiveCompaction.Disabled {
 					view.ActiveTurnWindow = started.ActiveCompactionWindow
 				}
-				if step.Kind == dashi.StepModelIntent && step.Model != nil {
+				if step.Kind == dashi.StepModelCallStarted && step.Model != nil {
 					fact := step.Model
 					show := last.View.Agent.Settings.ReasoningSummary != nil && *last.View.Agent.Settings.ReasoningSummary
-					view.Recorded = &recordedSettings{AttemptID: fact.AttemptID, Destination: fact.Provider, Model: fact.Model, Effective: inspectControls(fact.Effective, show), Summary: "no settled summary"}
+					view.Recorded = &recordedSettings{ModelCallID: fact.ModelCallID, Destination: fact.Provider, Model: fact.Model, Effective: inspectControls(fact.Effective, show), Summary: "no finished summary"}
 				}
-				if view.Recorded != nil && step.Model != nil && step.Model.AttemptID == view.Recorded.AttemptID && step.Model.Result != nil {
+				if view.Recorded != nil && step.Model != nil && step.Model.ModelCallID == view.Recorded.ModelCallID && step.Model.Result != nil {
 					view.Recorded.Summary = "no summary returned"
 					for _, part := range step.Model.Result.Message.Content {
 						if part.Kind == llm.ContentReasoning && part.Reasoning != nil && part.Reasoning.Text != "" {
@@ -224,7 +224,7 @@ func (c *Controller) settings(ctx context.Context, arg string) {
 		fmt.Fprintf(&text, "\nActive-Turn protection (text-only): %s-token recorded window. Request sizes are estimates, not provider-tokenizer guarantees.", groupDigits(view.ActiveTurnWindow))
 	}
 	if view.Recorded != nil {
-		fmt.Fprintf(&text, "\nRecorded attempt %s: %s %s; %s", view.Recorded.AttemptID, view.Recorded.Destination, view.Recorded.Model, view.Recorded.Summary)
+		fmt.Fprintf(&text, "\nRecorded model call %s: %s %s; %s", view.Recorded.ModelCallID, view.Recorded.Destination, view.Recorded.Model, view.Recorded.Summary)
 		for _, field := range []string{"thinking_effort", "show_thinking", "temperature", "max_tokens"} {
 			label, value := inspectedControlValue(field, view.Recorded.Effective)
 			fmt.Fprintf(&text, "\nRecorded %s: %s", label, value)

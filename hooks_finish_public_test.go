@@ -21,7 +21,7 @@ func TestNamedFinishContextSurvivesFreshRunnerResume(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	firstClient := dashitest.NewClient(dashitest.Reply("draft"))
-	firstDeliveries := 0
+	firstMessageItems := 0
 	firstRunner := dashi.Runner{
 		Client:   firstClient,
 		Recorder: recorder,
@@ -32,16 +32,17 @@ func TestNamedFinishContextSurvivesFreshRunnerResume(t *testing.T) {
 					if _, ok := plan.Turn.Context(item.Origin, item.Name); ok {
 						t.Fatal("first finish already contains the named context")
 					}
-					firstDeliveries++
-					return dashi.FinishDecision{Deliver: []dashi.ContextItem{item}}, nil
+					firstMessageItems++
+					return dashi.FinishDecision{AddMessages: []dashi.ContextItem{item}}, nil
 				},
 			}},
 			BeforeModel: []dashi.ModelHook{{
 				Name: "interrupt-after-delivery",
 				Func: func(ctx context.Context, plan dashi.ModelPlan) (dashi.ModelDecision, error) {
 					if _, ok := plan.Turn.Context(item.Origin, item.Name); ok {
-						// The finish delivery is committed before this hook runs.
-						// Interrupt before another model request can start.
+						// The finish hook's added item is committed before
+						// this hook runs. Interrupt before another model
+						// request can start.
 						cancel()
 						return dashi.ModelDecision{}, ctx.Err()
 					}
@@ -58,12 +59,12 @@ func TestNamedFinishContextSurvivesFreshRunnerResume(t *testing.T) {
 	if err != nil || first.Stop.Kind != dashi.StopInterrupted {
 		t.Fatalf("first stop=%+v err=%v", first.Stop, err)
 	}
-	if firstDeliveries != 1 || len(firstClient.Inputs()) != 1 {
-		t.Fatalf("first deliveries=%d model calls=%d", firstDeliveries, len(firstClient.Inputs()))
+	if firstMessageItems != 1 || len(firstClient.Inputs()) != 1 {
+		t.Fatalf("first deliveries=%d model calls=%d", firstMessageItems, len(firstClient.Inputs()))
 	}
 
 	// Load the durable record. The new runner, client, and hook do not use
-	// the first outcome or the first hook's delivery count.
+	// the first result or the first hook's addition count.
 	saved, err := recorder.Load(t.Context(), first.Turn.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -87,9 +88,9 @@ func TestNamedFinishContextSurvivesFreshRunnerResume(t *testing.T) {
 	}
 	resumed, err := freshRunner.Run(t.Context(), saved, dashi.Continue{CommandID: "resume"})
 	if err != nil || resumed.Stop.Kind != dashi.StopCompleted ||
-		resumed.Answer != "Next step: remove unused files." || freshChecks != 1 {
+		resumed.Reply != "Next step: remove unused files." || freshChecks != 1 {
 		t.Fatalf("resumed stop=%+v answer=%q checks=%d err=%v",
-			resumed.Stop, resumed.Answer, freshChecks, err)
+			resumed.Stop, resumed.Reply, freshChecks, err)
 	}
 	if len(freshClient.Inputs()) != 1 {
 		t.Fatalf("resumed model calls=%d, want 1", len(freshClient.Inputs()))

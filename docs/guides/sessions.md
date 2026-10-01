@@ -6,7 +6,8 @@ numbers the turns, sends each new turn the history of the ones before it,
 carries the agent forward, and decides what a new message does while the last
 turn is still open. It is built on `dashi.Runner` and uses only its public
 contract, and it adds no storage: the turn records are the only truth. A host
-that stores its own turns uses `Runner` directly instead. [Running turns](running-turns.md) covers one turn.
+that stores its own turns uses `Runner` directly instead.
+[Running turns](running-turns.md) covers one turn.
 
 ```go
 s := &session.Session{Runner: dashi.Runner{Client: client}}
@@ -15,12 +16,13 @@ out, err = s.Send(ctx, "And in Fahrenheit?")
 ```
 
 `Send(ctx, text)` is `Run(ctx, dashi.Say(text))`. `Run` takes any command: a
-`Start` opens the next turn, and `Continue`, `Settle`, `Deliver`, and `Cancel`
-go to the last turn. `Answer` settles each answer and continues, in one call:
+`Start` opens the next turn, and `Continue`, `Resolve`, `AddMessages`, and
+`Cancel` go to the last turn. `s.Resolve` records each `Resolve` and continues,
+in one call:
 
 ```go
-if out.Next() == dashi.NextAnswer {
-	out, err = s.Answer(ctx, []dashi.Settle{out.Pending[0].Approve()})
+if out.Next() == dashi.NextResolvePending {
+	out, err = s.Resolve(ctx, []dashi.Resolve{out.Pending[0].Approve()})
 }
 ```
 
@@ -37,7 +39,7 @@ the scripted `dashitest.Client`, with a tool call and a denied call.
   empty session. Set `New` to create it; `New` on a session with turns fails
   with `session.ErrExists`, except for a retry of the first `Start`.
 - **Recorders.** A nil `Runner.Recorder` becomes one in-memory recorder that
-  the handle keeps, and the first outcome warns `memory_only`. A durable
+  the handle keeps, and the first result warns `memory_only`. A durable
   recorder lets any handle, in any process, reopen the session. The session
   finds its last turn by probing turn IDs through `StepReader` or `Loader`,
   about 2·log2(n) reads; a recorder can answer in one with `session.Index`.
@@ -52,31 +54,32 @@ one per request.
 
 ## A new message while a turn is open
 
-A new `Start` reads the last turn's `Next`, refined with liveness, and does
-one of three things:
+A new `Start` reads the last turn's `Next`, refined with its worker status,
+and does one of three things:
 
 - **Starts** when there is no last turn, or it has ended.
 - **Refuses** with `*TurnBusyError` (matching `ErrTurnBusy`) when the turn is
-  busy: running, possibly running, waiting on the host (`NextAnswer`), or
-  holding an unsettled uncertain call. The message names the way out.
+  busy: running, possibly running, waiting on the host (`NextResolvePending`),
+  or holding an unfinished call whose result is unknown. The message names the
+  way out.
 - **Closes** any other stopped turn (interrupted, at a limit, refused,
-  failed) with `Cancel` and `CloseReason`, then starts. The outcome warns
+  failed) with `Cancel` and `CloseReason`, then starts. The result warns
   `turn_closed`. Closing an interrupted turn keeps a zero-value session
   usable after an Esc or the default model-call limit.
 
 A turn with no recorded stop is running or crashed, and the session cannot
 tell which by itself. It is running when this handle runs it, or when the
-recorder's `TurnLiveness` reports it live. It counts as stopped, and closes,
-only when `TurnLiveness` reports stopped or the handle sets `Exclusive`, the
+recorder's `WorkerChecker` reports it live. It counts as stopped, and closes,
+only when `WorkerChecker` reports stopped or the handle sets `Exclusive`, the
 host's promise that no other driver exists and earlier ones have exited. An
 expired lease is unknown, not stopped: the old worker may still be inside a
 provider or tool call. An unknown turn refuses.
 
-An **uncertain call** is a started call that is neither `ReadOnly` nor
-`Idempotent` and has no result, or a model call that offered an unsafe
-provider-hosted tool. It keeps the turn busy whatever its liveness, even under
-`Exclusive`, because a stopped worker is not a stopped effect.
-`TurnBusyError.CallID` names it. `Settle` it with the real result after
+A **call with an unknown result** is a started call that is neither
+`ReadOnly` nor `Idempotent` and has no result, or a model call that offered an
+unsafe provider tool. It keeps the turn busy whatever its worker status, even
+under `Exclusive`, because a stopped worker does not undo what the call did.
+`TurnBusyError.CallID` names it. `Resolve` it with the real result after
 checking the effect, or `Cancel{}` the turn to accept the risk.
 
 To take over a turn whose worker was lost, run `Continue{}` under
@@ -88,10 +91,10 @@ To take over a turn whose worker was lost, run `Continue{}` under
 key, so each call is a new message. With a key, the session looks back from
 the last turn through the newest turn a caller's `Start` began:
 
-- the same key and input returns that turn's current outcome, as the first
-  call returned it (ended, or stopped waiting on an answer or at a limit),
+- the same key and input returns that turn's current result, as the first
+  call returned it (ended, or stopped waiting on the host or at a limit),
   and `*TurnBusyError{Duplicate: true}` while the turn may still be running;
-- the same key with other input fails with `ErrCommandConflict`;
+- the same key with other input fails with `ErrCommandIDReused`;
 - a turn in that range that fails to load fails the `Start` with its error.
 
 Keys beginning with `queue:` or `compact:` are the session's own, and `Run`
@@ -118,17 +121,17 @@ Each new turn's agent is merged field by field: `Start.Agent`, then
 engine's defaults. So `Session{Agent: dashi.Agent{Model: m}}` changes the
 model and keeps the instructions and tools. A zero field falls through; turn a
 setting off with its negative or `No…` form. `Tools` and `NoTools` move
-together. `Limits.Deadline` never carries, a derived revision is derived
+together. `Limits.Deadline` never carries, a derived version is derived
 again, and provider, API, and model carry only while they match the client.
 Scheduled and operator turns do not pass their agent on.
 
 ## Warnings
 
-`Outcome.SessionWarnings` holds what no turn records: `turn_closed`,
+`RunResult.SessionWarnings` holds what no turn records: `turn_closed`,
 `memory_only`, `queue_blocked` (below), and `turn_unreadable`, for a turn left
-out of the history because it could not be loaded or projected. An unreadable
-last turn is an error, since its worker may still run it, unless the handle
-sets `Exclusive`: then no worker does, so a new turn leaves it out with
+out of the history because it could not be loaded or turned into messages. An
+unreadable last turn is an error, since its worker may still run it, unless the
+handle sets `Exclusive`: then no worker does, so a new turn leaves it out with
 `turn_unreadable` and starts after it. A keyed `Start` and `RunQueue` still
 fail, since that turn may hold their key.
 
@@ -147,15 +150,15 @@ the running turn; the caller says which.
   takes any user-role `ContextItem`. Empty IDs are generated; a repeated ID
   is an error.
 
-The handle owns a `*dashi.Inbox` and passes it to every turn it runs. A host with
-its own durable steering source sets `Session.Steering`; `Steer` then works
-only if that source is a `*dashi.Inbox`, and otherwise the host sends through its
-own system.
+The handle owns a `*dashi.Inbox` and passes it to every turn it runs. A host
+with its own durable steering source sets `Session.Steering`; `Steer` then
+works only if that source is a `*dashi.Inbox`, and otherwise the host sends
+through its own system.
 
 **Dispatch on idle.** When a `Start` or `Continue` ends its turn with
 `NextNone` and items are queued, the same `Run` or `Stream` call starts a
 **queue turn** from every item, and repeats until the queue is empty or a turn
-stops any other way. `Run` returns the last turn's outcome, with the earlier
+stops any other way. `Run` returns the last turn's result, with the earlier
 turns' session warnings. When a turn stops without ending, items wait, and
 `State.Queued` from `Open` counts them. `s.RunQueue(ctx)` runs them on an idle
 session with no new input, and reports false when it ran nothing.
@@ -170,10 +173,10 @@ run as a queue turn after it.
 session knows whether the `Start` that carried it recorded its first step. A
 `turn_started` event the run already reported proves it did. When the result
 is unclear, the session loads the turn to decide. If the load fails, the item
-stays reserved: new commands still run, but the queue waits, each outcome
+stays reserved: new commands still run, but the queue waits, each result
 warns `queue_blocked`, and `RunQueue` returns the error until the turn can be
 read. A queue turn whose `queue:` key a recent turn already started is a
-duplicate, so its items are dropped as delivered. A steer
+duplicate, so its items are dropped as already sent. A steer
 that misses its turn moves to the queue when the turn ends or a new `Start`
 closes it; while the turn can still be continued, the steer waits for its
 `Continue`.
@@ -188,9 +191,9 @@ another process runs through your own `Session.Steering` source.
 `s.Stream(ctx, command)` is `Run` with events. It yields every turn the call
 runs: the step that closes a stopped last turn, the command's own turn, and
 the queue turns after it. Each event carries its `TurnID`, and each turn ends
-with its own `Outcome` event; the last one is the result. Breaking the range
-interrupts the turn, and no queue turn starts. A retried `Start` whose turn is
-running follows that turn instead, when the recorder can read steps.
+with its own `Result` event; the last one is the call's result. Breaking the
+range interrupts the turn, and no queue turn starts. A retried `Start` whose
+turn is running follows that turn instead, when the recorder can read steps.
 
 ```go
 for ev, err := range s.Stream(ctx, dashi.Say(text)) {
@@ -205,12 +208,12 @@ for ev, err := range s.Stream(ctx, dashi.Say(text)) {
 turns included, for a transcript; an unreadable turn yields its error and the
 iteration goes on. A turn the session closed has a canceled stop with the
 reason `CloseReason`. `s.History(ctx)` is the conversation: every message of
-every turn but compaction turns. `s.ProjectedHistory(ctx)` is what the next
+every turn but compaction turns. `s.NextHistory(ctx)` is what the next
 turn sends; the two differ once a compaction turn has run (`Session.Compactor`;
 see [Compaction](compaction.md)). A host that keeps its own turns gets the
-same projected history from `dashi.ProjectHistory(turns)`. `s.Compact(ctx, nil)`
-requests a summary while idle, and `s.StreamCompact(ctx, budget)` streams it. Both preserve
-queued input and refuse an unended last turn.
+same history from `dashi.BuildHistory(turns)`. `s.Compact(ctx, nil)` requests
+a summary while idle, and `s.StreamCompact(ctx, budget)` streams it. Both
+preserve queued input and refuse an unended last turn.
 
 ## Replace generation settings
 

@@ -41,7 +41,7 @@ The summary control changes requests, not classification of arbitrary output. De
 
 Responses streaming currently combines `response.reasoning_summary_text.delta` and `response.reasoning_text.delta`. Separate their handling. An event name alone cannot establish public semantics. OpenAI's unmodeled reasoning content must not reach `DeltaReasoning` or be synthesized into a summary. [xAI documents](https://docs.x.ai/developers/model-capabilities/text/reasoning) certain `reasoning_text.delta` events as public summaries; preserve that distinction only with an explicit documented destination/model rule. Otherwise do not publish those deltas. Unsolicited xAI summaries do not establish a native request control.
 
-Maintain stable existing delta block identity and authoritative final decoding. Test multiple summary parts, final replacement of provisional text, and failures after partial text. Never expose ciphertext, signatures, redacted payloads, or `Opaque.Raw` as preview text. A missing summary is ordinary absence, not a stop reason or synthesized explanation. Keep summary text out of `Message.Text()` and answer projections.
+Maintain stable existing delta block identity and authoritative final decoding. Test multiple summary parts, final replacement of provisional text, and failures after partial text. Never expose ciphertext, signatures, redacted payloads, or `Opaque.Raw` as preview text. A missing summary is ordinary absence, not a stop reason or synthesized explanation. Keep summary text out of `Message.Text()` and reply text.
 
 Replay uses original artifacts regardless of edited display text. Summary-off affects only the new request's output preference; it must not strip earlier thinking blocks required for continuity. `ReasoningOmit` remains a separate explicit history policy. Partial and incompatible artifacts continue to fail under the established guards.
 
@@ -49,9 +49,9 @@ Replay uses original artifacts regardless of edited display text. Summary-off af
 
 Use keyless fixtures for native true/off/nil bodies and combinations with effort/budget, strict/adjust unsupported paths, unknown support, and prerequisite errors. Assert prepared bytes equal dispatched bytes. Test false overriding inherited true after a model switch: supported routes send their documented off field; known unsupported models and strict unknown endpoints omit summary fields. Keep false in each snapshot. Also test mutation isolation, continued-turn authority, stream/final absence, and recorded summary recovery. Private-marker fixtures prove zero leakage into public text and deltas while compatible replay preserves exact artifacts.
 
-Commit a runnable `Example*` and update model-call documentation. Run root `go test -race ./...` and the separate Gemini module's tests. Independent implementation and security reviews cover the integrated boundary. CLI owns display reconciliation and reopening presentation acceptance. No live qualification claim follows from fixture success.
+Commit a runnable `Example*` and update model-call documentation. Run root `go test -race ./...` and the separate Gemini module's tests. Independent implementation and security reviews cover the integrated boundary. CLI owns matching provisional and final display text, and reopening presentation acceptance. No live qualification claim follows from fixture success.
 
-The new field is additive. Historical records decode with nil, preserving their recorded intent. New Gemini calls with budget alone stop requesting summaries; document this deliberate separation. Summaries can add provider latency and vary in detail, so no timing or content guarantee is offered.
+The new field is additive. Historical records decode with nil, preserving their recorded meaning. New Gemini calls with budget alone stop requesting summaries; document this deliberate separation. Summaries can add provider latency and vary in detail, so no timing or content guarantee is offered.
 
 ## Alternatives and decisions
 

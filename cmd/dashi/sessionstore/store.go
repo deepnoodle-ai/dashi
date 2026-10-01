@@ -239,7 +239,7 @@ func (st *Store) Root() string {
 // session reopens.
 type Diff struct {
 	Turn string `json:"turn"`
-	// Seq is the sequence number of the step that settled the shell call.
+	// Seq is the sequence number of the step that finished the shell call.
 	Seq   int64    `json:"seq"`
 	Lines []string `json:"lines"`
 }

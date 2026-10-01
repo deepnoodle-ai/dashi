@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestUnsupportedAttachmentAbsencePreservesExistingAndUncertainPaths(t *testing.T) {
+func TestUnsupportedAttachmentAbsencePreservesExistingAndResultUnknownPaths(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

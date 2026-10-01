@@ -74,7 +74,7 @@ func readAutomationStdin(ctx context.Context, in io.Reader, cancelRead io.Closer
 	return data.String(), nil
 }
 
-// combineAutomationInput has no command, attachment, approval, or admission
+// combineAutomationInput has no command, attachment, approval, or recording
 // side effects. Callers parse mentions in prompt only, before calling it.
 func combineAutomationInput(prompt, stdin string, resume bool) (string, error) {
 	if strings.HasPrefix(strings.TrimSpace(prompt), "/") && stdin != "" {

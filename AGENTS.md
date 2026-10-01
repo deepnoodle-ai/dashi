@@ -55,6 +55,17 @@ proposals; unresolved choices remain open.
 Keep Markdown documents short and focused: **soft limit two pages; hard limit
 four pages**. Prefer concise explanations of concepts, decisions, and tradeoffs.
 
+## Naming
+
+1. A junior developer should guess a name's meaning from the name alone.
+2. One word per meaning and one meaning per word: no synonyms (hash, not
+   digest/fingerprint).
+3. Don't borrow a word that already means something else in Go or LLM work
+   (context, attempt, terminal).
+4. A constant's name is its type prefix plus its recorded value in CamelCase;
+   JSON keys match field names.
+5. The rules apply to doc comments and guides too.
+
 ## Package layout
 
 - A feature belongs in the root package `dashi` only if the Turn engine itself
@@ -63,7 +74,7 @@ four pages**. Prefer concise explanations of concepts, decisions, and tradeoffs.
   do.
 - Generic helpers that touch no public `dashi` type go in `internal/`.
 - Root files use a prefix by area so related files sort together: `turn_`
-  (Turn, facts, views, replay), `run_` (Runner, model attempt, tool loop),
+  (Turn, facts, views, replay), `run_` (Runner, model call, tool loop),
   `steer_`, `budget_`, `hooks_`, `context_`, and `history_`.
   Name a test file after the source file it exercises.
 

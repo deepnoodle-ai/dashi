@@ -10,7 +10,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-func TestGrokHostedToolsUseDistinctWireOptions(t *testing.T) {
+func TestGrokProviderToolsUseDistinctWireOptions(t *testing.T) {
 	client, err := grok.New(grok.Config{
 		APIKey:           "test",
 		CapabilityPolicy: llm.CapabilityAdjust,
@@ -60,7 +60,7 @@ func TestGrokHostedToolsUseDistinctWireOptions(t *testing.T) {
 		},
 	)
 	if err != nil {
-		t.Fatalf("prepare Grok hosted tools: %v", err)
+		t.Fatalf("prepare Grok provider tools: %v", err)
 	}
 	var body struct {
 		Tools   []map[string]any `json:"tools"`
@@ -70,7 +70,7 @@ func TestGrokHostedToolsUseDistinctWireOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(body.Tools) != 5 {
-		t.Fatal("Grok hosted definitions were lost")
+		t.Fatal("Grok provider tool definitions were lost")
 	}
 	if body.Tools[0]["filters"] == nil || body.Tools[1]["type"] != "x_search" {
 		t.Fatal("Grok search controls used the wrong wire fields")
@@ -84,7 +84,7 @@ func TestGrokHostedToolsUseDistinctWireOptions(t *testing.T) {
 	}
 }
 
-func TestMetaHostedWebSearchIncludesResults(t *testing.T) {
+func TestMetaProviderToolWebSearchIncludesResults(t *testing.T) {
 	client, err := meta.New(meta.Config{
 		APIKey:           "test",
 		CapabilityPolicy: llm.CapabilityAdjust,

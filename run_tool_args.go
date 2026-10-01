@@ -15,7 +15,7 @@ func validateToolCall(def tool.Definition, call tool.Call) error {
 	if err := call.Validate(); err != nil {
 		return err
 	}
-	if def.Name != call.Name || def.Kind == tool.KindProviderHosted {
+	if def.Name != call.Name || def.Kind == tool.KindProviderTool {
 		return errors.New("tool identity does not match executable definition")
 	}
 	raw, err := jsonschema.UnmarshalJSON(bytes.NewReader(def.Schema))

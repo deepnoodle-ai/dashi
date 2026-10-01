@@ -8,12 +8,12 @@ import (
 	"github.com/deepnoodle-ai/dashi/money"
 )
 
-// hostedItemMeters maps hosted output item types to the meter each item
-// bills. web_search_call is absent because its meter depends on the declared
-// tool and its action. An empty meter marks an item type the provider
+// providerToolItemMeters maps provider tool output item types to the meter each
+// item bills. web_search_call is absent because its meter depends on the
+// declared tool and its action. An empty meter marks an item type the provider
 // documents as not billed: OpenAI does not charge for listing a remote MCP
 // server's tools or for asking the caller to approve a call.
-var hostedItemMeters = map[string]string{
+var providerToolItemMeters = map[string]string{
 	"file_search_call":      llm.MeterFileSearch,
 	"code_interpreter_call": llm.MeterCodeExecution,
 	"image_generation_call": llm.MeterImageGeneration,
@@ -43,8 +43,8 @@ var xaiToolCounters = map[string]string{
 // dollar, so one tick is a tenth of a nano-dollar.
 const usdTicksPerNano = 10
 
-// meterFields holds the response fields that report hosted work. Both the
-// blocking and streaming paths decode the same terminal response object, so
+// meterFields holds the response fields that report provider tool work. Both
+// the blocking and streaming paths decode the same terminal response object, so
 // their counts agree.
 type meterFields struct {
 	// Usage is the raw usage object, read for xAI's counters and cost.
@@ -59,10 +59,10 @@ type meterFields struct {
 	} `json:"tools"`
 }
 
-// hostedRequests returns meter counts for the hosted work in a terminal
-// response. A provider-reported counter wins for its meter; output items are
-// counted only for meters no counter reports.
-func (wire codec) hostedRequests(
+// providerToolRequests returns meter counts for the provider tool work in a
+// terminal response. A provider-reported counter wins for its meter; output
+// items are counted only for meters no counter reports.
+func (wire codec) providerToolRequests(
 	fields meterFields,
 	output []json.RawMessage,
 ) map[string]int {
@@ -91,10 +91,10 @@ func (wire codec) hostedRequests(
 	return requests
 }
 
-// declaredTypes returns the request's hosted tool types, or the tools the
+// declaredTypes returns the request's provider tool types, or the tools the
 // response echoes when the codec was not given them.
 func (wire codec) declaredTypes(fields meterFields) []string {
-	declared := wire.hostedTypes
+	declared := wire.providerToolTypes
 	if len(declared) == 0 {
 		for _, t := range fields.Tools {
 			declared = append(declared, t.Type)
@@ -186,7 +186,7 @@ func countXAIDetails(
 var xSearchItemMeter = llm.UnrecognizedMeter("custom_tool_call")
 
 // itemRequests returns the meter and count one output item bills. Items the
-// codec does not treat as hosted work return an empty meter. A
+// codec does not treat as provider tool work return an empty meter. A
 // custom_tool_call is a client tool call on OpenAI, but when the request
 // declared xAI's x_search it may be X search, so it counts as unpriced work.
 func (wire codec) itemRequests(
@@ -212,11 +212,11 @@ func (wire codec) itemRequests(
 		return "", 0
 	}
 	if item.Type != "web_search_call" {
-		meter, ok := hostedItemMeters[item.Type]
+		meter, ok := providerToolItemMeters[item.Type]
 		switch {
 		case ok:
 			return meter, 1
-		case isHostedItem(item.Type):
+		case isProviderToolItem(item.Type):
 			return llm.UnrecognizedMeter(item.Type), 1
 		}
 		return "", 0
@@ -244,9 +244,10 @@ func (wire codec) itemRequests(
 	return llm.MeterWebSearch, queries
 }
 
-// isHostedItem reports whether decodeItem treats an item type as hosted
-// work. It must list every type decodeItem routes to its hosted decoders.
-func isHostedItem(itemType string) bool {
+// isProviderToolItem reports whether decodeItem treats an item type as
+// provider tool work. It must list every type decodeItem routes to its
+// provider tool decoders.
+func isProviderToolItem(itemType string) bool {
 	switch itemType {
 	case "web_search_call", "x_search_call", "file_search_call",
 		"code_interpreter_call", "image_generation_call", "mcp_call",

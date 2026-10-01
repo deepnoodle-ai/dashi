@@ -51,7 +51,7 @@ func FormatAccounting(a Accounting) string {
 	if a.Incomplete || a.CountsIncomplete {
 		countLabel = "at least "
 	}
-	fmt.Fprintf(&out, "\nModel calls with recorded dispatch evidence: %s%d; unresolved model intents: %s%d", countLabel, a.ModelCalls, countLabel, a.UnresolvedModelIntents)
+	fmt.Fprintf(&out, "\nModel calls recorded as sent: %s%d; started model calls with no recorded result: %s%d", countLabel, a.ModelCalls, countLabel, a.UnresolvedStartedModelCalls)
 	fmt.Fprintf(&out, "\nTokens: uncached input %d; cache reads %d; cache writes %d; output %d", spend.Usage.InputTokens, spend.Usage.CacheReadInputTokens, spend.Usage.CacheCreationInputTokens, spend.Usage.OutputTokens)
 	if a.Incomplete || spend.UsageIncomplete {
 		out.WriteString("\nUsage incomplete; retained token counts are not complete totals.")
@@ -94,13 +94,13 @@ func FormatInspection(report Inspection) string {
 	if report.Request == nil {
 		out.WriteString("\nNo readable recorded request.")
 	} else {
-		fmt.Fprintf(&out, "\nLast request (%s at revision %d): %s", report.Request.TurnID, report.Request.Revision, report.Request.Text)
+		fmt.Fprintf(&out, "\nLast request (%s at step %d): %s", report.Request.TurnID, report.Request.LastSeq, report.Request.Text)
 	}
 	if report.RequestIncomplete {
 		out.WriteString("\nNewer request facts may be missing.")
 	}
 	if e := report.Latest; e != nil {
-		fmt.Fprintf(&out, "\nLatest execution: %s at revision %d", e.TurnID, e.Revision)
+		fmt.Fprintf(&out, "\nLatest execution: %s at step %d", e.TurnID, e.LastSeq)
 		if e.Summary {
 			out.WriteString(" (summary Turn)")
 		}
@@ -108,7 +108,7 @@ func FormatInspection(report Inspection) string {
 			out.WriteString("\nLatest execution unreadable; stop and destination unavailable.")
 		} else {
 			fmt.Fprintf(&out, "\nRecorded destination: %s; API: %s; model: %s", known(e.Destination.Provider), known(e.Destination.API), known(e.Destination.Model))
-			if e.Stop.Projected {
+			if e.Stop.Inferred {
 				fmt.Fprintf(&out, "\nNo run stop recorded; replay observation: %s", known(string(e.Stop.Kind)))
 			} else {
 				fmt.Fprintf(&out, "\nRecorded stop: %s", known(string(e.Stop.Kind)))
@@ -122,7 +122,7 @@ func FormatInspection(report Inspection) string {
 			out.WriteString("\nLatest-Turn accounting:\n" + FormatAccounting(e.Accounting))
 			c := e.Context
 			if c.Available {
-				fmt.Fprintf(&out, "\nLatest model request %s (%s): %d / %d tokens, %.1f%% (%s)", c.AttemptID, known(string(c.Purpose)), c.Tokens, c.Window, 100*float64(c.Tokens)/float64(c.Window), c.WindowSource)
+				fmt.Fprintf(&out, "\nLatest model request %s (%s): %d / %d tokens, %.1f%% (%s)", c.ModelCallID, known(string(c.Purpose)), c.Tokens, c.Window, 100*float64(c.Tokens)/float64(c.Window), c.WindowSource)
 			} else {
 				fmt.Fprintf(&out, "\nLatest model request context unavailable: %s", c.UnavailableReason)
 				if c.Estimated {
@@ -163,8 +163,8 @@ func RecordedStopSummary(e *Execution) string {
 	if !e.Readable {
 		return "latest record unreadable"
 	}
-	if e.Stop.Projected {
-		return "no run stop recorded; worker liveness unknown"
+	if e.Stop.Inferred {
+		return "no run stop recorded; worker status unknown"
 	}
 	switch e.Stop.Kind {
 	case dashi.StopCompleted:
@@ -173,8 +173,8 @@ func RecordedStopSummary(e *Execution) string {
 		return "recorded interrupted; reopen for recovery checks"
 	case dashi.StopWaiting:
 		return "recorded waiting; reopen to inspect pending work"
-	case dashi.StopUncertain:
-		return "recorded uncertain; reopen and verify effects"
+	case dashi.StopResultUnknown:
+		return "recorded result unknown; reopen and verify effects"
 	case dashi.StopLimited:
 		return "recorded limited; reopen to inspect the limit"
 	default:

@@ -80,7 +80,7 @@ func requireFollowed(t *testing.T, got []Step, first int64, turn Turn) {
 
 // pausedTurn records an interrupted turn and returns the runner that
 // finishes it.
-func pausedTurn(t *testing.T, rec *MemoryRecorder) (Outcome, Runner) {
+func pausedTurn(t *testing.T, rec *MemoryRecorder) (RunResult, Runner) {
 	t.Helper()
 	runner := Runner{
 		Client:   &scriptedClient{results: []llm.Result{final("done")}},
@@ -95,8 +95,8 @@ func pausedTurn(t *testing.T, rec *MemoryRecorder) (Outcome, Runner) {
 	return first, runner
 }
 
-// Two followers with different cursors replay, then follow live, and both
-// end at the terminal stop.
+// Two followers with different cursors read the record so far, then follow
+// live, and both end at the stop that ends the turn.
 func TestFollowReplaysThenFollowsLive(t *testing.T) {
 	rec := NewMemoryRecorder()
 	first, runner := pausedTurn(t, rec)
@@ -104,7 +104,7 @@ func TestFollowReplaysThenFollowsLive(t *testing.T) {
 	fromTwo := collect(t.Context(), rec, "t1", 2)
 	time.Sleep(20 * time.Millisecond)
 	out, err := runner.Run(t.Context(), first.Turn, Continue{CommandID: "resume"})
-	if err != nil || !out.Stop.Terminal {
+	if err != nil || !out.Stop.Ended {
 		t.Fatalf("resume: stop=%+v err=%v", out.Stop, err)
 	}
 	got, err := fromStart(t)
@@ -144,9 +144,9 @@ func TestFollowerLeavingDoesNotCancel(t *testing.T) {
 	}
 }
 
-// Follow ends at a terminal stop; a late result recorded after it is read
+// Follow ends at the ending stop; a late result recorded after it is read
 // with StepsAfter from the stop's Seq, as an accounting reader would.
-func TestLateResultAfterTerminalStopIsReadable(t *testing.T) {
+func TestLateResultAfterEndedStopIsReadable(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote")}}
 	rec := NewMemoryRecorder()
 	panics := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
@@ -166,7 +166,7 @@ func TestLateResultAfterTerminalStopIsReadable(t *testing.T) {
 	if err != nil || int64(len(got)) != stopSeq {
 		t.Fatalf("followed %d steps to the stop at %d: err=%v", len(got), stopSeq, err)
 	}
-	if _, err := runner.Run(t.Context(), canceled.Turn, Settle{
+	if _, err := runner.Run(t.Context(), canceled.Turn, Resolve{
 		CommandID: "late",
 		CallID:    "call-1",
 		Outcome:   new(tool.Succeeded("done late")),
@@ -177,7 +177,7 @@ func TestLateResultAfterTerminalStopIsReadable(t *testing.T) {
 		t.Fatalf("follow from an ended turn's stop: steps=%d err=%v", len(got), err)
 	}
 	late, err := rec.StepsAfter(t.Context(), "t1", stopSeq, 10)
-	if err != nil || len(late) != 1 || late[0].Kind != StepToolSettled {
+	if err != nil || len(late) != 1 || late[0].Kind != StepToolFinished {
 		t.Fatalf("late steps=%+v err=%v", late, err)
 	}
 }
@@ -211,7 +211,7 @@ func TestFollowPollsWithoutWaiter(t *testing.T) {
 	follow := collect(t.Context(), readerOnly{rec}, "t1", 0)
 	time.Sleep(30 * time.Millisecond)
 	out, err := runner.Run(t.Context(), first.Turn, Continue{CommandID: "resume"})
-	if err != nil || !out.Stop.Terminal {
+	if err != nil || !out.Stop.Ended {
 		t.Fatalf("resume: stop=%+v err=%v", out.Stop, err)
 	}
 	got, err := follow(t)
@@ -315,9 +315,9 @@ func TestFollowPollsSlowlyWhileResting(t *testing.T) {
 	}
 }
 
-// Settles names what a step supersedes in a real run: model_requested
-// carries the deltas' MessageID but settles nothing.
-func TestStepSettles(t *testing.T) {
+// Finishes names what a step replaces in a real run: model_call_started
+// carries the deltas' MessageID but finishes nothing.
+func TestStepFinishes(t *testing.T) {
 	ok := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 		return tool.Succeeded("done"), nil
 	})
@@ -339,46 +339,46 @@ func TestStepSettles(t *testing.T) {
 			steps = append(steps, *event.Step)
 		}
 	}
-	settled := map[string]bool{}
+	finished := map[string]bool{}
 	for _, step := range steps {
-		id := step.Settles()
+		id := step.Finishes()
 		switch step.Kind {
-		case StepModelIntent:
+		case StepModelCallStarted:
 			if !deltaMessages[step.Model.MessageID] {
-				t.Fatalf("intent message %q has no deltas", step.Model.MessageID)
+				t.Fatalf("call start message %q has no deltas", step.Model.MessageID)
 			}
 			if id != "" {
-				t.Fatalf("model_requested settles %q", id)
+				t.Fatalf("model_call_started finishes %q", id)
 			}
-		case StepModelSettled:
+		case StepModelCallFinished:
 			if id != step.Model.MessageID || !deltaMessages[id] {
-				t.Fatalf("model_settled settles %q; want its message", id)
+				t.Fatalf("model_call_finished finishes %q; want its message", id)
 			}
-		case StepToolSettled:
+		case StepToolFinished:
 			if id != "call-1" {
-				t.Fatalf("tool_settled settles %q; want call-1", id)
+				t.Fatalf("tool_finished finishes %q; want call-1", id)
 			}
 		default:
 			if id != "" {
-				t.Fatalf("%s settles %q", step.Kind, id)
+				t.Fatalf("%s finishes %q", step.Kind, id)
 			}
 		}
 		if id != "" {
-			settled[id] = true
+			finished[id] = true
 		}
 	}
-	if len(settled) != len(deltaMessages)+1 {
-		t.Fatalf("settled=%v deltas=%v", settled, deltaMessages)
+	if len(finished) != len(deltaMessages)+1 {
+		t.Fatalf("finished=%v deltas=%v", finished, deltaMessages)
 	}
 }
 
-// A reader whose cursor is already the terminal stop ends at once.
-func TestFollowFromTerminalCursorEndsAtOnce(t *testing.T) {
+// A reader whose cursor is already the ending stop ends at once.
+func TestFollowFromEndedCursorEndsAtOnce(t *testing.T) {
 	setFollowIntervals(t, time.Hour, time.Hour, time.Hour)
 	rec := NewMemoryRecorder()
 	first, runner := pausedTurn(t, rec)
 	out, err := runner.Run(t.Context(), first.Turn, Continue{CommandID: "resume"})
-	if err != nil || !out.Stop.Terminal {
+	if err != nil || !out.Stop.Ended {
 		t.Fatalf("resume: stop=%+v err=%v", out.Stop, err)
 	}
 	last := int64(len(out.Turn.Steps))

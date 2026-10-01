@@ -1,7 +1,7 @@
 // Package images implements OpenAI's dedicated Images API. It keeps image
-// generation and editing separate from Responses API hosted tools and performs
-// one HTTP attempt for each prepared request. No agent or retry state lives
-// here.
+// generation and editing separate from Responses API provider tools and
+// performs one HTTP attempt for each prepared request. No agent or retry state
+// lives here.
 package images
 
 import (
@@ -156,8 +156,8 @@ func (c *Client) ModelInfo(name string) (media.ModelInfo, bool) {
 	return info.Clone(), ok
 }
 
-// PrepareImage validates caller intent, checks model evidence, and freezes the
-// exact body SendImage will dispatch. It performs no network request.
+// PrepareImage validates the caller's input, checks model evidence, and freezes
+// the exact body SendImage will dispatch. It performs no network request.
 func (c *Client) PrepareImage(ctx context.Context,
 	input media.ImageInput) (media.ImageRequest, error) {
 	return c.PrepareImageWithOptions(ctx, input, Options{})

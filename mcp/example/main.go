@@ -98,7 +98,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("run: %w", err)
 	}
-	fmt.Println(outcome.Answer)
+	fmt.Println(outcome.Reply)
 	return nil
 }
 

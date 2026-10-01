@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-func TestAttemptIsZero(t *testing.T) {
-	if !(Attempt{}).IsZero() {
-		t.Fatal("empty attempt is not zero")
+func TestCallIdentityIsZero(t *testing.T) {
+	if !(CallIdentity{}).IsZero() {
+		t.Fatal("empty identity is not zero")
 	}
-	if (Attempt{TurnID: "t1", AttemptID: "t1:model:1"}).IsZero() {
-		t.Fatal("set attempt is zero")
+	if (CallIdentity{TurnID: "t1", ModelCallID: "t1:model:1"}).IsZero() {
+		t.Fatal("set identity is zero")
 	}
 }
 
@@ -21,13 +21,13 @@ func TestStreamPassesCallThrough(t *testing.T) {
 			return Result{Stop: Stop{Kind: StopFinished}}, nil
 		},
 	}
-	want := Attempt{TurnID: "t1", AttemptID: "t1:model:1"}
+	want := CallIdentity{TurnID: "t1", ModelCallID: "t1:model:1"}
 	var observed []string
 	for range Stream(
 		t.Context(),
 		client,
 		Call{
-			Attempt: want,
+			Identity: want,
 			Sink: func(d Delta) {
 				observed = append(
 					observed,
@@ -37,15 +37,15 @@ func TestStreamPassesCallThrough(t *testing.T) {
 		},
 	) {
 	}
-	if client.last.Attempt != want {
-		t.Fatalf("attempt=%+v, want %+v", client.last.Attempt, want)
+	if client.last.Identity != want {
+		t.Fatalf("identity=%+v, want %+v", client.last.Identity, want)
 	}
 	if len(observed) != 1 || observed[0] != "hi" {
 		t.Fatalf("caller sink saw %v", observed)
 	}
 }
 
-func TestDirectCallsHaveNoAttempt(t *testing.T) {
+func TestDirectCallsHaveNoCallIdentity(t *testing.T) {
 	client := &iteratorClient{
 		send: func(context.Context, Sink) (Result, error) {
 			return Result{Stop: Stop{Kind: StopFinished}}, nil
@@ -53,13 +53,13 @@ func TestDirectCallsHaveNoAttempt(t *testing.T) {
 	}
 	for range Stream(t.Context(), client, Call{}) {
 	}
-	if !client.last.Attempt.IsZero() {
+	if !client.last.Identity.IsZero() {
 		t.Fatalf(
-			"direct stream carried attempt %+v",
-			client.last.Attempt,
+			"direct stream carried identity %+v",
+			client.last.Identity,
 		)
 	}
-	client.last = Call{Attempt: Attempt{AttemptID: "stale"}}
+	client.last = Call{Identity: CallIdentity{ModelCallID: "stale"}}
 	if _, err := Generate(
 		t.Context(),
 		client,
@@ -68,7 +68,7 @@ func TestDirectCallsHaveNoAttempt(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if !client.last.Attempt.IsZero() {
-		t.Fatalf("Generate carried attempt %+v", client.last.Attempt)
+	if !client.last.Identity.IsZero() {
+		t.Fatalf("Generate carried identity %+v", client.last.Identity)
 	}
 }

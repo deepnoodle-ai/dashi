@@ -21,10 +21,10 @@ type streamed struct {
 	order []string
 	// steps holds the kinds of step events per turn.
 	steps map[string][]dashi.StepKind
-	// outcomes lists the turns of the Outcome events, in order.
+	// outcomes lists the turns of the RunResult events, in order.
 	outcomes []string
-	byTurn   map[string]dashi.Outcome
-	last     dashi.Outcome
+	byTurn   map[string]dashi.RunResult
+	last     dashi.RunResult
 	errs     []error
 }
 
@@ -32,13 +32,13 @@ func drain(t *testing.T, seq func(func(dashi.Event, error) bool)) streamed {
 	t.Helper()
 	got := streamed{
 		steps:  map[string][]dashi.StepKind{},
-		byTurn: map[string]dashi.Outcome{},
+		byTurn: map[string]dashi.RunResult{},
 	}
 	for ev, err := range seq {
 		if err != nil {
 			got.errs = append(got.errs, err)
 		}
-		if ev.Outcome == nil && ev.Step == nil && ev.Delta == nil &&
+		if ev.Result == nil && ev.Step == nil && ev.Delta == nil &&
 			ev.Progress == nil {
 			continue
 		}
@@ -49,13 +49,13 @@ func drain(t *testing.T, seq func(func(dashi.Event, error) bool)) streamed {
 			got.order = append(got.order, ev.TurnID)
 		}
 		switch {
-		case ev.Outcome != nil:
-			if ev.Outcome.Turn.ID != ev.TurnID {
-				t.Fatalf("outcome of %s tagged %s", ev.Outcome.Turn.ID, ev.TurnID)
+		case ev.Result != nil:
+			if ev.Result.Turn.ID != ev.TurnID {
+				t.Fatalf("outcome of %s tagged %s", ev.Result.Turn.ID, ev.TurnID)
 			}
 			got.outcomes = append(got.outcomes, ev.TurnID)
-			got.byTurn[ev.TurnID] = *ev.Outcome
-			got.last = *ev.Outcome
+			got.byTurn[ev.TurnID] = *ev.Result
+			got.last = *ev.Result
 		case ev.Step != nil:
 			if ev.Step.TurnID != ev.TurnID {
 				t.Fatalf("step of %s tagged %s", ev.Step.TurnID, ev.TurnID)
@@ -68,7 +68,7 @@ func drain(t *testing.T, seq func(func(dashi.Event, error) bool)) streamed {
 
 // A session Stream spans the closing step, the caller's turn, and the
 // queue turn after it; each event carries its turn ID and each turn ends
-// with its own Outcome event.
+// with its own RunResult event.
 func TestSessionStreamAcrossTurns(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := held(1, dashitest.Reply("two"), dashitest.Reply("three"))
@@ -96,17 +96,17 @@ func TestSessionStreamAcrossTurns(t *testing.T) {
 		t.Fatalf("order=%v outcomes=%v", got.order, got.outcomes)
 	}
 	// Turn 1 shows only its closing step.
-	if !slices.Equal(got.steps["s-1"], []dashi.StepKind{dashi.StepStopped}) {
+	if !slices.Equal(got.steps["s-1"], []dashi.StepKind{dashi.StepTurnStopped}) {
 		t.Fatalf("turn 1 steps=%v", got.steps["s-1"])
 	}
 	for _, id := range []string{"s-2", "s-3"} {
 		steps := got.steps[id]
-		if steps[0] != dashi.StepStarted || steps[len(steps)-1] != dashi.StepStopped {
+		if steps[0] != dashi.StepTurnStarted || steps[len(steps)-1] != dashi.StepTurnStopped {
 			t.Fatalf("%s steps=%v", id, steps)
 		}
 	}
-	if got.last.Turn.ID != "s-3" || got.last.Answer != "three" {
-		t.Fatalf("last=%s %q", got.last.Turn.ID, got.last.Answer)
+	if got.last.Turn.ID != "s-3" || got.last.Reply != "three" {
+		t.Fatalf("last=%s %q", got.last.Turn.ID, got.last.Reply)
 	}
 	if w := got.byTurn["s-2"].SessionWarnings; !hasWarning(w, session.WarningTurnClosed) {
 		t.Fatalf("turn 2 warnings=%+v", w)
@@ -132,7 +132,7 @@ func TestSessionStreamBreak(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ev.Step != nil && ev.Step.Kind == dashi.StepModelIntent {
+		if ev.Step != nil && ev.Step.Kind == dashi.StepModelCallStarted {
 			break
 		}
 	}
@@ -154,7 +154,7 @@ func TestSessionStreamBreak(t *testing.T) {
 }
 
 // A Stream of a retried Start whose turn is running follows that turn and
-// ends with its outcome, without starting another turn.
+// ends with its result, without starting another turn.
 func TestSessionStreamFollowsDuplicate(t *testing.T) {
 	rec := newLiveRecorder()
 	client := held(1, dashitest.Reply("answer"))
@@ -168,10 +168,10 @@ func TestSessionStreamFollowsDuplicate(t *testing.T) {
 		done <- result{out, err}
 	}()
 	entered(t, client)
-	rec.set(session.LivenessLive)
+	rec.set(session.WorkerStatusRunning)
 	retry := handle(rec, client)
 	// Release the model call only once the retry follows the running
-	// turn: a retry planned after the turn ended would get its outcome
+	// turn: a retry planned after the turn ended would get its result
 	// without step events.
 	following := make(chan struct{})
 	var once sync.Once
@@ -197,11 +197,11 @@ func TestSessionStreamFollowsDuplicate(t *testing.T) {
 	awaitSend(t, done)
 	got := <-events
 	if len(got.errs) != 0 || !slices.Equal(got.outcomes, []string{"s-1"}) ||
-		got.last.Answer != "answer" {
-		t.Fatalf("errs=%v outcomes=%v answer=%q", got.errs, got.outcomes, got.last.Answer)
+		got.last.Reply != "answer" {
+		t.Fatalf("errs=%v outcomes=%v answer=%q", got.errs, got.outcomes, got.last.Reply)
 	}
 	steps := got.steps["s-1"]
-	if len(steps) == 0 || steps[0] != dashi.StepStarted || steps[len(steps)-1] != dashi.StepStopped {
+	if len(steps) == 0 || steps[0] != dashi.StepTurnStarted || steps[len(steps)-1] != dashi.StepTurnStopped {
 		t.Fatalf("steps=%v", steps)
 	}
 	requireTurns(t, rec, 1)
@@ -238,7 +238,7 @@ func TestSessionStreamFollowsStoppedDuplicate(t *testing.T) {
 	}
 	// The duplicate check reads the turn before its stop, which a live
 	// worker makes NextRunning; the follow then loads the stopped turn.
-	rec.set(session.LivenessLive)
+	rec.set(session.WorkerStatusRunning)
 	rec.stale.Store(true)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -269,9 +269,9 @@ func TestSessionTurnsAndHistory(t *testing.T) {
 	if err != nil || texts(history) != "a|one|b|two" {
 		t.Fatalf("history=%q err=%v", texts(history), err)
 	}
-	projected, err := s.ProjectedHistory(t.Context())
+	projected, err := s.NextHistory(t.Context())
 	if err != nil || texts(projected) != texts(history) {
-		t.Fatalf("projected=%q err=%v", texts(projected), err)
+		t.Fatalf("inferred=%q err=%v", texts(projected), err)
 	}
 	broken := &brokenLoader{MemoryRecorder: rec, id: "s-1"}
 	var ids []string
@@ -304,7 +304,7 @@ func TestSessionStreamBreakWhileClosing(t *testing.T) {
 		t.Fatal(err)
 	}
 	for ev := range s.Stream(t.Context(), dashi.Say("second")) {
-		if ev.Step == nil || ev.Step.Kind != dashi.StepStopped || ev.TurnID != "s-1" {
+		if ev.Step == nil || ev.Step.Kind != dashi.StepTurnStopped || ev.TurnID != "s-1" {
 			t.Fatalf("first event=%+v", ev)
 		}
 		break

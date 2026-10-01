@@ -8,7 +8,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-// ProjectHistory returns the projected history of turns, which are in
+// BuildHistory returns the history built from turns, which are in
 // order, oldest first: what the next turn sends as Start.History, or as
 // Continue.History for the turn after them. It is the rule a session.Session
 // uses, for a host that keeps its own turns.
@@ -16,27 +16,27 @@ import (
 // It walks back from the newest turn. At the newest compaction turn that
 // completed with a summary, it uses that turn's replacement history and
 // stops, so turns before it may be left out of turns. Every other turn
-// gives its ProjectContext. A compaction turn that failed replaces nothing.
-// A turn that cannot be replayed or projected is left out with a
+// gives its TurnMessages. A compaction turn that failed replaces nothing.
+// A turn whose view or messages cannot be built is left out with a
 // WarningTurnUnreadable, as a history that loses one old turn is still worth
-// sending. When the compaction turn used has a Digest and turns holds turns
+// sending. When the compaction turn used has a Hash and turns holds turns
 // before it, they are checked against it (compaction.Compactor and
 // session.Session set it; a host with its own compactor sets it with
-// HistoryFingerprint); a mismatch warns WarningCompactionMismatch, and the
+// HistoryHash); a mismatch warns WarningCompactionMismatch, and the
 // replacement history is still used.
 //
 // The result shares message content with the turns, so the caller must not
 // change it.
-func ProjectHistory(turns []Turn) ([]llm.Message, []Warning) {
+func BuildHistory(turns []Turn) ([]llm.Message, []Warning) {
 	views := make([]*TurnView, len(turns))
 	at := func(i int) (historyTurn, error) {
 		t := turns[i]
 		h := historyTurn{
 			id:       t.ID,
-			messages: func() ([]llm.Message, error) { return ProjectContext(t) },
+			messages: func() ([]llm.Message, error) { return TurnMessages(t) },
 		}
 		if views[i] == nil {
-			view, err := Replay(t)
+			view, err := t.View()
 			if err != nil {
 				return h, err
 			}
@@ -47,13 +47,13 @@ func ProjectHistory(turns []Turn) ([]llm.Message, []Warning) {
 	}
 	check := func(i int, h historyTurn) *Warning {
 		f := h.view.Compaction
-		if f.Digest == "" || i == 0 {
+		if f.Hash == "" || i == 0 {
 			return nil
 		}
-		covered, _ := projectHistory(i, at, nil)
-		return digestMismatch(h.id, f.Digest, covered)
+		covered, _ := buildHistory(i, at, nil)
+		return hashMismatch(h.id, f.Hash, covered)
 	}
-	return projectHistory(len(turns), at, check)
+	return buildHistory(len(turns), at, check)
 }
 
 // historyTurn is one turn as the history rule reads it.
@@ -63,11 +63,11 @@ type historyTurn struct {
 	messages func() ([]llm.Message, error)
 }
 
-// projectHistory is the history rule of ProjectHistory over n turns, which
+// buildHistory is the history rule of BuildHistory over n turns, which
 // at reads by index, newest first. An error from at makes the turn
 // unreadable; its historyTurn still carries the ID. check, when not nil,
 // returns a warning about the compaction turn whose replacement is used.
-func projectHistory(
+func buildHistory(
 	n int,
 	at func(i int) (historyTurn, error),
 	check func(i int, h historyTurn) *Warning,
@@ -118,10 +118,10 @@ func unreadable(turnID string, err error) Warning {
 	}
 }
 
-// digestMismatch returns a WarningCompactionMismatch when covered, the
-// projected history before compaction turn id, does not have digest.
-func digestMismatch(id, digest string, covered []llm.Message) *Warning {
-	if got, err := historyFingerprint(covered); err == nil && got == digest {
+// hashMismatch returns a WarningCompactionMismatch when covered, the
+// history before compaction turn id, does not have hash.
+func hashMismatch(id, hash string, covered []llm.Message) *Warning {
+	if got, err := historyHash(covered); err == nil && got == hash {
 		return nil
 	}
 	return &Warning{
@@ -141,7 +141,7 @@ func digestMismatch(id, digest string, covered []llm.Message) *Warning {
 // nothing. The result shares message content with v.
 func (v TurnView) ReplacementHistory() ([]llm.Message, bool) {
 	f := v.Compaction
-	answer := compactiontext.Summary(v.Answer)
+	answer := compactiontext.Summary(v.Reply)
 	if f == nil || v.Stop.Kind != StopCompleted || answer == "" {
 		return nil, false
 	}

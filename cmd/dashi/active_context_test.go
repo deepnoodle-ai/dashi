@@ -12,43 +12,44 @@ import (
 func TestActiveContextRendererKeepsSummaryOutOfAnswers(t *testing.T) {
 	r := NewRenderer(1, "fixture", "")
 	r.showReasoning = true
-	intent := dashi.Step{Kind: dashi.StepModelIntent, TurnID: "turn", Model: &dashi.ModelFact{
-		AttemptID: "summary", Purpose: dashi.ModelPurposeCompaction,
+	callStart := dashi.Step{Kind: dashi.StepModelCallStarted, TurnID: "turn", Model: &dashi.ModelFact{
+		ModelCallID: "summary", Purpose: dashi.ModelPurposeCompaction,
 		Compaction: &dashi.ContextCompactionPlan{EstimatedBefore: 12000},
 	}}
-	start := onlyBlock(t, r.Event(stepEvent(intent)))
+	start := onlyBlock(t, r.Event(stepEvent(callStart)))
 	if start.Kind != KindCompaction || start.Done {
 		t.Fatalf("summary was not presented as running compaction: %+v", start)
 	}
 	for _, kind := range []llm.DeltaKind{llm.DeltaText, llm.DeltaReasoning} {
-		if got := r.Event(dashi.Event{AttemptID: "summary", Delta: &llm.Delta{Kind: kind, Text: "PRIVATE SUMMARY"}}); len(got) != 0 {
+		if got := r.Event(dashi.Event{ModelCallID: "summary", Delta: &llm.Delta{Kind: kind, Text: "PRIVATE SUMMARY"}}); len(got) != 0 {
 			t.Fatalf("summary preview leaked: %+v", got)
 		}
 	}
-	settlement := dashi.Step{Kind: dashi.StepModelSettled, Model: &dashi.ModelFact{
-		AttemptID: "summary", Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("PRIVATE SUMMARY"))},
+	finish := dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{
+		ModelCallID: "summary", Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("PRIVATE SUMMARY"))},
 	}}
-	// Purpose is inherited from the intent even if a settlement omits it.
-	for _, b := range r.Event(stepEvent(settlement)) {
+	// Purpose is inherited from the model_call_started step even if the
+	// finish step omits it.
+	for _, b := range r.Event(stepEvent(finish)) {
 		if b.Kind != KindCompaction || strings.Contains(b.Text, "PRIVATE SUMMARY") {
-			t.Fatalf("settled summary leaked: %+v", b)
+			t.Fatalf("finished summary leaked: %+v", b)
 		}
 	}
 	applied := onlyBlock(t, r.Event(stepEvent(dashi.Step{Kind: dashi.StepContextCompacted,
-		Compacted: &dashi.ContextCompactionFact{AttemptID: "summary", Summary: "PRIVATE SUMMARY", EstimatedAfter: 4000}})))
+		Compacted: &dashi.ContextCompactionFact{ModelCallID: "summary", Summary: "PRIVATE SUMMARY", EstimatedAfter: 4000}})))
 	compactionMustHave(t, applied.Text, "estimated input 12,000 → 4,000", "Full record retained")
 	if !applied.Done || applied.State != StateOK || applied.ID != start.ID {
 		t.Fatalf("applied marker lost identity: %+v", applied)
 	}
 	// Even a late preview remains an internal summary, never a new answer.
-	if got := r.Event(dashi.Event{AttemptID: "summary", Delta: &llm.Delta{Kind: llm.DeltaText, Text: "PRIVATE SUMMARY"}}); len(got) != 0 {
+	if got := r.Event(dashi.Event{ModelCallID: "summary", Delta: &llm.Delta{Kind: llm.DeltaText, Text: "PRIVATE SUMMARY"}}); len(got) != 0 {
 		t.Fatal("late summary preview leaked")
 	}
-	answer := onlyBlock(t, r.Event(dashi.Event{AttemptID: "ordinary", Delta: &llm.Delta{Kind: llm.DeltaText, Text: "Actual answer"}}))
+	answer := onlyBlock(t, r.Event(dashi.Event{ModelCallID: "ordinary", Delta: &llm.Delta{Kind: llm.DeltaText, Text: "Actual answer"}}))
 	if answer.Kind != KindAssistant || answer.Text != "Actual answer" {
 		t.Fatalf("ordinary answer hidden: %+v", answer)
 	}
-	footer := r.Footer(dashi.TurnView{ModelAttempts: 3, Spend: dashi.Spend{
+	footer := r.Footer(dashi.TurnView{ModelCalls: 3, Spend: dashi.Spend{
 		Usage: llm.Usage{InputTokens: 100, OutputTokens: 50}, Cost: map[string]money.Amount{"USD": money.MustParseAmount("0.05")},
 	}})
 	compactionMustHave(t, footer.Text, "3 model calls", "150 tokens", "$0.050")
@@ -56,15 +57,15 @@ func TestActiveContextRendererKeepsSummaryOutOfAnswers(t *testing.T) {
 
 func TestActiveContextRendererFailureUnavailableAndStops(t *testing.T) {
 	r := NewRenderer(1, "fixture", "")
-	start := dashi.Step{Kind: dashi.StepStarted, TurnID: "turn", Started: &dashi.StartFact{
+	start := dashi.Step{Kind: dashi.StepTurnStarted, TurnID: "turn", Started: &dashi.StartFact{
 		Agent: dashi.Agent{ActiveCompaction: &dashi.ActiveCompactionPolicy{}}, ActiveCompactionWindow: 16000,
 	}}
 	if blocks := r.Event(stepEvent(start)); len(blocks) != 1 || blocks[0].Kind != KindUser {
 		t.Fatalf("start showed a per-Turn protection notice: %+v", blocks)
 	}
-	r.Event(stepEvent(dashi.Step{Kind: dashi.StepModelIntent, Model: &dashi.ModelFact{AttemptID: "bad", Purpose: dashi.ModelPurposeCompaction}}))
-	failure := onlyBlock(t, r.Event(stepEvent(dashi.Step{Kind: dashi.StepModelSettled, Model: &dashi.ModelFact{
-		AttemptID: "bad", Purpose: dashi.ModelPurposeCompaction, Error: "summary did not shrink",
+	r.Event(stepEvent(dashi.Step{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{ModelCallID: "bad", Purpose: dashi.ModelPurposeCompaction}}))
+	failure := onlyBlock(t, r.Event(stepEvent(dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{
+		ModelCallID: "bad", Purpose: dashi.ModelPurposeCompaction, Error: "summary did not shrink",
 	}})))
 	compactionMustHave(t, failure.Text, "previous context kept", "summary did not shrink")
 	if failure.State != StateFailed || !failure.Done {
@@ -83,7 +84,7 @@ func TestActiveContextRendererFailureUnavailableAndStops(t *testing.T) {
 	}
 }
 
-func TestCLIActiveContextWindowPinnedPerAdmission(t *testing.T) {
+func TestCLIActiveContextWindowPinnedPerRecordedStart(t *testing.T) {
 	h := newHarness(t, say("First."), say("Second."))
 	h.client.mu.Lock()
 	h.client.window = 20000
@@ -96,15 +97,15 @@ func TestCLIActiveContextWindowPinnedPerAdmission(t *testing.T) {
 	for i, want := range []int{20000, 50000} {
 		start := h.turn(i + 1).Steps[0].Started
 		if start.Agent.ActiveCompaction == nil || start.Agent.ActiveCompaction.Window != 0 || start.ActiveCompactionWindow != want {
-			t.Fatalf("admission %d lost policy/window: %+v", i+1, start)
+			t.Fatalf("start %d lost policy/window: %+v", i+1, start)
 		}
 	}
 	if strings.Contains(h.ui.text(), "recorded window") {
 		t.Fatalf("per-Turn protection notice shown:\n%s", h.ui.text())
 	}
-	// Stored history retains the admitted window after catalog changes.
+	// Stored history retains the recorded window after catalog changes.
 	if start := h.turn(1).Steps[0].Started; start.ActiveCompactionWindow != 20000 {
-		t.Fatal("later catalog mutated first admission")
+		t.Fatal("later catalog mutated first start")
 	}
 }
 
@@ -112,8 +113,8 @@ func TestActiveContextMarkerUsesAuthoritativeStop(t *testing.T) {
 	for _, kind := range []dashi.StopKind{dashi.StopInterrupted, dashi.StopCanceled, dashi.StopLimited} {
 		t.Run(string(kind), func(t *testing.T) {
 			r := NewRenderer(1, "fixture", "")
-			r.Event(stepEvent(dashi.Step{Kind: dashi.StepModelIntent, Model: &dashi.ModelFact{AttemptID: "summary", Purpose: dashi.ModelPurposeCompaction}}))
-			r.Event(stepEvent(dashi.Step{Kind: dashi.StepModelSettled, Model: &dashi.ModelFact{AttemptID: "summary", Interrupted: "context ended"}}))
+			r.Event(stepEvent(dashi.Step{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{ModelCallID: "summary", Purpose: dashi.ModelPurposeCompaction}}))
+			r.Event(stepEvent(dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "summary", Interrupted: "context ended"}}))
 			blocks := r.activeContextStopped(dashi.Stop{Kind: kind})
 			if len(blocks) != 1 || !blocks[0].Done || strings.Contains(blocks[0].Text, "Press Enter") {
 				t.Fatalf("marker invented continuation: %+v", blocks)

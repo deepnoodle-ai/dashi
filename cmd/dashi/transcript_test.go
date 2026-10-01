@@ -79,7 +79,7 @@ func TestWriteTranscript(t *testing.T) {
 	mustHave(t, text, "may still be running")
 	mustHave(t, text, "Turn 1 canceled.")
 	mustHave(t, text, "Starting over from a clean state.")
-	view, err := dashi.Replay(h.turn(1))
+	view, err := h.turn(1).View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestWriteTranscript(t *testing.T) {
 		"start over",
 	}, text)
 	fmt.Fprintf(&doc, "The record of turn 1 after `/discard`: stop `%s` (%q); "+
-		"call c1 is `%s`, never settled. Turns in the session: %d.\n",
+		"call c1 is `%s`, never finished. Turns in the session: %d.\n",
 		view.Stop.Kind, view.Stop.Reason, view.Tools["c1"].Status, h.turns())
 
 	path := os.Getenv("DASHI_TRANSCRIPT")

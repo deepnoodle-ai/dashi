@@ -157,8 +157,8 @@ func TestSessionTurnsKeepThePromptPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Answer != "Still a desk." {
-		t.Fatalf("answer = %q", out.Answer)
+	if out.Reply != "Still a desk." {
+		t.Fatalf("answer = %q", out.Reply)
 	}
 	reqs := w.requests(t)
 	if len(reqs) != 3 {
@@ -223,7 +223,7 @@ func TestSessionIDIsTheDefaultCacheKey(t *testing.T) {
 
 func TestRecordedSummaryPreferenceSurvivesReopenAndModelSwitch(t *testing.T) {
 	agentOf := func(turn dashi.Turn) dashi.Agent {
-		view, err := dashi.Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -243,8 +243,8 @@ func TestRecordedSummaryPreferenceSurvivesReopenAndModelSwitch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Answer != "answer" {
-		t.Fatalf("public summary reached answer: %q stop=%+v turn=%+v", first.Answer, first.Stop, first.Turn)
+	if first.Reply != "answer" {
+		t.Fatalf("public summary reached answer: %q stop=%+v turn=%+v", first.Reply, first.Stop, first.Turn)
 	}
 	reopenedRecorder, err := filerecorder.New(filerecorder.Config{Dir: dir})
 	if err != nil {
@@ -294,7 +294,7 @@ func TestRecordedSummaryPreferenceSurvivesReopenAndModelSwitch(t *testing.T) {
 	for _, turn := range []dashi.Turn{first.Turn, second.Turn, third.Turn} {
 		foundFact := false
 		for _, step := range turn.Steps {
-			if step.Kind == dashi.StepModelIntent && step.Model != nil {
+			if step.Kind == dashi.StepModelCallStarted && step.Model != nil {
 				pref := step.Model.Effective.ReasoningSummary
 				if pref == nil || *pref != *agentOf(turn).Settings.ReasoningSummary {
 					t.Fatal("recorded model fact preference differs")

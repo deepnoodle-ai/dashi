@@ -16,7 +16,7 @@ func TestMustOutputSchema(t *testing.T) {
 	raw := MustOutputSchema[testPerson]()
 	agent := Agent{
 		ID:           "a",
-		Revision:     "1",
+		Version:      "1",
 		Provider:     "p",
 		API:          "api",
 		Model:        "m",
@@ -53,10 +53,10 @@ func TestDecodeOutput(t *testing.T) {
 		t.Fatalf("person=%+v err=%v", person, err)
 	}
 
-	limited := *testStop(StopLimited, LimitModelAttempts)
+	limited := *testStop(StopLimited, LimitModelCalls)
 	_, err = DecodeOutput[testPerson](outcomeOf(limited, nil))
 	if !errors.Is(err, ErrNoOutput) ||
-		!strings.Contains(err.Error(), "limited: model_attempts") {
+		!strings.Contains(err.Error(), "limited: model_calls") {
 		t.Fatalf("limited err = %v", err)
 	}
 	_, err = DecodeOutput[testPerson](outcomeOf(completed, nil))
@@ -72,6 +72,6 @@ func TestDecodeOutput(t *testing.T) {
 
 // outcomeOf builds the result Run returns, whose Stop and Output are promoted
 // from the embedded TurnView.
-func outcomeOf(stop Stop, output *StructuredOutput) Outcome {
-	return Outcome{TurnView: TurnView{Stop: stop, Output: output}}
+func outcomeOf(stop Stop, output *StructuredOutput) RunResult {
+	return RunResult{TurnView: TurnView{Stop: stop, Output: output}}
 }

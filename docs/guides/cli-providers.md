@@ -115,8 +115,8 @@ through the same tiers.
 
 With no selection, credential detection tries Anthropic, Google, OpenAI, Grok,
 Mistral, DeepInfra, then Meta. Otherwise Dashi keeps OpenAI's `gpt-6-luna`
-default, which still needs credentials to dispatch. Select local/custom routes
-and OpenRouter explicitly.
+default, which still needs credentials to send requests. Select local/custom
+routes and OpenRouter explicitly.
 
 Interactive changes win until exit and save next-turn session and user
 preferences. Writes preserve unrelated user fields and never edit workspace
@@ -155,11 +155,12 @@ requires supported reasoning effort; use, for example, `--thinking-effort high
 native xAI/Meta routes have no summary opt-in mapping. See
 [public reasoning summaries](reasoning-summaries.md) for qualification details.
 
-Public summaries appear separately from answers. Provisional streaming text is
-reconciled with settled records and reconstructs on reopen. Private replay data
-stays hidden. A successful response may contain no summary; inspection says
-`no summary returned`. `/thinking off` changes new-turn requests/display without
-deleting previous records. Print mode keeps stdout limited to the answer.
+Public summaries appear separately from replies. Provisional streaming text is
+replaced by the finished records and rebuilt from them on reopen. Private
+replay data stays hidden. A successful response may contain no summary;
+inspection says `no summary returned`. `/thinking off` changes new-turn
+requests/display without deleting previous records. Print mode keeps stdout
+limited to the reply.
 
 ## Workspace, environment files, and guidance
 
@@ -189,15 +190,17 @@ recorded instructions.
 `/settings` shows the next-turn request, winning/overridden sources, credential
 variable/source, named environment files, preparation preview, warnings, and
 unverified support. It distinguishes this unsent preview from the last recorded
-attempt and shows that Turn's Active-Turn protection window. The transcript does
-not repeat unverified support or the protection window on every Turn. `/settings --json` exports safe inspection values without
+model call and shows that Turn's Active-Turn protection window. The transcript
+does not repeat unverified support or the protection window on every Turn.
+`/settings --json` exports safe inspection values without
 credential values, headers, system-prompt text, or transcript content.
 
 Project destinations need binding approval unless the whole definition matches
 reviewed user settings. The prompt identifies the source, destination, API,
 endpoint, models/default, and credential variable. Approval lasts for this
-invocation and grants no tool permission. Decline prevents dispatch. Unattended
-runs need a matching user definition; `--yes` cannot grant destination trust.
+invocation and grants no tool permission. Decline prevents any request.
+Unattended runs need a matching user definition; `--yes` cannot grant
+destination trust.
 
 Credential-bearing destinations require HTTPS, except HTTP with literal `127/8`
 or `::1`. `localhost` and DNS names do not qualify, even when their key variable
@@ -205,4 +208,10 @@ is absent or empty. Trust cannot override transport checks. URLs with userinfo,
 query strings, or fragments are rejected. Credential-bearing custom calls never
 follow redirects.
 
-A successful `/model` switch saves the session's next-turn preferences. It also saves the destination/model pair globally when the identical binding is available from user or built-in settings. Project-only and changed project bindings stay in that session; register their complete binding in user settings for use across workspaces. Missing required credentials stop setup before adapter construction or dispatch. Explicitly keyless custom routes and Ollama remain available without a key.
+A successful `/model` switch saves the session's next-turn preferences. It also
+saves the destination/model pair globally when the identical binding is
+available from user or built-in settings. Project-only and changed project
+bindings stay in that session; register their complete binding in user settings
+for use across workspaces. Missing required credentials stop setup before
+adapter construction or any request. Explicitly keyless custom routes and
+Ollama remain available without a key.

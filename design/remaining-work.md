@@ -18,7 +18,7 @@ no roadmap-item implementation PR is open.
 
 **Size** estimates implementation scope: S = focused change, M = package or
 adapter, L = several packages or a new layer. **Difficulty** estimates design
-and qualification uncertainty, independently of size. An existing reference is
+and how unsure qualification is, independently of size. An existing reference is
 not an approved design unless stated. Items are grouped for reading, not ranked.
 
 ## Model and provider behavior
@@ -76,10 +76,10 @@ separate from live qualification.
 ### 5. Live provider qualification
 
 **Status:** Open. Selected Anthropic, OpenAI, and Gemini routes passed dated live
-checks; many hosted routes, Vertex, and the Gemini error probes remain
+checks; many provider-tool routes, Vertex, and the Gemini error probes remain
 unqualified. **Size:** M. **Difficulty:** High because external services vary.
 **Reference:** [live-test record](../docs/dev/live-tests.md) and
-[hosted-tool plan](2026-09-27-resources-and-hosted-tools.md). **Next:** Build
+[provider-tool plan](2026-09-27-resources-and-hosted-tools.md). **Next:** Build
 an exact route/model/feature matrix and run the missing paid probes when keys
 are available; label fixture-only support separately.
 
@@ -90,20 +90,20 @@ are available; label fixture-only support separately.
 ### 6. Local MCP client
 
 **Status:** Implemented in the `mcp` module (PR pending): config loading and
-merge, stdio and streamable HTTP, fingerprinted approval of project servers,
+merge, stdio and streamable HTTP, hash-pinned approval of project servers,
 stable tool names, result mapping, `Refresh`, and `Close`. See the
 [guide](../docs/guides/mcp.md). **Size:** M.
 **Next:** The CLI wires `Open`, the approval prompt, and a `/mcp` status screen.
 Deferred: OAuth and token store, an `OnChange` callback, legacy SSE, and a
-runner marker for calls of uncertain effect.
+runner marker for calls whose effect is unknown.
 
 **Packet:** [source research](roadmap-research/06-local-mcp-research.md) · [PRD](roadmap-research/06-local-mcp-prd.md).
 
-### 7. Authenticated provider-hosted MCP
+### 7. Authenticated provider-tool MCP
 
 **Status:** Open. Authentication is disabled because exact request snapshots
 could persist credentials.
-**Size:** M. **Difficulty:** High. **Reference:** [resource and hosted-tool
+**Size:** M. **Difficulty:** High. **Reference:** [resource and provider-tool
 plan](2026-09-27-resources-and-hosted-tools.md), especially its credential
 boundary. **Next:** Separate exact in-memory dispatch bytes from a redacted,
 verifiable recordable snapshot before adding auth headers or OAuth flows.
@@ -141,11 +141,11 @@ and [recorded-value decision 27](decisions.md).
 
 **Packet:** [source research](roadmap-research/10-extra-tool-args-research.md) · [PRD](roadmap-research/10-extra-tool-args-prd.md).
 
-### 11. Tool-result size and projection
+### 11. Tool-result size in the model's messages
 
 **Status:** First slice implemented on branch `tools/result-bounds`; PR
 pending. `Limits.ToolResultBytes` (default 64 KiB) shortens the text of each
-tool result in the projected history, after `AfterTool`. The record keeps the
+tool result in the messages the model sees, after `AfterTool`. The record keeps the
 full outcome and stores the shortened result with `ToolFact.Shortened`. **Size:** M.
 **Difficulty:** High. **Reference:** [adjacent-library
 findings](gaps/C-adjacent-libraries.md) and [design pitfalls](design-pitfalls.md).
@@ -159,7 +159,7 @@ request-byte ceiling, and CLI display of `Shortened`; see the PRD.
 **Status:** Second slice implemented on branch `skills/filesystem`, ready for
 review. The first slice ([PR #59](https://github.com/deepnoodle-ai/dashi/pull/59))
 added the in-memory catalog. The second adds `skill.LoadDirs`, `DefaultDirs`,
-`Set.Expand` for `/name` use, and `Bundle.Hooks` for catalog delivery, with a
+`Set.Expand` for `/name` use, and `Bundle.Hooks` to add the catalog to the turn, with a
 guide and example. **Size:** M. **Difficulty:** Medium. **Reference:**
 [example-port gaps](gaps/F-example-ports.md), Dive's skill guide, and
 [functional areas](functional-areas.md). **Next:** wire the CLI: load in
@@ -175,7 +175,7 @@ namespaced commands, and `load_skill` arguments.
 `delegate` package. Second slice built on branch `turns/background-subagents`
 ([PRD](background-subagents.md)): background is the only mode. A host-owned
 `delegate.Tasks` runs the children; the tools are `task`, `task_status`, and
-`task_stop`; results reach the agent as notices with one delivery rule; and
+`task_stop`; results reach the agent as notices with one rule for adding them; and
 `Recover` resumes unfinished children after a reopen. **Size:** L.
 **Difficulty:** High. **Guide:**
 [Delegating to subagents](../docs/guides/delegation.md). **Next:** the CLI
@@ -185,7 +185,7 @@ wiring (`/tasks`, follow-up rule, approval prompt that names the subagent,
 [spec](subagent-messages.md), decisions 42–44): each task becomes a child
 session, `task_send` and `message_parent` steer or queue, and mail is
 delivered once from the sender's record, in four tracks. Later: durable
-external settle, a family budget cap over a host ledger, and a child index.
+external resolve, a family budget cap over a host ledger, and a child index.
 
 **Packet:** [source research](roadmap-research/13-child-turns-research.md) · [PRD](roadmap-research/13-child-turns-prd.md) · [messages PRD](roadmap-research/13-subagent-messages-prd.md).
 
@@ -196,9 +196,9 @@ external settle, a family budget cap over a host ledger, and a child index.
 **Status:** Designed, 2026-09-29; not built. `session.Session` is a handle over
 the unchanged engine: turn records are the only truth (turn IDs `S-n`), a new
 message refuses only on a busy turn (live, possibly live when neither
-`TurnLiveness` nor `Session.Exclusive` proves it stopped, waiting, or holding an
-unsettled uncertain call whatever its liveness, until the host settles it or
-cancels the turn) and closes other stopped turns, a lost worker's turn
+`WorkerChecker` nor `Session.Exclusive` proves it stopped, waiting, or holding an
+unfinished call with an unknown result whatever its worker status, until the
+host resolves it or cancels the turn) and closes other stopped turns, a lost worker's turn
 is taken over with `Continue{}` rather than replaced, sends are idempotent,
 input is steered or queued, compaction is a
 turn, and the agent moves to `Start`. Decisions 35–40. The `dashi` CLI's own
@@ -208,11 +208,11 @@ turn, and the agent moves to `Start`. Decisions 35–40. The `dashi` CLI's own
 [sessions.md](sessions.md), [session-engine.md](session-engine.md),
 [session-input.md](session-input.md). **Next:** five stacked tracks.
 
-1. Stop meanings and ended turns (M): `TurnView.Next()`, ended-turn projection,
+1. Stop meanings and ended turns (M): `TurnView.Next()`, the messages of an ended turn,
    the crash-resume reminder.
 2. `Agent` on `Start` (L): tool selection, `CurrentTurn`, `TurnView.Origin`, one
    runner in the CLI.
-3. Session core (L): `Session`, `S-n` IDs, `session.Index`, `TurnLiveness`,
+3. Session core (L): `Session`, `S-n` IDs, `session.Index`, `WorkerChecker`,
    `Exclusive`, idempotency; a keyless `chat` example on `dashitest`.
 4. Steering, the in-memory queue, and the CLI (M): dispatch on idle; port
    `examples/delegate` to `RunUntilQuiet`; port `cmd/dashi`.
@@ -235,7 +235,7 @@ research](roadmap-research/14-session-continuity-research.md) ·
 39](decisions.md)). `Session.Compactor` runs a compaction turn before a new
 turn when the last call used 80% of the window; the turn records the
 replacement history, which every reader honors. `compaction.Compactor`
-implements `session.Compactor` and makes no model call; `Compact`, `Project`, and
+implements `session.Compactor` and makes no model call; `Compact`, `TurnMessagesFull`, and
 `Record` stay for hosts that drive the engine directly. `examples/compaction`
 runs keyless on a session. **Size:** L. **Difficulty:** High. **Reference:**
 [guide](../docs/guides/compaction.md),
@@ -251,8 +251,8 @@ needed by the CLI for long turns) and compact-and-retry on overflow.
 
 **Status:** First slice ready for review, on two branches. Part B,
 `content/mention`, turns `@file` mentions and image or PDF paths into content.
-Part A adds `content.Ref`, `Runner.ContentResolver`, and `Runner.ContentLimits`:
-the record holds an ID, digest, and size, and the runner verifies resolved
+Part A adds `content.Ref`, `Runner.ContentLoader`, and `Runner.ContentLimits`:
+the record holds an ID, hash, and size, and the runner verifies loaded
 bytes before every model request. **Size:** M. **Difficulty:** High.
 **Reference:** [decision 19](decisions.md), [history storage](history-storage.md),
 and the [guide](../docs/guides/attachments.md). **Next:** Store CLI attachments
@@ -260,25 +260,25 @@ by reference; signed-URL results.
 
 **Packet:** [source research](roadmap-research/16-attachment-references-research.md) · [draft PRD](roadmap-research/16-attachment-references-prd.md).
 
-### 17. Incremental projection
+### 17. Incremental message building
 
-**Status:** Open, measurement gated. `Project` and replay rebuild state from
-the first step; there is no cached projection for long turns. **Size:** M.
+**Status:** Open, measurement gated. `TurnMessagesFull` and `Turn.View` rebuild state
+from the first step; there is no cache of built messages for long turns. **Size:** M.
 **Difficulty:** Medium.
 **Reference:** [adjacent-library findings](gaps/C-adjacent-libraries.md) and
 [design principles](design-principles.md); a gated draft PRD is linked below.
 **Next:** Measure long tool-heavy turns; add a private in-run cache only if
-projection is a material local cost.
+building messages is a material local cost.
 
 **Packet:** [source research](roadmap-research/17-incremental-projection-research.md) · [draft PRD](roadmap-research/17-incremental-projection-prd.md).
 
 ### 18. Inspecting newer record versions
 
-**Status:** Open. An unknown step kind prevents `Replay` and `Project` on that Turn.
+**Status:** Open. An unknown step kind prevents `Turn.View` and `TurnMessagesFull` on that Turn.
 **Size:** M. **Difficulty:** High. **Reference:** [Turn record](turn.md),
 [protocol gaps](gaps/D-protocols-streaming.md), and [adjacent-library
 findings](gaps/C-adjacent-libraries.md); no approved design. **Next:** Separate
-inspect-only reading from execution replay; block continuation on unknown
+inspect-only reading from reading for execution; block continuation on unknown
 semantics while retaining the facts.
 
 **Packet:** [source research](roadmap-research/18-newer-record-versions-research.md) · [draft PRD](roadmap-research/18-newer-record-versions-prd.md).
@@ -287,14 +287,14 @@ semantics while retaining the facts.
 
 ### 19. Durable retries after proven rejection
 
-**Status:** Open. Typed failure disposition and retry hints exist; a proven 429
-rejection stops the run. A generic 503 remains dispatch-uncertain even when
-retryable. **Size:** M. **Difficulty:** High. **Reference:**
+**Status:** Open. Typed send status and retry hints exist; a proven 429
+rejection stops the run. A generic 503 still leaves it unknown whether the
+request was sent, even when retryable. **Size:** M. **Difficulty:** High. **Reference:**
 [adjacent-library findings](gaps/C-adjacent-libraries.md), [provider gaps](gaps/E-providers-cost-budgets.md),
 and [interruption design](turn-interruption.md); a draft PRD is linked below.
-**Next:** Design a recorded retry wait that counts attempts and rechecks budget
+**Next:** Design a recorded retry wait that counts retries and rechecks budget
 and hooks.
-Uncertain dispatch must still require reconciliation.
+A send with an unknown result must still require the host to resolve it.
 
 **Packet:** [source research](roadmap-research/19-durable-retries-research.md) · [draft PRD](roadmap-research/19-durable-retries-prd.md).
 
@@ -311,13 +311,13 @@ only with their own timeout and interruption semantics.
 
 **Packet:** [source research](roadmap-research/20-stream-timeouts-research.md) · [PRD](roadmap-research/20-stream-timeouts-prd.md).
 
-### 21. Hosted tools under a cost cap
+### 21. Provider tools under a cost cap
 
-**Status:** Open. A call declaring unbounded provider-hosted work stops before
-dispatch under `MaxCost`; reporting its settled partial cost works. **Size:** M.
-**Difficulty:** High. **Reference:** [hosted-tool pricing](hosted-tool-pricing.md)
+**Status:** Open. A call declaring unbounded provider tool work stops before
+dispatch under `MaxCost`; reporting its finished partial cost works. **Size:** M.
+**Difficulty:** High. **Reference:** [provider tool pricing](hosted-tool-pricing.md)
 and [finding 11.2](gaps/F-example-ports.md). **Next:** Qualify a provider-enforced
-pass bound and its full rebilling behavior before admitting that route under a
+pass bound and its full rebilling behavior before allowing that route under a
 hard cap. Other routes may remain excluded.
 
 **Packet:** [source research](roadmap-research/21-hosted-tools-cost-cap-research.md) · [draft PRD](roadmap-research/21-hosted-tools-cost-cap-prd.md).
@@ -326,7 +326,7 @@ hard cap. Other routes may remain excluded.
 
 **Status:** First slice merged in
 [PR #58](https://github.com/deepnoodle-ai/dashi/pull/58). It made the provider
-example label partial/unknown estimates accurately. OpenAI hosted
+example label partial/unknown estimates accurately. OpenAI provider-tool
 image-generation image tokens remain unpriced; other models and tiers need
 ongoing evidence checks. **Size:** S per route. **Difficulty:** Medium.
 **Reference:** [example-port follow-ups](gaps/F-example-ports.md),
@@ -346,7 +346,7 @@ and [Dive ACP research](https://github.com/deepnoodle-ai/dive/blob/65c393f221f1/
 a v1-first draft PRD is linked below.
 **Next:** Build on committed-step `Follow` and the local MCP client in item 6;
 qualify v1 reconnect and approval behavior with a real editor client. Treat v2
-as a later, separate projection.
+as a later, separate adapter.
 
 **Packet:** [source research](roadmap-research/23-acp-adapter-research.md) · [draft PRD](roadmap-research/23-acp-adapter-prd.md).
 
@@ -380,9 +380,10 @@ items above; hook state has a deferred design in the linked document.
 - **Output, then a deadline.** A turn whose structured output is recorded
   stops `limited` at the deadline instead of completing.
 - **Tool-argument deltas** carry no byte offset or call ID.
-- **Context after a paused hosted call.** A `BeforeModel` hook's `Deliver`, or
-  a host `Deliver` while paused, can land after an unfinished paused hosted
-  search; steers already wait (`pausedMidHostedCall`).
+- **Messages after a paused provider tool call.** A `BeforeModel` hook's
+  `AddMessages`, or a host `AddMessages` while paused, can land after an
+  unfinished paused provider tool search; steers already wait
+  (`pausedMidHostedCall`).
 - **Urgent steer during `BeforeSend`** of a paused continuation cancels the
   call before sending, and hooks run again: wasted work only.
 - **Non-text tool results** (images, cited text) stop the turn on Chat
@@ -421,12 +422,13 @@ None is counted among the 24 items above.
 - **LLM-judge tool gate** (#91): investigation resolved with
   [composition guidance](../docs/guides/approvals.md#using-a-models-advice).
   Use a separately recorded advisory judge turn and required host approval.
-  The host owns call/digest linkage and any shared budget ledger. No reusable
+  The host owns call/hash linkage and any shared budget ledger. No reusable
   helper is planned without a concrete consumer and reviewed recovery,
   accounting, and authorization contracts.
 - **MCP example with no setup:** a runnable variant that starts its own stdio
   server. #92
 - **`Spend.String()`**, so examples stop looping over currencies. #93
-- **Name collisions:** `dashi.Outcome` and `tool.Outcome`, and `Stop` in both
-  `llm` and `dashi`; check against the glossary. #94
+- **Name collisions:** `Stop` in both `llm` and `dashi` (`dashi.Outcome`, which
+  clashed with `tool.Outcome`, is now `RunResult`); check against the
+  glossary. #94
 - **README order:** show the `agent` example before `basic`. #95

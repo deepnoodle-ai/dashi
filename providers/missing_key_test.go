@@ -81,7 +81,7 @@ func TestMissingAPIKeyFailsAtSendBeforeDispatch(t *testing.T) {
 			}
 			e, ok := errors.AsType[*llm.Error](err)
 			if !ok || e.Category != llm.ErrorAuthentication ||
-				e.Disposition != llm.FailureNotDispatched ||
+				e.SendStatus != llm.SendStatusNotSent ||
 				!strings.Contains(err.Error(), "_API_KEY") {
 				t.Fatalf("Send error = %#v", err)
 			}

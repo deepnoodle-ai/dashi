@@ -19,8 +19,9 @@ const (
 	// ContentChangeOmitReasoning drops a recognized reasoning block that cannot
 	// be replayed to the selected destination under an explicit input policy.
 	ContentChangeOmitReasoning ContentChangeAction = "omit_reasoning"
-	// ContentChangeOmitHostedActivity records one omitted foreign hosted item.
-	ContentChangeOmitHostedActivity ContentChangeAction = "omit_hosted_activity"
+	// ContentChangeOmitProviderToolActivity records one omitted foreign
+	// provider tool item.
+	ContentChangeOmitProviderToolActivity ContentChangeAction = "omit_provider_tool_activity"
 	// ContentChangeConvertRole records an API's representation of developer
 	// authority.
 	ContentChangeConvertRole ContentChangeAction = "convert_role"
@@ -147,15 +148,15 @@ func validateContentChanges(p RequestSnapshot) error {
 				}] {
 				return errors.New("llm: reasoning omission requires explicit policy and an unreplayable original block")
 			}
-		case ContentChangeOmitHostedActivity:
-			if p.Input.ContentPolicy.ForeignHostedActivity != HostedOmit ||
-				(c.HostedUse == nil &&
-					c.HostedResult == nil) ||
+		case ContentChangeOmitProviderToolActivity:
+			if p.Input.ContentPolicy.ForeignProviderToolActivity != ProviderToolOmit ||
+				(c.ProviderToolUse == nil &&
+					c.ProviderToolResult == nil) ||
 				c.Replay == nil ||
 				c.Replay.Origin == p.Origin ||
 				m.Role != RoleAssistant {
 				return errors.New(
-					"llm: hosted omission requires explicit policy and foreign replay",
+					"llm: provider tool omission requires explicit policy and foreign replay",
 				)
 			}
 		case ContentChangeConvertRole:

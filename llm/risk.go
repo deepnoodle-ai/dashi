@@ -21,21 +21,21 @@ func EstimatedInputTokens(request Request) int {
 	return size + 1024
 }
 
-// MaxCostAtRisk estimates input at the highest input-side rate and the full
+// WorstCaseCost estimates input at the highest input-side rate and the full
 // effective output allowance. It returns false when the call is unpriced or
-// its output allowance is unknown. A priced hosted operation without a known
-// call count also cannot be bounded before dispatch. It also returns false
-// when the bound overflows the nano range, so an admission check treats that
-// call as unbounded rather than cheap.
+// its output allowance is unknown. A priced provider tool operation without a
+// known call count also cannot be bounded before dispatch. It also returns
+// false when the bound overflows the nano range, so a reservation check treats
+// that call as unbounded rather than cheap.
 //
 // A call that may write one-hour cache entries (see writesOneHour) includes
 // Rates.CacheWrite1h among the input rates; without that rate it has no
 // bound.
 //
-// A risk bound rounds up to the nano: Input and Output each round up, and
+// A worst-case bound rounds up to the nano: Input and Output each round up, and
 // Total rounds up the exact sum of both products once, so Total never exceeds
 // Input+Output and rounding can never let a cap be breached.
-func MaxCostAtRisk(request Request, pricing Pricing) (Cost, bool) {
+func WorstCaseCost(request Request, pricing Pricing) (Cost, bool) {
 	bound, ok := riskBound(request, pricing)
 	if !ok {
 		return Cost{}, false
@@ -59,7 +59,7 @@ func MaxCostAtRisk(request Request, pricing Pricing) (Cost, bool) {
 	return cost, cost.Validate() == nil
 }
 
-// CanBoundCost reports whether MaxCostAtRisk can bound, in currency, a call
+// CanBoundCost reports whether WorstCaseCost can bound, in currency, a call
 // to this model that uses default settings under CapabilityAdjust (the
 // default policy). It answers a readiness check from model knowledge alone,
 // without preparing a request. It is true when the model has a valid price
@@ -70,7 +70,7 @@ func MaxCostAtRisk(request Request, pricing Pricing) (Cost, bool) {
 //
 // True says only that ordinary calls are bounded. A specific call can still
 // have no bound:
-//   - it offers a provider-hosted tool, whose call count is unknown before
+//   - it offers a provider tool, whose call count is unknown before
 //     dispatch;
 //   - its prompt cache lifetime is above five minutes and a rate set it may
 //     use lacks Rates.CacheWrite1h;
@@ -78,7 +78,7 @@ func MaxCostAtRisk(request Request, pricing Pricing) (Cost, bool) {
 //     accepts an output limit, so preparation sends no default allowance.
 //
 // A bound is a worst case at list prices, not a quote: the call's spend is
-// priced from usage once it settles.
+// priced from usage once it finishes.
 func (m ModelInfo) CanBoundCost(currency string) bool {
 	if m.Pricing == nil ||
 		m.Pricing.Currency != currency ||
@@ -88,7 +88,7 @@ func (m ModelInfo) CanBoundCost(currency string) bool {
 	return m.Capabilities.acceptsDefaultMaxTokens(CapabilityAdjust)
 }
 
-// FitOutputTokens returns the largest output allowance whose MaxCostAtRisk
+// FitOutputTokens returns the largest output allowance whose WorstCaseCost
 // total would fit in the given remaining amount. It uses exact arithmetic, so
 // the returned allowance fits even at the nano boundary.
 func FitOutputTokens(
@@ -134,7 +134,7 @@ func riskBound(request Request, pricing Pricing) (risk, bool) {
 		return risk{}, false
 	}
 	for _, def := range request.Input().Tools {
-		if def.Kind == tool.KindProviderHosted {
+		if def.Kind == tool.KindProviderTool {
 			return risk{}, false
 		}
 	}

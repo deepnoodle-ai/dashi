@@ -10,8 +10,8 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// Gemini hosted tools are checked in the providers/google/gemini module.
-func TestHostedConstructorsMarkOnlyKnownReadOnlyTools(t *testing.T) {
+// Gemini provider tools are checked in the providers/google/gemini module.
+func TestProviderToolConstructorsMarkOnlyKnownReadOnlyTools(t *testing.T) {
 	tests := []struct {
 		name     string
 		makeTool func() (tool.Tool, error)
@@ -118,11 +118,11 @@ func TestHostedConstructorsMarkOnlyKnownReadOnlyTools(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			hosted, err := tc.makeTool()
+			providerTool, err := tc.makeTool()
 			if err != nil {
 				t.Fatal(err)
 			}
-			definition := hosted.Definition
+			definition := providerTool.Definition
 			got := definition.Annotations.ReadOnly != nil &&
 				*definition.Annotations.ReadOnly
 			if got != tc.readOnly {

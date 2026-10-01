@@ -4,7 +4,7 @@
 // Start; it makes no model call itself. The turn runs through an ordinary
 // dashi.Runner, so its model call is recorded, priced, and capped by its
 // budget like any other. Its record holds the replacement history, which
-// dashi.ProjectHistory and a Session's projected history then use.
+// dashi.BuildHistory and a Session then use when they build later history.
 //
 // With a session.Session, set Session.Compactor, and the session runs the
 // compaction turn when the last model call used most of the window. A host
@@ -14,8 +14,8 @@
 // Compaction runs between Turns and not inside one; for one long request,
 // see dashi.Agent.ActiveCompaction. The summary is derived history. It has
 // user authority and never operator authority. System and developer
-// messages in the covered part stay in the projected history with their
-// own role.
+// messages in the covered part stay in the history the next turns get, with
+// their own role.
 //
 // The default prompt adapts the continuation prompt from Dive's compaction
 // package.
@@ -109,7 +109,7 @@ func splitsExchange(tail []llm.Message) bool {
 
 // withoutReminders copies messages and removes reminder content. The host
 // supplies reminders again on each Turn, so a summary must not keep them. A
-// reminder with a sender (From) is agent mail, such as a subagent's answer,
+// reminder with a sender (From) is agent mail, such as a subagent's reply,
 // which nobody supplies again, so it stays. A message left with no content
 // is dropped.
 func withoutReminders(messages []llm.Message) []llm.Message {
@@ -143,11 +143,11 @@ func estimate(m llm.Message) int {
 		if c.ToolResult != nil {
 			blocks = append(blocks, c.ToolResult.Output.Content...)
 		}
-		if c.HostedUse != nil {
-			blocks = append(blocks, c.HostedUse.Output...)
+		if c.ProviderToolUse != nil {
+			blocks = append(blocks, c.ProviderToolUse.Output...)
 		}
-		if c.HostedResult != nil {
-			blocks = append(blocks, c.HostedResult.Output...)
+		if c.ProviderToolResult != nil {
+			blocks = append(blocks, c.ProviderToolResult.Output...)
 		}
 		for _, src := range contentsrc.Blocks(blocks) {
 			if src.Ref == nil || src.Ref.Size <= 0 {
@@ -164,7 +164,7 @@ func estimate(m llm.Message) int {
 }
 
 // referenceWireSize estimates the inline base64 bytes of a declared reference.
-// It never resolves a reference or claims provider-specific media token fit.
+// It never loads a reference or claims provider-specific media token fit.
 func referenceWireSize(size int64) int {
 	groups := size / 3
 	if size%3 != 0 {

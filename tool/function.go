@@ -38,9 +38,10 @@ import (
 // Call.Args retains the effective raw JSON in either mode; it is not a
 // sanitized copy of the typed arguments.
 // The callback also receives the stable call identity, suitable for downstream
-// idempotency and reconciliation. An error from the callback is returned
-// unchanged, so it follows the Executor contract: a plain error goes to the
-// model as a failure, and one wrapped with Fatal stops the turn.
+// idempotency and for matching the call against work done elsewhere. An error
+// from the callback is returned unchanged, so it follows the Executor
+// contract: a plain error goes to the model as a failure, and one wrapped with
+// Fatal stops the turn.
 func Func[T any](
 	name, description string,
 	fn func(context.Context, Call, T) (Outcome, error),

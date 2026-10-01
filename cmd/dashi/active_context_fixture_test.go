@@ -127,17 +127,17 @@ func TestActiveContextCLIFiveCompactionsRetainEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	turn := activeAssertCompleted(t, cfg, a, c)
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(view.ContextCompactions) < 5 {
 		t.Fatalf("longer scaling fixture applied %d summaries", len(view.ContextCompactions))
 	}
-	if view.ModelAttempts != 18 || view.Spend.Usage.InputTokens != 1200 || view.Spend.Usage.OutputTokens != 240 {
-		t.Fatalf("summary accounting lost: calls=%d spend=%+v", view.ModelAttempts, view.Spend)
+	if view.ModelCalls != 18 || view.Spend.Usage.InputTokens != 1200 || view.Spend.Usage.OutputTokens != 240 {
+		t.Fatalf("summary accounting lost: calls=%d spend=%+v", view.ModelCalls, view.Spend)
 	}
-	proof := fmt.Sprintf("12 settled tool actions; write=1; bash check=1; ordinary calls=%d; summary calls=%d; applications=%d; recorded model calls=%d; settled usage=%d input + %d output; no declared fixture pricing. Full source record reloaded; final objective/diagnostic retained.\n", c.ordinary, c.summaries, len(view.ContextCompactions), view.ModelAttempts, view.Spend.Usage.InputTokens, view.Spend.Usage.OutputTokens)
+	proof := fmt.Sprintf("12 finished tool actions; write=1; bash check=1; ordinary calls=%d; summary calls=%d; applications=%d; recorded model calls=%d; finished usage=%d input + %d output; no declared fixture pricing. Full source record reloaded; final objective/diagnostic retained.\n", c.ordinary, c.summaries, len(view.ContextCompactions), view.ModelCalls, view.Spend.Usage.InputTokens, view.Spend.Usage.OutputTokens)
 	t.Log(proof)
 	if dir := os.Getenv("DASHI_ACTIVE_CONTEXT_EVIDENCE"); dir != "" {
 		if err := os.MkdirAll(dir, 0700); err != nil {
@@ -158,7 +158,7 @@ func activeAssertCompleted(t *testing.T, cfg appConfig, a *app, c *activeCLIClie
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}

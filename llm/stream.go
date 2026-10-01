@@ -11,16 +11,16 @@ import (
 // ErrStreamConsumed means an effectful stream was ranged more than once.
 var ErrStreamConsumed = errors.New("llm: stream already consumed")
 
-// StreamEvent carries either a provisional Delta or the terminal Result of
-// one model call. A terminal error is paired with the partial Result.
+// StreamEvent carries either a provisional Delta or the final Result of one
+// model call. A final error is paired with the partial Result.
 type StreamEvent struct {
 	Delta  *Delta
 	Result *Result
 }
 
 // Stream dispatches one call when iteration begins. It yields
-// deltas with backpressure, then exactly one terminal result when fully read.
-// Breaking the range cancels the request and suppresses the terminal event.
+// deltas with backpressure, then exactly one final result when fully read.
+// Breaking the range cancels the request and suppresses the final event.
 // The sequence is single-use: a second range yields ErrStreamConsumed instead
 // of dispatching another paid request.
 // The client must stop invoking its sink before Send returns. A non-nil

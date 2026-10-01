@@ -284,14 +284,14 @@ func TestSelectingTheOpenSessionReopensIt(t *testing.T) {
 	mustHave(t, h.ui.text(), "First answer.")
 }
 
-// Line mode shows a settled answer that differs from the streamed text.
+// Line mode shows a finished reply that differs from the streamed text.
 func TestLineModeShowsCorrectedAnswer(t *testing.T) {
 	var out bytes.Buffer
 	u := newLineUI(&out)
 	u.Emit(Block{ID: "a", Kind: KindAssistant, Text: "The sky is red."})
 	u.Emit(Block{ID: "a", Kind: KindAssistant, Text: "The sky is blue.", Done: true})
 	got := out.String()
-	if !strings.Contains(got, "[Corrected answer]\nThe sky is blue.") {
+	if !strings.Contains(got, "[Corrected reply]\nThe sky is blue.") {
 		t.Fatalf("output:\n%s", got)
 	}
 	// An append is still printed as a stream.

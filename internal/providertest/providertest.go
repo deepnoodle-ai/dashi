@@ -100,7 +100,7 @@ func CatalogModelsPrepare(t *testing.T, provider string, client llm.Client) {
 }
 
 // TransportFixture is one provider's wire responses for a single "Hello"
-// answer with ID r1, three input tokens, and two output tokens.
+// reply with ID r1, three input tokens, and two output tokens.
 type TransportFixture struct {
 	// Complete is the blocking response body.
 	Complete string

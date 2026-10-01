@@ -283,17 +283,17 @@ func TestUsageAbsorbCumulativeFrames(t *testing.T) {
 func TestUsageRequestsFinalMerging(t *testing.T) {
 	partial := &Usage{Requests: map[string]int{MeterWebSearch: 1}}
 	partial.Absorb(&Usage{
-		Requests:      map[string]int{MeterWebSearch: 1},
-		RequestsFinal: true,
+		Requests:         map[string]int{MeterWebSearch: 1},
+		RequestsComplete: true,
 	})
-	if !partial.RequestsFinal || !partial.Copy().RequestsFinal {
+	if !partial.RequestsComplete || !partial.Copy().RequestsComplete {
 		t.Fatal("a final frame did not complete earlier counts")
 	}
-	sum := &Usage{RequestsFinal: true}
+	sum := &Usage{RequestsComplete: true}
 	if err := sum.Add(partial); err != nil {
 		t.Fatal(err)
 	}
-	if sum.RequestsFinal {
+	if sum.RequestsComplete {
 		t.Fatal("a sum across calls claims to be one final report")
 	}
 }

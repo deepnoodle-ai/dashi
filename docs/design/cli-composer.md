@@ -38,7 +38,7 @@ Use one private inventory of canonical names, aliases, usage, description, avail
 | Ctrl+C | Interrupt running work; idle exit requires an unchanged repeat within two seconds. Dialog controls retain precedence. |
 | Ctrl+D | Delete at cursor in nonempty main input; empty input requests exit with pending/queued-loss protection. |
 
-Normalize aliases before dispatch: `/q` and `/exit` use `/quit`; `/?` uses `/help`. All leading slash submissions are commands in idle and running modes. Unknown names warn rather than entering Prompt or Steer. Running help/queue and implemented immediate transcript actions run now; quit cancels and settles under existing rules. Every other command reports “submit again when the turn ends.” Do not store a deferred command or claim one exists. Compaction remains a retry-only command while running. Update the guide's current promise that commands wait automatically.
+Normalize aliases before dispatch: `/q` and `/exit` use `/quit`; `/?` uses `/help`. All leading slash submissions are commands in idle and running modes. Unknown names warn rather than entering Prompt or Steer. Running help/queue and implemented immediate transcript actions run now; quit cancels and lets running work finish under existing rules. Every other command reports “submit again when the turn ends.” Do not store a deferred command or claim one exists. Compaction remains a retry-only command while running. Update the guide's current promise that commands wait automatically.
 
 Command completion preserves leading whitespace, arguments, and remaining lines. Match the first command-name token using Unicode-aware, case-insensitive exact/prefix ranking, then subsequence ranking with lexical tie-breaking. Include aliases without duplicating canonical help rows. A bare slash enumerates available names. Enter submits the displayed text, not an implicit top suggestion.
 
@@ -58,7 +58,7 @@ The orchestrator owns the Wonton foundation contract and freezes its exported me
 - Leave application rendering/input routing suspended while the child runs. Preserve screen mode, mouse mode, raw mode, cursor state, and the original input source.
 - Wait for child termination before restarting decoding. Editor keystrokes cannot become later Dashi events. Preserve pre-handoff application events without sending them to the child.
 - Restore prior terminal/input state and force a repaint on every child return, including launch error and cancellation. Reject nested or unsupported handoffs before invoking the child.
-- Return callback and restoration failures separately. A restoration failure stops interactive admission and reports the cause on stderr; Dashi must not continue with uncertain input ownership.
+- Return callback and restoration failures separately. A restoration failure stops accepting interactive input and reports the cause on stderr; Dashi must not continue when it cannot tell who owns input.
 
 Existing `Runtime.Suspend` retains stdin and remains the decoded-key transcript viewer API. Do not launch an editor through it, race os.Stdin, or add a private terminal reader. Qualify Wonton's Ctrl-D mapping as delete-at-cursor for nonempty composer text; at empty input the application owns exit.
 
@@ -68,7 +68,7 @@ After successful child exit and successful restoration, read valid UTF-8 from th
 
 A private exit guard tracks canonical action, confirmation time, and draft revision. Preserve slice 1's selection/dialog handling before composer exit. Running Ctrl-C remains Controller interruption and clears idle confirmation. First idle Ctrl-C emits one notice with draft presence, Engine.Queued count, pending status, and a two-second repeat instruction. Engine.Queued already includes the pending Start: do not count it twice. A second unchanged idle Ctrl-C within two seconds accepts all disclosed loss once, avoiding another keepQueued warning.
 
-Editing, another action, expiry, or new volatile input invalidates confirmation. Ctrl-D on nonempty text reaches Wonton's delete behavior. Empty Ctrl-D and explicit quit/new/sessions retain existing repeat-action queue protection and canonicalize aliases. Never infer saved delivery from recall persistence. Keep cancellation, recorder reconciliation, and session switching in their existing owners.
+Editing, another action, expiry, or new volatile input invalidates confirmation. Ctrl-D on nonempty text reaches Wonton's delete behavior. Empty Ctrl-D and explicit quit/new/sessions retain existing repeat-action queue protection and canonicalize aliases. Never infer saved delivery from recall persistence. Keep cancellation, checks of unknown recorder writes, and session switching in their existing owners.
 
 ## Alternatives, rollout, and verification
 

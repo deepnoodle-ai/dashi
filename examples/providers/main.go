@@ -1,5 +1,5 @@
 // Command providers sends the same one-shot prompt to the provider chosen by
-// -provider, then prints the answer, the model that served it, and its cost.
+// -provider, then prints the reply, the model that served it, and its cost.
 // Only client construction differs between providers; the call is the same.
 //
 // Set the chosen provider's key: ANTHROPIC_API_KEY, OPENAI_API_KEY,
@@ -226,7 +226,7 @@ func formatCost(c llm.Cost) string {
 			))
 		}
 		return fmt.Sprintf(
-			"at least %s %s (%s; unpriced hosted requests: %s)",
+			"at least %s %s (%s; unpriced provider tool requests: %s)",
 			c.Total,
 			c.Currency,
 			c.Source,

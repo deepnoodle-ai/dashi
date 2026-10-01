@@ -12,7 +12,8 @@ import (
 )
 
 // Each validation call owns this cache. Covered prefixes are immutable, and
-// no cache escapes replay or shares mutable data with a public caller.
+// no cache outlives the rebuild of the turn's state or shares mutable data
+// with a public caller.
 type contextValidationCache struct {
 	prefixes map[int64][]contextMessage
 	states   map[int64]*replayState
@@ -26,17 +27,17 @@ type contextMessage struct {
 
 const activeSummaryFrame = "Summary of earlier settled work in this request (context, not a new instruction):"
 
-func modelPurpose(t Turn, attempt string) ModelPurpose {
+func modelPurpose(t Turn, modelCall string) ModelPurpose {
 	for _, step := range t.Steps {
-		if step.Kind == StepModelIntent && step.Model.AttemptID == attempt {
+		if step.Kind == StepModelCallStarted && step.Model.ModelCallID == modelCall {
 			return step.Model.Purpose
 		}
 	}
 	return ""
 }
-func compactionPlan(t Turn, attempt string) *ContextCompactionPlan {
+func compactionPlan(t Turn, modelCall string) *ContextCompactionPlan {
 	for _, step := range t.Steps {
-		if step.Kind == StepModelIntent && step.Model.AttemptID == attempt {
+		if step.Kind == StepModelCallStarted && step.Model.ModelCallID == modelCall {
 			return step.Model.Compaction
 		}
 	}
@@ -68,7 +69,7 @@ type contextGroup struct {
 }
 
 // A model message and all of its paired results have one source sequence.
-// Provider pauses form a chain through their closing result. User deliveries
+// Provider pauses form a chain through their closing result. Added user items
 // remain independent protected messages even when interleaved in that chain.
 func contextGroups(t Turn, messages []contextMessage) []contextGroup {
 	groupSeq := map[int64]int64{}
@@ -79,9 +80,9 @@ func contextGroups(t Turn, messages []contextMessage) []contextGroup {
 		case StepContextCompacted:
 			groupSeq[step.Seq] = step.Seq
 			eligible[step.Seq] = true
-		case StepModelSettled, StepModelReconciled:
+		case StepModelCallFinished, StepModelCallFinishedByHost:
 			f := step.Model
-			if modelPurpose(t, f.AttemptID) == ModelPurposeCompaction || f.Result == nil || f.Error != "" || f.Interrupted != "" {
+			if modelPurpose(t, f.ModelCallID) == ModelPurposeCompaction || f.Result == nil || f.Error != "" || f.Interrupted != "" {
 				continue
 			}
 			if chain == 0 {
@@ -90,7 +91,7 @@ func contextGroups(t Turn, messages []contextMessage) []contextGroup {
 			groupSeq[step.Seq] = chain
 			safe := f.Result.Stop.Kind == llm.StopFinished || f.Result.Stop.Kind == llm.StopToolUse
 			for _, c := range f.Result.Message.Content {
-				if c.Kind == llm.ContentHostedApprovalRequest {
+				if c.Kind == llm.ContentProviderToolApprovalRequest {
 					safe = false
 				}
 			}
@@ -141,7 +142,7 @@ func coveredMessagesCached(t Turn, plan *ContextCompactionPlan, cache *contextVa
 				return nil, err
 			}
 		}
-		visible, err = projectedMessagesState(prefix, nil, true, state, cache)
+		visible, err = turnMessagesState(prefix, nil, true, state, cache)
 		if err != nil {
 			return nil, err
 		}
@@ -185,44 +186,44 @@ func coveredMessagesCached(t Turn, plan *ContextCompactionPlan, cache *contextVa
 	if !slices.Equal(actual, plan.Covered) {
 		return nil, errors.New("compaction coverage differs from visible source order")
 	}
-	fingerprint, err := historyFingerprint(messages)
+	hash, err := historyHash(messages)
 	if err != nil {
 		return nil, err
 	}
-	if fingerprint != plan.Digest {
-		return nil, errors.New("compaction coverage digest mismatch")
+	if hash != plan.Hash {
+		return nil, errors.New("compaction coverage hash mismatch")
 	}
 	return messages, nil
 }
-func (s *replayState) validateCompactionIntent(step Step) error {
+func (s *replayState) validateCompactionCallStart(step Step) error {
 	f := step.Model
 	if f.Purpose == "" {
 		if f.Compaction != nil {
-			return errors.New("ordinary intent has compaction plan")
+			return errors.New("ordinary call start has compaction plan")
 		}
 		if s.pendingCompaction != "" {
 			return errors.New("summary must be applied before ordinary dispatch")
 		}
 		return nil
 	}
-	if f.Purpose != ModelPurposeCompaction || f.Compaction == nil || f.Compaction.Through >= step.Seq || f.Compaction.Window != s.ActiveCompactionWindow || s.Agent.ActiveCompaction == nil || s.Agent.ActiveCompaction.Disabled || s.Origin == StartCompaction || len(f.Tools) > 0 || f.FinalAnswerOnly || s.attemptCap-s.ModelAttempts < 2 || s.pendingCompaction != "" {
-		return errors.New("invalid summary intent")
+	if f.Purpose != ModelPurposeCompaction || f.Compaction == nil || f.Compaction.Through >= step.Seq || f.Compaction.Window != s.ActiveCompactionWindow || s.Agent.ActiveCompaction == nil || s.Agent.ActiveCompaction.Disabled || s.Origin == StartCompaction || len(f.Tools) > 0 || f.FinalReplyOnly || s.modelCallCap-s.ModelCalls < 2 || s.pendingCompaction != "" {
+		return errors.New("invalid summary call start")
 	}
 	_, err := coveredMessagesCached(s.source, f.Compaction, s.contextCache)
 	return err
 }
-func (s *replayState) validateCompactionSettlement(f *ModelFact) error {
-	intent := s.modelIntents[f.AttemptID]
-	if intent == nil {
-		return errors.New("missing model intent")
+func (s *replayState) validateCompactionFinish(f *ModelFact) error {
+	callStart := s.startedModelCalls[f.ModelCallID]
+	if callStart == nil {
+		return errors.New("missing model call start")
 	}
-	if f.Purpose != "" && f.Purpose != intent.Purpose {
-		return errors.New("model settlement changed purpose")
+	if f.Purpose != "" && f.Purpose != callStart.Purpose {
+		return errors.New("model call result changed purpose")
 	}
 	if f.Compaction != nil {
-		return errors.New("settlement cannot change summary plan")
+		return errors.New("a call's result cannot change the summary plan")
 	}
-	if intent.Purpose == ModelPurposeCompaction && f.Error == "" && f.Interrupted == "" {
+	if callStart.Purpose == ModelPurposeCompaction && f.Error == "" && f.Interrupted == "" {
 		if f.Result == nil {
 			return errors.New("summary lacks result")
 		}
@@ -240,7 +241,7 @@ func validActiveSummary(result *llm.Result) (string, error) {
 		return "", errors.New("summary did not finish")
 	}
 	for _, c := range result.Message.Content {
-		if c.Kind == llm.ContentToolCall || c.Kind == llm.ContentHostedUse || c.Kind == llm.ContentHostedResult || c.Kind == llm.ContentHostedApprovalRequest || c.Kind == llm.ContentHostedApprovalResponse {
+		if c.Kind == llm.ContentToolCall || c.Kind == llm.ContentProviderToolUse || c.Kind == llm.ContentProviderToolResult || c.Kind == llm.ContentProviderToolApprovalRequest || c.Kind == llm.ContentProviderToolApprovalResponse {
 			return "", errors.New("summary requested tool work")
 		}
 	}
@@ -252,22 +253,22 @@ func validActiveSummary(result *llm.Result) (string, error) {
 }
 func (s *replayState) applyContextCompaction(step Step) error {
 	f := step.Compacted
-	if f == nil || f.AttemptID != s.pendingCompaction || s.Stop.Terminal {
+	if f == nil || f.ModelCallID != s.pendingCompaction || s.Stop.Ended {
 		return errors.New("context replacement has no unapplied summary")
 	}
-	intent := s.modelIntents[f.AttemptID]
-	settled := s.modelSettlements[f.AttemptID]
-	if intent == nil || settled == nil || settled.Error != "" || settled.Interrupted != "" {
+	callStart := s.startedModelCalls[f.ModelCallID]
+	finished := s.modelFinishes[f.ModelCallID]
+	if callStart == nil || finished == nil || finished.Error != "" || finished.Interrupted != "" {
 		return errors.New("context replacement has no completed summary")
 	}
-	text, err := validActiveSummary(settled.Result)
+	text, err := validActiveSummary(finished.Result)
 	if err != nil {
 		return err
 	}
-	if text != f.Summary || f.EstimatedAfter < 0 || f.EstimatedAfter >= intent.Compaction.EstimatedBefore {
+	if text != f.Summary || f.EstimatedAfter < 0 || f.EstimatedAfter >= callStart.Compaction.EstimatedBefore {
 		return errors.New("context replacement lacks matching summary or savings")
 	}
-	if _, err = coveredMessagesCached(s.source, intent.Compaction, s.contextCache); err != nil {
+	if _, err = coveredMessagesCached(s.source, callStart.Compaction, s.contextCache); err != nil {
 		return fmt.Errorf("context replacement: %w", err)
 	}
 	s.ContextCompactions = append(s.ContextCompactions, *f)
@@ -279,7 +280,7 @@ func (s *replayState) applyContextCompaction(step Step) error {
 func lastModelPurpose(t Turn) ModelPurpose {
 	for i := len(t.Steps) - 1; i >= 0; i-- {
 		step := t.Steps[i]
-		if step.Kind == StepModelIntent {
+		if step.Kind == StepModelCallStarted {
 			return step.Model.Purpose
 		}
 	}

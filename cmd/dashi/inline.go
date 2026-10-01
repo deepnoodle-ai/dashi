@@ -81,7 +81,7 @@ func (i *inlineScreen) flushCompleted() {
 	}
 	// Native scrollback cannot replace a completed row. A recorded warning
 	// can replace its initial protection marker after that row was printed,
-	// so append the authoritative correction once, before later answers.
+	// so append the authoritative correction once, before later replies.
 	var updates []int
 	for id, text := range i.protectionPrinted {
 		n, ok := i.tr.index[id]

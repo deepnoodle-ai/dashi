@@ -11,27 +11,27 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// ArgsDigest returns the digest that binds an ApprovalFact to a tool call's
+// ArgsHash returns the hash that ties an ApprovalDecision to a tool call's
 // arguments. It depends only on the arguments' JSON meaning, so arguments
 // shown before a recorder stored them and the same arguments reloaded from a
-// store that reorders keys or respells numbers give the same digest. A
-// pending call's ToolView.ArgsDigest holds this value already.
-func ArgsDigest(args json.RawMessage) string {
-	return canonjson.Digest(args)
+// store that reorders keys or respells numbers give the same hash. A
+// pending call's ToolView.ArgsHash holds this value already.
+func ArgsHash(args json.RawMessage) string {
+	return canonjson.Hash(args)
 }
 
 // CompactionFact is recorded in the start fact of a compaction turn. With
-// the turn's answer it forms the replacement history: Keep[:SummaryAt], a
+// the turn's reply it forms the replacement history: Keep[:SummaryAt], a
 // user message of Frame and the summary, then Keep[SummaryAt:]. The
-// summary is the text inside the answer's last <summary> and </summary>
-// tags, or the whole answer when it has none. This is the
+// summary is the text inside the reply's last <summary> and </summary>
+// tags, or the whole reply when it has none. This is the
 // one place a turn records earlier messages, so a reader with no Compactor
 // builds the same history.
 type CompactionFact struct {
 	// Through is the last turn covered.
 	Through int `json:"through"`
-	// Digest is the history fingerprint of the projected history replaced.
-	Digest string `json:"digest"`
+	// Hash is the history hash of the messages this compaction replaces.
+	Hash string `json:"hash"`
 	// Keep holds the messages the replacement history keeps, which need not
 	// be a contiguous tail.
 	Keep []llm.Message `json:"keep,omitempty"`
@@ -70,19 +70,19 @@ func validateCompaction(origin StartOrigin, f *CompactionFact) error {
 type OutputSource string
 
 const (
-	// OutputFromTool was submitted through the reserved output tool.
-	OutputFromTool OutputSource = "tool_call"
-	// OutputFromText was extracted from the final assistant text.
-	OutputFromText OutputSource = "text"
+	// OutputSourceToolCall was submitted through the reserved output tool.
+	OutputSourceToolCall OutputSource = "tool_call"
+	// OutputSourceText was extracted from the final assistant text.
+	OutputSourceText OutputSource = "text"
 )
 
-// StructuredOutput is a schema-validated final value. ToolCallID or AttemptID
+// StructuredOutput is a schema-validated final value. ToolCallID or ModelCallID
 // ties it to the model evidence from which it was derived.
 type StructuredOutput struct {
-	Value      json.RawMessage `json:"value"`
-	Source     OutputSource    `json:"source"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
-	AttemptID  string          `json:"attempt_id"`
+	Value       json.RawMessage `json:"value"`
+	Source      OutputSource    `json:"source"`
+	ToolCallID  string          `json:"tool_call_id,omitempty"`
+	ModelCallID string          `json:"model_call_id"`
 }
 
 // StartFact pins the agent, inputs, and optional cap for a turn.
@@ -93,10 +93,10 @@ type StartFact struct {
 	Budget       *Budget         `json:"budget,omitempty"`
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 	Origin       StartOrigin     `json:"origin,omitempty"`
-	// HistoryFingerprint identifies the caller-owned prior conversation at
+	// HistoryHash identifies the caller-owned prior conversation at
 	// Start.
-	HistoryFingerprint string        `json:"history_fingerprint,omitempty"`
-	Input              []llm.Message `json:"input"`
+	HistoryHash string        `json:"history_hash,omitempty"`
+	Input       []llm.Message `json:"input"`
 	// Parent is the tool call that caused this turn, when another turn's
 	// tool started it. It never changes after Start.
 	Parent *CallRef `json:"parent,omitempty"`
@@ -115,53 +115,57 @@ const (
 	StartScheduled StartOrigin = "scheduled"
 	// StartOperator identifies work started by an authorized operator.
 	StartOperator StartOrigin = "operator"
-	// StartCompaction identifies a compaction turn, which
-	// summarizes the projected history. Its start records a CompactionFact.
+	// StartCompaction identifies a compaction turn, which summarizes the
+	// conversation history the model sees. Its start records a
+	// CompactionFact.
 	StartCompaction StartOrigin = "compaction"
 )
 
-// ContextFact records context delivered to an existing turn.
+// ContextFact records context items added to an existing turn.
 type ContextFact struct {
 	Items []ContextItem `json:"items"`
 	// Vetoed marks a loop continuation that records a BeforeFinish veto of
-	// the latest answer. Until a new model result arrives, that answer never
-	// reaches the host through TurnView.Answer, whatever the stop.
+	// the latest reply. Until a new model result arrives, that reply never
+	// reaches the host through TurnView.Reply, whatever the stop.
 	Vetoed bool `json:"vetoed,omitempty"`
 	// Steering marks items that came from a Steering source, recorded on
-	// their own step. Inbox.Leftovers uses it to tell steers from Deliver
+	// their own step. Inbox.Leftovers uses it to tell steers from AddMessages
 	// and hook items.
 	Steering bool `json:"steering,omitempty"`
 }
 
-// ModelFact records intent without persisting the potentially secret-bearing
-// wire body. An unresolved intent must be reconciled, not reconstructed from
-// this digest and dispatched again.
+// ModelFact records a model call: what was about to be sent when the call
+// started, and later how it finished. It never stores the request body,
+// which may hold secrets. A started call with no recorded finish must be
+// resolved by the host, not rebuilt from RequestHash and sent again.
 type ModelFact struct {
 	Purpose    ModelPurpose           `json:"purpose,omitempty"`
 	Compaction *ContextCompactionPlan `json:"compaction,omitempty"`
-	// AttemptID is stable across the intent and its settlement.
-	AttemptID string `json:"attempt_id"`
-	MessageID string `json:"message_id,omitempty"`
-	// RequestDigest identifies the prepared bytes without recording their body.
-	RequestDigest string `json:"request_digest,omitempty"`
-	// FinalAnswerOnly records that application tools were withheld on this call.
-	FinalAnswerOnly bool `json:"final_answer_only,omitempty"`
-	// Admission carries each BeforeSend hook's reservation terms, keyed by
+	// ModelCallID is the same on the call's start step and its finish step.
+	ModelCallID string `json:"model_call_id"`
+	MessageID   string `json:"message_id,omitempty"`
+	// RequestHash identifies the prepared bytes without recording their body.
+	RequestHash string `json:"request_hash,omitempty"`
+	// FinalReplyOnly records that application tools were withheld on this call.
+	FinalReplyOnly bool `json:"final_reply_only,omitempty"`
+	// Reservation carries each BeforeSend hook's reservation terms, keyed by
 	// hook name.
-	Admission map[string]json.RawMessage `json:"admission,omitempty"`
-	// AtRisk is the pre-send worst case; Charge is the settled accounting value.
-	AtRisk *llm.Cost `json:"at_risk,omitempty"`
-	// Charge is the settled amount reconstructed into turn spend.
-	Charge *llm.Cost `json:"charge,omitempty"`
+	Reservation map[string]json.RawMessage `json:"reservation,omitempty"`
+	// WorstCaseCost is the most the call could cost, computed before it is
+	// sent; Cost is the amount recorded when it finishes.
+	WorstCaseCost *llm.Cost `json:"worst_case_cost,omitempty"`
+	// Cost is the call's final cost, which counts toward the turn's Spend.
+	Cost *llm.Cost `json:"cost,omitempty"`
 	// EstimatedInputTokens is the recorded fallback when input usage is absent.
 	EstimatedInputTokens int `json:"estimated_input_tokens,omitempty"`
-	// EstimatedUsage marks settlements with missing or partial token usage.
+	// EstimatedUsage marks a finished call whose token usage was missing or
+	// partial.
 	EstimatedUsage   bool                 `json:"estimated_usage,omitempty"`
 	Provider         string               `json:"provider,omitempty"`
 	API              string               `json:"api,omitempty"`
 	Model            string               `json:"model,omitempty"`
 	Effective        llm.Settings         `json:"effective,omitzero"`
-	Origin           content.Origin       `json:"origin,omitzero"`
+	Endpoint         content.Origin       `json:"endpoint,omitzero"`
 	Adjustments      []llm.Adjustment     `json:"adjustments,omitempty"`
 	ContentChanges   []llm.ContentChange  `json:"content_changes,omitempty"`
 	ModelInfo        *llm.ModelInfo       `json:"model_info,omitempty"`
@@ -169,50 +173,51 @@ type ModelFact struct {
 	Unverified       []llm.Feature        `json:"unverified,omitempty"`
 	Tools            []tool.Definition    `json:"tools,omitempty"`
 	// Hidden names the tools BeforeModel hooks removed from this call. A
-	// call to one of them settles as not available, by this record.
+	// call to one of them finishes as not available, by this record.
 	Hidden []string    `json:"hidden,omitempty"`
 	Result *llm.Result `json:"result,omitempty"`
 	Error  string      `json:"error,omitempty"`
 	// ErrorReason is a stable, optional model failure code. It is absent on
 	// older records and does not replace the human-readable Error.
-	ErrorReason llm.ErrorReason        `json:"error_reason,omitempty"`
-	Failure     llm.FailureDisposition `json:"failure,omitempty"`
-	Evidence    string                 `json:"evidence,omitempty"`
-	// Uncertain means the model effect cannot yet be classified as settled or
-	// safely not dispatched.
-	Uncertain bool `json:"uncertain,omitempty"`
+	ErrorReason llm.ErrorReason `json:"error_reason,omitempty"`
+	SendStatus  llm.SendStatus  `json:"send_status,omitempty"`
+	Evidence    string          `json:"evidence,omitempty"`
+	// ResultUnknown means it is not yet known whether the provider ran the
+	// call: it may have run, or it may safely never have been sent.
+	ResultUnknown bool `json:"result_unknown,omitempty"`
 
-	// Interrupted, when set, names why the call was cut short. The settlement
-	// preserves partial output and usage without making them actionable, and
+	// Interrupted, when set, names why the call was cut short. The finish
+	// step keeps the partial output and usage without acting on them, and
 	// a later model call may safely replace this one.
 	Interrupted InterruptCause `json:"interrupted,omitempty"`
-	// NoDispatch excludes an intent stopped before the provider call began.
-	NoDispatch bool `json:"no_dispatch,omitempty"`
+	// NotSent marks a started call that stopped before the request went to
+	// the provider.
+	NotSent bool `json:"not_sent,omitempty"`
 }
 
 // InterruptCause records why a model call was cut short before it produced a
 // complete result. The zero value, InterruptNone, means it was not. The cause
-// is recorded rather than a flag so replay, accounting, and live consumers can
-// tell a crash recovery from a stop the run chose.
+// is recorded rather than a flag so View, cost accounting, and live readers
+// can tell a crash recovery from a stop the run chose.
 type InterruptCause string
 
 const (
 	// InterruptNone means the call was not interrupted.
 	InterruptNone InterruptCause = ""
-	// InterruptWorker settles a call recovered after the worker stopped
+	// InterruptWorker finishes a call recovered after the worker stopped
 	// before its result was recorded (decision 24).
 	InterruptWorker InterruptCause = "worker"
-	// InterruptRun settles a call the run stopped: its context ended, the
-	// turn deadline passed, or a pause arrived before dispatch.
+	// InterruptRun finishes a call the run stopped: its context ended, the
+	// turn deadline passed, or a pause arrived before the call was sent.
 	InterruptRun InterruptCause = "run"
-	// InterruptSteering settles a call an urgent steer cut short. Unlike the
+	// InterruptSteering finishes a call an urgent steer cut short. Unlike the
 	// other causes it does not stop the run: the next call sees the partial
-	// output and the steer. It does not count toward ModelAttempts, but it
+	// output and the steer. It does not count toward ModelCalls, but it
 	// does count toward spend and every Budget cap.
 	InterruptSteering InterruptCause = "steering"
 )
 
-// valid reports whether c is a cause this version records. Replay rejects
+// valid reports whether c is a cause this version records. View rejects
 // any other value rather than guessing how to account for it.
 func (c InterruptCause) valid() bool {
 	switch c {
@@ -222,15 +227,15 @@ func (c InterruptCause) valid() bool {
 	return false
 }
 
-// ModelFailure is host-supplied evidence that a pending model attempt did not
-// produce a result. The host is responsible for verifying this assertion.
+// ModelFailure is host-supplied evidence that a pending model call did not
+// produce a result. The host is responsible for checking that this is true.
 type ModelFailure struct {
-	Disposition llm.FailureDisposition `json:"disposition"`
-	Reason      string                 `json:"reason"`
-	Evidence    string                 `json:"evidence"`
+	SendStatus llm.SendStatus `json:"send_status"`
+	Reason     string         `json:"reason"`
+	Evidence   string         `json:"evidence"`
 }
 
-// ToolFact records a call's authorization, execution, or settlement evidence.
+// ToolFact records a tool call's approval, its start, or its result.
 type ToolFact struct {
 	Call       tool.Call       `json:"call"`
 	Definition tool.Definition `json:"definition,omitzero"`
@@ -245,24 +250,25 @@ type ToolFact struct {
 	Shortened *Shortened `json:"shortened,omitempty"`
 	// Vetoed marks a dashi_submit_output call turned down by a BeforeFinish
 	// veto. Until a new model result arrives, the text of the message that
-	// made the call never reaches the host through TurnView.Answer.
+	// made the call never reaches the host through TurnView.Reply.
 	Vetoed  bool          `json:"vetoed,omitempty"`
 	Outcome *tool.Outcome `json:"outcome,omitempty"`
 	Reason  string        `json:"reason,omitempty"`
 }
 
-// ApprovalFact answers a deferred tool call. Settle accepts it only while
-// the call awaits approval and its arguments are the ones the fact names.
+// ApprovalDecision approves or denies a tool call that needs approval.
+// Resolve accepts it only while the call awaits approval and its arguments
+// are the ones ArgsHash names.
 // Pending.Approve and Pending.Deny build it.
-type ApprovalFact struct {
+type ApprovalDecision struct {
 	CallID  string `json:"call_id"`
 	Approve bool   `json:"approve"`
-	// ArgsDigest binds the answer to the call's arguments by JSON meaning,
-	// not bytes. Pending.Approve copies it from ToolView.ArgsDigest; a host
-	// can compute it with ArgsDigest from the arguments that were shown.
-	// Bare-hex digests from before canonical hashing are still accepted,
+	// ArgsHash ties the decision to the call's arguments by JSON meaning,
+	// not bytes. Pending.Approve copies it from ToolView.ArgsHash; a host
+	// can compute it with ArgsHash from the arguments that were shown.
+	// Bare-hex hashes from before canonical hashing are still accepted,
 	// but only while the arguments keep their original bytes.
-	ArgsDigest string `json:"args_digest"`
+	ArgsHash string `json:"args_hash"`
 	// Reason explains a denial. The next Continue gives it to the model as
 	// the denied call's result.
 	Reason string `json:"reason,omitempty"`
@@ -279,7 +285,7 @@ const (
 	// StopLimited means a turn limit or budget cap stopped execution.
 	StopLimited StopKind = "limited"
 	// StopRefused means a hook refused further execution, or the model
-	// refused to answer.
+	// refused to reply.
 	StopRefused StopKind = "refused"
 	// StopCanceled means a caller explicitly ended the turn.
 	StopCanceled StopKind = "canceled"
@@ -287,11 +293,12 @@ const (
 	StopInterrupted StopKind = "interrupted"
 	// StopFailed means execution ended after a known failure.
 	StopFailed StopKind = "failed"
-	// StopUncertain means an effect requires host reconciliation.
-	StopUncertain StopKind = "uncertain"
+	// StopResultUnknown means a model or tool call may have run, but its
+	// result is unknown; the host must resolve it.
+	StopResultUnknown StopKind = "result_unknown"
 )
 
-// Stop records a turn's terminal or resumable condition.
+// Stop records why a turn stopped, and whether it has ended or can go on.
 type Stop struct {
 	Kind   StopKind `json:"kind"`
 	Reason string   `json:"reason,omitempty"`
@@ -300,32 +307,33 @@ type Stop struct {
 	RefID string `json:"ref_id,omitempty"`
 	// Limit enables callers to handle a limited stop without parsing Reason.
 	Limit *LimitDetail `json:"limit,omitempty"`
-	// Terminal means the turn has ended: no command can run it again,
-	// whatever the host settles or raises. It is true for completed and
+	// Ended means the turn has ended: no command can run it again,
+	// whatever the host resolves or raises. It is true for completed and
 	// canceled turns; for a limited turn stopped by its deadline or its
-	// interruptions limit; and for a turn limited by cost whose spend
+	// resumes limit; and for a turn limited by cost whose spend
 	// includes a cost that cannot be priced; or a token-capped turn whose
-	// usage aggregation is incomplete. A turn stopped at its model
-	// attempt limit is not terminal: Continue.ModelAttempts raises the limit.
+	// usage totals are incomplete. A turn stopped at its model call
+	// limit has not ended: Continue.ModelCalls raises the limit.
 	// The runner sets it when it records the stop.
 	//
-	// After a terminal stop the record accepts only late results of work
-	// that had already started, and other commands give ErrTurnEnded. A
-	// live reader that stops at a terminal stop can miss those results; a
-	// reload shows them. Project ignores them: an ended turn's projection
-	// is fixed at its terminal stop, and so is TurnView.Answer.
-	Terminal bool `json:"terminal,omitempty"`
-	// Projected means the record holds no stop after the latest Start or
+	// After the stop that ended the turn, the record accepts only late
+	// results of work that had already started, and other commands give
+	// ErrTurnEnded. A live reader that stops at the ending stop can miss
+	// those results; a reload shows them. TurnMessagesFull ignores them: an
+	// ended turn's messages are fixed at its ending stop, and so is
+	// TurnView.Reply.
+	Ended bool `json:"ended,omitempty"`
+	// Inferred means the record holds no stop after the latest Start or
 	// Continue: the run ended without recording one, or is still going.
-	// Replay and Outcome then infer Kind from the work in flight, and Kind
-	// is empty when none is. A recorded stop is never projected. A hook's
-	// view of a live run has an empty Stop that is not projected.
-	Projected bool `json:"projected,omitempty"`
+	// View and RunResult then infer Kind from the work in flight, and Kind
+	// is empty when none is. A recorded stop is never inferred. A hook's
+	// view of a live run has an empty Stop that is not inferred.
+	Inferred bool `json:"inferred,omitempty"`
 }
 
 // Stop reasons for a StopFailed turn ended by a tool or a hook. The reason
 // is a stable code a host can branch on; the error text stays on the record.
-// The tool reasons leave the failing call settled, so once the host has
+// The tool reasons leave the failing call finished, so once the host has
 // fixed the cause, Continue resumes the turn and the model sees the failure
 // as the call's result.
 const (
@@ -336,37 +344,44 @@ const (
 
 	// StopReasonToolOutcomeInvalid means an executor returned an outcome
 	// that fails tool.Outcome.Validate. This is a bug in the executor, not
-	// an uncertain effect: the runner observed the result, and it was
-	// malformed.
+	// an unknown result: the runner saw the result, and it was malformed.
 	StopReasonToolOutcomeInvalid = "tool_outcome_invalid"
 
 	// StopReasonHookFailed means a BeforeSend or BeforeFinish hook returned
-	// an error or an invalid answer; the step's HookResults name the hook.
+	// an error or an invalid decision; the step's HookResults name the hook.
 	// Fix the cause, then Continue: the turn resumes where it stopped. A
-	// failed stop does not count toward Limits.Interruptions.
+	// failed stop does not count toward Limits.Resumes.
 	StopReasonHookFailed = "hook_failed"
 
 	// StopReasonOutputRejected means a BeforeFinish hook vetoed the final
-	// answer with a Reason when no further model call could happen, or
-	// vetoed the reserved final answer itself. The
-	// rejection is recorded and no output is accepted; Outcome.Answer is
+	// reply with a Reason when no further model call could happen, or
+	// vetoed the reserved final reply itself. The
+	// rejection is recorded and no output is accepted; RunResult.Reply is
 	// empty. Continue after raising the limit that stopped it (such as the
-	// Budget) lets the model see the rejection and answer again; with no
-	// model attempts left, Continue ends the turn limited.
+	// Budget) lets the model see the rejection and reply again; with no
+	// model calls left, Continue ends the turn limited.
 	StopReasonOutputRejected = "output_rejected"
+
+	// StopReasonEmptyResponse means the model's final reply had no text and
+	// no BeforeFinish hook accepted an empty reply.
+	StopReasonEmptyResponse = "empty_response"
+
+	// StopReasonIncompleteModelResult means the provider reported a stop
+	// that Dashi does not recognize, so the result may be cut short.
+	StopReasonIncompleteModelResult = "incomplete_model_result"
 )
 
 // Stop reasons for a StopFailed turn that a content reference stopped. Stop.RefID
-// names the reference. The stop is not terminal. The runner asks the
-// ContentResolver again on Continue, so a host can fix the cause (restore the
-// bytes, grant access, raise ContentLimits, or set a resolver) and then
-// Continue. The stop never holds bytes or the resolver's error text.
+// names the reference. The stop does not end the turn. The runner asks the
+// ContentLoader again on Continue, so a host can fix the cause (restore the
+// bytes, grant access, raise ContentLimits, or set a loader) and then
+// Continue. The stop never holds bytes or the loader's error text.
 const (
-	// StopReasonContentNoResolver means the input holds a reference and the
-	// Runner has no ContentResolver.
-	StopReasonContentNoResolver = "content_no_resolver"
+	// StopReasonContentNoLoader means the input holds a reference and the
+	// Runner has no ContentLoader.
+	StopReasonContentNoLoader = "content_no_loader"
 
-	// StopReasonContentUnavailable means the ContentResolver returned an
+	// StopReasonContentUnavailable means the ContentLoader returned an
 	// error for the reference: it is missing, or the turn may not read it.
 	StopReasonContentUnavailable = "content_unavailable"
 
@@ -374,22 +389,11 @@ const (
 	// of all references in one request, is over ContentLimits.
 	StopReasonContentTooLarge = "content_too_large"
 
-	// StopReasonContentSizeMismatch means the resolved bytes have a length
+	// StopReasonContentSizeMismatch means the loaded bytes have a length
 	// other than the declared Size.
 	StopReasonContentSizeMismatch = "content_size_mismatch"
 
-	// StopReasonContentDigestMismatch means the SHA-256 of the resolved
-	// bytes differs from the declared digest.
-	StopReasonContentDigestMismatch = "content_digest_mismatch"
-)
-
-// Persistence classifies a step write the recorder did not acknowledge.
-type Persistence string
-
-const (
-	// PersistenceRejected means the recorder confirmed that it did not commit.
-	PersistenceRejected Persistence = "rejected"
-	// PersistenceUnknown means the caller must load the turn to determine whether
-	// the recorder committed the write.
-	PersistenceUnknown Persistence = "unknown"
+	// StopReasonContentHashMismatch means the SHA-256 of the loaded
+	// bytes differs from the declared hash.
+	StopReasonContentHashMismatch = "content_hash_mismatch"
 )

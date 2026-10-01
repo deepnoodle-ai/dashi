@@ -37,7 +37,7 @@ func TestServerProcess(t *testing.T) {
 
 const transcript = "MCP server demo: connected (1 tool)\n" +
 	"MCP result: {\"sum\":5}\n" +
-	"Scripted answer: 2 + 3 = 5.\n"
+	"Scripted reply: 2 + 3 = 5.\n"
 
 func TestRunClosesChild(t *testing.T) {
 	for _, name := range []string{"success", "output failure", "cancelled"} {
@@ -123,7 +123,7 @@ func Example() {
 	// Output:
 	// MCP server demo: connected (1 tool)
 	// MCP result: {"sum":5}
-	// Scripted answer: 2 + 3 = 5.
+	// Scripted reply: 2 + 3 = 5.
 }
 
 func buildExample(ctx context.Context, dir string) string {

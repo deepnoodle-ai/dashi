@@ -36,13 +36,14 @@ for event, err := range llm.Stream(ctx, client, llm.Call{Request: request}) {
 
 Running the example makes a paid request.
 
-For independent public reasoning-summary requests, see [reasoning summaries](reasoning-summaries.md).
+For independent public reasoning-summary requests, see
+[reasoning summaries](reasoning-summaries.md).
 
 ## Native structured output on OpenAI Responses
 
 For a direct call that needs one JSON object, set `llm.Input.OutputSchema`.
 The Responses client sends OpenAI's strict JSON Schema format, then checks the
-finished answer locally. `Result.Output` contains the validated JSON object;
+finished reply locally. `Result.Output` contains the validated JSON object;
 `Result.Message` and `Result.Raw` still describe the provider response.
 
 ```go
@@ -76,9 +77,10 @@ object must name all its properties in `required` and set
 `additionalProperties:false`; nested types may pair one type with `null`.
 The subset allows `type`, `properties`, `required`, `additionalProperties`,
 `items`, `enum`, and `description`, with at most five nesting levels, 100
-properties, 250 enum values, and 32 KiB of schema. The validated answer is
-limited to 256 KiB. `MustOutputSchema[T]` was designed for agent turns and can emit
-optional fields that this route rejects; use a strict-compatible schema here.
+properties, 250 enum values, and 32 KiB of schema. The validated reply is
+limited to 256 KiB. `MustOutputSchema[T]` was designed for agent turns and can
+emit optional fields that this route rejects; use a strict-compatible schema
+here.
 An empty `OutputSchema` keeps ordinary model-call behavior.
 
 This route does not combine a schema with current-call tools or an agent turn.
@@ -171,7 +173,8 @@ provider this way.
 `Prepare` validates and encodes without network access. Its immutable `Request`
 and recordable `RequestSnapshot` preserve the original input, effective
 settings, typed adjustments and their warnings, content changes, model
-evidence, and one exact body. Preparation is not proof of dispatch or receipt.
+evidence, and one exact body. Preparation does not prove the request was sent
+or received.
 The snapshot always records the resolved `capability_policy`, `adjust` or
 `strict`.
 
@@ -188,7 +191,7 @@ PDFs as base64, and rejects other document and image types at preparation.
 Image and video generation detect the MIME type of inline inputs the same way.
 
 Set `Settings.Citations` to have the model cite passages of the request's
-documents. Citations arrive on the answer's text blocks, which a cited answer
+documents. Citations arrive on the reply's text blocks, which a cited reply
 splits one per passage; `Citation.Location` gives the page or character range.
 Anthropic supports citations, and the catalog records that for its models, so
 strict preparation accepts them; other APIs omit the setting with a warning
@@ -199,13 +202,13 @@ example](../../examples/documents/main.go) and
 ## Send, Stream, and Generate
 
 `Send` takes an `llm.Call`: the prepared `Request`, an optional `Sink`, and an
-`Attempt` that a recording caller such as a Dashi turn sets and a direct call
+`Identity` that a recording caller such as a Dashi turn sets and a direct call
 leaves zero. `Input.Stream` selects streaming; a sink observes deltas without
 changing the request. A nil sink still collects a streaming result. Each `Send`
-makes at most one HTTP dispatch; the caller handles recording, admission, and
-any retry.
+sends at most one HTTP request; the caller handles recording, spending checks,
+and any retry.
 
-`llm.Stream` starts that dispatch when ranged, yields deltas with backpressure,
+`llm.Stream` sends that request when ranged, yields deltas with backpressure,
 then yields one final result. Breaking the range cancels the request. The
 sequence is single-use; ranging it again returns `llm.ErrStreamConsumed`.
 `Send` remains available when one collected result is simpler.
@@ -242,9 +245,9 @@ history and execution IDs remain unchanged; unsafe private replay edits fail.
 Tool definitions use raw JSON Schema. `tool.Func` generates and validates a
 schema before executing the callback; see [tools](tools.md) for its rules. A
 tool's Go error is a failure the model sees; wrap it with `tool.Fatal` to stop
-the turn instead. Only a panic or a lost result makes a call uncertain. Deltas
-are provisional: inspect the final result and stop kind before acting on tool
-calls.
+the turn instead. Only a panic or a lost result makes a call's result unknown.
+Deltas are provisional: inspect the final result and stop kind before acting on
+tool calls.
 
 ## Usage and cost
 
@@ -261,7 +264,7 @@ shows this flow, including a default-tier check and an unknown-cost message.
 It constructs default public clients. With a custom transport, proxy, or other
 destination, `llm.Client` does not prove where the request actually ran;
 qualify that routing and its price independently before using a catalog sheet.
-Provider-hosted work is counted in `Usage.Requests` by meter
+Provider tool work is counted in `Usage.Requests` by meter
 key, such as `llm.MeterWebSearch`, and priced by `Pricing.Requests`. When the
 sheet lacks a rate for a key, `Estimate` still prices the rest and lists those
 counts in `Cost.UnpricedRequests`; `Cost.Partial` reports that `Total` is then

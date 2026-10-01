@@ -292,11 +292,11 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
 	turn := reload(t, rec, "t1")
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The bug: byte digests of the reloaded definition differ from the live one.
+	// The bug: byte hashes of the reloaded definition differ from the live one.
 	if byteHex(view.Tools["call-1"].Definition) == byteHex(binding.Definition) {
 		t.Fatal("simulation left the tool definition byte-identical")
 	}
@@ -316,22 +316,22 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		t.Fatalf("retried start=%+v err=%v", again.Stop, err)
 	}
 
-	// The application may digest the arguments it saw live or reloaded.
+	// The application may hash the arguments it saw live or reloaded.
 	for _, args := range []json.RawMessage{
 		messyArgs,
 		view.Tools["call-1"].Call.Args,
 	} {
-		if canonjson.Digest(args) != ArgsDigest(view.Tools["call-1"].Call.Args) {
-			t.Fatalf("approval digest of %s does not match", args)
+		if canonjson.Hash(args) != ArgsHash(view.Tools["call-1"].Call.Args) {
+			t.Fatalf("approval hash of %s does not match", args)
 		}
 	}
-	approval := ApprovalFact{
-		CallID:     "call-1",
-		Approve:    true,
-		ArgsDigest: canonjson.Digest(messyArgs),
+	approval := ApprovalDecision{
+		CallID:   "call-1",
+		Approve:  true,
+		ArgsHash: canonjson.Hash(messyArgs),
 	}
-	settle := Settle{CommandID: "approve", CallID: "call-1", Approval: &approval}
-	out, err = runner.Run(t.Context(), turn, settle)
+	finish := Resolve{CommandID: "approve", CallID: "call-1", Approval: &approval}
+	out, err = runner.Run(t.Context(), turn, finish)
 	if err != nil || !out.ReadyToContinue {
 		t.Fatalf("approve=%+v err=%v", out, err)
 	}
@@ -339,7 +339,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 	if _, err := runner.Run(
 		t.Context(),
 		turn,
-		settle,
+		finish,
 	); err != nil {
 		t.Fatalf("retried approval: %v", err)
 	}
@@ -353,7 +353,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		t.Fatalf("continue=%+v err=%v runs=%d", out.Stop, err, runs)
 	}
 	turn = reload(t, rec, "t1")
-	if _, err := Replay(turn); err != nil {
+	if _, err := turn.View(); err != nil {
 		t.Fatalf("replay of reloaded turn: %v", err)
 	}
 	for _, step := range turn.Steps {
@@ -413,8 +413,8 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
 	stored := jsonbRoundTrip(history)
-	startBytes, _ := json.Marshal(fingerprintMessages(history))
-	storedBytes, _ := json.Marshal(fingerprintMessages(stored))
+	startBytes, _ := json.Marshal(hashMessages(history))
+	storedBytes, _ := json.Marshal(hashMessages(stored))
 	if bytes.Equal(startBytes, storedBytes) {
 		t.Fatal("simulation left the history byte-identical")
 	}
@@ -448,7 +448,7 @@ func mustLoad(t *testing.T, rec jsonbRecorder) Turn {
 }
 
 // Strict history checking must not reject history that only went through a
-// jsonb round trip: the fingerprint compares JSON meaning.
+// jsonb round trip: the hash compares JSON meaning.
 func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 	rec := jsonbRecorder{NewMemoryRecorder()}
 	// The first model call is cut off by a deploy, so the turn waits to be
@@ -484,8 +484,8 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
 	stored := jsonbRoundTrip(history)
-	a, _ := json.Marshal(fingerprintMessages(history))
-	b, _ := json.Marshal(fingerprintMessages(stored))
+	a, _ := json.Marshal(hashMessages(history))
+	b, _ := json.Marshal(hashMessages(stored))
 	if bytes.Equal(a, b) {
 		t.Fatal("simulation left the history byte-identical")
 	}
@@ -528,13 +528,13 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 
 func equalFixture() Step {
 	return Step{
-		Version:       1,
-		TurnID:        "turn",
-		Seq:           1,
-		At:            time.Date(2026, 1, 2, 3, 4, 5, 123456789, time.UTC),
-		Kind:          StepStarted,
-		CommandID:     "start",
-		CommandDigest: "digest",
+		Version:     1,
+		TurnID:      "turn",
+		Seq:         1,
+		At:          time.Date(2026, 1, 2, 3, 4, 5, 123456789, time.UTC),
+		Kind:        StepTurnStarted,
+		CommandID:   "start",
+		CommandHash: "hash",
 		Started: &StartFact{
 			OutputSchema: messySchema,
 			Input: []llm.Message{

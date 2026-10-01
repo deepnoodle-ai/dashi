@@ -92,7 +92,7 @@ func TestSeedContextAppendsLatestValueAcrossTurns(t *testing.T) {
 	for i, value := range []string{"A", "B", "A", "A"} {
 		s := handle(rec, client)
 		s.New = i == 0
-		// The changed ID alone on the fourth turn must not force a delivery.
+		// The changed ID alone on the fourth turn must not add the seed again.
 		s.Runner.Hooks = dashi.JoinHooks(dashi.SeedContext(dashi.ContextItem{ID: value + string(rune('0'+i)), Name: "seed", Snapshot: true, Message: llm.UserMessage(llm.Text(value))}))
 		if _, err := s.Send(t.Context(), "go"); err != nil {
 			t.Fatal(err)
@@ -258,22 +258,23 @@ func TestSeedContextDoesNotInferIdentityOrConsultTurnView(t *testing.T) {
 		{{Role: llm.RoleUser, Content: []llm.Content{llm.Text("A")}, Context: &llm.MessageContext{Origin: "user", Name: "other"}}},
 	} {
 		d, err := seed.Func(t.Context(), dashi.ModelPlan{Input: llm.Input{Messages: messages}})
-		if err != nil || len(d.Deliver) != 1 {
+		if err != nil || len(d.AddMessages) != 1 {
 			t.Fatalf("decision=%+v err=%v", d, err)
 		}
 	}
-	// TurnView.Context sees the seed, but a proposal excluding it must deliver.
+	// TurnView.Context sees the seed, but a plan whose input lacks it must
+	// add it.
 	runner := dashi.Runner{Client: dashitest.NewClient(dashitest.Reply("ok")), Hooks: dashi.JoinHooks(seed)}
 	out, err := runner.Run(t.Context(), dashi.Turn{}, dashi.Start{Agent: dashi.Agent{Model: dashitest.Model}, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := dashi.Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
 	d, err := seed.Func(t.Context(), dashi.ModelPlan{Turn: view})
-	if err != nil || len(d.Deliver) != 1 {
+	if err != nil || len(d.AddMessages) != 1 {
 		t.Fatalf("decision=%+v err=%v", d, err)
 	}
 }

@@ -118,7 +118,7 @@ const fileSearchResponse = `{
 }`
 
 // Built from documentation (the genai GroundingChunk maps field), not
-// captured. Maps grounding is hosted work this adapter does not price.
+// captured. Maps grounding is provider tool work this adapter does not price.
 const mapsResponse = `{
   "responseId": "resp-maps",
   "modelVersion": "gemini-2.5-flash",
@@ -141,7 +141,7 @@ const groundedWithoutUsage = `{
   }]
 }`
 
-func TestDecodeCountsHostedMeters(t *testing.T) {
+func TestDecodeCountsProviderToolMeters(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		raw     string
@@ -243,7 +243,7 @@ var streamLateGrounding = []string{
 	`{"candidates":[{"content":{"role":"model","parts":[{"text":"Done."}]},"finishReason":"STOP","groundingMetadata":{"webSearchQueries":["q"]}}]}`,
 }
 
-func TestStreamCountsHostedMeters(t *testing.T) {
+func TestStreamCountsProviderToolMeters(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		chunks []string
@@ -326,7 +326,7 @@ func TestStreamCountsHostedMeters(t *testing.T) {
 				!maps.Equal(result.Usage.Requests, tc.want) {
 				t.Fatalf("result requests = %+v, want %v", result.Usage, tc.want)
 			}
-			if !result.Usage.RequestsFinal {
+			if !result.Usage.RequestsComplete {
 				t.Fatal("a finished stream's counts are not marked final")
 			}
 			if !maps.Equal(live.Requests, tc.want) {
@@ -381,7 +381,7 @@ func TestStreamWithoutFinishReasonIsNotFinal(t *testing.T) {
 	if result.Usage == nil {
 		t.Fatal("usage was lost")
 	}
-	if result.Usage.RequestsFinal {
+	if result.Usage.RequestsComplete {
 		t.Fatal("counts from an unfinished stream are marked final")
 	}
 }

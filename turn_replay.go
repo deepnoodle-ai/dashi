@@ -17,65 +17,67 @@ type replayState struct {
 	source            Turn
 	pendingCompaction string
 	// compactionUsed holds an applied summary's guard until ordinary work
-	// succeeds. Replay preserves the guard across interruption and reload.
+	// succeeds. Rebuilding the view keeps the guard across interruption
+	// and reload.
 	compactionUsed bool
 	TurnView
 	// modelCalls counts every requested call so retried calls get distinct IDs.
 	modelCalls            int
-	modelIntent           string
+	modelCallStart        string
 	unresolvedModel       string
 	unresolvedPartial     bool
 	unresolvedInterrupted bool
-	modelIntents          map[string]*ModelFact
-	// modelOrder holds attempt IDs in record order.
+	startedModelCalls     map[string]*ModelFact
+	// modelOrder holds model call IDs in record order.
 	modelOrder             []string
-	modelSettlements       map[string]*ModelFact
+	modelFinishes          map[string]*ModelFact
 	modelMessages          map[string]string
-	callAttempts           map[string]string
-	latestAttempt          string
-	finalAnswerOnly        bool
-	attemptCap             int
+	modelCallOfTool        map[string]string
+	latestModelCall        string
+	finalReplyOnly         bool
+	modelCallCap           int
 	modelDefs              map[string]tool.Definition
 	callOrder              []string
-	hosted                 map[string]llm.HostedApprovalRequest
-	hostedOrder            []string
-	hostedAttempts         map[string]string
-	commandDigests         map[string]string
+	providerTool           map[string]llm.ProviderToolApprovalRequest
+	providerToolOrder      []string
+	providerToolModelCalls map[string]string
+	commandHashes          map[string]string
 	latestResult           *llm.Result
 	awaitingClassification bool
 	failedModel            string
 	// activeHooks is the ActiveHooks of the latest command.
 	activeHooks *ActiveHooks
-	// answerVetoed is set while the latest answer is one a BeforeFinish hook
+	// answerVetoed is set while the latest reply is one a BeforeFinish hook
 	// vetoed; see ContextFact.Vetoed.
 	answerVetoed bool
-	// pausedHosted is set while the latest actionable result is a provider
-	// pause that left a hosted call unfinished. The next request must end
-	// with that result so the provider can finish the call, so no steer may
-	// follow it yet.
-	pausedHosted bool
-	// deliveredOnKept sizes the context delivered while a final text answer
+	// pausedProviderTool is set while the latest actionable result is a
+	// provider pause that left a provider tool call unfinished. The next
+	// request must end with that result so the provider can finish the
+	// call, so no steer may follow it yet.
+	pausedProviderTool bool
+	// deliveredOnKept sizes the context added while a final text reply
 	// was kept by a stop; see keptFinishCandidate.
 	deliveredOnKept int
-	// contextIDs maps each recorded context item ID to its item, so a
-	// repeated delivery is recognized.
+	// contextIDs maps each recorded context item ID to its item, so an
+	// item added twice is recognized.
 	contextIDs map[string]ContextItem
-	// liveSeq holds the step that recorded each live item, and intentSeq
-	// the step that recorded each model request, so a NextCallOnly item
-	// expires only after a later dispatched call.
-	liveSeq   map[string]int64
-	intentSeq map[string]int64
+	// liveSeq holds the step that recorded each live item, and
+	// callStartSeq the step that recorded each model call's start, so a
+	// NextCallOnly item expires only after a later call is sent.
+	liveSeq      map[string]int64
+	callStartSeq map[string]int64
 }
 
-// Replay verifies a turn's versioned prefix and reconstructs its current view.
-// It does not execute any recorded intent.
-func Replay(t Turn) (TurnView, error) {
+// View checks the turn record and rebuilds what it means now: its stop,
+// reply, spend, and pending work. It only reads the record; it never
+// runs a model call or a tool.
+func (t Turn) View() (TurnView, error) {
 	s, e := replay(t)
 	if e != nil {
 		return TurnView{}, e
 	}
 	view := snapshotView(s.TurnView)
-	view.Stop = s.projectedStop()
+	view.Stop = s.inferredStop()
 	return view, nil
 }
 
@@ -116,22 +118,22 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 		cache.needed = map[int64]bool{}
 	}
 	for _, step := range t.Steps {
-		if step.Kind == StepModelIntent && step.Model != nil && step.Model.Compaction != nil {
+		if step.Kind == StepModelCallStarted && step.Model != nil && step.Model.Compaction != nil {
 			cache.needed[step.Model.Compaction.Through] = true
 		}
 	}
 	s := &replayState{
-		TurnView:         TurnView{ID: t.ID, Tools: map[string]ToolView{}},
-		source:           t,
-		contextCache:     cache,
-		modelDefs:        map[string]tool.Definition{},
-		hosted:           map[string]llm.HostedApprovalRequest{},
-		hostedAttempts:   map[string]string{},
-		commandDigests:   map[string]string{},
-		modelIntents:     map[string]*ModelFact{},
-		modelSettlements: map[string]*ModelFact{},
-		modelMessages:    map[string]string{},
-		callAttempts:     map[string]string{},
+		TurnView:               TurnView{ID: t.ID, Tools: map[string]ToolView{}},
+		source:                 t,
+		contextCache:           cache,
+		modelDefs:              map[string]tool.Definition{},
+		providerTool:           map[string]llm.ProviderToolApprovalRequest{},
+		providerToolModelCalls: map[string]string{},
+		commandHashes:          map[string]string{},
+		startedModelCalls:      map[string]*ModelFact{},
+		modelFinishes:          map[string]*ModelFact{},
+		modelMessages:          map[string]string{},
+		modelCallOfTool:        map[string]string{},
 	}
 	if t.ID == "" {
 		return nil, fmt.Errorf("%w: empty ID", ErrInvalidTurn)
@@ -152,19 +154,19 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 			return nil, fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
 		}
 		if step.CommandID != "" {
-			if step.CommandDigest == "" {
-				return nil, fmt.Errorf("%w: command digest missing", ErrInvalidTurn)
+			if step.CommandHash == "" {
+				return nil, fmt.Errorf("%w: command hash missing", ErrInvalidTurn)
 			}
-			if old, ok := s.commandDigests[step.CommandID]; ok &&
-				old != step.CommandDigest {
-				return nil, ErrCommandConflict
+			if old, ok := s.commandHashes[step.CommandID]; ok &&
+				old != step.CommandHash {
+				return nil, ErrCommandIDReused
 			}
-			s.commandDigests[step.CommandID] = step.CommandDigest
+			s.commandHashes[step.CommandID] = step.CommandHash
 		}
-		if i == 0 && step.Kind != StepStarted {
+		if i == 0 && step.Kind != StepTurnStarted {
 			return nil, fmt.Errorf("%w: first step is not start", ErrInvalidTurn)
 		}
-		if i > 0 && step.Kind == StepStarted {
+		if i > 0 && step.Kind == StepTurnStarted {
 			return nil, fmt.Errorf("%w: duplicate start", ErrInvalidTurn)
 		}
 		if err := s.apply(step); err != nil {
@@ -182,40 +184,40 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 		if !s.awaitingClassification {
 			s.deliveredOnKept = 0
 		}
-		s.Revision = step.Seq
+		s.LastSeq = step.Seq
 		if cache.needed[step.Seq] {
-			cache.states[step.Seq] = s.projectionSnapshot()
+			cache.states[step.Seq] = s.viewSnapshot()
 		}
 	}
-	// Derive ArgsDigest from the final status, so no transition out of
-	// approval can leave a stale digest behind.
+	// Derive ArgsHash from the final status, so no transition out of
+	// approval can leave a stale hash behind.
 	for id, v := range s.Tools {
-		v.ArgsDigest = ""
+		v.ArgsHash = ""
 		if v.Status == ToolApprovalPending {
-			v.ArgsDigest = ArgsDigest(v.Call.Args)
+			v.ArgsHash = ArgsHash(v.Call.Args)
 		}
 		s.Tools[id] = v
 	}
 	s.Pending = s.pendingItems()
-	s.Answer = answerText(t.Steps)
-	// A vetoed answer never reaches the host through Answer.
+	s.Reply = answerText(t.Steps)
+	// A vetoed reply never reaches the host through Reply.
 	if s.answerVetoed {
-		s.Answer = ""
+		s.Reply = ""
 	}
 	if err := s.calculateSpend(); err != nil {
 		return nil, fmt.Errorf("%w: calculate spend: %v", ErrInvalidTurn, err)
 	}
 	s.ReadyToContinue = s.canContinue()
 	if end := endedLength(t.Steps, s.Stop); end < len(t.Steps) {
-		// Late results after the terminal stop count in Spend, but the
-		// answer is fixed there, as Project's history is.
+		// Late results after the stop that ended the turn count in Spend,
+		// but the reply is fixed there, as TurnMessagesFull's messages are.
 		prefix := t
 		prefix.Steps = t.Steps[:end]
 		ended, err := replayCached(prefix, cache)
 		if err != nil {
 			return nil, err
 		}
-		s.Answer = ended.Answer
+		s.Reply = ended.Reply
 	}
 	return s, nil
 }
@@ -225,27 +227,27 @@ func (s *replayState) calculateSpend() error {
 		Cost:     map[string]money.Amount{},
 		ToolCost: map[string]money.Amount{},
 	}
-	s.Attempts = nil
+	s.ModelCallCosts = nil
 	for _, id := range s.modelOrder {
-		attempt, incomplete := attemptSpendOf(
-			s.modelIntents[id],
-			s.modelSettlements[id],
+		modelCall, incomplete := modelCallCostOf(
+			s.startedModelCalls[id],
+			s.modelFinishes[id],
 		)
-		s.Attempts = append(s.Attempts, attempt)
-		if attempt.Basis == SpendNotExecuted {
+		s.ModelCallCosts = append(s.ModelCallCosts, modelCall)
+		if modelCall.UsageSource == UsageSourceNotSent {
 			continue
 		}
 		s.Spend.UsageIncomplete = s.Spend.UsageIncomplete || incomplete
-		if usage := attempt.Usage; usage != nil {
+		if usage := modelCall.Usage; usage != nil {
 			if err := usage.Validate(); err != nil {
 				return err
 			}
 			s.Spend.addUsage(usage)
 		}
-		if attempt.Basis == SpendEstimated {
+		if modelCall.UsageSource == UsageSourceEstimated {
 			s.Spend.Estimated = cappedCount(s.Spend.Estimated, 1)
 		}
-		charge := attempt.Charge
+		charge := modelCall.Cost
 		if charge == nil {
 			s.Spend.CostUnknown = cappedCount(s.Spend.CostUnknown, 1)
 			continue
@@ -270,8 +272,9 @@ func (s *replayState) calculateSpend() error {
 			}
 		}
 		// A partial total is a lower bound, so it cannot show that a cap
-		// holds. Admission refuses hosted tools under a cap, so a partial
-		// charge there is hosted work nothing foresaw.
+		// holds. The budget check before each call refuses provider tools
+		// under a cap, so a partial cost there is provider tool work
+		// nothing foresaw.
 		if capped && (charge.Currency != s.Budget.MaxCost.Currency ||
 			charge.Partial()) {
 			s.Spend.CostUnknown = cappedCount(s.Spend.CostUnknown, 1)
@@ -279,7 +282,7 @@ func (s *replayState) calculateSpend() error {
 	}
 	for _, id := range slices.Sorted(maps.Keys(s.Tools)) {
 		view := s.Tools[id]
-		if view.Status == ToolSettled && view.Outcome != nil &&
+		if view.Status == ToolFinished && view.Outcome != nil &&
 			view.Outcome.Cost != nil {
 			cost := view.Outcome.Cost
 			s.Spend.ToolCost = addSpendCost(
@@ -293,8 +296,9 @@ func (s *replayState) calculateSpend() error {
 	return nil
 }
 
-// projectionSnapshot captures only immutable facts needed by the pure projector.
+// viewSnapshot captures only the immutable facts needed to build the
+// turn's messages.
 // It does not calculate accounting or recursively validate a prefix.
-func (s *replayState) projectionSnapshot() *replayState {
-	return &replayState{TurnView: TurnView{Stop: s.Stop, Tools: maps.Clone(s.Tools)}, modelIntent: s.modelIntent, unresolvedModel: s.unresolvedModel, callOrder: slices.Clone(s.callOrder), hosted: maps.Clone(s.hosted)}
+func (s *replayState) viewSnapshot() *replayState {
+	return &replayState{TurnView: TurnView{Stop: s.Stop, Tools: maps.Clone(s.Tools)}, modelCallStart: s.modelCallStart, unresolvedModel: s.unresolvedModel, callOrder: slices.Clone(s.callOrder), providerTool: maps.Clone(s.providerTool)}
 }

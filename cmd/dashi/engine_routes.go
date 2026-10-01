@@ -10,7 +10,7 @@ import (
 )
 
 // routedCompactor preserves the compactor's own controls and records its route
-// before its first model attempt. Ordinary next-turn controls do not replace it.
+// before its first model call. Ordinary next-turn controls do not replace it.
 type routedCompactor struct {
 	*dashiCompactor
 	agent dashi.Agent
@@ -23,7 +23,7 @@ func (c *routedCompactor) Start(history []llm.Message) (dashi.Start, error) {
 		return start, err
 	}
 	start.Agent.ID = "dashi-cli-summary"
-	start.Agent.Revision, start.Agent.Provider, start.Agent.API = c.agent.Revision, c.agent.Provider, c.agent.API
+	start.Agent.Version, start.Agent.Provider, start.Agent.API = c.agent.Version, c.agent.Provider, c.agent.API
 	if start.Agent.Model == "" {
 		start.Agent.Model = c.agent.Model
 	}
@@ -39,9 +39,9 @@ func (e *Engine) bindCommand(ctx context.Context, command dashi.Command) error {
 		last := e.Last(ctx)
 		if last != nil && last.Open() && last.View.Origin != dashi.StartCompaction &&
 			(last.View.Agent.Provider != start.Agent.Provider || last.View.Agent.API != start.Agent.API) {
-			// Session closes a stopped turn before admitting Start, and checks
+			// Session closes a stopped turn before accepting Start, and checks
 			// its old destination during that close. Complete that close first.
-			if last.Next == dashi.NextRunning || last.Next == dashi.NextAnswer {
+			if last.Next == dashi.NextRunning || last.Next == dashi.NextResolvePending {
 				return &session.TurnBusyError{TurnID: last.View.ID, Next: last.Next}
 			}
 			if err := p.bind(ctx, last.View.Agent); err != nil {
@@ -50,8 +50,8 @@ func (e *Engine) bindCommand(ctx context.Context, command dashi.Command) error {
 			var closing dashi.Command = dashi.Cancel{CommandID: "close:" + last.View.ID, Reason: session.CloseReason}
 			if last.View.Output != nil {
 				cont := dashi.Continue{CommandID: "close:" + last.View.ID}
-				if limit := last.View.Stop.Limit; limit != nil && limit.Kind == dashi.LimitModelAttempts {
-					cont.ModelAttempts = int(limit.Limit) + 1
+				if limit := last.View.Stop.Limit; limit != nil && limit.Kind == dashi.LimitModelCalls {
+					cont.ModelCalls = int(limit.Limit) + 1
 				}
 				closing = cont
 			}

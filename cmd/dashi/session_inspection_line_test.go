@@ -26,7 +26,7 @@ func TestSessionInspectionLineWorkflow(t *testing.T) {
 		t.Fatalf("code %d: %s", code, &stderr)
 	}
 	reopened := out.String()
-	if cfg.Client.(*fakeClient).sends != 0 || !strings.Contains(discovery, "worker liveness unknown") || !strings.Contains(reopened, "recovered retry handler") {
+	if cfg.Client.(*fakeClient).sends != 0 || !strings.Contains(discovery, "worker status unknown") || !strings.Contains(reopened, "recovered retry handler") {
 		t.Fatalf("%s\n%s", discovery, reopened)
 	}
 	check, err := cfg.Store.Inspect(t.Context(), cfg.Dir, saved.ID)

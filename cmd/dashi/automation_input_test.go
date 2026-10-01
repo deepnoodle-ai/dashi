@@ -48,7 +48,7 @@ func TestAutomationWholePayloadOneTurn(t *testing.T) {
 	}
 }
 
-func TestAutomationInputRejectsBeforeAdmission(t *testing.T) {
+func TestAutomationInputRejectsBeforeAcceptance(t *testing.T) {
 	for _, data := range []string{strings.Repeat("x", automationStdinLimit+1), "nul\x00byte", "bad\xffutf8"} {
 		got, err := readAutomationStdin(t.Context(), strings.NewReader(data), nil)
 		if err == nil || got != "" {

@@ -96,7 +96,8 @@ func (s ImageSettings) Validate() error {
 }
 
 // ImageInput keeps reference images and a mask distinct from the prompt, so
-// editing intent does not have to be inferred from an arbitrary content block.
+// what the caller wants edited does not have to be inferred from an arbitrary
+// content block.
 type ImageInput struct {
 	Model           string          `json:"model"`
 	Operation       ImageOperation  `json:"operation"`

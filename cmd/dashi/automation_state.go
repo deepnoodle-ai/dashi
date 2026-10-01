@@ -146,7 +146,7 @@ func loadAutomationSnapshot(ctx context.Context, loader interface {
 		if err != nil {
 			return snap, fmt.Errorf("required parent Turn %s is unreadable", session.TurnID(id, i))
 		}
-		view, err := dashi.Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			return snap, fmt.Errorf("required parent Turn %s cannot be replayed", turn.ID)
 		}
@@ -257,7 +257,7 @@ func (s automationSnapshot) canContinue() bool {
 		if a.TaskID == "" && s.missingNotice && a.Stop.Kind == dashi.StopWaiting && a.Next == dashi.NextContinue {
 			continue
 		}
-		if a.Next == dashi.NextContinue || a.Next == dashi.NextResume && a.Ready {
+		if a.Next == dashi.NextContinue || a.Next == dashi.NextRecover && a.Ready {
 			continue
 		}
 		return false

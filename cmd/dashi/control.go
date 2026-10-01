@@ -392,8 +392,8 @@ func (c *Controller) Input(line string) {
 		c.steer(line)
 		return
 	}
-	// Screen admission belongs to screen.submit on the Wonton event loop.
-	// Only the synchronous line reader admits attachments through Controller.
+	// Screen input is accepted by screen.submit on the Wonton event loop.
+	// Only the synchronous line reader accepts attachments through Controller.
 	if u, ok := c.ui.(interface{ attachmentLineInput(string) bool }); ok && !strings.HasPrefix(line, "/") && u.attachmentLineInput(raw) {
 		return
 	}
@@ -443,7 +443,7 @@ func (c *Controller) steer(line string) {
 
 // QuitDuringRun handles an exit action (/quit, /exit, or Ctrl-D) while a
 // turn runs: it cancels the run, and the program quits once the run
-// settles. When prompts are then still queued, it warns instead, as the
+// finishes. When prompts are then still queued, it warns instead, as the
 // same action at the prompt would, and repeating the action quits.
 func (c *Controller) QuitDuringRun(action string) {
 	c.mu.Lock()
@@ -473,7 +473,7 @@ func (c *Controller) prompt(text string) {
 		paused := host.deliveryErr != nil
 		host.mu.Unlock()
 		if paused {
-			c.notice("Task notice admission is unresolved. Press Enter to reconcile that exact queued Turn or reopen before a new prompt.")
+			c.notice("Couldn't confirm that a task notice was saved. Press Enter to check it, or reopen the session before sending a new prompt.")
 			return
 		}
 	}
@@ -573,13 +573,13 @@ func busyText(err error) string {
 		return fmt.Sprintf("The last command (call %s in turn %d) may still "+
 			"be running. Type /done once it has finished, or /discard to "+
 			"discard the turn.", busy.CallID, n)
-	case busy.Next == dashi.NextAnswer:
+	case busy.Next == dashi.NextResolvePending:
 		return fmt.Sprintf("Turn %d waits for an answer. Press Enter to "+
 			"continue it, or type /discard to discard it.", n)
-	case busy.Next == dashi.NextContinue || busy.Next == dashi.NextResume:
+	case busy.Next == dashi.NextContinue || busy.Next == dashi.NextRecover:
 		return fmt.Sprintf("Turn %d is still open. Press Enter to continue it, "+
 			"or type /discard to discard it before compacting.", n)
-	case busy.Next == dashi.NextRaiseAttempts:
+	case busy.Next == dashi.NextRaiseModelCalls:
 		return fmt.Sprintf("Turn %d reached its model-call limit. Type /continue "+
 			"to raise the limit, or /discard to discard it before compacting.", n)
 	}

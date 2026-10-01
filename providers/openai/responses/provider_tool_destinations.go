@@ -7,25 +7,25 @@ import (
 )
 
 // Grok and Meta share the Responses envelope but not OpenAI's tool options.
-func (wire codec) destinationHostedTool(
+func (wire codec) destinationProviderTool(
 	definition tool.Definition,
 ) (map[string]any, []string, error) {
 	switch wire.origin.Provider {
 	case "grok":
-		return wire.grokHostedTool(definition)
+		return wire.grokProviderTool(definition)
 	case "meta":
-		return wire.metaHostedTool(definition)
+		return wire.metaProviderTool(definition)
 	}
 	return nil, nil, wire.unsupported(
-		"hosted tools for provider %q",
+		"provider tools for provider %q",
 		wire.origin.Provider,
 	)
 }
 
-func (wire codec) grokHostedTool(
+func (wire codec) grokProviderTool(
 	definition tool.Definition,
 ) (map[string]any, []string, error) {
-	spec := definition.Hosted
+	spec := definition.ProviderTool
 	config := map[string]any{"type": spec.Type}
 	switch spec.Type {
 	case "web_search":
@@ -40,7 +40,7 @@ func (wire codec) grokHostedTool(
 			EnableImageUnderstanding bool     `json:"enable_image_understanding"`
 			EnableImageSearch        bool     `json:"enable_image_search"`
 		}
-		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+		if err := decodeProviderToolOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("grok web search options: %w", err)
 		}
 		if len(options.AllowedDomains) > 5 || len(options.ExcludedDomains) > 5 ||
@@ -79,7 +79,7 @@ func (wire codec) grokHostedTool(
 			EnableImageUnderstanding bool     `json:"enable_image_understanding"`
 			EnableVideoUnderstanding bool     `json:"enable_video_understanding"`
 		}
-		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+		if err := decodeProviderToolOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("grok X search options: %w", err)
 		}
 		if len(options.AllowedXHandles) > 20 ||
@@ -134,7 +134,7 @@ func (wire codec) grokHostedTool(
 			MaxNumResults  int      `json:"max_num_results"`
 			IncludeResults bool     `json:"include_results"`
 		}
-		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+		if err := decodeProviderToolOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("grok collections options: %w", err)
 		}
 		if len(options.CollectionIDs) == 0 || options.MaxNumResults < 0 ||
@@ -159,7 +159,7 @@ func (wire codec) grokHostedTool(
 		var options struct {
 			IncludeOutputs bool `json:"include_outputs"`
 		}
-		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+		if err := decodeProviderToolOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("grok code options: %w", err)
 		}
 		if options.IncludeOutputs {
@@ -174,7 +174,7 @@ func (wire codec) grokHostedTool(
 		var options struct {
 			Action string `json:"action"`
 		}
-		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+		if err := decodeProviderToolOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("grok image options: %w", err)
 		}
 		if options.Action != "" && options.Action != "auto" &&
@@ -185,17 +185,17 @@ func (wire codec) grokHostedTool(
 			config["action"] = options.Action
 		}
 	default:
-		return nil, nil, wire.unsupported("grok hosted type %q", spec.Type)
+		return nil, nil, wire.unsupported("grok provider tool type %q", spec.Type)
 	}
 	return config, nil, nil
 }
 
-func (wire codec) metaHostedTool(
+func (wire codec) metaProviderTool(
 	definition tool.Definition,
 ) (map[string]any, []string, error) {
-	if definition.Name != "web_search" || definition.Hosted.Type != "web_search" {
+	if definition.Name != "web_search" || definition.ProviderTool.Type != "web_search" {
 		return nil, nil, wire.unsupported(
-			"meta hosted tools require web_search",
+			"meta provider tools require web_search",
 		)
 	}
 	var options struct {
@@ -208,8 +208,8 @@ func (wire codec) metaHostedTool(
 		} `json:"user_location"`
 		IncludeResults bool `json:"include_results"`
 	}
-	if err := decodeHostedOptions(
-		definition.Hosted.Options,
+	if err := decodeProviderToolOptions(
+		definition.ProviderTool.Options,
 		&options,
 	); err != nil {
 		return nil, nil, wire.unsupported("meta web search options: %w", err)

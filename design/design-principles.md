@@ -34,18 +34,18 @@ Reconsider context and available tools before each call. Pi's separate compactio
 path repeatedly lost headers, hooks, and output controls. [Evidence][pi-issues]
 
 **5. Derive context from recorded facts.** Keep execution history authoritative
-and build model-facing messages as a projection. Cache that projection
+and build the messages the model sees from it. Cache those messages
 incrementally. Record compaction coverage and context provenance without erasing
 the underlying history. Validate tool pairing, ordering, and reasoning-block
 constraints when constructing requests and choosing compaction boundaries.
 OpenHands' incremental view supplies the positive example. [Evidence][openhands]
 
 **6. Make recording an acknowledged execution boundary.** For durable execution,
-commit model-call intent before dispatch; commit the model result and pending
-tool calls together; record tool start before invoking it; and commit each result
-before dependent work advances. Preserve completed siblings immediately while
-projecting results in call order. Define storage-failure and ownership checks
-explicitly. Nvoken demonstrates the commit boundaries; pi's experimental harness
+commit a model call's start before sending it; commit the model result and
+pending tool calls together; record tool start before invoking it; and commit
+each result before dependent work advances. Preserve completed siblings
+immediately while showing results to the model in call order. Define
+storage-failure and ownership checks explicitly. Nvoken demonstrates the commit boundaries; pi's experimental harness
 demonstrates independent parallel completion. [Evidence][nvoken], [pi harness][pi]
 
 **7. Centralize tool validation and authorization.** Apply one dispatch pipeline
@@ -59,11 +59,11 @@ approval limitation is instructive.
 [Evidence][tools], [approval failures][maf-issues]
 
 **8. Return explicit lifecycle outcomes.** Distinguish completion, limits,
-waiting, cancellation, failure, and uncertain effects. Report pending work and
-what can happen next without requiring callers to reconstruct status from
+waiting, cancellation, failure, and effects with unknown results. Report
+pending work and what can happen next without requiring callers to reconstruct status from
 progress events. Resume by stable IDs with defined duplicate handling. Return
 durable waits to the host, and distinguish an invocation ending from all work
-settling. [Evidence][resume], [pi lifecycle lessons][pi-issues]
+finishing. [Evidence][resume], [pi lifecycle lessons][pi-issues]
 
 **9. Bound work across continuation.** Carry accounting across retries, approvals,
 continuations, and delegated work; define how child usage charges its parent.
@@ -75,7 +75,7 @@ shows why an inner-loop cap alone fails. [Evidence][maf-issues], [timeouts][pi-i
 **10. Give streaming one execution path and stable identity.** Streaming and
 collected results must agree. Forward interleaved text, reasoning, and tool
 arguments as previews; decide completion after the full stream. Separate committed
-facts from previews, using shared message and call IDs plus attempt identity.
+facts from previews, using shared message and call IDs plus model call identity.
 Define bounded buffering,
 cancellation, and preview-loss behavior. Nvoken and OpenHands independently
 converged on this separation. [Evidence][stream], [OpenHands protocol][openhands]
@@ -95,7 +95,7 @@ storage cases and the trackers' repeated regressions make this part of the
 design contract. [Evidence][pi], [tracker synthesis][trackers]
 
 Exact streaming signatures, approval representation, argument strictness,
-uncertainty defaults, journal batching, and graph scope remain [open design
+unknown-result defaults, journal batching, and graph scope remain [open design
 choices][open]. These principles constrain their behavior without selecting an API.
 
 [survey]: ../tmp/research/comparison/README.md

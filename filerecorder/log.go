@@ -41,11 +41,11 @@ type lineRecord struct {
 }
 
 type stepSummary struct {
-	TurnID        string         `json:"turn_id"`
-	Seq           int64          `json:"seq"`
-	Kind          dashi.StepKind `json:"kind"`
-	CommandID     string         `json:"command_id"`
-	CommandDigest string         `json:"command_digest"`
+	TurnID      string         `json:"turn_id"`
+	Seq         int64          `json:"seq"`
+	Kind        dashi.StepKind `json:"kind"`
+	CommandID   string         `json:"command_id"`
+	CommandHash string         `json:"command_hash"`
 }
 
 // stepEntry locates one step's line in the log.

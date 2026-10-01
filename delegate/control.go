@@ -10,25 +10,25 @@ import (
 )
 
 // TaskTarget identifies the exact recorded child state inspected by a host.
-// Revision is the last recorded step sequence, not a task-list counter.
+// LastSeq is the last recorded step sequence, not a task-list counter.
 type TaskTarget struct {
-	ID       string
-	TurnID   string
-	Revision int64
+	ID      string
+	TurnID  string
+	LastSeq int64
 }
 
 var (
 	// ErrTaskBusy means a worker already owns the child.
 	ErrTaskBusy = errors.New("delegate: task worker is running")
-	// ErrTaskCommandUnknown means a prior write must be reconciled before a
-	// different action. Reload and retry the exact command, or inspect the
+	// ErrTaskCommandUnknown means the result of a prior write must be
+	// checked before a different action. Reload and retry the exact command, or inspect the
 	// authoritative changed record before choosing another action.
 	ErrTaskCommandUnknown = errors.New("delegate: child command acknowledgement is unknown")
 )
 
 type pendingTaskCommand struct {
-	target     TaskTarget
-	id, digest string
+	target   TaskTarget
+	id, hash string
 }
 
 func ownedCommand(cmd dashi.Command) (dashi.Command, string, string, error) {
@@ -41,14 +41,14 @@ func ownedCommand(cmd dashi.Command) (dashi.Command, string, string, error) {
 		v, err = copyValue(c)
 		v.OnHistoryMismatch = c.OnHistoryMismatch
 		owned, id = v, c.CommandID
-	case dashi.Settle:
-		var v dashi.Settle
+	case dashi.Resolve:
+		var v dashi.Resolve
 		v, err = copyValue(c)
 		owned, id = v, c.CommandID
 	case dashi.Cancel:
 		owned, id = c, c.CommandID
 	default:
-		return nil, "", "", errors.New("delegate: task control accepts Continue, Settle, or Cancel")
+		return nil, "", "", errors.New("delegate: task control accepts Continue, Resolve, or Cancel")
 	}
 	if err != nil {
 		return nil, "", "", err
@@ -60,14 +60,14 @@ func ownedCommand(cmd dashi.Command) (dashi.Command, string, string, error) {
 	if err != nil {
 		return nil, "", "", err
 	}
-	return owned, id, dashi.ArgsDigest(b), nil
+	return owned, id, dashi.ArgsHash(b), nil
 }
 
-func receipt(turn dashi.Turn, id, digest string) (bool, error) {
+func receipt(turn dashi.Turn, id, hash string) (bool, error) {
 	for _, s := range turn.Steps {
 		if s.CommandID == id {
-			if s.CommandDigest != digest {
-				return false, dashi.ErrCommandConflict
+			if s.CommandHash != hash {
+				return false, dashi.ErrCommandIDReused
 			}
 			return true, nil
 		}
@@ -76,12 +76,13 @@ func receipt(turn dashi.Turn, id, digest string) (bool, error) {
 }
 
 // Run applies one explicit command to an inspected stopped child. It never
-// creates a Turn or retries an unsettled effect itself. Existing command
-// receipts are checked before Revision, so an acknowledged retry is safe even
+// creates a Turn or retries an unfinished effect itself. Existing command
+// receipts are checked before LastSeq, so an acknowledged retry is safe even
 // after later child work. Stop and Close own this worker as they own task starts.
-// A recorder implementing Loader is required for authoritative reconciliation.
-func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) (out dashi.Outcome, runErr error) {
-	owned, id, digest, err := ownedCommand(cmd)
+// A recorder implementing Loader is required, so Run can reload the record
+// and check what was actually written.
+func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) (out dashi.RunResult, runErr error) {
+	owned, id, hash, err := ownedCommand(cmd)
 	if err != nil {
 		return out, err
 	}
@@ -130,28 +131,28 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 	}
 	turn := rec.turns[len(rec.turns)-1]
 	view := rec.views[len(rec.views)-1]
-	out = dashi.Outcome{Turn: turn, TurnView: view}
+	out = dashi.RunResult{Turn: turn, TurnView: view}
 	if turn.ID != currentID || target.TurnID != turn.ID ||
 		!equalValue(rec.views[0].Parent, &t.parent) || !equalValue(view.Parent, parent) {
-		return out, dashi.ErrRevisionConflict
+		return out, dashi.ErrStaleTurn
 	}
 	if pending != nil {
-		known, e := receipt(turn, pending.id, pending.digest)
-		if e != nil || known || view.Revision != pending.target.Revision {
+		known, e := receipt(turn, pending.id, pending.hash)
+		if e != nil || known || view.LastSeq != pending.target.LastSeq {
 			ts.mu.Lock()
 			t.pending = nil
 			ts.mu.Unlock()
-		} else if target != pending.target || id != pending.id || digest != pending.digest {
+		} else if target != pending.target || id != pending.id || hash != pending.hash {
 			ts.controlResult(t, out, true)
 			return out, ErrTaskCommandUnknown
 		}
 	}
-	known, err := receipt(turn, id, digest)
+	known, err := receipt(turn, id, hash)
 	if err != nil {
 		return out, err
 	}
-	if !known && view.Revision != target.Revision {
-		return out, dashi.ErrRevisionConflict
+	if !known && view.LastSeq != target.LastSeq {
+		return out, dashi.ErrStaleTurn
 	}
 	// The runner owns all command/state validation and persisted worker fences.
 	// Do not promote a fresh command's rejected state to a synthetic task failure.
@@ -169,25 +170,25 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 	for ev, e := range t.session.Runner.Stream(workCtx, turn, owned) {
 		if ev.Step != nil {
 			ts.observe(t, *ev.Step)
-			if ev.Step.Kind == dashi.StepContinued {
+			if ev.Step.Kind == dashi.StepTurnContinued {
 				ts.mu.Lock()
 				started := ts.viewLocked(t, nil)
 				ts.mu.Unlock()
 				ts.onTask(TaskStarted, started)
 			}
 		}
-		if ev.Outcome != nil {
-			out = *ev.Outcome
+		if ev.Result != nil {
+			out = *ev.Result
 		}
 		if e != nil {
 			runErr = e
 		}
 	}
 	if ts.isStopping(t) && (runErr != nil || out.Stop.Kind == dashi.StopInterrupted || out.Stop.Kind == dashi.StopWaiting) {
-		// Stop is a separate explicit intent. If its write is unknown,
+		// Stop is a separate explicit request. If its write is unknown,
 		// fence that cancellation receipt, not the preceding Continue.
-		target.Revision = out.Revision
-		_, id, digest, _ = ownedCommand(dashi.Cancel{CommandID: turn.ID + "/cancel", Reason: "stopped on request"})
+		target.LastSeq = out.LastSeq
+		_, id, hash, _ = ownedCommand(dashi.Cancel{CommandID: turn.ID + "/cancel", Reason: "stopped on request"})
 		canceled, err := ts.cancelTurn(t, turn.ID)
 		if canceled.Turn.ID != "" {
 			out = canceled
@@ -195,20 +196,20 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 		runErr = err
 	}
 	var commitErr *dashi.CommitError
-	unknown := errors.As(runErr, &commitErr) && commitErr.Persistence != dashi.PersistenceRejected
+	unknown := errors.As(runErr, &commitErr) && !commitErr.NothingWritten
 	if unknown {
 		ts.mu.Lock()
-		t.pending = &pendingTaskCommand{target: target, id: id, digest: digest}
+		t.pending = &pendingTaskCommand{target: target, id: id, hash: hash}
 		ts.mu.Unlock()
 	}
-	// Reconcile presentation too: a lost acknowledgement is not proof of a
-	// synthetic failure or permission to deliver a final result.
+	// Report from the reloaded record too: a lost acknowledgement neither
+	// proves a failure nor permits reporting a final result.
 	if runErr != nil {
 		loaded, e := loader.Load(context.WithoutCancel(ctx), turn.ID)
 		if e == nil {
-			v, e := dashi.Replay(loaded)
+			v, e := loaded.View()
 			if e == nil {
-				out = dashi.Outcome{Turn: loaded, TurnView: v}
+				out = dashi.RunResult{Turn: loaded, TurnView: v}
 			}
 		}
 	}
@@ -218,7 +219,7 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 	return out, runErr
 }
 
-func (ts *Tasks) controlResult(t *task, out dashi.Outcome, unknown bool) {
+func (ts *Tasks) controlResult(t *task, out dashi.RunResult, unknown bool) {
 	deferred := unknown || ts.deferNotice(out.Turn)
 	ts.mu.Lock()
 	c := t.last()

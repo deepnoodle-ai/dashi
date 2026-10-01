@@ -9,7 +9,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-func TestHostedBuiltinsPrepareThroughSDK(t *testing.T) {
+func TestProviderToolBuiltinsPrepareThroughSDK(t *testing.T) {
 	client, err := New(Config{
 		APIKey:           "test",
 		CapabilityPolicy: llm.CapabilityAdjust,
@@ -84,7 +84,7 @@ func TestFileSearchRequiresV1Beta(t *testing.T) {
 	}
 }
 
-func TestCodeExecutionPartsRemainHosted(t *testing.T) {
+func TestCodeExecutionPartsRemainProviderTool(t *testing.T) {
 	client, err := New(Config{
 		APIKey:           "test",
 		CapabilityPolicy: llm.CapabilityAdjust,
@@ -115,12 +115,12 @@ func TestCodeExecutionPartsRemainHosted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode code execution: %v", err)
 	}
-	if result.Message.Content[0].HostedUse == nil ||
-		result.Message.Content[1].HostedResult == nil {
+	if result.Message.Content[0].ProviderToolUse == nil ||
+		result.Message.Content[1].ProviderToolResult == nil {
 		t.Fatal("provider code became an executable client tool call")
 	}
-	if result.Message.Content[0].HostedUse.ID !=
-		result.Message.Content[1].HostedResult.CallID {
+	if result.Message.Content[0].ProviderToolUse.ID !=
+		result.Message.Content[1].ProviderToolResult.CallID {
 		t.Fatal("code result lost its call pairing")
 	}
 	_, err = client.Prepare(
@@ -139,7 +139,7 @@ func TestCodeExecutionPartsRemainHosted(t *testing.T) {
 	}
 }
 
-func TestHostedToolBindingAcrossGoogleBackends(t *testing.T) {
+func TestProviderToolBindingAcrossGoogleBackends(t *testing.T) {
 	vertex, err := New(Config{
 		Vertex:           true,
 		Project:          "p",
@@ -226,10 +226,10 @@ func TestHostedToolBindingAcrossGoogleBackends(t *testing.T) {
 	}
 	// Vertex refuses file search earlier, for its endpoint, so check the
 	// binding rule directly: file search stores never cross destinations.
-	if boundTo(files.Definition.Hosted, "google-vertex") {
+	if boundTo(files.Definition.ProviderTool, "google-vertex") {
 		t.Fatal("file search bound to google crossed to google-vertex")
 	}
-	if strings.Contains(string(files.Definition.Hosted.Options), "Provider") {
+	if strings.Contains(string(files.Definition.ProviderTool.Options), "Provider") {
 		t.Fatal("file search options recorded the provider binding")
 	}
 }

@@ -172,7 +172,7 @@ func runBig(
 	text string,
 	state tool.State,
 	hooks Hooks,
-) (*scriptedClient, Outcome) {
+) (*scriptedClient, RunResult) {
 	t.Helper()
 	runs := 0
 	client := &scriptedClient{
@@ -220,10 +220,10 @@ func TestZeroAgentShortensLargeResult(t *testing.T) {
 
 func TestSmallResultIsUnchanged(t *testing.T) {
 	_, out := runBig(t, testAgent(), "small", tool.StateSucceeded, Hooks{})
-	settled := settlementOf(t, out.Turn, "call-1")
-	if settled.Tool.Result != nil || settled.Tool.Shortened != nil ||
+	finished := finishOf(t, out.Turn, "call-1")
+	if finished.Tool.Result != nil || finished.Tool.Shortened != nil ||
 		out.Tools["call-1"].Shortened() != nil {
-		t.Fatalf("recorded a view for a small result: %+v", settled.Tool)
+		t.Fatalf("recorded a view for a small result: %+v", finished.Tool)
 	}
 }
 
@@ -287,17 +287,17 @@ func TestContinueKeepsTheRecordedViewAndDoesNotRunTheToolAgain(t *testing.T) {
 	text := "HEAD" + strings.Repeat("a", 5000) + "TAIL"
 	agent := testAgent()
 	agent.Limits.ToolResultBytes = 2048
-	agent.Limits.ModelAttempts = 5
+	agent.Limits.ModelCalls = 5
 	runs := 0
 	first := &scriptedClient{
 		results: []llm.Result{callResult("call-1", "remote"), {}},
 		errors: []error{
 			nil,
 			&llm.Error{
-				Provider:    "test",
-				Category:    llm.ErrorRateLimited,
-				Status:      429,
-				Disposition: llm.FailureRejected,
+				Provider:   "test",
+				Category:   llm.ErrorRateLimited,
+				Status:     429,
+				SendStatus: llm.SendStatusProviderRejected,
 			},
 		},
 	}
@@ -358,7 +358,7 @@ func TestReplayReadsTheRecordedViewNotTheRecordedLimit(t *testing.T) {
 	started := *turn.Steps[0].Started
 	started.Agent.Limits.ToolResultBytes = 1 << 20
 	turn.Steps[0].Started = &started
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +403,7 @@ func TestStreamCarriesRawResultAndSameView(t *testing.T) {
 		Tools:  tool.List{bigTool(text, tool.StateSucceeded, &runs)},
 	}
 	var streamed *ToolFact
-	var final Outcome
+	var final RunResult
 	for event, err := range runner.Stream(t.Context(), Turn{ID: "t1"}, Start{
 		Agent: testAgent(),
 		Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
@@ -411,11 +411,11 @@ func TestStreamCarriesRawResultAndSameView(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if event.Step != nil && event.Step.Kind == StepToolSettled {
+		if event.Step != nil && event.Step.Kind == StepToolFinished {
 			streamed = event.Step.Tool
 		}
-		if event.Outcome != nil {
-			final = *event.Outcome
+		if event.Result != nil {
+			final = *event.Result
 		}
 	}
 	if streamed == nil || streamed.Outcome == nil ||
@@ -463,7 +463,7 @@ func TestReplayRejectsBadShortenedRecords(t *testing.T) {
 	} {
 		turn := cloneTurn(out.Turn)
 		for i, s := range turn.Steps {
-			if s.Kind == StepToolSettled && s.Tool.Call.ID == "call-1" {
+			if s.Kind == StepToolFinished && s.Tool.Call.ID == "call-1" {
 				fact := *s.Tool
 				sh := *fact.Shortened
 				fact.Shortened = &sh
@@ -471,13 +471,13 @@ func TestReplayRejectsBadShortenedRecords(t *testing.T) {
 				turn.Steps[i].Tool = &fact
 			}
 		}
-		if _, err := Replay(turn); err == nil {
+		if _, err := turn.View(); err == nil {
 			t.Errorf("%s: replay accepted the record", name)
 		}
 	}
 }
 
-func TestSettledHostResultIsShortened(t *testing.T) {
+func TestFinishedHostResultIsShortened(t *testing.T) {
 	external := tool.Tool{Definition: tool.Definition{
 		Name:   "lookup",
 		Schema: []byte(`{"type":"object"}`),
@@ -576,7 +576,7 @@ func TestShortenResultKeepsLargeMediaWithoutCopyingDiscardedText(t *testing.T) {
 	}
 }
 
-func runBlocks(t *testing.T, blocks []content.Block) Outcome {
+func runBlocks(t *testing.T, blocks []content.Block) RunResult {
 	t.Helper()
 	agent := testAgent()
 	agent.Limits.ToolResultBytes = 2048
@@ -610,14 +610,14 @@ func runBlocks(t *testing.T, blocks []content.Block) Outcome {
 	return out
 }
 
-func TestSeparatorOnlyShorteningSettlesAndReplays(t *testing.T) {
+func TestSeparatorOnlyShorteningFinishesAndReplays(t *testing.T) {
 	for name, text := range map[string]string{"empty": "", "tiny": "x"} {
 		var blocks []content.Block
 		for range 5000 {
 			blocks = append(blocks, content.TextBlock(text))
 		}
 		out := runBlocks(t, blocks)
-		view, err := Replay(cloneTurn(out.Turn))
+		view, err := cloneTurn(out.Turn).View()
 		if err != nil {
 			t.Fatalf("%s: replay: %v", name, err)
 		}

@@ -14,10 +14,10 @@ import (
 )
 
 // This is a host migration boundary, not a package policy: a second tool in
-// one model response is authorized before the first load is settled, even with
+// one model response is authorized before the first load is finished, even with
 // serial execution. Mobius's focus checkpoint and ordering cannot be replaced
-// by looking only for settled load calls in BeforeTool.
-func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
+// by looking only for finished load calls in BeforeTool.
+func TestSameBatchAuthorizationPrecedesLoadFinish(t *testing.T) {
 	bundle, err := skill.New(
 		[]skill.Definition{{
 			Name:         "Incident Review",
@@ -43,7 +43,7 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 		t.Fatal(err)
 	}
 	sawAction := false
-	loadSettledAtAuthorization := false
+	loadFinishedAtAuthorization := false
 	hook := dashi.ToolHook{
 		Name: "observe-same-batch",
 		Func: func(
@@ -56,15 +56,15 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 			sawAction = true
 			for _, call := range plan.Turn.Tools {
 				if call.Call.Name == "invoke_skill" &&
-					call.Status == dashi.ToolSettled {
-					loadSettledAtAuthorization = true
+					call.Status == dashi.ToolFinished {
+					loadFinishedAtAuthorization = true
 				}
 			}
 			return dashi.ToolDecision{}, nil
 		},
 	}
 	client := &skillClient{}
-	revision := "incident-agent-v1:" + bundle.Digest() + ":focus-v1"
+	revision := "incident-agent-v1:" + bundle.Hash() + ":focus-v1"
 	runner := dashi.Runner{
 		Client:   client,
 		Tools:    tool.Join(tool.List{action}, bundle),
@@ -74,8 +74,8 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 	start := dashi.Start{
 		CommandID: "start",
 		Agent: dashi.Agent{
-			Model:    "fixture",
-			Revision: revision,
+			Model:   "fixture",
+			Version: revision,
 		},
 		Input: []llm.Message{llm.UserMessage(llm.Text("review incident"))},
 	}
@@ -83,19 +83,19 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 	if err != nil || outcome.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("run: stop=%+v err=%v", outcome.Stop, err)
 	}
-	if !sawAction || loadSettledAtAuthorization {
+	if !sawAction || loadFinishedAtAuthorization {
 		t.Fatalf(
-			"action hook saw load settled=%v, saw action=%v",
-			loadSettledAtAuthorization,
+			"action hook saw load finished=%v, saw action=%v",
+			loadFinishedAtAuthorization,
 			sawAction,
 		)
 	}
-	view, err := dashi.Replay(outcome.Turn)
+	view, err := outcome.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
 	loaded := view.Tools["load-call"]
-	if loaded.Status != dashi.ToolSettled ||
+	if loaded.Status != dashi.ToolFinished ||
 		loaded.Outcome == nil ||
 		loaded.Outcome.State != tool.StateSucceeded ||
 		!strings.Contains(
@@ -105,11 +105,12 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 		t.Fatalf("recorded skill load = %+v", loaded)
 	}
 
-	// The bundle digest stayed the same; the host must change its explicit
-	// revision when focus selectors or their meaning change, and a retried
-	// Start under the new revision no longer matches the recorded agent.
+	// The bundle hash stayed the same; the host must change its explicit
+	// agent version when focus selectors or their meaning change, and a
+	// retried Start under the new version no longer matches the recorded
+	// agent.
 	changed := start
-	changed.Agent.Revision = "incident-agent-v1:" + bundle.Digest() + ":focus-v2"
+	changed.Agent.Version = "incident-agent-v1:" + bundle.Hash() + ":focus-v2"
 	_, err = runner.Run(t.Context(), outcome.Turn, changed)
 	if !errors.Is(err, dashi.ErrAgentChanged) {
 		t.Fatalf("changed host policy revision: %v", err)

@@ -25,7 +25,7 @@ type streamClient struct {
 	words []string
 	hold  chan struct{}
 	// read, when set, holds the reply until the reader has consumed the
-	// deltas: a delta the Observer delivers after its settling step is
+	// deltas: a delta the Observer delivers after its finish step is
 	// rightly dropped, which would make a test's expected shape racy.
 	read chan struct{}
 	// stop is the model's stop; zero means finished.
@@ -137,8 +137,8 @@ func shape(events []dashi.Event) string {
 	return strings.Join(out, " ")
 }
 
-// A live reader sees steps with the deltas between model_requested and
-// model_settled, and every event carries its place.
+// A live reader sees steps with the deltas between model_call_started and
+// model_call_finished, and every event carries its place.
 func TestFollowMergesPreviewsInPlace(t *testing.T) {
 	var hub Hub
 	rec := dashi.NewMemoryRecorder()
@@ -180,7 +180,7 @@ func TestFollowMergesPreviewsInPlace(t *testing.T) {
 	}
 	for _, e := range events {
 		if e.Delta != nil && e.Seq != 2 {
-			t.Fatalf("delta at seq %d; want its model_requested (2)", e.Seq)
+			t.Fatalf("delta at seq %d; want its model_call_started (2)", e.Seq)
 		}
 	}
 	if len(out.Turn.Steps) != 4 {
@@ -227,8 +227,8 @@ func TestFollowWakesOnObservedSteps(t *testing.T) {
 }
 
 // The review's regression: the Observer delivers a message's deltas late,
-// after a reader resumed from the step that settled it. Nothing is sent.
-func TestFollowDropsPreviewsSettledBeforeCursor(t *testing.T) {
+// after a reader resumed from the step that finished it. Nothing is sent.
+func TestFollowDropsPreviewsFinishedBeforeCursor(t *testing.T) {
 	var hub Hub
 	rec := dashi.NewMemoryRecorder()
 	var mu sync.Mutex
@@ -251,15 +251,15 @@ func TestFollowDropsPreviewsSettledBeforeCursor(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		return len(held) > 0 && held[len(held)-1].Step != nil &&
-			held[len(held)-1].Step.Kind == dashi.StepStopped
+			held[len(held)-1].Step.Kind == dashi.StepTurnStopped
 	})
-	settled := int64(3) // model_settled
-	if out.Turn.Steps[settled-1].Kind != dashi.StepModelSettled {
-		t.Fatalf("seq 3 is %s", out.Turn.Steps[settled-1].Kind)
+	finished := int64(3) // model_call_finished
+	if out.Turn.Steps[finished-1].Kind != dashi.StepModelCallFinished {
+		t.Fatalf("seq 3 is %s", out.Turn.Steps[finished-1].Kind)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
 	defer cancel()
-	follow := collect(ctx, &hub, rec, settled)
+	follow := collect(ctx, &hub, rec, finished)
 	waitReaders(t, &hub, 1)
 	for _, e := range held {
 		hub.Observe(e)
@@ -323,7 +323,7 @@ func TestFollowReleasesHeldPreviewsWithinAPage(t *testing.T) {
 }
 
 // A reader that joins while a message streams gets a gap for it, never a
-// message missing its start; one resuming at model_requested gets the same.
+// message missing its start; one resuming at model_call_started gets the same.
 func TestFollowGapsAMessageJoinedMidStream(t *testing.T) {
 	for name, after := range map[string]int64{"page load": 0, "reconnect": 2} {
 		t.Run(name, func(t *testing.T) {
@@ -460,7 +460,7 @@ func TestFollowCleansUpOnExit(t *testing.T) {
 	for range Follow(ctx, &hub, rec, "other", 0) {
 	}
 	cancel()
-	// A terminal stop while previews are held.
+	// The turn ends while previews are held.
 	rd := &hub
 	go func() {
 		time.Sleep(10 * time.Millisecond)
@@ -482,7 +482,7 @@ func TestManyDisconnectsLeaveNoEntries(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := &streamClient{words: []string{"a"}, stop: llm.StopOutputLimit}
 	// The run is not observed, so the hub has nothing of its own to keep
-	// for the turn (it remembers settled messages of observed runs).
+	// for the turn (it remembers finished messages of observed runs).
 	if _, err := runner(client, rec, nil).Run(
 		t.Context(), dashi.Turn{ID: "t1"}, start(),
 	); err != nil {
@@ -553,7 +553,7 @@ func TestOpenMessageIgnoresOlderRuns(t *testing.T) {
 	hub.Observe(dashi.Event{TurnID: "t1", MessageID: "m2", Seq: 8, Delta: &llm.Delta{Text: "x"}})
 	hub.Observe(dashi.Event{TurnID: "t1", MessageID: "m1", Seq: 2, Delta: &llm.Delta{Text: "y"}})
 	hub.Observe(dashi.Event{TurnID: "t1", Seq: 3, Step: &dashi.Step{
-		TurnID: "t1", Seq: 3, Kind: dashi.StepModelSettled,
+		TurnID: "t1", Seq: 3, Kind: dashi.StepModelCallFinished,
 		Model: &dashi.ModelFact{MessageID: "m1"},
 	}})
 	rd := hub.subscribe("t1")
@@ -566,23 +566,24 @@ func TestOpenMessageIgnoresOlderRuns(t *testing.T) {
 
 // An Observer gap for a turn nobody follows yet still marks its message
 // streaming, so a reader that joins before the next delta gets a gap.
-// Once the hub observes a message's settling step, a delayed delta or gap
+// Once the hub observes a message's finish step, a delayed delta or gap
 // from an overlapping run cannot reopen it: readers do not get it, and a
-// reader that joins gets no gap for it. A terminal stop forgets the turn.
-func TestSettledMessageStaysClosed(t *testing.T) {
+// reader that joins gets no gap for it. The stop that ends the turn forgets
+// the turn.
+func TestFinishedMessageStaysClosed(t *testing.T) {
 	var hub Hub
 	rd := hub.subscribe("t1")
 	delta := dashi.Event{TurnID: "t1", MessageID: "m", Seq: 2, Delta: &llm.Delta{Text: "x"}}
 	hub.Observe(delta)
 	hub.Observe(dashi.Event{TurnID: "t1", Seq: 3, Step: &dashi.Step{
-		TurnID: "t1", Seq: 3, Kind: dashi.StepModelSettled,
+		TurnID: "t1", Seq: 3, Kind: dashi.StepModelCallFinished,
 		Model: &dashi.ModelFact{MessageID: "m"},
 	}})
 	hub.take("t1", rd)
 	hub.Observe(delta)
 	hub.Observe(dashi.Event{TurnID: "t1", MessageID: "m", Seq: 2, Gap: true})
 	if events := hub.take("t1", rd); len(events) != 0 {
-		t.Fatalf("a settled message reopened for a reader: %q", shape(events))
+		t.Fatalf("a finished message reopened for a reader: %q", shape(events))
 	}
 	hub.unsubscribe("t1", rd)
 	late := hub.subscribe("t1")
@@ -591,11 +592,11 @@ func TestSettledMessageStaysClosed(t *testing.T) {
 	}
 	hub.unsubscribe("t1", late)
 	hub.Observe(dashi.Event{TurnID: "t1", Seq: 4, Step: &dashi.Step{
-		TurnID: "t1", Seq: 4, Kind: dashi.StepStopped,
-		Stop: &dashi.Stop{Kind: dashi.StopCompleted, Terminal: true},
+		TurnID: "t1", Seq: 4, Kind: dashi.StepTurnStopped,
+		Stop: &dashi.Stop{Kind: dashi.StopCompleted, Ended: true},
 	}})
 	if n := hub.entries(); n != 0 {
-		t.Fatalf("hub holds %d turns after a terminal stop", n)
+		t.Fatalf("hub holds %d turns after a ending stop", n)
 	}
 }
 
@@ -620,7 +621,7 @@ func TestRestingTurnSeesOtherProcessCommits(t *testing.T) {
 	out, err := runner(&streamClient{words: []string{"b"}}, rec, nil).Run(
 		t.Context(), first.Turn, dashi.Continue{CommandID: "resume"},
 	)
-	if err != nil || !out.Stop.Terminal {
+	if err != nil || !out.Stop.Ended {
 		t.Fatalf("resume: stop=%+v err=%v", out.Stop, err)
 	}
 	events, err := follow(t)
@@ -631,7 +632,7 @@ func TestRestingTurnSeesOtherProcessCommits(t *testing.T) {
 		t.Fatalf("the reader saw the other process's steps after %v", waited)
 	}
 	last := events[len(events)-1]
-	if last.Step == nil || last.Step.Stop == nil || !last.Step.Stop.Terminal {
+	if last.Step == nil || last.Step.Stop == nil || !last.Step.Stop.Ended {
 		t.Fatalf("follow ended at %q", shape(events))
 	}
 }
@@ -673,14 +674,14 @@ func TestHubReadersComeAndGo(t *testing.T) {
 	waitFor(t, func() bool { return hub.readers("t1") == 0 })
 }
 
-// When the settling step's commit fails, no settle and no gap arrive; the
+// When the finish step's commit fails, no finish and no gap arrive; the
 // reader keeps the deltas it has and ends with its context.
 func TestFollowAfterAFailedCommit(t *testing.T) {
 	var hub Hub
 	rec := dashi.NewMemoryRecorder()
 	faulty := &dashitest.FaultRecorder{
 		Recorder: rec,
-		Kind:     dashi.StepModelSettled,
+		Kind:     dashi.StepModelCallFinished,
 		Fault:    dashitest.LoseWrite,
 	}
 	client := &streamClient{words: []string{"a", "b"}, hold: make(chan struct{})}

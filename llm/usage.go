@@ -38,16 +38,16 @@ type ModalityTokenUsage struct {
 // This differs deliberately from ReasoningTokens, which is a subset of
 // OutputTokens rather than an additive bucket.
 type Usage struct {
-	// Requests counts billable provider-hosted work by meter key (see
+	// Requests counts billable provider tool work by meter key (see
 	// MeterWebSearch).
 	Requests map[string]int `json:"requests,omitempty"`
-	// RequestsFinal reports that Requests come from the provider's complete,
-	// final response, so no billed hosted work is missing from them. Adapters
-	// leave it false for a response cut off before its final usage, whose
-	// counts may be inferred from the hosted blocks seen so far. When it is
-	// false and the call had hosted activity, the runner records
-	// MeterUnreported so the call's cost shows as partial.
-	RequestsFinal bool `json:"requests_final,omitempty"`
+	// RequestsComplete reports that Requests come from the provider's complete,
+	// final response, so no billed provider tool work is missing from them.
+	// Adapters leave it false for a response cut off before its final usage,
+	// whose counts may be inferred from the provider tool blocks seen so far.
+	// When it is false and the call had provider tool activity, the runner
+	// records MeterUnreported so the call's cost shows as partial.
+	RequestsComplete bool `json:"requests_complete,omitempty"`
 	// InputTokens counts input excluding cache reads and cache creation.
 	InputTokens int `json:"input_tokens"`
 
@@ -245,7 +245,7 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 func (u *Usage) Copy() *Usage {
 	cp := &Usage{
 		Requests:                                maps.Clone(u.Requests),
-		RequestsFinal:                           u.RequestsFinal,
+		RequestsComplete:                        u.RequestsComplete,
 		InputTokens:                             u.InputTokens,
 		OutputTokens:                            u.OutputTokens,
 		CacheCreationInputTokens:                u.CacheCreationInputTokens,
@@ -297,7 +297,7 @@ func (u *Usage) Absorb(other *Usage) {
 	)
 	u.ReasoningTokens = max(u.ReasoningTokens, other.ReasoningTokens)
 	// A later final frame completes the counts of earlier partial ones.
-	u.RequestsFinal = u.RequestsFinal || other.RequestsFinal
+	u.RequestsComplete = u.RequestsComplete || other.RequestsComplete
 	if len(other.Requests) > 0 {
 		if u.Requests == nil {
 			u.Requests = map[string]int{}
@@ -339,7 +339,7 @@ func (u *Usage) Absorb(other *Usage) {
 
 // Add sums usage from a separate request into u. It rejects overflow without
 // changing u. Use Absorb for cumulative frames within one streamed response.
-// The sum is not one provider's report, so Add clears RequestsFinal.
+// The sum is not one provider's report, so Add clears RequestsComplete.
 func (u *Usage) Add(other *Usage) error {
 	if other == nil {
 		return nil
@@ -419,7 +419,7 @@ func (u *Usage) Add(other *Usage) error {
 		}
 	}
 	next.mergeFlags(other)
-	next.RequestsFinal = false
+	next.RequestsComplete = false
 	if err := next.Validate(); err != nil {
 		return err
 	}

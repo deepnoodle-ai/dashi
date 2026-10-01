@@ -1,9 +1,9 @@
 // Command approval runs a turn whose deploy tool needs a person's approval.
 // A BeforeTool hook asks at the terminal before each deploy call and allows
 // or denies it, so the whole turn is one Run. A server that cannot wait for
-// a person uses the deferred form in examples/durable_approval instead. Set
-// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
-// the catalog's default model.
+// a person uses the needs-approval form in examples/durable_approval
+// instead. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL
+// optionally overrides the catalog's default model.
 package main
 
 import (
@@ -85,6 +85,6 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 	return nil
 }

@@ -34,7 +34,7 @@ have a different default and therefore a different thinking-budget clamp
   features with no safe substitute fail under both policies. An effort fits to
   the nearest accepted level but never down to `none`, and the spellings
   `extra-high`, `extra_high`, and `extra high` rank as `xhigh`.
-- Keep effective settings with each model attempt. Aggregate token usage cannot
+- Keep effective settings with each model call. Aggregate token usage cannot
   truthfully represent a run that used different settings. The result records
   the served model when the provider reports it.
 
@@ -46,8 +46,8 @@ path; it is data, not a second request planner.
 
 `Adjustment` records a typed field and action plus requested/effective JSON
 values. `null` means omitted. Actions are `default` (fills an omission, no
-warning), `clamp`, and `omit`; the last two replace caller intent and always
-project to a `Warning` on the request, its snapshot, and the result. `Fit`
+warning), `clamp`, and `omit`; the last two replace what the caller asked for and
+always show up as a `Warning` on the request, its snapshot, and the result. `Fit`
 applies API-wide limits intersected with model evidence before encoding.
 Emulation is not implemented. `NewRequest` checks that every setting change has
 a matching decision. Snapshots and model facts always record the resolved

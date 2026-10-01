@@ -35,7 +35,7 @@ type queuedItem struct {
 
 // reservation marks queued items a Start carries: the Start's command ID
 // and turn number. It is open while that Start runs; once it has ended
-// with an unknown result, the next command settles it by loading the turn.
+// with an unknown result, the next command finishes it by loading the turn.
 type reservation struct {
 	commandID string
 	n         int
@@ -146,12 +146,12 @@ func (s *Session) History(ctx context.Context) ([]llm.Message, error) {
 	return s.conversation(ctx, last), nil
 }
 
-// ProjectedHistory returns what the next new turn sends as Start.History,
+// NextHistory returns what the next new turn sends as Start.History,
 // unless a compaction turn runs first: the replacement history of the
 // newest completed compaction turn, then the messages of the turns after
 // it. Without compaction turns it equals History. A turn that cannot be
 // read is left out.
-func (s *Session) ProjectedHistory(ctx context.Context) ([]llm.Message, error) {
+func (s *Session) NextHistory(ctx context.Context) ([]llm.Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ID == "" {
@@ -312,7 +312,7 @@ func itemMessages(items []*queuedItem) []llm.Message {
 	return out
 }
 
-// settle decides the fate of reserved items from the result of the Start
+// decideReserved decides the fate of reserved items from the result of the Start
 // that carried them. Success consumes them, and so does a turn_started
 // event the run already reported (started): the engine emits a step only
 // once it committed. Proof that the Start's turn_started step was not
@@ -320,7 +320,7 @@ func itemMessages(items []*queuedItem) []llm.Message {
 // session loads the turn: a turn_started step with the Start's command ID
 // consumes them, a missing one restores them, and a failed load keeps them
 // reserved and adds its error. The caller holds mu.
-func (s *Session) settle(
+func (s *Session) decideReserved(
 	ctx context.Context,
 	r *reservation,
 	started bool,
@@ -335,21 +335,22 @@ func (s *Session) settle(
 		s.release(r, false)
 		return err
 	}
-	if lerr := s.settleByLoad(ctx, r); lerr != nil {
+	if lerr := s.finishByLoad(ctx, r); lerr != nil {
 		return errors.Join(err, lerr)
 	}
 	return err
 }
 
-// errReserved marks a reservation the session cannot settle: it cannot
+// errReserved marks a reservation the session cannot finish: it cannot
 // tell whether a turn took the queued items. New commands still run, but
 // the queue waits, so its items never run out of order or twice.
 var errReserved = errors.New("session: queued items stay reserved")
 
-// settleReserved settles the reservations of Starts that ended with an
-// unknown result. It returns an error matching errReserved when one cannot
-// be settled; only the queue waits on it. The caller holds mu.
-func (s *Session) settleReserved(ctx context.Context) error {
+// finishReserved finishes the reservations of Starts that ended with an
+// unknown result: it consumes or restores their items. It returns an error
+// matching errReserved when one cannot be finished; only the queue waits on
+// it. The caller holds mu.
+func (s *Session) finishReserved(ctx context.Context) error {
 	var pending []*reservation
 	for _, q := range s.queue {
 		if r := q.reserved; r != nil && !r.open && !slices.Contains(pending, r) {
@@ -357,14 +358,14 @@ func (s *Session) settleReserved(ctx context.Context) error {
 		}
 	}
 	for _, r := range pending {
-		if err := s.settleByLoad(ctx, r); err != nil {
+		if err := s.finishByLoad(ctx, r); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Session) settleByLoad(ctx context.Context, r *reservation) error {
+func (s *Session) finishByLoad(ctx context.Context, r *reservation) error {
 	id := TurnID(s.ID, r.n)
 	loader, ok := s.recorder().(dashi.Loader)
 	if !ok {
@@ -377,7 +378,7 @@ func (s *Session) settleByLoad(ctx context.Context, r *reservation) error {
 	turn, err := loader.Load(ctx, id)
 	switch {
 	case err == nil && len(turn.Steps) > 0 &&
-		turn.Steps[0].Kind == dashi.StepStarted &&
+		turn.Steps[0].Kind == dashi.StepTurnStarted &&
 		turn.Steps[0].CommandID == r.commandID:
 		s.release(r, true)
 	case err == nil || errors.Is(err, dashi.ErrTurnNotFound):
@@ -394,7 +395,7 @@ func (s *Session) settleByLoad(ctx context.Context, r *reservation) error {
 }
 
 // queueBlocked returns a WarningQueueBlocked while a reservation cannot be
-// settled. The caller holds mu.
+// finished. The caller holds mu.
 func (s *Session) queueBlocked() []dashi.Warning {
 	n := 0
 	var id string
@@ -447,17 +448,17 @@ func notStarted(err error) bool {
 	}
 	var ce *dashi.CommitError
 	return errors.As(err, &ce) && ce.Step != nil &&
-		ce.Step.Kind == dashi.StepStarted &&
-		(ce.Persistence == dashi.PersistenceRejected ||
-			errors.Is(ce.Err, dashi.ErrRevisionConflict) ||
-			errors.Is(ce.Err, dashi.ErrCommandConflict))
+		ce.Step.Kind == dashi.StepTurnStarted &&
+		(ce.NothingWritten ||
+			errors.Is(ce.Err, dashi.ErrStaleTurn) ||
+			errors.Is(ce.Err, dashi.ErrCommandIDReused))
 }
 
 // planQueue chooses a queue turn for every free item, when the session is
-// idle. It fails with errReserved while a reservation cannot be settled,
+// idle. It fails with errReserved while a reservation cannot be finished,
 // since items that turn may have taken would otherwise run out of order.
 // When a turn in the idempotency window already started with the same
-// queue: key, the items were delivered: it consumes them and starts
+// queue: key, the items were already added to it: it consumes them and starts
 // nothing. An unreadable last turn is an error, even under Exclusive,
 // since it may hold that key. The caller holds mu.
 func (s *Session) planQueue(
@@ -465,7 +466,7 @@ func (s *Session) planQueue(
 	compacted bool,
 ) (startPlan, bool, error) {
 	s.ready()
-	if err := s.settleReserved(ctx); err != nil {
+	if err := s.finishReserved(ctx); err != nil {
 		return startPlan{}, false, err
 	}
 	items := s.free(nil)
@@ -487,7 +488,7 @@ func (s *Session) planQueue(
 	if last > 0 {
 		// An unreadable last turn fails even under Exclusive: it may have
 		// started with this queue key, and starting another queue turn
-		// could deliver the items twice. A caller's Start moves past it.
+		// could add the items twice. A caller's Start moves past it.
 		t, err := s.load(ctx, last)
 		if err != nil {
 			if s.Exclusive && ctx.Err() == nil {
@@ -549,7 +550,7 @@ func (s *Session) planQueue(
 // usedKey reports whether a turn in the idempotency window, from turn n
 // back through the newest turn a caller's Start began, started with key.
 // A turn that fails to load fails the check, since a missed key would
-// deliver the items twice. The caller holds mu.
+// add the items twice. The caller holds mu.
 func (s *Session) usedKey(ctx context.Context, key string, n int) (bool, error) {
 	for ; n >= 1; n-- {
 		t, err := s.load(ctx, n)

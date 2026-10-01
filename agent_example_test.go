@@ -30,14 +30,14 @@ func ExampleAgent_tools() {
 		Agent: agent,
 		Input: []llm.Message{llm.UserMessage(llm.Text("look around"))},
 	})
-	fmt.Println(out.Answer)
+	fmt.Println(out.Reply)
 
 	agent.Tools = nil // every tool the runner offers
 	out, _ = runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Agent: agent,
 		Input: []llm.Message{llm.UserMessage(llm.Text("fix it"))},
 	})
-	fmt.Println(out.Answer)
+	fmt.Println(out.Reply)
 	// Output:
 	// offered [read]
 	// offered [read write]

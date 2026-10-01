@@ -316,9 +316,9 @@ func sdkError(provider string, err error, body []byte, hasMedia bool) error {
 		case api.Code >= 500:
 			category = llm.ErrorOverloaded
 		}
-		disposition := llm.FailureUnknown
+		sendStatus := llm.SendStatusUnknown
 		if providerhttp.KnownRejection(api.Code) {
-			disposition = llm.FailureRejected
+			sendStatus = llm.SendStatusProviderRejected
 		}
 		rejection := providerhttp.Rejection{
 			Status:   api.Code,
@@ -327,21 +327,21 @@ func sdkError(provider string, err error, body []byte, hasMedia bool) error {
 			HasMedia: hasMedia,
 		}
 		return &llm.Error{
-			Provider:    provider,
-			Category:    category,
-			Reason:      providerhttp.Reason(errorReason, rejection),
-			Disposition: disposition,
-			Status:      api.Code,
-			Body:        bytes.Clone(body),
-			Retryable:   api.Code == 408 || api.Code == 429 || api.Code >= 500,
-			Cause:       err,
+			Provider:   provider,
+			Category:   category,
+			Reason:     providerhttp.Reason(errorReason, rejection),
+			SendStatus: sendStatus,
+			Status:     api.Code,
+			Body:       bytes.Clone(body),
+			Retryable:  api.Code == 408 || api.Code == 429 || api.Code >= 500,
+			Cause:      err,
 		}
 	}
 	return providerhttp.Failure(provider, llm.ErrorTransport, "SDK call: %w", err)
 }
 
 // sdkStream forwards SDK stream chunks to a sink as provisional deltas. It
-// keeps state across chunks so usage deltas carry cumulative hosted-tool
+// keeps state across chunks so usage deltas carry cumulative provider-tool
 // counts, including counts from metadata that arrives after the last
 // usageMetadata.
 type sdkStream struct {
@@ -419,7 +419,7 @@ func (s *sdkStream) emitContent(content *genai.Content) {
 	}
 }
 
-// observe counts one chunk's hosted work. The SDK's typed metadata is
+// observe counts one chunk's provider tool work. The SDK's typed metadata is
 // re-encoded to its wire JSON so both stream paths count with one set of
 // rules.
 func (s *sdkStream) observe(candidate *genai.Candidate) bool {

@@ -24,7 +24,7 @@ func TestHookHelpersHoldAcrossResume(t *testing.T) {
 			return dashi.FinishDecision{}, nil
 		}
 		nudges++
-		return dashi.FinishDecision{Deliver: []dashi.ContextItem{{
+		return dashi.FinishDecision{AddMessages: []dashi.ContextItem{{
 			Origin:  dashi.ContextRuntime,
 			Message: llm.UserMessage(llm.Text("Say more.")),
 		}}}, nil
@@ -65,7 +65,7 @@ func TestHookHelpersHoldAcrossResume(t *testing.T) {
 		t.Fatal("no nudge recorded")
 	}
 	turn.Steps = turn.Steps[:cut+1]
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,9 +88,9 @@ func TestHookHelpersHoldAcrossResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != dashi.StopCompleted || out.Answer != "Longer." {
+	if out.Stop.Kind != dashi.StopCompleted || out.Reply != "Longer." {
 		t.Fatalf("stop %s, answer %q; want completed, Longer.",
-			out.Stop.Kind, out.Answer)
+			out.Stop.Kind, out.Reply)
 	}
 	if nudges != 1 {
 		t.Errorf("nudged %d times; want 1", nudges)
@@ -138,8 +138,8 @@ func TestSeedContextGuardsItsItem(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(d.Deliver) != 1 || d.Deliver[0].NextCallOnly {
-			t.Fatalf("delivered %+v; want one item without NextCallOnly", d.Deliver)
+		if len(d.AddMessages) != 1 || d.AddMessages[0].NextCallOnly {
+			t.Fatalf("delivered %+v; want one item without NextCallOnly", d.AddMessages)
 		}
 	})
 	t.Run("name clash", func(t *testing.T) {

@@ -23,8 +23,8 @@ type appConfig struct {
 	Preferences   *cliPreferences
 	InvocationDir string
 	MCPFiles      []string
-	// ModelAttempts overrides the per-turn model-call limit; zero means 40.
-	ModelAttempts int
+	// ModelCalls overrides the per-turn model-call limit; zero means 40.
+	ModelCalls    int
 	parentStopped func(int)
 
 	// recorder wraps each session's recorder; tests use it.
@@ -93,7 +93,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		Wiring:        w,
 		Resources:     resources,
 		MCP:           mcp,
-		ModelAttempts: cfg.ModelAttempts,
+		ModelCalls:    cfg.ModelCalls,
 		Emit:          func(b Block) { emitToUI(ui, b) },
 		ParentStopped: cfg.parentStopped,
 		Receipt: func(in *submittedInput, r inputReceipt) {

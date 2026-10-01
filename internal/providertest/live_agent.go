@@ -36,20 +36,20 @@ func AgentCredentials(t *testing.T, provider string) (string, string) {
 }
 
 // RecordedReminder makes one paid call with a recorded reminder and checks
-// that the answer follows it and the projection keeps it.
+// that the reply follows it and the turn's messages keep it.
 func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	def := dashi.Agent{
 		ID:       "reminder-live",
-		Revision: "1",
+		Version:  "1",
 		Provider: client.Provider(),
 		API:      client.API(),
 		Model:    modelName,
 		Settings: llm.Settings{MaxTokens: 256},
 		Limits: dashi.Limits{
-			ModelAttempts:  1,
+			ModelCalls:     1,
 			ProviderPauses: 1,
 		},
 	}
@@ -74,22 +74,22 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 		},
 	)
 	if err != nil || out.Stop.Kind != dashi.StopCompleted || !strings.Contains(
-		strings.ToLower(out.Answer),
+		strings.ToLower(out.Reply),
 		"indigo",
 	) {
 		t.Fatalf(
 			"outcome=%+v answer=%q err=%v",
 			out.Stop,
-			out.Answer,
+			out.Reply,
 			err,
 		)
 	}
-	projected, err := dashi.Project(out.Turn)
+	messages, err := dashi.TurnMessagesFull(out.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	found := false
-	for _, message := range projected {
+	for _, message := range messages {
 		for _, part := range message.Content {
 			if part.Reminder != nil && part.Reminder.Name == "answer-word" && part.Reminder.Content == "The answer word is indigo." {
 				found = true
@@ -97,7 +97,7 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 		}
 	}
 	if !found {
-		t.Fatal("recorded reminder missing from projected history")
+		t.Fatal("recorded reminder missing from history")
 	}
 }
 
@@ -108,13 +108,13 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 	defer cancel()
 	def := dashi.Agent{
 		ID:       "iterator-live",
-		Revision: "1",
+		Version:  "1",
 		Provider: client.Provider(),
 		API:      client.API(),
 		Model:    modelName,
 		Settings: llm.Settings{MaxTokens: 256},
 	}
-	var outcome *dashi.Outcome
+	var outcome *dashi.RunResult
 	previews, committed := 0, 0
 	for event, err := range (dashi.Runner{
 		Client:   client,
@@ -139,12 +139,12 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 		if event.Step != nil {
 			committed++
 		}
-		if event.Outcome != nil {
-			outcome = event.Outcome
+		if event.Result != nil {
+			outcome = event.Result
 		}
 	}
 	if outcome == nil || outcome.Stop.Kind != dashi.StopCompleted || !strings.Contains(
-		strings.ToLower(outcome.Answer),
+		strings.ToLower(outcome.Reply),
 		"indigo",
 	) || previews == 0 || committed < 4 {
 		t.Fatalf(
@@ -163,9 +163,9 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 	)
 }
 
-// ReservedFinalAnswer makes exactly two paid calls. The second call must see
+// ReservedFinalReply makes exactly two paid calls. The second call must see
 // the recorded tool result while no longer advertising application tools.
-func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
+func ReservedFinalReply(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -187,10 +187,10 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 		t.Fatal(err)
 	}
 	counted := &countingClient{Client: client}
-	limits := dashi.Limits{ModelAttempts: 2}
+	limits := dashi.Limits{ModelCalls: 2}
 	def := dashi.Agent{
 		ID:           "limit-live",
-		Revision:     "1",
+		Version:      "1",
 		Provider:     client.Provider(),
 		API:          client.API(),
 		Model:        modelName,
@@ -216,9 +216,9 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 			},
 		},
 	)
-	if err != nil || out.Stop.Kind != dashi.StopLimited || out.Stop.Reason != "model_attempts" ||
+	if err != nil || out.Stop.Kind != dashi.StopLimited || out.Stop.Reason != "model_calls" ||
 		!strings.Contains(
-			out.Answer,
+			out.Reply,
 			"56",
 		) || counted.sends != 2 || runs != 1 {
 		t.Fatalf(
@@ -229,25 +229,25 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 			runs,
 		)
 	}
-	view, err := dashi.Replay(out.Turn)
-	if err != nil || view.ModelAttempts != 2 {
+	view, err := out.Turn.View()
+	if err != nil || view.ModelCalls != 2 {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
 	for _, step := range out.Turn.Steps {
-		if step.Kind == dashi.StepModelIntent && step.Model.FinalAnswerOnly {
+		if step.Kind == dashi.StepModelCallStarted && step.Model.FinalReplyOnly {
 			if len(step.Model.Tools) != 0 {
 				t.Fatalf("final request advertised tools: %+v", step.Model.Tools)
 			}
 			t.Logf(
-				"model=%s attempts=%d answer=%q",
+				"model=%s calls=%d answer=%q",
 				modelName,
-				view.ModelAttempts,
-				out.Answer,
+				view.ModelCalls,
+				out.Reply,
 			)
 			return
 		}
 	}
-	t.Fatal("missing final-answer intent")
+	t.Fatal("missing final-reply call start")
 }
 
 // StructuredOutput makes one paid call and checks that a per-turn schema is
@@ -258,12 +258,12 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 	defer cancel()
 	def := dashi.Agent{
 		ID:       "live-structured",
-		Revision: "1",
+		Version:  "1",
 		Provider: client.Provider(),
 		API:      client.API(),
 		Model:    modelName,
 		Settings: llm.Settings{MaxTokens: 512},
-		Limits:   dashi.Limits{ModelAttempts: 1},
+		Limits:   dashi.Limits{ModelCalls: 1},
 	}
 	start := dashi.Start{
 		CommandID:    "start",
@@ -280,15 +280,15 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != dashi.StopCompleted || out.Output == nil || out.Output.Source != dashi.OutputFromTool || string(out.Output.Value) != `{"answer":42}` {
+	if out.Stop.Kind != dashi.StopCompleted || out.Output == nil || out.Output.Source != dashi.OutputSourceToolCall || string(out.Output.Value) != `{"answer":42}` {
 		t.Fatalf(
 			"stop=%+v output=%+v",
 			out.Stop,
 			out.Output,
 		)
 	}
-	view, err := dashi.Replay(out.Turn)
-	if err != nil || view.Output == nil || view.ModelAttempts != 1 {
+	view, err := out.Turn.View()
+	if err != nil || view.Output == nil || view.ModelCalls != 1 {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
 	t.Logf(
@@ -300,7 +300,7 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 	)
 }
 
-// AgentTurn makes three paid calls: a streamed final answer, then a local
+// AgentTurn makes three paid calls: a streamed final reply, then a local
 // tool call followed by a second model call. It checks the recorded steps,
 // replay, and that a duplicate start repeats no work.
 func AgentTurn(
@@ -312,7 +312,7 @@ func AgentTurn(
 	t.Helper()
 	agent := dashi.Agent{
 		ID:       provider + "-live",
-		Revision: "1",
+		Version:  "1",
 		Provider: client.Provider(),
 		API:      client.API(),
 		Model:    modelName,
@@ -340,15 +340,15 @@ func AgentTurn(
 			t.Fatal(err)
 		}
 		if out.Stop.Kind != dashi.StopCompleted ||
-			!strings.Contains(strings.ToLower(out.Answer), "indigo") {
+			!strings.Contains(strings.ToLower(out.Reply), "indigo") {
 			t.Fatalf(
 				"streamed turn: stop=%+v answer=%q",
 				out.Stop,
-				out.Answer,
+				out.Reply,
 			)
 		}
-		view, err := dashi.Replay(out.Turn)
-		if err != nil || view.ModelAttempts != 1 || len(view.Pending) != 0 {
+		view, err := out.Turn.View()
+		if err != nil || view.ModelCalls != 1 || len(view.Pending) != 0 {
 			t.Fatalf("streamed record: view=%+v err=%v", view, err)
 		}
 		if out.Turn.Steps[2].Model.Result.Message.Source == nil ||
@@ -356,10 +356,10 @@ func AgentTurn(
 			t.Fatalf("streamed answer lost %s message provenance", provider)
 		}
 		t.Logf(
-			"streamed turn: attempts=%d steps=%d answer=%q",
-			view.ModelAttempts,
+			"streamed turn: calls=%d steps=%d answer=%q",
+			view.ModelCalls,
 			len(out.Turn.Steps),
-			out.Answer,
+			out.Reply,
 		)
 	})
 
@@ -418,37 +418,37 @@ func AgentTurn(
 			}
 			if out.Stop.Kind != dashi.StopCompleted ||
 				!strings.Contains(
-					out.Answer,
+					out.Reply,
 					"56",
 				) || runs != 1 || counted.sends != 2 {
 				t.Fatalf(
 					"tool turn: stop=%+v answer=%q runs=%d sends=%d",
 					out.Stop,
-					out.Answer,
+					out.Reply,
 					runs,
 					counted.sends,
 				)
 			}
-			view, err := dashi.Replay(out.Turn)
-			if err != nil || view.ModelAttempts != 2 || len(view.Tools) != 1 || len(view.Pending) != 0 {
+			view, err := out.Turn.View()
+			if err != nil || view.ModelCalls != 2 || len(view.Tools) != 1 || len(view.Pending) != 0 {
 				t.Fatalf("tool record: view=%+v err=%v", view, err)
 			}
 			for _, observed := range view.Tools {
-				if observed.Status != dashi.ToolSettled || observed.Outcome == nil ||
+				if observed.Status != dashi.ToolFinished || observed.Outcome == nil ||
 					observed.Outcome.State != tool.StateSucceeded {
-					t.Fatalf("tool was not settled: %+v", observed)
+					t.Fatalf("tool did not finish: %+v", observed)
 				}
 			}
 			expected := []dashi.StepKind{
-				dashi.StepStarted,
-				dashi.StepModelIntent,
-				dashi.StepModelSettled,
+				dashi.StepTurnStarted,
+				dashi.StepModelCallStarted,
+				dashi.StepModelCallFinished,
 				dashi.StepToolDecision,
 				dashi.StepToolStarted,
-				dashi.StepToolSettled,
-				dashi.StepModelIntent,
-				dashi.StepModelSettled,
-				dashi.StepStopped,
+				dashi.StepToolFinished,
+				dashi.StepModelCallStarted,
+				dashi.StepModelCallFinished,
+				dashi.StepTurnStopped,
 			}
 			if len(out.Turn.Steps) != len(expected) {
 				t.Fatalf(
@@ -484,11 +484,11 @@ func AgentTurn(
 				)
 			}
 			t.Logf(
-				"tool turn: attempts=%d steps=%d tool_runs=%d answer=%q",
-				view.ModelAttempts,
+				"tool turn: calls=%d steps=%d tool_runs=%d answer=%q",
+				view.ModelCalls,
 				len(out.Turn.Steps),
 				runs,
-				out.Answer,
+				out.Reply,
 			)
 		},
 	)
@@ -508,29 +508,29 @@ func (c *countingClient) Send(
 }
 
 // streamOutcome runs command through Runner.Stream and returns its final
-// Outcome, so a check can exercise a streamed model request.
+// RunResult, so a check can exercise a streamed model request.
 func streamOutcome(
 	ctx context.Context,
 	runner dashi.Runner,
 	turn dashi.Turn,
 	command dashi.Command,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	for event, err := range runner.Stream(ctx, turn, command) {
-		if event.Outcome != nil {
-			return *event.Outcome, err
+		if event.Result != nil {
+			return *event.Result, err
 		}
 		if err != nil {
-			return dashi.Outcome{}, err
+			return dashi.RunResult{}, err
 		}
 	}
-	return dashi.Outcome{}, errors.New(
+	return dashi.RunResult{}, errors.New(
 		"providertest: stream ended without an outcome",
 	)
 }
 
 // SteerAfterToolBatch makes two paid calls. A steer sent while the tool runs
 // must reach the second call after the tool result, which every provider
-// must accept, and change the answer.
+// must accept, and change the reply.
 func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -572,7 +572,7 @@ func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
 				Model:        modelName,
 				Instructions: "Use multiply_numbers to calculate products.",
 				Settings:     llm.Settings{MaxTokens: 1024},
-				Limits:       dashi.Limits{ModelAttempts: 4},
+				Limits:       dashi.Limits{ModelCalls: 4},
 			},
 			Input: []llm.Message{llm.UserMessage(llm.Text(
 				"Use multiply_numbers to calculate 7 times 8.",
@@ -581,8 +581,8 @@ func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
 		dashi.WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != dashi.StopCompleted ||
-		!strings.Contains(out.Answer, "66") {
-		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+		!strings.Contains(out.Reply, "66") {
+		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
 	}
 	delivered := 0
 	for _, step := range out.Turn.Steps {
@@ -591,12 +591,12 @@ func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
 	if delivered != 1 {
 		t.Fatalf("delivered %d steers; want 1", delivered)
 	}
-	t.Logf("model=%s answer=%q", modelName, out.Answer)
+	t.Logf("model=%s answer=%q", modelName, out.Reply)
 }
 
 // UrgentSteerCutsStream makes two paid calls. An urgent steer sent once a
-// long streamed answer has begun must cut that call short, and the provider
-// must accept the next request: the partial answer, the interruption
+// long streamed reply has begun must cut that call short, and the provider
+// must accept the next request: the partial reply, the interruption
 // reminder, and the steer.
 func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
@@ -608,7 +608,7 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 	}
 	var streamed strings.Builder
 	sent := false
-	var out dashi.Outcome
+	var out dashi.RunResult
 	for event, err := range runner.Stream(
 		ctx,
 		dashi.Turn{},
@@ -618,7 +618,7 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 				API:      client.API(),
 				Model:    modelName,
 				Settings: llm.Settings{MaxTokens: 2048},
-				Limits:   dashi.Limits{ModelAttempts: 3},
+				Limits:   dashi.Limits{ModelCalls: 3},
 			},
 			Input: []llm.Message{llm.UserMessage(llm.Text(
 				"Write a 600-word essay on the history of bridges.",
@@ -629,8 +629,8 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 		if err != nil {
 			t.Fatalf("stream: %v", err)
 		}
-		if event.Outcome != nil {
-			out = *event.Outcome
+		if event.Result != nil {
+			out = *event.Result
 		}
 		if event.Delta == nil || event.Delta.Kind != llm.DeltaText || sent {
 			continue
@@ -647,7 +647,7 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 	}
 	var cut *dashi.ModelFact
 	for _, step := range out.Turn.Steps {
-		if step.Kind == dashi.StepModelSettled &&
+		if step.Kind == dashi.StepModelCallFinished &&
 			step.Model.Interrupted == dashi.InterruptSteering {
 			cut = step.Model
 		}
@@ -660,19 +660,19 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 		)
 	}
 	if out.Stop.Kind != dashi.StopCompleted ||
-		!strings.Contains(strings.ToUpper(out.Answer), "PINEAPPLE") {
-		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Answer)
+		!strings.Contains(strings.ToUpper(out.Reply), "PINEAPPLE") {
+		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Reply)
 	}
 	t.Logf(
 		"model=%s partial=%d chars answer=%q",
 		modelName,
 		len(cut.Result.Message.Text()),
-		out.Answer,
+		out.Reply,
 	)
 }
 
 // UrgentSteerPartialEndsInWhitespace makes two paid calls. It cuts a
-// streamed answer where the text so far ends in whitespace, and checks that
+// streamed reply where the text so far ends in whitespace, and checks that
 // the provider accepts the next request, whose partial Dashi trims.
 func UrgentSteerPartialEndsInWhitespace(
 	t *testing.T,
@@ -687,7 +687,7 @@ func UrgentSteerPartialEndsInWhitespace(
 	runner := dashi.Runner{
 		Client: cutter,
 	}
-	var out dashi.Outcome
+	var out dashi.RunResult
 	// Stream, since only a streamed call hands the client a delta sink.
 	for event, err := range runner.Stream(
 		ctx,
@@ -698,7 +698,7 @@ func UrgentSteerPartialEndsInWhitespace(
 				API:      client.API(),
 				Model:    modelName,
 				Settings: llm.Settings{MaxTokens: 8192},
-				Limits:   dashi.Limits{ModelAttempts: 3},
+				Limits:   dashi.Limits{ModelCalls: 3},
 			},
 			Input: []llm.Message{llm.UserMessage(llm.Text(
 				"Write the numbers from one to two hundred in English words, " +
@@ -710,8 +710,8 @@ func UrgentSteerPartialEndsInWhitespace(
 		if err != nil {
 			t.Fatalf("stream: %v", err)
 		}
-		if event.Outcome != nil {
-			out = *event.Outcome
+		if event.Result != nil {
+			out = *event.Result
 		}
 	}
 	cut := steeringCut(out.Turn)
@@ -730,15 +730,15 @@ func UrgentSteerPartialEndsInWhitespace(
 		)
 	}
 	if out.Stop.Kind != dashi.StopCompleted ||
-		!strings.Contains(strings.ToUpper(out.Answer), "PINEAPPLE") {
-		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Answer)
+		!strings.Contains(strings.ToUpper(out.Reply), "PINEAPPLE") {
+		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Reply)
 	}
 	t.Logf(
 		"model=%s partial=%d chars ending %q answer=%q",
 		modelName,
 		len(partial),
 		partial[max(0, len(partial)-6):],
-		out.Answer,
+		out.Reply,
 	)
 }
 
@@ -798,7 +798,7 @@ func (c *whitespaceCutClient) Send(
 // it costs about $1.30 on claude-haiku-4-5. The first call must end in a
 // provider pause (Anthropic's pause_turn after ten server iterations); it
 // skips when the model finishes without pausing. An urgent steer then
-// arrives during the continuation. When the pause left a hosted call
+// arrives during the continuation. When the pause left a provider tool call
 // unfinished, as a pause during web search does, the continuation must not
 // be cut: the steer lands after it. Otherwise the continuation is cut.
 // Either way the provider must accept the request that carries the steer.
@@ -818,7 +818,7 @@ func UrgentSteerAfterPause(
 	}
 	paused := ""
 	sent := false
-	var out dashi.Outcome
+	var out dashi.RunResult
 	for event, err := range runner.Stream(
 		ctx,
 		dashi.Turn{},
@@ -829,7 +829,7 @@ func UrgentSteerAfterPause(
 				Model:    modelName,
 				Settings: llm.Settings{MaxTokens: 4096},
 				Limits: dashi.Limits{
-					ModelAttempts:  4,
+					ModelCalls:     4,
 					ProviderPauses: 2,
 				},
 			},
@@ -846,16 +846,16 @@ func UrgentSteerAfterPause(
 		if err != nil {
 			t.Fatalf("stream: %v", err)
 		}
-		if event.Outcome != nil {
-			out = *event.Outcome
+		if event.Result != nil {
+			out = *event.Result
 		}
 		if step := event.Step; paused == "" && step != nil &&
-			step.Kind == dashi.StepModelSettled && step.Model.Result != nil &&
+			step.Kind == dashi.StepModelCallFinished && step.Model.Result != nil &&
 			step.Model.Result.Stop.Kind == llm.StopPause {
-			paused = step.Model.AttemptID
+			paused = step.Model.ModelCallID
 		}
 		if paused == "" || sent || event.Delta == nil ||
-			event.AttemptID == paused {
+			event.ModelCallID == paused {
 			continue
 		}
 		sent = true
@@ -872,51 +872,51 @@ func UrgentSteerAfterPause(
 		)
 	}
 	cut := steeringCut(out.Turn)
-	pending := unfinishedHosted(out.Turn, paused)
+	pending := unfinishedProviderTool(out.Turn, paused)
 	switch {
 	case pending && cut != nil:
-		t.Fatal("the continuation of an unfinished hosted call was cut")
+		t.Fatal("the continuation of an unfinished provider tool call was cut")
 	case pending && !hasWarning(out.Turn, "provider paused"):
 		t.Fatal("the declined cut was not reported")
 	case !pending && cut == nil:
 		t.Fatalf("the continuation was not cut short: stop=%+v", out.Stop)
 	}
-	answer := strings.TrimSpace(out.Answer)
+	answer := strings.TrimSpace(out.Reply)
 	if out.Stop.Kind != dashi.StopCompleted ||
 		!strings.Contains(strings.ToUpper(answer), "PINEAPPLE") ||
 		len(answer) > 40 {
 		t.Fatalf(
 			"stop=%+v answer=%q calls=%s",
 			out.Stop,
-			out.Answer,
+			out.Reply,
 			describeCalls(out.Turn),
 		)
 	}
 	t.Logf(
-		"model=%s unfinished hosted call=%t cut=%t answer=%q spend=%v",
+		"model=%s unfinished provider tool call=%t cut=%t answer=%q spend=%v",
 		modelName,
 		pending,
 		cut != nil,
-		out.Answer,
+		out.Reply,
 		out.Spend.Cost,
 	)
 }
 
-// unfinishedHosted reports whether the result of the attempt left a hosted
-// call without its result.
-func unfinishedHosted(turn dashi.Turn, attempt string) bool {
+// unfinishedProviderTool reports whether the result of the model call left a
+// provider tool call without its result.
+func unfinishedProviderTool(turn dashi.Turn, attempt string) bool {
 	for _, step := range turn.Steps {
-		if step.Kind != dashi.StepModelSettled ||
-			step.Model.AttemptID != attempt || step.Model.Result == nil {
+		if step.Kind != dashi.StepModelCallFinished ||
+			step.Model.ModelCallID != attempt || step.Model.Result == nil {
 			continue
 		}
 		open := map[string]bool{}
 		for _, part := range step.Model.Result.Message.Content {
 			switch {
-			case part.HostedUse != nil:
-				open[part.HostedUse.ID] = true
-			case part.HostedResult != nil:
-				delete(open, part.HostedResult.CallID)
+			case part.ProviderToolUse != nil:
+				open[part.ProviderToolUse.ID] = true
+			case part.ProviderToolResult != nil:
+				delete(open, part.ProviderToolResult.CallID)
 			}
 		}
 		return len(open) > 0
@@ -936,11 +936,11 @@ func hasWarning(turn dashi.Turn, text string) bool {
 	return false
 }
 
-// describeCalls summarizes a turn's model settlements for a failure.
+// describeCalls summarizes a turn's finished model calls for a failure.
 func describeCalls(turn dashi.Turn) string {
 	var b strings.Builder
 	for _, step := range turn.Steps {
-		if step.Kind != dashi.StepModelSettled {
+		if step.Kind != dashi.StepModelCallFinished {
 			continue
 		}
 		m := step.Model
@@ -958,7 +958,7 @@ func describeCalls(turn dashi.Turn) string {
 func steeringCut(turn dashi.Turn) *dashi.ModelFact {
 	var cut *dashi.ModelFact
 	for _, step := range turn.Steps {
-		if step.Kind == dashi.StepModelSettled &&
+		if step.Kind == dashi.StepModelCallFinished &&
 			step.Model.Interrupted == dashi.InterruptSteering {
 			cut = step.Model
 		}

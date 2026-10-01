@@ -7,15 +7,15 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-func TestKnownProviderRejectionCanContinueWithNewAttempt(t *testing.T) {
+func TestKnownProviderRejectionCanContinueWithNewModelCall(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{{}, final("done")},
 		errors: []error{
 			&llm.Error{
-				Provider:    "test",
-				Category:    llm.ErrorRateLimited,
-				Status:      429,
-				Disposition: llm.FailureRejected,
+				Provider:   "test",
+				Category:   llm.ErrorRateLimited,
+				Status:     429,
+				SendStatus: llm.SendStatusProviderRejected,
 			},
 		},
 	}
@@ -24,9 +24,9 @@ func TestKnownProviderRejectionCanContinueWithNewAttempt(t *testing.T) {
 	if err != nil || first.Stop.Kind != StopFailed || len(first.Pending) != 0 || client.sends != 1 {
 		t.Fatalf("first=%+v err=%v sends=%d", first, err, client.sends)
 	}
-	settled := first.Turn.Steps[len(first.Turn.Steps)-2]
-	if settled.Kind != StepModelSettled || settled.Model.Failure != llm.FailureRejected || settled.Model.Uncertain {
-		t.Fatalf("settlement=%+v", settled)
+	finished := first.Turn.Steps[len(first.Turn.Steps)-2]
+	if finished.Kind != StepModelCallFinished || finished.Model.SendStatus != llm.SendStatusProviderRejected || finished.Model.ResultUnknown {
+		t.Fatalf("finish=%+v", finished)
 	}
 	second, err := (Runner{
 		Client:   client,
@@ -44,7 +44,7 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 	}
 	rec := NewMemoryRecorder()
 	first, err := start(t, client, nil, rec, Hooks{})
-	if err != nil || first.Stop.Kind != StopUncertain || client.sends != 1 {
+	if err != nil || first.Stop.Kind != StopResultUnknown || client.sends != 1 {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	if _, err := (Runner{
@@ -55,7 +55,7 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 		first.Turn,
 		Continue{CommandID: "unsafe-retry"},
 	); err == nil || client.sends != 1 {
-		t.Fatalf("uncertain attempt retried: err=%v sends=%d", err, client.sends)
+		t.Fatalf("result unknown attempt retried: err=%v sends=%d", err, client.sends)
 	}
 	proved, err := (Runner{
 		Client:   client,
@@ -63,13 +63,13 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 	}).Run(
 		t.Context(),
 		first.Turn,
-		Settle{
+		Resolve{
 			CommandID: "proof",
 			CallID:    "t1:model:1",
 			ModelFailure: &ModelFailure{
-				Disposition: llm.FailureNotDispatched,
-				Reason:      "no dispatch",
-				Evidence:    "host dispatch log 42",
+				SendStatus: llm.SendStatusNotSent,
+				Reason:     "no dispatch",
+				Evidence:   "host dispatch log 42",
 			},
 		},
 	)
@@ -86,7 +86,7 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 	}
 }
 
-func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(
+func TestPartialProviderFailureStaysResultUnknownDespiteRejectionLabel(
 	t *testing.T,
 ) {
 	client := &scriptedClient{
@@ -98,19 +98,19 @@ func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(
 		},
 		errors: []error{
 			&llm.Error{
-				Provider:    "test",
-				Category:    llm.ErrorInvalidRequest,
-				Status:      400,
-				Disposition: llm.FailureRejected,
+				Provider:   "test",
+				Category:   llm.ErrorInvalidRequest,
+				Status:     400,
+				SendStatus: llm.SendStatusProviderRejected,
 			},
 		},
 	}
 	rec := NewMemoryRecorder()
 	first, err := start(t, client, nil, rec, Hooks{})
-	if err != nil || first.Stop.Kind != StopUncertain {
+	if err != nil || first.Stop.Kind != StopResultUnknown {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
-	view, err := Replay(first.Turn)
+	view, err := first.Turn.View()
 	if err != nil || view.Spend.Usage.InputTokens != 4 {
 		t.Fatalf("usage=%+v err=%v", view.Spend.Usage, err)
 	}
@@ -120,17 +120,17 @@ func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(
 	}).Run(
 		t.Context(),
 		first.Turn,
-		Settle{
+		Resolve{
 			CommandID: "false-proof",
 			CallID:    "t1:model:1",
 			ModelFailure: &ModelFailure{
-				Disposition: llm.FailureNotDispatched,
-				Reason:      "not sent",
-				Evidence:    "claim",
+				SendStatus: llm.SendStatusNotSent,
+				Reason:     "not sent",
+				Evidence:   "claim",
 			},
 		},
 	)
-	if persistence(err) != PersistenceRejected {
+	if !nothingWritten(err) {
 		t.Fatalf(
 			"partial response accepted as non-dispatch: out=%+v err=%v",
 			falseProof,

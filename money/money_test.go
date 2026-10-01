@@ -150,7 +150,7 @@ func TestAmountJSONRoundTripsAsDecimalString(t *testing.T) {
 }
 
 // TestAmountHasOneSpelling checks that every amount encodes in one trimmed
-// form, so canonical JSON digests cannot see two spellings of one value.
+// form, so canonical JSON hashes cannot see two spellings of one value.
 func TestAmountHasOneSpelling(t *testing.T) {
 	values := []int64{
 		0,

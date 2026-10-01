@@ -16,7 +16,7 @@ const (
 	MaxValueBytes  = 256 << 10
 )
 
-// Compile admits a bounded, self-contained, object-root JSON Schema. Local
+// Compile accepts a bounded, self-contained, object-root JSON Schema. Local
 // $defs work; external resources cannot be fetched.
 func Compile(raw json.RawMessage) (*jsonschema.Schema, error) {
 	if len(raw) == 0 || len(raw) > MaxSchemaBytes {
@@ -48,7 +48,7 @@ func Compile(raw json.RawMessage) (*jsonschema.Schema, error) {
 	return schema, nil
 }
 
-// Validate checks a single, bounded JSON object against an admitted schema.
+// Validate checks a single, bounded JSON object against an accepted schema.
 func Validate(schema *jsonschema.Schema, raw json.RawMessage) error {
 	if schema == nil || len(raw) == 0 || len(raw) > MaxValueBytes {
 		return errors.New("structured output is missing or too large")

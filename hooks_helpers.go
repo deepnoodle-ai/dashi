@@ -10,16 +10,16 @@ import (
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 )
 
-// SeedContext returns a BeforeModel hook, named after item, that delivers
+// SeedContext returns a BeforeModel hook, named after item, that adds
 // item unless the latest visible message with its Origin and Name has the
 // same value. It reads the proposed model input, so unchanged context is not
 // repeated across session turns or reopened handles. Changed values append
 // without replacing earlier messages. Compaction that removes the item causes
-// it to be delivered again. Summary text does not establish its presence.
+// it to be added again. Summary text does not establish its presence.
 //
 // It panics if item has no Name and clears NextCallOnly. Empty Origin means
-// ContextUser. Delivery IDs do not affect value comparison. If a configured
-// ID already occurs in this turn, a fresh derived ID identifies the delivery.
+// ContextUser. Item IDs do not affect value comparison. If a configured
+// ID already occurs in this turn, a fresh derived ID identifies the addition.
 func SeedContext(item ContextItem) ModelHook {
 	if item.Name == "" {
 		panic("dashi: SeedContext item has no name")
@@ -47,15 +47,15 @@ func SeedContext(item ContextItem) ModelHook {
 				}
 				break
 			}
-			delivery := cloneContextItem(item)
-			if delivery.ID != "" && p.Turn.usedContextIDs[delivery.ID] {
-				base := fmt.Sprintf("%s:%s:%d", delivery.ID, p.Turn.ID, p.Turn.Revision)
-				delivery.ID = base
-				for suffix := 1; p.Turn.usedContextIDs[delivery.ID]; suffix++ {
-					delivery.ID = fmt.Sprintf("%s:%d", base, suffix)
+			added := cloneContextItem(item)
+			if added.ID != "" && p.Turn.usedContextIDs[added.ID] {
+				base := fmt.Sprintf("%s:%s:%d", added.ID, p.Turn.ID, p.Turn.LastSeq)
+				added.ID = base
+				for suffix := 1; p.Turn.usedContextIDs[added.ID]; suffix++ {
+					added.ID = fmt.Sprintf("%s:%d", base, suffix)
 				}
 			}
-			return ModelDecision{Deliver: []ContextItem{delivery}}, nil
+			return ModelDecision{AddMessages: []ContextItem{added}}, nil
 		},
 	}
 }
@@ -101,11 +101,11 @@ func Deny(reason string) ToolDecision {
 	return ToolDecision{Kind: DecisionDeny, Reason: reason}
 }
 
-// Defer makes the call wait for approval: the turn stops waiting, and the
-// call is listed in Outcome.Pending. The host answers with Pending.Approve or
+// NeedsApproval makes the call wait for approval: the turn stops waiting, and the
+// call is listed in RunResult.Pending. The host decides with Pending.Approve or
 // Pending.Deny, then Continue runs or refuses the call.
-func Defer(reason string) ToolDecision {
-	return ToolDecision{Kind: DecisionDefer, Reason: reason}
+func NeedsApproval(reason string) ToolDecision {
+	return ToolDecision{Kind: DecisionNeedsApproval, Reason: reason}
 }
 
 // Rewrite replaces the call's arguments with args encoded as JSON. The new
@@ -121,10 +121,11 @@ func Rewrite(args any) (ToolDecision, error) {
 	return ToolDecision{Rewrite: b}, nil
 }
 
-// RequireApproval returns a BeforeTool hook that defers each call to one of
-// the named tools, or to any application tool when none are named, until a
-// host answers it with Pending.Approve or Pending.Deny. Other calls get no
-// opinion. The hook's name and the deferral's revision are both
+// RequireApproval returns a BeforeTool hook that holds each call to one of
+// the named tools, or to any application tool when none are named, for
+// approval until a host decides with Pending.Approve or Pending.Deny. Other
+// calls get no opinion. The hook's name and the NeedsApproval decision's
+// RulesVersion are both
 // "require_approval:" followed by the sorted, comma-separated names, or "*"
 // for every tool, so two calls with different tools do not collide.
 func RequireApproval(tools ...string) Hooks {
@@ -144,9 +145,9 @@ func RequireApproval(tools ...string) Hooks {
 				}
 			}
 			return ToolDecision{
-				Kind:     DecisionDefer,
-				Reason:   "requires approval",
-				Revision: id,
+				Kind:         DecisionNeedsApproval,
+				Reason:       "requires approval",
+				RulesVersion: id,
 			}, nil
 		},
 	}.Hooks()

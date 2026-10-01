@@ -8,7 +8,7 @@ import (
 )
 
 // RunUntilQuiet runs the session's queue and waits while tasks run. It
-// returns when no task is pending and the queue is empty, with the outcome
+// returns when no task is pending and the queue is empty, with the result
 // of the last turn it ran, or of the session's last turn when it ran none.
 // It also returns when a turn stops with anything but dashi.NextNone, since
 // that turn needs the host first; its queued items wait
@@ -27,7 +27,7 @@ func RunUntilQuiet(
 	s *session.Session,
 	tasks *Tasks,
 	opts ...dashi.RunOption,
-) (dashi.Outcome, error) {
+) (dashi.RunResult, error) {
 	quiet := false
 	for {
 		out, ran, err := s.RunQueue(ctx, opts...)

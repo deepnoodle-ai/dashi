@@ -28,24 +28,24 @@ type toolResult struct {
 // is persisted with every turn.
 const maxPanicReason = 4 << 10
 
-func (r *runtime) tools(s *replayState) (Outcome, bool) {
+func (r *runtime) tools(s *replayState) (RunResult, bool) {
 	ctx, cancel := context.WithCancel(r.ctx)
 	defer cancel()
 	results := make(chan toolResult, len(s.callOrder))
 	running := 0
 	progress := newProgressHub(r.emitter.active() || r.opts.streamSink != nil)
 	// fatal holds the stop reason of the first result that ends the turn.
-	// Once set, no further call starts; running calls still settle.
+	// Once set, no further call starts; running calls still finish.
 	fatal := ""
-	settle := func(v toolResult) *Outcome {
+	record := func(v toolResult) *RunResult {
 		if ctx.Err() != nil {
 			o := r.contextStop()
 			return &o
 		}
 		// The call's slot is closed, so this last snapshot is final.
 		r.emitToolProgress(progress.take(v.call.ID, true))
-		step, stop := toolSettlement(v)
-		if step.Kind == StepToolSettled {
+		step, stop := toolFinish(v)
+		if step.Kind == StepToolFinished {
 			r.afterTool(ctx, step.Tool)
 		}
 		if o := r.commit(step); o != nil {
@@ -56,7 +56,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		}
 		return nil
 	}
-	drainOne := func() *Outcome {
+	drainOne := func() *RunResult {
 		if ctx.Err() != nil {
 			o := r.contextStop()
 			return &o
@@ -65,7 +65,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			select {
 			case v := <-results:
 				running--
-				return settle(v)
+				return record(v)
 			case <-progress.readyChan():
 				r.emitProgress(progress, s.callOrder)
 			case <-ctx.Done():
@@ -86,10 +86,10 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		v := state.Tools[id]
 		var boundExecutor tool.Executor
 		prehookBindingChecked := false
-		if v.Status == ToolSettled ||
+		if v.Status == ToolFinished ||
 			v.Status == ToolWaiting ||
 			v.Status == ToolApprovalPending ||
-			v.Status == ToolUncertain {
+			v.Status == ToolResultUnknown {
 			continue
 		}
 		if v.Status == ToolDenied {
@@ -102,7 +102,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				Output: new(tool.TextOutput(denialText(reason))),
 			}
 			if o := r.commit(Step{
-				Kind: StepToolSettled,
+				Kind: StepToolFinished,
 				Tool: &ToolFact{
 					Call:    v.Call,
 					Outcome: &out,
@@ -115,7 +115,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		}
 		if v.Status == ToolStarted {
 			if v.Call.Name == SubmitOutputTool {
-				if o := r.settleOutputSubmission(v.Call); o != nil {
+				if o := r.finishOutputSubmission(v.Call); o != nil {
 					return *o, true
 				}
 				continue
@@ -125,7 +125,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 					Call:   v.Call,
 					Reason: "previous execution may have taken effect",
 				}
-				if o := r.commit(Step{Kind: StepToolSettled, Tool: fact}); o != nil {
+				if o := r.commit(Step{Kind: StepToolFinished, Tool: fact}); o != nil {
 					return *o, true
 				}
 				continue
@@ -148,7 +148,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 					Output: new(tool.TextOutput(text)),
 				}
 				if x := r.commit(Step{
-					Kind: StepToolSettled,
+					Kind: StepToolFinished,
 					Tool: &ToolFact{Call: v.Call, Outcome: &o, Reason: reason},
 				}); x != nil {
 					return *x, true
@@ -162,7 +162,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 					Output: new(tool.TextOutput("Output rejected because it is too large. Return a smaller object and submit again.")),
 				}
 				if x := r.commit(Step{
-					Kind: StepToolSettled,
+					Kind: StepToolFinished,
 					Tool: &ToolFact{
 						Call:    v.Call,
 						Outcome: &out,
@@ -177,7 +177,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			if validationErr == nil &&
 				v.Call.Name != SubmitOutputTool &&
 				v.Definition.Kind != tool.KindExternal &&
-				v.Definition.Kind != tool.KindProviderHosted &&
+				v.Definition.Kind != tool.KindProviderTool &&
 				r.runner.Tools != nil {
 				prehookBindingChecked = true
 				bound, err := r.runner.Tools.Tools(r.toolsContext(ctx))
@@ -210,7 +210,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 					Output: new(tool.TextOutput(message)),
 				}
 				if x := r.commit(Step{
-					Kind: StepToolSettled,
+					Kind: StepToolFinished,
 					Tool: &ToolFact{
 						Call:    v.Call,
 						Outcome: &out,
@@ -224,7 +224,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			if v.Call.Name == SubmitOutputTool {
 				batchCalls := 0
 				for _, callID := range state.callOrder {
-					if state.callAttempts[callID] == state.callAttempts[id] {
+					if state.modelCallOfTool[callID] == state.modelCallOfTool[id] {
 						batchCalls++
 					}
 				}
@@ -234,7 +234,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 						Output: new(tool.TextOutput("Submit output in a separate model response after other tool calls finish.")),
 					}
 					if x := r.commit(Step{
-						Kind: StepToolSettled,
+						Kind: StepToolFinished,
 						Tool: &ToolFact{
 							Call:    v.Call,
 							Outcome: &out,
@@ -262,11 +262,11 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			}
 			call := v.Call.Clone()
 			verdict := ToolVerdict{
-				Kind:     DecisionAllow,
-				Revision: "dashi-output-v1",
+				Kind:         DecisionAllow,
+				RulesVersion: "dashi-output-v1",
 			}
 			if call.Name != SubmitOutputTool {
-				var o *Outcome
+				var o *RunResult
 				call, verdict, o = r.authorizeTool(
 					ctx,
 					v.Definition,
@@ -295,14 +295,14 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 					Output: new(tool.TextOutput(denialText(verdict.Reason))),
 				}
 				if o := r.commit(Step{
-					Kind: StepToolSettled,
+					Kind: StepToolFinished,
 					Tool: &ToolFact{Call: call, Outcome: &out, Reason: verdict.Reason},
 				}); o != nil {
 					return *o, true
 				}
 				continue
 			}
-			if verdict.Kind == DecisionDefer {
+			if verdict.Kind == DecisionNeedsApproval {
 				continue
 			}
 		}
@@ -316,7 +316,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			}); o != nil {
 				return *o, true
 			}
-			if o := r.settleOutputSubmission(v.Call); o != nil {
+			if o := r.finishOutputSubmission(v.Call); o != nil {
 				return *o, true
 			}
 			continue
@@ -350,8 +350,8 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 			}
 			continue
 		}
-		if v.Definition.Kind == tool.KindProviderHosted {
-			return r.stop(StopFailed, "hosted tool cannot execute locally"), true
+		if v.Definition.Kind == tool.KindProviderTool {
+			return r.stop(StopFailed, "provider tool cannot execute locally"), true
 		}
 		// A requested call uses only the binding checked before hooks. A
 		// resumed allowed call resolves a binding in this new run.
@@ -439,12 +439,13 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 	state, _ := replay(r.turn)
 	for _, id := range state.callOrder {
 		v := state.Tools[id]
-		if v.Status == ToolUncertain {
-			return r.stop(StopUncertain, "tool outcome needs reconciliation"), true
+		if v.Status == ToolResultUnknown {
+			return r.stop(StopResultUnknown, "tool call result unknown; the host must resolve it"), true
 		}
 	}
-	// An uncertain call outranks a fatal one: Continue is refused until the
-	// host reconciles it, and the fatal failure stays on its settled step.
+	// A call with an unknown result outranks a fatal one: Continue is
+	// refused until the host resolves it, and the fatal failure stays on its
+	// finish step.
 	if fatal != "" {
 		return r.stop(StopFailed, fatal), true
 	}
@@ -457,16 +458,16 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 	if r.pauseRequested() {
 		return r.pauseStop(), true
 	}
-	return Outcome{}, false
+	return RunResult{}, false
 }
 
 // execute runs one call and always yields a result, so a panicking executor
 // cannot leave the dispatcher waiting on results with running overcounted.
 // This single dispatch path serves both sequential and parallel calls. A
 // panic is recovered, not re-raised: the call may have taken effect before it
-// panicked, so its result is unknown and the runner records it as uncertain
-// rather than running it again. The call's progress slot closes before the
-// result is sent, even on panic, so no report follows the settlement.
+// panicked, so the runner records its result as unknown rather than running
+// it again. The call's progress slot closes before the result is sent, even
+// on panic, so no report follows the finish step.
 func execute(
 	ctx context.Context,
 	ex tool.Executor,
@@ -485,18 +486,18 @@ func execute(
 	return result
 }
 
-// toolSettlement converts an observed executor result into the step to record
+// toolFinish converts an observed executor result into the step to record
 // and, when the result ends the turn, the StopFailed reason. It applies the
 // contract in design/decisions.md entry 1: an error is a failure the model
-// sees, tool.ErrFatal also stops the turn, and uncertainty is reserved for a
-// result the runner did not observe. An invalid outcome was observed, so it is
-// a fatal executor bug, not uncertainty.
-func toolSettlement(v toolResult) (Step, string) {
+// sees, tool.ErrFatal also stops the turn, and an unknown result is kept for
+// a result the runner did not see. An invalid outcome was seen, so it is a
+// fatal executor bug, not an unknown result.
+func toolFinish(v toolResult) (Step, string) {
 	fact := &ToolFact{Call: v.call}
 	if v.panicked != "" {
-		// No outcome records the call as uncertain.
+		// No outcome records the call's result as unknown.
 		fact.Reason = v.panicked
-		return Step{Kind: StepToolSettled, Tool: fact}, ""
+		return Step{Kind: StepToolFinished, Tool: fact}, ""
 	}
 	err := v.err
 	if err == nil {
@@ -506,7 +507,7 @@ func toolSettlement(v toolResult) (Step, string) {
 	}
 	if err == nil {
 		fact.Outcome = &v.outcome
-		kind := StepToolSettled
+		kind := StepToolFinished
 		switch v.outcome.State {
 		case tool.StateWaiting, tool.StateDetached:
 			kind = StepToolWaiting
@@ -522,7 +523,7 @@ func toolSettlement(v toolResult) (Step, string) {
 		State:  tool.StateFailed,
 		Output: new(tool.TextOutput(text)),
 	}
-	step := Step{Kind: StepToolSettled, Tool: fact}
+	step := Step{Kind: StepToolFinished, Tool: fact}
 	switch {
 	case errors.Is(err, tool.ErrInvalidOutcome):
 		return step, StopReasonToolOutcomeInvalid
@@ -533,7 +534,7 @@ func toolSettlement(v toolResult) (Step, string) {
 }
 
 // panicReason records the panic value and a bounded stack, prefixed so hosts
-// can recognize a recovered panic among uncertain calls.
+// can recognize a recovered panic among calls with unknown results.
 func panicReason(v any) string {
 	reason := fmt.Sprintf("panic: %v\n%s", v, debug.Stack())
 	if len(reason) > maxPanicReason {
@@ -542,7 +543,7 @@ func panicReason(v any) string {
 	return strings.ToValidUTF8(reason, "\uFFFD")
 }
 
-func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
+func (r *runtime) finishOutputSubmission(call tool.Call) *RunResult {
 	state, replayErr := replay(r.turn)
 	if replayErr != nil {
 		out := r.stop(StopFailed, replayErr.Error())
@@ -563,7 +564,7 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 			Output: new(tool.TextOutput(message)),
 		}
 		return r.commit(Step{
-			Kind: StepToolSettled,
+			Kind: StepToolFinished,
 			Tool: &ToolFact{
 				Call:    call,
 				Outcome: &out,
@@ -571,29 +572,29 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 			},
 		})
 	}
-	// Context delivered while a stop kept this submission, after the model
-	// made it, supersedes it when the model can still be asked again.
-	since := deliveredSinceCandidate(r.turn, state.callAttempts[call.ID])
+	// Context added while a stop kept this submission, after the model
+	// made it, replaces it when the model can still be asked again.
+	since := addedSinceCandidate(r.turn, state.modelCallOfTool[call.ID])
 	if len(since) > 0 {
 		if r.nextCallFits(state, estimatedItemTokens(since)) {
 			return r.rejectSubmission(
 				call,
 				"new context arrived. Read it, then submit again.",
-				"delivered context",
+				"added messages",
 				nil,
 				false,
 			)
 		}
-		r.deliveryDropped()
+		r.messagesDropped()
 	}
 	plan := FinishPlan{
-		Turn:      snapshotView(state.TurnView),
-		AttemptID: state.callAttempts[call.ID],
-		CallID:    call.ID,
-		Output:    slices.Clone(call.Args),
+		Turn:        snapshotView(state.TurnView),
+		ModelCallID: state.modelCallOfTool[call.ID],
+		CallID:      call.ID,
+		Output:      slices.Clone(call.Args),
 	}
 	if state.latestResult != nil {
-		plan.Answer = state.latestResult.Message.Text()
+		plan.Reply = state.latestResult.Message.Text()
 	}
 	finish, o := r.finishPoint(state, plan)
 	if o != nil {
@@ -603,7 +604,7 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 		return r.afterSteerWrite(
 			finish.steers,
 			// A steer is a nudge, not a veto: the message's text keeps
-			// its place in Answer.
+			// its place in Reply.
 			r.rejectSubmission(
 				call,
 				steerNotAccepted,
@@ -631,24 +632,24 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 		Output: new(tool.TextOutput("Output accepted.")),
 	}
 	return r.commit(Step{
-		Kind: StepToolSettled,
+		Kind: StepToolFinished,
 		Tool: &ToolFact{Call: call, Outcome: &out},
 	})
 }
 
-// deliveredSinceCandidate returns the context delivered after the model
-// attempt that made a candidate answer settled: the same rule the text path
-// applies, so a Deliver made before the submission call started counts too.
-func deliveredSinceCandidate(t Turn, attemptID string) []ContextItem {
-	settled := false
+// addedSinceCandidate returns the context added after the model call that
+// made a candidate reply finished: the same rule the text path applies, so
+// an AddMessages made before the submission call started counts too.
+func addedSinceCandidate(t Turn, modelCallID string) []ContextItem {
+	finished := false
 	var items []ContextItem
 	for _, step := range t.Steps {
-		if (step.Kind == StepModelSettled || step.Kind == StepModelReconciled) &&
-			step.Model != nil && step.Model.AttemptID == attemptID {
-			settled = true
+		if (step.Kind == StepModelCallFinished || step.Kind == StepModelCallFinishedByHost) &&
+			step.Model != nil && step.Model.ModelCallID == modelCallID {
+			finished = true
 			continue
 		}
-		if settled && step.Kind == StepDelivered && step.Context != nil {
+		if finished && step.Kind == StepMessagesAdded && step.Context != nil {
 			items = append(items, step.Context.Items...)
 		}
 	}

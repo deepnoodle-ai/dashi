@@ -272,7 +272,7 @@ func TestStructuredOutputTerminalFixtures(t *testing.T) {
 		"server_label": "fixture",
 		"arguments":    `{}`,
 	}))
-	hostedCall := fixtureResponse("completed", append([]any{map[string]any{
+	providerToolCall := fixtureResponse("completed", append([]any{map[string]any{
 		"type":         "mcp_call",
 		"id":           "mcp_1",
 		"name":         "lookup",
@@ -280,14 +280,14 @@ func TestStructuredOutputTerminalFixtures(t *testing.T) {
 		"arguments":    `{}`,
 		"status":       "completed",
 	}}, fixtureText(`{"label":"ok"}`)...))
-	partialHostedCall := fixtureResponse("completed", append([]any{map[string]any{
+	partialProviderToolCall := fixtureResponse("completed", append([]any{map[string]any{
 		"type":         "mcp_call",
 		"id":           "mcp_2",
 		"name":         "lookup",
 		"server_label": "fixture",
 		"arguments":    `{`,
 	}}, fixtureText(`{"label":"ok"}`)...))
-	hostedDiscovery := fixtureResponse("completed", append([]any{map[string]any{
+	providerToolDiscovery := fixtureResponse("completed", append([]any{map[string]any{
 		"type":         "mcp_list_tools",
 		"id":           "list_1",
 		"server_label": "fixture",
@@ -328,22 +328,22 @@ func TestStructuredOutputTerminalFixtures(t *testing.T) {
 		},
 		{name: "unexpected tool", body: toolUse, stop: llm.StopToolUse},
 		{
-			name: "hosted approval with valid text", body: approval,
+			name: "provider tool approval with valid text", body: approval,
 			stop: llm.StopIncomplete, error: llm.ErrorProtocol,
 			cause: "tool or approval activity",
 		},
 		{
-			name: "hosted call with valid text", body: hostedCall,
+			name: "provider tool call with valid text", body: providerToolCall,
 			stop: llm.StopIncomplete, error: llm.ErrorProtocol,
 			cause: "tool or approval activity",
 		},
 		{
-			name: "partial hosted call with valid text", body: partialHostedCall,
+			name: "partial provider tool call with valid text", body: partialProviderToolCall,
 			stop: llm.StopIncomplete, error: llm.ErrorProtocol,
 			cause: "tool or approval activity",
 		},
 		{
-			name: "hosted discovery with valid text", body: hostedDiscovery,
+			name: "provider tool discovery with valid text", body: providerToolDiscovery,
 			stop: llm.StopIncomplete, error: llm.ErrorProtocol,
 			cause: "tool or approval activity",
 		},

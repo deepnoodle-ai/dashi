@@ -4,7 +4,7 @@ Status: Accepted · Updated: 2026-09-30
 
 ## Responsibilities
 
-The CLI connects existing skill discovery, contextual delivery, slash expansion,
+The CLI connects existing skill discovery, added context messages, slash expansion,
 and recorded tool results. It adds source inspection and approved supporting-file
 reads. It does not add resource persistence or session recovery machinery.
 
@@ -19,7 +19,7 @@ reads. It does not add resource persistence or session recovery machinery.
 Dependencies flow from CLI adapters to existing Dashi, skill, and workspace
 contracts. No new public Agent field or resource framework is needed.
 
-## Discovery and delivery
+## Discovery and added context
 
 Select AGENTS.md at the workspace root; use CLAUDE.md only if AGENTS.md is absent.
 Files must be regular UTF-8 text up to 64 KiB. Rooted reads reject escaping
@@ -27,13 +27,13 @@ links, nonregular files, and identity changes. Read failures warn and select
 explicit empty instructions without fallback or partial content.
 
 Use separate contextual messages for source and body, preserving the full
-64 KiB body allowance. Deliver through `SeedContext`; existing visible-value
+64 KiB body allowance. Add them through `SeedContext`; existing visible-value
 deduplication and compaction rules apply. Instructions grant no tool authority.
 
 Use `LoadDirs(DefaultDirs(workspace, home)...)` and `Set.Bundle` for skills.
 Discover at startup, inventory inspection, slash invocation, and before model
 requests. Catalogs contain only model-eligible metadata. An empty selection
-delivers an explicit empty catalog. Discovery warnings retain partial success.
+adds an explicit empty catalog. Discovery warnings retain partial success.
 
 The stable CLI `load_skill` tool discovers current skills and delegates to the
 existing bundle loader. Its returned body is an ordinary recorded tool result.
@@ -51,7 +51,7 @@ request retry when idle. Composer completion uses eligible metadata.
 `/resources` shows current instruction status, selected and shadowed skills,
 source paths, invocation restrictions, argument hints, warnings, registered
 tools, eligible supporting folders, and remembered exact-read approvals.
-It delivers no model context and prints no bodies or credentials.
+It adds no model context and prints no bodies or credentials.
 Display source paths and resolved folders separately. Startup uses a compact
 summary; print-mode notices go to stderr. Loading has an explicit state.
 
@@ -66,7 +66,7 @@ arguments. Invalid paths are denied before approval.
 Approval names the skill source and canonical target. Allow once covers one
 call. Remembered exact arguments live in the process policy across `/new`
 and session switches; a fresh process loses them. A changed canonical target
-needs approval again. The inventory's remembered-answer list is display only;
+needs approval again. The inventory's remembered-approval list is display only;
 the policy remains authoritative.
 
 Open through a rooted filesystem handle. Validate root and target identity

@@ -9,7 +9,7 @@ import (
 
 // Join concatenates text blocks. Adjacent blocks are joined as they are,
 // because providers split one cited sentence into several blocks. Any other
-// item between two text blocks (a hosted tool use, a tool call, reasoning)
+// item between two text blocks (a provider tool use, a tool call, reasoning)
 // ends a passage, so the next text starts after a blank line.
 func Join(parts []llm.Content) string {
 	var out strings.Builder

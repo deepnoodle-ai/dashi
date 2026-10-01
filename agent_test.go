@@ -56,9 +56,9 @@ func TestZeroConfigTurnGeneratesAndRecordsIdentity(t *testing.T) {
 		t.Fatalf("start step command=%q turn=%q", first.CommandID, first.TurnID)
 	}
 	agent := first.Started.Agent
-	if agent.ID != "" || !strings.HasPrefix(agent.Revision, "auto:") ||
-		len(agent.Revision) != len("auto:")+16 {
-		t.Fatalf("recorded agent ID=%q revision=%q", agent.ID, agent.Revision)
+	if agent.ID != "" || !strings.HasPrefix(agent.Version, "auto:") ||
+		len(agent.Version) != len("auto:")+16 {
+		t.Fatalf("recorded agent ID=%q revision=%q", agent.ID, agent.Version)
 	}
 	// The generated turn ID reaches the recorder, so the not-found path of
 	// Loader and the saved record agree with the outcome.
@@ -93,10 +93,10 @@ func TestStreamCarriesGeneratedTurnID(t *testing.T) {
 		if event.Step != nil {
 			steps++
 		}
-		if event.Outcome != nil {
+		if event.Result != nil {
 			finals++
-			if event.Outcome.Turn.ID != id {
-				t.Fatalf("outcome turn ID %q", event.Outcome.Turn.ID)
+			if event.Result.Turn.ID != id {
+				t.Fatalf("outcome turn ID %q", event.Result.Turn.ID)
 			}
 		}
 	}
@@ -123,11 +123,11 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 	}
 
 	// A retried Start whose instructions no longer match the record fails;
-	// the error names the field and the fix. The revision is pinned so the
+	// the error names the field and the fix. The version is pinned so the
 	// derived one does not differ too.
 	edited := agent
 	edited.Instructions = "Be thorough."
-	edited.Revision = got.Turn.Steps[0].Started.Agent.Revision
+	edited.Version = got.Turn.Steps[0].Started.Agent.Version
 	_, err = runner.Run(t.Context(), got.Turn, Start{
 		CommandID: got.Turn.Steps[0].CommandID,
 		Agent:     edited,
@@ -141,7 +141,7 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 	}
 
 	// Other commands run with the recorded agent.
-	delivered, err := runner.Run(t.Context(), got.Turn, Deliver{Items: []ContextItem{{
+	delivered, err := runner.Run(t.Context(), got.Turn, AddMessages{Items: []ContextItem{{
 		Origin:  "user",
 		Message: llm.UserMessage(llm.Text("more")),
 	}}})
@@ -149,15 +149,15 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("r"))}
-	settled, err := runner.Run(
+	finished, err := runner.Run(
 		t.Context(),
 		delivered.Turn,
-		Settle{CallID: "call-1", Outcome: &out},
+		Resolve{CallID: "call-1", Outcome: &out},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	done, err := runner.Run(t.Context(), settled.Turn, Continue{})
+	done, err := runner.Run(t.Context(), finished.Turn, Continue{})
 	if err != nil || done.Stop.Kind != StopCompleted {
 		t.Fatalf("continue stop=%+v err=%v", done.Stop, err)
 	}
@@ -200,15 +200,15 @@ func TestCancelUsesRecordedAgentAfterPromptEdit(t *testing.T) {
 	}
 }
 
-func TestAgentRevisionTracksBehaviorFields(t *testing.T) {
+func TestAgentVersionTracksBehaviorFields(t *testing.T) {
 	base := Agent{
 		ID:       "a",
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",
 	}.resolved()
-	want := agentRevision(base)
-	if agentRevision(base) != want {
+	want := agentVersion(base)
+	if agentVersion(base) != want {
 		t.Fatal("revision is not stable")
 	}
 	changes := map[string]func(*Agent){
@@ -218,25 +218,25 @@ func TestAgentRevisionTracksBehaviorFields(t *testing.T) {
 		"model":        func(a *Agent) { a.Model = "other" },
 		"settings":     func(a *Agent) { a.Settings.MaxTokens = 10 },
 		"schema":       func(a *Agent) { a.OutputSchema = json.RawMessage(`{"type":"object"}`) },
-		"limits":       func(a *Agent) { a.Limits.ModelAttempts = 2 },
-		"final answer": func(a *Agent) { a.Limits.NoReservedFinalAnswer = true },
+		"limits":       func(a *Agent) { a.Limits.ModelCalls = 2 },
+		"final answer": func(a *Agent) { a.Limits.NoReservedFinalReply = true },
 	}
 	for name, change := range changes {
 		a := base
 		change(&a)
-		if agentRevision(a) == want {
+		if agentVersion(a) == want {
 			t.Errorf("%s change kept revision %s", name, want)
 		}
 	}
 	same := map[string]func(*Agent){
 		"id":       func(a *Agent) { a.ID = "b" },
-		"revision": func(a *Agent) { a.Revision = "r9" },
+		"revision": func(a *Agent) { a.Version = "r9" },
 		"deadline": func(a *Agent) { a.Limits.Deadline = time.Now().Add(time.Hour) },
 	}
 	for name, change := range same {
 		a := base
 		change(&a)
-		if agentRevision(a) != want {
+		if agentVersion(a) != want {
 			t.Errorf("%s change altered revision", name)
 		}
 	}
@@ -261,7 +261,7 @@ func TestNoHooksAllowBoundTools(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted || !ran {
 		t.Fatalf("stop=%+v err=%v ran=%v", out.Stop, err, ran)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,13 +390,13 @@ func TestContinueKeepsRecordedModel(t *testing.T) {
 		t.Fatalf("start stop=%+v err=%v", got.Stop, err)
 	}
 	out := tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("r"))}
-	settled, err := runner.Run(t.Context(), got.Turn, Settle{CallID: "call-1", Outcome: &out})
+	finished, err := runner.Run(t.Context(), got.Turn, Resolve{CallID: "call-1", Outcome: &out})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// A retried Start with a different model is a change.
-	_, err = runner.Run(t.Context(), settled.Turn, Start{
+	_, err = runner.Run(t.Context(), finished.Turn, Start{
 		CommandID: got.Turn.Steps[0].CommandID,
 		Agent:     Agent{Model: "claude-sonnet-5", Instructions: "Be brief."},
 		Input:     userInput("hi"),
@@ -406,7 +406,7 @@ func TestContinueKeepsRecordedModel(t *testing.T) {
 	}
 
 	// Continue runs with the recorded model, not today's catalog default.
-	done, err := runner.Run(t.Context(), settled.Turn, Continue{})
+	done, err := runner.Run(t.Context(), finished.Turn, Continue{})
 	if err != nil || done.Stop.Kind != StopCompleted {
 		t.Fatalf("continue stop=%+v err=%v", done.Stop, err)
 	}
@@ -446,7 +446,7 @@ func TestRejectsSnapshotWithTamperedAgent(t *testing.T) {
 	tampered := cloneTurn(got.Turn)
 	tampered.Steps[0].Started.Agent.Instructions = "EVIL"
 	out := tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("r"))}
-	_, err = runner.Run(t.Context(), tampered, Settle{CallID: "call-1", Outcome: &out})
+	_, err = runner.Run(t.Context(), tampered, Resolve{CallID: "call-1", Outcome: &out})
 	if !errors.Is(err, ErrAgentChanged) {
 		t.Fatalf("tampered snapshot error = %v, want ErrAgentChanged", err)
 	}
@@ -458,13 +458,13 @@ func TestRejectsSnapshotWithTamperedAgent(t *testing.T) {
 	if _, err := runner.Run(
 		t.Context(),
 		got.Turn,
-		Settle{CallID: "call-1", Outcome: &out},
+		Resolve{CallID: "call-1", Outcome: &out},
 	); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestGeneratedCommandIDIsPartOfDigest(t *testing.T) {
+func TestGeneratedCommandIDIsPartOfHash(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	runner := Runner{
 		Client:   client,
@@ -486,8 +486,8 @@ func TestGeneratedCommandIDIsPartOfDigest(t *testing.T) {
 	}
 }
 
-func TestAgentRevisionIsPinned(t *testing.T) {
-	// A change to this value changes the revision of every recorded agent
+func TestAgentVersionIsPinned(t *testing.T) {
+	// A change to this value changes the version of every recorded agent
 	// that relied on the derived one; make it deliberately.
 	agent := Agent{
 		Provider:     "anthropic",
@@ -495,7 +495,7 @@ func TestAgentRevisionIsPinned(t *testing.T) {
 		Model:        "claude-sonnet-5",
 		Instructions: "Be brief.",
 	}.resolved()
-	if got := agentRevision(agent); got != "auto:9abf96dec04e55a6" {
+	if got := agentVersion(agent); got != "auto:20557d1d87035206" {
 		t.Fatalf("agentRevision = %q", got)
 	}
 }
@@ -531,8 +531,8 @@ func TestLimitsZeroValueResolvesToDefaults(t *testing.T) {
 	def := testAgent()
 	def.Limits = Limits{}
 	want := Limits{
-		ModelAttempts:   8,
-		Interruptions:   10,
+		ModelCalls:      8,
+		Resumes:         10,
 		ProviderPauses:  3,
 		ToolConcurrency: 1,
 		ToolResultBytes: 64 << 10,
@@ -548,12 +548,12 @@ func TestLimitsZeroValueResolvesToDefaults(t *testing.T) {
 func TestLimitsResolveKeepsExplicitValues(t *testing.T) {
 	def := testAgent()
 	def.Limits = Limits{
-		ModelAttempts:         2,
-		Interruptions:         4,
-		ProviderPauses:        5,
-		ToolConcurrency:       6,
-		ToolResultBytes:       2048,
-		NoReservedFinalAnswer: true,
+		ModelCalls:           2,
+		Resumes:              4,
+		ProviderPauses:       5,
+		ToolConcurrency:      6,
+		ToolResultBytes:      2048,
+		NoReservedFinalReply: true,
 	}
 	if got := def.resolved().Limits; got != def.Limits {
 		t.Fatalf("explicit limits resolved to %+v, want %+v", got, def.Limits)
@@ -562,25 +562,25 @@ func TestLimitsResolveKeepsExplicitValues(t *testing.T) {
 
 func TestLimitsNegativeCountResolvesToNone(t *testing.T) {
 	def := testAgent()
-	def.Limits = Limits{Interruptions: -5, ProviderPauses: -2}
+	def.Limits = Limits{Resumes: -5, ProviderPauses: -2}
 	if err := def.Validate(); err != nil {
 		t.Fatalf("negative none counts were rejected: %v", err)
 	}
 	got := def.resolved().Limits
-	if got.Interruptions != -1 {
-		t.Fatalf("interruptions resolved to %d, want -1", got.Interruptions)
+	if got.Resumes != -1 {
+		t.Fatalf("interruptions resolved to %d, want -1", got.Resumes)
 	}
 	if got.ProviderPauses != -1 {
 		t.Fatalf("provider pauses resolved to %d, want -1", got.ProviderPauses)
 	}
 }
 
-func TestLimitsRejectNegativeAttemptsAndConcurrency(t *testing.T) {
+func TestLimitsRejectNegativeModelCallsAndConcurrency(t *testing.T) {
 	tests := []struct {
 		name   string
 		limits Limits
 	}{
-		{name: "model attempts", limits: Limits{ModelAttempts: -1}},
+		{name: "model calls", limits: Limits{ModelCalls: -1}},
 		{name: "tool concurrency", limits: Limits{ToolConcurrency: -1}},
 	}
 	for _, tt := range tests {
@@ -621,16 +621,16 @@ func TestNegativeProviderPausesAllowsNone(t *testing.T) {
 	}
 }
 
-func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
+func TestNegativeResumesAllowsNoResume(t *testing.T) {
 	def := testAgent()
-	def.Limits.Interruptions = -1
+	def.Limits.Resumes = -1
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
 	rec := NewMemoryRecorder()
 	pause := make(chan struct{})
 	tools := tool.List{pausingTool(pause)}
 	first, err := (Runner{Client: client, Tools: tools, Recorder: rec}).Run(
 		t.Context(),
-		Turn{ID: "interruptions"},
+		Turn{ID: "resumes"},
 		limitsStart(def),
 		WithPause(pause),
 	)
@@ -649,7 +649,7 @@ func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != StopLimited || out.Stop.Reason != "interruptions" {
+	if out.Stop.Kind != StopLimited || out.Stop.Reason != "resumes" {
 		t.Fatalf("resume stopped with %+v, want interruptions", out.Stop)
 	}
 	if out.Stop.Limit == nil || out.Stop.Limit.Limit != 0 {
@@ -660,9 +660,9 @@ func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
 	}
 }
 
-func TestNoReservedFinalAnswerAdvertisesToolsOnLastAttempt(t *testing.T) {
+func TestNoReservedFinalReplyAdvertisesToolsOnLastModelCall(t *testing.T) {
 	def := testAgent()
-	def.Limits = Limits{ModelAttempts: 2, NoReservedFinalAnswer: true}
+	def.Limits = Limits{ModelCalls: 2, NoReservedFinalReply: true}
 	client := &scriptedClient{
 		results: []llm.Result{callResult("lookup-1", "lookup"), final("42")},
 	}
@@ -682,7 +682,7 @@ func TestNoReservedFinalAnswerAdvertisesToolsOnLastAttempt(t *testing.T) {
 		t.Fatalf("stop=%+v err=%v, want completed", out.Stop, err)
 	}
 	if len(client.inputs) != 2 || len(client.inputs[1].Tools) != 1 {
-		t.Fatalf("last attempt did not advertise tools: %+v", client.inputs)
+		t.Fatalf("last model call did not advertise tools: %+v", client.inputs)
 	}
 }
 
@@ -713,8 +713,8 @@ func TestRecordedAgentKeepsResolvedLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	for field, want := range map[string]float64{
-		"model_attempts":   8,
-		"interruptions":    10,
+		"model_calls":      8,
+		"resumes":          10,
 		"provider_pauses":  3,
 		"tool_concurrency": 1,
 	} {
@@ -730,16 +730,16 @@ func TestRecordedAgentKeepsResolvedLimits(t *testing.T) {
 	old := first.Turn
 	old.Steps = cloneTurn(first.Turn).Steps
 	older := *old.Steps[0].Started
-	older.Agent.Limits.Interruptions = 7
+	older.Agent.Limits.Resumes = 7
 	old.Steps[0].Started = &older
-	view, err := Replay(old)
+	view, err := old.View()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Agent.Limits.Interruptions != 7 {
+	if view.Agent.Limits.Resumes != 7 {
 		t.Fatalf(
 			"replayed interruptions=%d, want recorded 7",
-			view.Agent.Limits.Interruptions,
+			view.Agent.Limits.Resumes,
 		)
 	}
 	runner := Runner{Client: client}

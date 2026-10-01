@@ -177,7 +177,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 				if err != nil {
 					return dashi.TurnView{}, err
 				}
-				return dashi.Replay(turn)
+				return turn.View()
 			}, cancel)
 			if snap.answer.ID != "" {
 				output.selectTurn(turnNumber(snap.answer.ID))
@@ -196,7 +196,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 	}
 
 	if execCtx.Err() != nil {
-		diagnostic("request canceled before admission")
+		diagnostic("request canceled before it was accepted")
 		return 4
 	}
 	var selected *submittedInput
@@ -275,7 +275,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 		if err != nil {
 			return dashi.TurnView{}, err
 		}
-		return dashi.Replay(turn)
+		return turn.View()
 	}, cancel)
 	if err = a.initializeMCP(execCtx, false); err != nil {
 		diagnostic("MCP initialization canceled or failed; no work was started")
@@ -286,9 +286,9 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 		last := a.eng.Last(execCtx)
 		if last != nil && last.Next == dashi.NextNone {
 			if err = a.eng.recoverTasks(execCtx); err == nil {
-				result = Result{Outcome: dashi.Outcome{TurnView: last.View}}
+				result = Result{Outcome: dashi.RunResult{TurnView: last.View}}
 			}
-		} else if last != nil && (last.Next == dashi.NextContinue || last.Next == dashi.NextResume && last.View.ReadyToContinue) {
+		} else if last != nil && (last.Next == dashi.NextContinue || last.Next == dashi.NextRecover && last.View.ReadyToContinue) {
 			result, err = a.eng.continueLast(execCtx, dashi.Continue{}, last)
 		} else {
 			diagnostic("recorded work does not permit automatic continuation")

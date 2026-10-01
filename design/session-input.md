@@ -68,17 +68,18 @@ another process is later.
 When a `Start` or `Continue` this handle runs ends its turn with `NextNone`
 and the queue holds items, the same `Run` or `Stream` call starts the next
 turn from them, and repeats until the queue is empty or a turn stops any other
-way. `Settle`, `Deliver`, and `Cancel` run no model call, so nothing queued
+way. `Resolve`, `AddMessages`, and `Cancel` run no model call, so nothing queued
 runs after them. Every peer queue does
 this (Codex's queue extension, pi's next design, LangGraph's `enqueue`, ACP's
 inject); a queue that waits for the next send strands input. `RunQueue` does the
 same for an idle session (last turn `NextNone`, or none) with no new input;
-when it runs nothing it returns false and the last turn's outcome.
+when it runs nothing it returns false and the last turn's result.
 
-Done is not settled (pi #5886): the call returns when its own turns end, and the
-outcome is the last one's. When that turn stopped with anything but `NextNone`,
-items stay queued; `session.State.Queued` counts them. Background tasks belong to
-`delegate.Tasks`, and `RunUntilQuiet` (below) is the call that waits for them.
+Returning does not mean quiet (pi #5886): the call returns when its own turns
+end, and the result is the last one's. When that turn stopped with anything but
+`NextNone`, items stay queued; `session.State.Queued` counts them. Background
+tasks belong to `delegate.Tasks`, and `RunUntilQuiet` (below) is the call that
+waits for them.
 
 A **queue turn** reserves every item under the lock and starts:
 
@@ -98,7 +99,7 @@ user-origin items and puts their messages ahead of its `Input`, since the user
 typed them first. This is the CLI's behavior: leftovers join the next prompt
 (`cmd/dashi/control.go`). Items of other origins, such as delegate notices, stay
 queued and run as a queue turn afterwards, so the `queue:` key keeps their IDs
-in the record for the delivery rule below.
+in the record for the notice-delivery rule below.
 
 **Consuming items.** A reserved item keeps its ID and place in the queue, and no
 other turn takes it, until the session knows whether this `Start`'s
@@ -107,21 +108,21 @@ that it did, since the engine emits a step only once it commits, so a `Stream`
 consumer that breaks after it consumes the items. Only proof that it did not
 restores the items, in order: an error after which `Run` promises nothing was
 recorded (neither a `*CommitError` carrying a `Step` nor `ErrRecordInvalid`;
-`recorded` in `runner.go`), or a `*CommitError` whose `Step.Kind` is
-`turn_started` with `PersistenceRejected`, `ErrRevisionConflict`, or
-`ErrCommandConflict`. Anything else is inconclusive: an unknown outcome for the
-start, a failed later step (a rejected model step included), or
-`ErrRecordInvalid`, which follows recorded steps. The session then loads `S-n`:
-a `turn_started` step with this command ID consumes the items, a missing one
-restores them, and a failed load keeps them reserved and returns the error. The
-same rule covers user-origin items put ahead of a caller's `Start`, checked
-against that `Start`'s command ID. Each later command tries to settle it the
-same way, but only the queue waits on it: `Open` and new commands run without
-the reserved items, each outcome warns `queue_blocked`, and `RunQueue` returns
-the error. A retried queue turn reuses its deterministic `queue:` key, and the
-session scans the idempotency window for it before starting one; a match means
-the items were delivered, so it consumes them and starts nothing. A turn in the
-window that cannot be read fails the scan, even an unreadable last turn under
+`dashi.Recorded` in `run.go`), or a `*CommitError` whose `Step.Kind` is
+`turn_started` with `NothingWritten`, `ErrStaleTurn`, or `ErrCommandIDReused`.
+Anything else is inconclusive: an unknown result for the start, a failed later
+step (a rejected model step included), or `ErrRecordInvalid`, which follows
+recorded steps. The session then loads `S-n`: a `turn_started` step with this
+command ID consumes the items, a missing one restores them, and a failed load
+keeps them reserved and returns the error. The same rule covers user-origin
+items put ahead of a caller's `Start`, checked against that `Start`'s command
+ID. Each later command tries to finish the reservation the same way, but only
+the queue waits on it: `Open` and new commands run without the reserved items,
+each result warns `queue_blocked`, and `RunQueue` returns the error. A retried
+queue turn reuses its deterministic `queue:` key, and the session scans the
+idempotency window for it before starting one; a match means the items already
+started a turn, so it consumes them and starts nothing. A turn in the window
+that cannot be read fails the scan, even an unreadable last turn under
 `Exclusive`, since it may hold the key: `RunQueue` returns the error and the
 items wait until a caller's `Start` moves past that turn.
 
@@ -129,25 +130,25 @@ items wait until a caller's `Start` moves past that turn.
 new `Start` closes a stopped turn, the session calls `Inbox.Leftovers` on the
 freshly loaded turn and appends each steer to the queue, in order, with its ID.
 While a turn stays continuable, its missed steers wait in the inbox for its
-`Continue`, as the CLI does. Some peers drop them: Codex loses undelivered
+`Continue`, as the CLI does. Some peers drop them: Codex loses unread
 steers on interrupt, and pi stranded follow-ups on abort (#10017). A message the
-user typed should still be answered, so Dashi keeps it, unlike a nudge that
+user typed should still get a reply, so Dashi keeps it, unlike a nudge that
 expires with its turn.
 
 ## Delegation
 
 A finished background task's notice is enqueued on the parent session, and its
 follow-up is a queue turn. `delegate.FollowUp` and `delegate.FollowUpTurnID` are
-removed. The delivery rule (a notice counts as delivered when the record holds
-its ID in a turn's context or in a start's command ID) reads the `queue:` prefix
-in place of the follow-up prefix. One `Tasks` serves one session.
+removed. The notice-delivery rule (a notice counts as delivered when the record
+holds its ID in a turn's context or in a start's command ID) reads the `queue:`
+prefix in place of the follow-up prefix. One `Tasks` serves one session.
 
 ```go
 // RunUntilQuiet runs the session's queue and waits while tasks run. It
-// returns when no task is pending and the queue is empty, with the outcome
+// returns when no task is pending and the queue is empty, with the result
 // of the last turn it ran, or of the session's last turn when it ran none.
 func RunUntilQuiet(ctx context.Context, s *session.Session, tasks *Tasks,
-    opts ...dashi.RunOption) (dashi.Outcome, error)
+    opts ...dashi.RunOption) (dashi.RunResult, error)
 ```
 
 It loops over `s.RunQueue` and `tasks.Wait`, which returns false after each
@@ -170,7 +171,7 @@ notices. `Session` gains no field.
 
 **`Session.Stream`** yields the events of every turn the call runs, including a
 closing step, a compaction turn, the caller's turn, and queue turns. Each event
-carries its `TurnID`, and each turn ends with its own `Outcome` event; the last
+carries its `TurnID`, and each turn ends with its own `Result` event; the last
 is the call's result. Breaking the range ends the context, which records an
 interruption (or a cancel under `ContextCancel`), and no further queue turn
 starts. Queue and follow-up turns start with no new request, so without this
@@ -192,20 +193,20 @@ without a warning; `Turns` reports it.
 
 ## Compaction turns
 
-When the projected history grows past the compactor's threshold, the session
+When the next history grows past the compactor's threshold, the session
 runs a **compaction turn** in the next slot, before the caller's turn or a queue
 turn:
 
 - Origin `compaction`, a summarizer agent with `NoTools`, and command ID
-  `"compact:" + TurnID(s, n)`, so two workers collide as duplicates: a revision
-  or command conflict at any step of the compaction turn means another worker
-  took the slot, and the loser plans again and uses that worker's turn, with no
-  warning.
+  `"compact:" + TurnID(s, n)`, so two workers collide as duplicates: a
+  stale-turn or command conflict at any step of the compaction turn means
+  another worker took the slot, and the loser plans again and uses that worker's
+  turn, with no warning.
 - Its one model call is the summary request, so spend and recovery work as for
   any turn, and the caller's `Start.Budget` caps it (before a queue turn there
-  is none). Its `Input` is the summary prompt with a text transcript of the
-  projected history, as package `compaction` builds today (item 15, decision 8);
-  `History` is empty.
+  is none). Its `Input` is the summary prompt with a text transcript of the next
+  history, as package `compaction` builds today (item 15, decision 8); `History`
+  is empty.
 - Its output is the **replacement history**: the summary plus the kept messages,
   which need not be a contiguous tail. The package keeps system and developer
   messages from the covered part.
@@ -216,7 +217,7 @@ const StartCompaction StartOrigin = "compaction"
 // CompactionFact is recorded in the start fact of a compaction turn.
 type CompactionFact struct {
     Through   int           `json:"through"`   // last turn covered
-    Digest    string        `json:"digest"`    // fingerprint of the projected history replaced
+    Hash      string        `json:"hash"`      // hash of the history replaced
     Keep      []llm.Message `json:"keep,omitempty"`
     SummaryAt int           `json:"summary_at"` // index in Keep where the summary goes
     Frame     string        `json:"frame"`      // text that introduces the summary
@@ -225,14 +226,14 @@ type CompactionFact struct {
 // Compactor decides when and how to compact. Package compaction implements it.
 type Compactor interface {
     // Needed reports whether to compact before the next turn.
-    Needed(projected []llm.Message, last llm.Usage) bool
+    Needed(history []llm.Message, last llm.Usage) bool
     // Start builds the compaction turn's Start, with Compaction set.
-    Start(projected []llm.Message) (Start, error)
+    Start(history []llm.Message) (Start, error)
 }
 ```
 
 The compactor fills `Keep`, `SummaryAt`, `Frame`, the agent, and `Input`; the
-session sets `Through`, `Digest` (the history fingerprint of `projected`), the
+session sets `Through`, `Hash` (the `HistoryHash` of `history`), the
 command ID, the origin, an empty `History`, `NoTools`, and the caller's
 `Budget`, and an empty model becomes the session's. `last` is the usage of the
 last turn's final model call.
@@ -242,32 +243,32 @@ and allowed only with it (the engine checks both, and that `SummaryAt` is in
 range), and `TurnView` gains `Compaction` (it gains `Origin` in track 2). The
 replacement history is `Keep[:SummaryAt]`, then one user text message of
 `Frame`, a blank line, and the summary, then `Keep[SummaryAt:]`. The summary is
-the trimmed text inside the answer's last `<summary>` and `</summary>` tags, or
-the whole trimmed answer when it has none. A compaction turn that did not
+the trimmed text inside the reply's last `<summary>` and `</summary>` tags, or
+the whole trimmed reply when it has none. A compaction turn that did not
 complete with a non-empty summary replaces nothing. It is a pure function of the
 record, so a reader with no `Compactor` builds it. This is the one place a turn
 records earlier messages (decision 39).
 
-An earlier draft also had `Compactor.Replace(projected, out)`. It is dropped: a
+An earlier draft also had `Compactor.Replace(history, out)`. It is dropped: a
 completed turn accepts no further steps (`acceptsAfterEnd`), so a replacement
 built after the turn could not be recorded, and a reader without a compactor
 could not rebuild it. The kept messages are chosen before the call, so they are
 recorded at `Start` instead.
 
-**Projected history** for turn *m* is the replacement history of the newest
-completed compaction turn *C* before *m*, followed by the projections of the
+**Next history** for turn *m* is the replacement history of the newest
+completed compaction turn *C* before *m*, followed by the turn messages of the
 non-compaction turns *C+1…m−1*. A fresh handle loads turns back to *C* only.
 Every reader honors a compaction turn, whatever its configuration, so a viewer,
 a recovery worker, and an older build all send the same history. ADK-Go honors
 compaction records only when compaction is enabled, since any writer of one can
 rewrite what the model sees; that worry does not apply here, because only the
 session writes compaction turns and the host authorizes compaction starts on the
-engine as it does operator starts. The digest is checked only when the handle
+engine as it does operator starts. The hash is checked only when the handle
 already holds the covered turns (it ran them, or `History` loaded them), since
 loading them just to check would undo the short load. Ended turns freeze, so a
 mismatch means a bug: the session warns `compaction_mismatch` and still honors
 the compaction turn, so every reader keeps the same history. The result is
-cached, and the warning repeats on each outcome whose history the compaction
+cached, and the warning repeats on each result whose history the compaction
 turn builds, as `turn_unreadable` does.
 
 **The conversation history is untouched.** `s.History` never includes compaction
@@ -275,7 +276,7 @@ turns, and `s.Turns` does: the summary is a session event, not conversation. UIs
 hide compaction turns by `TurnView.Origin` or show a marker.
 
 **Failure.** If the compaction turn does not complete with a summary, the
-session closes it (`close:` cancel), keeps the previous projected history, adds
+session closes it (`close:` cancel), keeps the history it had, adds
 `compaction_failed`, and starts the caller's turn. The session runs the
 compaction check only when the last turn completed, is not a compaction turn,
 and was not just closed by this `Start` (closing completes a turn that recorded
@@ -289,33 +290,33 @@ turn, the call returns; the next `Start` closes that turn with
 **Package `compaction`.** `compaction.New(policy Policy) *Compactor` implements
 the interface; `Compactor`'s zero value works, and its fields add `Model`,
 `Prompt`, `MaxTokens`, and `TailFraction`. `Needed` is `Policy.Due(last)` when
-the projected history holds a message other than system and developer ones;
-`Start` chooses the cut, the kept messages, and the transcript input. With no
-turn starts to go by, it cuts only where a user message that is not a tool
-result starts, never splitting a tool call from its result. The kept tail is
-sized by `Policy`'s window; the transcript by the smaller of that window and the
-catalog window of `Model`, when set. It cannot check savings before the summary
-exists. `Compactor` makes no model call. A host that keeps its own turns
-builds history with `dashi.ProjectHistory`, the rule `Session` uses, and runs
-`Compactor.Start` through its own `Runner`, so the summary call is recorded
-and charged like any turn. The earlier `Compact`, `Project`, `Record`, and
-`NewSummarizer` path, whose summary call bypassed the host's recorder, was
-removed (2026-10-01).
+the next history holds a message other than system and developer ones; `Start`
+chooses the cut, the kept messages, and the transcript input. With no turn
+starts to go by, it cuts only where a user message that is not a tool result
+starts, never splitting a tool call from its result. The kept tail is sized by
+`Policy`'s window; the transcript by the smaller of that window and the catalog
+window of `Model`, when set. It cannot check savings before the summary exists.
+`Compactor` makes no model call. A host that keeps its own turns builds history
+with `dashi.BuildHistory`, the rule `Session` uses, and runs `Compactor.Start`
+through its own `Runner`, so the summary call is recorded and charged like any
+turn. The earlier `Compact`, `TurnMessagesFull`, `Record`, and `NewSummarizer`
+path, whose summary call bypassed the host's recorder, was removed (2026-10-01).
 
 **Precedent.** pi makes compaction an operation that goes through the same
-admission as a prompt; Codex runs an unsteerable `Compact` task and stores
-`replacement_history`; Eino v0.10 stores `MessagesReplaced`.
+acceptance checks as a prompt; Codex runs an unsteerable `Compact` task and
+stores `replacement_history`; Eino v0.10 stores `MessagesReplaced`.
 
 ## Later: the durable queue
 
 The first note after this design. Requirements from the design reviews:
 
 - Take items for a turn atomically with committing its `Start`, and record the
-  item IDs in the start fact; reconcile items taken but not recorded on open.
+  item IDs in the start fact; on open, check items taken but not recorded
+  against the record.
 - Withdrawing a taken item fails with "already used"; cancel and consume never
   live in two stores that can disagree (Codex #46911, #43819).
 - Callers supply item IDs on `Enqueue`, so a retried enqueue is not a duplicate;
-  the item ID becomes the delivered message's ID, which ACP replay needs.
+  the item ID becomes the added message's ID, which ACP replay needs.
 - A dispatcher starts the next turn when a session goes idle, including after a
   crash (Codex polls idle threads every ten seconds).
 - Each item has a status the caller can query by ID.

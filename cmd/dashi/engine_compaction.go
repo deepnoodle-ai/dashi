@@ -15,11 +15,11 @@ import (
 type pendingPrompt struct {
 	start dashi.Start
 	input *submittedInput
-	// uncertain names an ordinary Start whose recording acknowledgment was
-	// lost. No later caller Start can evict its idempotency window.
-	uncertain string
-	attempted bool
-	summary   bool
+	// resultUnknown names an ordinary Start whose recording acknowledgment
+	// was lost. No later caller Start can evict its idempotency window.
+	resultUnknown string
+	attempted     bool
+	summary       bool
 }
 
 type pendingLine struct {
@@ -101,28 +101,28 @@ func (e *Engine) runPending(ctx context.Context) (Result, error) {
 	if p == nil {
 		return Result{}, errors.New("there is no pending prompt")
 	}
-	if err := e.reconcilePrompt(ctx, p); err != nil {
+	if err := e.resolvePrompt(ctx, p); err != nil {
 		return Result{}, err
 	}
 	res, err := e.run(ctx, p.start)
 	// Ordinary refusals still require the user to resubmit after recovery.
-	// Retain only a summary interruption or an uncertain admission.
+	// Retain only a summary interruption or a Start whose recording is unknown.
 	e.inputMu.Lock()
 	// A rejected ordinary attachment Start has no recorded owner. Release it
 	// together with the editable draft, so corrections cannot retry old bytes.
 	var ce *dashi.CommitError
 	rejectedInput := p.input != nil && !p.summary && errors.As(err, &ce) &&
-		ce.Persistence == dashi.PersistenceRejected && ce.Step != nil &&
-		ce.Step.Kind == dashi.StepStarted && ce.Step.Started != nil &&
+		ce.NothingWritten && ce.Step != nil &&
+		ce.Step.Kind == dashi.StepTurnStarted && ce.Step.Started != nil &&
 		ce.Step.Started.Origin != dashi.StartCompaction && ce.Step.CommandID == p.start.CommandID
-	if e.pending == p && p.uncertain == "" && (!p.attempted || rejectedInput) && !p.summary &&
+	if e.pending == p && p.resultUnknown == "" && (!p.attempted || rejectedInput) && !p.summary &&
 		res.Outcome.Origin != dashi.StartCompaction {
 		e.pending = nil
 		e.inputReceipt(p, inputPreRecordFailure)
 		e.cfg.Emit(Block{ID: "pending:" + p.start.CommandID, Kind: KindPending, Done: true})
 	}
 	if e.pending == p && p.input != nil {
-		if p.uncertain != "" {
+		if p.resultUnknown != "" {
 			e.inputReceipt(p, inputPendingUnknown)
 		} else if !p.summary && res.Outcome.Origin != dashi.StartCompaction {
 			e.inputReceipt(p, inputPreRecordFailure)
@@ -139,7 +139,7 @@ func (e *Engine) resumePending(ctx context.Context) (Result, error) {
 	if p == nil {
 		return Result{}, errors.New("there is no pending prompt")
 	}
-	if err := e.reconcilePrompt(ctx, p); err != nil {
+	if err := e.resolvePrompt(ctx, p); err != nil {
 		return Result{}, err
 	}
 	last := e.Last(ctx)
@@ -160,10 +160,10 @@ func (e *Engine) resumePending(ctx context.Context) (Result, error) {
 	}
 	var cmd dashi.Command = dashi.Continue{}
 	if last.LimitStopped() {
-		cmd = dashi.Continue{ModelAttempts: int(last.View.Stop.Limit.Limit) * 2}
+		cmd = dashi.Continue{ModelCalls: int(last.View.Stop.Limit.Limit) * 2}
 	}
 	chat := e.configureChat()
-	// The Outcome is yielded after Session.finish. Breaking here prevents
+	// The RunResult is yielded after Session.finish. Breaking here prevents
 	// Continue's queue dispatch from putting older queued items ahead of the
 	// caller's retained Start in a different turn.
 	if err := e.bindCommand(ctx, cmd); err != nil {
@@ -173,7 +173,7 @@ func (e *Engine) resumePending(ctx context.Context) (Result, error) {
 	res, err := e.stream(ctx, chat.Stream(ctx, cmd), true)
 	e.driverMu.Unlock()
 	if err != nil || res.Outcome.Stop.Kind != dashi.StopCompleted ||
-		compactiontext.Summary(res.Outcome.Answer) == "" {
+		compactiontext.Summary(res.Outcome.Reply) == "" {
 		return res, err
 	}
 	return e.runPending(ctx)
@@ -182,7 +182,7 @@ func (e *Engine) resumePending(ctx context.Context) (Result, error) {
 func (e *Engine) rememberPromptError(err error) {
 	var ce *dashi.CommitError
 	if !errors.As(err, &ce) || ce.Step == nil ||
-		ce.Step.Kind != dashi.StepStarted || ce.Step.Started == nil {
+		ce.Step.Kind != dashi.StepTurnStarted || ce.Step.Started == nil {
 		return
 	}
 	e.inputMu.Lock()
@@ -190,27 +190,27 @@ func (e *Engine) rememberPromptError(err error) {
 	if e.pending != nil && (e.pending.start.CommandID == "" || ce.Step.CommandID == e.pending.start.CommandID) {
 		e.pending.start.CommandID = ce.Step.CommandID
 		e.pending.attempted = true
-		if ce.Persistence == dashi.PersistenceUnknown {
-			e.pending.uncertain = ce.Step.TurnID
+		if !ce.NothingWritten {
+			e.pending.resultUnknown = ce.Step.TurnID
 		}
 	}
 }
 
-func (e *Engine) reconcilePrompt(ctx context.Context, p *pendingPrompt) error {
+func (e *Engine) resolvePrompt(ctx context.Context, p *pendingPrompt) error {
 	e.inputMu.Lock()
-	id := p.uncertain
+	id := p.resultUnknown
 	e.inputMu.Unlock()
 	if id == "" {
 		return nil
 	}
 	loader, ok := e.handle().Runner.Recorder.(dashi.Loader)
 	if !ok {
-		return errors.New("pending prompt cannot be reconciled: recorder cannot load turns")
+		return errors.New("pending prompt cannot be checked: recorder cannot load turns")
 	}
 	turn, err := loader.Load(ctx, id)
 	if errors.Is(err, dashi.ErrTurnNotFound) || err == nil && len(turn.Steps) == 0 {
 		e.inputMu.Lock()
-		p.uncertain = ""
+		p.resultUnknown = ""
 		e.inputReceipt(p, inputConfirmedAbsent)
 		e.inputMu.Unlock()
 		return nil
@@ -219,11 +219,11 @@ func (e *Engine) reconcilePrompt(ctx context.Context, p *pendingPrompt) error {
 		return fmt.Errorf("pending prompt waits until turn %s can be read: %w", id, err)
 	}
 	step := turn.Steps[0]
-	if step.Kind != dashi.StepStarted || step.Started == nil ||
+	if step.Kind != dashi.StepTurnStarted || step.Started == nil ||
 		step.CommandID != p.start.CommandID ||
 		len(step.Started.Input) < len(p.start.Input) ||
 		!reflect.DeepEqual(step.Started.Input[len(step.Started.Input)-len(p.start.Input):], p.start.Input) {
-		return fmt.Errorf("pending prompt conflicts with recorded turn %s: %w", id, dashi.ErrCommandConflict)
+		return fmt.Errorf("pending prompt conflicts with recorded turn %s: %w", id, dashi.ErrCommandIDReused)
 	}
 	if err := e.acknowledgePrompt(&step); err != nil {
 		return err
@@ -235,9 +235,9 @@ func (e *Engine) reconcilePrompt(ctx context.Context, p *pendingPrompt) error {
 }
 
 // acknowledgePrompt moves later input only after the ordinary Start commits.
-// Admission uses the same lock, so a new queue write cannot overtake the FIFO.
+// Accepting input uses the same lock, so a new queue write cannot overtake the FIFO.
 func (e *Engine) acknowledgePrompt(step *dashi.Step) error {
-	if step == nil || step.Kind != dashi.StepStarted || step.Started == nil ||
+	if step == nil || step.Kind != dashi.StepTurnStarted || step.Started == nil ||
 		step.Started.Origin == dashi.StartCompaction {
 		return nil
 	}

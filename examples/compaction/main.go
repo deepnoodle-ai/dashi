@@ -2,7 +2,7 @@
 // questions the context window is nearly full, so before the fourth the
 // session runs a compaction turn: the model summarizes the older messages,
 // and later turns send the summary in their place. A second handle with no
-// compactor then reads the same projected history from the record. It
+// compactor then builds the same history from the record. It
 // needs no API key: a scripted dashitest client stands in for the model,
 // so the replies are fixed. With a real client, the session code stays the
 // same.
@@ -80,7 +80,7 @@ func run(ctx context.Context) error {
 		for _, w := range out.SessionWarnings {
 			fmt.Printf("  (%s: %s)\n", w.Code, w.Message)
 		}
-		fmt.Printf("  %s: %s\n", out.Turn.ID, out.Answer)
+		fmt.Printf("  %s: %s\n", out.Turn.ID, out.Reply)
 	}
 
 	// The compaction turn is in the record, beside the conversation.
@@ -89,7 +89,7 @@ func run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		view, err := dashi.Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			return err
 		}
@@ -100,13 +100,13 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	projected, err := s.ProjectedHistory(ctx)
+	messages, err := s.NextHistory(ctx)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("\nconversation: %d messages; the next turn sends %d:\n",
-		len(history), len(projected))
-	for _, m := range projected {
+		len(history), len(messages))
+	for _, m := range messages {
 		fmt.Printf("  [%s] %.60s\n", m.Role, m.Text())
 	}
 
@@ -115,11 +115,11 @@ func run(ctx context.Context) error {
 		ID:     "heron",
 		Runner: dashi.Runner{Client: client, Recorder: rec},
 	}
-	again, err := reader.ProjectedHistory(ctx)
+	again, err := reader.NextHistory(ctx)
 	if err != nil {
 		return err
 	}
-	a, _ := json.Marshal(projected)
+	a, _ := json.Marshal(messages)
 	b, _ := json.Marshal(again)
 	fmt.Println("a handle with no compactor reads the same:", string(a) == string(b))
 	return nil

@@ -20,7 +20,7 @@ import (
 // a turn's record at most once even when a write fails or a worker crashes.
 //
 // Dashi calls Steers before each model call and at each candidate final
-// answer, and nowhere else, so a steer never lands between a tool call and
+// reply, and nowhere else, so a steer never lands between a tool call and
 // its result. Steers must be cheap: it runs before every model call. A
 // source that also implements SteeringNotifier is asked again when it
 // signals, so an urgent steer can cut a model call short. Dashi never calls
@@ -38,9 +38,9 @@ type Steering interface {
 // SteeringReleaser is implemented by sources that claim the steers they
 // return, as Inbox does. Dashi calls Release once when a run that fetched
 // steers ends. Unrecorded steers were never written and are free to go to
-// any run again. In-doubt steers were in a write whose outcome is unknown:
+// any run again. In-doubt steers were in a write whose result is unknown:
 // the record may hold them, so they may go only to a run of the same turn,
-// where the record removes duplicates, until reconciled with the reloaded
+// where the record removes duplicates, until checked against the reloaded
 // record.
 type SteeringReleaser interface {
 	Release(ctx context.Context, turnID string, unrecorded, inDoubt []string)
@@ -67,7 +67,7 @@ type Steer struct {
 	// source is a SteeringNotifier and the call can be replaced within the
 	// turn's limits; the next call sees the partial response and the steer.
 	// Urgent is not recorded: the record shows its effect, a model call
-	// settled with InterruptSteering. It never interrupts a running tool.
+	// finished with InterruptSteering. It never interrupts a running tool.
 	Urgent bool
 }
 
@@ -88,7 +88,7 @@ const steeringTimeout = 5 * time.Second
 const steerNotAccepted = "the user sent new input. Read it, then submit again."
 
 // steerState tracks one run's steers: those it fetched (claimed), those the
-// record now holds (recorded), and those in a write of unknown outcome.
+// record now holds (recorded), and those in a write whose result is unknown.
 type steerState struct {
 	claimed  []string
 	seen     map[string]bool
@@ -124,11 +124,11 @@ func (st *steerState) claim(id string) {
 // not yet record, in order. A steer already recorded is acknowledged again.
 // A failing source or an invalid steer never fails the turn: it is
 // recorded as a WarningSteering on the next step, and the steer stays with
-// its source. Steers wait while a provider pause leaves a hosted call
-// unfinished, and reach the call after its continuation.
+// its source. Steers wait while a provider pause leaves a provider tool
+// call unfinished, and reach the call after its continuation.
 func (r *runtime) waitingSteers(s *replayState) []ContextItem {
 	source := r.opts.steering
-	if source == nil || s.pausedHosted {
+	if source == nil || s.pausedProviderTool {
 		return nil
 	}
 	unlock := r.lockSource()
@@ -143,7 +143,7 @@ func (r *runtime) waitingSteers(s *replayState) []ContextItem {
 	unlock()
 	if err != nil {
 		// Reported once per run: the source is asked before every model
-		// call and at every answer.
+		// call and at every candidate reply.
 		if r.ctx.Err() == nil && !r.steers.sourceFailed {
 			r.steers.sourceFailed = true
 			r.warnSteering(fmt.Sprintf("steering source failed: %v", err))
@@ -233,16 +233,16 @@ func classifySteers(
 	return fresh, again, invalid
 }
 
-// commitSteers records a step that carries steers and settles the steers'
-// fate from the commit's result.
-func (r *runtime) commitSteers(step Step, steers []ContextItem) *Outcome {
+// commitSteers records a step that carries steers and decides what happens
+// to the steers from the commit's result.
+func (r *runtime) commitSteers(step Step, steers []ContextItem) *RunResult {
 	return r.afterSteerWrite(steers, r.commit(step))
 }
 
 // afterSteerWrite acknowledges steers the record now holds. When the write
 // failed, a confirmed rejection leaves the steers unrecorded; any other
 // failure leaves them in doubt, since the record may hold them.
-func (r *runtime) afterSteerWrite(steers []ContextItem, o *Outcome) *Outcome {
+func (r *runtime) afterSteerWrite(steers []ContextItem, o *RunResult) *RunResult {
 	ids := make([]string, 0, len(steers))
 	for _, item := range steers {
 		ids = append(ids, item.ID)
@@ -265,11 +265,11 @@ func (r *runtime) afterSteerWrite(steers []ContextItem, o *Outcome) *Outcome {
 // writeRejected reports whether a failed commit is known not to have been
 // saved.
 func writeRejected(err error) bool {
-	if errors.Is(err, ErrRevisionConflict) || errors.Is(err, ErrCommandConflict) {
+	if errors.Is(err, ErrStaleTurn) || errors.Is(err, ErrCommandIDReused) {
 		return true
 	}
 	var ce *CommitError
-	return errors.As(err, &ce) && ce.Persistence == PersistenceRejected
+	return errors.As(err, &ce) && ce.NothingWritten
 }
 
 // steersDelivered acknowledges recorded steers to the source. It runs
@@ -345,8 +345,8 @@ func (r *runtime) warnSteering(message string) {
 	})
 }
 
-// steersWait records why waiting steers could not supersede a candidate
-// answer. They stay with their source for the next turn.
+// steersWait records why waiting steers could not replace a candidate
+// reply. They stay with their source for the next turn.
 func (r *runtime) steersWait(s *replayState, n int) {
 	r.warnSteering(fmt.Sprintf(
 		"%d steer(s) could not supersede the answer: no further model call "+
@@ -361,24 +361,24 @@ func noCallCause(s *replayState) string {
 	if s.roomForNormalCall() {
 		return "a limit, the deadline, or a pause"
 	}
-	if s.Agent.Limits.NoReservedFinalAnswer {
+	if s.Agent.Limits.NoReservedFinalReply {
 		return fmt.Sprintf(
-			"the model attempt limit (%d of %d used)",
-			s.ModelAttempts,
-			s.attemptCap,
+			"the model call limit (%d of %d used)",
+			s.ModelCalls,
+			s.modelCallCap,
 		)
 	}
 	return fmt.Sprintf(
-		"the model attempt limit (%d of %d used, with the last reserved "+
+		"the model call limit (%d of %d used, with the last reserved "+
 			"for a final answer)",
-		s.ModelAttempts,
-		s.attemptCap,
+		s.ModelCalls,
+		s.modelCallCap,
 	)
 }
 
 // skipRecordedItems drops context items whose ID the turn already records.
-// A repeat with the same content was already delivered; one with different
-// content is dropped with a warning, since an ID names one delivery.
+// A repeat with the same content was already added; one with different
+// content is dropped with a warning, since an ID names one item.
 func (r *runtime) skipRecordedItems(items []ContextItem) []ContextItem {
 	var recorded map[string]ContextItem
 	out := items[:0:0]
@@ -398,7 +398,7 @@ func (r *runtime) skipRecordedItems(items []ContextItem) []ContextItem {
 		}
 		if !canonjson.SameValue(old, item) {
 			r.pendingWarnings = append(r.pendingWarnings, Warning{
-				Code: WarningDeliveryDropped,
+				Code: WarningMessagesDropped,
 				Message: fmt.Sprintf(
 					"context item %s dropped: the turn records a different "+
 						"item with its ID",
@@ -410,10 +410,10 @@ func (r *runtime) skipRecordedItems(items []ContextItem) []ContextItem {
 	return out
 }
 
-// newDeliveries validates a Deliver command's items and drops those the
-// turn already records with the same content. An ID repeated with different
-// content is an error, since an ID names one delivery.
-func newDeliveries(s *replayState, items []ContextItem) ([]ContextItem, error) {
+// newMessageItems validates an AddMessages command's items and drops those
+// the turn already records with the same content. An ID repeated with
+// different content is an error, since an ID names one item.
+func newMessageItems(s *replayState, items []ContextItem) ([]ContextItem, error) {
 	out := make([]ContextItem, 0, len(items))
 	batch := map[string]bool{}
 	for i, item := range items {
@@ -455,23 +455,23 @@ func recordedItems(t Turn) map[string]ContextItem {
 	return out
 }
 
-// pausedMidHostedCall reports whether result is a provider pause that left
-// a hosted call unfinished, as an Anthropic pause_turn during a web search
-// does. Such a call is like a tool call awaiting its result: a steer may
-// not land between them, and providers reject a request that does not end
-// with the paused result.
-func pausedMidHostedCall(result llm.Result) bool {
+// pausedMidProviderToolCall reports whether result is a provider pause that
+// left a provider tool call unfinished, as an Anthropic pause_turn during a
+// web search does. Such a call is like a tool call awaiting its result: a
+// steer may not land between them, and providers reject a request that does
+// not end with the paused result.
+func pausedMidProviderToolCall(result llm.Result) bool {
 	if result.Stop.Kind != llm.StopPause {
 		return false
 	}
 	open := map[string]bool{}
 	for _, part := range result.Message.Content {
 		switch {
-		case part.HostedUse != nil && part.HostedUse.Status != "completed" &&
-			part.HostedUse.Status != "failed":
-			open[part.HostedUse.ID] = true
-		case part.HostedResult != nil:
-			delete(open, part.HostedResult.CallID)
+		case part.ProviderToolUse != nil && part.ProviderToolUse.Status != "completed" &&
+			part.ProviderToolUse.Status != "failed":
+			open[part.ProviderToolUse.ID] = true
+		case part.ProviderToolResult != nil:
+			delete(open, part.ProviderToolResult.CallID)
 		}
 	}
 	return len(open) > 0

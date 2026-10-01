@@ -70,20 +70,20 @@ type Source struct {
 	// Ref names bytes that the application stores. It requires MIMEType and
 	// excludes every other location, Origin, and ExpiresAt. A recorded turn
 	// keeps only the reference; the runner asks the application's
-	// ContentResolver for the bytes before each model request.
+	// ContentLoader for the bytes before each model request.
 	Ref *Ref `json:"ref,omitempty"`
 }
 
 // Ref names stored bytes by application ID and proves which bytes it names
-// with a digest and a size. It is not a URL or a path: the ID carries no
-// authority, and only the application's resolver can turn it into bytes. The
-// digest and size let Dashi verify what the resolver returns, so a changed
+// with a hash and a size. It is not a URL or a path: the ID carries no
+// authority, and only the application's loader can turn it into bytes. The
+// hash and size let Dashi verify what the loader returns, so a changed
 // file cannot reach the model unnoticed.
 type Ref struct {
 	// ID is an opaque application identifier.
 	ID string `json:"id"`
 
-	// SHA256 is the lowercase hex digest of the bytes.
+	// SHA256 is the lowercase hex SHA-256 hash of the bytes.
 	SHA256 string `json:"sha256"`
 
 	// Size is the byte count of the bytes. It must be positive, like inline
@@ -91,7 +91,7 @@ type Ref struct {
 	Size int64 `json:"size"`
 }
 
-// Validate reports whether r has an ID, a well-formed digest, and a positive
+// Validate reports whether r has an ID, a well-formed hash, and a positive
 // size.
 func (r Ref) Validate() error {
 	if r.ID == "" || !utf8.ValidString(r.ID) {

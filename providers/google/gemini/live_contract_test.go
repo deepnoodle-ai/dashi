@@ -83,9 +83,9 @@ func TestLiveIteratorAgentTurn(t *testing.T) {
 }
 
 // Two paid calls.
-func TestLiveReservedFinalAnswer(t *testing.T) {
+func TestLiveReservedFinalReply(t *testing.T) {
 	client, modelName := liveAgentClient(t)
-	providertest.ReservedFinalAnswer(t, client, modelName)
+	providertest.ReservedFinalReply(t, client, modelName)
 }
 
 // Two paid calls.

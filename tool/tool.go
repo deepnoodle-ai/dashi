@@ -27,8 +27,8 @@ const (
 	KindLocal Kind = "local"
 	// KindExternal identifies a tool whose result is supplied externally.
 	KindExternal Kind = "external"
-	// KindProviderHosted identifies a tool executed by the model service.
-	KindProviderHosted Kind = "provider_hosted"
+	// KindProviderTool identifies a tool executed by the model service.
+	KindProviderTool Kind = "provider_tool"
 )
 
 // Annotations are advisory. Nil distinguishes an unspecified hint from false.
@@ -63,9 +63,9 @@ type Definition struct {
 	// conversion.
 	Schema json.RawMessage `json:"schema"`
 
-	// Hosted selects a provider-owned tool configuration. Its wire options
-	// are validated again by the destination adapter before dispatch.
-	Hosted *HostedSpec `json:"hosted,omitempty"`
+	// ProviderTool selects a provider-owned tool configuration. Its wire
+	// options are validated again by the destination adapter before dispatch.
+	ProviderTool *ProviderToolSpec `json:"provider_tool,omitempty"`
 
 	// Kind identifies the execution location; empty leaves it unspecified.
 	Kind Kind `json:"kind,omitempty"`
@@ -74,9 +74,9 @@ type Definition struct {
 	Annotations Annotations `json:"annotations,omitzero"`
 }
 
-// HostedSpec binds a server-executed tool to one provider and API. Options
+// ProviderToolSpec binds a server-executed tool to one provider and API. Options
 // contain non-secret provider fields; credentials belong on the client.
-type HostedSpec struct {
+type ProviderToolSpec struct {
 	// Provider identifies the configured destination that owns this tool.
 	Provider string `json:"provider"`
 	// API prevents the same provider name from crossing wire formats.
@@ -89,9 +89,9 @@ type HostedSpec struct {
 
 // Validate requires a bound wire type and an optional JSON object. Adapters
 // impose the provider's narrower option vocabulary.
-func (s HostedSpec) Validate() error {
+func (s ProviderToolSpec) Validate() error {
 	if s.Provider == "" || s.API == "" || s.Type == "" {
-		return errors.New("tool: hosted tool requires provider, API, and type")
+		return errors.New("tool: provider tool requires provider, API, and type")
 	}
 	if len(s.Options) == 0 {
 		return nil
@@ -101,13 +101,13 @@ func (s HostedSpec) Validate() error {
 		s.Options,
 		&options,
 	); err != nil || options == nil {
-		return errors.New("tool: hosted options require a JSON object")
+		return errors.New("tool: provider tool options require a JSON object")
 	}
 	return nil
 }
 
-// Clone detaches hosted wire options from the caller's buffer.
-func (s HostedSpec) Clone() HostedSpec {
+// Clone detaches provider tool wire options from the caller's buffer.
+func (s ProviderToolSpec) Clone() ProviderToolSpec {
 	s.Options = slices.Clone(s.Options)
 	return s
 }
@@ -121,23 +121,23 @@ func (d Definition) Validate() error {
 	if d.Kind != "" &&
 		d.Kind != KindLocal &&
 		d.Kind != KindExternal &&
-		d.Kind != KindProviderHosted {
+		d.Kind != KindProviderTool {
 		return fmt.Errorf("tool: invalid kind %q", d.Kind)
 	}
-	if d.Kind == KindProviderHosted {
+	if d.Kind == KindProviderTool {
 		// A missing RawMessage is written as JSON null in saved turns.
-		// Treat it as absent only for hosted tools, which have no schema.
+		// Treat it as absent only for provider tools, which have no schema.
 		hasSchema := len(d.Schema) != 0 &&
 			!bytes.Equal(bytes.TrimSpace(d.Schema), []byte("null"))
-		if hasSchema || d.Hosted == nil {
+		if hasSchema || d.ProviderTool == nil {
 			return errors.New(
-				"tool: hosted definition requires hosted options without schema",
+				"tool: provider tool definition requires provider tool options without schema",
 			)
 		}
-		return d.Hosted.Validate()
+		return d.ProviderTool.Validate()
 	}
-	if d.Hosted != nil {
-		return errors.New("tool: local or external definition cannot carry hosted options")
+	if d.ProviderTool != nil {
+		return errors.New("tool: local or external definition cannot carry provider tool options")
 	}
 	var schema any
 	if err := json.Unmarshal(d.Schema, &schema); err != nil {
@@ -161,9 +161,9 @@ func (d Definition) Validate() error {
 // with the original.
 func (d Definition) Clone() Definition {
 	d.Schema = slices.Clone(d.Schema)
-	if d.Hosted != nil {
-		v := d.Hosted.Clone()
-		d.Hosted = &v
+	if d.ProviderTool != nil {
+		v := d.ProviderTool.Clone()
+		d.ProviderTool = &v
 	}
 	d.Annotations = Annotations{
 		ReadOnly:    cloneBool(d.Annotations.ReadOnly),
@@ -267,8 +267,8 @@ type State string
 const (
 	// StateSucceeded requires output from a completed call.
 	StateSucceeded State = "succeeded"
-	// StateFailed requires output describing a known failure, not an uncertain
-	// effect.
+	// StateFailed requires output describing a known failure, not an effect
+	// whose result is unknown.
 	StateFailed State = "failed"
 	// StateNotExecuted confirms the executor did not run; explanatory output is
 	// optional.
@@ -346,7 +346,7 @@ func Failed(text string) Outcome {
 	return Outcome{State: StateFailed, Output: new(TextOutput(text))}
 }
 
-// Waiting returns an outcome that pauses the call until the host settles it.
+// Waiting returns an outcome that pauses the call until the host resolves it.
 // reason is required; set Wait.Prompt on the result to add a question or
 // instruction for the user. Waiting("") is invalid, and the runner stops the
 // turn with ErrInvalidOutcome if an executor returns it.
@@ -355,7 +355,7 @@ func Waiting(reason string) Outcome {
 }
 
 // Detached returns an outcome for work that continues elsewhere and whose
-// result the host records later with Settle. handleID correlates that result
+// result the host records later with Resolve. handleID correlates that result
 // and is required: Detached("") is invalid, and the runner stops the turn
 // with ErrInvalidOutcome if an executor returns it.
 func Detached(handleID string) Outcome {
@@ -425,8 +425,8 @@ func (o Outcome) Validate() error {
 // StateFailed and nil error does the same with content the tool chooses. Wrap
 // the error with Fatal when continuing the turn would be wrong.
 //
-// An executor never reports uncertainty. The runner alone decides that a
-// result was not observed: after a panic, or when a recorded start has no
+// An executor never reports an unknown result. The runner alone decides that
+// a result was not observed: after a panic, or when a recorded start has no
 // recorded result after a crash.
 type Executor interface {
 	// Execute returns the call's outcome, or an error describing why it
@@ -481,17 +481,17 @@ func (e fatalError) Is(target error) bool {
 //
 // A Tool with a nil Executor is definition-only: the model sees it, but the
 // runner never executes it. That is meaningful for two kinds. A
-// KindProviderHosted tool runs inside the model call, so the runner neither
+// KindProviderTool tool runs inside the model call, so the runner neither
 // dispatches it nor runs hooks for it; provider packages construct these. A
 // KindExternal tool passes the BeforeTool hooks like a local tool, then waits
-// until the host records its result with Settle. A local or unspecified-kind
+// until the host records its result with Resolve. A local or unspecified-kind
 // tool with a nil Executor stops the turn as failed when the model calls it.
 type Tool struct {
 	// Definition is presented to the model; copying Tool shares its nested
 	// data.
 	Definition Definition
 
-	// Executor runs local calls and is nil for external or provider-hosted
+	// Executor runs local calls and is nil for external tools and provider
 	// tools.
 	Executor Executor
 }

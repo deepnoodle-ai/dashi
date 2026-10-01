@@ -51,7 +51,7 @@ func TestTaskPTYChild(t *testing.T) {
 	if _, err = a.openSession(cfg.Store, cfg.Dir, Options{}); err != nil {
 		t.Fatal(err)
 	}
-	s.Emit(Block{Kind: KindNotice, Text: "Delegation acceptance: exact approval, waiting effect, details, verified settlement, one result, reopen.", Done: true})
+	s.Emit(Block{Kind: KindNotice, Text: "Delegation acceptance: exact approval, waiting effect, details, verified finish, one result, reopen.", Done: true})
 	done := make(chan struct{})
 	defer close(done)
 	go func() {

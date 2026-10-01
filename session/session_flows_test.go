@@ -39,7 +39,7 @@ func TestSessionIdempotency(t *testing.T) {
 		// Another worker's handle cannot know the turn is live.
 		b := handle(rec, dashitest.NewClient())
 		_, err := b.Run(t.Context(), keyed("k", "hello"))
-		busy := requireBusy(t, err, dashi.NextResume, false)
+		busy := requireBusy(t, err, dashi.NextRecover, false)
 		if !busy.Duplicate || busy.TurnID != session.TurnID("s", 1) {
 			t.Fatalf("busy = %+v; want a duplicate of turn 1", busy)
 		}
@@ -66,8 +66,8 @@ func TestSessionIdempotency(t *testing.T) {
 		b := handle(rec, client)
 		b.New = true // a retry of the first Start is not ErrSessionExists
 		out, err := b.Run(t.Context(), keyed("k", "hello"))
-		if err != nil || out.Turn.ID != first.Turn.ID || out.Answer != "first" {
-			t.Fatalf("retry: %v, turn %s %q", err, out.Turn.ID, out.Answer)
+		if err != nil || out.Turn.ID != first.Turn.ID || out.Reply != "first" {
+			t.Fatalf("retry: %v, turn %s %q", err, out.Turn.ID, out.Reply)
 		}
 		if n := len(client.Inputs()); n != 1 {
 			t.Fatalf("model calls = %d; want 1", n)
@@ -159,14 +159,14 @@ func TestSessionIdempotency(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, err := s.Run(t.Context(), keyed("k", "goodbye"))
-		if !errors.Is(err, dashi.ErrCommandConflict) {
-			t.Fatalf("err = %v; want ErrCommandConflict", err)
+		if !errors.Is(err, dashi.ErrCommandIDReused) {
+			t.Fatalf("err = %v; want ErrCommandIDReused", err)
 		}
 		requireTurns(t, rec, 1)
 	})
 	t.Run("racing workers", func(t *testing.T) {
 		// Worker b chooses turn 1 before worker a commits it, with the same
-		// key and a different agent, so the engine's digests differ. b
+		// key and a different agent, so the engine's hashes differ. b
 		// loses at commit, reloads, and finds a's turn as its retry.
 		rec := dashi.NewMemoryRecorder()
 		a := handle(rec, dashitest.NewClient(dashitest.Reply("from a")))
@@ -182,8 +182,8 @@ func TestSessionIdempotency(t *testing.T) {
 		b.New = true
 		b.Agent.Instructions = "Be brief."
 		out, err := b.Run(t.Context(), keyed("k", "hello"))
-		if err != nil || out.Turn.ID != session.TurnID("s", 1) || out.Answer != "from a" {
-			t.Fatalf("b: %v, turn %s %q", err, out.Turn.ID, out.Answer)
+		if err != nil || out.Turn.ID != session.TurnID("s", 1) || out.Reply != "from a" {
+			t.Fatalf("b: %v, turn %s %q", err, out.Turn.ID, out.Reply)
 		}
 		if n := len(bClient.Inputs()); n != 0 {
 			t.Fatalf("b made %d model calls", n)
@@ -202,7 +202,7 @@ func TestSessionIdempotency(t *testing.T) {
 		c := handle(held, cClient)
 		c.New = true
 		type result struct {
-			out dashi.Outcome
+			out dashi.RunResult
 			err error
 		}
 		cDone := make(chan result, 1)
@@ -224,7 +224,7 @@ func TestSessionIdempotency(t *testing.T) {
 		close(held.proceed)
 
 		got := <-cDone
-		busy := requireBusy(t, got.err, dashi.NextResume, false)
+		busy := requireBusy(t, got.err, dashi.NextRecover, false)
 		if !busy.Duplicate || busy.TurnID != session.TurnID("s", 1) {
 			t.Fatalf("c: busy = %+v; want a duplicate of turn 1", busy)
 		}
@@ -234,8 +234,8 @@ func TestSessionIdempotency(t *testing.T) {
 		}
 		// Once d ends, c's retry returns d's result.
 		out, err := c.Run(t.Context(), keyed("k", "hello"))
-		if err != nil || out.Answer != "from d" {
-			t.Fatalf("c retry: %v, %q", err, out.Answer)
+		if err != nil || out.Reply != "from d" {
+			t.Fatalf("c retry: %v, %q", err, out.Reply)
 		}
 		if n := len(cClient.Inputs()); n != 0 {
 			t.Fatalf("c made %d model calls", n)
@@ -244,7 +244,7 @@ func TestSessionIdempotency(t *testing.T) {
 	})
 	t.Run("after it stopped waiting", func(t *testing.T) {
 		// The first call stopped waiting on an approval and returned
-		// NextAnswer; a retry returns that result, not a busy error.
+		// NextResolvePending; a retry returns that result, not a busy error.
 		rec := dashi.NewMemoryRecorder()
 		client := dashitest.NewClient(dashitest.CallTool("call-1", "charge", `{}`))
 		a := handle(rec, client)
@@ -252,13 +252,13 @@ func TestSessionIdempotency(t *testing.T) {
 		a.Runner.Tools = (&chargeTool{}).tools()
 		a.Runner.Hooks = dashi.RequireApproval("charge")
 		first, err := a.Run(t.Context(), keyed("k", "pay"))
-		if err != nil || first.Next() != dashi.NextAnswer {
+		if err != nil || first.Next() != dashi.NextResolvePending {
 			t.Fatalf("first: %v, next %s", err, first.Next())
 		}
 		for _, s := range []*session.Session{a, handle(rec, client)} {
 			out, err := s.Run(t.Context(), keyed("k", "pay"))
 			if err != nil || out.Turn.ID != first.Turn.ID ||
-				out.Next() != dashi.NextAnswer || len(out.Pending) != 1 ||
+				out.Next() != dashi.NextResolvePending || len(out.Pending) != 1 ||
 				out.Pending[0].ID != first.Pending[0].ID {
 				t.Fatalf("retry: %v, turn %s next %s", err, out.Turn.ID, out.Next())
 			}
@@ -333,7 +333,7 @@ func TestSessionOpenAndCreate(t *testing.T) {
 		t.Fatalf("send: %v; want ErrSessionExists", err)
 	}
 	st, err := handle(rec, client).Open(t.Context())
-	if err != nil || st.Turns != 2 || st.Next != dashi.NextNone || st.Last.Answer != "two" {
+	if err != nil || st.Turns != 2 || st.Next != dashi.NextNone || st.Last.Reply != "two" {
 		t.Fatalf("open: %v, %+v", err, st)
 	}
 	if n := len(client.Inputs()); n != 2 {
@@ -367,7 +367,7 @@ func TestSessionEmptyID(t *testing.T) {
 	}
 }
 
-// TestSessionHistory sends each new turn the projected history of the
+// TestSessionHistory sends each new turn the history built from the
 // turns before it, and a Continue the history before its own turn.
 func TestSessionHistory(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
@@ -383,8 +383,8 @@ func TestSessionHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := s.Run(t.Context(), dashi.Continue{})
-	if err != nil || out.Answer != "two" {
-		t.Fatalf("continue: %v, %q", err, out.Answer)
+	if err != nil || out.Reply != "two" {
+		t.Fatalf("continue: %v, %q", err, out.Reply)
 	}
 	if hasWarning(out.Warnings, dashi.WarningHistoryMismatch) {
 		t.Fatal("the Continue history differs from the Start history")
@@ -480,8 +480,8 @@ func TestSessionCarryForward(t *testing.T) {
 		Instructions: "Be brief.",
 		Tools:        []string{"lookup"},
 		Limits: dashi.Limits{
-			ModelAttempts: 3,
-			Deadline:      time.Now().Add(time.Hour),
+			ModelCalls: 3,
+			Deadline:   time.Now().Add(time.Hour),
 		},
 	}
 	first, err := s.Send(t.Context(), "one")
@@ -500,12 +500,12 @@ func TestSessionCarryForward(t *testing.T) {
 	case got.Instructions != "Be brief.",
 		got.Model != dashitest.Model,
 		got.Settings.MaxTokens != 100,
-		got.Limits.ModelAttempts != 3,
+		got.Limits.ModelCalls != 3,
 		len(got.Tools) != 1:
 		t.Fatalf("carried agent = %+v", got)
 	case !got.Limits.Deadline.IsZero():
 		t.Fatal("the deadline carried forward")
-	case got.Revision == first.Agent.Revision:
+	case got.Version == first.Agent.Version:
 		t.Fatal("the derived revision carried forward")
 	}
 	// A scheduled turn's agent never carries.
@@ -525,8 +525,9 @@ func TestSessionCarryForward(t *testing.T) {
 	}
 }
 
-// TestSessionAnswer records each answer, then continues, in one call.
-func TestSessionAnswer(t *testing.T) {
+// TestSessionAnswer checks that Session.Resolve records each Resolve, then
+// continues, in one call.
+func TestSessionResolve(t *testing.T) {
 	client := dashitest.NewClient(
 		dashitest.CallTool("call-1", "charge", `{}`),
 		dashitest.Reply("I did not charge the card."),
@@ -536,10 +537,10 @@ func TestSessionAnswer(t *testing.T) {
 	s.Runner.Tools = (&chargeTool{}).tools()
 	s.Runner.Hooks = dashi.RequireApproval("charge")
 	out, err := s.Send(t.Context(), "pay")
-	if err != nil || out.Next() != dashi.NextAnswer {
+	if err != nil || out.Next() != dashi.NextResolvePending {
 		t.Fatalf("send: %v, next %s", err, out.Next())
 	}
-	out, err = s.Answer(t.Context(), []dashi.Settle{out.Pending[0].Deny("the user said no")})
+	out, err = s.Resolve(t.Context(), []dashi.Resolve{out.Pending[0].Deny("the user said no")})
 	if err != nil || out.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("answer: %v, stop %+v", err, out.Stop)
 	}
@@ -548,11 +549,11 @@ func TestSessionAnswer(t *testing.T) {
 	}
 }
 
-// TestSessionAnswerRetry retries Answer after its Settle and Continue
-// committed but the caller lost the result. The retry returns the recorded
-// outcome and records and runs nothing more, for the Pending builders'
-// answers and for a Settle without a command ID.
-func TestSessionAnswerRetry(t *testing.T) {
+// TestSessionAnswerRetry retries Session.Resolve after its Resolve and
+// Continue committed but the caller lost the result. The retry returns the
+// recorded result and records and runs nothing more, for a Resolve from the
+// Pending builders and for a Resolve without a command ID.
+func TestSessionResolveRetry(t *testing.T) {
 	for _, name := range []string{"builder", "no command ID"} {
 		t.Run(name, func(t *testing.T) {
 			rec := dashi.NewMemoryRecorder()
@@ -565,24 +566,24 @@ func TestSessionAnswerRetry(t *testing.T) {
 			s.Runner.Tools = (&chargeTool{}).tools()
 			s.Runner.Hooks = dashi.RequireApproval("charge")
 			out, err := s.Send(t.Context(), "pay")
-			if err != nil || out.Next() != dashi.NextAnswer {
+			if err != nil || out.Next() != dashi.NextResolvePending {
 				t.Fatalf("send: %v, next %s", err, out.Next())
 			}
 			deny := out.Pending[0].Deny("no")
 			if name == "no command ID" {
 				deny.CommandID = ""
 			}
-			first, err := s.Answer(t.Context(), []dashi.Settle{deny})
+			first, err := s.Resolve(t.Context(), []dashi.Resolve{deny})
 			if err != nil || first.Stop.Kind != dashi.StopCompleted {
 				t.Fatalf("answer: %v, stop %+v", err, first.Stop)
 			}
 			steps := len(first.Turn.Steps)
 			// Another worker's handle retries, as a client whose
 			// connection dropped would.
-			again, err := handle(rec, client).Answer(t.Context(), []dashi.Settle{deny})
+			again, err := handle(rec, client).Resolve(t.Context(), []dashi.Resolve{deny})
 			if err != nil || again.Turn.ID != first.Turn.ID ||
 				again.Stop.Kind != dashi.StopCompleted ||
-				again.Answer != first.Answer {
+				again.Reply != first.Reply {
 				t.Fatalf("retry: %v, turn %s stop %+v", err, again.Turn.ID, again.Stop)
 			}
 			saved, err := rec.Load(t.Context(), first.Turn.ID)
@@ -596,10 +597,10 @@ func TestSessionAnswerRetry(t *testing.T) {
 	}
 }
 
-// TestSessionAnswerOptions passes Answer's options to the runs it makes: a
-// leasing worker's WithOwner reaches the recorder on the Settle and on the
-// Continue.
-func TestSessionAnswerOptions(t *testing.T) {
+// TestSessionAnswerOptions passes Session.Resolve's options to the runs it
+// makes: a leasing worker's WithOwner reaches the recorder on the Resolve
+// and on the Continue.
+func TestSessionResolveOptions(t *testing.T) {
 	client := dashitest.NewClient(
 		dashitest.CallTool("call-1", "charge", `{}`),
 		dashitest.Reply("I did not charge the card."),
@@ -610,7 +611,7 @@ func TestSessionAnswerOptions(t *testing.T) {
 	s.Runner.Tools = (&chargeTool{}).tools()
 	s.Runner.Hooks = dashi.RequireApproval("charge")
 	out, err := s.Send(t.Context(), "pay")
-	if err != nil || out.Next() != dashi.NextAnswer {
+	if err != nil || out.Next() != dashi.NextResolvePending {
 		t.Fatalf("send: %v, next %s", err, out.Next())
 	}
 	// Worker w1 leases the turn; a commit without its owner is rejected.
@@ -618,13 +619,13 @@ func TestSessionAnswerOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec.owners = nil
-	deny := []dashi.Settle{out.Pending[0].Deny("no")}
-	out, err = s.Answer(t.Context(), deny, dashi.WithOwner("w1"))
+	deny := []dashi.Resolve{out.Pending[0].Deny("no")}
+	out, err = s.Resolve(t.Context(), deny, dashi.WithOwner("w1"))
 	if err != nil || out.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("answer: %v, stop %+v", err, out.Stop)
 	}
 	if len(rec.owners) < 2 {
-		t.Fatalf("commits = %d; want the settle and the continue", len(rec.owners))
+		t.Fatalf("commits = %d; want the finish and the continue", len(rec.owners))
 	}
 	for i, owner := range rec.owners {
 		if owner != "w1" {
@@ -677,7 +678,7 @@ type raceRecorder struct {
 }
 
 func (r *raceRecorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
-	if req.Step.Kind == dashi.StepStarted && !r.done {
+	if req.Step.Kind == dashi.StepTurnStarted && !r.done {
 		r.done = true
 		r.before()
 	}
@@ -728,16 +729,16 @@ func TestSessionProbingReads(t *testing.T) {
 		for i := 1; i <= n; i++ {
 			turn := session.TurnID(id, i)
 			err := rec.Commit(t.Context(), dashi.CommitRequest{Step: dashi.Step{
-				Version:       1,
-				TurnID:        turn,
-				Seq:           1,
-				At:            time.Now(),
-				Kind:          dashi.StepStarted,
-				CommandID:     "start",
-				CommandDigest: "digest",
+				Version:     1,
+				TurnID:      turn,
+				Seq:         1,
+				At:          time.Now(),
+				Kind:        dashi.StepTurnStarted,
+				CommandID:   "start",
+				CommandHash: "hash",
 				Started: &dashi.StartFact{
 					Agent: dashi.Agent{
-						Revision: "r1",
+						Version:  "r1",
 						Provider: "test",
 						API:      "test",
 						Model:    "test",
@@ -814,7 +815,7 @@ func (r *indexed) Commit(ctx context.Context, req dashi.CommitRequest) error {
 	if err := r.MemoryRecorder.Commit(ctx, req); err != nil {
 		return err
 	}
-	if req.Step.Kind == dashi.StepStarted {
+	if req.Step.Kind == dashi.StepTurnStarted {
 		r.last++
 	}
 	return nil

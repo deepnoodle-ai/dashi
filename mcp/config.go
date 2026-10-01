@@ -41,8 +41,7 @@ type Config struct {
 //
 // Text fields hold the raw file values. Open expands ${VAR} and
 // ${VAR:-default} when it starts the server, so an approval prompt shows the
-// variable names, and a changed variable value does not change the
-// fingerprint.
+// variable names, and a changed variable value does not change the hash.
 type Server struct {
 	// Type is "stdio" or "http". Empty means stdio when Command is set and
 	// http when URL is set.
@@ -74,11 +73,11 @@ type Server struct {
 	Warnings []string
 }
 
-// Fingerprint returns a stable hash of the raw entry: type, command, arguments,
+// Hash returns a stable hash of the raw entry: type, command, arguments,
 // environment, URL, headers, and the file path. A host keys a remembered
 // approval on it, so a repository cannot change a command after approval. It
 // ignores Disabled and Warnings.
-func (s Server) Fingerprint() string {
+func (s Server) Hash() string {
 	raw, _ := json.Marshal(struct {
 		Type    string            `json:"type"`
 		Command string            `json:"command"`

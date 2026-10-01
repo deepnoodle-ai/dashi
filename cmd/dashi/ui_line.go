@@ -67,17 +67,17 @@ func (u *lineUI) Emit(b Block) {
 			fmt.Fprint(u.out, b.Text[len(prev):])
 		case !b.Done:
 			// A partial text that differs from the printed text waits for
-			// the settled text.
+			// the finished text.
 			return
 		default:
-			// The settled answer is not what streamed. Show it whole.
+			// The finished reply is not what streamed. Show it whole.
 			if u.midLine {
 				fmt.Fprintln(u.out)
 			}
 			if b.Text == "" {
-				fmt.Fprintln(u.out, "[Corrected: the model gave no answer text]")
+				fmt.Fprintln(u.out, "[Corrected: the model gave no reply text]")
 			} else {
-				fmt.Fprintln(u.out, "[Corrected answer]")
+				fmt.Fprintln(u.out, "[Corrected reply]")
 				fmt.Fprint(u.out, b.Text)
 			}
 		}
@@ -281,7 +281,7 @@ func (u *lineUI) serveLines(in io.Reader, sequential bool) error {
 
 var errNoApprover = errors.New("no one can approve this call")
 
-// printUI is the UI for -p. Only the answer goes to stdout; steps go to
+// printUI is the UI for -p. Only the reply goes to stdout; steps go to
 // stderr. It approves every call when yes is set and denies them otherwise.
 type printUI struct {
 	err io.Writer

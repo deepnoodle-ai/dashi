@@ -37,7 +37,7 @@ func applyStructured(
 	client *scriptedClient,
 	tools tool.Toolset,
 	rec Recorder,
-) Outcome {
+) RunResult {
 	t.Helper()
 	out, err := applyStructuredErr(client, tools, rec)
 	if err != nil {
@@ -50,7 +50,7 @@ func applyStructuredErr(
 	client *scriptedClient,
 	tools tool.Toolset,
 	rec Recorder,
-) (Outcome, error) {
+) (RunResult, error) {
 	return (Runner{
 		Client:   client,
 		Tools:    tools,
@@ -91,7 +91,7 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 	rec := NewMemoryRecorder()
 	out := applyStructured(t, client, tool.List{binding}, rec)
 	if out.Stop.Kind != StopCompleted || out.Output == nil || string(out.Output.Value) != `{"answer":42}` ||
-		out.Output.Source != OutputFromTool || out.Output.ToolCallID != "submit" || client.sends != 2 || runs != 1 {
+		out.Output.Source != OutputSourceToolCall || out.Output.ToolCallID != "submit" || client.sends != 2 || runs != 1 {
 		t.Fatalf("out=%+v sends=%d runs=%d", out, client.sends, runs)
 	}
 	for i, in := range client.inputs {
@@ -102,8 +102,8 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 			t.Fatalf("request %d tools=%+v", i, in.Tools)
 		}
 	}
-	view, err := Replay(out.Turn)
-	if err != nil || view.Output == nil || view.Output.Source != OutputFromTool {
+	view, err := out.Turn.View()
+	if err != nil || view.Output == nil || view.Output.Source != OutputSourceToolCall {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
 	view.Output.Value[0] = '['
@@ -159,7 +159,7 @@ func TestStructuredTurnAfterModelHookUsesSubmissionTool(t *testing.T) {
 		},
 	)
 	if err != nil || out.Stop.Kind != StopCompleted || out.Output == nil ||
-		out.Output.Source != OutputFromTool || out.Output.ToolCallID != "submit" {
+		out.Output.Source != OutputSourceToolCall || out.Output.ToolCallID != "submit" {
 		t.Fatalf("turn did not use submission tool: output=%+v err=%v", out, err)
 	}
 	if len(client.inputs) != 1 || len(client.inputs[0].OutputSchema) != 0 ||
@@ -213,7 +213,7 @@ func TestStructuredOutputTextFallbackAndUnsatisfiedFailure(t *testing.T) {
 				t.Fatalf("stop=%+v", out.Stop)
 			}
 			if tc.stop == StopCompleted {
-				if out.Output == nil || out.Output.Source != OutputFromText || string(out.Output.Value) != `{"answer":3}` {
+				if out.Output == nil || out.Output.Source != OutputSourceText || string(out.Output.Value) != `{"answer":3}` {
 					t.Fatalf("output=%+v", out.Output)
 				}
 			} else if out.Output != nil || !strings.Contains(
@@ -233,16 +233,16 @@ func TestStructuredOutputStartedSubmissionRecoversWithoutModelResend(
 		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
 	}
 	base := NewMemoryRecorder()
-	rec := &failOnceKind{base: base, kind: StepToolSettled}
+	rec := &failOnceKind{base: base, kind: StepToolFinished}
 	first, err := applyStructuredErr(client, nil, rec)
-	if persistence(err) != PersistenceRejected || client.sends != 1 {
+	if !nothingWritten(err) || client.sends != 1 {
 		t.Fatalf("first=%+v sends=%d", first, client.sends)
 	}
 	saved, err := base.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(saved)
+	view, err := saved.View()
 	if err != nil || view.Tools["submission"].Status != ToolStarted {
 		t.Fatalf("saved=%+v err=%v", view, err)
 	}
@@ -266,7 +266,7 @@ func TestStructuredOutputRecordRejectsForgedValue(t *testing.T) {
 			break
 		}
 	}
-	if _, err := Replay(out.Turn); err == nil {
+	if _, err := out.Turn.View(); err == nil {
 		t.Fatal("replay accepted output that did not match the recorded model call")
 	}
 }
@@ -293,14 +293,14 @@ func TestStructuredOutputSchemaCanVaryPerTurn(t *testing.T) {
 	if len(client.inputs) != 1 || string(client.inputs[0].Tools[0].Schema) != schema {
 		t.Fatalf("submitted schema=%+v", client.inputs)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil || string(view.OutputSchema) != schema || string(view.Agent.OutputSchema) != string(answerSchema) {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}
-	// The admitted request is part of the record; altering it invalidates the
-	// accepted model intent and submission evidence.
+	// The accepted request is part of the record; altering it invalidates the
+	// accepted model_call_started step and submission evidence.
 	for i := range out.Turn.Steps {
-		if out.Turn.Steps[i].Kind == StepStarted {
+		if out.Turn.Steps[i].Kind == StepTurnStarted {
 			out.Turn.Steps[i].Started.OutputSchema = append(
 				json.RawMessage(nil),
 				answerSchema...,
@@ -308,7 +308,7 @@ func TestStructuredOutputSchemaCanVaryPerTurn(t *testing.T) {
 			break
 		}
 	}
-	if _, err := Replay(out.Turn); err == nil {
+	if _, err := out.Turn.View(); err == nil {
 		t.Fatal("replay accepted a changed turn schema")
 	}
 }
@@ -360,19 +360,19 @@ func TestStructuredOutputSubmissionEvidenceCannotBeRewritten(t *testing.T) {
 			break
 		}
 	}
-	if _, err := Replay(out.Turn); err == nil {
+	if _, err := out.Turn.View(); err == nil {
 		t.Fatal("replay accepted a rewritten output submission")
 	}
 }
 
-func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
+func TestStructuredOutputCannotBeResolvedByHost(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
 	}
 	base := NewMemoryRecorder()
-	rec := &failOnceKind{base: base, kind: StepToolSettled}
+	rec := &failOnceKind{base: base, kind: StepToolFinished}
 	first, err := applyStructuredErr(client, nil, rec)
-	if persistence(err) != PersistenceRejected {
+	if !nothingWritten(err) {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	saved, err := base.Load(t.Context(), "t1")
@@ -386,10 +386,10 @@ func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
 	}).Run(
 		t.Context(),
 		saved,
-		Settle{CommandID: "host-result", CallID: "submission", Outcome: &result},
+		Resolve{CommandID: "host-result", CallID: "submission", Outcome: &result},
 	)
 	if err == nil {
-		t.Fatal("host settled a runner-owned output submission")
+		t.Fatal("host finished a runner-owned output submission")
 	}
 }
 
@@ -400,9 +400,9 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
 	}
 	base := NewMemoryRecorder()
-	rec := &failOnceKind{base: base, kind: StepStopped}
+	rec := &failOnceKind{base: base, kind: StepTurnStopped}
 	first, err := applyStructuredErr(client, nil, rec)
-	if persistence(err) != PersistenceRejected {
+	if !nothingWritten(err) {
 		t.Fatalf("err=%v", err)
 	}
 	if first.Output == nil {
@@ -416,7 +416,7 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(saved)
+	view, err := saved.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +431,7 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 		Client:   client,
 		Recorder: rec,
 	}
-	deliver := Deliver{
+	deliver := AddMessages{
 		CommandID: "nudge",
 		Items: []ContextItem{
 			{Origin: "user", Message: llm.UserMessage(llm.Text("more"))},
@@ -511,7 +511,7 @@ func TestReplayRejectsContextAfterRecordedOutput(t *testing.T) {
 			Version: recorded.Version,
 			TurnID:  recorded.TurnID,
 			Seq:     seq,
-			Kind:    StepDelivered,
+			Kind:    StepMessagesAdded,
 			Context: &ContextFact{
 				Items: []ContextItem{
 					{Origin: "user", Message: llm.UserMessage(llm.Text("more"))},
@@ -522,14 +522,14 @@ func TestReplayRejectsContextAfterRecordedOutput(t *testing.T) {
 			Version: recorded.Version,
 			TurnID:  recorded.TurnID,
 			Seq:     seq,
-			Kind:    StepStopped,
+			Kind:    StepTurnStopped,
 			Stop:    testStop(StopCanceled, ""),
 		},
 	}
 	for _, step := range forged {
 		turn := out.Turn
 		turn.Steps = append(slices.Clone(out.Turn.Steps[:i+1]), step)
-		if _, err := Replay(turn); err == nil {
+		if _, err := turn.View(); err == nil {
 			t.Fatalf("replay accepted %s after recorded output", step.Kind)
 		}
 	}

@@ -13,12 +13,12 @@ func TestLastUsageReadsTheLastModelCall(t *testing.T) {
 			r.Usage = &llm.Usage{InputTokens: in}
 		}
 		return dashi.Step{
-			Kind:  dashi.StepModelSettled,
+			Kind:  dashi.StepModelCallFinished,
 			Model: &dashi.ModelFact{Result: r},
 		}
 	}
 	turn := dashi.Turn{Steps: []dashi.Step{
-		{Kind: dashi.StepStarted},
+		{Kind: dashi.StepTurnStarted},
 		step(100, &llm.Result{}),
 		step(250, &llm.Result{}),
 		step(0, nil),

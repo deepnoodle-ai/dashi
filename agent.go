@@ -25,13 +25,13 @@ type Agent struct {
 	// ID names the agent for the host, for example in reports. It may be
 	// empty; nothing in Dashi reads it.
 	ID string `json:"id"`
-	// Revision pins behavior so a continued turn cannot silently change it.
+	// Version pins behavior so a continued turn cannot silently change it.
 	// When empty, it is derived from the agent's behavior fields as
-	// DerivedRevisionPrefix and 16 hex digits, so it changes exactly when
+	// DerivedVersionPrefix and 16 hex digits, so it changes exactly when
 	// they do, including the tool selection. The derivation leaves out
 	// Limits.Deadline and cannot see tool implementations, which are not
-	// part of the agent; set Revision yourself to version those.
-	Revision     string `json:"revision"`
+	// part of the agent; set Version yourself to version those.
+	Version      string `json:"version"`
 	Instructions string `json:"instructions,omitempty"`
 	// Provider and API default to the Runner client's.
 	Provider string `json:"provider"`
@@ -75,35 +75,35 @@ type Agent struct {
 // resolved values, so a recorded turn keeps its limits even if the library
 // defaults change later.
 type Limits struct {
-	// ModelAttempts counts settled calls; interrupted calls have their own cap.
+	// ModelCalls counts finished calls; interrupted calls have their own cap.
 	// Zero means 8. It must not be negative.
-	ModelAttempts int `json:"model_attempts"`
-	// Interruptions bounds how many times a stopped or crashed turn may be
+	ModelCalls int `json:"model_calls"`
+	// Resumes bounds how many times a stopped or crashed turn may be
 	// resumed. Zero means 10; a negative value allows no resumes.
-	Interruptions int `json:"interruptions"`
+	Resumes int `json:"resumes"`
 	// ProviderPauses bounds provider-requested continuations. Zero means 3;
 	// a negative value allows none.
 	ProviderPauses int `json:"provider_pauses"`
 	// ToolConcurrency bounds how many tool calls run at once. Zero means 1.
 	// It must not be negative.
 	ToolConcurrency int `json:"tool_concurrency"`
-	// ToolResultBytes limits the text of one tool result in the projected
-	// history. Zero means 64 KiB. A negative value turns the limit off. A
+	// ToolResultBytes limits the text of one tool result in the messages the
+	// model sees. Zero means 64 KiB. A negative value turns the limit off. A
 	// value below 1 KiB is raised to 1 KiB, with a warning at Start. Dashi
 	// keeps the full result in the record; see ToolFact.Shortened.
 	ToolResultBytes int `json:"tool_result_bytes"`
-	// NoReservedFinalAnswer turns off the final-answer reserve. By default,
-	// the last allowed model attempt, after earlier attempts, asks for an
-	// answer without advertising application tools.
-	NoReservedFinalAnswer bool `json:"no_reserved_final_answer,omitempty"`
+	// NoReservedFinalReply turns off the reserved final-reply call. By
+	// default, the last allowed model call, after earlier calls, asks for a
+	// reply without advertising application tools.
+	NoReservedFinalReply bool `json:"no_reserved_final_reply,omitempty"`
 	// Deadline stops the turn at a wall-clock time. Zero means no deadline.
 	Deadline time.Time `json:"deadline,omitzero"`
 }
 
 // Default turn limits, applied when a Limits field is zero.
 const (
-	defaultModelAttempts   = 8
-	defaultInterruptions   = 10
+	defaultModelCalls      = 8
+	defaultResumes         = 10
 	defaultProviderPauses  = 3
 	defaultToolConcurrency = 1
 )
@@ -114,9 +114,9 @@ func (a Agent) Validate() error {
 	if err := a.ActiveCompaction.validate(); err != nil {
 		return err
 	}
-	if a.Limits.ModelAttempts < 0 || a.Limits.ToolConcurrency < 0 {
+	if a.Limits.ModelCalls < 0 || a.Limits.ToolConcurrency < 0 {
 		return errors.New(
-			"dashi: model attempts and tool concurrency cannot be negative",
+			"dashi: model calls and tool concurrency cannot be negative",
 		)
 	}
 	if schema := absentNull(a.OutputSchema); len(schema) > 0 {
@@ -143,9 +143,9 @@ func (a Agent) resolved() Agent {
 		a.Tools = slices.Compact(slices.Sorted(slices.Values(a.Tools)))
 	}
 	l := &a.Limits
-	l.ModelAttempts = cmp.Or(l.ModelAttempts, defaultModelAttempts)
+	l.ModelCalls = cmp.Or(l.ModelCalls, defaultModelCalls)
 	l.ToolConcurrency = cmp.Or(l.ToolConcurrency, defaultToolConcurrency)
-	l.Interruptions = resolveCount(l.Interruptions, defaultInterruptions)
+	l.Resumes = resolveCount(l.Resumes, defaultResumes)
 	l.ProviderPauses = resolveCount(l.ProviderPauses, defaultProviderPauses)
 	l.ToolResultBytes = resolveToolResultBytes(l.ToolResultBytes)
 	return a
@@ -163,28 +163,28 @@ func resolveCount(n, def int) int {
 	return n
 }
 
-// DerivedRevisionPrefix begins every Agent.Revision the runner derived
+// DerivedVersionPrefix begins every Agent.Version the runner derived
 // from the agent. A host that carries a recorded agent into a new turn
-// clears such a revision, so the runner derives it again from the agent
+// clears such a version, so the runner derives it again from the agent
 // the new turn runs.
-const DerivedRevisionPrefix = "auto:"
+const DerivedVersionPrefix = "auto:"
 
-// agentRevision derives a revision from a resolved agent's behavior. ID,
-// Revision, Limits.Deadline, and Settings.PromptCache.Key are left out: the
+// agentVersion derives a version from a resolved agent's behavior. ID,
+// Version, Limits.Deadline, and Settings.PromptCache.Key are left out: the
 // first two name the agent rather than describe it, a deadline is a per-turn
-// time that would make every revision unique, and a cache key usually names
+// time that would make every version unique, and a cache key usually names
 // a conversation.
-func agentRevision(a Agent) string {
-	a.ID, a.Revision = "", ""
+func agentVersion(a Agent) string {
+	a.ID, a.Version = "", ""
 	a.Limits.Deadline = time.Time{}
 	a.Settings.PromptCache.Key = ""
-	sum := strings.TrimPrefix(canonjson.Digest(a), canonjson.DigestPrefix)
-	return DerivedRevisionPrefix + sum[:16]
+	sum := strings.TrimPrefix(canonjson.Hash(a), canonjson.HashPrefix)
+	return DerivedVersionPrefix + sum[:16]
 }
 
 // agentFor returns the resolved agent a command runs with. A Start resolves
 // its own agent: an empty Provider and API come from the client, an empty
-// Model is the catalog default, and an empty Revision is derived from the
+// Model is the catalog default, and an empty Version is derived from the
 // agent. Without a client, the agent must name all three. Every
 // other command runs with the agent recorded in the caller's snapshot; run
 // checks it against a Loader's record.
@@ -225,8 +225,8 @@ func (r Runner) agentFor(command Command, state *replayState) (Agent, error) {
 		return Agent{}, err
 	}
 	agent = agent.resolved()
-	if agent.Revision == "" {
-		agent.Revision = agentRevision(agent)
+	if agent.Version == "" {
+		agent.Version = agentVersion(agent)
 	}
 	if r.Client != nil &&
 		(r.Client.Provider() != agent.Provider || r.Client.API() != agent.API) {

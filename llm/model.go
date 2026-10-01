@@ -83,10 +83,10 @@ const (
 	FeaturePromptCache Feature = "prompt_cache"
 )
 
-// HostedToolFeature scopes model evidence to a provider's wire tool type.
+// ProviderToolFeature scopes model evidence to a provider's wire tool type.
 // ModelEvidence already binds that fact to one API and endpoint.
-func HostedToolFeature(toolType string) Feature {
-	return Feature("hosted_tool:" + toolType)
+func ProviderToolFeature(toolType string) Feature {
+	return Feature("provider_tool:" + toolType)
 }
 
 // CapabilityPolicy is shared with media operations so one application setting
@@ -146,7 +146,7 @@ type Capabilities struct {
 // Check validates requested features and known limits without changing the
 // request; call Fit first to bring settings within limits. Under
 // CapabilityAdjust the returned features have unknown support, so callers can
-// record that uncertainty. Known rejection fails under both policies.
+// record that support is unknown. Known rejection fails under both policies.
 // Input.Settings should contain effective settings when checking defaults.
 func (c Capabilities) Check(
 	r Input,
@@ -261,8 +261,8 @@ func knownFeature(f Feature) bool {
 		FeatureCitations, FeatureStructuredOutput, FeaturePromptCache:
 		return true
 	}
-	return strings.HasPrefix(string(f), "hosted_tool:") &&
-		strings.TrimPrefix(string(f), "hosted_tool:") != ""
+	return strings.HasPrefix(string(f), "provider_tool:") &&
+		strings.TrimPrefix(string(f), "provider_tool:") != ""
 }
 
 func requestedFeatures(r Input) []Feature {
@@ -294,8 +294,8 @@ func requestedFeatures(r Input) []Feature {
 	if len(r.Tools) > 0 {
 		add(FeatureTools)
 		for _, definition := range r.Tools {
-			if definition.Hosted != nil {
-				add(HostedToolFeature(definition.Hosted.Type))
+			if definition.ProviderTool != nil {
+				add(ProviderToolFeature(definition.ProviderTool.Type))
 			}
 		}
 	}
@@ -334,10 +334,10 @@ func requestedFeatures(r Input) []Feature {
 				data(*part.Block)
 			}
 			if part.ToolCall != nil || part.ToolResult != nil ||
-				part.HostedUse != nil ||
-				part.HostedResult != nil ||
-				part.HostedApprovalRequest != nil ||
-				part.HostedApprovalResponse != nil {
+				part.ProviderToolUse != nil ||
+				part.ProviderToolResult != nil ||
+				part.ProviderToolApprovalRequest != nil ||
+				part.ProviderToolApprovalResponse != nil {
 				add(FeatureTools)
 			}
 			if part.ToolResult != nil {
@@ -345,8 +345,8 @@ func requestedFeatures(r Input) []Feature {
 					data(b)
 				}
 			}
-			// Hosted outputs are display projections of provider replay data.
-			// They are not encoded as independent media inputs.
+			// Provider tool outputs are display copies of provider replay
+			// data. They are not encoded as independent media inputs.
 		}
 	}
 	return features

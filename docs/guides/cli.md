@@ -30,7 +30,7 @@ directory.
 ## What you can do
 
 Type a request, such as "why does TestParse fail?". The screen shows the
-answer as it streams. Each tool call shows one line with its name, its main
+reply as it streams. Each tool call shows one line with its name, its main
 argument, and its state. Paths show relative to the repository. After a shell
 command, the screen shows the `git diff`. At the end of a turn, a footer shows
 the model, the number of model calls, the tokens, and the cost.
@@ -144,7 +144,7 @@ work; ordinary session lists still require a Turn.
   finished, or `/discard` to discard the turn; the record keeps the cancel.
 - A second `dashi` cannot open a session that is open in another terminal.
 
-`dashi -p "prompt"` runs one request and prints its last parent answer.
+`dashi -p "prompt"` runs one request and prints its last parent reply.
 Redirected stdin supplies one literal payload. Explicit `--output-format
 text|json|jsonl` selects response-only output. See [script input, response formats,
 resuming, and exit codes](cli-automation.md), including a CI example that keeps
@@ -160,10 +160,10 @@ selection excludes role labels, display indentation, and wrapped row breaks.
 Escape clears a selection or returns to live output when idle.
 Ctrl+L repaints. Click a tool header to expand its full retained output.
 
-`/copy` copies selected text or lists fenced blocks in the latest answer.
+`/copy` copies selected text or lists fenced blocks in the latest reply.
 `/copy N` copies one code block; `/copy all` copies all, without fences or
 prose. Code copying retains original source lines, even when wrapped on screen.
-A newer prompt ends the previous answer's copy window. OSC52 and tmux
+A newer prompt ends the previous reply's copy window. OSC52 and tmux
 terminal requests report unconfirmed receipt; local clipboard process success
 is reported separately. `/scrollback raw` provides complete printable text.
 Enter/Escape return from inspection with the draft intact.

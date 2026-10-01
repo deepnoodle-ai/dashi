@@ -24,12 +24,12 @@ func completedTaskView() delegate.TaskView {
 		State:       delegate.TaskState(dashi.StopCompleted),
 		ModelCalls:  1,
 		Spend:       dashi.Spend{Cost: map[string]money.Amount{"USD": money.MustParseAmount("0.0069255")}},
-		Answer:      "Done.",
+		Reply:       "Done.",
 	}
 }
 
 func startedStep(origin dashi.StartOrigin, input ...llm.Message) dashi.Step {
-	return dashi.Step{TurnID: "t2", Seq: 1, Kind: dashi.StepStarted, Started: &dashi.StartFact{Origin: origin, Input: input}}
+	return dashi.Step{TurnID: "t2", Seq: 1, Kind: dashi.StepTurnStarted, Started: &dashi.StartFact{Origin: origin, Input: input}}
 }
 
 func TestTaskResultTurnShowsMarkerInsteadOfEmptyUserLine(t *testing.T) {
@@ -168,7 +168,7 @@ func TestTranscriptKeepsTaskStatusUnderItsToolLine(t *testing.T) {
 	running := taskStatusBlock(completedTaskView())
 	running.State, running.Done = StateRunning, false
 	tr.Apply(running)
-	// The settled tool line keeps the status line, and the pair is done only
+	// The finished tool line keeps the status line, and the pair is done only
 	// once the task is.
 	tr.Apply(Block{ID: "t:call-1", Kind: KindTool, Name: "task", State: StateOK, Done: true})
 	if len(tr.Blocks) != 1 || tr.Blocks[0].Task == nil || tr.Blocks[0].Done {

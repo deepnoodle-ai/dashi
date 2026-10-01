@@ -1,5 +1,5 @@
 // Command tools runs one agent turn in which the model calls typed Go
-// function tools, then prints the answer and the turn's usage and cost. Set
+// function tools, then prints the reply and the turn's usage and cost. Set
 // ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
 // the catalog's default model.
 package main
@@ -64,12 +64,12 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 
 	// Spend totals every model call in the turn.
 	fmt.Printf(
 		"Model calls: %d; tokens: %d in, %d out\n",
-		out.ModelAttempts,
+		out.ModelCalls,
 		out.Spend.Usage.TotalInputTokens(),
 		out.Spend.Usage.OutputTokens,
 	)

@@ -154,7 +154,7 @@ type Pricing struct {
 	// Modality supplies complete rates for named modalities, independent of
 	// input-size tiers. Other tokens retain the selected base or tier rates.
 	Modality map[string]Rates `json:"modality,omitempty"`
-	// Requests prices provider-hosted work in currency units per unit, keyed
+	// Requests prices provider tool work in currency units per unit, keyed
 	// by meter key (see MeterWebSearch). A key the sheet omits is unpriced,
 	// never free; a zero rate means free. Reserved keys (IsReservedMeter)
 	// cannot be priced.
@@ -197,11 +197,11 @@ func (p Pricing) Validate() error {
 	}
 	for name, rate := range p.Requests {
 		if name == "" || rate < 0 {
-			return errors.New("llm: invalid hosted request price")
+			return errors.New("llm: invalid provider tool request price")
 		}
 		if IsReservedMeter(name) {
 			return fmt.Errorf(
-				"llm: hosted request key %q marks unattributed usage and cannot be priced",
+				"llm: provider tool request key %q marks unattributed usage and cannot be priced",
 				name,
 			)
 		}
@@ -264,12 +264,12 @@ func (p *Pricing) UnmarshalJSON(data []byte) error {
 // parts are in Cost.CacheWrite. With one-hour writes and no CacheWrite1h rate
 // there is no estimate.
 //
-// Hosted requests whose meter key the sheet does not price do not make the
-// whole estimate unavailable. The estimate then prices everything else and
+// Provider tool requests whose meter key the sheet does not price do not make
+// the whole estimate unavailable. The estimate then prices everything else and
 // lists those counts in Cost.UnpricedRequests; Total is a lower bound, and
 // Cost.Partial reports it.
 //
-// An estimate is a settled charge, so it rounds half to even at the nano.
+// An estimate is a final cost, so it rounds half to even at the nano.
 // Each field sums its exact token-rate products before rounding once, and
 // Total rounds the exact sum of all products once. Total can therefore differ
 // from the sum of the rounded fields by a few nanos; Total is the charge.
@@ -290,7 +290,7 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 	if !pricingDetailAvailable(p, rates, u, unattributed) {
 		return Cost{}, false
 	}
-	var input, output, cacheRead, cacheWrite, hosted, total exactSum
+	var input, output, cacheRead, cacheWrite, providerTool, total exactSum
 	applyRates := func(tokens ModalityTokenUsage, rates Rates) {
 		input.add(tokens.InputTokens, rates.Input)
 		output.add(tokens.OutputTokens, rates.Output)
@@ -335,14 +335,14 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 			unpriced[name] = count
 			continue
 		}
-		hosted.addPerCall(count, rate)
+		providerTool.addPerCall(count, rate)
 	}
 	for _, part := range []*exactSum{
 		&input,
 		&output,
 		&cacheRead,
 		&cacheWrite,
-		&hosted,
+		&providerTool,
 	} {
 		total.addSum(part)
 	}
@@ -359,7 +359,7 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 		{&output, &cost.Output},
 		{&cacheRead, &cost.CacheRead},
 		{&cacheWrite, &cost.CacheWrite},
-		{&hosted, &cost.Hosted},
+		{&providerTool, &cost.ProviderTools},
 		{&total, &cost.Total},
 	} {
 		amount, ok := field.sum.round(roundHalfEven)
@@ -391,9 +391,9 @@ const (
 // unknown, independently of whether usage is zero or unavailable. Breakdowns
 // may be unknown even when a provider reports an exact total.
 //
-// Dashi applies one rounding rule to the amounts it computes: a cost at risk
-// rounds up to the nano, so rounding can never let a cap be breached
-// (MaxCostAtRisk), and a settled charge rounds half to even (Pricing.Estimate).
+// Dashi applies one rounding rule to the amounts it computes: a worst-case
+// cost rounds up to the nano, so rounding can never let a cap be breached
+// (WorstCaseCost), and a final cost rounds half to even (Pricing.Estimate).
 // Each rounds the exact sum of its token-rate products once per call.
 type Cost struct {
 	// Input values uncached input excluding cache writes and cache reads.
@@ -404,8 +404,8 @@ type Cost struct {
 	CacheRead money.Amount `json:"cache_read"`
 	// CacheWrite values cache creation input.
 	CacheWrite money.Amount `json:"cache_write"`
-	// Hosted values priced provider-hosted requests.
-	Hosted money.Amount `json:"hosted,omitempty"`
+	// ProviderTools values priced provider tool requests.
+	ProviderTools money.Amount `json:"provider_tools,omitempty"`
 	// Total may be available even when the category breakdown is not. It is
 	// the amount that budgets and ledgers use, except that a partial cost
 	// (see Partial) is only a lower bound on the charge.
@@ -416,14 +416,14 @@ type Cost struct {
 	Source CostSource `json:"source"`
 	// BreakdownUnavailable means category zeros are unknown rather than free.
 	BreakdownUnavailable bool `json:"breakdown_unavailable,omitempty"`
-	// UnpricedRequests counts hosted requests by meter key that the price
-	// sheet had no rate for. They are excluded from Hosted and Total, so when
-	// this is non-empty the true charge is higher than Total.
+	// UnpricedRequests counts provider tool requests by meter key that the
+	// price sheet had no rate for. They are excluded from ProviderTools and
+	// Total, so when this is non-empty the true charge is higher than Total.
 	UnpricedRequests map[string]int `json:"unpriced_requests,omitempty"`
 }
 
-// Partial reports whether some billed hosted requests could not be priced,
-// so Total is a lower bound rather than the charge.
+// Partial reports whether some billed provider tool requests could not be
+// priced, so Total is a lower bound rather than the charge.
 func (c Cost) Partial() bool {
 	return len(c.UnpricedRequests) > 0
 }
@@ -452,7 +452,7 @@ func (c Cost) Validate() error {
 		c.Output,
 		c.CacheRead,
 		c.CacheWrite,
-		c.Hosted,
+		c.ProviderTools,
 		c.Total,
 	} {
 		if amount < 0 {
@@ -470,7 +470,7 @@ func (c Cost) Validate() error {
 }
 
 // UnmarshalJSON requires a total and rejects unknown fields rather than
-// silently dropping them from an attempt-level amount.
+// silently dropping them from a model call's amount.
 func (c *Cost) UnmarshalJSON(data []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -584,9 +584,9 @@ const tokensPerRate = 1_000_000
 type rounding int
 
 const (
-	// roundHalfEven settles charges without bias across many calls.
+	// roundHalfEven rounds final costs without bias across many calls.
 	roundHalfEven rounding = iota
-	// roundUp bounds risk so a cap is never breached by rounding.
+	// roundUp bounds worst-case cost so a cap is never breached by rounding.
 	roundUp
 )
 

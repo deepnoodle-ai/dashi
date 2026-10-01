@@ -95,7 +95,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s (%s): %s\n", out.Turn.ID, out.Stop.Kind, out.Answer)
+	fmt.Printf("%s (%s): %s\n", out.Turn.ID, out.Stop.Kind, out.Reply)
 	close(firstTurnDone)
 
 	// The result arrives after the turn ended, so it starts a queue turn.
@@ -104,7 +104,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 	fmt.Printf("%s (%s, origin %s): %s\n",
-		out.Turn.ID, out.Stop.Kind, out.Origin, out.Answer)
+		out.Turn.ID, out.Stop.Kind, out.Origin, out.Reply)
 	if out.Stop.Kind != dashi.StopCompleted {
 		return fmt.Errorf("the last turn stopped %s: %s", out.Stop.Kind, out.Stop.Reason)
 	}
@@ -142,7 +142,7 @@ func printChild(e delegate.ChildEvent) {
 	switch step.Kind {
 	case dashi.StepToolStarted:
 		fmt.Printf("    %s %s\n", step.Tool.Call.Name, step.Tool.Call.Args)
-	case dashi.StepStopped:
+	case dashi.StepTurnStopped:
 		fmt.Printf("    %s done\n", e.Subagent)
 	}
 }

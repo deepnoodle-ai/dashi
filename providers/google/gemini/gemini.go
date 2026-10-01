@@ -2,9 +2,9 @@
 // SDK. Conversion is adapted from Dive's Google provider (65c393f),
 // Apache-2.0.
 //
-// # Hosted tools
+// # Provider tools
 //
-// Hosted tool constructors return a definition-only tool.Tool: Google runs it
+// Provider tool constructors return a definition-only tool.Tool: Google runs it
 // inside the model call, so it has no Executor and no hook sees its calls.
 // Add it to a Runner with tool.List, or pass its Definition in llm.Input.Tools. A
 // constructor returns an error only when its options can be invalid.
@@ -325,14 +325,14 @@ func (p *Client) Prepare(
 		declarations := make([]any, 0, len(input.Tools))
 		configs := make([]any, 0, len(input.Tools))
 		for _, d := range input.Tools {
-			if d.Kind == tool.KindProviderHosted {
-				if d.Hosted.Type == "fileSearch" &&
+			if d.Kind == tool.KindProviderTool {
+				if d.ProviderTool.Type == "fileSearch" &&
 					!strings.Contains(p.config.Endpoint, "/v1beta/") {
 					return llm.Request{}, wire.unsupported(
 						"file search requires a v1beta endpoint",
 					)
 				}
-				config, err := wire.hostedTool(d)
+				config, err := wire.providerTool(d)
 				if err != nil {
 					return llm.Request{}, err
 				}
@@ -372,11 +372,11 @@ func (p *Client) Prepare(
 			choice.Mode == llm.ToolChoiceAny {
 			clientTools := false
 			for _, definition := range input.Tools {
-				if definition.Kind == tool.KindProviderHosted {
+				if definition.Kind == tool.KindProviderTool {
 					if choice.Mode == llm.ToolChoiceTool &&
 						definition.Name == choice.Name {
 						return llm.Request{}, wire.unsupported(
-							"named choice of hosted tool %q",
+							"named choice of provider tool %q",
 							choice.Name,
 						)
 					}
@@ -479,7 +479,7 @@ func limits(
 
 func hasClientFunctionCalls(input llm.Input) bool {
 	for _, definition := range input.Tools {
-		if definition.Kind != tool.KindProviderHosted {
+		if definition.Kind != tool.KindProviderTool {
 			return true
 		}
 	}
@@ -669,9 +669,9 @@ func (wire codec) encodeContent(
 			return nil, wire.unsupported("invalid replay part")
 		}
 		switch {
-		case c.HostedUse != nil && saved.ExecutableCode != nil:
+		case c.ProviderToolUse != nil && saved.ExecutableCode != nil:
 			return c.Replay.Raw, nil
-		case c.HostedResult != nil && saved.CodeExecutionResult != nil:
+		case c.ProviderToolResult != nil && saved.CodeExecutionResult != nil:
 			return c.Replay.Raw, nil
 		case c.Block != nil &&
 			c.Block.Text != nil &&

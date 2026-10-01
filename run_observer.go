@@ -9,14 +9,14 @@ import (
 // Event carries one committed step, provisional model delta, tool progress
 // snapshot, or gap marker, from Runner.Stream or to an Observer.
 type Event struct {
-	TurnID    string
-	AttemptID string
-	MessageID string
+	TurnID      string
+	ModelCallID string
+	MessageID   string
 	// Seq places the event in the turn's record. On a step event it equals
 	// Step.Seq. On a preview or gap it is the Seq of the last step committed
 	// before it: the preview belongs after that step and is superseded by a
-	// later one. A delta's Seq is its model_requested step; a progress
-	// snapshot's lies between its tool_started and tool_settled steps. A
+	// later one. A delta's Seq is its model_call_started step; a progress
+	// snapshot's lies between its tool_started and tool_finished steps. A
 	// relay that carries events between processes keeps Seq unchanged.
 	Seq   int64
 	Step  *Step
@@ -25,17 +25,17 @@ type Event struct {
 	// is a preview, like Delta: never recorded and never replayed.
 	Progress *ToolProgress
 	// Gap marks model deltas the Observer dropped because it fell behind.
-	// AttemptID and MessageID name the message that lost them. Its preview
+	// ModelCallID and MessageID name the message that lost them. Its preview
 	// now has a hole: discard it, and ignore further deltas for that
-	// MessageID until the step that settles it (model_settled) arrives. A
-	// gap with no such step after it means the run ended early, as after a
-	// failed commit; load the turn from the recorder. Dropped tool progress
-	// makes no gap, since each snapshot replaces the last. Runner.Stream
-	// never drops, so it never yields a gap.
+	// MessageID until the step that finishes it (model_call_finished)
+	// arrives. A gap with no such step after it means the run ended early,
+	// as after a failed commit; load the turn from the recorder. Dropped
+	// tool progress makes no gap, since each snapshot replaces the last.
+	// Runner.Stream never drops, so it never yields a gap.
 	Gap bool
-	// Outcome is set only on the final Runner.Stream event. Observer receives
-	// steps, deltas, progress, and gaps, not this terminal event.
-	Outcome *Outcome
+	// Result is set only on the final Runner.Stream event. Observer receives
+	// steps, deltas, progress, and gaps, not this final event.
+	Result *RunResult
 }
 
 // Observer receives events while a run is in progress. It runs on its own
@@ -44,8 +44,8 @@ type Event struct {
 // Every step the recorder acknowledges reaches the Observer, in order.
 // Previews (model deltas and tool progress) wait in a bounded queue and are
 // dropped when it is full; dropped deltas are reported by one Event with Gap
-// set. A step whose commit failed with unknown persistence is only in the
-// record.
+// set. A step whose commit failed without knowing whether it was saved is
+// only in the record.
 //
 // Each Run or Stream call delivers on its own goroutine, which keeps
 // draining after the call returns: Run returning does not mean the Observer
@@ -123,11 +123,11 @@ func (e *emitter) send(event Event) {
 		if e.progress == 0 {
 			if e.gap == nil {
 				e.gap = &Event{
-					TurnID:    event.TurnID,
-					AttemptID: event.AttemptID,
-					MessageID: event.MessageID,
-					Seq:       event.Seq,
-					Gap:       true,
+					TurnID:      event.TurnID,
+					ModelCallID: event.ModelCallID,
+					MessageID:   event.MessageID,
+					Seq:         event.Seq,
+					Gap:         true,
 				}
 			}
 			return

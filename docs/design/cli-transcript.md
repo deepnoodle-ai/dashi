@@ -5,7 +5,7 @@ Workflow: Spec before implementation; incorporate independent requirements revie
 
 ## Context and boundaries
 
-The [PRD](../prds/cli-transcript.md) restores the useful Dive terminal workflows without a separate execution store. Existing `Transcript` blocks remain the display projection. Turn facts remain the authority. Wonton supplies the viewport, focused input hooks, fullscreen runtime, and inline runtime. Its reviewed source-selection foundation ([Wonton #61](https://github.com/deepnoodle-ai/wonton/pull/61)) carries original byte positions through Text and Markdown layouts.
+The [PRD](../prds/cli-transcript.md) restores the useful Dive terminal workflows without a separate execution store. Existing `Transcript` blocks remain the display view. Turn facts remain the authority. Wonton supplies the viewport, focused input hooks, fullscreen runtime, and inline runtime. Its reviewed source-selection foundation ([Wonton #61](https://github.com/deepnoodle-ai/wonton/pull/61)) carries original byte positions through Text and Markdown layouts.
 
 New helpers live in `cmd/dashi`: transcript actions/copy parsing, clipboard transport, bounded dialog views, and inline runtime adaptation. Screen integration follows #103. Do not edit accounting's `FooterText` or retain competing compaction logic. No new module or database format.
 
@@ -17,11 +17,11 @@ Route viewport shortcuts from `InputField.OnKey` before Wonton consumes them. Re
 
 Display the viewport's away-from-bottom/new-output state without making incoming blocks jump the position. Test Unicode selection and anchoring with the runtime, not merely `screen.key` calls.
 
-`/copy` uses current selection, otherwise lists fenced blocks in the last assistant answer after the most recent user input. `/copy N` and `/copy all` extract original source. Adapt Dive's small literal fence parser, preserving longer nested fences and an unfinished streamed block. Format lists as ordinary notices; invalid indices and empty results produce useful messages. Copy cannot dispatch a model command.
+`/copy` uses current selection, otherwise lists fenced blocks in the last assistant reply after the most recent user input. `/copy N` and `/copy all` extract original source. Adapt Dive's small literal fence parser, preserving longer nested fences and an unfinished streamed block. Format lists as ordinary notices; invalid indices and empty results produce useful messages. Copy cannot dispatch a model command.
 
 Clipboard transport returns an outcome that distinguishes native/tmux process success from an unconfirmed OSC52 request. Use Wonton OSC52 encoding/limit. Bound native/tmux commands by context and pipe-wait time. Feed source through stdin, never a shell. Write OSC52 on the terminal-owning loop to avoid interleaving frames. Oversized/failed copies point to native scrollback rather than claiming success.
 
-Fullscreen `/scrollback` uses `Runtime.Suspend` on the event loop and its decoded key channel. Print the complete projected transcript with printable text, keep the draft untouched, and return on Enter/Escape. `raw` skips Markdown styling; it never bypasses terminal-control sanitization. Restore errors become notices or a clean exit if raw input cannot be restored. Events received from workers while suspended remain queued and drain after return.
+Fullscreen `/scrollback` uses `Runtime.Suspend` on the event loop and its decoded key channel. Print the complete displayed transcript with printable text, keep the draft untouched, and return on Enter/Escape. `raw` skips Markdown styling; it never bypasses terminal-control sanitization. Restore errors become notices or a clean exit if raw input cannot be restored. Events received from workers while suspended remain queued and drain after return.
 
 ## Approval and question boundaries
 
@@ -46,7 +46,7 @@ Inline native scrollback supplies ordinary terminal navigation/selection. Full i
 ## Alternatives and consequences
 
 - Porting Dive's whole App would also port its execution reconstruction. Reuse focused UI helpers and preserve Dashi Engine/Controller instead.
-- Disabling alternate screen avoids another runtime but does not deliver native once-only scrollback. Use Wonton InlineApp and accept a small display adapter.
+- Disabling alternate screen avoids another runtime but does not provide native once-only scrollback. Use Wonton InlineApp and accept a small display adapter.
 - Keeping text-only multiselect avoids an additive API but loses exact selected labels and own-words distinction. Add the two minimal fields instead of a general dialog protocol.
 - Changing approval policy to exact-file/session rules would make the label simpler but change authority and recovery expectations. Disclose the existing policy instead.
 

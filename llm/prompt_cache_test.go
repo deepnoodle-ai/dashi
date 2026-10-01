@@ -202,18 +202,18 @@ func TestMaxCostAtRiskUsesOneHourWriteRate(t *testing.T) {
 
 	// The default lifetime needs no one-hour rate.
 	five := cacheRiskRequest(t, 5*time.Minute, nil)
-	if cost, ok := MaxCostAtRisk(five, p); !ok || cost.Input != perToken(five, "1.25") {
+	if cost, ok := WorstCaseCost(five, p); !ok || cost.Input != perToken(five, "1.25") {
 		t.Fatalf("5m bound = %+v, %v", cost, ok)
 	}
 
 	// A one-hour lifetime without the rate has no bound.
 	hour := cacheRiskRequest(t, time.Hour, nil)
-	if _, ok := MaxCostAtRisk(hour, p); ok {
+	if _, ok := WorstCaseCost(hour, p); ok {
 		t.Fatal("one-hour writes were bounded without a one-hour rate")
 	}
 	rate := amt("2")
 	p.Base.CacheWrite1h = &rate
-	cost, ok := MaxCostAtRisk(hour, p)
+	cost, ok := WorstCaseCost(hour, p)
 	if !ok || cost.Input != perToken(hour, "2") {
 		t.Fatalf("1h bound = %+v, %v", cost, ok)
 	}
@@ -222,7 +222,7 @@ func TestMaxCostAtRiskUsesOneHourWriteRate(t *testing.T) {
 	// one-hour writes, as OpenAI's 24 hours.
 	p.Base.CacheWrite1h = nil
 	day := cacheRiskRequest(t, time.Hour, Durations{5 * time.Minute, 24 * time.Hour})
-	if _, ok := MaxCostAtRisk(day, p); !ok {
+	if _, ok := WorstCaseCost(day, p); !ok {
 		t.Fatal("a 24h route needed a one-hour rate")
 	}
 }

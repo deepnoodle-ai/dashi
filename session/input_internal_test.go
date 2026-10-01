@@ -12,9 +12,9 @@ import (
 
 // ErrRecordInvalid follows recorded steps, so it proves nothing about the
 // start: the session loads the turn, and items its turn_started step holds
-// are consumed, never delivered again. The engine returns it only for a
-// runner or recorder bug, so the test drives the settle rule directly.
-func TestSessionSettleAfterRecordInvalid(t *testing.T) {
+// are consumed, never added again. The engine returns it only for a
+// runner or recorder bug, so the test drives the decideReserved rule directly.
+func TestSessionResolveAfterRecordInvalid(t *testing.T) {
 	for _, started := range []bool{true, false} {
 		t.Run(fmt.Sprintf("started=%v", started), func(t *testing.T) {
 			ctx := t.Context()
@@ -54,11 +54,11 @@ func TestSessionSettleAfterRecordInvalid(t *testing.T) {
 			// The failed run returned the recorded steps, so the handle
 			// made the session.
 			s.created = started
-			err := s.settle(ctx, res, false, invalid)
+			err := s.decideReserved(ctx, res, false, invalid)
 			n := len(s.queue)
 			s.mu.Unlock()
 			if err != invalid {
-				t.Fatalf("settle returned %v", err)
+				t.Fatalf("decideReserved returned %v", err)
 			}
 			want := 1
 			if started {
@@ -70,7 +70,7 @@ func TestSessionSettleAfterRecordInvalid(t *testing.T) {
 			if !started {
 				return
 			}
-			// A later item runs alone: "a" is not delivered twice.
+			// A later item runs alone: "a" is not added twice.
 			if _, err := s.Enqueue(ctx, "b"); err != nil {
 				t.Fatal(err)
 			}
@@ -89,19 +89,19 @@ func TestSessionSettleAfterRecordInvalid(t *testing.T) {
 // notStarted names the proofs that a Start's turn_started step was not
 // recorded.
 func TestSessionNotStarted(t *testing.T) {
-	started := &dashi.Step{Kind: dashi.StepStarted}
-	model := &dashi.Step{Kind: dashi.StepModelIntent}
+	started := &dashi.Step{Kind: dashi.StepTurnStarted}
+	model := &dashi.Step{Kind: dashi.StepModelCallStarted}
 	cases := []struct {
 		name string
 		err  error
 		want bool
 	}{
 		{"rejected command", context.Canceled, true},
-		{"start rejected", &dashi.CommitError{Persistence: dashi.PersistenceRejected, Step: started}, true},
-		{"start conflicts", &dashi.CommitError{Persistence: dashi.PersistenceUnknown, Step: started, Err: dashi.ErrRevisionConflict}, true},
-		{"start key taken", &dashi.CommitError{Persistence: dashi.PersistenceUnknown, Step: started, Err: dashi.ErrCommandConflict}, true},
-		{"start unknown", &dashi.CommitError{Persistence: dashi.PersistenceUnknown, Step: started}, false},
-		{"model rejected", &dashi.CommitError{Persistence: dashi.PersistenceRejected, Step: model}, false},
+		{"start rejected", &dashi.CommitError{NothingWritten: true, Step: started}, true},
+		{"start conflicts", &dashi.CommitError{Step: started, Err: dashi.ErrStaleTurn}, true},
+		{"start key taken", &dashi.CommitError{Step: started, Err: dashi.ErrCommandIDReused}, true},
+		{"start unknown", &dashi.CommitError{Step: started}, false},
+		{"model rejected", &dashi.CommitError{NothingWritten: true, Step: model}, false},
 		{"record invalid", fmt.Errorf("%w: x", dashi.ErrRecordInvalid), false},
 		{"stream stopped", errStreamStopped, false},
 	}

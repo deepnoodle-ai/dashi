@@ -18,7 +18,7 @@ func TestMissingAPIKeyFailsAtSend(t *testing.T) {
 	_, err = client.Send(t.Context(), llm.Call{})
 	e, ok := errors.AsType[*llm.Error](err)
 	if !errors.Is(err, llm.ErrNoAPIKey) || !ok ||
-		e.Disposition != llm.FailureNotDispatched {
+		e.SendStatus != llm.SendStatusNotSent {
 		t.Fatalf("Send error = %v, want a not-dispatched ErrNoAPIKey", err)
 	}
 	custom, err := New(Config{Client: &http.Client{}})

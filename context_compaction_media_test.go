@@ -60,7 +60,7 @@ func TestActiveCompactionLargeImageEstimateUnavailable(t *testing.T) {
 			if estimate <= window || len(data) < 1000000 {
 				t.Fatalf("probe too small: PNG=%d estimate=%d window=%d", len(data), estimate, window)
 			}
-			if _, err := Replay(out.Turn); err != nil {
+			if _, err := out.Turn.View(); err != nil {
 				t.Fatal(err)
 			}
 			t.Logf("valid PNG bytes=%d prepared estimate=%d window=%d sends=%d warning=1", len(data), estimate, window, c.sends)
@@ -76,7 +76,7 @@ func TestActiveCompactionMediaHistoryToolHookReload(t *testing.T) {
 			a := testAgent()
 			a.ActiveCompaction = &ActiveCompactionPolicy{}
 			a.Settings.MaxTokens = 256
-			a.Limits.ModelAttempts = 1
+			a.Limits.ModelCalls = 1
 			start := activeStart(a)
 			switch source {
 			case "input":
@@ -98,7 +98,7 @@ func TestActiveCompactionMediaHistoryToolHookReload(t *testing.T) {
 			hooks := Hooks{}
 			if source == "hook" {
 				hooks.BeforeModel = []ModelHook{{Name: "image", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
-					return ModelDecision{Deliver: []ContextItem{{ID: "image", Origin: ContextRuntime, Name: "image", Message: llm.UserMessage(imagePart)}}}, nil
+					return ModelDecision{AddMessages: []ContextItem{{ID: "image", Origin: ContextRuntime, Name: "image", Message: llm.UserMessage(imagePart)}}}, nil
 				}}}
 			}
 			r := Runner{Client: c, Tools: tools, Hooks: hooks}
@@ -111,11 +111,11 @@ func TestActiveCompactionMediaHistoryToolHookReload(t *testing.T) {
 			if err = json.Unmarshal(encoded, &loaded); err != nil {
 				t.Fatal(err)
 			}
-			out, err := r.Run(t.Context(), loaded, Continue{CommandID: "resume", ModelAttempts: 4, History: start.History})
+			out, err := r.Run(t.Context(), loaded, Continue{CommandID: "resume", ModelCalls: 4, History: start.History})
 			if err != nil || out.Stop.Kind != StopCompleted || c.sends != 3 || calls != 2 || activeMediaWarnings(out.Warnings) != 1 || len(out.ContextCompactions) != 0 {
 				t.Fatalf("stop=%+v sends=%d calls=%d warnings=%+v err=%v", out.Stop, c.sends, calls, out.Warnings, err)
 			}
-			view, err := Replay(out.Turn)
+			view, err := out.Turn.View()
 			if err != nil || activeMediaWarnings(view.Warnings) != 1 {
 				t.Fatalf("reload warning=%+v err=%v", view.Warnings, err)
 			}
@@ -130,7 +130,7 @@ func TestActiveCompactionSummaryHookMedia(t *testing.T) {
 		if p.Purpose != ModelPurposeCompaction {
 			return ModelDecision{}, nil
 		}
-		return ModelDecision{Deliver: []ContextItem{{ID: "image", Name: "image", Origin: ContextRuntime, Message: llm.UserMessage(llm.Image(content.Source{Data: []byte{1, 2, 3}, MIMEType: "image/png"}))}}}, nil
+		return ModelDecision{AddMessages: []ContextItem{{ID: "image", Name: "image", Origin: ContextRuntime, Message: llm.UserMessage(llm.Image(content.Source{Data: []byte{1, 2, 3}, MIMEType: "image/png"}))}}}, nil
 	}}}}
 	out, err := (Runner{Client: c, Tools: activeTools(&calls), Hooks: hooks}).Run(t.Context(), Turn{}, activeStart(a))
 	if err != nil || out.Stop.Kind != StopCompleted || len(out.ContextCompactions) != 1 || c.sends != 4 || activeMediaWarnings(out.Warnings) != 1 {
@@ -152,10 +152,10 @@ func (c activePricedClient) Prepare(ctx context.Context, in llm.Input) (llm.Requ
 	snap.ModelInfo.Pricing = &llm.Pricing{Currency: "USD", UpdatedAt: "2026-09-30", Base: llm.Rates{Input: amount("1"), Output: amount("1")}}
 	return llm.NewRequest(snap)
 }
-func TestActiveCompactionMediaFinancialAdmissionUnchanged(t *testing.T) {
+func TestActiveCompactionMediaCostCheckUnchanged(t *testing.T) {
 	data := activePNG(t)
 	for _, affordable := range []bool{false, true} {
-		t.Run(map[bool]string{false: "refused", true: "admitted"}[affordable], func(t *testing.T) {
+		t.Run(map[bool]string{false: "refused", true: "recorded"}[affordable], func(t *testing.T) {
 			c := activePricedClient{&activeClient{window: 128000, scriptedClient: scriptedClient{results: []llm.Result{final("inspected")}}}}
 			a := testAgent()
 			a.ActiveCompaction = &ActiveCompactionPolicy{}
@@ -170,9 +170,9 @@ func TestActiveCompactionMediaFinancialAdmissionUnchanged(t *testing.T) {
 			observed := false
 			hooks := Hooks{BeforeSend: []SendHook{{Name: "risk", Func: func(_ context.Context, p SendPlan) (SendDecision, error) {
 				observed = true
-				expected, ok := llm.MaxCostAtRisk(p.Request, *p.Request.Snapshot().ModelInfo.Pricing)
-				if !ok || p.AtRisk == nil || p.AtRisk.Total != expected.Total {
-					t.Fatalf("risk changed: plan=%+v expected=%+v priced=%v", p.AtRisk, expected, ok)
+				expected, ok := llm.WorstCaseCost(p.Request, *p.Request.Snapshot().ModelInfo.Pricing)
+				if !ok || p.WorstCaseCost == nil || p.WorstCaseCost.Total != expected.Total {
+					t.Fatalf("risk changed: plan=%+v expected=%+v priced=%v", p.WorstCaseCost, expected, ok)
 				}
 				return SendDecision{}, nil
 			}}}}
@@ -182,7 +182,7 @@ func TestActiveCompactionMediaFinancialAdmissionUnchanged(t *testing.T) {
 			}
 			if affordable {
 				if out.Stop.Kind != StopCompleted || c.sends != 1 || !observed {
-					t.Fatalf("admission=%+v sends=%d", out.Stop, c.sends)
+					t.Fatalf("reservation=%+v sends=%d", out.Stop, c.sends)
 				}
 			} else {
 				if out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitCost || c.sends != 0 || observed {
@@ -200,10 +200,10 @@ func TestActiveCompactionMediaDoesNotDisableLaterTextChecks(t *testing.T) {
 	c, a := activeFixture()
 	calls := 0
 	hooks := Hooks{BeforeModel: []ModelHook{{Name: "first-image", Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
-		if p.Turn.ModelAttempts != 0 {
+		if p.Turn.ModelCalls != 0 {
 			return ModelDecision{}, nil
 		}
-		return ModelDecision{Deliver: []ContextItem{{ID: "first-image", Name: "image", Origin: ContextRuntime, NextCallOnly: true, Message: llm.UserMessage(llm.Image(content.Source{Data: []byte{1, 2, 3}, MIMEType: "image/png"}))}}}, nil
+		return ModelDecision{AddMessages: []ContextItem{{ID: "first-image", Name: "image", Origin: ContextRuntime, NextCallOnly: true, Message: llm.UserMessage(llm.Image(content.Source{Data: []byte{1, 2, 3}, MIMEType: "image/png"}))}}}, nil
 	}}}}
 	out, err := (Runner{Client: c, Tools: activeTools(&calls), Hooks: hooks}).Run(t.Context(), Turn{}, activeStart(a))
 	if err != nil || out.Stop.Kind != StopCompleted || len(out.ContextCompactions) != 2 || activeMediaWarnings(out.Warnings) != 1 {
@@ -214,7 +214,7 @@ func TestActiveCompactionMediaDoesNotDisableLaterTextChecks(t *testing.T) {
 	}
 }
 func TestActiveCompactionMediaProviderRejectionDoesNotRetry(t *testing.T) {
-	c := &activeClient{window: 128000, scriptedClient: scriptedClient{results: []llm.Result{{}}, errors: []error{&llm.Error{Provider: "test", Category: llm.ErrorInvalidRequest, Reason: llm.ReasonContextWindowExceeded, Disposition: llm.FailureRejected, Status: 400}}}}
+	c := &activeClient{window: 128000, scriptedClient: scriptedClient{results: []llm.Result{{}}, errors: []error{&llm.Error{Provider: "test", Category: llm.ErrorInvalidRequest, Reason: llm.ReasonContextWindowExceeded, SendStatus: llm.SendStatusProviderRejected, Status: 400}}}}
 	a := testAgent()
 	a.ActiveCompaction = &ActiveCompactionPolicy{}
 	a.Settings.MaxTokens = 256
@@ -228,7 +228,7 @@ func TestActiveCompactionMediaProviderRejectionDoesNotRetry(t *testing.T) {
 func TestActiveInputMediaDetection(t *testing.T) {
 	for _, kind := range []content.Kind{content.KindImage, content.KindDocument, content.KindAudio, content.KindVideo} {
 		block := content.Block{Kind: kind}
-		for _, part := range []llm.Content{llm.Block(block), {Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{Output: tool.Output{Content: []content.Block{block}}}}, {Kind: llm.ContentHostedUse, HostedUse: &llm.HostedUse{Output: []content.Block{block}}}, {Kind: llm.ContentHostedResult, HostedResult: &llm.HostedResult{Output: []content.Block{block}}}} {
+		for _, part := range []llm.Content{llm.Block(block), {Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{Output: tool.Output{Content: []content.Block{block}}}}, {Kind: llm.ContentProviderToolUse, ProviderToolUse: &llm.ProviderToolUse{Output: []content.Block{block}}}, {Kind: llm.ContentProviderToolResult, ProviderToolResult: &llm.ProviderToolResult{Output: []content.Block{block}}}} {
 			if !activeInputHasMedia(llm.Input{Messages: []llm.Message{llm.UserMessage(part)}}) {
 				t.Fatalf("missed %s in %s", kind, part.Kind)
 			}
@@ -266,7 +266,7 @@ func TestActiveInputTextDocumentDetection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			block := content.DocumentBlock(tc.source, "")
 			before, _ := json.Marshal(block)
-			for _, part := range []llm.Content{llm.Block(block), {Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{Output: tool.Output{Content: []content.Block{block}}}}, {Kind: llm.ContentHostedUse, HostedUse: &llm.HostedUse{Output: []content.Block{block}}}, {Kind: llm.ContentHostedResult, HostedResult: &llm.HostedResult{Output: []content.Block{block}}}} {
+			for _, part := range []llm.Content{llm.Block(block), {Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{Output: tool.Output{Content: []content.Block{block}}}}, {Kind: llm.ContentProviderToolUse, ProviderToolUse: &llm.ProviderToolUse{Output: []content.Block{block}}}, {Kind: llm.ContentProviderToolResult, ProviderToolResult: &llm.ProviderToolResult{Output: []content.Block{block}}}} {
 				if got := activeInputHasMedia(llm.Input{Messages: []llm.Message{llm.UserMessage(part)}}); got != tc.media {
 					t.Fatalf("%s media=%v, want %v", part.Kind, got, tc.media)
 				}
@@ -289,7 +289,7 @@ func TestActiveCompactionHydratedTextDocumentHardLimit(t *testing.T) {
 	a.ActiveCompaction = &ActiveCompactionPolicy{}
 	start := activeStart(a)
 	start.Input[0].Content = append(start.Input[0].Content, llm.Document(content.Source{Ref: &ref, MIMEType: "text/plain"}, "notes.txt"))
-	out, err := (Runner{Client: c, ContentResolver: resolver}).Run(t.Context(), Turn{}, start)
+	out, err := (Runner{Client: c, ContentLoader: resolver}).Run(t.Context(), Turn{}, start)
 	if err != nil || out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitContextWindow || resolver.count() != 1 || c.sends != 0 || activeMediaWarnings(out.Warnings) != 0 {
 		t.Fatalf("stop=%+v resolutions=%d sends=%d warnings=%+v err=%v", out.Stop, resolver.count(), c.sends, out.Warnings, err)
 	}

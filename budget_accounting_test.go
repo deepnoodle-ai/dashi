@@ -71,7 +71,7 @@ func TestSpendAddUsageFailuresPreserveIndependentMoney(t *testing.T) {
 				t.Fatal("usage failure lost independent monetary sums")
 			}
 			if sum.CostUnknown != 0 || sum.CostPartial != 0 {
-				t.Fatal("usage failure incorrectly marked money uncertain")
+				t.Fatal("usage failure incorrectly marked money result unknown")
 			}
 			if !reflect.DeepEqual(first, beforeFirst) ||
 				!reflect.DeepEqual(second, beforeSecond) {
@@ -118,7 +118,7 @@ func TestSpendAddSaturatesDiagnosticCounters(t *testing.T) {
 		t.Fatal("monetary overflow lost independent currency additions")
 	}
 	if _, known := sum.costIn("USD"); known {
-		t.Fatal("counter overflow made money suitable for admission")
+		t.Fatal("counter overflow made money suitable for reservation")
 	}
 	if sum.UsageIncomplete {
 		t.Fatal("monetary overflow marked usage incomplete")
@@ -160,17 +160,17 @@ func accountingRecord(usages ...llm.Usage) Turn {
 	steps := []Step{interruptionStart(testAgent())}
 	for i, usage := range usages {
 		id := fmt.Sprintf("model-%d", i+1)
-		intent := interruptionModelIntent(id)
-		intent.Model.MessageID = id + ":message"
+		callStart := interruptionModelCallStart(id)
+		callStart.Model.MessageID = id + ":message"
 		result := final("answer")
 		result.Usage = usage.Copy()
-		steps = append(steps, intent, Step{
-			Kind: StepModelSettled,
+		steps = append(steps, callStart, Step{
+			Kind: StepModelCallFinished,
 			Model: &ModelFact{
-				AttemptID: id,
-				MessageID: id + ":message",
-				Result:    &result,
-				Charge: &llm.Cost{
+				ModelCallID: id,
+				MessageID:   id + ":message",
+				Result:      &result,
+				Cost: &llm.Cost{
 					Total:    amount("0.25"),
 					Currency: "USD",
 					Source:   llm.CostSourceProviderReported,
@@ -181,7 +181,7 @@ func accountingRecord(usages ...llm.Usage) Turn {
 	return interruptionRecord(steps...)
 }
 
-func TestReplayKeepsValidOverflowingSettlements(t *testing.T) {
+func TestReplayKeepsValidOverflowingFinishes(t *testing.T) {
 	turn := accountingRecord(
 		llm.Usage{InputTokens: math.MaxInt - 1},
 		llm.Usage{OutputTokens: 2},
@@ -193,19 +193,19 @@ func TestReplayKeepsValidOverflowingSettlements(t *testing.T) {
 			Step:        step,
 			ExpectedSeq: step.Seq - 1,
 		}); err != nil {
-			t.Fatalf("valid settlement rejected: %v", err)
+			t.Fatalf("valid finish rejected: %v", err)
 		}
 	}
 	saved, err := recorder.Load(t.Context(), turn.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(saved)
+	view, err := saved.View()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !view.Spend.UsageIncomplete || view.Spend.CostUnknown != 0 {
-		t.Fatal("replay conflated usage overflow and monetary uncertainty")
+		t.Fatal("replay conflated usage overflow and unknown money")
 	}
 	if view.Spend.Cost["USD"] != amount("0.75") {
 		t.Fatal("replay lost independent charges")
@@ -216,17 +216,17 @@ func TestReplayKeepsValidOverflowingSettlements(t *testing.T) {
 	}
 }
 
-func TestReplayMonetaryOverflowRemainsUncertain(t *testing.T) {
+func TestReplayMonetaryOverflowRemainsResultUnknown(t *testing.T) {
 	turn := accountingRecord(llm.Usage{}, llm.Usage{})
-	turn.Steps[2].Model.Charge.Total = money.Amount(math.MaxInt64)
-	turn.Steps[4].Model.Charge.Total = 1
-	view, err := Replay(turn)
+	turn.Steps[2].Model.Cost.Total = money.Amount(math.MaxInt64)
+	turn.Steps[4].Model.Cost.Total = 1
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if view.Spend.Cost["USD"] != money.Amount(math.MaxInt64) ||
 		view.Spend.CostUnknown != 1 {
-		t.Fatal("replay lost monetary overflow uncertainty")
+		t.Fatal("replay lost monetary overflow unknown")
 	}
 	if view.Spend.UsageIncomplete {
 		t.Fatal("monetary overflow incorrectly marked usage incomplete")
@@ -235,13 +235,13 @@ func TestReplayMonetaryOverflowRemainsUncertain(t *testing.T) {
 
 func TestReplayUnpricedRequestsSaturateWithoutDroppingEvidence(t *testing.T) {
 	turn := accountingRecord(llm.Usage{}, llm.Usage{})
-	turn.Steps[2].Model.Charge.UnpricedRequests = map[string]int{
+	turn.Steps[2].Model.Cost.UnpricedRequests = map[string]int{
 		llm.MeterUnreported: math.MaxInt,
 	}
-	turn.Steps[4].Model.Charge.UnpricedRequests = map[string]int{
+	turn.Steps[4].Model.Cost.UnpricedRequests = map[string]int{
 		llm.MeterUnreported: 1,
 	}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,12 +258,12 @@ func TestReplayUnpricedRequestsSaturateWithoutDroppingEvidence(t *testing.T) {
 func TestReplayRejectsMalformedIndividualAccounting(t *testing.T) {
 	for _, corrupt := range []func(*ModelFact){
 		func(f *ModelFact) { f.Result.Usage.InputTokens = -1 },
-		func(f *ModelFact) { f.Charge.Total = -1 },
-		func(f *ModelFact) { f.Charge.Currency = "" },
+		func(f *ModelFact) { f.Cost.Total = -1 },
+		func(f *ModelFact) { f.Cost.Currency = "" },
 	} {
 		turn := accountingRecord(llm.Usage{})
 		corrupt(turn.Steps[2].Model)
-		if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+		if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 			t.Fatalf("invalid individual accounting accepted: %v", err)
 		}
 	}
@@ -271,17 +271,17 @@ func TestReplayRejectsMalformedIndividualAccounting(t *testing.T) {
 
 func TestReplayDerivedUsageOverflowPreservesRecordedCharge(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		usage    llm.Usage
-		fallback int
-		hosted   bool
+		name         string
+		usage        llm.Usage
+		fallback     int
+		providerTool bool
 	}{
 		{
 			name: "unreported requests",
 			usage: llm.Usage{
 				Requests: map[string]int{llm.MeterUnreported: math.MaxInt},
 			},
-			hosted: true,
+			providerTool: true,
 		},
 		{
 			name:     "fallback tokens",
@@ -291,22 +291,22 @@ func TestReplayDerivedUsageOverflowPreservesRecordedCharge(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			turn := accountingRecord(tc.usage)
-			intent, settled := turn.Steps[1].Model, turn.Steps[2].Model
-			intent.EstimatedInputTokens = tc.fallback
+			callStart, finished := turn.Steps[1].Model, turn.Steps[2].Model
+			callStart.EstimatedInputTokens = tc.fallback
 			pricing := newPricedClient().pricing
-			intent.ModelInfo = &llm.ModelInfo{Pricing: &pricing}
-			if tc.hosted {
-				intent.Tools = []tool.Definition{{
-					Name: "search", Kind: tool.KindProviderHosted,
-					Hosted: &tool.HostedSpec{
+			callStart.ModelInfo = &llm.ModelInfo{Pricing: &pricing}
+			if tc.providerTool {
+				callStart.Tools = []tool.Definition{{
+					Name: "search", Kind: tool.KindProviderTool,
+					ProviderTool: &tool.ProviderToolSpec{
 						Provider: "test", API: "test.chat", Type: "web_search",
 					},
 				}}
 			} else {
-				settled.Uncertain = true
-				settled.Error = "connection lost"
+				finished.ResultUnknown = true
+				finished.Error = "connection lost"
 			}
-			view, err := Replay(turn)
+			view, err := turn.View()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -314,15 +314,15 @@ func TestReplayDerivedUsageOverflowPreservesRecordedCharge(t *testing.T) {
 				t.Fatal("valid-fact enrichment failure lost its separate signal")
 			}
 			want := tc.usage.Copy()
-			want.RequestsFinal = false
+			want.RequestsComplete = false
 			if !reflect.DeepEqual(view.Spend.Usage, *want) {
 				t.Fatal("failed enrichment changed the valid recorded usage")
 			}
 			if view.Spend.Cost["USD"] != amount("0.25") {
 				t.Fatal("failed enrichment lost the independent charge")
 			}
-			settled.Charge = nil
-			view, err = Replay(turn)
+			finished.Cost = nil
+			view, err = turn.View()
 			if err != nil || view.Spend.CostUnknown != 1 {
 				t.Fatalf("missing independent charge did not remain unknown: %v", err)
 			}
@@ -336,7 +336,7 @@ func TestReplayDerivedOverflowWithoutReportedUsageOmitsFallback(t *testing.T) {
 	turn.Steps[2].Model.Result.Usage = nil
 	pricing := newPricedClient().pricing
 	turn.Steps[1].Model.ModelInfo = &llm.ModelInfo{Pricing: &pricing}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,8 +344,8 @@ func TestReplayDerivedOverflowWithoutReportedUsageOmitsFallback(t *testing.T) {
 		llm.Usage{}) || view.Spend.Cost["USD"] != amount("0.25") {
 		t.Fatal("failed fallback retained derived usage or lost recorded money")
 	}
-	turn.Steps[2].Model.Charge = nil
-	view, err = Replay(turn)
+	turn.Steps[2].Model.Cost = nil
+	view, err = turn.View()
 	if err != nil || view.Spend.CostUnknown != 1 || len(view.Spend.Cost) != 0 {
 		t.Fatalf("incomplete fallback was priced: %v", err)
 	}
@@ -357,20 +357,20 @@ func TestReplayDerivedOverflowKeepsPartialMonetaryEvidence(t *testing.T) {
 	})
 	turn.Steps[1].Model.Tools = []tool.Definition{{
 		Name: "search",
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "test",
 			API:      "test.chat",
 			Type:     "web_search",
 		},
 	}}
-	turn.Steps[2].Model.Charge.UnpricedRequests = map[string]int{
+	turn.Steps[2].Model.Cost.UnpricedRequests = map[string]int{
 		llm.MeterUnreported: math.MaxInt,
 	}
 	turn.Steps[0].Started.Budget = &Budget{
 		MaxCost: &Money{Amount: amount("1"), Currency: "USD"},
 	}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +382,7 @@ func TestReplayDerivedOverflowKeepsPartialMonetaryEvidence(t *testing.T) {
 	}
 }
 
-type creditAdmission struct {
+type creditReservation struct {
 	Account  string       `json:"account"`
 	Amount   money.Amount `json:"amount"`
 	Currency string       `json:"currency"`
@@ -399,38 +399,38 @@ func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch req.Step.Kind {
-	case StepModelIntent:
+	case StepModelCallStarted:
 		fact := req.Step.Model
-		var admission creditAdmission
-		if fact == nil || fact.AtRisk == nil ||
-			json.Unmarshal(fact.Admission["credits"], &admission) != nil ||
-			admission.Account != "tenant-1" ||
-			admission.Currency != fact.AtRisk.Currency ||
-			admission.Amount != fact.AtRisk.Total ||
-			admission.Amount > r.balance {
+		var terms creditReservation
+		if fact == nil || fact.WorstCaseCost == nil ||
+			json.Unmarshal(fact.Reservation["credits"], &terms) != nil ||
+			terms.Account != "tenant-1" ||
+			terms.Currency != fact.WorstCaseCost.Currency ||
+			terms.Amount != fact.WorstCaseCost.Total ||
+			terms.Amount > r.balance {
 			return &CommitError{
-				Persistence: PersistenceRejected,
-				Err:         errors.New("credit reservation rejected"),
+				NothingWritten: true,
+				Err:            errors.New("credit reservation rejected"),
 			}
 		}
 		if err := r.base.Commit(ctx, req); err != nil {
 			return err
 		}
-		r.balance -= admission.Amount
-		r.holds[fact.AttemptID] = admission.Amount
+		r.balance -= terms.Amount
+		r.holds[fact.ModelCallID] = terms.Amount
 		return nil
-	case StepModelSettled:
+	case StepModelCallFinished:
 		fact := req.Step.Model
 		if fact != nil {
-			if hold, ok := r.holds[fact.AttemptID]; ok {
+			if hold, ok := r.holds[fact.ModelCallID]; ok {
 				if err := r.base.Commit(ctx, req); err != nil {
 					return err
 				}
 				r.balance += hold
-				if fact.Charge != nil {
-					r.balance -= fact.Charge.Total
+				if fact.Cost != nil {
+					r.balance -= fact.Cost.Total
 				}
-				delete(r.holds, fact.AttemptID)
+				delete(r.holds, fact.ModelCallID)
 				return nil
 			}
 		}
@@ -438,13 +438,13 @@ func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	return r.base.Commit(ctx, req)
 }
 
-// creditHooks admit a call against the recorder's balance, recording the
+// creditHooks reserve a call against the recorder's balance, recording the
 // reservation terms under the hook name "credits".
 func creditHooks(recorder *creditRecorder) Hooks {
 	return SendHook{
 		Name: "credits",
 		Func: func(_ context.Context, plan SendPlan) (SendDecision, error) {
-			if plan.AtRisk == nil {
+			if plan.WorstCaseCost == nil {
 				return SendDecision{
 					Reason: "price unavailable",
 					Limit: &LimitDetail{
@@ -456,7 +456,7 @@ func creditHooks(recorder *creditRecorder) Hooks {
 			recorder.mu.Lock()
 			available := recorder.balance
 			recorder.mu.Unlock()
-			if plan.AtRisk.Total > available {
+			if plan.WorstCaseCost.Total > available {
 				return SendDecision{
 					Reason: "insufficient credits",
 					Limit: &LimitDetail{
@@ -465,17 +465,17 @@ func creditHooks(recorder *creditRecorder) Hooks {
 					},
 				}, nil
 			}
-			data, err := json.Marshal(creditAdmission{
+			data, err := json.Marshal(creditReservation{
 				Account:  "tenant-1",
-				Amount:   plan.AtRisk.Total,
-				Currency: plan.AtRisk.Currency,
+				Amount:   plan.WorstCaseCost.Total,
+				Currency: plan.WorstCaseCost.Currency,
 			})
-			return SendDecision{Admission: data}, err
+			return SendDecision{Reservation: data}, err
 		},
 	}.Hooks()
 }
 
-func TestBudgetRecorderReservesExactRiskAndSettlesCharge(t *testing.T) {
+func TestBudgetRecorderReservesExactRiskAndFinishesCharge(t *testing.T) {
 	answer := final("done")
 	answer.Usage = &llm.Usage{InputTokens: 100, OutputTokens: 100}
 	client := newPricedClient(answer)
@@ -505,19 +505,19 @@ func TestBudgetRecorderReservesExactRiskAndSettlesCharge(t *testing.T) {
 	if out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
-	intent := out.Turn.Steps[1].Model
-	settled := out.Turn.Steps[2].Model
-	if intent.AtRisk == nil || settled.Charge == nil {
-		t.Fatalf("risk or charge missing: intent=%+v settled=%+v", intent, settled)
+	callStart := out.Turn.Steps[1].Model
+	finished := out.Turn.Steps[2].Model
+	if callStart.WorstCaseCost == nil || finished.Cost == nil {
+		t.Fatalf("risk or charge missing: start=%+v finished=%+v", callStart, finished)
 	}
-	if intent.AtRisk.Total <= settled.Charge.Total {
-		t.Fatalf("risk=%s charge=%s", intent.AtRisk.Total, settled.Charge.Total)
+	if callStart.WorstCaseCost.Total <= finished.Cost.Total {
+		t.Fatalf("risk=%s charge=%s", callStart.WorstCaseCost.Total, finished.Cost.Total)
 	}
 	if len(recorder.holds) != 0 {
 		t.Fatalf("remaining holds=%v", recorder.holds)
 	}
 	// Exact amounts make the ledger balance to the nano.
-	if recorder.balance != amount("0.01")-settled.Charge.Total {
-		t.Fatalf("balance=%s charge=%s", recorder.balance, settled.Charge.Total)
+	if recorder.balance != amount("0.01")-finished.Cost.Total {
+		t.Fatalf("balance=%s charge=%s", recorder.balance, finished.Cost.Total)
 	}
 }

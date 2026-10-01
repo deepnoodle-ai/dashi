@@ -28,12 +28,12 @@ func newScreenHarness(t *testing.T, attempts int, script ...reply) *screenHarnes
 	client := &fakeClient{script: script}
 	h := &harness{t: t, dir: dir, store: store, client: client, limit: attempts}
 	a, err := buildApp(t.Context(), appConfig{
-		Dir:           dir,
-		HomeDir:       t.TempDir(),
-		Model:         "fixture",
-		Client:        client,
-		Store:         store,
-		ModelAttempts: attempts,
+		Dir:        dir,
+		HomeDir:    t.TempDir(),
+		Model:      "fixture",
+		Client:     client,
+		Store:      store,
+		ModelCalls: attempts,
 	}, scr)
 	if err != nil {
 		t.Fatal(err)

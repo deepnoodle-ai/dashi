@@ -1,5 +1,5 @@
 // Command agent runs one agent turn against the OpenAI Responses API and
-// prints the answer. Set OPENAI_API_KEY before running it; OPENAI_MODEL
+// prints the reply. Set OPENAI_API_KEY before running it; OPENAI_MODEL
 // optionally overrides the catalog's default model.
 package main
 
@@ -47,6 +47,6 @@ func run(ctx context.Context) error {
 	}
 	// Run's error means the command did not apply. A model failure, a limit,
 	// or a wait is a result instead: Stop says how the turn ended.
-	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 	return nil
 }

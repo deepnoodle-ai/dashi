@@ -85,7 +85,7 @@ func run(ctx context.Context, dir string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 	return nil
 }
 

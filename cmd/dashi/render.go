@@ -78,7 +78,7 @@ type Block struct {
 	Lines []string
 	// Detail retains complete tool output for expansion and native scrollback.
 	Detail string
-	// Expanded is a display projection; the stored transcript keeps its excerpt.
+	// Expanded is a display-only view; the stored transcript keeps its excerpt.
 	Expanded bool
 	// Done marks a block that will not change again.
 	Done bool
@@ -111,7 +111,7 @@ type Renderer struct {
 	summary       string
 	showReasoning bool
 	reasoning     map[string]map[summaryPart]string
-	activeContext map[string]*activeContextAttempt
+	activeContext map[string]*activeContextModelCall
 }
 
 type callState struct {
@@ -156,7 +156,7 @@ func (r *Renderer) Event(ev dashi.Event) []Block {
 }
 
 func (r *Renderer) delta(ev dashi.Event) []Block {
-	if r.Origin == dashi.StartCompaction || r.isActiveSummary(ev.AttemptID) {
+	if r.Origin == dashi.StartCompaction || r.isActiveSummary(ev.ModelCallID) {
 		return nil
 	}
 	if ev.Delta.Kind == llm.DeltaReasoning && r.showReasoning {
@@ -165,16 +165,16 @@ func (r *Renderer) delta(ev dashi.Event) []Block {
 	if ev.Delta.Kind != llm.DeltaText || ev.Delta.Text == "" {
 		return nil
 	}
-	id := messageKey(ev.MessageID, ev.AttemptID)
+	id := messageKey(ev.MessageID, ev.ModelCallID)
 	r.text[id] += ev.Delta.Text
 	return []Block{{ID: id, Kind: KindAssistant, Text: r.text[id]}}
 }
 
-func messageKey(messageID, attemptID string) string {
+func messageKey(messageID, modelCallID string) string {
 	if messageID != "" {
 		return "a:" + messageID
 	}
-	return "a:" + attemptID
+	return "a:" + modelCallID
 }
 
 func (r *Renderer) progress(p *dashi.ToolProgress) []Block {
@@ -208,7 +208,7 @@ func (r *Renderer) toolBlock(id string, c *callState, state string) Block {
 func (r *Renderer) step(s dashi.Step) []Block {
 	var out []Block
 	switch s.Kind {
-	case dashi.StepStarted:
+	case dashi.StepTurnStarted:
 		r.Origin = s.Started.Origin
 		r.showReasoning = s.Started.Agent.Settings.ReasoningSummary != nil && *s.Started.Agent.Settings.ReasoningSummary
 		if m := s.Started.Agent.Model; m != "" {
@@ -232,27 +232,27 @@ func (r *Renderer) step(s dashi.Step) []Block {
 			Text: text,
 			Done: true,
 		})
-	case dashi.StepModelIntent:
-		out = append(out, r.activeContextIntent(s)...)
+	case dashi.StepModelCallStarted:
+		out = append(out, r.activeContextCallStart(s)...)
 		out = append(out, modelPreparationBlocks(s)...)
-	case dashi.StepModelSettled, dashi.StepModelReconciled:
+	case dashi.StepModelCallFinished, dashi.StepModelCallFinishedByHost:
 		if r.isActiveSummaryFact(s.Model) {
-			out = append(out, r.activeContextSettled(s)...)
+			out = append(out, r.activeContextFinished(s)...)
 			break
 		}
-		out = append(out, r.reasoningSettled(s)...)
-		out = append(out, r.modelSettled(s)...)
+		out = append(out, r.reasoningFinished(s)...)
+		out = append(out, r.modelFinished(s)...)
 	case dashi.StepToolDecision:
 		out = append(out, r.toolDecision(s)...)
 	case dashi.StepToolStarted:
 		out = append(out, r.toolStarted(s)...)
-	case dashi.StepToolSettled:
-		out = append(out, r.toolSettled(s)...)
+	case dashi.StepToolFinished:
+		out = append(out, r.toolFinished(s)...)
 	case dashi.StepToolWaiting:
 		if c := r.calls[s.Tool.Call.ID]; c != nil {
 			out = append(out, r.toolBlock(s.Tool.Call.ID, c, StateWaiting))
 		}
-	case dashi.StepDelivered:
+	case dashi.StepMessagesAdded:
 		if s.Context != nil && s.Context.Steering {
 			for _, item := range s.Context.Items {
 				if item.Message.Text() == "" {
@@ -270,7 +270,7 @@ func (r *Renderer) step(s dashi.Step) []Block {
 				})
 			}
 		}
-	case dashi.StepStopped:
+	case dashi.StepTurnStopped:
 		out = append(out, r.activeContextStopped(*s.Stop)...)
 		if r.Origin == dashi.StartCompaction {
 			out = append(out, r.compactionBlock(s.TurnID, *s.Stop))
@@ -294,7 +294,7 @@ func (r *Renderer) step(s dashi.Step) []Block {
 	return out
 }
 
-func (r *Renderer) modelSettled(s dashi.Step) []Block {
+func (r *Renderer) modelFinished(s dashi.Step) []Block {
 	m := s.Model
 	if m == nil || m.Result == nil || m.Interrupted != "" {
 		return nil
@@ -304,10 +304,10 @@ func (r *Renderer) modelSettled(s dashi.Step) []Block {
 		r.summary = text
 		return nil
 	}
-	id := messageKey(m.MessageID, m.AttemptID)
+	id := messageKey(m.MessageID, m.ModelCallID)
 	if text == "" {
 		// A tool-only message has no text. If text streamed before it
-		// settled, an empty settled block replaces that provisional text.
+		// finished, an empty finished block replaces that provisional text.
 		if r.text[id] == "" {
 			return nil
 		}
@@ -327,7 +327,7 @@ func (r *Renderer) compactionBlock(id string, stop dashi.Stop) Block {
 	}
 	switch stop.Kind {
 	case "":
-		if !stop.Projected {
+		if !stop.Inferred {
 			return b
 		}
 		b.State, b.Text = "interrupted", "Compaction interrupted. Press Enter to continue."
@@ -351,7 +351,7 @@ func (r *Renderer) compactionBlock(id string, stop dashi.Stop) Block {
 }
 
 func (r *Renderer) compactionOutcome(v dashi.TurnView) Block {
-	r.Origin, r.summary = v.Origin, v.Answer
+	r.Origin, r.summary = v.Origin, v.Reply
 	return r.compactionBlock(v.ID, v.Stop)
 }
 
@@ -384,7 +384,7 @@ func (r *Renderer) toolStarted(s dashi.Step) []Block {
 	return []Block{r.toolBlock(s.Tool.Call.ID, c, StateRunning)}
 }
 
-func (r *Renderer) toolSettled(s dashi.Step) []Block {
+func (r *Renderer) toolFinished(s dashi.Step) []Block {
 	id := s.Tool.Call.ID
 	c := r.toolCall(s)
 	state := StateOK
@@ -435,7 +435,7 @@ func (r *Renderer) stopped(s dashi.Step) []Block {
 		text = "The model refused the request."
 	case dashi.StopWaiting:
 		text = "The turn is waiting: " + orDefault(st.Reason, "for input") + "."
-	case dashi.StopUncertain:
+	case dashi.StopResultUnknown:
 		text = "The turn stopped with an unknown result: " +
 			orDefault(st.Reason, "unknown") + "."
 	default:
@@ -453,7 +453,7 @@ func limitText(st *dashi.Stop) string {
 	if st.Limit != nil && st.Limit.Kind == dashi.LimitContextWindow {
 		return "The next request cannot fit its recorded context window. Full work is retained. Use a larger-window model or smaller input for a new Turn; compact earlier session history when needed."
 	}
-	if st.Limit != nil && st.Limit.Kind == dashi.LimitModelAttempts {
+	if st.Limit != nil && st.Limit.Kind == dashi.LimitModelCalls {
 		return fmt.Sprintf(
 			"Stopped after %d model calls. Press Enter or type /continue to go on.",
 			st.Limit.Used,
@@ -462,7 +462,7 @@ func limitText(st *dashi.Stop) string {
 	return "Stopped at a limit: " + orDefault(st.Reason, "unknown") + "."
 }
 
-// Footer returns the line that closes a settled turn.
+// Footer returns the line that closes a finished turn.
 func (r *Renderer) Footer(v dashi.TurnView) Block {
 	f := newFooterFacts(r.Turn, r.Model, v)
 	return Block{
@@ -490,7 +490,7 @@ func newFooterFacts(turn int, model string, v dashi.TurnView) footerFacts {
 	return footerFacts{
 		Turn:            turn,
 		Model:           model,
-		Calls:           v.ModelAttempts,
+		Calls:           v.ModelCalls,
 		Tokens:          v.Spend.Usage.TotalInputTokens() + v.Spend.Usage.OutputTokens,
 		UsageIncomplete: v.Spend.UsageIncomplete,
 		Cost:            costText(v.Spend),
@@ -593,7 +593,7 @@ func RenderTurn(
 	turn dashi.Turn,
 	diffs map[int64][]string,
 ) ([]Block, error) {
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		return nil, err
 	}
@@ -617,7 +617,7 @@ func RenderTurn(
 	if view.Origin == dashi.StartCompaction {
 		// Reopened output shows the current state, not historical progress.
 		out = nil
-		r.summary = view.Answer
+		r.summary = view.Reply
 		out = append(out, r.compactionBlock(view.ID, view.Stop))
 		if view.Stop.Kind != "" {
 			out = append(out, r.Footer(view))

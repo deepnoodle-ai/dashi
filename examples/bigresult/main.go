@@ -1,8 +1,8 @@
 // Command bigresult runs a turn whose tool returns a long log. Dashi shortens
-// the result in the projected history, so the model reads a bounded text with
-// a marker, while the turn's record keeps the full log. Set ANTHROPIC_API_KEY
-// before running it; ANTHROPIC_MODEL optionally overrides the catalog's
-// default model.
+// the result in the messages the model sees, so the model reads a bounded
+// text with a marker, while the turn's record keeps the full log. Set
+// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
+// the catalog's default model.
 package main
 
 import (
@@ -68,7 +68,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 	// Result is what the model saw; Outcome is what the tool returned.
 	for _, v := range out.Tools {
 		seen := v.Result().Output.Content[0].Text.Text

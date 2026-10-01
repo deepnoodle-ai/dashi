@@ -51,7 +51,7 @@ func namedCallsResult(names ...string) llm.Result {
 	}
 }
 
-// oneCall scripts a model that calls name once, then answers.
+// oneCall scripts a model that calls name once, then replies.
 func oneCall(name string) []llm.Result {
 	return []llm.Result{callResult("call", name), final("ok")}
 }
@@ -72,21 +72,21 @@ func progressStart(limit int) Start {
 }
 
 // progressOrder checks that every progress event for a call falls between
-// the call's tool_started step and its settlement, and returns the progress
+// the call's tool_started step and its finish step, and returns the progress
 // events and final outcome.
 type progressOrder struct {
 	t        *testing.T
 	started  map[string]bool
-	settled  map[string]bool
+	finished map[string]bool
 	progress []ToolProgress
-	outcome  *Outcome
+	outcome  *RunResult
 }
 
 func newProgressOrder(t *testing.T) *progressOrder {
 	return &progressOrder{
-		t:       t,
-		started: map[string]bool{},
-		settled: map[string]bool{},
+		t:        t,
+		started:  map[string]bool{},
+		finished: map[string]bool{},
 	}
 }
 
@@ -98,25 +98,25 @@ func (o *progressOrder) add(event Event) {
 		switch event.Step.Kind {
 		case StepToolStarted:
 			o.started[id] = true
-		case StepToolSettled, StepToolWaiting:
-			o.settled[id] = true
+		case StepToolFinished, StepToolWaiting:
+			o.finished[id] = true
 		}
 	case event.Progress != nil:
 		p := event.Progress
 		if event.TurnID != "t1" {
 			o.t.Fatalf("progress turn=%q", event.TurnID)
 		}
-		if !o.started[p.CallID] || o.settled[p.CallID] {
+		if !o.started[p.CallID] || o.finished[p.CallID] {
 			o.t.Fatalf(
-				"progress for %s outside its run: started=%v settled=%v",
+				"progress for %s outside its run: started=%v finished=%v",
 				p.CallID,
 				o.started[p.CallID],
-				o.settled[p.CallID],
+				o.finished[p.CallID],
 			)
 		}
 		o.progress = append(o.progress, *p)
-	case event.Outcome != nil:
-		o.outcome = event.Outcome
+	case event.Result != nil:
+		o.outcome = event.Result
 	}
 }
 
@@ -266,8 +266,8 @@ func TestParallelToolProgressUnderRace(t *testing.T) {
 			if order.outcome == nil || order.outcome.Stop.Kind != StopCompleted {
 				t.Fatalf("outcome=%+v", order.outcome)
 			}
-			if len(order.settled) != len(names) {
-				t.Fatalf("settled=%v", order.settled)
+			if len(order.finished) != len(names) {
+				t.Fatalf("finished=%v", order.finished)
 			}
 		})
 	}
@@ -286,14 +286,14 @@ func TestProgressBeforePanicIsDelivered(t *testing.T) {
 	if len(order.progress) != 1 || order.progress[0].Message != "about to fail" {
 		t.Fatalf("progress=%+v", order.progress)
 	}
-	if order.outcome == nil || order.outcome.Stop.Kind != StopUncertain {
+	if order.outcome == nil || order.outcome.Stop.Kind != StopResultUnknown {
 		t.Fatalf("outcome=%+v", order.outcome)
 	}
 }
 
 // A call that hands off work keeps a leaked goroutine reporting while a
 // second call holds the runner in its drain loop, so a late report would be
-// delivered if the settled call's slot still accepted or forwarded reports.
+// delivered if the finished call's slot still accepted or forwarded reports.
 func TestReportsAfterExecuteReturnsAreDropped(t *testing.T) {
 	for _, state := range []tool.State{tool.StateWaiting, tool.StateDetached} {
 		t.Run(string(state), func(t *testing.T) {
@@ -408,7 +408,7 @@ func TestBreakingStreamWhileToolReports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil || view.Stop.Kind != StopInterrupted {
 		t.Fatalf("stop=%+v err=%v", view.Stop, err)
 	}
@@ -490,7 +490,7 @@ func TestObserverAndStreamGetSeparateProgressCopies(t *testing.T) {
 		if event.Progress != nil {
 			observed = append(observed, *event.Progress)
 		}
-		if event.Step != nil && event.Step.Kind == StepStopped {
+		if event.Step != nil && event.Step.Kind == StepTurnStopped {
 			close(stopped)
 		}
 	}
@@ -613,7 +613,7 @@ func TestStreamBreakStopsObserverProgress(t *testing.T) {
 		if event.Progress != nil {
 			observed++
 		}
-		if event.Step != nil && event.Step.Kind == StepStopped {
+		if event.Step != nil && event.Step.Kind == StepTurnStopped {
 			close(stopped)
 		}
 	}
@@ -662,7 +662,7 @@ func TestProgressFloodKeepsObserverSteps(t *testing.T) {
 	runner := progressRunner(oneCall("work"), work)
 	runner.Observer = func(event Event) {
 		<-release
-		if event.Step != nil && event.Step.Kind == StepStopped {
+		if event.Step != nil && event.Step.Kind == StepTurnStopped {
 			close(stopped)
 		}
 	}

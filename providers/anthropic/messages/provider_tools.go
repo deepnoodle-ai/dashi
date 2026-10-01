@@ -20,7 +20,7 @@ const (
 	CodeExecutionLegacyType = "code_execution_20250522"
 	// WebFetchType selects Anthropic's server-side page fetch tool.
 	WebFetchType = "web_fetch_20250910"
-	// MCPToolsetType declares an Anthropic-hosted remote MCP connector.
+	// MCPToolsetType declares a remote MCP connector that Anthropic runs.
 	MCPToolsetType = "mcp_toolset"
 )
 
@@ -93,7 +93,7 @@ func NewWebSearchTool(options WebSearchToolOptions) (tool.Tool, error) {
 	if err != nil {
 		return tool.Tool{}, err
 	}
-	return newHosted("web_search", options.Provider, options.Type, raw), nil
+	return newProviderTool("web_search", options.Provider, options.Type, raw), nil
 }
 
 // CodeExecutionToolOptions binds Anthropic's code execution sandbox to a
@@ -106,7 +106,7 @@ type CodeExecutionToolOptions struct {
 // NewCodeExecutionTool declares Anthropic's provider-executed sandbox with
 // bash and file editing.
 func NewCodeExecutionTool(options CodeExecutionToolOptions) tool.Tool {
-	return newHosted(
+	return newProviderTool(
 		"code_execution",
 		options.Provider,
 		CodeExecutionType,
@@ -136,7 +136,7 @@ func NewWebFetchTool(options WebFetchToolOptions) (tool.Tool, error) {
 	if err != nil {
 		return tool.Tool{}, err
 	}
-	return newHosted("web_fetch", options.Provider, WebFetchType, raw), nil
+	return newProviderTool("web_fetch", options.Provider, WebFetchType, raw), nil
 }
 
 // MCPToolOptions describes an unauthenticated remote MCP server. Tokens are
@@ -162,10 +162,10 @@ func NewMCPTool(options MCPToolOptions) (tool.Tool, error) {
 		return tool.Tool{}, err
 	}
 	name := "mcp:" + options.Name
-	return newHosted(name, options.Provider, MCPToolsetType, raw), nil
+	return newProviderTool(name, options.Provider, MCPToolsetType, raw), nil
 }
 
-func newHosted(
+func newProviderTool(
 	name, provider, toolType string,
 	options json.RawMessage,
 ) tool.Tool {
@@ -174,8 +174,8 @@ func newHosted(
 	}
 	d := tool.Definition{
 		Name: name,
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: provider,
 			API:      API,
 			Type:     toolType,
@@ -195,11 +195,11 @@ type webSearchOptions struct {
 	UserLocation   *UserLocation `json:"user_location,omitempty"`
 }
 
-func (wire codec) hostedTool(d tool.Definition) (map[string]any, error) {
-	spec := d.Hosted
+func (wire codec) providerTool(d tool.Definition) (map[string]any, error) {
+	spec := d.ProviderTool
 	if spec.Provider != wire.origin.Provider || spec.API != API {
 		return nil, wire.unsupported(
-			"hosted tool %q requires its own destination",
+			"provider tool %q requires its own destination",
 			d.Name,
 		)
 	}
@@ -215,7 +215,7 @@ func (wire codec) hostedTool(d tool.Definition) (map[string]any, error) {
 			)
 		}
 		var options webSearchOptions
-		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+		if err := decodeProviderToolOptions(spec.Options, &options); err != nil {
 			return nil, wire.unsupported("web search options: %v", err)
 		}
 		if options.MaxUses < 0 ||
@@ -245,7 +245,7 @@ func (wire codec) hostedTool(d tool.Definition) (map[string]any, error) {
 			)
 		}
 		var options struct{}
-		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+		if err := decodeProviderToolOptions(spec.Options, &options); err != nil {
 			return nil, wire.unsupported("code execution options: %v", err)
 		}
 	case WebFetchType:
@@ -257,7 +257,7 @@ func (wire codec) hostedTool(d tool.Definition) (map[string]any, error) {
 		var options struct {
 			MaxUses int `json:"max_uses"`
 		}
-		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+		if err := decodeProviderToolOptions(spec.Options, &options); err != nil {
 			return nil, wire.unsupported("web fetch options: %v", err)
 		}
 		if options.MaxUses < 0 {
@@ -268,7 +268,7 @@ func (wire codec) hostedTool(d tool.Definition) (map[string]any, error) {
 		}
 	case MCPToolsetType:
 		var options MCPToolOptions
-		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+		if err := decodeProviderToolOptions(spec.Options, &options); err != nil {
 			return nil, wire.unsupported("mcp toolset options: %w", err)
 		}
 		if err := validateMCPTool(options); err != nil {
@@ -280,7 +280,7 @@ func (wire codec) hostedTool(d tool.Definition) (map[string]any, error) {
 		config["mcp_server_name"] = options.Name
 		delete(config, "name")
 	default:
-		return nil, wire.unsupported("hosted tool type %q", spec.Type)
+		return nil, wire.unsupported("provider tool type %q", spec.Type)
 	}
 	return config, nil
 }
@@ -297,7 +297,7 @@ func validateMCPTool(options MCPToolOptions) error {
 	return nil
 }
 
-func decodeHostedOptions(raw json.RawMessage, out any) error {
+func decodeProviderToolOptions(raw json.RawMessage, out any) error {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -307,7 +307,7 @@ func decodeHostedOptions(raw json.RawMessage, out any) error {
 		return err
 	}
 	if err := decoder.Decode(new(any)); err != io.EOF {
-		return errors.New("messages: hosted options require one JSON object")
+		return errors.New("messages: provider tool options require one JSON object")
 	}
 	return nil
 }

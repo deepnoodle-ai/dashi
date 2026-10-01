@@ -142,9 +142,9 @@ func without(ctx context.Context, key any) context.Context {
 	return context.WithValue(ctx, key, nil)
 }
 
-// turnAt returns a function that replays the turn as recorded now, once and
-// only when asked. Commits only append steps, so the capped slice stays
-// fixed while the run goes on.
+// turnAt returns a function that rebuilds the turn's state as recorded
+// now, once and only when asked. Commits only append steps, so the capped
+// slice stays fixed while the run goes on.
 func (r *runtime) turnAt() func() *replayState {
 	n := len(r.turn.Steps)
 	turn := Turn{ID: r.turn.ID, Steps: r.turn.Steps[:n:n]}

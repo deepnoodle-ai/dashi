@@ -55,7 +55,7 @@ func ExampleRunUntilQuiet() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(out.Answer)
+	fmt.Println(out.Reply)
 	fmt.Println("turn 2:", out.Turn.ID == session.TurnID(s.ID, 2))
 	fmt.Println("origin:", out.Origin)
 	// Output:
@@ -64,9 +64,9 @@ func ExampleRunUntilQuiet() {
 	// origin: scheduled
 }
 
-// A host can withhold a resumable stop, inspect its exact record, and settle
-// the external effect without running that effect again. A settlement alone
-// does not continue the child; the second explicit command does that.
+// A host can withhold a resumable stop, inspect its exact record, and
+// resolve the external effect without running that effect again. A Resolve
+// alone does not continue the child; the second explicit command does that.
 func ExampleTasks_Run() {
 	ctx := context.Background()
 	recorder := dashi.NewMemoryRecorder()
@@ -80,7 +80,7 @@ func ExampleTasks_Run() {
 		Subagents: []delegate.Subagent{{Name: "worker", Description: "Applies a change", Agent: dashi.Agent{Model: dashitest.Model}}},
 		Runner:    dashi.Runner{Client: child, Recorder: recorder},
 		NoticeReady: func(v dashi.TurnView) bool {
-			return v.Stop.Terminal || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
+			return v.Stop.Ended || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
 		},
 		OnTask: func(e delegate.TaskEvent) {
 			if e.Kind == delegate.TaskEnded {
@@ -110,7 +110,7 @@ func ExampleTasks_Run() {
 		fmt.Println(err)
 		return
 	}
-	view, err := dashi.Replay(recorded)
+	view, err := recorded.View()
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -119,17 +119,17 @@ func ExampleTasks_Run() {
 	// This action follows external verification by the operator. It does not
 	// invent the external worker's uncaptured output.
 	command := view.Pending[0].Result(tool.Succeeded("Operator verified this exact call completed; its output was not captured."))
-	out, err := tasks.Run(ctx, delegate.TaskTarget{ID: task.ID, TurnID: task.TurnID, Revision: view.Revision}, command)
+	out, err := tasks.Run(ctx, delegate.TaskTarget{ID: task.ID, TurnID: task.TurnID, LastSeq: view.LastSeq}, command)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	out, err = tasks.Run(ctx, delegate.TaskTarget{ID: task.ID, TurnID: task.TurnID, Revision: out.Revision}, dashi.Continue{CommandID: "finish-verified-child"})
+	out, err = tasks.Run(ctx, delegate.TaskTarget{ID: task.ID, TurnID: task.TurnID, LastSeq: out.LastSeq}, dashi.Continue{CommandID: "finish-verified-child"})
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(out.Answer)
+	fmt.Println(out.Reply)
 	fmt.Println("writes:", writes.Load(), "final notices:", notices.Load())
 	// Output:
 	// child: waiting

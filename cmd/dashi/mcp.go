@@ -18,11 +18,11 @@ import (
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
-type mcpStartupRequest struct{ Name, Fingerprint, Workspace, Review string }
+type mcpStartupRequest struct{ Name, Hash, Workspace, Review string }
 type mcpStartupFunc func(context.Context, mcpStartupRequest) (bool, error)
 
 // mcpRuntime is one run's frozen configuration and forwarding tool snapshot.
-// It builds without effects. Initialize publishes tools before turn admission.
+// It builds without effects. Initialize publishes tools before any turn starts.
 type mcpRuntime struct {
 	dir                    string
 	selection              mcpSelection
@@ -67,11 +67,11 @@ func (m *mcpRuntime) Initialize(ctx context.Context, approve mcpStartupFunc) err
 		HTTPClient: func(string, dashimcp.Server) *http.Client {
 			return &http.Client{Transport: &mcpRedirectTransport{next: http.DefaultTransport}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		},
-		Approve: func(ctx context.Context, name string, s dashimcp.Server, fingerprint string) (bool, error) {
+		Approve: func(ctx context.Context, name string, s dashimcp.Server, hash string) (bool, error) {
 			allowed := false
 			var err error
 			if approve != nil {
-				allowed, err = approve(ctx, mcpStartupRequest{Name: name, Fingerprint: fingerprint, Workspace: m.dir, Review: m.startupReview(name, s)})
+				allowed, err = approve(ctx, mcpStartupRequest{Name: name, Hash: hash, Workspace: m.dir, Review: m.startupReview(name, s)})
 			}
 			m.mu.Lock()
 			if !allowed || err != nil {
@@ -280,7 +280,7 @@ func mcpDiagnostic(err error) string {
 	}
 	// Match known protocol/status terms, never print the underlying exception.
 	text := strings.ToLower(err.Error())
-	// The module marks a lost response explicitly. Preserve that uncertainty
+	// The module marks a lost response explicitly. Preserve that unknown result
 	// before classifying incidental status words from the wrapped exception.
 	if strings.Contains(text, "the call may have run") {
 		return "connection closed; the call may have run"

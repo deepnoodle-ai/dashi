@@ -30,7 +30,7 @@ func (r *flakyLoad) Load(ctx context.Context, id string) (dashi.Turn, error) {
 // step committed. Proof that it did not (a rejected command, a rejected or
 // conflicting start commit) restores them in order; an unknown result loads
 // the turn to decide; a failed load keeps them reserved until the next
-// command settles them. An item is never delivered twice.
+// command decides them. An item is never added twice.
 func TestSessionReservedItems(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -41,24 +41,24 @@ func TestSessionReservedItems(t *testing.T) {
 		consumed  bool
 	}{
 		{name: "start fails validation", badAgent: true},
-		{name: "recorder rejects the start", fault: dashitest.Reject, kind: dashi.StepStarted},
-		{name: "start write lost", fault: dashitest.LoseWrite, kind: dashi.StepStarted},
+		{name: "recorder rejects the start", fault: dashitest.Reject, kind: dashi.StepTurnStarted},
+		{name: "start write lost", fault: dashitest.LoseWrite, kind: dashi.StepTurnStarted},
 		{
 			name:     "start acknowledgement lost",
 			fault:    dashitest.LoseAck,
-			kind:     dashi.StepStarted,
+			kind:     dashi.StepTurnStarted,
 			consumed: true,
 		},
 		{
 			name:     "model step rejected after the start",
 			fault:    dashitest.Reject,
-			kind:     dashi.StepModelIntent,
+			kind:     dashi.StepModelCallStarted,
 			consumed: true,
 		},
 		{
 			name:      "load fails after an unknown result",
 			fault:     dashitest.LoseWrite,
-			kind:      dashi.StepStarted,
+			kind:      dashi.StepTurnStarted,
 			loadFails: 2,
 		},
 	}
@@ -102,7 +102,7 @@ func TestSessionReservedItems(t *testing.T) {
 				}
 				s.Agent.Provider = ""
 				if tc.loadFails > 0 {
-					// Still reserved after Open fails to settle them too;
+					// Still reserved after Open fails to decide them too;
 					// Open itself works (TestSessionQueueBlocked).
 					if st, err := s.Open(t.Context()); err != nil || st.Queued != 2 {
 						t.Fatalf("open: %+v, %v", st, err)
@@ -178,7 +178,7 @@ func TestSessionStreamBreakWriteOnly(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ev.Step != nil && ev.Step.Kind == dashi.StepStarted {
+		if ev.Step != nil && ev.Step.Kind == dashi.StepTurnStarted {
 			break
 		}
 	}
@@ -209,7 +209,7 @@ func TestSessionStreamBreakWriteOnlyContinue(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ev.Step != nil && ev.Step.Kind == dashi.StepStarted {
+		if ev.Step != nil && ev.Step.Kind == dashi.StepTurnStarted {
 			break
 		}
 	}
@@ -242,7 +242,7 @@ type ackLost struct {
 
 func (r *ackLost) Commit(ctx context.Context, req dashi.CommitRequest) error {
 	err := r.MemoryRecorder.Commit(ctx, req)
-	if err == nil && req.Step.TurnID == "s-1" && req.Step.Kind == dashi.StepStarted {
+	if err == nil && req.Step.TurnID == "s-1" && req.Step.Kind == dashi.StepTurnStarted {
 		r.lost.Store(true)
 		return errors.New("acknowledgement lost")
 	}
@@ -256,8 +256,8 @@ func (r *ackLost) Load(ctx context.Context, id string) (dashi.Turn, error) {
 	return r.MemoryRecorder.Load(ctx, id)
 }
 
-// A reservation the session cannot settle holds back only the queue: new
-// commands and Open run, each outcome warns queue_blocked, and RunQueue
+// A reservation the session cannot finish holds back only the queue: new
+// commands and Open run, each result warns queue_blocked, and RunQueue
 // returns the error.
 func TestSessionQueueBlocked(t *testing.T) {
 	mem := dashi.NewMemoryRecorder()

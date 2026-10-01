@@ -114,7 +114,7 @@ func TestInspectionCommandsPreserveOwnedSessionAndFacts(t *testing.T) {
 	a.ctrl.Input("/status " + bSaved.ID)
 	a.ctrl.Wait()
 	text := ui.text()
-	for _, want := range []string{"Session " + bSaved.ID, "retry handler", "Recorded stop: interrupted", "worker liveness unknown", "dashi --resume " + bSaved.ID, "passing recovery checks"} {
+	for _, want := range []string{"Session " + bSaved.ID, "retry handler", "Recorded stop: interrupted", "worker status unknown", "dashi --resume " + bSaved.ID, "passing recovery checks"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q: %s", want, text)
 		}
@@ -184,7 +184,7 @@ func TestStatusDuringWorkDoesNotSteerOrAuthorize(t *testing.T) {
 }
 
 func TestInspectionOwnerGuidanceUsesExactPendingCallAndNoFalseRecovery(t *testing.T) {
-	base := sessionstore.Inspection{Metadata: sessionstore.Session{ID: "target"}, Latest: &sessionstore.Execution{Readable: true, Next: dashi.NextResolve, Pending: []sessionstore.PendingObservation{{ID: "effect-42", UnsafeEffect: true}}}}
+	base := sessionstore.Inspection{Metadata: sessionstore.Session{ID: "target"}, Latest: &sessionstore.Execution{Readable: true, Next: dashi.NextFix, Pending: []sessionstore.PendingObservation{{ID: "effect-42", UnsafeEffect: true}}}}
 	own := inspectionOwner{ID: "target", Owned: true, Mode: ModeIdle}
 	got := inspectionGuidance(base, own)
 	if !strings.Contains(got, "verify the exact external effect for call effect-42") || !strings.Contains(got, "/done effect-42") || strings.Contains(got, "Press Enter") {
@@ -197,7 +197,7 @@ func TestInspectionOwnerGuidanceUsesExactPendingCallAndNoFalseRecovery(t *testin
 	}
 	base.Latest.Readable = true
 	base.Latest.Pending = nil
-	base.Latest.Next = dashi.NextRaiseAttempts
+	base.Latest.Next = dashi.NextRaiseModelCalls
 	if !strings.Contains(inspectionGuidance(base, own), "/continue") {
 		t.Fatal("missing limit route")
 	}
@@ -391,13 +391,13 @@ func TestInspectionEndpointDoesNotConstructClientOrLeakCredentials(t *testing.T)
 	d := p.routes.registry["one"]
 	d.Definition.Endpoint = "https://name:password@one.test/responses?api_key=SECRET#fragment"
 	p.routes.registry["one"] = d
-	fingerprint, _ := d.fingerprint()
+	hash, _ := d.hash()
 	p.routes.factory = func(configuredDestination, func(string) (string, bool), bool) (llm.Client, error) {
 		t.Fatal("inspection constructed client")
 		return nil, nil
 	}
 	ctrl := NewController(t.Context(), e, newRecorderUI(), e.cfg.Store, e.cfg.Dir)
-	report := sessionstore.Inspection{Metadata: *e.Session(), Latest: &sessionstore.Execution{Readable: true, Destination: sessionstore.Destination{Provider: "one", API: "openai.responses", Revision: cliRouteRevision + fingerprint}}, NextDestination: sessionstore.Destination{Provider: "one"}}
+	report := sessionstore.Inspection{Metadata: *e.Session(), Latest: &sessionstore.Execution{Readable: true, Destination: sessionstore.Destination{Provider: "one", API: "openai.responses", Version: cliRouteVersion + hash}}, NextDestination: sessionstore.Destination{Provider: "one"}}
 	got := ctrl.inspectionDestinations(report)
 	for _, secret := range []string{"password", "api_key", "SECRET", "fragment", "name:"} {
 		if strings.Contains(got, secret) {
@@ -407,7 +407,7 @@ func TestInspectionEndpointDoesNotConstructClientOrLeakCredentials(t *testing.T)
 	if !strings.Contains(got, "unavailable (recorded binding") {
 		t.Fatal(got)
 	}
-	report.Latest.Destination.Revision = "unknown"
+	report.Latest.Destination.Version = "unknown"
 	if got = ctrl.inspectionDestinations(report); !strings.Contains(got, "unavailable (recorded binding") {
 		t.Fatal(got)
 	}

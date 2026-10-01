@@ -99,7 +99,7 @@ func taskLineState(state delegate.TaskState) string {
 	case delegate.TaskState(dashi.StopCompleted):
 		return StateOK
 	case delegate.TaskState(dashi.StopFailed), delegate.TaskState(dashi.StopRefused),
-		delegate.TaskState(dashi.StopUncertain), taskRecordUnavailable:
+		delegate.TaskState(dashi.StopResultUnknown), taskRecordUnavailable:
 		return StateFailed
 	}
 	return StateWaiting
@@ -333,7 +333,7 @@ func (c *Controller) scheduleTaskNotices() {
 		return
 	}
 	if c.eng.HasPending() {
-		c.emit(Block{ID: "task-delivery", Kind: KindNotice, Text: "Task results are waiting behind the pending parent admission. Inspection does not consume them.", Done: true})
+		c.emit(Block{ID: "task-delivery", Kind: KindNotice, Text: "Task results will be delivered after the current prompt is saved. Viewing them here does not use them up.", Done: true})
 		return
 	}
 	if last := c.eng.Last(c.base); last != nil && last.Open() {
@@ -347,8 +347,8 @@ func (c *Controller) scheduleTaskNotices() {
 	}
 	c.taskPump = true
 	c.mu.Unlock()
-	// startRun retains the sole parent command owner. A pending admission or a
-	// stopped parent yields without continuation or an inferred permission.
+	// startRun retains the sole parent command owner. A pending parent prompt
+	// or a stopped parent yields without continuation or an inferred permission.
 	if !c.startRun(func(ctx context.Context) (Result, error) {
 		defer func() { c.mu.Lock(); c.taskPump = false; c.mu.Unlock() }()
 		return c.eng.DriveTaskNotices(ctx)
@@ -390,14 +390,14 @@ func (e *Engine) inspectTask(ctx context.Context, id string) (taskSnapshot, erro
 		if err != nil {
 			return taskSnapshot{}, err
 		}
-		view, err := dashi.Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			return taskSnapshot{}, err
 		}
 		if view.Parent == nil || *view.Parent != task.Parent {
 			return taskSnapshot{}, fmt.Errorf("task parent identity differs")
 		}
-		return taskSnapshot{Task: task, Turn: turn, View: view, Target: delegate.TaskTarget{ID: id, TurnID: turn.ID, Revision: view.Revision}, Bound: true}, nil
+		return taskSnapshot{Task: task, Turn: turn, View: view, Target: delegate.TaskTarget{ID: id, TurnID: turn.ID, LastSeq: view.LastSeq}, Bound: true}, nil
 	}
 	host.mu.Lock()
 	saved, ok := host.recorded[id]
@@ -413,7 +413,7 @@ func taskDetails(snapshot taskSnapshot) string {
 	if !snapshot.Bound {
 		b.WriteString("Recorded child; live binding is unavailable. Restore its destination/tools and reopen this session before task controls.\n")
 	}
-	fmt.Fprintf(&b, "Task %s · %s\nChild Turn: %s · revision %d\nParent: %s · call %s\nState: %s · stop %s · terminal %t\nDestination: %s / %s / %s\n%s\n", snapshot.Task.ID, snapshot.Task.Subagent, v.ID, v.Revision, snapshot.Task.Parent.TurnID, snapshot.Task.Parent.CallID, snapshot.Task.State, v.Stop.Kind, v.Stop.Terminal, v.Agent.Provider, v.Agent.API, v.Agent.Model, snapshot.Task.Description)
+	fmt.Fprintf(&b, "Task %s · %s\nChild Turn: %s · step %d\nParent: %s · call %s\nState: %s · stop %s · ended %t\nDestination: %s / %s / %s\n%s\n", snapshot.Task.ID, snapshot.Task.Subagent, v.ID, v.LastSeq, snapshot.Task.Parent.TurnID, snapshot.Task.Parent.CallID, snapshot.Task.State, v.Stop.Kind, v.Stop.Ended, v.Agent.Provider, v.Agent.API, v.Agent.Model, snapshot.Task.Description)
 	if snapshot.Prompt != nil {
 		fmt.Fprintf(&b, "Live approval/answer pending · Turn %s · original call %s. Inspection does not answer it.\n", snapshot.Prompt.TurnID, snapshot.Prompt.CallID)
 	}
@@ -422,13 +422,13 @@ func taskDetails(snapshot taskSnapshot) string {
 		spend = cost + " (" + spend + ")"
 	}
 	calls, tools := snapshot.Task.ModelCalls, snapshot.Task.ToolCalls
-	fmt.Fprintf(&b, "Child spend: %s\nWork: %d model %s · %d tool %s\nEstimated usage calls: %d · usage incomplete %t\nAttempt cap: %d; no child monetary cap. Parent caps exclude children.\n", spend, calls, plural(calls, "call"), tools, plural(tools, "call"), snapshot.Task.Spend.Estimated, snapshot.Task.Spend.UsageIncomplete, v.Agent.Limits.ModelAttempts)
+	fmt.Fprintf(&b, "Child spend: %s\nWork: %d model %s · %d tool %s\nEstimated usage calls: %d · usage incomplete %t\nModel-call cap: %d; no child monetary cap. Parent caps exclude children.\n", spend, calls, plural(calls, "call"), tools, plural(tools, "call"), snapshot.Task.Spend.Estimated, snapshot.Task.Spend.UsageIncomplete, v.Agent.Limits.ModelCalls)
 	calls, unresolved := taskDispatchCounts(snapshot.Turn)
-	fmt.Fprintf(&b, "This Turn: %d confirmed model dispatches · %d unresolved intents. Attempts and estimates do not prove Send.\nTokens: input %d · output %d · cache writes %d · cache reads %d; cache-write reporting unavailable %t · total mismatch %t.\n", calls, unresolved, v.Spend.Usage.InputTokens, v.Spend.Usage.OutputTokens, v.Spend.Usage.CacheCreationInputTokens, v.Spend.Usage.CacheReadInputTokens, v.Spend.Usage.CacheCreationInputTokensUnavailable, v.Spend.Usage.TotalTokenCountMismatch)
+	fmt.Fprintf(&b, "This Turn: %d model calls confirmed sent · %d started model calls with no recorded result. Started calls and estimates do not prove a request was sent.\nTokens: input %d · output %d · cache writes %d · cache reads %d; cache-write reporting unavailable %t · total mismatch %t.\n", calls, unresolved, v.Spend.Usage.InputTokens, v.Spend.Usage.OutputTokens, v.Spend.Usage.CacheCreationInputTokens, v.Spend.Usage.CacheReadInputTokens, v.Spend.Usage.CacheCreationInputTokensUnavailable, v.Spend.Usage.TotalTokenCountMismatch)
 	if len(snapshot.Turn.Steps) > 0 && snapshot.Turn.Steps[0].Started != nil {
 		for _, m := range snapshot.Turn.Steps[0].Started.Input {
 			if m.Context != nil {
-				fmt.Fprintf(&b, "Admitted resource: %s / %s (recorded snapshot; no file reads)\n", m.Context.Origin, m.Context.Name)
+				fmt.Fprintf(&b, "Accepted resource: %s / %s (recorded snapshot; no file reads)\n", m.Context.Origin, m.Context.Name)
 			}
 			for _, part := range m.Content {
 				if part.Block == nil {
@@ -442,7 +442,7 @@ func taskDetails(snapshot taskSnapshot) string {
 					source = &part.Block.Document.Source
 				}
 				if source != nil && source.Ref != nil {
-					fmt.Fprintf(&b, "Admitted evidence: %s · %d bytes · SHA256 %s · ref %s (unresolved)\n", source.MIMEType, source.Ref.Size, source.Ref.SHA256, source.Ref.ID)
+					fmt.Fprintf(&b, "Accepted attachment: %s · %d bytes · SHA256 %s · ref %s (unresolved)\n", source.MIMEType, source.Ref.Size, source.Ref.SHA256, source.Ref.ID)
 				}
 			}
 		}
@@ -462,11 +462,11 @@ func taskDetails(snapshot taskSnapshot) string {
 	}
 	if snapshot.Task.Running() {
 		fmt.Fprintf(&b, "Live lower bounds. Stop: /task-stop %s\n", snapshot.Task.ID)
-	} else if !v.Stop.Terminal {
+	} else if !v.Stop.Ended {
 		fmt.Fprintf(&b, "Target controls: /task %s continue · /task %s done CALL_ID · /task %s discard\nContinue requires the recorded remedy; done requires verified completion of the exact started call.\n", snapshot.Task.ID, snapshot.Task.ID, snapshot.Task.ID)
 	}
 	for _, step := range snapshot.Turn.Steps {
-		if step.Kind == dashi.StepToolSettled && step.Tool != nil && step.Tool.Outcome != nil {
+		if step.Kind == dashi.StepToolFinished && step.Tool != nil && step.Tool.Outcome != nil {
 			fmt.Fprintf(&b, "Recorded tool result: %s · call %s · %s\n%s\n", step.Tool.Call.Name, step.Tool.Call.ID, step.Tool.Outcome.State, taskDetailText(outputText(step.Tool.Outcome)))
 		}
 		if step.Model != nil && step.Model.Result != nil && step.Model.Purpose != dashi.ModelPurposeCompaction {
@@ -479,34 +479,35 @@ func taskDetails(snapshot taskSnapshot) string {
 	return workspace.PrintableText(b.String())
 }
 
-// A model intent establishes an attempt; only settlement evidence establishes
-// a confirmed dispatch. Unsettled/unknown outcomes keep separate uncertainty.
+// A model_call_started step counts a started call; only a recorded result
+// counts a call as confirmed sent. Unfinished calls and calls whose result is
+// unknown are counted separately.
 func taskDispatchCounts(turn dashi.Turn) (int, int) {
-	intents, settled, dispatched := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	callStarts, finished, dispatched := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, step := range turn.Steps {
 		f := step.Model
 		if f == nil {
 			continue
 		}
-		if step.Kind == dashi.StepModelIntent {
-			intents[f.AttemptID] = true
+		if step.Kind == dashi.StepModelCallStarted {
+			callStarts[f.ModelCallID] = true
 			continue
 		}
-		if step.Kind != dashi.StepModelSettled && step.Kind != dashi.StepModelReconciled {
+		if step.Kind != dashi.StepModelCallFinished && step.Kind != dashi.StepModelCallFinishedByHost {
 			continue
 		}
-		settled[f.AttemptID] = !f.Uncertain && f.Failure != llm.FailureUnknown
-		if f.NoDispatch || f.Failure == llm.FailureNotDispatched {
+		finished[f.ModelCallID] = !f.ResultUnknown && f.SendStatus != llm.SendStatusUnknown
+		if f.NotSent || f.SendStatus == llm.SendStatusNotSent {
 			continue
 		}
 		r := f.Result
-		if f.Failure == llm.FailureRejected || r != nil && (r.ID != "" || len(r.Message.Content) > 0 || r.Usage != nil || r.Stop.Kind != "") {
-			dispatched[f.AttemptID] = true
+		if f.SendStatus == llm.SendStatusProviderRejected || r != nil && (r.ID != "" || len(r.Message.Content) > 0 || r.Usage != nil || r.Stop.Kind != "") {
+			dispatched[f.ModelCallID] = true
 		}
 	}
 	unresolved := 0
-	for id := range intents {
-		if !settled[id] {
+	for id := range callStarts {
+		if !finished[id] {
 			unresolved++
 		}
 	}

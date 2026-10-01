@@ -1,4 +1,4 @@
-// Command structured_output runs one agent turn whose final answer must match
+// Command structured_output runs one agent turn whose final reply must match
 // a JSON schema, then decodes the validated value into a Go struct. Set
 // OPENAI_API_KEY before running it; OPENAI_MODEL optionally overrides the
 // catalog's default model.
@@ -17,7 +17,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
 
-// Person is the shape of the turn's final answer. The schema is generated
+// Person is the shape of the turn's final reply. The schema is generated
 // from it, so the struct and the contract the model sees cannot drift apart.
 type Person struct {
 	Name       string   `json:"name" description:"Full name"`

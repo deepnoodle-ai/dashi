@@ -16,7 +16,7 @@ import (
 // metadata can arrive on later chunks. A read failure retains the parts
 // already observed.
 //
-// Hosted-tool counts reach the final Usage whichever chunk carried them:
+// Provider-tool counts reach the final Usage whichever chunk carried them:
 // the assembled response keeps the latest grounding and URL context metadata,
 // and the counts seen across all chunks are merged in by maximum, so metadata
 // that repeats across chunks is never summed.

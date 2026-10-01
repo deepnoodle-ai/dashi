@@ -41,14 +41,15 @@ func toolNames(defs []tool.Definition) []string {
 	return names
 }
 
-// intentOf returns the n-th recorded model intent.
-func intentOf(t *testing.T, turn Turn, n int) *ModelFact {
+// callStartOf returns the model fact of the n-th recorded
+// model_call_started step.
+func callStartOf(t *testing.T, turn Turn, n int) *ModelFact {
 	t.Helper()
-	prefix := prefixThrough(t, turn, StepModelIntent, n)
+	prefix := prefixThrough(t, turn, StepModelCallStarted, n)
 	return prefix.Steps[len(prefix.Steps)-1].Model
 }
 
-func countWarnings(out Outcome, code WarningCode) int {
+func countWarnings(out RunResult, code WarningCode) int {
 	n := 0
 	for _, w := range out.Warnings {
 		if w.Code == code {
@@ -64,7 +65,7 @@ func runAgent(
 	client *scriptedClient,
 	tools tool.Toolset,
 	hooks Hooks,
-) Outcome {
+) RunResult {
 	t.Helper()
 	out, err := (Runner{Client: client, Tools: tools, Hooks: hooks}).Run(
 		t.Context(),
@@ -94,12 +95,12 @@ func TestHideRemovesToolsFromTheCall(t *testing.T) {
 	if got := toolNames(client.inputs[0].Tools); !slices.Equal(got, []string{"read"}) {
 		t.Fatalf("offered %v", got)
 	}
-	intent := intentOf(t, out.Turn, 1)
-	if got := toolNames(intent.Tools); !slices.Equal(got, []string{"read"}) {
-		t.Fatalf("intent tools = %v", got)
+	callStart := callStartOf(t, out.Turn, 1)
+	if got := toolNames(callStart.Tools); !slices.Equal(got, []string{"read"}) {
+		t.Fatalf("call start tools = %v", got)
 	}
-	if !slices.Equal(intent.Hidden, []string{"write", "bash"}) {
-		t.Fatalf("intent hidden = %v", intent.Hidden)
+	if !slices.Equal(callStart.Hidden, []string{"write", "bash"}) {
+		t.Fatalf("call start hidden = %v", callStart.Hidden)
 	}
 	if len(out.Warnings) != 0 {
 		t.Fatalf("warnings = %+v", out.Warnings)
@@ -237,11 +238,11 @@ func TestInvalidHideAnswerIsSkippedWhole(t *testing.T) {
 	}
 }
 
-func TestHideWithDeliverAppliesBoth(t *testing.T) {
+func TestHideWithAddMessagesAppliesBoth(t *testing.T) {
 	both := ModelHook{Name: "plan", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
 		return ModelDecision{
 			Hide: []string{"write", "nope"},
-			Deliver: []ContextItem{{
+			AddMessages: []ContextItem{{
 				Origin:  ContextRuntime,
 				Message: llm.UserMessage(llm.Text("plan mode is on")),
 			}},
@@ -259,7 +260,7 @@ func TestHideWithDeliverAppliesBoth(t *testing.T) {
 	}
 	delivered := false
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepDelivered {
+		if step.Kind == StepMessagesAdded {
 			delivered = true
 			if len(step.Warnings) != 1 || step.Warnings[0].Code != WarningHideIgnored {
 				t.Fatalf("delivered step warnings = %+v", step.Warnings)
@@ -271,9 +272,9 @@ func TestHideWithDeliverAppliesBoth(t *testing.T) {
 	}
 }
 
-func TestHideHasNoEffectOnTheReservedFinalAnswer(t *testing.T) {
+func TestHideHasNoEffectOnTheReservedFinalReply(t *testing.T) {
 	agent := structuredAgent()
-	agent.Limits.ModelAttempts = 2
+	agent.Limits.ModelCalls = 2
 	remote := &valueTool{}
 	client := &scriptedClient{results: []llm.Result{
 		callResult("call-1", "remote"),
@@ -292,17 +293,17 @@ func TestHideHasNoEffectOnTheReservedFinalAnswer(t *testing.T) {
 	if got := toolNames(client.inputs[1].Tools); !slices.Equal(got, []string{SubmitOutputTool}) {
 		t.Fatalf("final call tools = %v", got)
 	}
-	if len(intentOf(t, out.Turn, 2).Hidden) != 0 {
+	if len(callStartOf(t, out.Turn, 2).Hidden) != 0 {
 		t.Fatalf("final call recorded hides")
 	}
-	// Replay rejects a record that claims hides on the final call.
+	// turn.View() rejects a record that claims hides on the final call.
 	turn := cloneTurn(out.Turn)
 	for i, step := range turn.Steps {
-		if step.Kind == StepModelIntent && step.Model.FinalAnswerOnly {
+		if step.Kind == StepModelCallStarted && step.Model.FinalReplyOnly {
 			turn.Steps[i].Model.Hidden = []string{"remote"}
 		}
 	}
-	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+	if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("replay err = %v", err)
 	}
 }
@@ -367,14 +368,14 @@ func TestHiddenCallResolvesFromTheRecordAfterACrash(t *testing.T) {
 	_, err := (Runner{
 		Client:   client,
 		Tools:    tools,
-		Recorder: &failNthKind{base: base, kind: StepToolSettled, n: 1},
+		Recorder: &failNthKind{base: base, kind: StepToolFinished, n: 1},
 		Hooks:    hider.Hooks(),
 	}).Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
 		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
-	if persistence(err) != PersistenceRejected {
+	if !nothingWritten(err) {
 		t.Fatalf("err = %v", err)
 	}
 	saved, err := base.Load(t.Context(), "t1")
@@ -434,11 +435,11 @@ func TestReplayRejectsInvalidHiddenTools(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			turn := cloneTurn(out.Turn)
 			for i, step := range turn.Steps {
-				if step.Kind == StepModelIntent {
+				if step.Kind == StepModelCallStarted {
 					turn.Steps[i].Model.Hidden = hidden
 				}
 			}
-			if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+			if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 				t.Fatalf("replay err = %v", err)
 			}
 		})

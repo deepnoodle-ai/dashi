@@ -58,7 +58,7 @@ func TestAcknowledgedHistoricalNoticeStillRequiresAttention(t *testing.T) {
 	}
 	var notices atomic.Int32
 	ts := NewTasks(Config{NoticeReady: func(v dashi.TurnView) bool {
-		return v.Stop.Terminal || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
+		return v.Stop.Ended || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
 	}, OnTask: func(e TaskEvent) {
 		if e.Kind == TaskEnded {
 			notices.Add(1)
@@ -78,7 +78,7 @@ func TestAcknowledgedHistoricalNoticeStillRequiresAttention(t *testing.T) {
 	if idle || !errors.As(err, &attention) {
 		t.Fatalf("idle=%v err=%v", idle, err)
 	}
-	if _, err = ts.Run(ctx, TaskTarget{ID: task.id, TurnID: child, Revision: out.Revision}, dashi.Cancel{CommandID: "discard", Reason: "operator discarded"}); err != nil {
+	if _, err = ts.Run(ctx, TaskTarget{ID: task.id, TurnID: child, LastSeq: out.LastSeq}, dashi.Cancel{CommandID: "discard", Reason: "operator discarded"}); err != nil {
 		t.Fatal(err)
 	}
 	if idle, err = ts.Wait(ctx); !idle || err != nil {

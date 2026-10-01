@@ -15,7 +15,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
 )
 
-// sendPlans records each admission plan and otherwise allows everything.
+// sendPlans records each send plan and otherwise allows everything.
 type sendPlans struct {
 	plans []dashi.SendPlan
 }
@@ -36,7 +36,7 @@ func (p *sendPlans) hooks() dashi.Hooks {
 // A cost cap used to stop every turn whose settings left MaxTokens unset on a
 // provider that does not require it, because the worst case was unbounded.
 // The shared default output limit now bounds it.
-func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
+func TestCostCapAllowsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 	var sent []byte
 	server := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +99,7 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 			CommandID: "start",
 			Agent: dashi.Agent{
 				ID:       "agent",
-				Revision: "r1",
+				Version:  "r1",
 				Provider: "router",
 				API:      completions.API,
 				Model:    "priced",
@@ -119,7 +119,7 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 	if out.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("capped turn with default settings stopped %+v", out.Stop)
 	}
-	if len(plans.plans) != 1 || plans.plans[0].AtRisk == nil {
+	if len(plans.plans) != 1 || plans.plans[0].WorstCaseCost == nil {
 		t.Fatal("cost risk was not bounded before dispatch")
 	}
 	effective := plans.plans[0].Request.Effective()

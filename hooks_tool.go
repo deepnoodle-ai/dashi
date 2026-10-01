@@ -16,7 +16,7 @@ import (
 // authorizeTool runs the BeforeTool chain for a call whose arguments match
 // its schema, and returns the call as rewritten and the combined verdict. A
 // failing hook denies the call, since BeforeTool guards execution, and the
-// model sees only the hook's name. The returned Outcome is set when the
+// model sees only the hook's name. The returned RunResult is set when the
 // run's context ended during a hook.
 //
 // Steering's check for a pending urgent steer belongs just before this call
@@ -26,11 +26,11 @@ func (r *runtime) authorizeTool(
 	def tool.Definition,
 	call tool.Call,
 	ex tool.Executor,
-) (tool.Call, ToolVerdict, *Outcome) {
+) (tool.Call, ToolVerdict, *RunResult) {
 	pass := 0
 	mark := r.hookMark()
-	// A mid-run view: its Stop stays empty, unlike Replay's. Nothing is
-	// committed during the chain, so one replay serves every hook.
+	// A mid-run view: its Stop stays empty, unlike turn.View()'s. Nothing
+	// is committed during the chain, so one view serves every hook.
 	view := TurnView{}
 	if current, err := replay(r.turn); err == nil {
 		view = current.TurnView
@@ -60,16 +60,16 @@ restart:
 			}, nil
 		}
 		if len(d.Rewrite) > 0 {
-			if ArgsDigest(d.Rewrite) == ArgsDigest(call.Args) {
+			if ArgsHash(d.Rewrite) == ArgsHash(call.Args) {
 				continue
 			}
 			r.addHookResult(HookResult{
-				Point:    HookBeforeTool,
-				Name:     h.Name,
-				Verdict:  VerdictRewrite,
-				Pass:     pass,
-				Revision: d.Revision,
-				Reason:   d.Reason,
+				Point:        HookBeforeTool,
+				Name:         h.Name,
+				Verdict:      VerdictRewrite,
+				Pass:         pass,
+				RulesVersion: d.RulesVersion,
+				Reason:       d.Reason,
 			})
 			if pass == maxRewrites {
 				r.pendingWarnings = append(r.pendingWarnings, Warning{
@@ -97,23 +97,23 @@ restart:
 			continue
 		}
 		r.addHookResult(HookResult{
-			Point:    HookBeforeTool,
-			Name:     h.Name,
-			Verdict:  HookVerdict(d.Kind),
-			Pass:     pass,
-			Revision: d.Revision,
-			Reason:   d.Reason,
+			Point:        HookBeforeTool,
+			Name:         h.Name,
+			Verdict:      HookVerdict(d.Kind),
+			Pass:         pass,
+			RulesVersion: d.RulesVersion,
+			Reason:       d.Reason,
 		})
 		verdict := ToolVerdict{
-			Kind:     d.Kind,
-			Reason:   d.Reason,
-			Hook:     h.Name,
-			Revision: d.Revision,
+			Kind:         d.Kind,
+			Reason:       d.Reason,
+			Hook:         h.Name,
+			RulesVersion: d.RulesVersion,
 		}
 		switch d.Kind {
 		case DecisionDeny:
 			return call, verdict, nil
-		case DecisionDefer:
+		case DecisionNeedsApproval:
 			if deferred == nil {
 				deferred = &verdict
 			}
@@ -152,13 +152,13 @@ func validToolDecision(
 		return nil
 	}
 	switch d.Kind {
-	case "", DecisionAllow, DecisionDeny, DecisionDefer:
+	case "", DecisionAllow, DecisionDeny, DecisionNeedsApproval:
 		return nil
 	}
 	return fmt.Errorf("invalid decision kind %q", d.Kind)
 }
 
-// afterTool settles what the model sees of a tool or host result about to be
+// afterTool decides what the model sees of a tool or host result about to be
 // recorded. It runs the AfterTool chain, then applies the result limit, and
 // sets fact.Result when either changed the view. The limit runs last, so a
 // hook sees the full text and cannot bring the flood back.
