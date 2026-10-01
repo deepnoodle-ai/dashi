@@ -19,7 +19,9 @@ import (
 // A turn that cannot be replayed or projected is left out with a
 // WarningTurnUnreadable, as a history that loses one old turn is still worth
 // sending. When the compaction turn used has a Digest and turns holds turns
-// before it, they are checked against it; a mismatch warns
+// before it, they are checked against it (compaction.Compactor and a
+// Session set it; a host with its own compactor sets it with
+// HistoryFingerprint); a mismatch warns
 // WarningCompactionMismatch, and the replacement history is still used.
 //
 // The result shares message content with the turns, so the caller must not

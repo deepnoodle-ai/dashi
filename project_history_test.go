@@ -164,3 +164,31 @@ func TestProjectHistoryMatchesSession(t *testing.T) {
 		t.Fatalf("warnings=%v", warnings)
 	}
 }
+
+// A Session fills the digest a custom Compactor leaves empty, from the
+// history it compacted, so the check still applies.
+func TestSessionFillsEmptyCompactionDigest(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(
+		dashitest.Reply("one"),
+		used("two", 100),
+		dashitest.Reply("summary"),
+		dashitest.Reply("three"),
+	)
+	s := handle(rec, client)
+	s.New = true
+	s.Compactor = keepLast{limit: 100, keep: 1} // leaves Digest empty
+	sendAll(t, s, "first", "second")
+	before, err := s.ProjectedHistory(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := dashi.HistoryFingerprint(before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sendAll(t, s, "third")
+	if got := load(t, rec, "s-3").Compaction.Digest; got != want {
+		t.Fatalf("digest=%q, want %q", got, want)
+	}
+}

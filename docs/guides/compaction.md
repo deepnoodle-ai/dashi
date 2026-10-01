@@ -126,7 +126,9 @@ model; a session fills in its own. `Compactor.Start` records the
 `HistoryFingerprint` of the history it replaces as the fact's `Digest`, and
 `ProjectHistory` checks it against the turns before the compaction turn, for
 a host's turns and a session's alike; a mismatch warns `compaction_mismatch`.
-`Through` is optional; a session sets it. Use `compaction.LastUsage`, not
+A session fills an empty `Digest` itself. A host with a custom compactor sets
+it with `dashi.HistoryFingerprint(history)`; a fact without one is not
+checked. `Through` is optional; a session sets it. Use `compaction.LastUsage`, not
 `Spend.Usage`, for `Needed`: the spend sums every call, and each call in a
 tool loop sends the whole history again. Do not compact while a turn waits to
 continue: `Continue` must get the history the turn started with.

@@ -30,16 +30,11 @@ func (c keepLast) Start(projected []llm.Message) (dashi.Start, error) {
 	if c.err != nil {
 		return dashi.Start{}, c.err
 	}
-	digest, err := dashi.HistoryFingerprint(projected)
-	if err != nil {
-		return dashi.Start{}, err
-	}
 	return dashi.Start{
 		Input: []llm.Message{llm.UserMessage(llm.Text("Summarize."))},
 		Compaction: &dashi.CompactionFact{
-			Keep:   slices.Clone(projected[len(projected)-c.keep:]),
-			Frame:  "Summary:",
-			Digest: digest,
+			Keep:  slices.Clone(projected[len(projected)-c.keep:]),
+			Frame: "Summary:",
 		},
 	}, nil
 }

@@ -160,9 +160,9 @@ type Compactor interface {
 	// Start builds the compaction turn's Start: a summarizer agent, the
 	// summary request as Input, and Compaction with the kept messages,
 	// where the summary goes among them, its frame, and its Digest, the
-	// HistoryFingerprint of projected (without one, nothing is checked).
-	// The session sets the command ID, origin, history, and Through, turns
-	// tools off, and applies the caller's Start.Budget when it has one.
+	// HistoryFingerprint of projected. The session sets the command ID,
+	// origin, history, and Through, fills an empty Digest, turns tools
+	// off, and applies the caller's Start.Budget when it has one.
 	Start(projected []llm.Message) (Start, error)
 }
 
@@ -303,6 +303,12 @@ func (s *Session) buildCompaction(
 	c.History = nil
 	c.Compaction = c.Compaction.clone()
 	c.Compaction.Through = last
+	if c.Compaction.Digest == "" {
+		// A custom Compactor may leave it empty; the check still applies.
+		if c.Compaction.Digest, err = historyFingerprint(projected); err != nil {
+			return nil, err
+		}
+	}
 	if c.Agent.Model == "" {
 		// The summary is written by the session's model, unless the
 		// compactor names another.
