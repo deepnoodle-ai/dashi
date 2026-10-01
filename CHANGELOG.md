@@ -86,6 +86,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Like `Progress.Data`, Data that is not valid JSON or exceeds 64 KiB is
   dropped, and the step records the new `WarningToolDataDropped`; the call
   still succeeds.
+- **`session.Session.Delivered` drops queued items that the record shows
+  delivered another way,** just before a queue turn, so they start no turn.
 
 ### Fixed
 
@@ -99,19 +101,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   that a finished task's result starts now opens with `↳ task t_k3f2
   (explore) completed · result delivered`, live, after a reopen, inline, and
   in plain output.
-- **A task result the agent read with `task_status` is not sent again.** When
-  `task_status` gives the agent a task's final result, that counts as
-  delivery: no `task-ended` reminder follows, and the CLI starts no extra
-  turn for it, also after a reopen. The call's recorded outcome names the
-  child turn it delivered, so delivery never depends on the result's text
-  (decision 46). A `TaskEnded` event for such a turn has the new
-  `AlreadyDelivered` set, and a host that holds notices checks the new
-  `delegate.DeliveredNotices(turns)`. A notice already on `Config.Session` is
-  taken back with the new `Session.Withdraw`. A read whose result the parent
-  never records, as when the turn is canceled first, gives the result back:
-  the notice reaches the agent on the next turn. Reading a running task or
-  the task list delivers nothing, and the user's `/task` and `/tasks` still
-  never count as delivery.
+- **A task result the agent read with `task_status` is not sent again.** A
+  `task_status` call that returns a task's final result records the child
+  turn in its outcome's `Data`, and the new `delegate.DeliveredNotices(turns)`
+  counts it as delivery (decision 46). The record is checked just before a
+  notice is delivered: on `Recover`, before a queue turn (the new
+  `Session.Delivered`, which `NewTasks` sets), and by the CLI, which holds
+  notices until the turn ends. So the read starts no extra turn, also after
+  a reopen. A notice that reaches a running turn is not checked, so the
+  model may see a result twice in that turn. If the parent turn is canceled
+  before the read is recorded, the notice goes out on the next turn. Reading
+  a running task or the task list delivers nothing, and the user's `/task`
+  and `/tasks` never count as delivery.
 - **The CLI no longer says task results wait for a stopped parent while the
   parent runs.** The line now shows only when the turn really stopped, and
   says what to do: "Task results will be sent when this turn goes on. Press

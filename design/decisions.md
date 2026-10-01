@@ -522,21 +522,23 @@ Decided. The delivery rule kept the record as the only proof, and so ignored
 `task_status` reads: the record could not tell which child turn a read
 showed. A model that read the result then got the notice too, often in a
 whole extra turn that cost money for nothing. Now a `task_status` call that
-delivers a result says so in its outcome's structured `Data`
+returns a turn's final result says so in its outcome's structured `Data`
 (`{"delivered_turn_id": ...}`), and a recorded call with that field delivers
-the turn it names. Live, the read marks the turn under the lock that sending
-a notice takes, so the read and the notice never both carry it; a wait owns
-the end it waits for, and a notice already on `Config.Session` is withdrawn
-(`Session.Withdraw`), or the read does not deliver. The live claim is
-provisional: Tasks watches the parent's record until it settles the call.
-Recorded, the turn is reported with `AlreadyDelivered`; a turn that stops
-before the result is saved, or a record that does not settle in 30 seconds,
-gives the result back to the notice, so it is not lost for the session. A
-repeated result is better than a lost one. A read of a running task,
-the task list, a deferred stop, and user inspection (`/task`, `/tasks`)
-deliver nothing. Rationale: the record stays the only proof, so a crash
-before the read is recorded still redelivers on reopen. The marker is a turn
-ID, not text: matching the read's text against the notice confused equal
+the turn it names (`delegate.DeliveredNotices`). The read changes nothing
+else: notices are produced and queued as before, and the record is checked
+just before one is delivered: on `Recover`, before a queue turn
+(`Session.Delivered`, which `NewTasks` sets), and in a host that holds
+notices until the turn ends, as the CLI does. A parent turn that is canceled
+or fails before the read is recorded has no read, so the notice goes out on
+the next turn. A notice that reaches a running turn is not checked, so the
+model may see a result twice in one turn, but no turn runs for it. A read of
+a running task, the task list, a deferred or interrupted stop, and user
+inspection (`/task`, `/tasks`) deliver nothing. Rationale: checking the
+record at delivery needs no locks, claims, or timers, and a crash before the
+read is recorded still redelivers on reopen. An earlier version claimed the
+result live at read time, which needed a way to withdraw queued notices, a
+give-back when the turn stopped first, and a 30-second wait for the record
+to settle. The marker is a turn ID, not text: matching text confused equal
 replies and broke when the wording or `MaxReply` changed. `Data` is a generic
 field of `tool.Outcome` (as `Progress.Data` is of progress), so the root
 package learns nothing about tasks.
