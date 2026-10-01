@@ -56,6 +56,7 @@ type screen struct {
 	frame                 uint64
 	approval              *approvalPrompt
 	asking                *askPrompt
+	dialogStatus          *dialogStatusInput
 	picker                *pickerState
 	quitting              bool
 	width                 int
@@ -316,6 +317,7 @@ func (s *screen) drain() {
 	s.pendMu.Unlock()
 	for _, q := range items {
 		if q.reset {
+			s.endDialogStatus()
 			s.tr = Transcript{}
 			s.attachments.clear()
 			s.attachmentInput = nil
@@ -353,12 +355,19 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		if e.prompt != s.promptID {
 			return nil
 		}
+		if e.id == dialogStatusInputID && s.dialogStatus == nil {
+			return nil
+		}
 		return []tui.Cmd{tui.Focus(e.id)}
 	case inputActionEvent:
 		if e.prompt == 0 && s.promptActive || e.prompt != 0 && (!s.promptActive || e.prompt != s.promptID) {
 			return nil
 		}
 		return s.key(e.key)
+	case dialogStatusKeyEvent:
+		if s.dialogStatusActive(e.input) {
+			return s.dialogStatusKey(e.key)
+		}
 	case transcriptCommandEvent:
 		s.transcriptCommand(e.name, e.arg)
 	case clipboardResultEvent:
@@ -379,6 +388,7 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 			s.savedDraft = s.input
 		}
 		s.promptActive, s.promptID, s.input = true, e.id, ""
+		s.endDialogStatus()
 		s.approval, s.asking, s.picker = e.approval, e.asking, e.picker
 		return []tui.Cmd{tui.Focus(s.focusID())}
 	case endPromptEvent:
@@ -394,6 +404,7 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 const inputID = "main-input"
 
 func (s *screen) clearPrompts() {
+	s.endDialogStatus()
 	s.approval, s.asking, s.picker = nil, nil, nil
 	if s.promptActive {
 		s.input, s.savedDraft, s.promptActive = s.savedDraft, "", false
@@ -406,6 +417,18 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 	}
 	if isCtrlC(e) {
 		return s.interrupt()
+	}
+	if s.dialogStatus != nil {
+		return s.dialogStatusKey(e)
+	}
+	if (s.approval != nil && !s.approval.denying || s.asking != nil && !s.asking.own) &&
+		(e.Rune == '/' || strings.HasPrefix(strings.TrimSpace(e.Paste), "/")) {
+		value := "/"
+		if e.Paste != "" {
+			value = e.Paste
+		}
+		s.beginDialogStatus(value)
+		return []tui.Cmd{tui.Focus(dialogStatusInputID)}
 	}
 	switch {
 	case s.approval != nil:
@@ -544,6 +567,9 @@ func (s *screen) pickerKey(e tui.KeyEvent) []tui.Cmd {
 func (s *screen) submit(value string) {
 	raw := value
 	value = strings.TrimSpace(value)
+	if s.promptActive && (s.asking != nil || s.approval != nil) && s.inspectDialogSubmission(value) {
+		return
+	}
 	if s.asking == nil && !s.eng.cfg.MCP.Ready() {
 		name, _ := splitCommand(value)
 		if name != "/status" && name != "/mcp" && name != "/quit" && name != "/exit" && name != "/q" {
@@ -614,6 +640,8 @@ func (s *screen) footer() tui.View {
 		views = append(views, tui.Text(" %d lines below · Ctrl+End returns to live output", s.vp.LinesBelow).Hint())
 	}
 	switch {
+	case s.dialogStatus != nil:
+		views = append(views, s.dialogStatusView())
 	case s.approval != nil:
 		views = append(views, s.approvalView())
 	case s.picker != nil:

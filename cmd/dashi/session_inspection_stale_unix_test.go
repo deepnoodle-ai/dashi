@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/wonton/tui"
 )
 
 func TestStatusCancelsBlockedStaleSnapshotWithoutLeaseTakeover(t *testing.T) {
@@ -59,4 +60,52 @@ func TestStatusCancelsBlockedStaleSnapshotWithoutLeaseTakeover(t *testing.T) {
 		t.Fatal("quit left a blocked inspection running")
 	}
 
+}
+
+func TestNativeStatusReplacementCancelsBlockedScan(t *testing.T) {
+	h := newScreenHarness(t, 0, say("Initial answer."))
+	h.submit("current request")
+	h.app.ctrl.Wait()
+	cfg := inspectionTestConfig(t)
+	cfg.Dir, cfg.Store = h.dir, h.store
+	other := recordedInspectionSession(t, cfg, "stale blocked preview", false)
+	rec, err := h.store.Recorder(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(rec.Path(dashi.TurnID(other.ID, 1)), os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+	h.mu.Lock()
+	pending := &approvalPrompt{reply: make(chan Approval, 1)}
+	h.scr.HandleEvent(promptEvent{id: 1, approval: pending})
+	h.scr.HandleEvent(tui.KeyEvent{Rune: '/'})
+	old := h.scr.dialogStatus
+	h.scr.dialogStatusSubmit(old)("/status " + other.ID)
+	h.mu.Unlock()
+	h.waitFor(func() bool { return strings.Contains(dialogTranscriptText(h.scr), "Loading recorded status") })
+	h.mu.Lock()
+	replacement := &askPrompt{reply: make(chan questionAnswer, 1), own: true, text: "new draft"}
+	h.scr.HandleEvent(promptEvent{id: 2, asking: replacement})
+	h.scr.dialogStatusSubmit(old)("/status " + other.ID)
+	h.scr.HandleEvent(dialogStatusKeyEvent{input: old, key: tui.KeyEvent{Key: tui.KeyEscape}})
+	h.mu.Unlock()
+	finished := make(chan struct{})
+	go func() { h.app.ctrl.Wait(); close(finished) }()
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("replaced native prompt retained a blocked inspection")
+	}
+	if !h.check(func() bool {
+		return h.scr.asking == replacement && replacement.text == "new draft" && len(replacement.reply) == 0 && len(pending.reply) == 0 && !strings.Contains(dialogTranscriptText(h.scr), "stale blocked preview")
+	}) {
+		t.Fatal("stale scan or input affected the replacement question")
+	}
 }
