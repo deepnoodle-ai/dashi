@@ -118,7 +118,7 @@ func (c *Controller) scheduleTaskNotices() {
 		return
 	}
 	if c.eng.HasPending() {
-		c.emit(Block{ID: "task-delivery", Kind: KindNotice, Text: "Task results are waiting behind the pending parent prompt. Inspection does not consume them.", Done: true})
+		c.emit(Block{ID: "task-delivery", Kind: KindNotice, Text: "Task results will be delivered after the current prompt is saved. Viewing them here does not use them up.", Done: true})
 		return
 	}
 	if last := c.eng.Last(c.base); last != nil && last.Open() {

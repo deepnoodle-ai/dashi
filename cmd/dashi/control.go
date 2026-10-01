@@ -471,7 +471,7 @@ func (c *Controller) prompt(text string) {
 		paused := host.deliveryErr != nil
 		host.mu.Unlock()
 		if paused {
-			c.notice("Recording of a task notice is unconfirmed. Press Enter to check that exact queued Turn or reopen before a new prompt.")
+			c.notice("Couldn't confirm that a task notice was saved. Press Enter to check it, or reopen the session before sending a new prompt.")
 			return
 		}
 	}
