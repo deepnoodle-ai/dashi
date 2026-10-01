@@ -426,3 +426,39 @@ func TestAutomationWorkspacePreflightStillHasEmptyMachineOutput(t *testing.T) {
 		t.Fatalf("%d %q %s", code, out.String(), diag.String())
 	}
 }
+
+func TestAutomationAttachmentOnlyNewAndResumedRequests(t *testing.T) {
+	cfg := testConfig(t, say("first file"), say("second file"))
+	path := filepath.Join(cfg.Dir, "evidence.txt")
+	if err := os.WriteFile(path, []byte("selected bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	o := Options{PrintSet: true, AttachFiles: []string{path}, OutputFormat: "json"}
+	for _, want := range []string{"first file", "second file"} {
+		code, out, diag := runAutomationFixture(t, cfg, o, "")
+		if code != 0 || !reflect.DeepEqual(decodeResponses(t, "json", out), []responseMessage{{want}}) {
+			t.Fatalf("attachment-only code=%d out=%s diag=%s", code, out, diag)
+		}
+		client := cfg.Client.(*fakeClient)
+		request := client.inputAt(client.sends - 1)
+		found := false
+		for _, message := range request.Messages {
+			for _, c := range message.Content {
+				if c.Block != nil && c.Block.Document != nil && string(c.Block.Document.Source.Data) == "selected bytes" {
+					found = true
+				}
+			}
+		}
+		if !found {
+			t.Fatal("selected file did not reach the model")
+		}
+		saved, err := cfg.Store.Latest(cfg.Dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		o.Resume, o.ResumeID = true, saved.ID
+	}
+	if cfg.Client.(*fakeClient).sends != 2 {
+		t.Fatal("attachment-only resume was treated as a saved-response read")
+	}
+}

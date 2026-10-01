@@ -132,7 +132,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 		}
 		return 2
 	}
-	payload, err := combineAutomationInput(o.Print, literal, o.Resume)
+	payload, err := combineAutomationInput(o.Print, literal, o.Resume || len(o.AttachFiles) > 0)
 	if err != nil {
 		diagnostic(err.Error())
 		return 2
@@ -147,6 +147,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 			return code
 		}
 	}
+	newRequest := payload != "" || len(o.AttachFiles) > 0
 	var snap automationSnapshot
 	if o.Resume {
 		var reader interface {
@@ -169,7 +170,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 			return 1
 		}
 		ready := snap.canContinue()
-		if payload == "" && (!ready || snap.latest.Next() == dashi.NextNone && !snap.missingNotice && len(snap.affected) == 0) {
+		if !newRequest && (!ready || snap.latest.Next() == dashi.NextNone && !snap.missingNotice && len(snap.affected) == 0) {
 			output.source(func(ctx context.Context, n int) (dashi.TurnView, error) {
 				turn, err := reader.Load(ctx, dashi.TurnID(saved.ID, n))
 				if err != nil {
@@ -183,7 +184,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 			printAutomationAttention(stderr, snap.affected, snap.latest.ID)
 			return automationCode(0, false, false, snap.affected)
 		}
-		if payload != "" && snap.blocksNew() {
+		if newRequest && snap.blocksNew() {
 			printAutomationAttention(stderr, snap.affected, snap.latest.ID)
 			diagnostic("previous parent/child work blocks a new request. Reopen and inspect /tasks and the exact parent before recovery.")
 			if len(snap.affected) == 0 {
@@ -280,7 +281,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 		return 1
 	}
 	var result Result
-	if payload == "" {
+	if !newRequest {
 		last := a.eng.Last(execCtx)
 		if last != nil && last.Next == dashi.NextNone {
 			if err = a.eng.recoverTasks(execCtx); err == nil {
