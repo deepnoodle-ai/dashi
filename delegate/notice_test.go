@@ -466,3 +466,105 @@ func TestUnrecordedStatusReadLeavesTheNotice(t *testing.T) {
 		t.Fatal("the record does not show the notice delivered")
 	}
 }
+
+// A read counts as delivery only when the model saw the task_status result
+// the tool returned. When an AfterTool hook replaces it or the result limit
+// shortens it, the record drops the marker, so the notice still reaches the
+// parent with the whole reply, in one more turn. A hook that leaves the
+// result as it is changes nothing: no other turn runs.
+func TestStatusReadChangedBeforeTheModelSawItLeavesTheNotice(t *testing.T) {
+	reply := "the answer " + strings.Repeat("x", 3000) + " end of reply"
+	onStatus := func(f func(llm.ToolResult) llm.ToolResult) dashi.Hooks {
+		return dashi.Hooks{AfterTool: []dashi.ResultHook{{Name: "status", Func: func(
+			_ context.Context,
+			p dashi.ResultPlan,
+		) (dashi.ResultDecision, error) {
+			if p.Call.Name != delegate.StatusToolName {
+				return dashi.ResultDecision{}, nil
+			}
+			r := f(p.Result)
+			return dashi.ResultDecision{Replace: &r}, nil
+		}}}}
+	}
+	tests := []struct {
+		name      string
+		hooks     dashi.Hooks
+		limit     int
+		delivered bool // the read counts as delivery
+	}{
+		{"replaced by a hook", onStatus(func(llm.ToolResult) llm.ToolResult {
+			return llm.ToolResult{Output: tool.TextOutput("[status hidden]")}
+		}), 0, false},
+		{"shortened by the result limit", dashi.Hooks{}, 1024, false},
+		{"unchanged by a hook", onStatus(func(r llm.ToolResult) llm.ToolResult { return r }), 0, true},
+	}
+	order := readOrders[1] // the child ends, then the read
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			g := newGate()
+			var calls, notices atomic.Int32
+			var mu sync.Mutex
+			var noticeText []string
+			var s *session.Session
+			ended := make(chan delegate.TaskEvent, 1)
+			parent := readScript(g, order, &s, ended, &calls, &notices)
+			h := newHarness(t, func(ctx context.Context, in llm.Input) (llm.Result, error) {
+				if role(in) != "parent" {
+					return gated(g, reply)(ctx, in)
+				}
+				for _, m := range in.Messages {
+					for _, c := range m.Content {
+						if c.Reminder != nil && c.Reminder.Name == "task-ended" {
+							mu.Lock()
+							noticeText = append(noticeText, c.Reminder.Content)
+							mu.Unlock()
+						}
+					}
+				}
+				return parent(ctx, in)
+			}, delegate.Config{}, nil)
+			forwardEnded(t, h, ended)
+			agent := h.agent
+			agent.Limits.ToolResultBytes = test.limit
+			runner := h.runner
+			runner.Hooks = test.hooks
+			s = &session.Session{ID: "conv", New: true, Agent: agent, Runner: runner}
+			s.Delivered = delegate.DeliveredNotices
+			h.session.Store(s)
+
+			if _, err := s.Send(t.Context(), "go"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := delegate.RunUntilQuiet(t.Context(), s, h.tasks); err != nil {
+				t.Fatal(err)
+			}
+			e := h.next(t, delegate.TaskEnded)
+			turns := sessionTurns(t, s)
+			st, err := s.Open(t.Context())
+			if err != nil || st.Queued != 0 {
+				t.Fatalf("state=%+v err=%v", st, err)
+			}
+			if test.delivered {
+				if st.Turns != 1 || notices.Load() != 0 ||
+					len(statusDelivered(turns)) != 1 {
+					t.Fatalf("turns=%d notices=%d marker=%v",
+						st.Turns, notices.Load(), statusDelivered(turns))
+				}
+				return
+			}
+			if st.Turns != 2 || notices.Load() != 1 || len(statusDelivered(turns)) != 0 {
+				t.Fatalf("turns=%d notices=%d marker=%v: the result was lost",
+					st.Turns, notices.Load(), statusDelivered(turns))
+			}
+			mu.Lock()
+			got := strings.Join(noticeText, "")
+			mu.Unlock()
+			if !strings.Contains(got, reply) {
+				t.Fatalf("the notice lacks the whole reply: %.80q", got)
+			}
+			if !delegate.DeliveredNotices(turns)[delegate.NoticeID(e.Task.TurnID)] {
+				t.Fatal("the record does not show the notice delivered")
+			}
+		})
+	}
+}

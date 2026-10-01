@@ -86,7 +86,9 @@ user or operator text.
 There is one rule: **a result has reached the parent when the conversation's
 record holds the notice** (the context item `task-done:<child turn ID>`), or
 holds a `task_status` call that returned that turn's final result. Such a
-call records the child turn ID in its outcome's `Data`. Notices still go out
+call records the child turn ID in its outcome's `Data`. If an `AfterTool`
+hook changed that result or the result limit shortened it, the record has
+no `Data`, so the read does not count. Notices still go out
 as usual; the record is checked just before one is delivered. `Recover`
 checks it, a session drops such a notice before a queue turn
 (`Session.Delivered`, which `NewTasks` sets), and a host that routes

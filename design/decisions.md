@@ -541,4 +541,10 @@ give-back when the turn stopped first, and a 30-second wait for the record
 to settle. The marker is a turn ID, not text: matching text confused equal
 replies and broke when the wording or `MaxReply` changed. `Data` is a generic
 field of `tool.Outcome` (as `Progress.Data` is of progress), so the root
-package learns nothing about tasks.
+package learns nothing about tasks. The runner keeps `Data` only while the
+model sees the tool's own result: when an `AfterTool` hook replaces or
+withholds it, or the result limit shortens it, the outcome is recorded
+without `Data`. So a read the model did not see in full is not delivery,
+and the notice still carries the whole reply. The rule is general, not a
+check in `delegate`, because any host that reads `Data` would otherwise
+trust a fact about a result the model never saw.

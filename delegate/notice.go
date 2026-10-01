@@ -153,7 +153,9 @@ type statusData struct {
 }
 
 // statusDelivery returns the child turn whose result a step's finished
-// task_status call delivered, or "".
+// task_status call delivered, or "". The runner records Data only when the
+// model saw the result the tool returned, so a result that a hook changed or
+// the limit shortened has no marker and does not count.
 func statusDelivery(step dashi.Step) string {
 	f := step.Tool
 	if step.Kind != dashi.StepToolFinished || f == nil ||

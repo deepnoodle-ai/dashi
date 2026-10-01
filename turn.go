@@ -164,8 +164,9 @@ const (
 	// Tools did not offer for a model call. The call runs without it. Each
 	// name warns once per turn.
 	WarningToolNotOffered WarningCode = "tool_not_offered"
-	// WarningToolDataDropped means a tool outcome's Data was not valid JSON
-	// or exceeded 64 KiB, so the call's outcome was recorded without it.
+	// WarningToolDataDropped means the call's outcome was recorded without
+	// its Data: the Data was not valid JSON or exceeded 64 KiB, or the model
+	// saw a changed result (see tool.Outcome.Data).
 	WarningToolDataDropped             WarningCode = "tool_data_dropped"
 	WarningActiveCompactionUnavailable WarningCode = "active_compaction_unavailable"
 	WarningActiveCompactionBlocked     WarningCode = "active_compaction_blocked"

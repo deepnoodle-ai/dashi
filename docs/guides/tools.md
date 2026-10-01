@@ -171,7 +171,11 @@ turn record keeps it and `ToolView.Outcome` returns it, but the model never
 sees it. Use it for facts a host reads back later, such as an ID the result
 refers to, instead of parsing the result text. Data that is not valid JSON or
 exceeds 64 KiB is dropped with a `WarningToolDataDropped` warning; the call
-still succeeds.
+still succeeds. Data describes the result the tool returned, so the record
+keeps it only while the model sees that result. When an `AfterTool` hook
+replaces or withholds the result, or `Limits.ToolResultBytes` shortens it,
+the outcome is recorded without Data, with the same warning. A hook that
+returns the result unchanged keeps it.
 
 A failed, denied, or skipped call reaches the model as a result flagged as an
 error. Anthropic and Gemini carry the flag natively. OpenAI Responses and Chat

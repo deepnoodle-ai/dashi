@@ -319,6 +319,13 @@ type Outcome struct {
 	// model never sees it. Like Progress.Data, Data that is not valid JSON
 	// or exceeds 64 KiB is dropped: the runner records the outcome without
 	// it and adds a dashi.WarningToolDataDropped warning.
+	//
+	// Data describes the output this outcome returns, and the record keeps
+	// it only while the model sees that output. When an AfterTool hook
+	// replaces or withholds the result, or the result limit shortens it,
+	// the runner records the outcome without Data and adds the same
+	// warning. So a host may treat recorded Data as true of what the model
+	// saw. A hook that returns the result unchanged keeps Data.
 	Data json.RawMessage `json:"data,omitempty"`
 }
 

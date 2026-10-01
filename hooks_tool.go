@@ -194,7 +194,29 @@ func (r *runtime) afterTool(ctx context.Context, fact *ToolFact) {
 	if !canonjson.SameValue(current, base) {
 		current.CallID = fact.Call.ID
 		fact.Result = &current
+		r.dropChangedData(fact)
 	}
+}
+
+// dropChangedData removes Outcome.Data from a fact whose model-visible
+// result differs from the tool's output. Data describes the output the tool
+// returned, so a host must never read it as a statement about what the
+// model saw after a hook replaced, withheld, or the limit shortened it.
+func (r *runtime) dropChangedData(fact *ToolFact) {
+	if len(fact.Outcome.Data) == 0 {
+		return
+	}
+	out := *fact.Outcome
+	out.Data = nil
+	fact.Outcome = &out
+	r.pendingWarnings = append(r.pendingWarnings, Warning{
+		Code: WarningToolDataDropped,
+		Message: fmt.Sprintf(
+			"tool call %s: the model saw a changed result, so the outcome "+
+				"is recorded without its Data",
+			fact.Call.ID,
+		),
+	})
 }
 
 // afterToolHooks runs the AfterTool chain and returns the view it leaves.

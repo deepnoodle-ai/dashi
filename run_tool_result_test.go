@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -733,6 +734,67 @@ func TestToolOutcomeDataIsKeptOrDropped(t *testing.T) {
 			if test.kept != (string(fact.Outcome.Data) == string(test.data)) ||
 				!test.kept && (fact.Outcome.Data != nil || !warned) || test.kept && warned {
 				t.Fatalf("data=%.40s warned=%v", fact.Outcome.Data, warned)
+			}
+			assertRecordRoundTrips(t, rec, got.Turn)
+		})
+	}
+}
+
+// Outcome.Data describes the tool's own output, so the record keeps it only
+// while the model sees that output. A hook that replaces or withholds the
+// result, or a limit that shortens it, drops Data with a warning; a hook that
+// leaves the result as it is keeps it.
+func TestToolOutcomeDataIsDroppedWhenTheModelSeesAChangedResult(t *testing.T) {
+	keep := ResultHook{Name: "keep", Func: func(_ context.Context, p ResultPlan) (ResultDecision, error) {
+		r := p.Result
+		return ResultDecision{Replace: &r}, nil
+	}}
+	fail := ResultHook{Name: "fail", Func: func(context.Context, ResultPlan) (ResultDecision, error) {
+		return ResultDecision{}, errors.New("down")
+	}}
+	small := testAgent()
+	small.Limits.ToolResultBytes = minToolResultBytes
+	tests := []struct {
+		name  string
+		agent Agent
+		hooks Hooks
+		text  string
+		kept  bool
+	}{
+		{"no hook", testAgent(), Hooks{}, "ok", true},
+		{"unchanged by a hook", testAgent(), Hooks{AfterTool: []ResultHook{keep}}, "ok", true},
+		{"replaced by a hook", testAgent(), Hooks{AfterTool: []ResultHook{replaceText("r", strings.ToUpper)}}, "ok", false},
+		{"withheld by a failing hook", testAgent(), Hooks{AfterTool: []ResultHook{fail}}, "ok", false},
+		{"shortened by the limit", small, Hooks{}, strings.Repeat("x", 4*minToolResultBytes), false},
+	}
+	data := json.RawMessage(`{"id":"a"}`)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote"), final("ok")}}
+			rec := NewMemoryRecorder()
+			runner := toolRunner(client, rec, execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+				out := tool.Succeeded(test.text)
+				out.Data = data
+				return out, nil
+			}))
+			runner.Hooks = test.hooks
+			got, err := startTurn(test.agent, runner)
+			if err != nil || got.Stop.Kind != StopCompleted {
+				t.Fatalf("stop=%+v err=%v", got.Stop, err)
+			}
+			step := finishOf(t, got.Turn, "call-1")
+			warned := slices.ContainsFunc(step.Warnings, func(w Warning) bool {
+				return w.Code == WarningToolDataDropped
+			})
+			if test.kept {
+				if string(step.Tool.Outcome.Data) != string(data) || warned || step.Tool.Result != nil {
+					t.Fatalf("data=%s warned=%v result=%v", step.Tool.Outcome.Data, warned, step.Tool.Result != nil)
+				}
+			} else if step.Tool.Outcome.Data != nil || !warned || step.Tool.Result == nil {
+				t.Fatalf("data=%s warned=%v result=%v", step.Tool.Outcome.Data, warned, step.Tool.Result != nil)
+			}
+			if got := got.Tools["call-1"].Outcome; test.kept != (got.Data != nil) {
+				t.Fatalf("view data=%s", got.Data)
 			}
 			assertRecordRoundTrips(t, rec, got.Turn)
 		})

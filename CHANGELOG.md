@@ -85,7 +85,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   host.** It is raw JSON that the turn record keeps and the model never sees.
   Like `Progress.Data`, Data that is not valid JSON or exceeds 64 KiB is
   dropped, and the step records the new `WarningToolDataDropped`; the call
-  still succeeds.
+  still succeeds. Data describes the result the tool returned, so it is also
+  dropped, with the same warning, when an `AfterTool` hook replaces or
+  withholds the result or `Limits.ToolResultBytes` shortens it. A hook that
+  returns the result unchanged keeps it.
 - **`session.Session.Delivered` drops queued items that the record shows
   delivered another way,** just before a queue turn, so they start no turn.
 
@@ -112,7 +115,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   model may see a result twice in that turn. If the parent turn is canceled
   before the read is recorded, the notice goes out on the next turn. Reading
   a running task or the task list delivers nothing, and the user's `/task`
-  and `/tasks` never count as delivery.
+  and `/tasks` never count as delivery. A read whose result an `AfterTool`
+  hook changed or the result limit shortened records no `Data`, so it does
+  not count, and the notice still delivers the whole reply.
 - **The CLI no longer says task results wait for a stopped parent while the
   parent runs.** The line now shows only when the turn really stopped, and
   says what to do: "Task results will be sent when this turn goes on. Press
