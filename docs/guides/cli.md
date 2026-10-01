@@ -8,12 +8,16 @@ terminal dependencies. The design is in [design/cli.md](../../design/cli.md).
 ## Install and run
 
 ```sh
-cd cmd/dashi
-go install .
+go install github.com/deepnoodle-ai/dashi/cmd/dashi@latest
 export OPENAI_API_KEY=...
 cd ~/your/repo
 dashi
 ```
+
+While the repository is private, `go install` needs
+`GOPRIVATE=github.com/deepnoodle-ai/*` and git access to it. From a checkout,
+`go install ./cmd/dashi` builds the working tree instead;
+the repository's `go.work` points it at the local library modules.
 
 Use `dashi models --available` to list configured destinations and exact model
 IDs. Choose a pair with `--provider ID --model NAME`, or use `/model` for the

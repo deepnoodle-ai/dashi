@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Keep intra-repo module requirements in sync with the version being released.
 
-Every sub-module builds locally through a ``replace`` directive pointing at the
-checkout, so a stale ``github.com/deepnoodle-ai/dashi vX`` requirement is
-invisible to CI. Consumers do not see those replace directives: they resolve the
-required version, so a sub-module tagged while requiring an older root release
-fails to build for everyone downstream.
+Every sub-module builds locally through the repository's ``go.work``, so a stale
+``github.com/deepnoodle-ai/dashi vX`` requirement is invisible to CI. Consumers
+do not see the workspace: they resolve the required version, so a sub-module
+tagged while requiring an older root release fails to build for everyone
+downstream.
 
 ``--check`` is run by ``make tag-modules`` to make that mismatch a hard stop, and
 ``--write`` (``make release-prep``) updates the requirements before tagging.

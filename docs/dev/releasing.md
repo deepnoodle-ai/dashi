@@ -19,9 +19,10 @@ entry to one to three lines that state the user-visible change.
 make release-prep VERSION=v0.2.0
 ```
 
-Every sub-module builds locally through a `replace` directive, so a stale
+Every sub-module builds locally through the repository's `go.work`, so a stale
 `github.com/deepnoodle-ai/dashi vX.Y.Z` requirement is invisible to tests but
-breaks anyone who resolves the tag. This rewrites every intra-repo requirement,
+breaks anyone who resolves the tag. The `go.mod` files carry no `replace`
+directives, because `go install …@version` refuses a module that has them. This rewrites every intra-repo requirement,
 including `cmd/dashi`'s on `mcp` and `providers/google/gemini`. Run
 `make tidy-all` afterwards.
 

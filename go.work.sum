@@ -1,0 +1,5 @@
+cloud.google.com/go/compute/metadata v0.3.0/go.mod h1:zFmK7XCadkQkj6TtorcaGlCW1hT1fIilQDwofLpJ20k=
+github.com/deepnoodle-ai/dashi v0.1.0/go.mod h1:hZwuqXpOcp2oij8E8uMt0vxfxv70aLCpj4ZDm6+E3cI=
+github.com/deepnoodle-ai/dashi/mcp v0.1.0/go.mod h1:08GtaQaTeRJs/qv2qW5tlRMPf0hPvf3cLn5PMFXyA7s=
+github.com/deepnoodle-ai/dashi/providers/google/gemini v0.1.0/go.mod h1:4QsnR2+55Qiknd/Uix4iGN4kOBw1Jf93YT42cuvBkjI=
+golang.org/x/sys v0.46.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
