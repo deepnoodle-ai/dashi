@@ -104,7 +104,8 @@ type TurnView struct {
 	Revision int64
 	// ModelAttempts counts settled calls that were not interrupted.
 	ModelAttempts int
-	// Interruptions counts resumes after a context stop or worker crash.
+	// Interruptions counts resumes after a context stop or worker crash,
+	// except an interrupted stop before the first model attempt.
 	Interruptions  int
 	ProviderPauses int
 	// Budget is the current cap, including any recorded raises.
@@ -613,7 +614,7 @@ func (s *replayState) apply(step Step) error {
 				BudgetRaise{Budget: budget.Clone(), At: step.At},
 			)
 		}
-		if s.Stop.Kind == StopInterrupted || s.Stop.Kind == "" {
+		if s.resumeCounts() {
 			s.Interruptions++
 		}
 		if s.Stop.Kind == StopFailed {
@@ -1570,7 +1571,22 @@ func (s *replayState) interruptionLimitReached() bool {
 		s.Interruptions < max(s.Agent.Limits.Interruptions, 0) {
 		return false
 	}
-	return s.Stop.Kind == StopInterrupted || s.Stop.Kind == ""
+	return s.resumeCounts()
+}
+
+// resumeCounts reports whether continuing from the current stop counts
+// toward Limits.Interruptions. A crash (no stop) always counts. An
+// interrupted stop counts once the turn has made a model attempt; one
+// recorded before any, such as a Start admitted with a closed pause,
+// interrupted no work.
+func (s *replayState) resumeCounts() bool {
+	switch s.Stop.Kind {
+	case "":
+		return true
+	case StopInterrupted:
+		return s.modelCalls > 0
+	}
+	return false
 }
 
 func validateModelAccounting(fact *ModelFact) error {

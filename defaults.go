@@ -96,8 +96,9 @@ func (r Runner) agentFor(command Command, state *replayState) (Agent, error) {
 	start, ok := command.(Start)
 	if !ok {
 		agent := state.Agent
-		if agent.Provider != "" && (r.Client.Provider() != agent.Provider ||
-			r.Client.API() != agent.API) {
+		if r.Client != nil && agent.Provider != "" &&
+			(r.Client.Provider() != agent.Provider ||
+				r.Client.API() != agent.API) {
 			return Agent{}, errors.New("dashi: client does not match the turn's recorded provider and API")
 		}
 		return agent, nil

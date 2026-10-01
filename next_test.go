@@ -181,10 +181,13 @@ func nextRows() []nextRow {
 			want: NextContinue,
 		},
 		{
-			name:  "interrupted, interruptions used up",
-			stop:  &Stop{Kind: StopInterrupted, Reason: "context canceled"},
-			setup: func(s *replayState) { s.Interruptions = s.Agent.Limits.Interruptions },
-			want:  NextResolve,
+			name: "interrupted, interruptions used up",
+			stop: &Stop{Kind: StopInterrupted, Reason: "context canceled"},
+			setup: func(s *replayState) {
+				s.modelCalls = 1
+				s.Interruptions = s.Agent.Limits.Interruptions
+			},
+			want: NextResolve,
 		},
 		{
 			name:  "interrupted, hosted approval pending",

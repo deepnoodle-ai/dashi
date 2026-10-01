@@ -59,6 +59,35 @@ func MaxCostAtRisk(request Request, pricing Pricing) (Cost, bool) {
 	return cost, cost.Validate() == nil
 }
 
+// CanBoundCost reports whether MaxCostAtRisk can bound, in currency, a call
+// to this model that uses default settings under CapabilityAdjust (the
+// default policy). It answers a readiness check from model knowledge alone,
+// without preparing a request. It is true when the model has a valid price
+// sheet in exactly currency and accepts an output limit, or does not say:
+// preparation then sends DefaultMaxTokens, lowered to a known
+// MaxOutputTokens, so the output side is finite, and the input side is
+// bounded by the request body.
+//
+// True says only that ordinary calls are bounded. A specific call can still
+// have no bound:
+//   - it offers a provider-hosted tool, whose call count is unknown before
+//     dispatch;
+//   - its prompt cache lifetime is above five minutes and a rate set it may
+//     use lacks Rates.CacheWrite1h;
+//   - the client uses CapabilityStrict and the model does not say it
+//     accepts an output limit, so preparation sends no default allowance.
+//
+// A bound is a worst case at list prices, not a quote: the call's spend is
+// priced from usage once it settles.
+func (m ModelInfo) CanBoundCost(currency string) bool {
+	if m.Pricing == nil ||
+		m.Pricing.Currency != currency ||
+		m.Pricing.Validate() != nil {
+		return false
+	}
+	return m.Capabilities.acceptsDefaultMaxTokens(CapabilityAdjust)
+}
+
 // FitOutputTokens returns the largest output allowance whose MaxCostAtRisk
 // total would fit in the given remaining amount. It uses exact arithmetic, so
 // the returned allowance fits even at the nano boundary.

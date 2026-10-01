@@ -89,7 +89,9 @@ resumes; exceeding it stops the turn
 as `limited`. Interruptions do not consume `ModelAttempts`: a model call
 recorded as interrupted is not counted as an attempt, though its usage and cost
 still count toward spend. Rationale: they are
-usually the hosting's fault, a different budget from model retries.
+usually the hosting's fault, a different budget from model retries. A resume
+from an interrupted stop before the turn's first model attempt does not count,
+since no work was cut short; this lets a host admit a turn with a closed pause.
 
 **13. Tool results arriving after the context ends are dropped.** Decided. No
 late-result window. Rationale: rerunning safe tools covers the common case

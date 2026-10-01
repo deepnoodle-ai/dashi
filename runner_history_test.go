@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func TestRunnerStartUsesHistoryWithoutRecordingIt(t *testing.T) {
@@ -284,9 +285,13 @@ func interruptionLimitedHistoryTurn(
 	def := testAgent()
 	def.Limits.Interruptions = 1
 	recorder := NewMemoryRecorder()
+	// The first pause follows a model attempt, so resuming from it counts.
 	paused := make(chan struct{})
-	close(paused)
-	runner := Runner{Client: &scriptedClient{}, Recorder: recorder}
+	runner := Runner{
+		Client:   &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}},
+		Tools:    tool.List{pausingTool(paused)},
+		Recorder: recorder,
+	}
 	out, err := runner.Run(
 		t.Context(),
 		Turn{ID: "history-limit"},

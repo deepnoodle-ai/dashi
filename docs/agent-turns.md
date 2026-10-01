@@ -66,7 +66,8 @@ Check the conflicts with `errors.Is` first; they may arrive inside a
 `Continue` resumes a stopped turn and returns `ErrNotReady`, naming what the
 turn waits on, when it cannot. `Outcome.ReadyToContinue`, and the same flag on
 a replayed turn, tells a host's sweeper when to schedule `Continue`. `Deliver`
-records context without running. `Cancel` ends the turn. `Stop.Terminal`
+records context without running. `Cancel` ends a started turn. Only `Start`
+and `Continue` need `Runner.Client`. `Stop.Terminal`
 marks every stop that ends a turn: completed, canceled, a deadline or
 interruptions limit, or a cost cap over an unknown cost. A stop at the
 model-attempt limit is not terminal: `Continue{ModelAttempts: n}` raises the
