@@ -607,8 +607,8 @@ func (s *screen) footer() tui.View {
 		if mode == ModeRunning {
 			views = append(views, tui.Text(""), s.workingView(), tui.Text(""))
 		}
-		for _, row := range attachmentRows(&s.attachments, s.ctrl.attachmentRoot) {
-			views = append(views, tui.Text(" %s", row).Wrap().Hint())
+		for _, row := range attachmentPreviewRows(&s.attachments) {
+			views = append(views, tui.Text(" %s", row).Hint())
 		}
 		views = append(views,
 			tui.Text(" %s", s.inputHint(mode)).Wrap().Hint(),
@@ -619,6 +619,12 @@ func (s *screen) footer() tui.View {
 }
 
 func (s *screen) inputView(mode Mode) tui.View {
+	maxHeight := 8
+	if len(s.attachments.entries) > 0 {
+		// Inline output uses eight rows. Keep composer and status visible on
+		// an 80×24 terminal, including the running-work indicator.
+		maxHeight = 6
+	}
 	// Wonton v0.2.1 retains a field's initial placeholder. Keep it neutral;
 	// the ordinary text view above it updates the current input meaning.
 	return tui.InputField(&s.input).
@@ -628,7 +634,7 @@ func (s *screen) inputView(mode Mode) tui.View {
 		Placeholder("Type a message...").
 		History(s.history).
 		Multiline(true).
-		MaxHeight(8).
+		MaxHeight(maxHeight).
 		OnKey(s.inputKey).
 		OnChange(func(value string) {
 			s.exitGuard.reset()

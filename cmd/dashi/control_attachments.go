@@ -92,6 +92,30 @@ func attachmentSelectionError(path string, err error) error {
 	return fmt.Errorf("%s: %w", string(name), err)
 }
 
+// The footer uses single-line names; /attachments retains full source details.
+func attachmentPreviewRows(d *attachmentDraft) []string {
+	var rows []string
+	for _, e := range d.entries[:min(2, len(d.entries))] {
+		state := "loading"
+		detail := ""
+		if e.state == attachmentFailed {
+			state = "error"
+		} else if e.state == attachmentReady {
+			state = "ready"
+			detail = fmt.Sprintf(" · %s · %d bytes", e.file.Attachment.MIMEType, e.file.Attachment.Size)
+		}
+		rows = append(rows, workspace.PrintableText(fmt.Sprintf("%d. %s %s%s", e.number, state, filepath.Base(e.requested), detail)))
+	}
+	if len(d.entries) > 0 {
+		more := ""
+		if len(d.entries) > 2 {
+			more = fmt.Sprintf("%d more selections · ", len(d.entries)-2)
+		}
+		rows = append(rows, more+"/attachments lists all · /detach N removes a selection")
+	}
+	return rows
+}
+
 func attachmentRows(d *attachmentDraft, dir string) []string {
 	var rows []string
 	for _, e := range d.entries {
