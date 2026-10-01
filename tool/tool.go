@@ -313,6 +313,11 @@ type Outcome struct {
 	Handle *Handle `json:"handle,omitempty"`
 	// Cost is the application-reported charge for completed tool work.
 	Cost *Cost `json:"cost,omitempty"`
+
+	// Data is optional structured detail about the call for the host. The
+	// turn record keeps it, and hosts read it from ToolView.Outcome; the
+	// model never sees it. It must be valid JSON.
+	Data json.RawMessage `json:"data,omitempty"`
 }
 
 // Clone returns a deep copy of o that shares no data with it.
@@ -329,6 +334,7 @@ func (o Outcome) Clone() Outcome {
 	if o.Cost != nil {
 		o.Cost = new(*o.Cost)
 	}
+	o.Data = slices.Clone(o.Data)
 	return o
 }
 
@@ -371,8 +377,11 @@ type Cost struct {
 }
 
 // Validate reports whether o carries exactly the payloads its State permits
-// and whether any output content is well formed.
+// and whether any output content and Data are well formed.
 func (o Outcome) Validate() error {
+	if len(o.Data) > 0 && !json.Valid(o.Data) {
+		return errors.New("tool: outcome data is not valid JSON")
+	}
 	if o.Cost != nil {
 		if strings.TrimSpace(o.Cost.Currency) == "" ||
 			strings.TrimSpace(o.Cost.Currency) != o.Cost.Currency ||
