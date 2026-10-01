@@ -140,7 +140,7 @@ func ReadFileContext(ctx context.Context, path string, opt Options) (File, error
 		mime = "text/plain"
 	}
 	if limit >= 0 && int64(len(data)) > limit {
-		return File{}, fmt.Errorf("mention: file exceeds its size limit")
+		return File{}, fmt.Errorf("mention: %s file exceeds the %d-byte limit; select a smaller file", mime, limit)
 	}
 	remaining := int64(-1)
 	if limit >= 0 {
@@ -152,7 +152,7 @@ func ReadFileContext(ctx context.Context, path string, opt Options) (File, error
 	}
 	data = append(data, rest...)
 	if limit >= 0 && int64(len(data)) > limit {
-		return File{}, fmt.Errorf("mention: file exceeds its size limit")
+		return File{}, fmt.Errorf("mention: %s file exceeds the %d-byte limit; select a smaller file", mime, limit)
 	}
 	if len(data) == 0 {
 		return File{}, fmt.Errorf("mention: file is empty")
@@ -162,7 +162,7 @@ func ReadFileContext(ctx context.Context, path string, opt Options) (File, error
 	}
 	wire, err := WireSize(int64(len(data)))
 	if err != nil || o.MaxTotalBytes >= 0 && wire > o.MaxTotalBytes {
-		return File{}, fmt.Errorf("mention: file exceeds the message size limit")
+		return File{}, fmt.Errorf("mention: %s file exceeds the %d-byte estimated encoded message limit; select a smaller file", mime, o.MaxTotalBytes)
 	}
 	source := content.Source{Data: data, MIMEType: mime}
 	block := content.DocumentBlock(source, filepath.Base(canonical))

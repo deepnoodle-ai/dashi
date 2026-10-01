@@ -52,7 +52,7 @@ func printAttachmentInput(ctx context.Context, dir, text string, flags []string)
 			}
 			d.complete(ticket, file, err)
 			if err != nil {
-				return nil, fmt.Errorf("attachment %d could not be selected: %w", ticket.number, err)
+				return nil, fmt.Errorf("attachment %d could not be selected: %w", ticket.number, attachmentSelectionError(path, err))
 			}
 		}
 	}
@@ -82,6 +82,16 @@ func attachmentWorkspace(dir string) string {
 	}
 	return dir
 }
+
+// Error labels contain printable, bounded filenames, never terminal controls.
+func attachmentSelectionError(path string, err error) error {
+	name := []rune(workspace.PrintableText(filepath.Base(path)))
+	if len(name) > 128 {
+		name = append(name[:127], '…')
+	}
+	return fmt.Errorf("%s: %w", string(name), err)
+}
+
 func attachmentRows(d *attachmentDraft, dir string) []string {
 	var rows []string
 	for _, e := range d.entries {
@@ -89,7 +99,7 @@ func attachmentRows(d *attachmentDraft, dir string) []string {
 		detail := ""
 		if e.state == attachmentFailed {
 			state = "error"
-			detail = fmt.Sprintf(" — %v; correct the path or /detach %d", e.err, e.number)
+			detail = fmt.Sprintf(" — %v; correct the selection or /detach %d", attachmentSelectionError(e.requested, e.err), e.number)
 		}
 		if e.state == attachmentReady {
 			state = "ready"
