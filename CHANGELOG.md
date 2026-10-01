@@ -79,6 +79,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   that repeated the task ID, description, counts, and raw spend. `/tasks`
   prints one line per task in the same words, and counts are pluralized.
 
+### Added
+
+- **`tool.Outcome.Data` carries structured detail about a call for the
+  host.** It is raw JSON that the turn record keeps and the model never sees.
+  `Validate` rejects invalid JSON.
+
 ### Fixed
 
 - **The CLI scrolls up when a mouse selection is dragged to the top row.** In
@@ -94,13 +100,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **A task result the agent read with `task_status` is not sent again.** When
   `task_status` gives the agent a task's final result, that counts as
   delivery: no `task-ended` reminder follows, and the CLI starts no extra
-  turn for it, also after a reopen. The read returns the notice's own text,
-  so the record shows which result the agent saw (decision 46). A
-  `TaskEnded` event for such a turn has `Delivered` set, and a host that
-  holds notices checks the new `Notice.DeliveredIn(turns)`. A notice already
-  on `Config.Session` is taken back with the new `Session.Withdraw`. Reading a
-  running task or the task list delivers nothing, and the user's `/task` and
-  `/tasks` still never count as delivery.
+  turn for it, also after a reopen. The call's recorded outcome names the
+  child turn it delivered, so delivery never depends on the result's text
+  (decision 46). A `TaskEnded` event for such a turn has the new
+  `AlreadyDelivered` set, and a host that holds notices checks the new
+  `delegate.DeliveredNotices(turns)`. A notice already on `Config.Session` is
+  taken back with the new `Session.Withdraw`. Reading a running task or the
+  task list delivers nothing, and the user's `/task` and `/tasks` still never
+  count as delivery.
 - **The CLI no longer says task results wait for a stopped parent while the
   parent runs.** The line now shows only when the turn really stopped, and
   says what to do: "Task results will be sent when this turn goes on. Press

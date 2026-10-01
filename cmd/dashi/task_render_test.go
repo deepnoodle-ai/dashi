@@ -303,7 +303,7 @@ func TestStoppedParentDeliveryNoticeIsPlainAndQuiet(t *testing.T) {
 		t.Fatal("no delivery notice for the stopped parent")
 	}
 	b := got[len(got)-1]
-	if b.Kind != KindQuietNotice || !strings.Contains(b.Text, "Press Enter") ||
+	if b.Kind != KindHint || !strings.Contains(b.Text, "Press Enter") ||
 		strings.Contains(b.Text, "inspection") || strings.Contains(b.Text, "parent") {
 		t.Fatalf("notice=%+v", b)
 	}

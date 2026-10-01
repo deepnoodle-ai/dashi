@@ -234,6 +234,6 @@ func (ts *Tasks) controlResult(t *task, out dashi.RunResult, unknown bool) {
 	ts.changedLocked()
 	ts.mu.Unlock()
 	if !unknown {
-		ts.notifyEnded(t, delivery{})
+		ts.notifyEnded(t, nil)
 	}
 }

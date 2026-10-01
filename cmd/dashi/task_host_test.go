@@ -1100,7 +1100,7 @@ func TestUnreadableParentBeforeNoticeBlocksHiddenChildAndAllowsNewSession(t *tes
 		}
 		parents = append(parents, turn)
 	}
-	if len(recordedTaskNotices(parents)) != 0 {
+	if len(delegate.DeliveredNotices(parents)) != 0 {
 		t.Fatal("fixture already contains a parent notice")
 	}
 	rec, err := cfg.Store.Recorder(meta)

@@ -29,13 +29,13 @@ const (
 	KindStop      BlockKind = "stop"
 	KindFooter    BlockKind = "footer"
 	KindNotice    BlockKind = "notice"
-	// KindQuietNotice is a quiet line about the CLI's own state, such as
+	// KindHint is a quiet line about the CLI's own state, such as
 	// when task results will be sent. It draws muted and indented.
-	KindQuietNotice BlockKind = "quiet-notice"
-	KindWarning     BlockKind = "warning"
-	KindCompaction  BlockKind = "compaction"
-	KindPending     BlockKind = "pending"
-	KindHelp        BlockKind = "help"
+	KindHint       BlockKind = "hint"
+	KindWarning    BlockKind = "warning"
+	KindCompaction BlockKind = "compaction"
+	KindPending    BlockKind = "pending"
+	KindHelp       BlockKind = "help"
 	// KindTaskStatus is the state of a delegated task. It draws under the
 	// task tool line that started the task (see Block.Parent).
 	KindTaskStatus BlockKind = "task-status"
@@ -710,7 +710,7 @@ func FormatBlock(b Block) string {
 		return "warning: " + b.Text
 	case KindNotice:
 		return b.Text
-	case KindQuietNotice:
+	case KindHint:
 		return "  " + strings.ReplaceAll(b.Text, "\n", "\n  ")
 	case KindTaskStatus, KindTaskResult:
 		return taskLineText(b)

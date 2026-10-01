@@ -2,8 +2,10 @@ package delegate_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -129,15 +131,20 @@ func testStatusReadDelivers(t *testing.T, first func(*gate, <-chan delegate.Task
 		t.Fatalf("notices=%d parent calls=%d", n, parentCalls.Load())
 	}
 	e := h.next(t, delegate.TaskEnded)
-	if name == "read waits, then the child ends" && !e.Delivered {
+	if name == "read waits, then the child ends" && !e.AlreadyDelivered {
 		t.Fatal("TaskEnded does not say the read delivered the result")
 	}
 	turns := sessionTurns(t, s)
-	if !e.Task.Notice().DeliveredIn(turns) {
+	if !delegate.DeliveredNotices(turns)[delegate.NoticeID(e.Task.TurnID)] {
 		t.Fatal("the record does not show the read as delivery")
 	}
+	if got := statusDelivered(turns); len(got) != 1 || got[0] != e.Task.TurnID {
+		t.Fatalf("status read delivered %q, want %q", got, e.Task.TurnID)
+	}
 
-	// A reopened host finds the read in the record and sends nothing.
+	// A reopened host finds the read in the record and sends nothing, even
+	// though it cuts replies shorter, so the result's text has changed.
+	h.cfg.MaxReply = 4
 	h.newTasks(t)
 	if err := h.tasks.Recover(t.Context(), h.runner, turns); err != nil {
 		t.Fatal(err)
@@ -171,7 +178,7 @@ func TestStatusReadWithoutTheFinalResultDeliversNothing(t *testing.T) {
 	if err != nil || strings.Contains(got, "the answer") {
 		t.Fatalf("list=%q err=%v", got, err)
 	}
-	if ended := h.next(t, delegate.TaskEnded); ended.Delivered {
+	if ended := h.next(t, delegate.TaskEnded); ended.AlreadyDelivered {
 		t.Fatal("a read without the result counted as delivery")
 	}
 	parent, _ := h.rec.Load(t.Context(), parentTurn)
@@ -181,17 +188,110 @@ func TestStatusReadWithoutTheFinalResultDeliversNothing(t *testing.T) {
 	}
 }
 
-// The final read carries the notice text, so a reopened host can match it.
-func TestFinalStatusCarriesTheNoticeText(t *testing.T) {
-	h := newHarness(t, script("the answer"), delegate.Config{}, nil)
-	if _, err := h.start(t.Context()); err != nil {
+// statusDelivered returns the child turns that the recorded task_status
+// calls in turns name as delivered, in order.
+func statusDelivered(turns []dashi.Turn) []string {
+	var out []string
+	for _, turn := range turns {
+		for _, step := range turn.Steps {
+			f := step.Tool
+			if step.Kind != dashi.StepToolFinished || f == nil ||
+				f.Call.Name != delegate.StatusToolName || f.Outcome == nil ||
+				len(f.Outcome.Data) == 0 {
+				continue
+			}
+			var d struct {
+				TurnID string `json:"delivered_turn_id"`
+			}
+			if json.Unmarshal(f.Outcome.Data, &d) == nil {
+				out = append(out, d.TurnID)
+			}
+		}
+	}
+	return out
+}
+
+// Two tasks with the same reply are two results. A task_status read of one
+// delivers that one only: the other still gets its notice, and a reopened
+// host sends neither again.
+func TestStatusReadDeliversOnlyTheTaskItRead(t *testing.T) {
+	first, second := newGate(), newGate()
+	var parentCalls atomic.Int32
+	var mu sync.Mutex
+	var notices []string // the sender of each task-ended reminder
+	var s *session.Session
+	h := newHarness(t, func(ctx context.Context, in llm.Input) (llm.Result, error) {
+		if role(in) != "parent" {
+			g := first
+			if in.Messages[0].Text() == "second" {
+				g = second
+			}
+			return gated(g, "the same answer")(ctx, in)
+		}
+		mu.Lock()
+		for _, m := range in.Messages {
+			for _, c := range m.Content {
+				if c.Reminder != nil && c.Reminder.Name == "task-ended" {
+					notices = append(notices, c.Reminder.From)
+				}
+			}
+		}
+		mu.Unlock()
+		switch parentCalls.Add(1) {
+		case 1:
+			r := taskCall("first")
+			b := toolCall("call-2", delegate.ToolName,
+				`{"subagent":"scout","prompt":"second","description":"look"}`)
+			r.Message.Content = append(r.Message.Content, b.Message.Content...)
+			return costed(r, "1"), nil
+		case 2:
+			go func() { time.Sleep(50 * time.Millisecond); first.open() }()
+			return costed(toolCall("status-1", delegate.StatusToolName,
+				`{"task_id":"`+sessionTaskID(s)+`","wait_seconds":30}`), "1"), nil
+		case 3:
+			second.open()
+			return costed(text("parent read the first"), "1"), nil
+		}
+		return costed(text("parent read the second"), "1"), nil
+	}, delegate.Config{}, nil)
+	s = sessionTasks(t, h)
+	if _, err := s.Send(t.Context(), "go"); err != nil {
 		t.Fatal(err)
 	}
-	ended := h.next(t, delegate.TaskEnded)
-	got, err := h.call(t, delegate.StatusToolName, `{"task_id":"`+taskID()+`"}`)
-	if err != nil || !strings.HasSuffix(got, "\n"+ended.Task.Notice().Text()) {
-		t.Fatalf("status=%q err=%v", got, err)
+	if _, err := delegate.RunUntilQuiet(t.Context(), s, h.tasks); err != nil {
+		t.Fatal(err)
 	}
+	parent := session.TurnID(s.ID, 1)
+	firstTurn := session.TurnID(delegate.ChildID(parent, callID), 1)
+	secondTurn := session.TurnID(delegate.ChildID(parent, "call-2"), 1)
+	secondTask := delegate.TaskID(delegate.ChildID(parent, "call-2"))
+	mu.Lock()
+	got := notices
+	mu.Unlock()
+	if len(got) != 1 || !strings.Contains(got[0], secondTask) {
+		t.Fatalf("notices from %q, want one from %s", got, secondTask)
+	}
+	turns := sessionTurns(t, s)
+	if read := statusDelivered(turns); len(read) != 1 || read[0] != firstTurn {
+		t.Fatalf("status read delivered %q, want %q", read, firstTurn)
+	}
+	delivered := delegate.DeliveredNotices(turns)
+	if !delivered[delegate.NoticeID(firstTurn)] ||
+		!delivered[delegate.NoticeID(secondTurn)] {
+		t.Fatalf("delivered=%v", delivered)
+	}
+	for range 2 {
+		e := h.next(t, delegate.TaskEnded)
+		if e.AlreadyDelivered != (e.Task.TurnID == firstTurn) {
+			t.Fatalf("%s: AlreadyDelivered=%v", e.Task.TurnID, e.AlreadyDelivered)
+		}
+	}
+
+	h.newTasks(t)
+	if err := h.tasks.Recover(t.Context(), h.runner, turns); err != nil {
+		t.Fatal(err)
+	}
+	h.none(t, delegate.TaskEnded)
 }
 
 // A child is told its own task ID, so it can name itself in its reply.

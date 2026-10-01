@@ -521,13 +521,17 @@ need, lives in package `session`, built only on the public Runner API.
 Decided. The delivery rule kept the record as the only proof, and so ignored
 `task_status` reads: the record could not tell which child turn a read
 showed. A model that read the result then got the notice too, often in a
-whole extra turn that cost money for nothing. Now a read of an ended task
-returns the notice's own text, so the record shows exactly which result
-reached the model: a recorded `task_status` outcome that ends with a turn's
-notice text delivers that turn. Live, the read marks the turn under the lock
-that sending a notice takes, so the read and the notice never both carry it;
-a wait owns the end it waits for, and a notice already on `Config.Session` is
-withdrawn (`Session.Withdraw`). A read of a running task, the task list, a
-deferred stop, and user inspection (`/task`, `/tasks`) deliver nothing.
-Rationale: the record stays the only proof, so a crash before the read is
-recorded still redelivers on reopen.
+whole extra turn that cost money for nothing. Now a `task_status` call that
+delivers a result says so in its outcome's structured `Data`
+(`{"delivered_turn_id": ...}`), and a recorded call with that field delivers
+the turn it names. Live, the read marks the turn under the lock that sending
+a notice takes, so the read and the notice never both carry it; a wait owns
+the end it waits for, and a notice already on `Config.Session` is withdrawn
+(`Session.Withdraw`), or the read does not deliver. A read of a running task,
+the task list, a deferred stop, and user inspection (`/task`, `/tasks`)
+deliver nothing. Rationale: the record stays the only proof, so a crash
+before the read is recorded still redelivers on reopen. The marker is a turn
+ID, not text: matching the read's text against the notice confused equal
+replies and broke when the wording or `MaxReply` changed. `Data` is a generic
+field of `tool.Outcome` (as `Progress.Data` is of progress), so the root
+package learns nothing about tasks.

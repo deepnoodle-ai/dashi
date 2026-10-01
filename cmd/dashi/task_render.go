@@ -23,9 +23,9 @@ const (
 	taskRecordUnavailable delegate.TaskState = "record unavailable"
 )
 
-// quietNotice returns a quiet line about the CLI's own state.
-func quietNotice(id, text string) Block {
-	return Block{ID: id, Kind: KindQuietNotice, Text: text, Done: true}
+// hintBlock returns a quiet line about the CLI's own state.
+func hintBlock(id, text string) Block {
+	return Block{ID: id, Kind: KindHint, Text: text, Done: true}
 }
 
 // taskNoticeName is the reminder name of delegate's task-ended notice.
@@ -359,7 +359,7 @@ func (c *Controller) scheduleTaskNotices() {
 		return
 	}
 	if c.eng.HasPending() {
-		c.emit(quietNotice("task-delivery", "Task results will be sent after the pending prompt. Press Enter to send it."))
+		c.emit(hintBlock("task-delivery", "Task results will be sent after the pending prompt. Press Enter to send it."))
 		return
 	}
 	if last := c.eng.Last(c.base); last != nil && last.Open() {
@@ -367,7 +367,7 @@ func (c *Controller) scheduleTaskNotices() {
 		if last.CanGoOn() {
 			text = "Task results will be sent when this turn goes on. Press Enter to continue it, or type a new prompt."
 		}
-		c.emit(quietNotice("task-delivery", text))
+		c.emit(hintBlock("task-delivery", text))
 		return
 	}
 	c.mu.Lock()

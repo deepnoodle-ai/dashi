@@ -87,7 +87,7 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 		OnTask: func(event delegate.TaskEvent) {
 			e.cfg.Emit(taskStatusBlock(event.Task))
 			// A result the parent read with task_status is delivered already.
-			if event.Kind == delegate.TaskEnded && !event.Delivered {
+			if event.Kind == delegate.TaskEnded && !event.AlreadyDelivered {
 				notice := event.Task.Notice()
 				id := delegate.NoticeID(event.Task.TurnID)
 				host.mu.Lock()
@@ -182,7 +182,7 @@ func (e *Engine) taskParents(ctx context.Context) ([]dashi.Turn, error) {
 		e.warn("Turn %d skipped: %v.", turnNumber(turn.ID), err)
 	}
 	known := host.tasks.List()
-	notices := recordedTaskNotices(turns)
+	notices := delegate.DeliveredNotices(turns)
 	host.mu.Lock()
 	for _, snapshot := range host.recorded {
 		known = append(known, snapshot.Task)
@@ -249,32 +249,6 @@ func (e *Engine) closeTasks() error {
 	return nil
 }
 
-func recordedTaskNotices(turns []dashi.Turn) map[string]bool {
-	delivered := map[string]bool{}
-	for _, turn := range turns {
-		for _, step := range turn.Steps {
-			for _, item := range step.Items() {
-				if strings.HasPrefix(item.ID, "task-done:") {
-					delivered[item.ID] = true
-				}
-			}
-			if step.Kind == dashi.StepTurnStarted {
-				if list, ok := strings.CutPrefix(step.CommandID, "queue:"); ok {
-					var ids []string
-					if json.Unmarshal([]byte(list), &ids) == nil {
-						for _, id := range ids {
-							if strings.HasPrefix(id, "task-done:") {
-								delivered[id] = true
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return delivered
-}
-
 func (e *Engine) flushTaskNotices(ctx context.Context) error {
 	host := e.taskHost()
 	if host == nil {
@@ -300,31 +274,29 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 	if incomplete != nil {
 		return fmt.Errorf("task notice delivery incomplete: %w", incomplete)
 	}
-	delivered := recordedTaskNotices(turns)
+	delivered := delegate.DeliveredNotices(turns)
 	host.mu.Lock()
 	defer host.mu.Unlock()
 	for id := range delivered {
-		// The result marker of the delivery turn shows a delivery this host
-		// queued. Say so only for a repeat that this record absorbed.
-		if _, pending := host.notices[id]; pending && !host.queued[id] {
-			e.cfg.Emit(quietNotice("task-delivery", "This task result was already sent to the model. It will not be sent again."))
-		}
-		delete(host.notices, id)
-		delete(host.queued, id)
-	}
-	// A result the parent read with task_status is delivered by that read.
-	// Take back a notice already queued for it, unless a queue turn holds it.
-	for id, notice := range host.notices {
-		if !notice.DeliveredIn(turns) || host.queued[id] && !chat.Withdraw(id) {
+		if _, pending := host.notices[id]; !pending {
 			continue
+		}
+		if host.queued[id] {
+			// The record shows the delivery, by a queue turn or by a
+			// task_status read. After a read, take back the queued notice so
+			// no queue turn carries it again; one that already holds it is
+			// a harmless repeat.
+			chat.Withdraw(id)
+		} else {
+			// Say so for a repeat that this record absorbed.
+			e.cfg.Emit(hintBlock("task-delivery", "This task result was already sent to the model. It will not be sent again."))
 		}
 		delete(host.notices, id)
 		delete(host.queued, id)
 	}
 	if host.rescan {
 		for _, view := range host.tasks.List() {
-			if view.Running() || delivered[delegate.NoticeID(view.TurnID)] ||
-				view.Notice().DeliveredIn(turns) {
+			if view.Running() || delivered[delegate.NoticeID(view.TurnID)] {
 				continue
 			}
 			turn, err := host.inputs.loader.Load(ctx, view.TurnID)
@@ -489,7 +461,7 @@ func (e *Engine) QuietTasks(ctx context.Context, result Result) (Result, error) 
 }
 
 func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) error {
-	notices := recordedTaskNotices(parents)
+	notices := delegate.DeliveredNotices(parents)
 	recorded := map[string]taskSnapshot{}
 	problems := map[string]string{}
 	if host.inputs.loader == nil {

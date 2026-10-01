@@ -3,7 +3,6 @@ package delegate
 import (
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 	"unicode"
 
@@ -18,10 +17,10 @@ import (
 // context item with the ID NoticeID(turn); or a session's queue turn started
 // with it: its command ID is "queue:" and the JSON list of the item IDs it
 // carried (see session.Session.RunQueue); or a recorded task_status call
-// returned the notice's text, which it does when it gives the agent the
-// turn's final result. A task_status read that shows a running task, or the
-// list of tasks, delivers nothing. Recover and the live path use this same
-// check.
+// gave the agent the turn's final result in place of the notice, which its
+// outcome's Data names (see statusData). A task_status read that shows a
+// running task, or the list of tasks, delivers nothing. Recover and the live
+// path use this same check.
 const (
 	noticePrefix = "task-done:"
 	queuePrefix  = "queue:"
@@ -109,42 +108,17 @@ func taskSender(id, subagent string) string {
 	return cutUTF8(from, maxFrom)
 }
 
-// DeliveredIn reports whether turns record this notice as delivered, by the
-// rule above. A host that holds notices until a turn ends checks it before
-// it sends one, so a result the agent already read with task_status does
-// not start another turn.
-func (n Notice) DeliveredIn(turns []dashi.Turn) bool {
-	return recordedDelivery(turns).has(n)
-}
-
-// delivery is what the record of a conversation shows delivered: the child
-// turns whose notice item it holds, and the text of each finished
-// task_status call.
-type delivery struct {
-	notices map[string]bool
-	reads   []string
-}
-
-// has reports whether the record delivered n: its item, or a status read
-// that ends with its text.
-func (d delivery) has(n Notice) bool {
-	if d.notices[n.Task.TurnID] {
-		return true
-	}
-	text := "\n" + n.Text()
-	return slices.ContainsFunc(d.reads, func(read string) bool {
-		return strings.HasSuffix(read, text)
-	})
-}
-
-// recordedDelivery reads what turns delivered.
-func recordedDelivery(turns []dashi.Turn) delivery {
-	d := delivery{notices: map[string]bool{}}
+// DeliveredNotices returns the IDs, as NoticeID gives them, of the notices
+// that turns record as delivered, by the rule above. A host that holds
+// notices until a turn ends checks it before it sends one, so a result the
+// agent already read with task_status does not start another turn.
+func DeliveredNotices(turns []dashi.Turn) map[string]bool {
+	out := map[string]bool{}
 	for _, turn := range turns {
 		for _, step := range turn.Steps {
 			for _, item := range step.Items() {
-				if id, ok := strings.CutPrefix(item.ID, noticePrefix); ok {
-					d.notices[id] = true
+				if strings.HasPrefix(item.ID, noticePrefix) {
+					out[item.ID] = true
 				}
 			}
 			if list, ok := strings.CutPrefix(step.CommandID, queuePrefix); ok &&
@@ -152,35 +126,40 @@ func recordedDelivery(turns []dashi.Turn) delivery {
 				var ids []string
 				if json.Unmarshal([]byte(list), &ids) == nil {
 					for _, id := range ids {
-						if child, ok := strings.CutPrefix(id, noticePrefix); ok {
-							d.notices[child] = true
+						if strings.HasPrefix(id, noticePrefix) {
+							out[id] = true
 						}
 					}
 				}
 			}
-			if read, ok := statusRead(step); ok {
-				d.reads = append(d.reads, read)
+			if child := statusDelivery(step); child != "" {
+				out[NoticeID(child)] = true
 			}
 		}
 	}
-	return d
+	return out
 }
 
-// statusRead returns the text of a finished task_status call that a step
-// records. It reads the outcome, which is what the tool returned, whatever
-// a hook or the result limit later showed the model.
-func statusRead(step dashi.Step) (string, bool) {
+// statusData is the tool.Outcome.Data of a task_status call that gave the
+// agent a turn's final result in place of its notice. The record keeps it,
+// so delivery never depends on the text the model saw.
+type statusData struct {
+	// DeliveredTurnID is the child turn whose result the call delivered.
+	DeliveredTurnID string `json:"delivered_turn_id"`
+}
+
+// statusDelivery returns the child turn whose result a step's finished
+// task_status call delivered, or "".
+func statusDelivery(step dashi.Step) string {
 	f := step.Tool
 	if step.Kind != dashi.StepToolFinished || f == nil ||
 		f.Call.Name != StatusToolName || f.Outcome == nil ||
-		f.Outcome.State != tool.StateSucceeded || f.Outcome.Output == nil {
-		return "", false
+		f.Outcome.State != tool.StateSucceeded || len(f.Outcome.Data) == 0 {
+		return ""
 	}
-	var sb strings.Builder
-	for _, b := range f.Outcome.Output.Content {
-		if b.Text != nil {
-			sb.WriteString(b.Text.Text)
-		}
+	var d statusData
+	if json.Unmarshal(f.Outcome.Data, &d) != nil {
+		return ""
 	}
-	return sb.String(), true
+	return d.DeliveredTurnID
 }

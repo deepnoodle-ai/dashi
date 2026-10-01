@@ -134,10 +134,10 @@ type Config struct {
 	OnChild func(ChildEvent)
 	// OnTask receives a TaskStarted event when a child turn starts or
 	// resumes and a TaskEnded event when it ends. Without Session, the host
-	// decides how a result reaches the agent (see Notice); it sends none for
-	// an event with Delivered set. It runs on the task's goroutine, or on a
-	// task_status call's when that call waited for the end, and must return
-	// promptly. TaskEnded fires once for each child turn in one process. It
+	// decides how a result reaches the agent (see Notice); it sends none
+	// for an event with AlreadyDelivered set. It runs on the task's
+	// goroutine, or on a task_status call's when that call waited for the
+	// end, and must return promptly. TaskEnded fires once for each child turn in one process. It
 	// does not fire when Close interrupts a turn.
 	OnTask func(TaskEvent)
 	// Session, when set, is the parent's session, and Tasks puts each

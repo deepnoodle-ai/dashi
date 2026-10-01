@@ -179,7 +179,7 @@ func loadAutomationSnapshot(ctx context.Context, loader interface {
 	if len(host.problems) > 0 {
 		return snap, errors.New("required child record or parent link is unreadable; inspect /tasks after reopening")
 	}
-	delivered := recordedTaskNotices(parents)
+	delivered := delegate.DeliveredNotices(parents)
 	for _, child := range host.recorded {
 		relevant := turnNumber(child.Task.Parent.TurnID) >= snap.request
 		if !taskNoticeReady(child.View) || relevant && child.View.Stop.Kind != dashi.StopCompleted {

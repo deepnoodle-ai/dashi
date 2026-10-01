@@ -237,11 +237,20 @@ func (ts *Tasks) execStatus(
 	}
 	wait := time.Duration(args.WaitSeconds) * time.Second
 	if args.TaskID != "" {
-		v, err := ts.awaitOne(ctx, args.TaskID, wait)
+		v, delivered, err := ts.awaitOne(ctx, args.TaskID, wait)
 		if err != nil {
 			return tool.Outcome{}, err
 		}
-		return tool.Succeeded(describe(v, true)), nil
+		out := tool.Succeeded(describe(v, true))
+		if delivered {
+			// The record shows which result this call delivered, by turn ID
+			// and not by text (see DeliveredNotices).
+			out.Data, err = json.Marshal(statusData{DeliveredTurnID: v.TurnID})
+			if err != nil {
+				return tool.Outcome{}, err
+			}
+		}
+		return out, nil
 	}
 	views := ts.awaitAny(ctx, wait)
 	if len(views) == 0 {
@@ -300,23 +309,23 @@ func (ts *Tasks) unknown(id string) error {
 	)
 }
 
-// awaitOne returns the view of one task, after it ends or the wait is over.
-// A view that holds a turn's final result delivers it (see readLocked).
-// While the call waits, the end of the last turn is left to it (see
-// notifyEnded); it reports that end on return, so an end that it does not
-// read still gets its notice.
+// awaitOne returns the view of one task, after it ends or the wait is over,
+// and whether the call delivers the final result the view holds (see
+// readLocked). While the call waits, the end of the last turn is left to it
+// (see notifyEnded); it reports that end on return, so an end that it does
+// not deliver still gets its notice.
 func (ts *Tasks) awaitOne(
 	ctx context.Context,
 	id string,
 	wait time.Duration,
-) (TaskView, error) {
+) (TaskView, bool, error) {
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	ts.mu.Lock()
 	t, ok := ts.tasks[id]
 	if !ok {
 		ts.mu.Unlock()
-		return TaskView{}, ts.unknown(id)
+		return TaskView{}, false, ts.unknown(id)
 	}
 	t.waiting++
 	over := wait == 0
@@ -334,9 +343,9 @@ func (ts *Tasks) awaitOne(
 			ts.mu.Lock()
 			continue
 		}
-		c, withdraw := t.last(), ""
+		c, delivered, withdraw := t.last(), false, ""
 		if !v.Running() && ctx.Err() == nil {
-			withdraw = ts.readLocked(ctx, c)
+			delivered, withdraw = ts.readLocked(ctx, c)
 		}
 		t.waiting--
 		ts.mu.Unlock()
@@ -344,32 +353,38 @@ func (ts *Tasks) awaitOne(
 			ts.mu.Lock()
 			c.read = true
 			ts.mu.Unlock()
+			delivered = true
 		}
-		ts.notifyEnded(t, delivery{})
-		return v, nil
+		ts.notifyEnded(t, nil)
+		return v, delivered, nil
 	}
 }
 
-// readLocked records that the agent is getting the final result of turn c,
-// the task's last, from a task_status call. When the turn's notice has not
-// gone out, the read takes its place: the turn is marked read under the
-// lock that notifyEnded takes too, so the notice and the read never both
-// carry the result. When the notice has gone to Config.Session, it returns
-// the notice's ID for the caller to withdraw, since no turn takes a steer
-// while a tool runs. A turn whose notice is deferred is left alone. The
-// caller holds ts.mu; readLocked may release it while a notice goes out.
-func (ts *Tasks) readLocked(ctx context.Context, c *childTurn) string {
-	if c == nil || c.deferred || c.read {
-		return ""
-	}
-	if !c.notified {
+// readLocked decides whether a task_status call that gives the agent the
+// final result of turn c, the task's last, delivers it. When the turn's
+// notice has not gone out, the read takes its place: the turn is marked
+// read under the lock that notifyEnded takes too, so the notice and the read
+// never both carry the result. When the host holds the notice (no
+// Config.Session), the read delivers, and the host finds that in the record
+// with DeliveredNotices before it sends the notice. When the notice has gone
+// to Config.Session, readLocked returns its ID for the caller to withdraw,
+// since no turn takes a steer while a tool runs; the read delivers only if
+// that works. A turn whose notice is deferred is left alone. The caller
+// holds ts.mu; readLocked may release it while a notice goes out.
+func (ts *Tasks) readLocked(
+	ctx context.Context,
+	c *childTurn,
+) (delivered bool, withdraw string) {
+	switch {
+	case c == nil || c.deferred:
+		return false, ""
+	case c.read:
+		return true, ""
+	case !c.notified:
 		c.read = true
-		return ""
-	}
-	if ts.cfg.Session == nil {
-		// The host holds the notice. The record shows this read, which
-		// Notice.DeliveredIn finds before the host sends it.
-		return ""
+		return true, ""
+	case ts.cfg.Session == nil:
+		return true, ""
 	}
 	// Let a notice that is going out arrive first, so it can be withdrawn.
 	for !c.reported && ctx.Err() == nil {
@@ -382,9 +397,9 @@ func (ts *Tasks) readLocked(ctx context.Context, c *childTurn) string {
 		ts.mu.Lock()
 	}
 	if ctx.Err() != nil || c.suppressed {
-		return ""
+		return false, ""
 	}
-	return NoticeID(c.id)
+	return false, NoticeID(c.id)
 }
 
 // awaitAny returns every task after the running turn of a task ends, or
@@ -426,21 +441,27 @@ func (ts *Tasks) awaitAny(ctx context.Context, wait time.Duration) []TaskView {
 	}
 }
 
-// describe writes a view for the model. With detail it adds the reply: an
-// ended task's detail ends with its notice text, which is how the record
-// shows that the read delivered the result (see recordedDelivery).
+// describe writes a view for the model. With detail it adds the reply.
 func describe(v TaskView, detail bool) string {
-	counts := fmt.Sprintf("%d tool calls, %s", v.ToolCalls, formatSpend(v.Spend))
-	switch {
-	case !detail:
-		return fmt.Sprintf("%s %s %s: %s, %s",
-			v.ID, v.Subagent, v.Description, v.State, counts)
-	case v.Running():
-		return fmt.Sprintf("Task %s (%s): %s\n%s, %s",
-			v.ID, v.Subagent, v.Description, v.State, counts)
+	var sb strings.Builder
+	if detail {
+		fmt.Fprintf(&sb, "Task %s (%s): %s\n", v.ID, v.Subagent, v.Description)
+	} else {
+		fmt.Fprintf(&sb, "%s %s %s: %s, ", v.ID, v.Subagent, v.Description, v.State)
 	}
-	return fmt.Sprintf("Task %s (%s): %s\n%s",
-		v.ID, v.Subagent, counts, v.Notice().Text())
+	if detail {
+		fmt.Fprintf(&sb, "%s, ", v.State)
+	}
+	fmt.Fprintf(&sb, "%d tool calls, %s", v.ToolCalls, formatSpend(v.Spend))
+	if detail {
+		if v.Reply != "" {
+			sb.WriteString("\n" + v.Reply)
+		}
+		if v.Reason != "" {
+			sb.WriteString("\nReason: " + v.Reason)
+		}
+	}
+	return sb.String()
 }
 
 // formatSpend writes the cost of a spend, such as "0.02 USD", one amount per
