@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -18,7 +19,13 @@ import (
 // turn, even without attachments, and the CLI never removes that directory.
 // Existing storage or an uncertain path cannot establish absence.
 func (st *Store) TaskStorageAbsent(s *Session) bool {
+	if s == nil || !validAttachmentSession(s.ID) {
+		return false
+	}
 	parent, err := st.Attachments(s)
+	if errors.Is(err, errAttachmentUnsupported) {
+		return attachmentPathAbsent(filepath.Join(st.root, s.ID, "children"))
+	}
 	if err != nil {
 		return false
 	}

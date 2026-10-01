@@ -36,3 +36,40 @@ func TestUnsupportedAttachmentAbsencePreservesExistingAndUncertainPaths(t *testi
 		t.Fatal("unexpected ancestor type was treated as absent")
 	}
 }
+
+func TestTaskStorageAbsenceChecksExistingAndUnsafeMarkers(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := NewStore(root)
+	s, err := st.Create(root, "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, s.ID)
+	if err = os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if !st.TaskStorageAbsent(s) {
+		t.Fatal("absent child storage not established")
+	}
+	path := filepath.Join(dir, "children")
+	if err = os.WriteFile(path, []byte("uncertain"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if st.TaskStorageAbsent(s) {
+		t.Fatal("unexpected child marker certified absence")
+	}
+	if err = os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Symlink(filepath.Join(root, "absent"), path); err == nil {
+		if st.TaskStorageAbsent(s) {
+			t.Fatal("child symlink certified absence")
+		}
+	}
+	if st.TaskStorageAbsent(nil) || st.TaskStorageAbsent(&Session{ID: "../outside"}) {
+		t.Fatal("invalid identity certified absence")
+	}
+}

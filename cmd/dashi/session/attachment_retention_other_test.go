@@ -33,3 +33,24 @@ func TestUnsupportedAttachmentDiscard(t *testing.T) {
 		})
 	}
 }
+
+func TestUnsupportedTaskStorageAbsence(t *testing.T) {
+	st := NewStore(t.TempDir())
+	s, err := st.Create(t.TempDir(), "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(st.root, s.ID)
+	if err = os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if !st.TaskStorageAbsent(s) {
+		t.Fatal("empty session cannot establish absent child storage")
+	}
+	if err = os.Mkdir(filepath.Join(dir, "children"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if st.TaskStorageAbsent(s) {
+		t.Fatal("existing child storage certified absence")
+	}
+}
