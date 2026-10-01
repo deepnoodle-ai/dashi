@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -31,6 +32,13 @@ const (
 	KindWarning    BlockKind = "warning"
 	KindCompaction BlockKind = "compaction"
 	KindPending    BlockKind = "pending"
+	KindHelp       BlockKind = "help"
+	// KindTaskStatus is the state of a delegated task. It draws under the
+	// task tool line that started the task (see Block.Parent).
+	KindTaskStatus BlockKind = "task-status"
+	// KindTaskResult marks a task result that reached the parent agent. It
+	// takes the place of the user line of a turn that the result started.
+	KindTaskResult BlockKind = "task-result"
 )
 
 // Tool line states.
@@ -74,6 +82,15 @@ type Block struct {
 	Expanded bool
 	// Done marks a block that will not change again.
 	Done bool
+	// Footer holds the facts of a footer block, and Help the structure of a
+	// help block. Text keeps the plain form of both.
+	Footer *footerFacts
+	Help   *helpDoc
+	// Parent is the ID of the tool block a task status line belongs under.
+	Parent string
+	// Task is the task status line drawn under a tool line. Transcript sets
+	// it when a KindTaskStatus block names this tool block as its Parent.
+	Task *Block
 }
 
 // Renderer turns Dashi events into blocks. The screen, line mode, and -p use
@@ -201,10 +218,18 @@ func (r *Renderer) step(s dashi.Step) []Block {
 			out = append(out, r.compactionBlock(s.TurnID, dashi.Stop{}))
 			break
 		}
+		// A turn that a task result or another agent message started has
+		// no user text. Show what started it instead of an empty user line.
+		markers := deliveredItemBlocks("r:"+s.TurnID, s.Started.Input)
+		out = append(out, markers...)
+		text := joinMessages(s.Started.Input)
+		if text == "" && len(markers) > 0 {
+			break
+		}
 		out = append(out, Block{
 			ID:   "u:" + s.TurnID,
 			Kind: KindUser,
-			Text: joinMessages(s.Started.Input),
+			Text: text,
 			Done: true,
 		})
 	case dashi.StepModelCallStarted:
@@ -230,6 +255,12 @@ func (r *Renderer) step(s dashi.Step) []Block {
 	case dashi.StepMessagesAdded:
 		if s.Context != nil && s.Context.Steering {
 			for _, item := range s.Context.Items {
+				if item.Message.Text() == "" {
+					if markers := deliveredItemBlocks("s:"+item.ID, []llm.Message{item.Message}); len(markers) > 0 {
+						out = append(out, markers...)
+						continue
+					}
+				}
 				out = append(out, Block{
 					ID:    "s:" + item.ID,
 					Kind:  KindSteer,
@@ -333,6 +364,9 @@ func (r *Renderer) toolCall(s dashi.Step) *callState {
 	}
 	c.name = call.Name
 	c.arg = mainArg(call.Args, r.Dir)
+	if call.Name == delegate.ToolName {
+		c.arg = taskToolArg(call.Args, s.TurnID, call.ID)
+	}
 	return c
 }
 
@@ -370,7 +404,9 @@ func (r *Renderer) toolFinished(s dashi.Step) []Block {
 		}
 	}
 	b := r.toolBlock(id, c, state)
-	if s.Tool.Outcome != nil {
+	// A started task's output only instructs the model. The status line
+	// under the tool line tells the user more.
+	if s.Tool.Outcome != nil && (c.name != delegate.ToolName || state != StateOK) {
 		b.Detail = outputText(s.Tool.Outcome)
 	}
 	b.Lines = lines
@@ -428,33 +464,95 @@ func limitText(st *dashi.Stop) string {
 
 // Footer returns the line that closes a finished turn.
 func (r *Renderer) Footer(v dashi.TurnView) Block {
+	f := newFooterFacts(r.Turn, r.Model, v)
 	return Block{
-		ID:   fmt.Sprintf("footer:%s", v.ID),
-		Kind: KindFooter,
-		Text: FooterText(r.Turn, r.Model, v),
-		Done: true,
+		ID:     fmt.Sprintf("footer:%s", v.ID),
+		Kind:   KindFooter,
+		Text:   f.String(),
+		Footer: &f,
+		Done:   true,
 	}
 }
 
-// FooterText formats the turn summary: number, model, model calls, tokens,
-// and cost.
-func FooterText(turn int, model string, v dashi.TurnView) string {
-	parts := []string{fmt.Sprintf("turn %d", turn)}
-	if model != "" {
-		parts = append(parts, model)
+// footerFacts is the turn summary: number, model, model calls, tokens, and
+// cost. The screen styles each value; plain output joins them.
+type footerFacts struct {
+	Turn  int
+	Model string
+	Calls int
+	// Tokens is meaningless when UsageIncomplete is set.
+	Tokens          int
+	UsageIncomplete bool
+	Cost            string
+}
+
+func newFooterFacts(turn int, model string, v dashi.TurnView) footerFacts {
+	return footerFacts{
+		Turn:            turn,
+		Model:           model,
+		Calls:           v.ModelCalls,
+		Tokens:          v.Spend.Usage.TotalInputTokens() + v.Spend.Usage.OutputTokens,
+		UsageIncomplete: v.Spend.UsageIncomplete,
+		Cost:            costText(v.Spend),
 	}
-	calls := v.ModelCalls
-	parts = append(parts, fmt.Sprintf("%d model %s", calls, plural(calls, "call")))
-	if v.Spend.UsageIncomplete {
-		parts = append(parts, "usage incomplete")
+}
+
+// footerPart is one value of the footer. Meta values are quiet; the screen
+// emphasizes the rest by kind.
+type footerPart struct {
+	text string
+	kind footerKind
+}
+
+type footerKind int
+
+const (
+	footerMeta footerKind = iota
+	footerValue
+	footerCost
+	footerWarn
+)
+
+func (f footerFacts) parts() []footerPart {
+	parts := []footerPart{{fmt.Sprintf("turn %d", f.Turn), footerMeta}}
+	if f.Model != "" {
+		parts = append(parts, footerPart{f.Model, footerValue})
+	}
+	parts = append(parts, footerPart{fmt.Sprintf("%d model %s", f.Calls, plural(f.Calls, "call")), footerMeta})
+	if f.UsageIncomplete {
+		parts = append(parts, footerPart{"usage incomplete", footerWarn})
 	} else {
-		tokens := v.Spend.Usage.TotalInputTokens() + v.Spend.Usage.OutputTokens
-		parts = append(parts, groupDigits(tokens)+" tokens")
+		parts = append(parts, footerPart{groupDigits(f.Tokens) + " tokens", footerValue})
 	}
-	if cost := costText(v.Spend); cost != "" {
-		parts = append(parts, cost)
+	if f.Cost != "" {
+		parts = append(parts, footerPart{f.Cost, footerCost})
 	}
-	return "[" + strings.Join(parts, " | ") + "]"
+	return parts
+}
+
+// String is the plain form: "── turn 3 · model · 2 model calls · ...".
+func (f footerFacts) String() string {
+	var out strings.Builder
+	out.WriteString(footerRule)
+	for i, p := range f.parts() {
+		if i == 0 {
+			out.WriteString(" ")
+		} else {
+			out.WriteString(footerSep)
+		}
+		out.WriteString(p.text)
+	}
+	return out.String()
+}
+
+const (
+	footerRule = "──"
+	footerSep  = " · "
+)
+
+// FooterText formats the turn summary as plain text.
+func FooterText(turn int, model string, v dashi.TurnView) string {
+	return newFooterFacts(turn, model, v).String()
 }
 
 func costText(sp dashi.Spend) string {
@@ -532,13 +630,36 @@ func RenderTurn(
 type Transcript struct {
 	Blocks []Block
 	index  map[string]int
+	// toolDone holds the own Done of each tool block that has a task line.
+	// Such a block is done only when its task line is done too.
+	toolDone map[string]bool
 }
 
 // Apply adds b, or replaces the block that has the same ID. It returns the
-// index of the block.
+// index of the block. A task status block whose Parent tool block is in the
+// transcript goes under that block instead (see Block.Task).
 func (t *Transcript) Apply(b Block) int {
+	if b.Kind == KindTaskStatus && b.Parent != "" {
+		if i, ok := t.index[b.Parent]; ok && t.Blocks[i].Kind == KindTool {
+			if t.toolDone == nil {
+				t.toolDone = map[string]bool{}
+			}
+			if _, seen := t.toolDone[b.Parent]; !seen {
+				t.toolDone[b.Parent] = t.Blocks[i].Done
+			}
+			task := b
+			t.Blocks[i].Task = &task
+			t.Blocks[i].Done = t.toolDone[b.Parent] && b.Done
+			return i
+		}
+	}
 	if b.ID != "" {
 		if i, ok := t.index[b.ID]; ok {
+			if old := t.Blocks[i]; b.Kind == KindTool && old.Task != nil && b.Task == nil {
+				t.toolDone[b.ID] = b.Done
+				b.Task = old.Task
+				b.Done = b.Done && old.Task.Done
+			}
 			t.Blocks[i] = b
 			return i
 		}
@@ -586,6 +707,8 @@ func FormatBlock(b Block) string {
 		return "warning: " + b.Text
 	case KindNotice:
 		return b.Text
+	case KindTaskStatus, KindTaskResult:
+		return taskLineText(b)
 	}
 	return b.Text
 }
@@ -607,6 +730,9 @@ func formatTool(b Block) string {
 	line := fmt.Sprintf("%-*s %s", toolLineWidth, left, right)
 	for _, l := range b.Lines {
 		line += "\n    " + l
+	}
+	if b.Task != nil {
+		line += "\n" + taskLineUnderText(*b.Task)
 	}
 	return line
 }
@@ -675,6 +801,19 @@ func printable(b Block) Block {
 	b.Text = workspace.PrintableText(b.Text)
 	b.Name = workspace.PrintableText(b.Name)
 	b.Arg = workspace.PrintableText(b.Arg)
+	if b.Footer != nil {
+		f := *b.Footer
+		f.Model, f.Cost = workspace.PrintableText(f.Model), workspace.PrintableText(f.Cost)
+		b.Footer = &f
+	}
+	if b.Help != nil {
+		h := b.Help.printable()
+		b.Help = &h
+	}
+	if b.Task != nil {
+		task := printable(*b.Task)
+		b.Task = &task
+	}
 	if b.Lines != nil {
 		lines := make([]string, len(b.Lines))
 		for i, l := range b.Lines {
@@ -748,6 +887,12 @@ func plural(n int, word string) string {
 		return word
 	}
 	return word + "s"
+}
+
+// outputLinesText counts the lines of tool output, such as "1 output line".
+func outputLinesText(detail string) string {
+	n := strings.Count(detail, "\n") + 1
+	return fmt.Sprintf("%d output %s", n, plural(n, "line"))
 }
 
 func groupDigits(n int) string {

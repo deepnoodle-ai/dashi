@@ -9,8 +9,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/deepnoodle-ai/dashi/workspace"
+	"github.com/deepnoodle-ai/wonton/runewidth"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
@@ -80,15 +82,19 @@ type queued struct {
 }
 
 type approvalPrompt struct {
-	req     ApprovalRequest
-	reply   chan Approval
-	vp      tui.ViewportState
-	denying bool
-	reason  string
+	req         toolApproval
+	reply       chan Approval
+	vp          tui.ViewportState
+	denying     bool
+	reason      string
+	expanded    bool
+	laidOut     *approvalLayout
+	layoutWidth int
 }
 
 type askPrompt struct {
 	q        Question
+	task     string
 	reply    chan questionAnswer
 	vp       tui.ViewportState
 	index    int
@@ -211,7 +217,7 @@ func (s *screen) post(e tui.Event) {
 }
 
 // Approve implements UI. It blocks until the user answers or ctx ends.
-func (s *screen) Approve(ctx context.Context, r ApprovalRequest) (Approval, error) {
+func (s *screen) Approve(ctx context.Context, r toolApproval) (Approval, error) {
 	id := s.promptSeq.Add(1)
 	p := &approvalPrompt{req: r, reply: make(chan Approval, 1)}
 	s.post(promptEvent{at: time.Now(), id: id, approval: p})
@@ -225,9 +231,9 @@ func (s *screen) Approve(ctx context.Context, r ApprovalRequest) (Approval, erro
 }
 
 // Ask implements UI.
-func (s *screen) Ask(ctx context.Context, q Question) (questionAnswer, error) {
+func (s *screen) Ask(ctx context.Context, q taskQuestion) (questionAnswer, error) {
 	id := s.promptSeq.Add(1)
-	p := &askPrompt{q: q, reply: make(chan questionAnswer, 1), selected: map[int]bool{}, own: len(q.Choices) == 0}
+	p := &askPrompt{q: q.Question, task: q.Task, reply: make(chan questionAnswer, 1), selected: map[int]bool{}, own: len(q.Choices) == 0}
 	s.post(promptEvent{at: time.Now(), id: id, asking: p})
 	select {
 	case a := <-p.reply:
@@ -281,7 +287,7 @@ func (s *screen) Item(i int) tui.View {
 			b.Expanded = true
 		} else {
 			return tui.Stack(blockView(b), tui.PaddingLTRB(6, 0, 0, 0,
-				tui.Text("%d output lines · click to expand", strings.Count(b.Detail, "\n")+1).Style(hintStyle))).Gap(0)
+				tui.Text("%s · click to expand", outputLinesText(b.Detail)).Style(hintStyle))).Gap(0)
 		}
 	}
 	return blockView(b)
@@ -671,8 +677,8 @@ func (s *screen) inputView(mode Mode) tui.View {
 		// an 80×24 terminal, including the running-work indicator.
 		maxHeight = 6
 	}
-	// Wonton v0.2.1 retains a field's initial placeholder. Keep it neutral;
-	// the ordinary text view above it updates the current input meaning.
+	// The hint line above the field says what input means now; the
+	// placeholder stays neutral.
 	return tui.InputField(&s.input).
 		ID(inputID).
 		Prompt("❯").
@@ -698,7 +704,27 @@ func (s *screen) inputView(mode Mode) tui.View {
 			s.updateAttachmentUnsaved()
 		}).
 		OnComplete(s.completeDraft).
+		Highlight(s.highlightCommand).
 		OnSubmit(s.inputSubmit(s.promptID))
+}
+
+var commandHighlightStyle = tui.NewStyle().WithForeground(tui.ColorCyan).WithBold()
+
+// highlightCommand styles the draft's first word when it names a known
+// command, so a typo or an unfinished name stays plain. An answer to a
+// question is never a command.
+func (s *screen) highlightCommand(value string) []tui.TextRange {
+	if s.asking != nil || s.ctrl == nil || !strings.HasPrefix(value, "/") {
+		return nil
+	}
+	end := strings.IndexFunc(value, unicode.IsSpace)
+	if end < 0 {
+		end = len(value)
+	}
+	if !s.ctrl.knownCommand(value[:end]) {
+		return nil
+	}
+	return []tui.TextRange{{Start: 0, End: end, Style: commandHighlightStyle}}
 }
 
 func (s *screen) inputHint(mode Mode) string {
@@ -724,7 +750,8 @@ func (s *screen) inputHint(mode Mode) string {
 	case s.eng.HasPending():
 		return "Press Enter to continue and deliver the pending prompt."
 	}
-	return "Ask anything. /help lists commands."
+	// The status line offers /help; the empty row keeps the layout still.
+	return ""
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -742,8 +769,20 @@ func (s *screen) statusView() tui.View {
 	if sess := s.eng.Session(); sess != nil {
 		id = sess.ID
 	}
-	return tui.Text(" %s · %s · %s", s.model(), shortDir(s.dir), id).Style(mutedStyle)
+	left := workspace.PrintableText(fmt.Sprintf(" %s · %s · %s", s.model(), shortDir(s.dir), id))
+	// Inline mode learns its width only on a resize, so measure at render.
+	// The hint yields to a narrow terminal; the session facts never do.
+	return tui.CanvasContext(func(ctx *tui.RenderContext) {
+		width, _ := ctx.Size()
+		ctx.PrintTruncated(0, 0, left, mutedStyle)
+		hint := runewidth.StringWidth(statusHint)
+		if runewidth.StringWidth(left)+2+hint <= width {
+			ctx.PrintStyled(width-hint, 0, statusHint, mutedStyle)
+		}
+	}).Height(1)
 }
+
+const statusHint = "/help lists commands "
 
 // shortDir shows the last two parts of a path.
 func shortDir(dir string) string {
@@ -758,7 +797,7 @@ func pickerView(p *pickerState) tui.View {
 	if p.sessionCards {
 		return sessionPickerView(p)
 	}
-	views := []tui.View{tui.Divider(), tui.Text(" %s", p.title).Bold()}
+	views := []tui.View{tui.Divider(), tui.Text(" %s", p.title).Fg(tui.ColorCyan).Bold()}
 	// Keep room for the selected model's facts on an 80×24 terminal.
 	window := 10
 	if len(p.details) > 0 {
@@ -774,9 +813,10 @@ func pickerView(p *pickerState) tui.View {
 		}
 	}
 	if p.index >= 0 && p.index < len(p.details) {
-		views = append(views, tui.Divider(), tui.Text("%s\n%s", p.options[p.index], p.details[p.index]).Wrap())
+		views = append(views, tui.Divider(), tui.Text(" %s", p.options[p.index]).Bold(),
+			tui.PaddingLTRB(1, 0, 0, 0, tui.Text("%s", p.details[p.index]).Wrap()))
 	}
-	views = append(views, tui.Text(" Up and Down move. Enter picks. Esc cancels.").Style(hintStyle))
+	views = append(views, tui.Text(" ↑/↓ choose · Enter picks · Esc cancels").Wrap().Style(hintStyle))
 	return tui.Stack(views...).Gap(0)
 }
 
@@ -803,7 +843,9 @@ func blockView(b Block) tui.View {
 		}
 		return tui.Stack(tui.Text("  Reasoning").Fg(tui.ColorCyan), tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(b.Text, nil).SourceOffset(0))).Gap(0)
 	case KindTool:
-		return toolView(b)
+		return withTaskLine(toolView(b), b)
+	case KindTaskStatus, KindTaskResult:
+		return taskLineView(b)
 	case KindDiff:
 		views := make([]tui.View, 0, len(b.Lines))
 		offset := 0
@@ -837,11 +879,47 @@ func blockView(b Block) tui.View {
 	case KindStop:
 		return sourceLabel("■ ", b.Text, tui.ColorYellow)
 	case KindFooter:
-		return tui.Text("%s", b.Text).SourceOffset(0).Style(mutedStyle)
+		return footerView(b)
+	case KindHelp:
+		if b.Help != nil {
+			return helpView(*b.Help)
+		}
 	case KindWarning:
 		return sourceLabel("! ", b.Text, tui.ColorYellow)
 	}
-	return tui.Text("%s", b.Text).SourceOffset(0).Wrap().Style(mutedStyle)
+	// Notices answer the user, such as /status or /settings, so they use
+	// the normal foreground.
+	return tui.Text("%s", b.Text).SourceOffset(0).Wrap()
+}
+
+// footerView draws the turn footer as a quiet rule. The values stand out
+// a little from the rule and separators; incomplete usage stands out more.
+func footerView(b Block) tui.View {
+	if b.Footer == nil {
+		return tui.Text("%s", b.Text).SourceOffset(0).Style(mutedStyle)
+	}
+	views := []tui.View{tui.Text("%s ", footerRule).Style(mutedStyle)}
+	offset := len(footerRule) + 1
+	for i, p := range b.Footer.parts() {
+		if i > 0 {
+			views = append(views, tui.Text("%s", footerSep).Style(mutedStyle))
+			offset += len(footerSep)
+		}
+		t := tui.Text("%s", p.text).SourceOffset(offset)
+		offset += len(p.text)
+		switch p.kind {
+		case footerMeta:
+			t = t.Style(mutedStyle)
+		case footerCost:
+			t = t.Fg(costColor)
+		case footerWarn:
+			t = t.Fg(tui.ColorYellow)
+		}
+		views = append(views, t)
+	}
+	// A flexible stack gives the divider the rest of the row.
+	views = append(views, tui.Text(" "), tui.Stack(tui.Divider().Style(mutedStyle)).Flex(1))
+	return tui.Group(views...)
 }
 
 func toolView(b Block) tui.View {
@@ -888,12 +966,14 @@ func toolView(b Block) tui.View {
 	return tui.Stack(views...).Gap(0)
 }
 
-// Secondary text uses 256-color gray 245 (#8a8a8a) without dim. Wonton's
+// Secondary text uses 256-color gray 248 (#a8a8a8) without dim. Wonton's
 // Hint and Muted add dim to bright black, which nearly disappears on dark
-// themes. Italic marks only key and command help.
+// themes, and darker grays read poorly there too. Italic marks only key and
+// command help. Footer costs use a soft green (#87af87).
 var (
-	mutedStyle = tui.NewStyle().WithForeground(tui.Color(245))
+	mutedStyle = tui.NewStyle().WithForeground(tui.Color(248))
 	hintStyle  = mutedStyle.WithItalic()
+	costColor  = tui.Color(108)
 )
 
 func sourceLabel(label, source string, color tui.Color) tui.View {

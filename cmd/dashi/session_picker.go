@@ -15,7 +15,7 @@ func sessionPickerView(p *pickerState) tui.View {
 		title = p.title + " · recorded child details"
 		hint = " Page Up/Down inspect · Enter close · Esc close"
 	}
-	views := []tui.View{tui.Divider(), tui.Text(" %s", title).Bold()}
+	views := []tui.View{tui.Divider(), tui.Text(" %s", title).Fg(tui.ColorCyan).Bold()}
 	const rows = 4
 	start := max(0, min(p.index-rows/2, len(p.options)-rows))
 	end := min(len(p.options), start+rows)

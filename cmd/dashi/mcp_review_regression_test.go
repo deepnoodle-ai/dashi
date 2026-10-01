@@ -107,7 +107,7 @@ func TestMCPActualStartupIsolatesFailedUserSettings(t *testing.T) {
 			t.Setenv("OPENAI_API_KEY", "NO_AUTOMATIC_ROUTE")
 			var out, stderr bytes.Buffer
 			code := run(t.Context(), []string{"--plain", "--mcp-config", extra}, strings.NewReader("/help\n/mcp\nwork\n/quit\n"), &out, &stderr)
-			if code != 0 || !strings.Contains(stderr.String(), "source ignored") || !strings.Contains(out.String(), "docs: connected") || !strings.Contains(out.String(), "project: blocked") || !strings.Contains(out.String(), "Commands:") || !strings.Contains(out.String(), "select an explicit destination") || strings.Contains(out.String(), "[turn 1 |") {
+			if code != 0 || !strings.Contains(stderr.String(), "source ignored") || !strings.Contains(out.String(), "docs: connected") || !strings.Contains(out.String(), "project: blocked") || !strings.Contains(out.String(), "also works while a turn runs") || !strings.Contains(out.String(), "select an explicit destination") || strings.Contains(out.String(), "── turn 1 ·") {
 				t.Fatalf("code=%d stdout=%s stderr=%s", code, out.String(), stderr.String())
 			}
 			mcpAssertReaped(t, log)
@@ -169,7 +169,7 @@ func TestMCPFailedProjectPreferencesRequireExplicitRouteButAllowValidDispatch(t 
 	out.Reset()
 	stderr.Reset()
 	code = run(t.Context(), []string{"-p", "/help", "--provider", "unknown"}, strings.NewReader(""), &out, &stderr)
-	if code != 0 || !strings.Contains(out.String(), "Commands:") || sends.Load() != 3 {
+	if code != 0 || !strings.Contains(out.String(), "also works while a turn runs") || sends.Load() != 3 {
 		t.Fatal("local help attempted live route setup")
 	}
 }

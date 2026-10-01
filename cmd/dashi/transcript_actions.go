@@ -116,19 +116,54 @@ func (s *screen) clipboardResult(e clipboardResultEvent) {
 	s.Emit(Block{Kind: KindNotice, Text: "Sent a terminal clipboard request (OSC52). Receipt is unconfirmed.", Done: true})
 }
 
+// wheelStep is how many rows one wheel notch scrolls, in the transcript and
+// in dialog details alike. Wonton leaves the wheel to the application.
+const wheelStep = 3
+
+func wheelDelta(e tui.MouseEvent) int {
+	switch e.Button {
+	case tui.MouseButtonWheelUp:
+		return -wheelStep
+	case tui.MouseButtonWheelDown:
+		return wheelStep
+	}
+	return 0
+}
+
+// dialogViewport returns the scrollable details of the open dialog, if any.
+func (s *screen) dialogViewport() *tui.ViewportState {
+	switch {
+	case s.approval != nil:
+		return &s.approval.vp
+	case s.asking != nil:
+		return &s.asking.vp
+	case s.picker != nil && s.picker.startupReview != nil:
+		return &s.picker.startupVP
+	case s.picker != nil && s.picker.sessionCards:
+		return &s.picker.sessionVP
+	}
+	return nil
+}
+
 func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
-	if !s.mouseEnabled || (s.approval != nil && !s.approval.denying) || s.asking != nil || s.picker != nil {
+	if !s.mouseEnabled {
 		return
 	}
+	if (s.approval != nil && !s.approval.denying) || s.asking != nil || s.picker != nil {
+		// While a dialog is open, the wheel scrolls its details.
+		if vp := s.dialogViewport(); vp != nil && e.Type == tui.MouseScroll {
+			vp.ScrollBy(wheelDelta(e))
+		}
+		return
+	}
+	// The viewport takes its own coordinates; it recorded its screen
+	// origin at the last render.
 	local := e
-	local.X--
+	local.X -= s.vp.X
+	local.Y -= s.vp.Y
 	inside := local.X >= 0 && local.X < s.vp.Width && local.Y >= 0 && local.Y < s.vp.Height
 	if e.Type == tui.MouseScroll && inside {
-		if e.Button == tui.MouseButtonWheelUp {
-			s.vp.ScrollBy(-1)
-		} else if e.Button == tui.MouseButtonWheelDown {
-			s.vp.ScrollBy(1)
-		}
+		s.vp.ScrollBy(wheelDelta(e))
 		return
 	}
 	if e.Type == tui.MousePress && !inside {
@@ -150,7 +185,7 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 			}
 			s.expanded[i] = !s.expanded[i]
 			s.vp.Invalidate(i)
-		} else if e.Y == s.vp.Height && !s.vp.AtBottom {
+		} else if local.Y == s.vp.Height && !s.vp.AtBottom {
 			s.vp.ScrollToBottom()
 		}
 	}

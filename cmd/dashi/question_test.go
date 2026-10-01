@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
@@ -33,11 +35,37 @@ func TestMultipleQuestionLineAnswers(t *testing.T) {
 
 type questionFixtureUI struct {
 	*recorderUI
-	ask func(context.Context, Question) (questionAnswer, error)
+	ask   func(context.Context, Question) (questionAnswer, error)
+	shown taskQuestion
 }
 
-func (u *questionFixtureUI) Ask(ctx context.Context, q Question) (questionAnswer, error) {
-	return u.ask(ctx, q)
+func (u *questionFixtureUI) Ask(ctx context.Context, q taskQuestion) (questionAnswer, error) {
+	u.shown = q
+	return u.ask(ctx, q.Question)
+}
+
+func TestTaskQuestionNamesTaskWithoutInternalIDs(t *testing.T) {
+	ui := &questionFixtureUI{recorderUI: newRecorderUI(), ask: func(context.Context, Question) (questionAnswer, error) {
+		return questionAnswer{text: "main"}, nil
+	}}
+	c := NewController(t.Context(), nil, ui, nil, "")
+	owner := brokerOwner{TaskID: "child-session", Call: dashi.CallRef{TurnID: "turn-123", CallID: "call_abc"}}
+	ctx := context.WithValue(t.Context(), brokerOwnerKey{}, owner)
+	if _, err := c.Ask(ctx, Question{Prompt: "Which branch?"}); err != nil {
+		t.Fatal(err)
+	}
+	if ui.shown.Prompt != "Which branch?" || ui.shown.Task != delegate.TaskID("child-session") {
+		t.Fatalf("shown=%+v", ui.shown)
+	}
+	var out strings.Builder
+	line := &lineUI{out: &out, ctrl: c}
+	go func() { c.answers <- "main" }()
+	if _, err := line.Ask(t.Context(), ui.shown); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Which branch?\n  From task " + ui.shown.Task + " · /task " + ui.shown.Task + " shows it\n"; !strings.HasPrefix(out.String(), want) {
+		t.Fatalf("line mode:\n%s", out.String())
+	}
 }
 
 func TestQuestionAnswersKeepExactLabelsAfterSafeDisplay(t *testing.T) {

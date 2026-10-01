@@ -7,6 +7,8 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 
 	"github.com/deepnoodle-ai/dashi/session"
@@ -15,6 +17,7 @@ import (
 
 type commandEntry struct {
 	hidden                   bool
+	group                    string
 	name, usage, description string
 	aliases                  []string
 	run                      func(string)
@@ -27,10 +30,37 @@ func (c *Controller) commands() []commandEntry {
 		return func(arg string) { c.async(func(ctx context.Context) { fn(ctx, arg) }) }
 	}
 	entries := []commandEntry{
-		{name: "/tasks", description: "list delegated work and separate parent/child spend", run: func(arg string) { c.taskInput("/tasks " + arg) }, during: func(arg string) { c.taskInput("/tasks " + arg) }},
-		{name: "/task", usage: "ID [continue|done CALL_ID|discard]", description: "inspect or control the exact recorded child", run: func(arg string) { c.taskInput("/task " + arg) }, during: func(arg string) { c.taskInput("/task " + arg) }},
-		{name: "/task-stop", usage: "ID", description: "cancel one live child and verify its record", run: func(arg string) { c.taskInput("/task-stop " + arg) }, during: func(arg string) { c.taskInput("/task-stop " + arg) }},
-		{name: "/compact", description: "summarize history before the next turn", run: func(arg string) {
+		{name: "/tasks", group: "Tasks", description: "list delegated work and separate parent/child spend", run: func(arg string) { c.taskInput("/tasks " + arg) }, during: func(arg string) { c.taskInput("/tasks " + arg) }},
+		{name: "/task", group: "Tasks", usage: "ID [continue|done CALL_ID|discard]", description: "inspect or control the exact recorded child", run: func(arg string) { c.taskInput("/task " + arg) }, during: func(arg string) { c.taskInput("/task " + arg) }},
+		{name: "/task-stop", group: "Tasks", usage: "ID", description: "cancel one live child and verify its record", run: func(arg string) { c.taskInput("/task-stop " + arg) }, during: func(arg string) { c.taskInput("/task-stop " + arg) }},
+		{name: "/continue", group: "Turn", description: "continue after a model-call limit stop", run: func(string) {
+			if !c.eng.Last(c.base).LimitStopped() {
+				c.notice("/continue works after a model-call limit stop.")
+				return
+			}
+			c.startRun(c.eng.ContinueLimit)
+		}},
+		{name: "/done", group: "Turn", usage: "[CALL_ID]", description: "mark a command done after an interrupted run", run: func(arg string) {
+			id, _ := c.eng.Last(c.base).OpenCall()
+			if arg != "" && arg != id {
+				c.notice("/done must name the current unresolved call %s; no outcome was recorded.", id)
+				return
+			}
+			if id == "" {
+				c.notice("/done marks a command done after dashi stopped while it ran.")
+				return
+			}
+			c.startRun(c.eng.MarkDone)
+		}},
+		{name: "/discard", group: "Turn", description: "discard the open turn", run: func(string) {
+			if !c.eng.Last(c.base).Open() {
+				c.notice("There is no open turn to discard.")
+				return
+			}
+			c.startRun(c.eng.Discard)
+		}},
+		{name: "/queue", group: "Turn", usage: "TEXT", description: "hold a prompt for the next turn", run: c.queuedPrompt, during: c.queue},
+		{name: "/compact", group: "Turn", description: "summarize history before the next turn", run: func(arg string) {
 			if arg != "" {
 				c.notice("Usage: /compact")
 				return
@@ -44,51 +74,24 @@ func (c *Controller) commands() []commandEntry {
 				return res, err
 			})
 		}},
-		{name: "/quit", aliases: []string{"/q", "/exit"}, description: "save and exit", run: func(string) {
+		{name: "/new", group: "Session", description: "start a new session", run: func(string) {
+			if !c.keepQueued("/new") {
+				c.async(c.newSession)
+			}
+		}},
+		{name: "/model", group: "Model", usage: "[destination] [model]", description: "choose the next-turn destination/model", run: run(c.model)},
+		{name: "/sessions", group: "Session", usage: "[QUERY]", description: "find recorded sessions in this workspace", run: run(func(ctx context.Context, arg string) { c.sessions(ctx, arg) })},
+		{name: "/rename", group: "Session", usage: "TITLE", description: "name the current saved session", run: c.renameSession},
+		{name: "/status", group: "Session", usage: "[ID]", description: "inspect recorded status and own-session spend", run: c.inspectSession, during: c.inspectSession},
+		{name: "/quit", group: "Session", aliases: []string{"/q", "/exit"}, description: "save and exit", run: func(string) {
 			if !c.keepQueued("/quit") {
 				c.cancelInspection()
 				c.ui.Quit()
 			}
 		}, during: func(string) { c.QuitDuringRun("/quit") }},
-		{name: "/continue", description: "continue after a model-call limit stop", run: func(string) {
-			if !c.eng.Last(c.base).LimitStopped() {
-				c.notice("/continue works after a model-call limit stop.")
-				return
-			}
-			c.startRun(c.eng.ContinueLimit)
-		}},
-		{name: "/done", usage: "[CALL_ID]", description: "mark a command done after an interrupted run", run: func(arg string) {
-			id, _ := c.eng.Last(c.base).OpenCall()
-			if arg != "" && arg != id {
-				c.notice("/done must name the current unresolved call %s; no outcome was recorded.", id)
-				return
-			}
-			if id == "" {
-				c.notice("/done marks a command done after dashi stopped while it ran.")
-				return
-			}
-			c.startRun(c.eng.MarkDone)
-		}},
-		{name: "/discard", description: "discard the open turn", run: func(string) {
-			if !c.eng.Last(c.base).Open() {
-				c.notice("There is no open turn to discard.")
-				return
-			}
-			c.startRun(c.eng.Discard)
-		}},
-		{name: "/queue", usage: "TEXT", description: "hold a prompt for the next turn", run: c.queuedPrompt, during: c.queue},
-		{name: "/new", description: "start a new session", run: func(string) {
-			if !c.keepQueued("/new") {
-				c.async(c.newSession)
-			}
-		}},
-		{name: "/model", usage: "[destination] [model]", description: "choose the next-turn destination/model", run: run(c.model)},
-		{name: "/sessions", usage: "[QUERY]", description: "find recorded sessions in this workspace", run: run(func(ctx context.Context, arg string) { c.sessions(ctx, arg) })},
-		{name: "/rename", usage: "TITLE", description: "name the current saved session", run: c.renameSession},
-		{name: "/status", usage: "[ID]", description: "inspect recorded status and own-session spend", run: c.inspectSession, during: c.inspectSession},
-		{name: "/settings", usage: "[--json]", description: "inspect next-turn and recorded settings", run: run(c.settings)},
-		{name: "/mcp", description: "inspect MCP servers, sources, and tools", run: c.mcpCommand, during: c.mcpCommand},
-		{name: "/resources", description: "inspect instruction, skill, and tool sources/scopes", run: func(arg string) {
+		{name: "/settings", group: "Model", usage: "[--json]", description: "inspect next-turn and recorded settings", run: run(c.settings)},
+		{name: "/mcp", group: "Inspect", description: "inspect MCP servers, sources, and tools", run: c.mcpCommand, during: c.mcpCommand},
+		{name: "/resources", group: "Inspect", description: "inspect instruction, skill, and tool sources/scopes", run: func(arg string) {
 			if arg != "" {
 				c.notice("Usage: /resources")
 				return
@@ -101,7 +104,7 @@ func (c *Controller) commands() []commandEntry {
 			}
 			c.goWork(func() { c.resources(c.base) })
 		}},
-		{name: "/help", aliases: []string{"/?"}, description: "show commands and composer controls", run: func(string) { c.notice("%s", c.commandHelp()) }, during: func(string) { c.notice("%s", c.commandHelp()) }},
+		{name: "/help", group: "Inspect", aliases: []string{"/?"}, description: "show commands, skills, and keys", run: func(string) { c.emit(c.helpBlock()) }, during: func(string) { c.emit(c.helpBlock()) }},
 	}
 	_, printAttachments := c.ui.(*printUI)
 	if _, hasAttachments := c.ui.(attachmentUI); hasAttachments || printAttachments {
@@ -113,7 +116,7 @@ func (c *Controller) commands() []commandEntry {
 					c.notice("%s requires an interactive composer or --plain; -p uses --attach.", entry.name)
 				}
 			}
-			command := commandEntry{name: entry.name, usage: entry.usage, description: entry.description, run: action}
+			command := commandEntry{name: entry.name, group: "Attachments", usage: entry.usage, description: entry.description, run: action}
 			if entry.name == "/attachments" {
 				command.during = action
 			}
@@ -123,12 +126,12 @@ func (c *Controller) commands() []commandEntry {
 	for _, control := range []struct{ name, usage, description string }{
 		{"/effort", "LEVEL|omit", "set next-turn reasoning effort"}, {"/thinking", "on|off", "request public reasoning summaries"}, {"/temperature", "N|omit", "set or omit sampling temperature"}, {"/max-tokens", "N|default", "set the next-turn output limit"},
 	} {
-		entries = append(entries, commandEntry{name: control.name, usage: control.usage, description: control.description, run: func(arg string) { c.async(func(ctx context.Context) { c.generationControl(ctx, control.name, arg) }) }})
+		entries = append(entries, commandEntry{name: control.name, group: "Model", usage: control.usage, description: control.description, run: func(arg string) { c.async(func(ctx context.Context) { c.generationControl(ctx, control.name, arg) }) }})
 	}
 	if ui, ok := c.ui.(interface{ TranscriptCommand(string, string) }); ok {
 		for _, display := range []struct{ name, usage, description string }{{"/copy", "[N|all]", "copy selection or code blocks"}, {"/scrollback", "[raw]", "inspect complete output in native scrollback"}, {"/mouse", "", "toggle application mouse capture"}} {
 			action := func(arg string) { ui.TranscriptCommand(display.name, arg) }
-			entries = append(entries, commandEntry{name: display.name, usage: display.usage, description: display.description, run: action, during: action})
+			entries = append(entries, commandEntry{name: display.name, group: "Transcript", usage: display.usage, description: display.description, run: action, during: action})
 		}
 	}
 	// Discovery uses metadata only. Skill text is loaded by the existing handler.
@@ -139,7 +142,15 @@ func (c *Controller) commands() []commandEntry {
 				if slices.ContainsFunc(entries, func(e commandEntry) bool { return strings.EqualFold(e.name, name) }) {
 					continue
 				}
-				entries = append(entries, commandEntry{name: name, hidden: !info.UserInvocable, usage: "[arguments]", description: "invoke skill " + info.Name, run: func(arg string) { c.skillCommand(name+" "+arg, false) }})
+				usage := info.ArgumentHint
+				if usage == "" {
+					usage = "[arguments]"
+				}
+				description := strings.Join(strings.Fields(info.Description), " ")
+				if description == "" {
+					description = "invoke skill " + info.Name
+				}
+				entries = append(entries, commandEntry{name: name, group: skillGroup, hidden: !info.UserInvocable, usage: usage, description: description, run: func(arg string) { c.skillCommand(name+" "+arg, false) }})
 			}
 		}
 	}
@@ -203,47 +214,112 @@ func (c *Controller) commandNames() []string {
 		names = append(names, entry.name)
 		names = append(names, entry.aliases...)
 	}
+	c.knownNames.store(names)
 	return names
 }
-func (c *Controller) commandHelp() string {
-	var out strings.Builder
-	out.WriteString("Commands:\n")
-	for _, entry := range c.commands() {
-		if entry.hidden {
-			continue
-		}
-		aliases := ""
-		if len(entry.aliases) > 0 {
-			aliases = " (" + strings.Join(entry.aliases, ", ") + ")"
-		}
-		availability := "idle; submit again after a turn"
-		if entry.during != nil {
-			availability = "idle or during a turn"
-		}
-		fmt.Fprintf(&out, "  %s %s%s — %s [%s]\n", entry.name, entry.usage, aliases, entry.description, availability)
-	}
-	out.WriteString("\nTask costs: recorded parent caps exclude children. Explore has 24 model calls; General has 32. Children have no monetary cap.\n")
-	out.WriteString(composerKeyboardHelp)
-	if _, ok := c.ui.(*screen); !ok {
-		if _, inline := c.ui.(*inlineScreen); !inline {
-			out.WriteString("\nExternal editing requires supported fullscreen/inline terminal handoff.\n")
-		}
-	}
-	return out.String()
+
+// commandNamesMaxAge is how long the composer trusts its cached command
+// names. A skill added on disk is highlighted within about this long.
+const commandNamesMaxAge = 2 * time.Second
+
+// commandNameCache holds the names that commandNames last returned. Listing
+// commands discovers skills on disk, which is too slow for every render.
+type commandNameCache struct {
+	mu         sync.Mutex
+	names      map[string]bool // lowercase
+	loaded     time.Time
+	refreshing bool
 }
 
-const composerKeyboardHelp = `
-Fullscreen/inline composer controls:
-  Enter / Shift+Enter: submit displayed draft / insert newline.
-  Up / Down: move through visual rows, then recall history; past newest restores the draft.
-  Tab: start completion. Tab/Down and Shift+Tab/Up cycle candidates.
-  Escape: restore pre-completion draft while cycling; otherwise use existing work, selection, and transcript actions. Dialogs retain cancellation.
-  Ctrl+G: open external editor while idle with supported handoff; while running, press again after the turn ends.
-  Ctrl+C: interrupt running work; idle exit requires an unchanged repeat within 2 seconds. Dialog controls retain precedence.
-  Ctrl+D: delete at cursor in nonempty draft; empty draft requests exit with pending/queued-loss protection.
-While a turn runs, text is a steer. Start it with ! to cut the model call.
-/queue TEXT holds text as the next prompt. Input history is recall, not recovery storage.
-`
+func (k *commandNameCache) store(names []string) {
+	set := make(map[string]bool, len(names))
+	for _, name := range names {
+		set[strings.ToLower(name)] = true
+	}
+	k.mu.Lock()
+	k.names, k.loaded = set, time.Now()
+	k.mu.Unlock()
+}
+
+// knownCommand reports whether name is a command or alias that commandNames
+// lists, matched without regard to case as dispatch does. It is cheap enough
+// to call on every render: it reads the cache and, when the cache is old,
+// refreshes it in the background for a later render.
+func (c *Controller) knownCommand(name string) bool {
+	k := &c.knownNames
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if !k.refreshing && time.Since(k.loaded) > commandNamesMaxAge {
+		k.refreshing = true
+		go func() {
+			defer func() {
+				k.mu.Lock()
+				k.refreshing = false
+				k.mu.Unlock()
+			}()
+			c.commandNames()
+		}()
+	}
+	return k.names[strings.ToLower(name)]
+}
+
+// helpGroups orders the built-in command groups in help. Skills follow.
+var helpGroups = []string{"Session", "Turn", "Model", "Inspect", "Tasks", "Attachments", "Transcript"}
+
+const skillGroup = "Skills"
+
+func (c *Controller) helpBlock() Block {
+	h := c.helpDoc()
+	return Block{Kind: KindHelp, Text: h.String(), Help: &h, Done: true}
+}
+
+func (c *Controller) commandHelp() string { return c.helpDoc().String() }
+
+func (c *Controller) helpDoc() helpDoc {
+	var h helpDoc
+	entries := c.commands()
+	for _, group := range append(slices.Clone(helpGroups), skillGroup) {
+		section := helpSection{Title: group}
+		for _, entry := range entries {
+			if entry.hidden || entry.group != group {
+				continue
+			}
+			name := strings.Join(append([]string{entry.name}, entry.aliases...), ", ")
+			section.Rows = append(section.Rows, helpRow{Name: name, Usage: entry.usage, Text: entry.description, During: entry.during != nil})
+		}
+		if len(section.Rows) > 0 {
+			h.Sections = append(h.Sections, section)
+		}
+	}
+	// The legend closes the last built-in group; skills never run during a turn.
+	for i := len(h.Sections) - 1; i >= 0; i-- {
+		if h.Sections[i].Title != skillGroup {
+			h.Sections[i].Note = "  " + duringMarker + " also works while a turn runs"
+			break
+		}
+	}
+	keys := helpSection{Title: "Keys (fullscreen and inline modes)", Rows: composerKeys, Keys: true}
+	_, full := c.ui.(*screen)
+	_, inline := c.ui.(*inlineScreen)
+	if full || inline {
+		keys.Title = "Keys"
+	}
+	h.Sections = append(h.Sections, keys)
+	return h
+}
+
+var composerKeys = []helpRow{
+	{Name: "Enter", Text: "send the draft"},
+	{Name: "Shift+Enter", Text: "insert a new line"},
+	{Name: "Up/Down", Text: "move between lines, then recall history"},
+	{Name: "Tab", Text: "complete; Tab and Shift+Tab cycle choices"},
+	{Name: "Esc", Text: "undo completion, stop work, or return to live output"},
+	{Name: "Page Up/Down", Text: "scroll the transcript"},
+	{Name: "Ctrl+G", Text: "edit the draft in an external editor"},
+	{Name: "Ctrl+C", Text: "interrupt; press twice to exit when idle"},
+	{Name: "Ctrl+D", Text: "delete forward; exit on an empty draft"},
+	{Name: "text, !text", Text: "while a turn runs: steer it; ! also cuts the model call"},
+}
 
 // Print mode has no interactive command loop. Never turn unknown slash input
 // into a provider request. Help and quit remain useful without starting work.
@@ -258,7 +334,8 @@ func (c *Controller) printCommand(line string, stdout, stderr io.Writer) (bool, 
 		}
 		switch entry.name {
 		case "/help":
-			fmt.Fprint(stdout, workspace.PrintableText(c.commandHelp()))
+			fmt.Fprintln(stdout, workspace.PrintableText(c.commandHelp()))
+			fmt.Fprintln(stdout)
 			fmt.Fprintln(stdout, workspace.PrintableText("With -p, only /help and /quit aliases run. Use --plain or interactive mode for other commands."))
 			return true, 0
 		case "/quit":

@@ -46,11 +46,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
     `WorkerStatus`, `ModelFact.Origin` → `Endpoint`.
   - A limited stop's reason is now its `LimitKind` (for example
     `model_calls`), and every stop-reason code has a constant.
+- **The CLI approval prompt is easier to read.** It shows a one-line title,
+  such as `Allow task?  explore subagent: messaging test wait`, and the
+  choices as highlighted keys: `[y] Allow once  [a] Allow for this Dashi run
+  [n] Deny`. Arguments show as `key: value` lines with multi-line text
+  indented, not as JSON. A long value shows its first lines and `+N more
+  lines`; `e` shows all of it. Shell commands show the command and its
+  directory, and file edits show the diff, without repeating those arguments.
+  Internal turn and call IDs no longer appear in approvals or questions; a
+  prompt from a delegated task names the task. Line mode prints the same
+  layout.
 - **A `Runner` needs a `Client` only to fill in an agent or call the model.**
   A Start with an already-closed `WithPause` records a turn without running it
   and without a `Client` when its agent names its provider, API, and model. A run that
   would call the model without one fails with "client is required to call the
   model" before recording anything.
+- **The `dashi` CLI reads more clearly.** `/help` groups commands under
+  headings, lists skills in their own section, marks commands that also work
+  during a turn with `•`, and shows keys in a short aligned list. Secondary
+  text is a lighter gray, and notices such as `/status` output use the normal
+  foreground. The end-of-turn footer is a rule line
+  (`── turn 3 · model · 2 model calls · 12,345 tokens · $0.0421`). The idle
+  "Ask anything" hint is gone; the status line shows "/help lists commands"
+  when it fits. The mouse wheel scrolls three lines per notch, and also
+  scrolls dialog details. In the composer, a draft that starts with a known
+  command, alias, or skill name (such as `/effort` or `/q`) shows that name
+  in bold cyan; a partial or unknown name stays plain.
+- **The CLI shows delegated tasks on their tool lines.** The `task` tool line
+  reads `task  explore · find the parser · t_k3f2`. One status line under it
+  follows the task, such as `⎿ completed · 1 model call · $0.0069 · /task
+  t_k3f2 to inspect`, in the tool line colors. It replaces the separate block
+  that repeated the task ID, description, counts, and raw spend. `/tasks`
+  prints one line per task in the same words, and counts are pluralized.
+
+### Fixed
+
+- **The CLI scrolls up when a mouse selection is dragged to the top row.** In
+  fullscreen mode, holding a selection drag on the transcript's top row now
+  scrolls up and extends the selection, as dragging below the transcript
+  already scrolled down. The transcript starts on the screen's first row, so
+  the terminal could never report the pointer above it. Wonton v0.5.0 now
+  handles this edge row.
+- **A task result no longer shows an empty user line in the CLI.** The turn
+  that a finished task's result starts now opens with `↳ task t_k3f2
+  (explore) completed · result delivered`, live, after a reopen, inline, and
+  in plain output.
 
 ## [0.2.0] - 2026-10-01
 

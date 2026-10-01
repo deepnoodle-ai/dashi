@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/wonton/tui"
@@ -117,7 +118,7 @@ func TestScreenShowsTurnAsItStreams(t *testing.T) {
 		"list_directory",
 		"ok",
 		"The fix is done.",
-		"[turn 1 | fixture | 2 model calls",
+		"turn 1 · fixture · 2 model calls",
 		"fixture ·",
 	} {
 		if !strings.Contains(got, want) {
@@ -138,7 +139,7 @@ func TestScreenApprovalPromptAndKeys(t *testing.T) {
 	h.submit("write a note")
 	h.waitFor(func() bool { return h.scr.approval != nil })
 	shown := h.render()
-	for _, want := range []string{"write_note", "allow once", "this Dashi run", "deny"} {
+	for _, want := range []string{"Allow write_note?", "[y] Allow once", "[a] Allow for this Dashi run", "[n] Deny"} {
 		if !strings.Contains(shown, want) {
 			t.Fatalf("missing %q in:\n%s", want, shown)
 		}
@@ -300,5 +301,122 @@ func TestPromptCancellationCannotClearNewQuestion(t *testing.T) {
 	s.HandleEvent(promptEvent{id: 1, asking: first})
 	if s.asking != nil || s.input != "existing draft" {
 		t.Fatal("stale question was redisplayed")
+	}
+}
+
+func TestStatusLineRightAlignsHelpHintWhenItFits(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	line := func(width int) string {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return strings.TrimRight(tui.SprintScreen(h.scr.statusView(), tui.WithWidth(width), tui.WithHeight(1)).Text(), " \n")
+	}
+	wide := line(160)
+	if !strings.HasPrefix(wide, " fixture · ") || !strings.HasSuffix(wide, "/help lists commands") || len([]rune(wide)) != 159 {
+		t.Fatalf("wide = %q", wide)
+	}
+	narrow := line(60)
+	if !strings.HasPrefix(narrow, " fixture · ") || strings.Contains(narrow, "/help") {
+		t.Fatalf("narrow = %q", narrow)
+	}
+}
+
+func TestIdleInputHintIsEmpty(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	got := h.render()
+	if strings.Contains(got, "Ask anything") || !strings.Contains(got, "\n\n────") {
+		t.Fatalf("idle footer:\n%s", got)
+	}
+}
+
+func TestFooterBlockRendersAsRule(t *testing.T) {
+	f := footerFacts{Turn: 3, Model: "claude-x", Calls: 2, Tokens: 12345, Cost: "$0.0421"}
+	b := Block{Kind: KindFooter, Text: f.String(), Footer: &f, Done: true}
+	if FormatBlock(b) != "── turn 3 · claude-x · 2 model calls · 12,345 tokens · $0.0421" {
+		t.Fatalf("plain = %q", FormatBlock(b))
+	}
+	got := strings.TrimRight(tui.SprintScreen(blockView(b), tui.WithWidth(70), tui.WithHeight(1)).Text(), "\n")
+	if got != "── turn 3 · claude-x · 2 model calls · 12,345 tokens · $0.0421 ───────" {
+		t.Fatalf("screen = %q", got)
+	}
+	styled := tui.Sprint(blockView(b), tui.WithWidth(70))
+	for _, want := range []string{"\x1b[0;38;5;248m── turn 3 · ", "\x1b[0mclaude-x", "\x1b[0;38;5;108m$0.0421", "\x1b[0;38;5;248m───"} {
+		if !strings.Contains(styled, want) {
+			t.Fatalf("missing %q in %q", want, styled)
+		}
+	}
+	f.UsageIncomplete = true
+	if styled := tui.Sprint(blockView(b), tui.WithWidth(70)); !strings.Contains(styled, "33musage incomplete") {
+		t.Fatalf("incomplete = %q", styled)
+	}
+}
+
+func TestComposerHighlightsAKnownCommand(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	fixtureResourceSkill(t, h.dir, "deploy", "Deploy it", "")
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.scr.ctrl.commandNames() // fills the cache as a render's refresh would
+	for _, tc := range []struct {
+		draft string
+		end   int
+	}{
+		{"/effort high", 7},
+		{"/EFFORT", 7},
+		{"/q", 2},
+		{"/deploy prod", 7},
+		{"/effort\nmore", 7},
+		{"/eff", 0},
+		{"/nope", 0},
+		{"hello /effort", 0},
+		{" /effort", 0},
+		{"", 0},
+	} {
+		got := h.scr.highlightCommand(tc.draft)
+		if tc.end == 0 {
+			if got != nil {
+				t.Errorf("%q highlighted %+v", tc.draft, got)
+			}
+			continue
+		}
+		if len(got) != 1 || got[0].Start != 0 || got[0].End != tc.end || got[0].Style != commandHighlightStyle {
+			t.Errorf("%q highlighted %+v, want bytes 0-%d", tc.draft, got, tc.end)
+		}
+	}
+
+	h.scr.asking = &askPrompt{}
+	if got := h.scr.highlightCommand("/effort"); got != nil {
+		t.Errorf("an answer to a question highlighted %+v", got)
+	}
+	h.scr.asking = nil
+}
+
+// The composer draws the highlight. Its first render refreshes the command
+// names in the background, so a later render shows the style.
+func TestComposerDrawsTheCommandHighlight(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	styled := func(draft string) bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.scr.input = draft
+		screen := tui.SprintScreen(h.scr.View(), tui.WithWidth(80), tui.WithHeight(24))
+		for y := range 24 {
+			if x := strings.Index(screen.Row(y), "❯ "+draft); x >= 0 {
+				x = utf8.RuneCountInString(screen.Row(y)[:x]) + 2
+				return screen.Cell(x, y).Style.Bold && screen.Cell(x+4, y).Style.Bold && !screen.Cell(x+6, y).Style.Bold
+			}
+		}
+		t.Fatalf("draft %q not on screen:\n%s", draft, screen.Text())
+		return false
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for !styled("/help me") {
+		if time.Now().After(deadline) {
+			t.Fatal("/help was not highlighted")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if styled("/hel me") {
+		t.Fatal("/hel was highlighted")
 	}
 }

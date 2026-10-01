@@ -149,14 +149,14 @@ func TestFooterShowsModelOfTheTurn(t *testing.T) {
 	h.input("first")
 	h.input("/model gpt-6-luna")
 	h.input("second")
-	mustHave(t, h.ui.text(), "[turn 2 | gpt-6-luna |")
+	mustHave(t, h.ui.text(), "turn 2 · gpt-6-luna ·")
 	h.app.eng.Close()
 	h.ui = newRecorderUI()
 	h.build(Options{Resume: true})
 	h.app.ctrl.Open()
 	text := h.ui.text()
-	mustHave(t, text, "[turn 1 | fixture |")
-	mustHave(t, text, "[turn 2 | gpt-6-luna |")
+	mustHave(t, text, "turn 1 · fixture ·")
+	mustHave(t, text, "turn 2 · gpt-6-luna ·")
 }
 
 // Terminal control characters in model-controlled text never reach the UI.

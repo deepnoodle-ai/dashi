@@ -6,6 +6,20 @@ import (
 	"strings"
 )
 
+// taskQuestion is a question as a UI shows it.
+type taskQuestion struct {
+	// Question is the printable form of the question.
+	Question
+	// Task is the short ID of the delegated task that asks. It is empty for
+	// a question of the foreground conversation.
+	Task string
+}
+
+// taskOrigin names the delegated task that asks, and how to inspect it.
+func taskOrigin(task string) string {
+	return fmt.Sprintf("From task %s · /task %s shows it", task, task)
+}
+
 // Choices are indexes, so displaying a printable label cannot change the
 // original answer or merge two labels that look alike after sanitization.
 type questionAnswer struct {

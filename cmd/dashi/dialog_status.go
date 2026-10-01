@@ -174,7 +174,7 @@ func (s *screen) dialogStatusView() tui.View {
 	p := s.dialogStatus
 	heading := "Question still pending"
 	if s.approval != nil {
-		heading = "Approval still pending · " + s.approval.req.Summary
+		heading = "Approval still pending · " + s.approval.headline()
 	}
 	return tui.Stack(
 		tui.Divider(),

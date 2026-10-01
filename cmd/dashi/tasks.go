@@ -81,11 +81,11 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 					view.State = delegate.TaskState(event.Event.Step.Stop.Kind)
 					view.Reason = event.Event.Step.Stop.Reason
 				}
-				e.cfg.Emit(taskRow(view))
+				e.cfg.Emit(taskStatusBlock(view))
 			}
 		},
 		OnTask: func(event delegate.TaskEvent) {
-			e.cfg.Emit(taskRow(event.Task))
+			e.cfg.Emit(taskStatusBlock(event.Task))
 			if event.Kind == delegate.TaskEnded {
 				item := event.Task.Notice().Item()
 				host.mu.Lock()
@@ -302,7 +302,9 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 	host.mu.Lock()
 	defer host.mu.Unlock()
 	for id := range delivered {
-		if _, pending := host.notices[id]; pending {
+		// The result marker of the delivery turn shows a delivery this host
+		// queued. Say so only for a repeat that this record absorbed.
+		if _, pending := host.notices[id]; pending && !host.queued[id] {
 			e.cfg.Emit(Block{ID: "task-delivery", Kind: KindNotice, Text: "Task result delivery is recorded; reopening will not deliver it again.", Done: true})
 		}
 		delete(host.notices, id)

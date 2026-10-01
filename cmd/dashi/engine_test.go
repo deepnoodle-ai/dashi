@@ -50,7 +50,7 @@ func TestPromptStreamsTextAndFooter(t *testing.T) {
 	text := h.ui.text()
 	mustHave(t, text, "> fix the test")
 	mustHave(t, text, "The fix is done.")
-	mustHave(t, text, "[turn 1 | fixture | 1 model call | 120 tokens]")
+	mustHave(t, text, "── turn 1 · fixture · 1 model call · 120 tokens")
 	s := h.app.eng.Session()
 	if h.turns() != 1 || s.Title != "fix the test" {
 		t.Fatalf("session=%+v", s)
@@ -324,7 +324,7 @@ func TestResumeShowsScrollbackAndKeepsHistory(t *testing.T) {
 	text := h.ui.text()
 	mustHave(t, text, "> first question")
 	mustHave(t, text, "First answer.")
-	mustHave(t, text, "[turn 1 | fixture | 1 model call | 120 tokens]")
+	mustHave(t, text, "── turn 1 · fixture · 1 model call · 120 tokens")
 
 	h.input("follow up")
 	in := h.client.inputAt(len(h.client.inputs) - 1)

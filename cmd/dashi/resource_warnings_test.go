@@ -154,8 +154,8 @@ func TestSessionNoticeShowsOncePerSession(t *testing.T) {
 }
 
 func TestSecondaryTextIsReadableGray(t *testing.T) {
-	text, ok := nativeBlockText(Block{Kind: KindFooter, Text: "[turn 1 | fixture]", Done: true}, 80)
-	if !ok || !strings.Contains(text, "38;5;245") {
+	text, ok := nativeBlockText(Block{Kind: KindFooter, Text: "── turn 1 · fixture", Done: true}, 80)
+	if !ok || !strings.Contains(text, "38;5;248") {
 		t.Fatalf("footer = %q", text)
 	}
 	if strings.Contains(text, "[2;") || strings.Contains(text, ";2;") {

@@ -41,12 +41,17 @@ func (c *Controller) taskInput(line string) bool {
 			c.notice("No delegated tasks in this session.")
 			return true
 		}
+		// One list at the bottom. Status lines keep their places under the
+		// tool lines that started the tasks.
+		lines := []string{"Tasks:"}
 		for _, task := range host.list() {
 			if owner, active := c.broker.activeOwner(); active && owner.TaskID == task.SessionID && task.Running() {
-				task.State = "approval pending"
+				task.State = taskApprovalPending
 			}
-			c.emit(taskRow(task))
+			lines = append(lines, "  "+taskSummary(task))
 		}
+		lines = append(lines, "/task ID shows details.")
+		c.notice("%s", strings.Join(lines, "\n"))
 		c.goWork(c.taskSpend)
 		return true
 	}
@@ -159,7 +164,7 @@ func (c *Controller) runTaskCommand(ctx context.Context, snapshot taskSnapshot, 
 		return out, err
 	}
 	if fresh, loadErr := c.eng.inspectTask(ctx, snapshot.Task.ID); loadErr == nil {
-		c.emit(taskRow(fresh.Task))
+		c.emit(taskStatusBlock(fresh.Task))
 	}
 	return out, nil
 }
@@ -198,7 +203,7 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 		if fresh.View.Stop.Kind != dashi.StopCanceled || fresh.View.Stop.Inferred {
 			return fmt.Errorf("cancellation acknowledgement unresolved; inspect this exact task again")
 		}
-		c.emit(taskRow(fresh.Task))
+		c.emit(taskStatusBlock(fresh.Task))
 		return nil
 	}
 	if snapshot.Task.Running() {
@@ -309,7 +314,7 @@ func (c *Controller) taskSpend() {
 		if err := host.readRecorded(c.base, turns); err != nil {
 			for _, task := range host.list() {
 				if task.State == "record unavailable" {
-					c.emit(taskRow(task))
+					c.emit(taskStatusBlock(task))
 				}
 			}
 			c.notice("Task-inclusive accounting incomplete; child and inclusive totals unavailable: %v", err)

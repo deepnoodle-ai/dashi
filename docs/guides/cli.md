@@ -175,14 +175,19 @@ cannot be combined. Nonterminal input/output still uses line mode.
 ## Approvals
 
 The tools that read files run at once. A tool that changes files or runs a
-command asks first. The bounded pane shows the full command, directory,
-arguments, and diff. Arrow/Page keys scroll the details; decisions stay visible.
+command asks first. The prompt names the tool and what the call does, then
+shows the command and directory, the diff, or the arguments as `key: value`
+lines. A call from a delegated task names that task. Long argument values show
+their first lines; `e` shows them all. Arrow/Page keys scroll the details; the
+choices stay visible.
 
 | Key | Result |
 | --- | --- |
 | `y` | Allow this call once |
 | `a` | Allow for this Dashi run; the displayed rule survives session switches |
 | `n` | Enter an optional denial reason, then press Enter |
+| `e` | Show or clip long argument values |
+| `/` | Run an inspection command, such as `/task ID`, without answering |
 | Esc | Interrupt without granting permission; Enter can resume |
 
 Remembered rules cover all calls to the owned write/edit tool, the exact Bash

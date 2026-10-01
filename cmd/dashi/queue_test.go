@@ -45,7 +45,7 @@ func TestQueuedPromptRunsAfterTheTurn(t *testing.T) {
 	mustHave(t, text, "First done.")
 	mustHave(t, text, "> run the tests")
 	mustHave(t, text, "Tests pass.")
-	mustHave(t, text, "[turn 2 | fixture")
+	mustHave(t, text, "turn 2 · fixture")
 	if n := h.turns(); n != 2 {
 		t.Fatalf("turns=%d", n)
 	}

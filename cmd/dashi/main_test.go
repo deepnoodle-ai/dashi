@@ -107,7 +107,7 @@ func TestPrintLocalCommandsIgnoreBusyResumeSession(t *testing.T) {
 				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 			}
 			if input == "/help" || input == "/?" {
-				if !strings.Contains(stdout.String(), "Commands:") {
+				if !strings.Contains(stdout.String(), "also works while a turn runs") {
 					t.Fatalf("help missing: %q", stdout.String())
 				}
 			} else if stdout.Len() != 0 {
@@ -142,7 +142,7 @@ func TestLineModeRunsCommandsFromInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.String()
-	for _, want := range []string{"Hello back.", "[turn 1 | fixture", "Commands:"} {
+	for _, want := range []string{"Hello back.", "turn 1 · fixture", "also works while a turn runs"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in:\n%s", want, got)
 		}
