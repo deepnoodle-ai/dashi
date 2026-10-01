@@ -276,8 +276,10 @@ func (c *Controller) presentTaskPrompt(p brokerPrompt) {
 			}
 		}
 	drained:
-		prefix := ""
+		// A prompt names its task, not the internal turn and call IDs.
+		task := ""
 		if p.Owner.TaskID != "" {
+			task = delegate.TaskID(p.Owner.TaskID)
 			if c.eng != nil {
 				if host := c.eng.taskHost(); host != nil {
 					for _, task := range host.list() {
@@ -289,24 +291,13 @@ func (c *Controller) presentTaskPrompt(p brokerPrompt) {
 					}
 				}
 			}
-			prefix = fmt.Sprintf("Task %s · Turn %s", delegate.TaskID(p.Owner.TaskID), p.Owner.Call.TurnID)
-			if p.Owner.Call.CallID != "" {
-				prefix += " · call " + p.Owner.Call.CallID
-			}
-			prefix += "\n"
-		} else if p.Owner.Call.TurnID != "" {
-			prefix = fmt.Sprintf("Turn %s · call %s\n", p.Owner.Call.TurnID, p.Owner.Call.CallID)
 		}
 		var response brokerResponse
 		var err error
 		if p.Approval != nil {
-			request := *p.Approval
-			request.Summary = prefix + request.Summary
-			response.approval, err = c.approveUI(p.ctx, request)
+			response.approval, err = c.approveUI(p.ctx, *p.Approval, task)
 		} else {
-			question := *p.Question
-			question.Prompt = prefix + question.Prompt
-			response.answer, err = c.askUI(p.ctx, question)
+			response.answer, err = c.askUI(p.ctx, *p.Question, task)
 		}
 		if err == nil {
 			c.broker.respond(p.ID, p.Owner, response)

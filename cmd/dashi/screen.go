@@ -81,15 +81,19 @@ type queued struct {
 }
 
 type approvalPrompt struct {
-	req     ApprovalRequest
-	reply   chan Approval
-	vp      tui.ViewportState
-	denying bool
-	reason  string
+	req         toolApproval
+	reply       chan Approval
+	vp          tui.ViewportState
+	denying     bool
+	reason      string
+	expanded    bool
+	laidOut     *approvalLayout
+	layoutWidth int
 }
 
 type askPrompt struct {
 	q        Question
+	task     string
 	reply    chan questionAnswer
 	vp       tui.ViewportState
 	index    int
@@ -212,7 +216,7 @@ func (s *screen) post(e tui.Event) {
 }
 
 // Approve implements UI. It blocks until the user answers or ctx ends.
-func (s *screen) Approve(ctx context.Context, r ApprovalRequest) (Approval, error) {
+func (s *screen) Approve(ctx context.Context, r toolApproval) (Approval, error) {
 	id := s.promptSeq.Add(1)
 	p := &approvalPrompt{req: r, reply: make(chan Approval, 1)}
 	s.post(promptEvent{at: time.Now(), id: id, approval: p})
@@ -226,9 +230,9 @@ func (s *screen) Approve(ctx context.Context, r ApprovalRequest) (Approval, erro
 }
 
 // Ask implements UI.
-func (s *screen) Ask(ctx context.Context, q Question) (questionAnswer, error) {
+func (s *screen) Ask(ctx context.Context, q taskQuestion) (questionAnswer, error) {
 	id := s.promptSeq.Add(1)
-	p := &askPrompt{q: q, reply: make(chan questionAnswer, 1), selected: map[int]bool{}, own: len(q.Choices) == 0}
+	p := &askPrompt{q: q.Question, task: q.Task, reply: make(chan questionAnswer, 1), selected: map[int]bool{}, own: len(q.Choices) == 0}
 	s.post(promptEvent{at: time.Now(), id: id, asking: p})
 	select {
 	case a := <-p.reply:

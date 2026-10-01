@@ -138,7 +138,7 @@ func TestScreenApprovalPromptAndKeys(t *testing.T) {
 	h.submit("write a note")
 	h.waitFor(func() bool { return h.scr.approval != nil })
 	shown := h.render()
-	for _, want := range []string{"write_note", "allow once", "this Dashi run", "deny"} {
+	for _, want := range []string{"Allow write_note?", "[y] Allow once", "[a] Allow for this Dashi run", "[n] Deny"} {
 		if !strings.Contains(shown, want) {
 			t.Fatalf("missing %q in:\n%s", want, shown)
 		}

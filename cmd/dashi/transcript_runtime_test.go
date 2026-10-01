@@ -278,11 +278,11 @@ func TestRuntimeApprovalFullPreviewDenyReasonAndEscape(t *testing.T) {
 	h.wait(func(s transcriptState) bool { return s.input == "saved draft" })
 	close(release)
 	h.wait(func(s transcriptState) bool {
-		return s.approval && strings.Contains(s.text, "allow for this Dashi run")
+		return s.approval && strings.Contains(s.text, "Allow for this Dashi run")
 	})
 	h.key(tui.KeyEvent{Key: tui.KeyEnd})
 	h.wait(func(s transcriptState) bool {
-		return strings.Contains(s.text, "END OF COMPLETE DIFF") && strings.Contains(s.text, "allow once")
+		return strings.Contains(s.text, "END OF COMPLETE DIFF") && strings.Contains(s.text, "Allow once")
 	})
 	h.key(tui.KeyEvent{Rune: 'n'})
 	h.wait(func(s transcriptState) bool { return s.denying && strings.Contains(s.text, "Reason:") })
@@ -382,7 +382,7 @@ func TestRuntimeRememberedWritesAcrossNewAndReopenedSessions(t *testing.T) {
 	h.wait(func(s transcriptState) bool { return s.approval })
 	h.key(tui.KeyEvent{Key: tui.KeyHome})
 	h.wait(func(s transcriptState) bool {
-		return strings.Contains(s.text, "All write_file calls in this workspace")
+		return strings.Contains(s.text, "covers all write_file calls in this workspace")
 	})
 	h.key(tui.KeyEvent{Rune: 'a'})
 	h.app.ctrl.Wait()

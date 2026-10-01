@@ -135,7 +135,7 @@ type recorderUI struct {
 	mu        sync.Mutex
 	tr        Transcript
 	log       []Block
-	approvals []ApprovalRequest
+	approvals []toolApproval
 	answer    func(ctx context.Context, r ApprovalRequest) (Approval, error)
 	quit      chan struct{}
 	quitOnce  sync.Once
@@ -160,7 +160,7 @@ func (u *recorderUI) Reset() {
 	u.resets++
 }
 
-func (u *recorderUI) Approve(ctx context.Context, r ApprovalRequest) (Approval, error) {
+func (u *recorderUI) Approve(ctx context.Context, r toolApproval) (Approval, error) {
 	u.mu.Lock()
 	u.approvals = append(u.approvals, r)
 	answer := u.answer
@@ -168,10 +168,10 @@ func (u *recorderUI) Approve(ctx context.Context, r ApprovalRequest) (Approval, 
 	if answer == nil {
 		return Approval{Allow: true}, nil
 	}
-	return answer(ctx, r)
+	return answer(ctx, r.ApprovalRequest)
 }
 
-func (u *recorderUI) Ask(context.Context, Question) (questionAnswer, error) {
+func (u *recorderUI) Ask(context.Context, taskQuestion) (questionAnswer, error) {
 	return questionAnswer{}, errors.New("not used")
 }
 

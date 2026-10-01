@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **The CLI approval prompt is easier to read.** It shows a one-line title,
+  such as `Allow task?  explore subagent: messaging test wait`, and the
+  choices as highlighted keys: `[y] Allow once  [a] Allow for this Dashi run
+  [n] Deny`. Arguments show as `key: value` lines with multi-line text
+  indented, not as JSON. A long value shows its first lines and `+N more
+  lines`; `e` shows all of it. Shell commands show the command and its
+  directory, and file edits show the diff, without repeating those arguments.
+  Internal turn and call IDs no longer appear in approvals or questions; a
+  prompt from a delegated task names the task. Line mode prints the same
+  layout.
+
 - **A `Runner` needs a `Client` only to fill in an agent or call the model.**
   A Start with an already-closed `WithPause` records ("admits") a turn without
   a `Client` when its agent names its provider, API, and model. A run that

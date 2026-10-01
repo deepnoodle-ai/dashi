@@ -129,7 +129,7 @@ func (u *lineUI) Reset() {
 	u.mu.Unlock()
 }
 
-func (u *lineUI) Approve(ctx context.Context, r ApprovalRequest) (Approval, error) {
+func (u *lineUI) Approve(ctx context.Context, a toolApproval) (Approval, error) {
 	u.mu.Lock()
 	if u.inputEnded {
 		u.mu.Unlock()
@@ -139,22 +139,7 @@ func (u *lineUI) Approve(ctx context.Context, r ApprovalRequest) (Approval, erro
 		fmt.Fprintln(u.out)
 		u.midLine = false
 	}
-	fmt.Fprintf(u.out, "%s\n", r.Summary)
-	if r.Command != "" {
-		fmt.Fprintf(u.out, "  $ %s\n", r.Command)
-	}
-	if r.Preview != "" {
-		fmt.Fprintln(u.out, r.Preview)
-	}
-	if r.Dir != "" {
-		fmt.Fprintf(u.out, "Directory: %s\n", r.Dir)
-	}
-	if r.Arguments != "" {
-		fmt.Fprintf(u.out, "Arguments:\n%s\n", r.Arguments)
-	}
-	if r.RememberScope != "" {
-		fmt.Fprintf(u.out, "Remembered rule: %s\n", r.RememberScope)
-	}
+	fmt.Fprint(u.out, approvalText(a))
 	fmt.Fprint(u.out, "Allow once / allow for this Dashi run / deny? [y/a/n or n REASON] ")
 	u.mu.Unlock()
 	for {
@@ -191,13 +176,16 @@ func parseAnswer(line string) (Approval, bool) {
 	return Approval{}, false
 }
 
-func (u *lineUI) Ask(ctx context.Context, q Question) (questionAnswer, error) {
+func (u *lineUI) Ask(ctx context.Context, q taskQuestion) (questionAnswer, error) {
 	u.mu.Lock()
 	if u.inputEnded {
 		u.mu.Unlock()
 		return questionAnswer{}, errNoApprover
 	}
 	fmt.Fprintf(u.out, "%s\n", q.Prompt)
+	if q.Task != "" {
+		fmt.Fprintf(u.out, "  %s\n", taskOrigin(q.Task))
+	}
 	for i, c := range q.Choices {
 		fmt.Fprintf(u.out, "  %d. %s\n", i+1, c.Label)
 		if c.Description != "" {
@@ -214,7 +202,7 @@ func (u *lineUI) Ask(ctx context.Context, q Question) (questionAnswer, error) {
 		case <-ctx.Done():
 			return questionAnswer{}, ctx.Err()
 		case line := <-u.ctrl.Answers():
-			a, err := parseQuestionAnswer(q, line)
+			a, err := parseQuestionAnswer(q.Question, line)
 			if err == nil {
 				return a, nil
 			}
@@ -339,7 +327,7 @@ func (u *printUI) Reset() {}
 
 func (u *printUI) Quit() {}
 
-func (u *printUI) Approve(context.Context, ApprovalRequest) (Approval, error) {
+func (u *printUI) Approve(context.Context, toolApproval) (Approval, error) {
 	if u.yes {
 		return Approval{Allow: true}, nil
 	}
@@ -348,6 +336,6 @@ func (u *printUI) Approve(context.Context, ApprovalRequest) (Approval, error) {
 		"with --yes, or to use the interactive screen."}, nil
 }
 
-func (u *printUI) Ask(context.Context, Question) (questionAnswer, error) {
+func (u *printUI) Ask(context.Context, taskQuestion) (questionAnswer, error) {
 	return questionAnswer{}, errNoApprover
 }
