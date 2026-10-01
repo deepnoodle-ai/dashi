@@ -27,6 +27,9 @@ func (c *Controller) commands() []commandEntry {
 		return func(arg string) { c.async(func(ctx context.Context) { fn(ctx, arg) }) }
 	}
 	entries := []commandEntry{
+		{name: "/tasks", description: "list delegated work and separate parent/child spend", run: func(arg string) { c.taskInput("/tasks " + arg) }, during: func(arg string) { c.taskInput("/tasks " + arg) }},
+		{name: "/task", usage: "ID [continue|done CALL_ID|discard]", description: "inspect or control the exact recorded child", run: func(arg string) { c.taskInput("/task " + arg) }, during: func(arg string) { c.taskInput("/task " + arg) }},
+		{name: "/task-stop", usage: "ID", description: "cancel one live child and verify its record", run: func(arg string) { c.taskInput("/task-stop " + arg) }, during: func(arg string) { c.taskInput("/task-stop " + arg) }},
 		{name: "/compact", description: "summarize history before the next turn", run: func(arg string) {
 			if arg != "" {
 				c.notice("Usage: /compact")
@@ -219,6 +222,7 @@ func (c *Controller) commandHelp() string {
 		}
 		fmt.Fprintf(&out, "  %s %s%s — %s [%s]\n", entry.name, entry.usage, aliases, entry.description, availability)
 	}
+	out.WriteString("\nTask costs: recorded parent caps exclude children. Explore has 24 attempts; General has 32. Children have no monetary cap.\n")
 	out.WriteString(composerKeyboardHelp)
 	if _, ok := c.ui.(*screen); !ok {
 		if _, inline := c.ui.(*inlineScreen); !inline {

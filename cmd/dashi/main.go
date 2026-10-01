@@ -112,10 +112,16 @@ func runPrint(
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
-	defer a.eng.Close()
-	if a.wiring.Close != nil {
-		defer a.wiring.Close()
-	}
+	defer func() {
+		if err := a.eng.closeTasks(); err != nil {
+			a.eng.warn("%v", err)
+			return
+		}
+		a.eng.Close()
+		if a.wiring.Close != nil {
+			_ = a.wiring.Close()
+		}
+	}()
 	if handled, code := a.ctrl.printCommand(o.Print, stdout, stderr); handled {
 		return code
 	}
@@ -144,6 +150,11 @@ func runPrint(
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
+		return 1
+	}
+	res, err = a.eng.QuietTasks(ctx, res)
+	if err != nil {
+		fmt.Fprintln(stderr, workspace.PrintableText("dashi: "+err.Error()+"; inspect with /tasks and /task ID after reopening"))
 		return 1
 	}
 	return printAnswer(res.Outcome, stdout, stderr)
@@ -187,10 +198,16 @@ func runLines(
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
-	defer a.eng.Close()
-	if a.wiring.Close != nil {
-		defer a.wiring.Close()
-	}
+	defer func() {
+		if err := a.eng.closeTasks(); err != nil {
+			a.eng.warn("%v", err)
+			return
+		}
+		a.eng.Close()
+		if a.wiring.Close != nil {
+			_ = a.wiring.Close()
+		}
+	}()
 	ui.ctrl = a.ctrl
 	notice, err := a.openSession(cfg.Store, cfg.Dir, o)
 	if err != nil {
@@ -262,10 +279,16 @@ func runScreen(
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
-	defer a.eng.Close()
-	if a.wiring.Close != nil {
-		defer a.wiring.Close()
-	}
+	defer func() {
+		if err := a.eng.closeTasks(); err != nil {
+			a.eng.warn("%v", err)
+			return
+		}
+		a.eng.Close()
+		if a.wiring.Close != nil {
+			_ = a.wiring.Close()
+		}
+	}()
 	scr.bind(a)
 	home := cfg.HomeDir
 	if home == "" {

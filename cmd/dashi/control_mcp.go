@@ -54,7 +54,7 @@ func (u *lineUI) ApproveMCP(ctx context.Context, r mcpStartupRequest) (bool, err
 func (a *app) initializeMCP(ctx context.Context, interactive bool) error {
 	m := a.eng.cfg.MCP
 	if m == nil {
-		return nil
+		return a.eng.recoverTasks(ctx)
 	}
 	var approve mcpStartupFunc
 	if interactive {
@@ -70,6 +70,10 @@ func (a *app) initializeMCP(ctx context.Context, interactive bool) error {
 	err := m.Initialize(ctx, approve)
 	if err == nil {
 		a.eng.notice("%s", m.StartupSummary())
+		if err := a.eng.recoverTasks(ctx); err != nil {
+			a.eng.warn("Task recovery incomplete: %v", err)
+		}
+		a.ctrl.scheduleTaskNotices()
 	}
 	return err
 }
@@ -110,22 +114,32 @@ func (m *mcpRuntime) StartupSummary() string {
 // startMCP runs after the UI can service dialogs. Until it completes, input
 // cannot admit turns, continuations, or queued prompts.
 func (a *app) startMCP(interactive bool) {
-	if a.eng.cfg.MCP == nil {
-		return
-	}
-	if len(a.eng.cfg.MCP.selection.entries) == 0 && len(a.eng.cfg.MCP.selection.warnings) == 0 {
-		return
-	}
 	c := a.ctrl
+	m := a.eng.cfg.MCP
+	if m == nil || len(m.selection.entries) == 0 && len(m.selection.warnings) == 0 {
+		// Empty MCP startup does not own the foreground or add transcript rows.
+		// The recovery mutex makes the first prompt wait for this same snapshot.
+		c.goWork(func() {
+			if err := a.eng.recoverTasks(c.base); err != nil {
+				c.notice("Task recovery incomplete: %v", err)
+			}
+			c.scheduleTaskNotices()
+		})
+		return
+	}
+
 	ctx, cancel := context.WithCancel(c.base)
 	c.mu.Lock()
-	c.mode, c.cancel = ModeCommand, cancel
+	c.workerMode, c.mode, c.cancel = ModeCommand, ModeCommand, cancel
 	c.mu.Unlock()
 	c.goWork(func() {
 		err := a.initializeMCP(ctx, interactive)
 		cancel()
 		c.mu.Lock()
-		c.mode, c.cancel = ModeIdle, nil
+		c.workerMode, c.cancel = ModeIdle, nil
+		if c.mode != ModeApproval {
+			c.mode = ModeIdle
+		}
 		quit := c.quit
 		c.quit, c.quitAction = false, ""
 		c.mu.Unlock()
@@ -133,7 +147,10 @@ func (a *app) startMCP(interactive bool) {
 			c.emit(warnBlock("MCP initialization failed; no work was started."))
 		}
 		if err != nil || quit {
+			c.broker.cancelActive()
 			c.ui.Quit()
+		} else {
+			c.scheduleTaskNotices()
 		}
 	})
 }

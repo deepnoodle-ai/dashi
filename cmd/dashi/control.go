@@ -83,6 +83,10 @@ type Controller struct {
 	base             context.Context
 	statusGeneration uint64
 	statusCancel     context.CancelFunc
+	broker           *approvalBroker
+	workerMode       Mode
+	taskPump         bool
+	autoTaskDelivery bool
 }
 
 // NewController returns a controller. base ends every run when it is done.
@@ -93,7 +97,7 @@ func NewController(
 	store *session.Store,
 	dir string,
 ) *Controller {
-	return &Controller{
+	c := &Controller{
 		eng:            eng,
 		ui:             ui,
 		store:          store,
@@ -102,6 +106,10 @@ func NewController(
 		base:           base,
 		answers:        make(chan string, 1),
 	}
+	_, print := ui.(*printUI)
+	c.autoTaskDelivery = !print
+	c.broker = newApprovalBroker(c.presentTaskPrompt, nil)
+	return c
 }
 
 // Mode returns the current input mode.
@@ -119,6 +127,9 @@ func (c *Controller) emit(b Block) {
 func (c *Controller) setMode(m Mode) {
 	c.mu.Lock()
 	c.mode = m
+	if m != ModeApproval {
+		c.workerMode = m
+	}
 	if m != ModeApproval {
 		c.answerPending.Store(false)
 	}
@@ -167,21 +178,20 @@ func (c *Controller) CancelUnanswered() {
 
 // Approve is the ApprovalFunc the wiring uses. It marks the approval mode
 // while the user decides.
-func (c *Controller) Approve(
+func (c *Controller) approveUI(
 	ctx context.Context,
 	r ApprovalRequest,
 ) (Approval, error) {
 	c.setMode(ModeApproval)
-	defer c.setMode(ModeRunning)
+	defer c.endDialog()
 	// The request text is the model's. The UI gets the printable form only.
 	return c.ui.Approve(ctx, r.Printable())
 }
 
 // Ask is the AskFunc the wiring uses.
-func (c *Controller) Ask(ctx context.Context, q Question) (workspace.Answer, error) {
-	previousMode := c.Mode()
+func (c *Controller) askUI(ctx context.Context, q Question) (workspace.Answer, error) {
 	c.setMode(ModeApproval)
-	defer c.setMode(previousMode)
+	defer c.endDialog()
 	original := q.Choices
 	q.Prompt = workspace.PrintableText(q.Prompt)
 	choices := make([]workspace.Choice, len(q.Choices))
@@ -261,6 +271,17 @@ func (c *Controller) Open() {
 			Done: true,
 		})
 	}
+	// On a session switch the runtime is already initialized. Recovery is
+	// background work because a recorded child binding can require a dialog.
+	if c.eng.cfg.MCP == nil || c.eng.cfg.MCP.Ready() {
+		c.goWork(func() {
+			if err := c.eng.recoverTasks(ctx); err != nil {
+				c.notice("Task recovery incomplete: %v", err)
+			}
+			c.scheduleTaskNotices()
+		})
+	}
+
 }
 
 // Interrupt handles Ctrl-C. It returns true when the program should exit.
@@ -281,8 +302,20 @@ func (c *Controller) Interrupt() bool {
 		if c.cancel != nil {
 			c.cancel()
 		}
+		if host := c.eng.taskHost(); host != nil {
+			running := 0
+			for _, v := range host.tasks.List() {
+				if v.Running() {
+					running++
+				}
+			}
+			if running > 0 {
+				c.notice("Foreground interrupted; %d child tasks continue. Use /tasks and /task-stop ID to stop a child.", running)
+			}
+		}
 		return false
 	case ModeApproval:
+		c.broker.cancelActive()
 		// Quitting during a prompt cancels the run. Dashi records the turn
 		// as interrupted, and the call had not started. As with
 		// QuitDuringRun, queued prompts get a warning once the run settles.
@@ -297,6 +330,7 @@ func (c *Controller) Interrupt() bool {
 
 // CancelWork interrupts a turn or dialog without requesting process exit.
 func (c *Controller) CancelWork() {
+	c.broker.cancelActive()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.statusCancel != nil {
@@ -312,6 +346,9 @@ func (c *Controller) CancelWork() {
 func (c *Controller) Input(line string) {
 	raw := line
 	line = strings.TrimSpace(line)
+	if c.taskInput(line) {
+		return
+	}
 	if name, arg := splitCommand(line); name == "/status" {
 		c.inspectSession(arg)
 		return
@@ -412,12 +449,38 @@ func (c *Controller) queue(text string) {
 }
 
 func (c *Controller) prompt(text string) {
+	if host := c.eng.taskHost(); host != nil {
+		host.mu.Lock()
+		paused := host.deliveryErr != nil
+		host.mu.Unlock()
+		if paused {
+			c.notice("Task notice admission is unresolved. Press Enter to reconcile that exact queued Turn or reopen before a new prompt.")
+			return
+		}
+	}
 	c.startRun(func(ctx context.Context) (Result, error) {
 		return c.eng.Prompt(ctx, text)
 	})
 }
 
 func (c *Controller) resume() {
+	if host := c.eng.taskHost(); host != nil {
+		host.mu.Lock()
+		paused := host.deliveryErr != nil
+		host.mu.Unlock()
+		if paused && !c.eng.HasPending() {
+			c.startRun(func(ctx context.Context) (Result, error) {
+				if c.eng.Last(ctx).CanGoOn() {
+					res, err := c.eng.Resume(ctx)
+					if err != nil || res.Outcome.Next() != dashi.NextNone {
+						return res, err
+					}
+				}
+				return c.eng.DriveTaskNotices(ctx)
+			})
+			return
+		}
+	}
 	if !c.eng.HasPending() && !c.eng.Last(c.base).CanGoOn() {
 		return
 	}
@@ -426,16 +489,28 @@ func (c *Controller) resume() {
 
 // startRun runs fn in the background in the running mode. Steers that
 // missed the turn, and queued prompts, run as the next turns within fn.
-func (c *Controller) startRun(fn func(context.Context) (Result, error)) {
+func (c *Controller) startRun(fn func(context.Context) (Result, error)) bool {
 	ctx, cancel := context.WithCancel(c.base)
 	c.mu.Lock()
-	c.mode, c.cancel = ModeRunning, cancel
+	if c.workerMode != ModeIdle || c.mode == ModeApproval {
+		c.mu.Unlock()
+		cancel()
+		c.notice("Parent work is already owned by another driver; submit again when idle.")
+		return false
+	}
+	c.workerMode, c.cancel = ModeRunning, cancel
+	if c.mode != ModeApproval {
+		c.mode = ModeRunning
+	}
 	c.mu.Unlock()
 	c.goWork(func() {
 		_, err := fn(ctx)
 		cancel()
 		c.mu.Lock()
-		c.mode, c.cancel = ModeIdle, nil
+		c.workerMode, c.cancel = ModeIdle, nil
+		if c.mode != ModeApproval {
+			c.mode = ModeIdle
+		}
 		quit, action := c.quit, c.quitAction
 		c.quit, c.quitAction = false, ""
 		if action != "" {
@@ -443,6 +518,7 @@ func (c *Controller) startRun(fn func(context.Context) (Result, error)) {
 			c.dropping = ""
 		}
 		c.mu.Unlock()
+		c.scheduleTaskNotices()
 		if err != nil && !errors.Is(err, context.Canceled) {
 			var attachmentErr *attachmentFailure
 			if errors.As(err, &attachmentErr) {
@@ -462,6 +538,7 @@ func (c *Controller) startRun(fn func(context.Context) (Result, error)) {
 			c.ui.Quit()
 		}
 	})
+	return true
 }
 
 // busyText says what to do when the session refuses a prompt, or returns
@@ -494,19 +571,32 @@ func busyText(err error) string {
 func (c *Controller) async(fn func(context.Context)) {
 	ctx, cancel := context.WithCancel(c.base)
 	c.mu.Lock()
-	c.mode, c.cancel = ModeCommand, cancel
+	if c.workerMode != ModeIdle || c.mode == ModeApproval {
+		c.mu.Unlock()
+		cancel()
+		c.notice("Wait for the current parent work or dialog before this command.")
+		return
+	}
+	c.workerMode, c.cancel = ModeCommand, cancel
+	if c.mode != ModeApproval {
+		c.mode = ModeCommand
+	}
 	c.mu.Unlock()
 	c.goWork(func() {
 		defer func() {
 			cancel()
 			c.mu.Lock()
-			c.mode, c.cancel = ModeIdle, nil
+			c.workerMode, c.cancel = ModeIdle, nil
+			if c.mode != ModeApproval {
+				c.mode = ModeIdle
+			}
 			quit, action := c.quit, c.quitAction
 			c.quit, c.quitAction = false, ""
 			c.mu.Unlock()
 			if quit && (action == "" || !c.keepQueued(action)) {
 				c.ui.Quit()
 			}
+			c.scheduleTaskNotices()
 		}()
 		fn(ctx)
 	})

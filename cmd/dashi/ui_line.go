@@ -16,9 +16,10 @@ type lineUI struct {
 	out              io.Writer
 	attachmentErrors io.Writer
 
-	mu      sync.Mutex
-	printed map[string]string
-	midLine bool
+	mu         sync.Mutex
+	printed    map[string]string
+	midLine    bool
+	inputEnded bool
 	// live is true once the scrollback is shown. The user typed the lines
 	// of a live run, so the terminal has echoed them already.
 	live            bool
@@ -87,6 +88,13 @@ func (u *lineUI) Emit(b Block) {
 		if !b.Done {
 			return
 		}
+	case KindNotice:
+		if strings.HasPrefix(b.ID, "task:") || b.ID == "task-delivery" {
+			if u.printed[b.ID] == b.Text {
+				return
+			}
+			u.printed[b.ID] = b.Text
+		}
 	case KindSteer:
 	}
 	if u.midLine {
@@ -116,6 +124,10 @@ func (u *lineUI) Reset() {
 
 func (u *lineUI) Approve(ctx context.Context, r ApprovalRequest) (Approval, error) {
 	u.mu.Lock()
+	if u.inputEnded {
+		u.mu.Unlock()
+		return Approval{}, errNoApprover
+	}
 	if u.midLine {
 		fmt.Fprintln(u.out)
 		u.midLine = false
@@ -174,6 +186,10 @@ func parseAnswer(line string) (Approval, bool) {
 
 func (u *lineUI) Ask(ctx context.Context, q Question) (questionAnswer, error) {
 	u.mu.Lock()
+	if u.inputEnded {
+		u.mu.Unlock()
+		return questionAnswer{}, errNoApprover
+	}
 	fmt.Fprintf(u.out, "%s\n", q.Prompt)
 	for i, c := range q.Choices {
 		fmt.Fprintf(u.out, "  %d. %s\n", i+1, c.Label)
@@ -228,6 +244,12 @@ func (u *lineUI) serveLines(in io.Reader, sequential bool) error {
 		select {
 		case line, ok := <-lines:
 			if !ok {
+				u.mu.Lock()
+				u.inputEnded = true
+				u.mu.Unlock()
+				u.ctrl.mu.Lock()
+				u.ctrl.autoTaskDelivery = false
+				u.ctrl.mu.Unlock()
 				// No more input can come. A run that waits for an
 				// approval answer gets a cancel, not an endless wait.
 				u.ctrl.WaitForInput()
@@ -236,7 +258,13 @@ func (u *lineUI) serveLines(in io.Reader, sequential bool) error {
 				if u.AttachmentUnsaved() {
 					u.AttachmentWarning("Input ended with an unsubmitted attachment draft. Its source snapshots were not submitted; published recovery content is retained.")
 				}
-				return <-errc
+				if err := <-errc; err != nil {
+					return err
+				}
+				if _, err := u.ctrl.eng.QuietTasks(u.ctrl.base, Result{}); err != nil {
+					return fmt.Errorf("tasks need explicit action; inspect /tasks or reopen this session: %w", err)
+				}
+				return nil
 			}
 			select {
 			case <-u.quit:

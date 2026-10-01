@@ -55,6 +55,7 @@ type brokerPrompt struct {
 	Approval *ApprovalRequest
 	Question *Question
 	ctx      context.Context
+	cancel   context.CancelFunc
 	response chan brokerResponse
 }
 type brokerResponse struct {
@@ -89,10 +90,13 @@ func (b *approvalBroker) run(ctx context.Context, prompt brokerPrompt) (brokerRe
 	if err := ctx.Err(); err != nil {
 		return brokerResponse{}, err
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	b.mu.Lock()
 	b.next++
 	prompt.ID = b.next
 	prompt.ctx = ctx
+	prompt.cancel = cancel
 	prompt.response = make(chan brokerResponse, 1)
 	b.active = &prompt
 	b.mu.Unlock()
@@ -149,4 +153,36 @@ func (b *approvalBroker) ask(ctx context.Context, question Question) (workspace.
 	question.Choices = slices.Clone(question.Choices)
 	response, err := b.run(ctx, brokerPrompt{Owner: owner, Question: &question})
 	return response.answer, err
+}
+
+func (b *approvalBroker) cancelActive() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.active != nil {
+		b.active.cancel()
+	}
+}
+
+func (b *approvalBroker) cancelRequest(id uint64, owner brokerOwner) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.active != nil && b.active.ID == id && b.active.Owner == owner {
+		b.active.cancel()
+	}
+}
+
+// presentOnly reserves the same dialog owner for a native details viewport.
+// A child prompt waits until this viewport closes; it cannot replace the draft.
+func (b *approvalBroker) presentOnly(ctx context.Context, fn func()) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-b.gate:
+	}
+	defer func() { b.gate <- struct{}{} }()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	fn()
+	return ctx.Err()
 }

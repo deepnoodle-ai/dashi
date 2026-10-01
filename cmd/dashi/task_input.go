@@ -19,11 +19,12 @@ import (
 // taskInputs owns child-only stores for one leased parent. Tasks.Close must
 // finish before close releases these pinned descriptors.
 type taskInputs struct {
-	loader    dashi.Loader
-	parent    *session.AttachmentStore
-	clientFor func(context.Context, dashi.Agent) (llm.Client, error)
-	mu        sync.Mutex
-	stores    map[string]*session.AttachmentStore
+	loader     dashi.Loader
+	parent     *session.AttachmentStore
+	parentBind func() (*session.AttachmentStore, error)
+	clientFor  func(context.Context, dashi.Agent) (llm.Client, error)
+	mu         sync.Mutex
+	stores     map[string]*session.AttachmentStore
 }
 
 func (h *taskInputs) close() {
@@ -36,13 +37,17 @@ func (h *taskInputs) close() {
 }
 
 func (h *taskInputs) childStore(ref dashi.CallRef, create bool) (*session.AttachmentStore, error) {
+	parent, err := h.parentStore()
+	if err != nil {
+		return nil, err
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	id := delegate.ChildID(ref.TurnID, ref.CallID)
 	if store := h.stores[id]; store != nil {
 		return store, nil
 	}
-	store, err := h.parent.ChildAttachments(ref, create)
+	store, err := parent.ChildAttachments(ref, create)
 	if err != nil {
 		return nil, err
 	}
@@ -56,6 +61,9 @@ func (h *taskInputs) childStore(ref dashi.CallRef, create bool) (*session.Attach
 // originatingTask replays only through the original call start. Later context
 // changes and live workspace files cannot enter this child's initial evidence.
 func (h *taskInputs) originatingTask(ctx context.Context, ref dashi.CallRef) (dashi.Turn, dashi.TurnView, error) {
+	if h.loader == nil {
+		return dashi.Turn{}, dashi.TurnView{}, fmt.Errorf("task requires a recorder with authoritative loading")
+	}
 	turn, err := h.loader.Load(ctx, ref.TurnID)
 	if err != nil {
 		return turn, dashi.TurnView{}, err
@@ -146,7 +154,11 @@ func (h *taskInputs) prepareStart(ctx context.Context, ref dashi.CallRef, start 
 				return start, fmt.Errorf("task evidence exceeds message limit")
 			}
 			wire += size
-			data, err := h.parent.Resolve(ctx, ref.TurnID, *source.Ref)
+			parent, err := h.parentStore()
+			if err != nil {
+				return start, err
+			}
+			data, err := parent.Resolve(ctx, ref.TurnID, *source.Ref)
 			if err != nil {
 				return start, err
 			}
@@ -197,4 +209,20 @@ func (h *taskInputs) bindServices(ctx context.Context, ref dashi.CallRef, agent 
 
 func taskBindingContext(ctx context.Context, ref dashi.CallRef) context.Context {
 	return context.WithValue(ctx, brokerOwnerKey{}, brokerOwner{TaskID: delegate.ChildID(ref.TurnID, ref.CallID), Call: ref})
+}
+
+func (h *taskInputs) parentStore() (*session.AttachmentStore, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.parent != nil {
+		return h.parent, nil
+	}
+	if h.parentBind == nil {
+		return nil, fmt.Errorf("task parent evidence store unavailable")
+	}
+	store, err := h.parentBind()
+	if err == nil {
+		h.parent = store
+	}
+	return store, err
 }

@@ -77,6 +77,13 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 	if err != nil {
 		return nil, err
 	}
+	w.Hooks = attributeToolHooks(w.Hooks)
+	if w.Scopes == nil {
+		w.Scopes = map[string]string{}
+	}
+	w.Scopes["task"] = "CLI delegated work; creation approval grants no child effects; no child monetary cap"
+	w.Scopes["task_status"] = "CLI recorded child state; read-only; no reference resolution"
+	w.Scopes["task_stop"] = "CLI live child cancellation; verify the recorded acknowledgement"
 	eng := NewEngine(EngineConfig{
 		Dir:           cfg.Dir,
 		Client:        cfg.Client,
@@ -97,6 +104,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 	})
 	resources.warning = eng.warn
 	ctrl = NewController(ctx, eng, ui, cfg.Store, cfg.Dir)
+	eng.taskWake = ctrl.scheduleTaskNotices
 	if cfg.Preferences != nil {
 		cfg.Preferences.ask = ctrl.Ask
 	}

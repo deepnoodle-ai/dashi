@@ -272,12 +272,12 @@ func TestComposerRunningHelpUnknownAndEditorRetry(t *testing.T) {
 func TestComposerCommandHelpMatchesAvailableHandlers(t *testing.T) {
 	h := newHarness(t)
 	text := h.app.ctrl.commandHelp()
-	for _, want := range []string{"/help", "/?", "/quit", "/q", "/exit", "Enter / Shift+Enter", "Up / Down", "Tab/Down", "Shift+Tab/Up", "Escape", "Ctrl+G", "Ctrl+C", "Ctrl+D", "pending/queued-loss", "supported fullscreen/inline terminal handoff"} {
+	for _, want := range []string{"/help", "/?", "/quit", "/q", "/exit", "/tasks", "/task", "/task-stop", "Enter / Shift+Enter", "Up / Down", "Tab/Down", "Shift+Tab/Up", "Escape", "Ctrl+G", "Ctrl+C", "Ctrl+D", "pending/queued-loss", "supported fullscreen/inline terminal handoff"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("help missing %s", want)
 		}
 	}
-	for _, unavailable := range []string{"/copy", "/mouse", "/scrollback", "/tasks", "/attach"} {
+	for _, unavailable := range []string{"/copy", "/mouse", "/scrollback", "/attach"} {
 		if strings.Contains(text, unavailable) {
 			t.Fatalf("advertised unavailable %s", unavailable)
 		}

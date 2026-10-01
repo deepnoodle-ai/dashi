@@ -70,6 +70,8 @@ func (e *Engine) configureChat() *dashi.Session {
 
 // Compact summarizes only. It cannot authorize execution of queued prompts.
 func (e *Engine) Compact(ctx context.Context) (Result, error) {
+	e.driverMu.Lock()
+	defer e.driverMu.Unlock()
 	if err := e.cfg.Preferences.selectionReady(); err != nil {
 		return Result{}, err
 	}
@@ -166,7 +168,9 @@ func (e *Engine) resumePending(ctx context.Context) (Result, error) {
 	if err := e.bindCommand(ctx, cmd); err != nil {
 		return Result{}, err
 	}
+	e.driverMu.Lock()
 	res, err := e.stream(ctx, chat.Stream(ctx, cmd), true)
+	e.driverMu.Unlock()
 	if err != nil || res.Outcome.Stop.Kind != dashi.StopCompleted ||
 		compactiontext.Summary(res.Outcome.Answer) == "" {
 		return res, err

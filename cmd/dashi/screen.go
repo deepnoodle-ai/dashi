@@ -919,3 +919,7 @@ func (s *screen) dumpTranscript(w io.Writer) {
 		fmt.Fprintln(w, FormatBlock(printable(fullBlock(b))))
 	}
 }
+
+func (s *screen) ChooseTaskDetails(ctx context.Context, id, text string) {
+	s.choosePicker(ctx, "Task "+id, []string{"Close details"}, []string{text}, 0, true)
+}
