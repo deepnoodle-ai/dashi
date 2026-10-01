@@ -13,12 +13,12 @@ type attachmentDir struct {
 }
 
 func openAttachmentAnchor(string) (*attachmentDir, error) {
-	return nil, fmt.Errorf("session: secure attachments are unavailable on this platform")
+	return nil, errAttachmentUnsupported
 }
 func (d *attachmentDir) close()                               {}
 func (d *attachmentDir) child(string) (*attachmentDir, error) { return openAttachmentAnchor("") }
 func (d *attachmentDir) regular(string, bool) (*os.File, error) {
-	return nil, fmt.Errorf("session: secure attachments are unavailable on this platform")
+	return nil, errAttachmentUnsupported
 }
 func (d *attachmentDir) publishUnused(string, string) error {
 	return fmt.Errorf("session: secure attachments are unavailable on this platform")

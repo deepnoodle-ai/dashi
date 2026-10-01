@@ -330,6 +330,9 @@ func readAttachmentFile(ctx context.Context, dir *attachmentDir, name string, li
 // links and does not inspect or remove published, corrupt, or orphan content.
 func (st *Store) RetainsAttachments(s *Session) bool {
 	a, err := st.Attachments(s)
+	if errors.Is(err, errAttachmentUnsupported) {
+		return !attachmentPathAbsent(filepath.Join(st.root, s.ID, "attachments"))
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return false
 	}
