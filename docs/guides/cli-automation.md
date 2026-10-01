@@ -41,4 +41,3 @@ if [ "$build_status" -ne 0 ]; then
 fi
 exit "$build_status"
 ```
-
