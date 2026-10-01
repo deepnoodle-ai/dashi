@@ -35,7 +35,25 @@ type discoveredResources struct {
 	Set                *skill.Set
 	Bundle             *skill.Bundle
 	Candidates         []skill.Info
-	Warnings           []skill.Warning
+	Warnings           []resourceWarning
+}
+
+// resourceWarning is one discovery problem. Instructions marks a workspace
+// instruction problem; the others come from skill loading. Skipped means the
+// resource did not load; otherwise it loaded with an adjustment.
+type resourceWarning struct {
+	skill.Warning
+	Instructions bool
+}
+
+// key identifies one problem across refreshes. It resolves symlinks so a
+// file reached through two search dirs counts once.
+func (w resourceWarning) key() string {
+	path := w.Path
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	return path + "\x00" + w.Message
 }
 
 // Discovery selects contextual content only; it grants no tools or file access.
@@ -52,10 +70,21 @@ func discoverResources(workspace, home string) (*discoveredResources, error) {
 	selected.InstructionSource = instructionItem(sourceText)
 	selected.InstructionSource.Name = "workspace-instructions-source"
 	selected.InstructionSource.Message.Content[0].Reminder.Name = "workspace-instructions-source"
-	selected.Warnings = append(selected.Warnings, warnings...)
+	for _, warning := range warnings {
+		warning.Skipped = true
+		selected.Warnings = append(selected.Warnings, resourceWarning{Warning: warning, Instructions: true})
+	}
 	set, warnings := skill.LoadDirs(skill.DefaultDirs(workspace, home)...)
 	selected.Set, selected.Candidates = set, set.Candidates()
-	selected.Warnings = append(selected.Warnings, warnings...)
+	// A file reached through two search dirs keeps its first path.
+	seen := map[string]bool{}
+	for _, warning := range warnings {
+		w := resourceWarning{Warning: warning}
+		if key := w.key(); !seen[key] {
+			seen[key] = true
+			selected.Warnings = append(selected.Warnings, w)
+		}
+	}
 	bundle, err := set.Bundle(skill.Options{})
 	if err != nil {
 		return nil, fmt.Errorf("build skill catalog: %w", err)
@@ -76,7 +105,7 @@ func discoverResources(workspace, home string) (*discoveredResources, error) {
 				}
 			}
 			if err != nil {
-				selected.Warnings = append(selected.Warnings, skill.Warning{Path: info.Dir, Message: "supporting files unavailable: " + err.Error()})
+				selected.Warnings = append(selected.Warnings, resourceWarning{Warning: skill.Warning{Path: info.Dir, Message: "supporting files unavailable: " + err.Error()}})
 			} else {
 				source.Root = target
 			}

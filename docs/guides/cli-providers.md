@@ -189,7 +189,8 @@ recorded instructions.
 `/settings` shows the next-turn request, winning/overridden sources, credential
 variable/source, named environment files, preparation preview, warnings, and
 unverified support. It distinguishes this unsent preview from the last recorded
-attempt. `/settings --json` exports safe inspection values without
+attempt and shows that Turn's Active-Turn protection window. The transcript does
+not repeat unverified support or the protection window on every Turn. `/settings --json` exports safe inspection values without
 credential values, headers, system-prompt text, or transcript content.
 
 Project destinations need binding approval unless the whole definition matches

@@ -22,19 +22,45 @@ type resourceManager struct {
 	files           map[dashi.CallRef]*validatedSkillFile
 	// Display only. The workspace policy owns and enforces these answers.
 	remembered map[skillFileArgs]bool
+	// shown holds the keys of current instruction problems already shown.
+	// A key that disappears is dropped, so a problem that returns shows again.
+	shown map[string]bool
 }
 
 func newResourceManager(dir, home string) *resourceManager {
-	return &resourceManager{workspace: dir, home: home, files: map[dashi.CallRef]*validatedSkillFile{}, remembered: map[skillFileArgs]bool{}}
+	return &resourceManager{workspace: dir, home: home, files: map[dashi.CallRef]*validatedSkillFile{}, remembered: map[skillFileArgs]bool{}, shown: map[string]bool{}}
 }
+
+// discover refreshes resources before each use. Skill problems never reach
+// the transcript; /resources lists them. A workspace instruction file that
+// exists but cannot be used is shown once, because the model then works
+// without instructions the user relies on.
 func (m *resourceManager) discover() (*discoveredResources, error) {
 	found, err := discoverResources(m.workspace, m.home)
 	if err != nil {
 		return nil, err
 	}
+	m.mu.Lock()
+	current := map[string]bool{}
+	var fresh []resourceWarning
+	for _, warning := range found.Warnings {
+		if !warning.Instructions {
+			continue
+		}
+		key := warning.key()
+		current[key] = true
+		if !m.shown[key] {
+			fresh = append(fresh, warning)
+		}
+	}
+	m.shown = current
+	m.mu.Unlock()
 	if m.warning != nil {
-		for _, warning := range found.Warnings {
-			m.warning("Resource %s: %s", warning.Path, warning.Message)
+		for _, warning := range fresh {
+			// The line already says the instructions were not loaded.
+			reason := strings.TrimPrefix(warning.Message, "instructions omitted: ")
+			reason = strings.TrimPrefix(reason, "cannot inspect workspace instructions: ")
+			m.warning("Workspace instructions not loaded: %s: %s. /resources shows details.", warning.Path, reason)
 		}
 	}
 	return found, nil

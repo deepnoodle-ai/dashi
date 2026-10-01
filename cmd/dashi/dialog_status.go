@@ -179,9 +179,9 @@ func (s *screen) dialogStatusView() tui.View {
 	return tui.Stack(
 		tui.Divider(),
 		tui.MaxHeight(2, tui.Text(" %s", heading).Wrap().Bold()),
-		tui.Text(" /status [ID] · /tasks · /task ID · /task-stop ID · Esc returns").Wrap().Hint(),
+		tui.Text(" /status [ID] · /tasks · /task ID · /task-stop ID · Esc returns").Wrap().Style(hintStyle),
 		tui.InputField(&p.text).ID(dialogStatusInputID).Prompt("Inspect:").
-			PromptStyle(tui.NewStyle().WithForeground(tui.ColorBrightBlack)).
+			PromptStyle(mutedStyle).
 			OnKey(s.dialogStatusKeyHook(p)).OnSubmit(s.dialogStatusSubmit(p)),
 	).Gap(0)
 }

@@ -281,7 +281,7 @@ func (s *screen) Item(i int) tui.View {
 			b.Expanded = true
 		} else {
 			return tui.Stack(blockView(b), tui.PaddingLTRB(6, 0, 0, 0,
-				tui.Text("%d output lines · click to expand", strings.Count(b.Detail, "\n")+1).Hint())).Gap(0)
+				tui.Text("%d output lines · click to expand", strings.Count(b.Detail, "\n")+1).Style(hintStyle))).Gap(0)
 		}
 	}
 	return blockView(b)
@@ -637,7 +637,7 @@ func (s *screen) View() tui.View {
 func (s *screen) footer() tui.View {
 	views := make([]tui.View, 0, 10)
 	if !s.vp.AtBottom && s.vp.LinesBelow > 0 {
-		views = append(views, tui.Text(" %d lines below · Ctrl+End returns to live output", s.vp.LinesBelow).Hint())
+		views = append(views, tui.Text(" %d lines below · Ctrl+End returns to live output", s.vp.LinesBelow).Style(hintStyle))
 	}
 	switch {
 	case s.dialogStatus != nil:
@@ -654,10 +654,10 @@ func (s *screen) footer() tui.View {
 			views = append(views, tui.Text(""), s.workingView(), tui.Text(""))
 		}
 		for _, row := range attachmentPreviewRows(&s.attachments, s.ctrl.attachmentRoot) {
-			views = append(views, tui.Text(" %s", row).Hint())
+			views = append(views, tui.Text(" %s", row).Style(mutedStyle))
 		}
 		views = append(views,
-			tui.Text(" %s", s.inputHint(mode)).Wrap().Hint(),
+			tui.Text(" %s", s.inputHint(mode)).Wrap().Style(hintStyle),
 			tui.Divider(), s.inputView(mode), tui.Divider())
 	}
 	views = append(views, s.statusView())
@@ -733,7 +733,7 @@ func (s *screen) workingView() tui.View {
 	frame := spinnerFrames[int(s.frame/3)%len(spinnerFrames)]
 	return tui.Group(
 		tui.Text(" %s", frame).Fg(tui.ColorCyan),
-		tui.Text(" Working. Ctrl-C interrupts.").Hint(),
+		tui.Text(" Working. Ctrl-C interrupts.").Style(hintStyle),
 	)
 }
 
@@ -742,7 +742,7 @@ func (s *screen) statusView() tui.View {
 	if sess := s.eng.Session(); sess != nil {
 		id = sess.ID
 	}
-	return tui.Text(" %s · %s · %s", s.model(), shortDir(s.dir), id).Hint()
+	return tui.Text(" %s · %s · %s", s.model(), shortDir(s.dir), id).Style(mutedStyle)
 }
 
 // shortDir shows the last two parts of a path.
@@ -776,7 +776,7 @@ func pickerView(p *pickerState) tui.View {
 	if p.index >= 0 && p.index < len(p.details) {
 		views = append(views, tui.Divider(), tui.Text("%s\n%s", p.options[p.index], p.details[p.index]).Wrap())
 	}
-	views = append(views, tui.Text(" Up and Down move. Enter picks. Esc cancels.").Hint())
+	views = append(views, tui.Text(" Up and Down move. Enter picks. Esc cancels.").Style(hintStyle))
 	return tui.Stack(views...).Gap(0)
 }
 
@@ -837,11 +837,11 @@ func blockView(b Block) tui.View {
 	case KindStop:
 		return sourceLabel("■ ", b.Text, tui.ColorYellow)
 	case KindFooter:
-		return tui.Text("%s", b.Text).SourceOffset(0).Hint()
+		return tui.Text("%s", b.Text).SourceOffset(0).Style(mutedStyle)
 	case KindWarning:
 		return sourceLabel("! ", b.Text, tui.ColorYellow)
 	}
-	return tui.Text("%s", b.Text).SourceOffset(0).Wrap().Hint()
+	return tui.Text("%s", b.Text).SourceOffset(0).Wrap().Style(mutedStyle)
 }
 
 func toolView(b Block) tui.View {
@@ -850,7 +850,7 @@ func toolView(b Block) tui.View {
 	switch b.State {
 	case StateOK:
 		icon = tui.Text("  ✓").Fg(tui.ColorGreen)
-		state = tui.Text("ok  %.1fs", b.Elapsed.Seconds()).Hint()
+		state = tui.Text("ok  %.1fs", b.Elapsed.Seconds()).Style(mutedStyle)
 	case StateFailed:
 		icon = tui.Text("  ✗").Fg(tui.ColorRed)
 		state = tui.Text("failed  %.1fs", b.Elapsed.Seconds()).Fg(tui.ColorRed)
@@ -862,18 +862,18 @@ func toolView(b Block) tui.View {
 		state = tui.Text("waiting").Fg(tui.ColorYellow)
 	default:
 		icon = tui.Text("  ⠋").Fg(tui.ColorCyan)
-		state = tui.Text("running").Hint()
+		state = tui.Text("running").Style(mutedStyle)
 	}
 	head := tui.Group(
 		icon,
 		tui.Text(" %s", workspace.PrintableText(b.Name)).Bold(),
-		tui.Text("  %s", fitArg(workspace.PrintableText(b.Arg), 70)).Hint(),
+		tui.Text("  %s", fitArg(workspace.PrintableText(b.Arg), 70)).Style(mutedStyle),
 		tui.Spacer(),
 		state,
 	)
 	if b.Expanded && b.Detail != "" {
 		return tui.Stack(head, tui.PaddingLTRB(6, 0, 0, 0,
-			tui.Text("%s", b.Detail).SourceOffset(0).Wrap().Hint())).Gap(0)
+			tui.Text("%s", b.Detail).SourceOffset(0).Wrap().Style(mutedStyle))).Gap(0)
 	}
 	if len(b.Lines) == 0 {
 		return head
@@ -882,11 +882,19 @@ func toolView(b Block) tui.View {
 	offset := 0
 	for _, l := range b.Lines {
 		views = append(views, tui.PaddingLTRB(6, 0, 0, 0,
-			tui.Text("%s", l).SourceOffset(offset).Wrap().Hint()))
+			tui.Text("%s", l).SourceOffset(offset).Wrap().Style(mutedStyle)))
 		offset += len(l) + 1
 	}
 	return tui.Stack(views...).Gap(0)
 }
+
+// Secondary text uses 256-color gray 245 (#8a8a8a) without dim. Wonton's
+// Hint and Muted add dim to bright black, which nearly disappears on dark
+// themes. Italic marks only key and command help.
+var (
+	mutedStyle = tui.NewStyle().WithForeground(tui.Color(245))
+	hintStyle  = mutedStyle.WithItalic()
+)
 
 func sourceLabel(label, source string, color tui.Color) tui.View {
 	return tui.Group(tui.Text("%s", label).Fg(color),
@@ -909,7 +917,7 @@ func diffSourceLineView(line string, offset int) tui.View {
 	case strings.HasPrefix(line, "@@"):
 		return t.Fg(tui.ColorCyan)
 	}
-	return t.Hint()
+	return t.Style(mutedStyle)
 }
 
 // dumpTranscript writes the plain text of the whole transcript. The alternate

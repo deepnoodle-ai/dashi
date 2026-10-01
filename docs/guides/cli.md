@@ -48,8 +48,9 @@ states and its usage footer; it hides the summary request and text. Unknown
 windows use 128,000 tokens for this between-Turn history workflow and warn
 once per selected model.
 
-Active-Turn protection checks text-only requests against their recorded model window.
-Media requests show one “protection unavailable for media” marker, including after reopen.
+Active-Turn protection checks text-only requests against their recorded model window;
+`/settings` shows that window. Media requests show one “protection unavailable for media”
+marker per session, including after reopen.
 Provider content preparation and actual window acceptance govern these requests; a known
 window does not prove media fit. Cost limits still apply. See
 [active context](compaction.md#protect-one-long-request).

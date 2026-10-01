@@ -34,6 +34,6 @@ func sessionPickerView(p *pickerState) tui.View {
 	if p.index >= 0 && p.index < len(p.details) {
 		views = append(views, tui.Divider(), tui.Height(6, tui.Viewport(&p.sessionVP, detailLines(strings.Split(p.details[p.index], "\n"))).Gap(0)))
 	}
-	views = append(views, tui.Text("%s", hint).Wrap().Hint())
+	views = append(views, tui.Text("%s", hint).Wrap().Style(hintStyle))
 	return tui.Stack(views...).Gap(0)
 }

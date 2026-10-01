@@ -188,10 +188,10 @@ func TestInlineRuntimeApprovalsQuestionsAndRecovery(t *testing.T) {
 	}
 }
 
-// The initial protection marker has already reached native scrollback when
-// preparation records its media warning. Replacing the transcript row must
-// also make that warning visible during the live turn, before an answer.
-func TestInlineRecordedProtectionWarningUpdatesPrintedMarker(t *testing.T) {
+// The prompt has already reached native scrollback when preparation records
+// its media warning. The warning must be visible during the live turn,
+// before an answer.
+func TestInlineMediaWarningReachesScrollbackOnce(t *testing.T) {
 	var output bytes.Buffer
 	i := newInlineScreen(newScreen("fixture"), &output)
 	r := NewRenderer(1, "fixture", "")
@@ -204,18 +204,17 @@ func TestInlineRecordedProtectionWarningUpdatesPrintedMarker(t *testing.T) {
 	emit(dashi.Step{Kind: dashi.StepStarted, TurnID: "turn", Started: &dashi.StartFact{
 		Agent: dashi.Agent{ActiveCompaction: &dashi.ActiveCompactionPolicy{}}, ActiveCompactionWindow: 128000,
 	}})
-	if !strings.Contains(output.String(), "text-only") {
-		t.Fatal("initial marker did not reach native scrollback")
+	if strings.Contains(output.String(), "text-only") {
+		t.Fatal("per-Turn protection notice reached native scrollback")
 	}
-	// A streaming answer keeps the turn visibly unfinished while the warning
-	// replaces the completed protection row behind the native printed prefix.
-	for _, block := range r.Event(dashi.Event{AttemptID: "answer", Delta: &llm.Delta{Kind: llm.DeltaText, Text: "unfinished answer"}}) {
-		i.Emit(block)
-	}
-	i.HandleEvent(flushEvent{})
+	// The intent records the warning before the answer streams. A
+	// re-delivered warning updates the same row.
 	warn := dashi.Step{Kind: dashi.StepModelIntent, TurnID: "turn", Model: &dashi.ModelFact{AttemptID: "answer"}, Warnings: []dashi.Warning{{Code: dashi.WarningActiveCompactionMediaEstimateUnavailable}}}
 	emit(warn)
 	emit(warn)
+	for _, block := range r.Event(dashi.Event{AttemptID: "answer", Delta: &llm.Delta{Kind: llm.DeltaText, Text: "unfinished answer"}}) {
+		i.Emit(block)
+	}
 	i.HandleEvent(flushEvent{})
 	if count := strings.Count(output.String(), "Active-Turn protection unavailable for media"); count != 1 {
 		t.Fatalf("recorded warning was hidden or repeated in native scrollback: count=%d output=%q", count, output.String())

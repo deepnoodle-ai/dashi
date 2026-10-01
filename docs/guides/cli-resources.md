@@ -51,6 +51,13 @@ Dashi refreshes instructions and the skill catalog before model requests.
 Slash commands and new skill loads use current files. Queued work sees edits
 when it starts. `/resources` shows what is currently available.
 
+Skill problems never appear in the transcript. `/resources` lists each with
+its path under "Not loaded", and adjustments, such as a shortened description,
+under "Loaded with adjustments". A file reached through two search dirs counts
+once. A folder without SKILL.md is not a skill and is skipped silently. An
+instruction file that exists but cannot be used warns once per problem, since
+the model then works without it.
+
 A loaded skill's text is an ordinary recorded tool result. Reloading the
 session keeps that result in conversation history. A later load can return
 the updated file without changing the earlier result. No separate resource
