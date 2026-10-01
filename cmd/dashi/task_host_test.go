@@ -828,7 +828,7 @@ func TestTaskQuitDuringChildApprovalInterruptsBeforeDialogDismissal(t *testing.T
 			}
 			recovered := waitTask(t, b, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopWaiting) })
 			b.ctrl.Wait()
-			if recovered.ID != task.ID || runs.Load() != 1 || len(nextUI.approvals) != 1 || !strings.Contains(nextUI.approvals[0].Summary, "call effect-call") {
+			if recovered.ID != task.ID || runs.Load() != 1 || len(nextUI.approvals) != 1 || nextUI.approvals[0].Task != task.ID || nextUI.approvals[0].Tool != "external_effect" {
 				t.Fatalf("approval lost/duplicated task=%+v effects=%d prompts=%+v", recovered, runs.Load(), nextUI.approvals)
 			}
 		})

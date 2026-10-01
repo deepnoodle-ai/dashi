@@ -43,7 +43,7 @@ type UI interface {
 	// Reset clears the transcript, before a new or reopened session shows.
 	Reset()
 	// Approve asks the user about a tool call and blocks until the answer.
-	Approve(ctx context.Context, r ApprovalRequest) (Approval, error)
+	Approve(ctx context.Context, a toolApproval) (Approval, error)
 	// Ask asks the user a question for the model.
 	Ask(ctx context.Context, q Question) (questionAnswer, error)
 	// Quit ends the program.
@@ -180,16 +180,17 @@ func (c *Controller) CancelUnanswered() {
 	}
 }
 
-// Approve is the ApprovalFunc the wiring uses. It marks the approval mode
-// while the user decides.
+// approveUI asks the UI about r and marks the approval mode while the user
+// decides. task is the short ID of the delegated task that asks, or empty.
 func (c *Controller) approveUI(
 	ctx context.Context,
 	r ApprovalRequest,
+	task string,
 ) (Approval, error) {
 	c.setMode(ModeApproval)
 	defer c.endDialog()
 	// The request text is the model's. The UI gets the printable form only.
-	return c.ui.Approve(ctx, r.Printable())
+	return c.ui.Approve(ctx, toolApproval{ApprovalRequest: r.Printable(), Task: task})
 }
 
 // Ask is the AskFunc the wiring uses.

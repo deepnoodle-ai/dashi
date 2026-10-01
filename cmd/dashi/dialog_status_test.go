@@ -173,7 +173,7 @@ func TestRuntimeNativeStatusLeavesApprovalPending(t *testing.T) {
 		t.Fatal("typing or reading status ran the tool")
 	}
 	h.key(tui.KeyEvent{Key: tui.KeyEscape})
-	h.wait(func(s transcriptState) bool { return s.approval && strings.Contains(s.text, "allow once") })
+	h.wait(func(s transcriptState) bool { return s.approval && strings.Contains(s.text, "Allow once") })
 	h.key(tui.KeyEvent{Rune: 'y'})
 	h.app.ctrl.Wait()
 	if runs.Load() != 1 {

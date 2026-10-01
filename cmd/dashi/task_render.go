@@ -52,8 +52,9 @@ func (c *Controller) presentTaskPrompt(p brokerPrompt) {
 			}
 		}
 	drained:
-		prefix := ""
+		prefix, task := "", ""
 		if p.Owner.TaskID != "" {
+			task = delegate.TaskID(p.Owner.TaskID)
 			if c.eng != nil {
 				if host := c.eng.taskHost(); host != nil {
 					for _, task := range host.list() {
@@ -76,9 +77,8 @@ func (c *Controller) presentTaskPrompt(p brokerPrompt) {
 		var response brokerResponse
 		var err error
 		if p.Approval != nil {
-			request := *p.Approval
-			request.Summary = prefix + request.Summary
-			response.approval, err = c.approveUI(p.ctx, request)
+			// The approval names its task, not the internal turn and call IDs.
+			response.approval, err = c.approveUI(p.ctx, *p.Approval, task)
 		} else {
 			question := *p.Question
 			question.Prompt = prefix + question.Prompt

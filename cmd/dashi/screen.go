@@ -80,11 +80,14 @@ type queued struct {
 }
 
 type approvalPrompt struct {
-	req     ApprovalRequest
-	reply   chan Approval
-	vp      tui.ViewportState
-	denying bool
-	reason  string
+	req         toolApproval
+	reply       chan Approval
+	vp          tui.ViewportState
+	denying     bool
+	reason      string
+	expanded    bool
+	laidOut     *approvalLayout
+	layoutWidth int
 }
 
 type askPrompt struct {
@@ -211,7 +214,7 @@ func (s *screen) post(e tui.Event) {
 }
 
 // Approve implements UI. It blocks until the user answers or ctx ends.
-func (s *screen) Approve(ctx context.Context, r ApprovalRequest) (Approval, error) {
+func (s *screen) Approve(ctx context.Context, r toolApproval) (Approval, error) {
 	id := s.promptSeq.Add(1)
 	p := &approvalPrompt{req: r, reply: make(chan Approval, 1)}
 	s.post(promptEvent{at: time.Now(), id: id, approval: p})

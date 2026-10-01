@@ -122,7 +122,7 @@ func (u *lineUI) Reset() {
 	u.mu.Unlock()
 }
 
-func (u *lineUI) Approve(ctx context.Context, r ApprovalRequest) (Approval, error) {
+func (u *lineUI) Approve(ctx context.Context, a toolApproval) (Approval, error) {
 	u.mu.Lock()
 	if u.inputEnded {
 		u.mu.Unlock()
@@ -132,22 +132,7 @@ func (u *lineUI) Approve(ctx context.Context, r ApprovalRequest) (Approval, erro
 		fmt.Fprintln(u.out)
 		u.midLine = false
 	}
-	fmt.Fprintf(u.out, "%s\n", r.Summary)
-	if r.Command != "" {
-		fmt.Fprintf(u.out, "  $ %s\n", r.Command)
-	}
-	if r.Preview != "" {
-		fmt.Fprintln(u.out, r.Preview)
-	}
-	if r.Dir != "" {
-		fmt.Fprintf(u.out, "Directory: %s\n", r.Dir)
-	}
-	if r.Arguments != "" {
-		fmt.Fprintf(u.out, "Arguments:\n%s\n", r.Arguments)
-	}
-	if r.RememberScope != "" {
-		fmt.Fprintf(u.out, "Remembered rule: %s\n", r.RememberScope)
-	}
+	fmt.Fprint(u.out, approvalText(a))
 	fmt.Fprint(u.out, "Allow once / allow for this Dashi run / deny? [y/a/n or n REASON] ")
 	u.mu.Unlock()
 	for {
@@ -320,7 +305,7 @@ func (u *printUI) Reset() {}
 
 func (u *printUI) Quit() {}
 
-func (u *printUI) Approve(context.Context, ApprovalRequest) (Approval, error) {
+func (u *printUI) Approve(context.Context, toolApproval) (Approval, error) {
 	if u.yes {
 		return Approval{Allow: true}, nil
 	}
