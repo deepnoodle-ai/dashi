@@ -86,6 +86,15 @@ func TestInspectionCommandsPreserveOwnedSessionAndFacts(t *testing.T) {
 	cfg := inspectionTestConfig(t)
 	aSaved := recordedInspectionSession(t, cfg, "current investigation", false)
 	bSaved := recordedInspectionSession(t, cfg, "retry handler", true)
+	completed, err := cfg.Store.Inspect(t.Context(), cfg.Dir, aSaved.ID)
+	if err != nil || completed.Accounting.ModelCalls != 1 {
+		t.Fatalf("completed accounting: %+v %v", completed.Accounting, err)
+	}
+	interrupted, err := cfg.Store.Inspect(t.Context(), cfg.Dir, bSaved.ID)
+	if err != nil || interrupted.Accounting.ModelCalls != 0 || interrupted.Accounting.Spend.Estimated != 1 || interrupted.Accounting.Spend.CostUnknown != 1 {
+		t.Fatalf("interrupted no-response accounting: %+v %v", interrupted.Accounting, err)
+	}
+
 	external, err := cfg.Store.Lock(bSaved)
 	if err != nil {
 		t.Fatal(err)
