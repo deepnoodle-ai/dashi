@@ -75,3 +75,40 @@ func TestActiveTranscriptReferencesRequireVerifiedBytes(t *testing.T) {
 		})
 	}
 }
+
+func TestActiveTranscriptExplicitResultStatus(t *testing.T) {
+	for _, shape := range []string{"local", "combined hosted", "separate hosted"} {
+		for _, isError := range []bool{false, true} {
+			for _, empty := range []bool{false, true} {
+				blocks := []content.Block{content.TextBlock("diagnostic mentions failure; the recorded flag governs status")}
+				if empty {
+					blocks = nil
+				}
+				var part llm.Content
+				label := "[provider tool error]"
+				switch shape {
+				case "local":
+					part = llm.Content{Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{CallID: "check", IsError: isError, Output: tool.Output{Content: blocks}}}
+					label = "[tool error id=check]"
+				case "combined hosted":
+					part = llm.Content{Kind: llm.ContentHostedUse, HostedUse: &llm.HostedUse{ID: "check", Name: "check", IsError: isError, Output: blocks}}
+				case "separate hosted":
+					part = llm.Content{Kind: llm.ContentHostedResult, HostedResult: &llm.HostedResult{CallID: "check", IsError: isError, Output: blocks}}
+				}
+				messages := []llm.Message{llm.AssistantMessage(part)}
+				before, _ := json.Marshal(messages)
+				got, err := (&runtime{}).activeTranscript(messages)
+				if err != nil || strings.Contains(strings.Join(got, "\n"), label) != isError {
+					t.Fatalf("shape=%s error=%v empty=%v transcript=%v err=%v", shape, isError, empty, got, err)
+				}
+				after, _ := json.Marshal(messages)
+				if !bytes.Equal(before, after) {
+					t.Fatal("active status rendering changed the recorded result")
+				}
+				if shape != "local" && strings.Contains(strings.Join(compactiontext.Transcript(messages), "\n"), label) {
+					t.Fatal("active status rendering changed the between-Turn renderer")
+				}
+			}
+		}
+	}
+}
