@@ -46,7 +46,8 @@ type Agent struct {
 	// Other Agent fields retain their ordinary inheritance rules.
 	NoInheritedSettings bool `json:"no_inherited_settings,omitempty"`
 	// OutputSchema is the default final-result schema for turns using this
-	// agent. Start.OutputSchema may override it for one turn.
+	// agent. Start.OutputSchema may override it for one turn. A JSON null
+	// means none.
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 	// Tools names the tools this agent may call, from those the Runner's
 	// Tools offer. Empty means every tool the runner offers. Order and
@@ -117,8 +118,8 @@ func (a Agent) Validate() error {
 			"dashi: model attempts and tool concurrency cannot be negative",
 		)
 	}
-	if len(a.OutputSchema) > 0 {
-		if _, err := compileOutputSchema(a.OutputSchema); err != nil {
+	if schema := absentNull(a.OutputSchema); len(schema) > 0 {
+		if _, err := compileOutputSchema(schema); err != nil {
 			return err
 		}
 		if err := validateOutputToolChoice(a.Settings); err != nil {
@@ -129,11 +130,13 @@ func (a Agent) Validate() error {
 }
 
 // resolved returns a with every zero limit replaced by its default, every
-// negative "none" count normalized to -1, and Tools sorted without
-// duplicates. Dashi records the result, so the same agent always compares
-// equal to its record, whatever order a host built its tool list in. Runtime
-// checks read -1 as zero allowed, through max(count, 0).
+// negative "none" count normalized to -1, Tools sorted without duplicates,
+// and a JSON null output schema dropped. Dashi records the result, so the
+// same agent always compares equal to its record, whatever order a host
+// built its tool list in. Runtime checks read -1 as zero allowed, through
+// max(count, 0).
 func (a Agent) resolved() Agent {
+	a.OutputSchema = absentNull(a.OutputSchema)
 	a.ActiveCompaction = a.ActiveCompaction.resolved()
 	if len(a.Tools) > 0 {
 		a.Tools = slices.Compact(slices.Sorted(slices.Values(a.Tools)))
@@ -517,9 +520,9 @@ func (c InterruptCause) valid() bool {
 // ModelFailure is host-supplied evidence that a pending model attempt did not
 // produce a result. The host is responsible for verifying this assertion.
 type ModelFailure struct {
-	Disposition llm.FailureDisposition
-	Reason      string
-	Evidence    string
+	Disposition llm.FailureDisposition `json:"disposition"`
+	Reason      string                 `json:"reason"`
+	Evidence    string                 `json:"evidence"`
 }
 
 // ToolFact records a call's authorization, execution, or settlement evidence.
@@ -692,33 +695,36 @@ const (
 // steps. A generated ID cannot recognize a retry, since the retry cannot know
 // it: to make a retry after a crash safe, choose the ID, save it before the
 // call, and reuse it. Without that, a retry from an old turn snapshot is still
-// refused by the recorder, so no model call or tool runs twice.
+// refused by the recorder, so no model call or tool runs twice. A host that
+// saves whole commands, such as an outbox replayed after a crash, encodes
+// them with MarshalCommand and finds them by CommandIDOf and CommandKindOf.
 type Command interface{ commandID() string }
 
 // Start begins a turn with caller-owned prior history and initial input.
 type Start struct {
-	CommandID string
+	CommandID string `json:"command_id,omitempty"`
 	// Agent is the behavior this turn runs with. Its zero fields take
 	// defaults (see Agent), and the turn records the resolved agent, so
 	// Continue, Settle, and Cancel need none.
-	Agent  Agent
-	Origin StartOrigin
+	Agent  Agent       `json:"agent"`
+	Origin StartOrigin `json:"origin,omitempty"`
 	// Budget applies to this turn, independently of its agent.
-	Budget *Budget
+	Budget *Budget `json:"budget,omitempty"`
 	// OutputSchema overrides the agent's default for this turn. The
 	// admitted schema is pinned in the start fact for replay and recovery.
-	OutputSchema json.RawMessage
+	// A JSON null means none.
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 	// History is caller-owned prior conversation and is not stored in the turn.
-	History []llm.Message
-	Input   []llm.Message
+	History []llm.Message `json:"history,omitempty"`
+	Input   []llm.Message `json:"input,omitempty"`
 	// Parent links this turn to the tool call of another turn that started
 	// it. Dashi records it and shows it in TurnView.Parent; a second Start
 	// with a different Parent is a command conflict. Dashi does not check
 	// that the call exists.
-	Parent *CallRef `json:"Parent,omitempty"`
+	Parent *CallRef `json:"parent,omitempty"`
 	// Compaction records what a compaction turn replaces. It is required
 	// with origin StartCompaction and allowed only with it.
-	Compaction *CompactionFact `json:"Compaction,omitempty"`
+	Compaction *CompactionFact `json:"compaction,omitempty"`
 }
 
 // Deliver adds context to a turn between runs. To reach a turn while it
@@ -726,53 +732,54 @@ type Start struct {
 // already recorded with the same content is skipped; with different content,
 // Run returns an error.
 type Deliver struct {
-	CommandID string
-	Items     []ContextItem
+	CommandID string        `json:"command_id,omitempty"`
+	Items     []ContextItem `json:"items,omitempty"`
 }
 
 // Continue resumes a turn using the prior conversation supplied for this
 // call. Pass no History when Start had no prior history.
 type Continue struct {
-	CommandID string
-	History   []llm.Message
+	CommandID string        `json:"command_id,omitempty"`
+	History   []llm.Message `json:"history,omitempty"`
 	// Budget carries the complete raised cap after host authorization.
-	Budget *Budget
+	Budget *Budget `json:"budget,omitempty"`
 	// ModelAttempts raises the turn's model-attempt limit to this total. Zero
 	// keeps the current limit. It must exceed the limit now in force, which
 	// is the agent's Limits.ModelAttempts until an earlier Continue raises
 	// it. A turn that stopped at its limit continues only when this raise
 	// leaves room for another call. The raise applies to this turn from then
 	// on, and the recorded agent does not change.
-	ModelAttempts int
+	ModelAttempts int `json:"model_attempts,omitempty"`
 	// OnHistoryMismatch controls what happens when History differs from the
 	// fingerprint recorded at Start. The default warns and proceeds.
 	//
-	// It is left out of the command digest because it says how to handle a
-	// mismatch, not what the command asks for. A rejected Continue commits
-	// nothing, and a retry of an applied one returns the recorded result, so
-	// changing it on a retry is not a conflicting command.
-	OnHistoryMismatch HistoryMismatch `json:"-"`
+	// It is encoded with the command but left out of its digest, because it
+	// says how to handle a mismatch, not what the command asks for. A
+	// rejected Continue commits nothing, and a retry of an applied one
+	// returns the recorded result, so changing it on a retry is not a
+	// conflicting command.
+	OnHistoryMismatch HistoryMismatch `json:"on_history_mismatch,omitempty"`
 }
 
 // Settle records a host-supplied settlement: a final tool outcome, an answer
 // to a tool or provider-hosted approval, or a model result or verified
 // failure. Exactly one fact is set.
 type Settle struct {
-	CommandID      string
-	CallID         string
-	Outcome        *tool.Outcome
-	Approval       *ApprovalFact
-	HostedApproval *llm.HostedApprovalResponse
+	CommandID      string                      `json:"command_id,omitempty"`
+	CallID         string                      `json:"call_id,omitempty"`
+	Outcome        *tool.Outcome               `json:"outcome,omitempty"`
+	Approval       *ApprovalFact               `json:"approval,omitempty"`
+	HostedApproval *llm.HostedApprovalResponse `json:"hosted_approval,omitempty"`
 	// ModelResult settles a pending model attempt without another dispatch.
-	ModelResult *llm.Result
+	ModelResult *llm.Result `json:"model_result,omitempty"`
 	// ModelFailure supplies verified evidence that an attempt did not execute.
-	ModelFailure *ModelFailure
+	ModelFailure *ModelFailure `json:"model_failure,omitempty"`
 }
 
 // Cancel ends a turn with a caller-supplied reason.
 type Cancel struct {
-	CommandID string
-	Reason    string
+	CommandID string `json:"command_id,omitempty"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 func (c Start) commandID() string {

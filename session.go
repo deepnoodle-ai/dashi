@@ -222,7 +222,7 @@ func (s *Session) Answer(
 			// scoped to their turn.
 			answer.CommandID = "settle:" + answer.CallID
 		}
-		answer = withCommandID(answer).(Settle)
+		answer = normalizeCommand(answer).(Settle)
 		if out, err := s.Run(ctx, answer, opts...); err != nil {
 			return out, err
 		}
