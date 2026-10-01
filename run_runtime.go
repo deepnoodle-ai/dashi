@@ -88,7 +88,7 @@ func (r *runtime) commit(step Step) *Outcome {
 	if step.Context != nil && len(step.Context.Items) > 0 {
 		items := r.skipRecordedItems(step.Context.Items)
 		if len(items) == 0 {
-			if step.Kind == StepDelivered {
+			if step.Kind == StepMessagesAdded {
 				// Everything was delivered before; there is nothing to record.
 				return nil
 			}
@@ -99,12 +99,12 @@ func (r *runtime) commit(step Step) *Outcome {
 			step.Context = &fact
 		}
 	}
-	if step.Model != nil && (step.Kind == StepModelSettled || step.Kind == StepModelReconciled) {
+	if step.Model != nil && (step.Kind == StepModelCallFinished || step.Kind == StepModelCallFinishedByHost) {
 		step.Model.Purpose = modelPurpose(r.turn, step.Model.AttemptID)
 	}
 	if recordsActiveHooks(step) {
 		step.ActiveHooks = r.activeHooks
-		if step.Kind != StepStarted &&
+		if step.Kind != StepTurnStarted &&
 			!canonjson.SameValue(r.lastHooks, r.activeHooks) {
 			step.Warnings = append(step.Warnings, Warning{
 				Code:    WarningHooksChanged,
@@ -118,12 +118,12 @@ func (r *runtime) commit(step Step) *Outcome {
 	step.TurnID = r.turn.ID
 	step.Seq = int64(len(r.turn.Steps) + 1)
 	step.At = time.Now().UTC()
-	if step.Kind == StepStopped && step.Stop != nil {
+	if step.Kind == StepTurnStopped && step.Stop != nil {
 		stop := *step.Stop
 		stop.Terminal = r.terminalAfter(stop)
 		step.Stop = &stop
 	}
-	if step.Kind == StepModelIntent {
+	if step.Kind == StepModelCallStarted {
 		// The fallback usage joins accounting before dispatch. Refuse an
 		// intent that would invalidate a token cap with either recorder.
 		candidate := r.turn
@@ -297,7 +297,7 @@ func (r *runtime) stop(kind StopKind, reason string) Outcome {
 }
 
 func (r *runtime) stopWith(stop *Stop) Outcome {
-	o := r.commit(Step{Kind: StepStopped, Stop: stop})
+	o := r.commit(Step{Kind: StepTurnStopped, Stop: stop})
 	if o != nil {
 		return *o
 	}

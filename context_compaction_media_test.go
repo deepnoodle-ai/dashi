@@ -98,7 +98,7 @@ func TestActiveCompactionMediaHistoryToolHookReload(t *testing.T) {
 			hooks := Hooks{}
 			if source == "hook" {
 				hooks.BeforeModel = []ModelHook{{Name: "image", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
-					return ModelDecision{Deliver: []ContextItem{{ID: "image", Origin: ContextRuntime, Name: "image", Message: llm.UserMessage(imagePart)}}}, nil
+					return ModelDecision{AddMessages: []ContextItem{{ID: "image", Origin: ContextRuntime, Name: "image", Message: llm.UserMessage(imagePart)}}}, nil
 				}}}
 			}
 			r := Runner{Client: c, Tools: tools, Hooks: hooks}
@@ -130,7 +130,7 @@ func TestActiveCompactionSummaryHookMedia(t *testing.T) {
 		if p.Purpose != ModelPurposeCompaction {
 			return ModelDecision{}, nil
 		}
-		return ModelDecision{Deliver: []ContextItem{{ID: "image", Name: "image", Origin: ContextRuntime, Message: llm.UserMessage(llm.Image(content.Source{Data: []byte{1, 2, 3}, MIMEType: "image/png"}))}}}, nil
+		return ModelDecision{AddMessages: []ContextItem{{ID: "image", Name: "image", Origin: ContextRuntime, Message: llm.UserMessage(llm.Image(content.Source{Data: []byte{1, 2, 3}, MIMEType: "image/png"}))}}}, nil
 	}}}}
 	out, err := (Runner{Client: c, Tools: activeTools(&calls), Hooks: hooks}).Run(t.Context(), Turn{}, activeStart(a))
 	if err != nil || out.Stop.Kind != StopCompleted || len(out.ContextCompactions) != 1 || c.sends != 4 || activeMediaWarnings(out.Warnings) != 1 {
@@ -203,7 +203,7 @@ func TestActiveCompactionMediaDoesNotDisableLaterTextChecks(t *testing.T) {
 		if p.Turn.ModelAttempts != 0 {
 			return ModelDecision{}, nil
 		}
-		return ModelDecision{Deliver: []ContextItem{{ID: "first-image", Name: "image", Origin: ContextRuntime, NextCallOnly: true, Message: llm.UserMessage(llm.Image(content.Source{Data: []byte{1, 2, 3}, MIMEType: "image/png"}))}}}, nil
+		return ModelDecision{AddMessages: []ContextItem{{ID: "first-image", Name: "image", Origin: ContextRuntime, NextCallOnly: true, Message: llm.UserMessage(llm.Image(content.Source{Data: []byte{1, 2, 3}, MIMEType: "image/png"}))}}}, nil
 	}}}}
 	out, err := (Runner{Client: c, Tools: activeTools(&calls), Hooks: hooks}).Run(t.Context(), Turn{}, activeStart(a))
 	if err != nil || out.Stop.Kind != StopCompleted || len(out.ContextCompactions) != 2 || activeMediaWarnings(out.Warnings) != 1 {
@@ -289,7 +289,7 @@ func TestActiveCompactionHydratedTextDocumentHardLimit(t *testing.T) {
 	a.ActiveCompaction = &ActiveCompactionPolicy{}
 	start := activeStart(a)
 	start.Input[0].Content = append(start.Input[0].Content, llm.Document(content.Source{Ref: &ref, MIMEType: "text/plain"}, "notes.txt"))
-	out, err := (Runner{Client: c, ContentResolver: resolver}).Run(t.Context(), Turn{}, start)
+	out, err := (Runner{Client: c, ContentLoader: resolver}).Run(t.Context(), Turn{}, start)
 	if err != nil || out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitContextWindow || resolver.count() != 1 || c.sends != 0 || activeMediaWarnings(out.Warnings) != 0 {
 		t.Fatalf("stop=%+v resolutions=%d sends=%d warnings=%+v err=%v", out.Stop, resolver.count(), c.sends, out.Warnings, err)
 	}

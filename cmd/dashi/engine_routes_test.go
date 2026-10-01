@@ -82,7 +82,7 @@ func TestContinueThenQueueUsesRecordedAndNextDestinations(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := e.Resume(t.Context())
-	if err != nil || result.Outcome.Answer != "two answer" {
+	if err != nil || result.Outcome.Reply != "two answer" {
 		t.Fatalf("continue/queue result=%+v error=%v", result, err)
 	}
 	mu.Lock()
@@ -127,7 +127,7 @@ func TestNewDestinationClosesInterruptedOldTurnFirst(t *testing.T) {
 	p.launch.Selection = resolvedSelection{Destination: p.routes.registry["two"], Model: "same/model", Source: "session change"}
 	p.mu.Unlock()
 	result, err := e.Prompt(t.Context(), "new")
-	if err != nil || result.Outcome.Answer != "new answer" || counts["one"] != 1 || counts["two"] != 1 {
+	if err != nil || result.Outcome.Reply != "new answer" || counts["one"] != 1 || counts["two"] != 1 {
 		t.Fatalf("result=%+v error=%v counts=%v", result, err, counts)
 	}
 	first, err := e.handle().Runner.Recorder.(dashi.Loader).Load(context.Background(), session.TurnID(e.Session().ID, 1))
@@ -170,7 +170,7 @@ func TestNewDestinationCompletesRecordedOutputBeforeQueuedWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := e.Prompt(t.Context(), "new route")
-	if err != nil || result.Outcome.Answer != "new answer" || counts["one"] != 1 || counts["two"] != 1 {
+	if err != nil || result.Outcome.Reply != "new answer" || counts["one"] != 1 || counts["two"] != 1 {
 		t.Fatalf("result=%+v err=%v counts=%v", result, err, counts)
 	}
 	firstTurn, err := e.handle().Runner.Recorder.(dashi.Loader).Load(t.Context(), session.TurnID(e.Session().ID, 1))
@@ -208,7 +208,7 @@ func TestReopenedTurnKeepsRouteBeforeFirstModelAttempt(t *testing.T) {
 	defer cancel()
 	cfg := e.cfg
 	cfg.recorder = func(r *filerecorder.Recorder) dashi.Recorder {
-		return &cancelRouteAfterStart{Recorder: r, cancel: cancel, kind: dashi.StepStarted}
+		return &cancelRouteAfterStart{Recorder: r, cancel: cancel, kind: dashi.StepTurnStarted}
 	}
 	e = NewEngine(cfg)
 	defer e.Close()
@@ -251,7 +251,7 @@ func TestReopenedTurnKeepsRouteBeforeFirstModelAttempt(t *testing.T) {
 	p.routes.registry["one"] = changed
 	p.guidance = "Changed launch guidance"
 	result, err := reopened.Resume(t.Context())
-	if err != nil || result.Outcome.Answer != "continued answer" || result.Outcome.Agent.Provider != "one" || !strings.Contains(result.Outcome.Agent.Instructions, "Recorded custom guidance") || strings.Contains(result.Outcome.Agent.Instructions, "Changed launch guidance") || calls != 1 {
+	if err != nil || result.Outcome.Reply != "continued answer" || result.Outcome.Agent.Provider != "one" || !strings.Contains(result.Outcome.Agent.Instructions, "Recorded custom guidance") || strings.Contains(result.Outcome.Agent.Instructions, "Changed launch guidance") || calls != 1 {
 		t.Fatalf("resume=%+v %v calls=%d", result, err, calls)
 	}
 }
@@ -278,7 +278,7 @@ func TestSummaryStreamingAndPhysicalReopenUseOnlyPublicText(t *testing.T) {
 	}
 	var live Transcript
 	e.cfg.Emit = func(b Block) { live.Apply(b) }
-	if result, err := e.Prompt(t.Context(), "show public summary"); err != nil || result.Outcome.Answer != "answer" {
+	if result, err := e.Prompt(t.Context(), "show public summary"); err != nil || result.Outcome.Reply != "answer" {
 		t.Fatalf("result=%+v %v", result, err)
 	}
 	assertSummary := func(blocks []Block) {

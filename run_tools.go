@@ -45,7 +45,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		// The call's slot is closed, so this last snapshot is final.
 		r.emitToolProgress(progress.take(v.call.ID, true))
 		step, stop := toolSettlement(v)
-		if step.Kind == StepToolSettled {
+		if step.Kind == StepToolFinished {
 			r.afterTool(ctx, step.Tool)
 		}
 		if o := r.commit(step); o != nil {
@@ -86,10 +86,10 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 		v := state.Tools[id]
 		var boundExecutor tool.Executor
 		prehookBindingChecked := false
-		if v.Status == ToolSettled ||
+		if v.Status == ToolFinished ||
 			v.Status == ToolWaiting ||
 			v.Status == ToolApprovalPending ||
-			v.Status == ToolUncertain {
+			v.Status == ToolResultUnknown {
 			continue
 		}
 		if v.Status == ToolDenied {
@@ -102,7 +102,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 				Output: new(tool.TextOutput(denialText(reason))),
 			}
 			if o := r.commit(Step{
-				Kind: StepToolSettled,
+				Kind: StepToolFinished,
 				Tool: &ToolFact{
 					Call:    v.Call,
 					Outcome: &out,
@@ -125,7 +125,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 					Call:   v.Call,
 					Reason: "previous execution may have taken effect",
 				}
-				if o := r.commit(Step{Kind: StepToolSettled, Tool: fact}); o != nil {
+				if o := r.commit(Step{Kind: StepToolFinished, Tool: fact}); o != nil {
 					return *o, true
 				}
 				continue
@@ -148,7 +148,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 					Output: new(tool.TextOutput(text)),
 				}
 				if x := r.commit(Step{
-					Kind: StepToolSettled,
+					Kind: StepToolFinished,
 					Tool: &ToolFact{Call: v.Call, Outcome: &o, Reason: reason},
 				}); x != nil {
 					return *x, true
@@ -162,7 +162,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 					Output: new(tool.TextOutput("Output rejected because it is too large. Return a smaller object and submit again.")),
 				}
 				if x := r.commit(Step{
-					Kind: StepToolSettled,
+					Kind: StepToolFinished,
 					Tool: &ToolFact{
 						Call:    v.Call,
 						Outcome: &out,
@@ -210,7 +210,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 					Output: new(tool.TextOutput(message)),
 				}
 				if x := r.commit(Step{
-					Kind: StepToolSettled,
+					Kind: StepToolFinished,
 					Tool: &ToolFact{
 						Call:    v.Call,
 						Outcome: &out,
@@ -234,7 +234,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 						Output: new(tool.TextOutput("Submit output in a separate model response after other tool calls finish.")),
 					}
 					if x := r.commit(Step{
-						Kind: StepToolSettled,
+						Kind: StepToolFinished,
 						Tool: &ToolFact{
 							Call:    v.Call,
 							Outcome: &out,
@@ -295,7 +295,7 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 					Output: new(tool.TextOutput(denialText(verdict.Reason))),
 				}
 				if o := r.commit(Step{
-					Kind: StepToolSettled,
+					Kind: StepToolFinished,
 					Tool: &ToolFact{Call: call, Outcome: &out, Reason: verdict.Reason},
 				}); o != nil {
 					return *o, true
@@ -439,8 +439,8 @@ func (r *runtime) tools(s *replayState) (Outcome, bool) {
 	state, _ := replay(r.turn)
 	for _, id := range state.callOrder {
 		v := state.Tools[id]
-		if v.Status == ToolUncertain {
-			return r.stop(StopUncertain, "tool outcome needs reconciliation"), true
+		if v.Status == ToolResultUnknown {
+			return r.stop(StopResultUnknown, "tool outcome needs reconciliation"), true
 		}
 	}
 	// An uncertain call outranks a fatal one: Continue is refused until the
@@ -496,7 +496,7 @@ func toolSettlement(v toolResult) (Step, string) {
 	if v.panicked != "" {
 		// No outcome records the call as uncertain.
 		fact.Reason = v.panicked
-		return Step{Kind: StepToolSettled, Tool: fact}, ""
+		return Step{Kind: StepToolFinished, Tool: fact}, ""
 	}
 	err := v.err
 	if err == nil {
@@ -506,7 +506,7 @@ func toolSettlement(v toolResult) (Step, string) {
 	}
 	if err == nil {
 		fact.Outcome = &v.outcome
-		kind := StepToolSettled
+		kind := StepToolFinished
 		switch v.outcome.State {
 		case tool.StateWaiting, tool.StateDetached:
 			kind = StepToolWaiting
@@ -522,7 +522,7 @@ func toolSettlement(v toolResult) (Step, string) {
 		State:  tool.StateFailed,
 		Output: new(tool.TextOutput(text)),
 	}
-	step := Step{Kind: StepToolSettled, Tool: fact}
+	step := Step{Kind: StepToolFinished, Tool: fact}
 	switch {
 	case errors.Is(err, tool.ErrInvalidOutcome):
 		return step, StopReasonToolOutcomeInvalid
@@ -563,7 +563,7 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 			Output: new(tool.TextOutput(message)),
 		}
 		return r.commit(Step{
-			Kind: StepToolSettled,
+			Kind: StepToolFinished,
 			Tool: &ToolFact{
 				Call:    call,
 				Outcome: &out,
@@ -593,7 +593,7 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 		Output:    slices.Clone(call.Args),
 	}
 	if state.latestResult != nil {
-		plan.Answer = state.latestResult.Message.Text()
+		plan.Reply = state.latestResult.Message.Text()
 	}
 	finish, o := r.finishPoint(state, plan)
 	if o != nil {
@@ -631,24 +631,24 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 		Output: new(tool.TextOutput("Output accepted.")),
 	}
 	return r.commit(Step{
-		Kind: StepToolSettled,
+		Kind: StepToolFinished,
 		Tool: &ToolFact{Call: call, Outcome: &out},
 	})
 }
 
 // deliveredSinceCandidate returns the context delivered after the model
 // attempt that made a candidate answer settled: the same rule the text path
-// applies, so a Deliver made before the submission call started counts too.
+// applies, so a AddMessages made before the submission call started counts too.
 func deliveredSinceCandidate(t Turn, attemptID string) []ContextItem {
 	settled := false
 	var items []ContextItem
 	for _, step := range t.Steps {
-		if (step.Kind == StepModelSettled || step.Kind == StepModelReconciled) &&
+		if (step.Kind == StepModelCallFinished || step.Kind == StepModelCallFinishedByHost) &&
 			step.Model != nil && step.Model.AttemptID == attemptID {
 			settled = true
 			continue
 		}
-		if settled && step.Kind == StepDelivered && step.Context != nil {
+		if settled && step.Kind == StepMessagesAdded && step.Context != nil {
 			items = append(items, step.Context.Items...)
 		}
 	}

@@ -188,7 +188,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 	plan := FinishPlan{
 		Turn:      snapshotView(state.TurnView),
 		AttemptID: state.latestAttempt,
-		Answer:    result.Message.Text(),
+		Reply:     result.Message.Text(),
 	}
 	if structured {
 		if result.Stop.Kind != llm.StopFinished {
@@ -198,7 +198,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 			if err != nil {
 				return r.stop(StopFailed, err.Error()), false
 			}
-			plan.Output, plan.OutputErr = parseOutputText(plan.Answer, schema)
+			plan.Output, plan.OutputErr = parseOutputText(plan.Reply, schema)
 		}
 	}
 	// Context delivered after a BeforeFinish failure kept this answer
@@ -283,7 +283,7 @@ func submittedOutput(s *replayState) *StructuredOutput {
 	for _, id := range s.callOrder {
 		v := s.Tools[id]
 		if v.Call.Name == SubmitOutputTool &&
-			v.Status == ToolSettled &&
+			v.Status == ToolFinished &&
 			v.Outcome != nil &&
 			v.Outcome.State == tool.StateSucceeded {
 			return &StructuredOutput{

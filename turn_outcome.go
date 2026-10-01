@@ -44,13 +44,13 @@ const (
 	// uncertain.
 	PendingTool PendingKind = "tool"
 	// PendingModel is a model attempt without a recorded result. Continue
-	// recovers it, or Settle reconciles it with a ModelResult or
+	// recovers it, or Resolve reconciles it with a ModelResult or
 	// ModelFailure.
 	PendingModel PendingKind = "model"
 )
 
 // Pending is one piece of work a stopped turn waits on. Its methods build
-// the Settle command that answers it, so the caller never copies argument
+// the Resolve command that answers it, so the caller never copies argument
 // digests or IDs by hand. Each builder derives the command
 // ID from the item: a retried answer is recognized as a duplicate, and a
 // different second answer fails with ErrCommandConflict.
@@ -73,36 +73,36 @@ type Pending struct {
 	Hosted *llm.HostedApprovalRequest `json:"hosted,omitempty"`
 }
 
-// Approve builds the Settle command that approves this call with exactly
-// the arguments shown. Settle
+// Approve builds the Resolve command that approves this call with exactly
+// the arguments shown. Resolve
 // only records the answer; Continue runs the call.
-func (p Pending) Approve() Settle {
+func (p Pending) Approve() Resolve {
 	return p.answer(true, "")
 }
 
-// Deny builds the Settle command that denies this call. The next Continue
+// Deny builds the Resolve command that denies this call. The next Continue
 // gives the reason to the model as the call's result, so the model knows why
 // the call did not run; an empty reason gives "The call was denied."
-func (p Pending) Deny(reason string) Settle {
+func (p Pending) Deny(reason string) Resolve {
 	return p.answer(false, reason)
 }
 
-// Result builds the Settle command that reports a final outcome for a
+// Result builds the Resolve command that reports a final outcome for a
 // waiting, started, or uncertain local call.
-func (p Pending) Result(outcome tool.Outcome) Settle {
+func (p Pending) Result(outcome tool.Outcome) Resolve {
 	// Call IDs are unique within a turn; see answer.
-	return Settle{
+	return Resolve{
 		CommandID: "result:" + p.ID,
 		CallID:    p.ID,
 		Outcome:   &outcome,
 	}
 }
 
-func (p Pending) answer(approve bool, reason string) Settle {
+func (p Pending) answer(approve bool, reason string) Resolve {
 	if p.Hosted != nil {
 		// A provider may reuse a request ID after the earlier request was
 		// answered, so the attempt scopes the command ID to this request.
-		return Settle{
+		return Resolve{
 			CommandID: "hosted-approval:" + p.AttemptID + ":" + p.ID,
 			CallID:    p.ID,
 			HostedApproval: &llm.HostedApprovalResponse{
@@ -113,7 +113,7 @@ func (p Pending) answer(approve bool, reason string) Settle {
 			},
 		}
 	}
-	fact := &ApprovalFact{
+	fact := &ApprovalDecision{
 		CallID:  p.ID,
 		Approve: approve,
 		Reason:  reason,
@@ -124,7 +124,7 @@ func (p Pending) answer(approve bool, reason string) Settle {
 	if p.Tool != nil {
 		fact.ArgsDigest = p.Tool.ArgsDigest
 	}
-	return Settle{
+	return Resolve{
 		CommandID: "approval:" + p.ID,
 		CallID:    p.ID,
 		Approval:  fact,

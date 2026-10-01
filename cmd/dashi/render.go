@@ -191,7 +191,7 @@ func (r *Renderer) toolBlock(id string, c *callState, state string) Block {
 func (r *Renderer) step(s dashi.Step) []Block {
 	var out []Block
 	switch s.Kind {
-	case dashi.StepStarted:
+	case dashi.StepTurnStarted:
 		r.Origin = s.Started.Origin
 		r.showReasoning = s.Started.Agent.Settings.ReasoningSummary != nil && *s.Started.Agent.Settings.ReasoningSummary
 		if m := s.Started.Agent.Model; m != "" {
@@ -207,10 +207,10 @@ func (r *Renderer) step(s dashi.Step) []Block {
 			Text: joinMessages(s.Started.Input),
 			Done: true,
 		})
-	case dashi.StepModelIntent:
+	case dashi.StepModelCallStarted:
 		out = append(out, r.activeContextIntent(s)...)
 		out = append(out, modelPreparationBlocks(s)...)
-	case dashi.StepModelSettled, dashi.StepModelReconciled:
+	case dashi.StepModelCallFinished, dashi.StepModelCallFinishedByHost:
 		if r.isActiveSummaryFact(s.Model) {
 			out = append(out, r.activeContextSettled(s)...)
 			break
@@ -221,13 +221,13 @@ func (r *Renderer) step(s dashi.Step) []Block {
 		out = append(out, r.toolDecision(s)...)
 	case dashi.StepToolStarted:
 		out = append(out, r.toolStarted(s)...)
-	case dashi.StepToolSettled:
+	case dashi.StepToolFinished:
 		out = append(out, r.toolSettled(s)...)
 	case dashi.StepToolWaiting:
 		if c := r.calls[s.Tool.Call.ID]; c != nil {
 			out = append(out, r.toolBlock(s.Tool.Call.ID, c, StateWaiting))
 		}
-	case dashi.StepDelivered:
+	case dashi.StepMessagesAdded:
 		if s.Context != nil && s.Context.Steering {
 			for _, item := range s.Context.Items {
 				out = append(out, Block{
@@ -239,7 +239,7 @@ func (r *Renderer) step(s dashi.Step) []Block {
 				})
 			}
 		}
-	case dashi.StepStopped:
+	case dashi.StepTurnStopped:
 		out = append(out, r.activeContextStopped(*s.Stop)...)
 		if r.Origin == dashi.StartCompaction {
 			out = append(out, r.compactionBlock(s.TurnID, *s.Stop))
@@ -320,7 +320,7 @@ func (r *Renderer) compactionBlock(id string, stop dashi.Stop) Block {
 }
 
 func (r *Renderer) compactionOutcome(v dashi.TurnView) Block {
-	r.Origin, r.summary = v.Origin, v.Answer
+	r.Origin, r.summary = v.Origin, v.Reply
 	return r.compactionBlock(v.ID, v.Stop)
 }
 
@@ -399,7 +399,7 @@ func (r *Renderer) stopped(s dashi.Step) []Block {
 		text = "The model refused the request."
 	case dashi.StopWaiting:
 		text = "The turn is waiting: " + orDefault(st.Reason, "for input") + "."
-	case dashi.StopUncertain:
+	case dashi.StopResultUnknown:
 		text = "The turn stopped with an unknown result: " +
 			orDefault(st.Reason, "unknown") + "."
 	default:
@@ -519,7 +519,7 @@ func RenderTurn(
 	if view.Origin == dashi.StartCompaction {
 		// Reopened output shows the current state, not historical progress.
 		out = nil
-		r.summary = view.Answer
+		r.summary = view.Reply
 		out = append(out, r.compactionBlock(view.ID, view.Stop))
 		if view.Stop.Kind != "" {
 			out = append(out, r.Footer(view))

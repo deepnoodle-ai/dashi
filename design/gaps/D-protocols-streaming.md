@@ -4,7 +4,7 @@ Source review of Dashi main at 9d28264 on 2026-09-27; findings are directions,
 not decisions.
 
 **Names:** written before [decision 30](../decisions.md); read `Definition` as
-`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
+`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Resolve`, and a command's
 `ID` as `CommandID`.
 
 Dashi's record model is already the right source for both protocols. It has a
@@ -34,9 +34,9 @@ Sources: ACP v1 1.23.0 / v2 alpha.5 via `tmp/research/acpresearch/`
 | Identity & ordering | `messageId`, `toolCallId`; per-ID receipt order; cross-ID placement by first sight | Message `sequence` + change `(turn_id, revision)`, two gap-free counters per log; changes never precede their messages (R17) | One gap-free `Seq` per turn over all facts (recorder.go:85); `AttemptID`/`MessageID` minted before send (engine.go:564-565); tool call ID from provider |
 | Resumption | v1 `load` = full replay, `resume` = none; v2 `replayFrom{start}` only; #2208 in-memory per-connection cursor | Opaque scope-bound cursor = exact position; "repeats nothing, skips nothing"; any number of readers; Turn and Conversation scopes | None in the API. The recorder holds the steps; `Seq` could act as a cursor, but there is no read-after/follow surface, and `Stream` is used once (engine.go:30-40) |
 | Approvals | `session/request_permission` RPC bound to one connection; v2 `title`/`subject`; not re-issued | Approval is a host tool: Turn `waiting`, and the current change carries `arguments` and `deadline_at` (R24) | `tool_decision{defer}` then `turn_stopped{waiting}`; `Accept{Approval}` bound to args digest + policy revision (engine.go:239-248). No title, options, or deadline |
-| Cancel | Notification; flush, then `idle{cancelled}`; client cancels pending permissions | Separate cancel op; terminal `cancelled` change; disconnect never cancels (R45) | `Cancel` command or breaking the range → `turn_stopped{canceled}`; late `model_settled`/`tool_settled` may follow the stop (state.go:130-136) |
+| Cancel | Notification; flush, then `idle{cancelled}`; client cancels pending permissions | Separate cancel op; terminal `cancelled` change; disconnect never cancels (R45) | `Cancel` command or breaking the range → `turn_stopped{canceled}`; late `model_call_finished`/`tool_finished` may follow the stop (state.go:130-136) |
 | Terminal | Stop reasons end_turn, max_tokens, max_turn_requests, refusal, cancelled; **no failed** | `terminal: true` change is the only end signal (R22); Turn route closes `settled` | `StopKind` completed, waiting, limited, refused, canceled, failed, uncertain (turn.go:246-254). Only completed and canceled are final (state.go:603-606), and nothing on the stop says which |
-| Usage | `usage_update{used,size,cost}`; per-turn usage ambiguous (#1860) | Summed disjoint buckets on the current terminal change | Per-attempt `Result.Usage` in `model_settled`, disjoint buckets (llm/usage.go:39); summed only by `Replay` (state.go:115-120); provisional `DeltaUsage` |
+| Usage | `usage_update{used,size,cost}`; per-turn usage ambiguous (#1860) | Summed disjoint buckets on the current terminal change | Per-attempt `Result.Usage` in `model_call_finished`, disjoint buckets (llm/usage.go:39); summed only by `Replay` (state.go:115-120); provisional `DeltaUsage` |
 | Errors | JSON-RPC error; v2 custom `_…` stop | Pre-stream HTTP errors only; `TurnFailure{code (closed enum), message, details}` | `Stop.Reason` and `ModelFact.Error` are free strings, often `err.Error()` (engine.go:614-620); `Persistence` + `WriteError` on `Outcome` |
 
 ## ACP patterns
@@ -47,13 +47,13 @@ Sources: ACP v1 1.23.0 / v2 alpha.5 via `tmp/research/acpresearch/`
 | 2 | Lifecycle kept separate from content (`state_update`) | Partial | Only `turn_stopped` is explicit; running/resumed are implicit | acp-v2 §2.3, §4.1(2) | Add a folded `Turn.Phase()` (Running, AwaitingHuman, AwaitingExternal, Stopped{Final}) |
 | 3 | `requires_action` while blocked, with a reason | Partial | `turn_stopped{waiting}` + `Pending` IDs (tools_loop.go:253); the reason is a string | acp-v2 §2.3 | Carry the wait kind and subjects on the stop or phase |
 | 4 | Agent-minted IDs, stable across replay | Partial | `MessageID` recorded (turn.go:199); no IDs for input messages, delivered context, or thought blocks | acp-v2 §2.3, §6.3 identity rules | Derive IDs as a pure function of `(TurnID, Seq, index)` and document it |
-| 5 | Whole-entity replace heals lost previews | Covered | `model_settled` carries the full `llm.Result` | acp-v2 §2.9(2) | Projection emits a whole upsert at commit |
+| 5 | Whole-entity replace heals lost previews | Covered | `model_call_finished` carries the full `llm.Result` | acp-v2 §2.9(2) | Projection emits a whole upsert at commit |
 | 6 | Tool call visible before the permission request | Covered | `tool_decision` step carries `Call` before the stop (tools_loop.go:152) | acp-issues #851 | — |
 | 7 | Honest in-progress tool status | Covered | `tool_started` committed before execution (tools_loop.go:172, 216) | acp README "deeper dives" | — |
-| 8 | Permission `title`/`description`/`subject`/options (allow/reject once/always) | Missing | `ToolDecision{Kind,Revision,Reason,Rewrite}` (policy.go:35-40); `ApprovalFact.Approve bool` | acp-v2 §2.5 | A `WaitInfo` on defer/wait steps; "always" stays host policy |
+| 8 | Permission `title`/`description`/`subject`/options (allow/reject once/always) | Missing | `ToolDecision{Kind,Revision,Reason,Rewrite}` (policy.go:35-40); `ApprovalDecision.Approve bool` | acp-v2 §2.5 | A `WaitInfo` on defer/wait steps; "always" stays host policy |
 | 9 | Approval bound to recorded arguments; unknown outcome ≠ approve | Ahead | Args digest + policy revision checked (engine.go:243-245) | acp-v2 §2.5 "What this does not fix" | Keep; recommend it in the adapter |
 | 10 | Cancel: flush, then a single terminal signal | Deliberately different | Late facts are allowed after `turn_stopped{canceled}` (state.go:130-136) | acp-v2 §2.3 Cancellation | Projection must treat post-stop settles as tool updates, not a re-opened turn |
-| 11 | Failure is a stop reason | Ahead (kind) / Partial (code) | `StopFailed`, `StopUncertain` exist, but reason is free text | acp-v2 §4.2(6) | Typed reason codes (see gap 5) |
+| 11 | Failure is a stop reason | Ahead (kind) / Partial (code) | `StopFailed`, `StopResultUnknown` exist, but reason is free text | acp-v2 §4.2(6) | Typed reason codes (see gap 5) |
 | 12 | Resume = replay, then state sync, then re-issue pending approvals | Partial | `Replay(t)` yields `TurnView.Pending`/`Stop` (state.go:66); no replay-from-Seq API or approval payload to re-issue | acp-v2 §2.6, §6.3 replay rules | Provide `StepsAfter(seq)` + phase snapshot |
 | 13 | Tool content streaming / terminal snapshot + chunk | Missing | `Executor.Execute(ctx, Call) (Outcome, error)` has no progress sink (tool/tool.go:312-315) | acp-v2 §2.4 `tool_call_content_chunk`, `terminal_*` | Optional progress sink carrying `(CallID, index)` as a preview class |
 | 14 | Open enums, preserve unknown variants | Partial | Replay rejects unknown step kinds (state.go:537), although turn.md says to retain them | acp-v2 §4.3(4) | Retain-but-block unknown kinds, as design/turn.md says |
@@ -72,7 +72,7 @@ reliably available.
 | Log position, `cursor` | `Step.Seq` (turn scope). No conversation-scope counter | OK (turn) / Host (conversation) |
 | `transcript.update` delivery, exactly once, in order | `Stream` yields acked steps in `Seq` order; `Observer` may drop them (observer.go:23-26) | Gap for multi-reader or observer delivery |
 | `has_more`, replay page | No read-after-`Seq` API; `Recorder` has only `Commit` (recorder.go:19-21) | Gap (host builds it) |
-| `ConversationMessage.id` for user and tool rows | `StartFact.Input`/`ContextItem`/`tool_settled` have no IDs | OK only through a documented derived ID |
+| `ConversationMessage.id` for user and tool rows | `StartFact.Input`/`ContextItem`/`tool_finished` have no IDs | OK only through a documented derived ID |
 | Assistant message `id` = preview `message_id` (R26) | `ModelFact.MessageID` on requested/settled + `Event.MessageID` | OK |
 | `role`, `content`, `tool_use`, `tool_result`, `reminder` blocks | `Project` and step payloads (project.go:13) | OK. Per-step projection helper missing |
 | `redacted` / no stored reasoning (R19, R29) | Reasoning blocks are kept in `Result` for provider replay | Host must redact in projection |
@@ -91,7 +91,7 @@ reliably available.
 | `mode` | `tool.Definition.Kind` (external vs local); no mcp/callback | Partial |
 | `arguments`, `deadline_at` while settleable | `Call.Args` yes; per-wait deadline no (only `Limits.Deadline`) | Partial |
 | `usage` summed, `provenance` | `Replay` sums `modelUsages`; `ModelFact` provider/API/model | OK |
-| `structured_output`, `final_answer_message_id` | `output_recorded` step; last `model_settled.MessageID` when completed | OK |
+| `structured_output`, `final_answer_message_id` | `output_recorded` step; last `model_call_finished.MessageID` when completed | OK |
 | `message.delta.attempt` (execution epoch) | `AttemptID` is a model call, not a lease epoch; `Owner` is not recorded on steps or events | Gap / Host |
 | `content_index` | `Delta.Index` (provider block index, same caveat as nvoken) | OK |
 | `offset` | — (host can count only if it sees every delta) | Gap |
@@ -99,7 +99,7 @@ reliably available.
 | `tool_call_id`, `name` on tool_arguments (R27) | Only Anthropic emits a block-start `DeltaContent` (providers/anthropic/messages/stream.go:151); OpenAI and Gemini send only `Index` | Gap |
 | `emitted_at` | — | Gap (trivial) |
 | `stream.resync` | No gap signal; observer drop is silent (observer.go:23-26) | Gap |
-| Preview voiding on a failed call | `model_settled{Error}` or turn stop | OK (implicit slot close) |
+| Preview voiding on a failed call | `model_call_finished{Error}` or turn stop | OK (implicit slot close) |
 | `connection.closing{settled}` | `Outcome` event ends `Stream`; no end on break (engine.go:30-34) | Host |
 
 ## Top gaps
@@ -163,7 +163,7 @@ text as the message.
   `Recorder.Commit` succeeds. That matches both ACP's "acceptance means
   insertion" and nvoken's "durable frames come from the log".
 - **The preview-to-record handoff is built in.** `MessageID` is reserved in
-  `model_requested` and repeated in `model_settled`, which is the nvoken R26
+  `model_call_started` and repeated in `model_call_finished`, which is the nvoken R26
   contract. Each model call is its own recorded attempt, so there is no
   stable-vs-new-ID ambiguity on retry.
 - **Richer outcomes than either source:** `uncertain`, `not_executed`,

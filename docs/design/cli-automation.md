@@ -6,7 +6,7 @@ Requirements: [Run one coding request from a script](../prds/cli-automation.md)
 ## Shape and ownership
 
 Wrap existing parent answer presentation with whole-stdin input and response-only JSON/JSONL formatting.
-Current print mode uses `Outcome.Answer`. The replayed answer is fixed at a terminal stop and can be empty after successful tool-only work.
+Current print mode uses `Outcome.Reply`. The replayed answer is fixed at a terminal stop and can be empty after successful tool-only work.
 A waiting Turn can have answer text beside its calls. Preserve that projection rather than reconstructing text from raw model events.
 Current CLI options expose no task-output schema or multimodal answer export. This slice adds neither.
 

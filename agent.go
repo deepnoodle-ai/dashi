@@ -92,10 +92,10 @@ type Limits struct {
 	// value below 1 KiB is raised to 1 KiB, with a warning at Start. Dashi
 	// keeps the full result in the record; see ToolFact.Shortened.
 	ToolResultBytes int `json:"tool_result_bytes"`
-	// NoReservedFinalAnswer turns off the final-answer reserve. By default,
+	// NoReservedFinalReply turns off the final-answer reserve. By default,
 	// the last allowed model attempt, after earlier attempts, asks for an
 	// answer without advertising application tools.
-	NoReservedFinalAnswer bool `json:"no_reserved_final_answer,omitempty"`
+	NoReservedFinalReply bool `json:"no_reserved_final_reply,omitempty"`
 	// Deadline stops the turn at a wall-clock time. Zero means no deadline.
 	Deadline time.Time `json:"deadline,omitzero"`
 }

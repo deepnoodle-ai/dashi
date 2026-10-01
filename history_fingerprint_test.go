@@ -83,7 +83,7 @@ func TestProjectUsesCallHistoryWithoutSavingIt(t *testing.T) {
 				Version: 1,
 				TurnID:  "turn-1",
 				Seq:     1,
-				Kind:    StepStarted,
+				Kind:    StepTurnStarted,
 				Started: &StartFact{
 					Agent:              testAgent(),
 					HistoryFingerprint: fingerprint,
@@ -124,7 +124,7 @@ func TestReplaySurfacesContinuationWarning(t *testing.T) {
 				Version: 1,
 				TurnID:  "turn-1",
 				Seq:     1,
-				Kind:    StepStarted,
+				Kind:    StepTurnStarted,
 				Started: &StartFact{
 					Agent: testAgent(),
 					Input: []llm.Message{llm.UserMessage(llm.Text("current"))},
@@ -134,7 +134,7 @@ func TestReplaySurfacesContinuationWarning(t *testing.T) {
 				Version: 1,
 				TurnID:  "turn-1",
 				Seq:     2,
-				Kind:    StepContinued,
+				Kind:    StepTurnContinued,
 				Warnings: []Warning{
 					{
 						Code:    WarningHistoryMismatch,
@@ -162,7 +162,7 @@ func TestReplaySurfacesContinuationWarning(t *testing.T) {
 		t.Fatalf("empty warning message replayed: %v", err)
 	}
 	turn.Steps[1].Warnings[0].Message = "prior history differs from turn start"
-	turn.Steps[1].Kind = StepDelivered
+	turn.Steps[1].Kind = StepMessagesAdded
 	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("warning outside continuation replayed: %v", err)
 	}

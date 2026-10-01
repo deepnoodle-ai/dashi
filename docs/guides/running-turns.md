@@ -14,7 +14,7 @@ results. The focused guides cover the rest:
 - [Live updates](live-updates.md): serving a turn to browsers and observing a
   run in process.
 - [Steering](steering.md): messages from people while a turn runs, and
-  adding context with `Deliver`.
+  adding context with `AddMessages`.
 
 [Agent turns and recovery](../agent-turns.md) is the detailed contract.
 
@@ -81,9 +81,9 @@ model call in the turn.
 complete. Check `out.Stop` before showing it.
 
 `out.Next()` says what to do next, so a host need not decode `out.Stop`:
-`NextNone` (completed or ended), `NextAnswer` (settle `out.Pending`, then
+`NextNone` (completed or ended), `NextResolvePending` (settle `out.Pending`, then
 `Continue`), `NextContinue`, `NextRaiseBudget` or `NextRaiseAttempts`
-(`Continue` with a raise), `NextResolve` (fix a failure, refusal, or uncertain
+(`Continue` with a raise), `NextFix` (fix a failure, refusal, or uncertain
 effect, then `Continue`, or `Cancel`), and `NextResume` (no stop was recorded,
 so `out.Stop.Projected` is true: the worker may have crashed; `Continue`
 resumes it when `ReadyToContinue`, and otherwise settle `out.Pending` first;
@@ -134,15 +134,15 @@ command again; a repeated command returns the recorded result.
    It needs no `Client` when the Agent names its provider, API, and model.
 2. **Advance.** Load the turn and map `view.Next()` to a command.
    `NextContinue` and `NextResume` give `Continue` with the same history;
-   resume only once the old worker is known to be gone. `NextAnswer` waits
-   for the host to `Settle` each pending call or approval.
+   resume only once the old worker is known to be gone. `NextResolvePending` waits
+   for the host to `Resolve` each pending call or approval.
    `NextRaiseBudget` and `NextRaiseAttempts` are the host's choice: `Continue`
-   with a raised `Budget` or `ModelAttempts`, or `Cancel`. `NextResolve`
+   with a raised `Budget` or `ModelAttempts`, or `Cancel`. `NextFix`
    depends on the cause, such as a host limit code the host owns: fix it and
    `Continue`, or `Cancel`. `NextNone` means done.
 3. **Run.** Save the command, then run it with
-   `runner.Run(ctx, turn, cmd, dashi.WithOwner(owner))`. `Cancel`, `Settle`,
-   and `Deliver` need no `Client`.
+   `runner.Run(ctx, turn, cmd, dashi.WithOwner(owner))`. `Cancel`, `Resolve`,
+   and `AddMessages` need no `Client`.
 
 Derive each `CommandID` from the turn ID and revision, or save each planned
 command before running it, so a crash replays the same command. After a

@@ -15,12 +15,12 @@ out, err = s.Send(ctx, "And in Fahrenheit?")
 ```
 
 `Send(ctx, text)` is `Run(ctx, dashi.Say(text))`. `Run` takes any command: a
-`Start` opens the next turn, and `Continue`, `Settle`, `Deliver`, and `Cancel`
+`Start` opens the next turn, and `Continue`, `Resolve`, `AddMessages`, and `Cancel`
 go to the last turn. `Answer` settles each answer and continues, in one call:
 
 ```go
-if out.Next() == dashi.NextAnswer {
-	out, err = s.Answer(ctx, []dashi.Settle{out.Pending[0].Approve()})
+if out.Next() == dashi.NextResolvePending {
+	out, err = s.Resolve(ctx, []dashi.Resolve{out.Pending[0].Approve()})
 }
 ```
 
@@ -57,7 +57,7 @@ one of three things:
 
 - **Starts** when there is no last turn, or it has ended.
 - **Refuses** with `*TurnBusyError` (matching `ErrTurnBusy`) when the turn is
-  busy: running, possibly running, waiting on the host (`NextAnswer`), or
+  busy: running, possibly running, waiting on the host (`NextResolvePending`), or
   holding an unsettled uncertain call. The message names the way out.
 - **Closes** any other stopped turn (interrupted, at a limit, refused,
   failed) with `Cancel` and `CloseReason`, then starts. The outcome warns
@@ -76,7 +76,7 @@ An **uncertain call** is a started call that is neither `ReadOnly` nor
 `Idempotent` and has no result, or a model call that offered an unsafe
 provider-hosted tool. It keeps the turn busy whatever its liveness, even under
 `Exclusive`, because a stopped worker is not a stopped effect.
-`TurnBusyError.CallID` names it. `Settle` it with the real result after
+`TurnBusyError.CallID` names it. `Resolve` it with the real result after
 checking the effect, or `Cancel{}` the turn to accept the risk.
 
 To take over a turn whose worker was lost, run `Continue{}` under

@@ -219,7 +219,7 @@ func TestUrgentSteerDuringBeforeSendGoesBackForTheSteer(t *testing.T) {
 	if out.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("stop=%+v sends=%d", out.Stop, client.sends)
 	}
-	intents := stepsOf(out.Turn, StepModelIntent)
+	intents := stepsOf(out.Turn, StepModelCallStarted)
 	if len(intents) != 1 {
 		t.Fatalf(
 			"%d model requests recorded; a call cut during BeforeSend "+

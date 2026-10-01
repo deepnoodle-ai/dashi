@@ -39,7 +39,7 @@ runner (agent + services) + turn record + command
 The runner dispatches model calls and local tools by default. It receives an
 acknowledged recorder so an application can make each effect boundary part of
 its transaction. `tool.KindExternal` returns identified pending work for a host
-worker; `Settle` records the later result. The state transition logic should
+worker; `Resolve` records the later result. The state transition logic should
 remain isolated internally, but a public host-driven model-dispatch protocol is
 deferred until a real consumer demonstrates that the recorder and external-tool
 seams cannot meet its needs. This chooses the [conceptual model's](../tmp/research/design/2026-09-26-dive-v2-conceptual-model.md)
@@ -56,13 +56,13 @@ intent-before-effect constraint.
    arguments, then authorization evaluates those exact arguments. A denial is
    recorded as confirmed nonexecution. A deferred approval is a pending
    decision bound to the call and its effective arguments; no
-   executor starts before `Settle` records the decision.
+   executor starts before `Resolve` records the decision.
 3. Record each permitted tool start before invocation. Execute local calls with
    bounded concurrency; record each known result as it finishes. A Go executor
    error is a known, model-facing failure; one wrapped with `tool.Fatal` also
    stops the turn. A panic is uncertain; after a crash, a tool known safe to
    repeat can be rerun. See [decisions](decisions.md) entries 1 and 11.
-   External calls and waits become pending subjects. `Settle` records their
+   External calls and waits become pending subjects. `Resolve` records their
    results or approvals; only `Continue` restarts execution. Complete siblings
    are recorded immediately, while model projection returns tool results in
    call order. No next model call occurs until every client call in the batch
@@ -90,7 +90,7 @@ intent-before-effect constraint.
    only if it contains a useful result or an explicitly accepted tool-only
    outcome; otherwise report an empty-response failure without inventing prose.
    A provider-hosted approval request is a pending decision about provider
-   continuation, not a client tool to execute; an explicit `Settle` records
+   continuation, not a client tool to execute; an explicit `Resolve` records
    its bound response and `Continue` starts the next model call.
 
 Model retry is a new recorded attempt of a prepared request and consumes the
@@ -110,7 +110,7 @@ whether to continue after a candidate final answer. Each reads an immutable turn
 view and returns a decision that Dashi records; a rewrite asks every tool hook
 again. Guarding hooks fail closed and shaping hooks fail open. An observer
 receives isolated committed events and bounded, lossy previews with no control
-return. Queueing new context through `Deliver` is safe at the next step
+return. Queueing new context through `AddMessages` is safe at the next step
 boundary; it cannot mutate a model call already prepared or sent.
 
 Limits count across starts, retries, waits, continuations, and hook-driven
@@ -125,14 +125,14 @@ stop with its cause. `Runner.OnContextDone: ContextCancel` makes it final
 cancellation for a caller that knows the turn will not resume. Late tool results
 after context end are dropped. A started tool without a result is rerun on
 `Continue` only when declared read-only or idempotent; other calls are uncertain
-and require `Settle` to record the application finding.
+and require `Resolve` to record the application finding.
 
 By default, Dashi reserves the last attempt, after earlier attempts, for a
 final answer. It removes application and hosted tools from that request while keeping
 the internal structured-output submission tool when required. The prepared
 request and its final-only intent are recorded before dispatch. A useful answer
 at this boundary has stop kind `limited` with reason `model_attempts`, so hosts
-can show the answer and the exhausted budget together. `NoReservedFinalAnswer`
+can show the answer and the exhausted budget together. `NoReservedFinalReply`
 opts out; a one-attempt turn cannot reserve a later call. This keeps the total
 call count strict. The stop is not terminal: `Continue.ModelAttempts` raises
 the limit for that turn and the same turn goes on (decision 34).

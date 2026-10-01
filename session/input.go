@@ -377,7 +377,7 @@ func (s *Session) settleByLoad(ctx context.Context, r *reservation) error {
 	turn, err := loader.Load(ctx, id)
 	switch {
 	case err == nil && len(turn.Steps) > 0 &&
-		turn.Steps[0].Kind == dashi.StepStarted &&
+		turn.Steps[0].Kind == dashi.StepTurnStarted &&
 		turn.Steps[0].CommandID == r.commandID:
 		s.release(r, true)
 	case err == nil || errors.Is(err, dashi.ErrTurnNotFound):
@@ -447,7 +447,7 @@ func notStarted(err error) bool {
 	}
 	var ce *dashi.CommitError
 	return errors.As(err, &ce) && ce.Step != nil &&
-		ce.Step.Kind == dashi.StepStarted &&
+		ce.Step.Kind == dashi.StepTurnStarted &&
 		(ce.Persistence == dashi.PersistenceRejected ||
 			errors.Is(ce.Err, dashi.ErrRevisionConflict) ||
 			errors.Is(ce.Err, dashi.ErrCommandConflict))

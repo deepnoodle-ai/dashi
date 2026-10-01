@@ -27,7 +27,7 @@ type Start struct {
 	CommandID string `json:"command_id,omitempty"`
 	// Agent is the behavior this turn runs with. Its zero fields take
 	// defaults (see Agent), and the turn records the resolved agent, so
-	// Continue, Settle, and Cancel need none.
+	// Continue, Resolve, and Cancel need none.
 	Agent  Agent       `json:"agent"`
 	Origin StartOrigin `json:"origin,omitempty"`
 	// Budget applies to this turn, independently of its agent.
@@ -49,11 +49,11 @@ type Start struct {
 	Compaction *CompactionFact `json:"compaction,omitempty"`
 }
 
-// Deliver adds context to a turn between runs. To reach a turn while it
+// AddMessages adds context to a turn between runs. To reach a turn while it
 // runs, pass a Steering source with WithSteering instead. An item with an ID
 // already recorded with the same content is skipped; with different content,
 // Run returns an error.
-type Deliver struct {
+type AddMessages struct {
 	CommandID string        `json:"command_id,omitempty"`
 	Items     []ContextItem `json:"items,omitempty"`
 }
@@ -83,14 +83,14 @@ type Continue struct {
 	OnHistoryMismatch HistoryMismatch `json:"on_history_mismatch,omitempty"`
 }
 
-// Settle records a host-supplied settlement: a final tool outcome, an answer
+// Resolve records a host-supplied settlement: a final tool outcome, an answer
 // to a tool or provider-hosted approval, or a model result or verified
 // failure. Exactly one fact is set.
-type Settle struct {
+type Resolve struct {
 	CommandID      string                      `json:"command_id,omitempty"`
 	CallID         string                      `json:"call_id,omitempty"`
 	Outcome        *tool.Outcome               `json:"outcome,omitempty"`
-	Approval       *ApprovalFact               `json:"approval,omitempty"`
+	Approval       *ApprovalDecision           `json:"approval,omitempty"`
 	HostedApproval *llm.HostedApprovalResponse `json:"hosted_approval,omitempty"`
 	// ModelResult settles a pending model attempt without another dispatch.
 	ModelResult *llm.Result `json:"model_result,omitempty"`
@@ -113,7 +113,7 @@ func Say(text string) Start {
 	return Start{Input: []llm.Message{llm.UserMessage(llm.Text(text))}}
 }
 
-func (c Deliver) commandID() string {
+func (c AddMessages) commandID() string {
 	return c.CommandID
 }
 
@@ -121,7 +121,7 @@ func (c Continue) commandID() string {
 	return c.CommandID
 }
 
-func (c Settle) commandID() string {
+func (c Resolve) commandID() string {
 	return c.CommandID
 }
 
@@ -133,11 +133,11 @@ func (c Cancel) commandID() string {
 type CommandKind string
 
 const (
-	CommandStart    CommandKind = "start"
-	CommandDeliver  CommandKind = "deliver"
-	CommandContinue CommandKind = "continue"
-	CommandSettle   CommandKind = "settle"
-	CommandCancel   CommandKind = "cancel"
+	CommandStart       CommandKind = "start"
+	CommandAddMessages CommandKind = "add_messages"
+	CommandContinue    CommandKind = "continue"
+	CommandResolve     CommandKind = "resolve"
+	CommandCancel      CommandKind = "cancel"
 )
 
 // CommandKindOf returns the kind of c, or "" when c is not one of Dashi's
@@ -146,12 +146,12 @@ func CommandKindOf(c Command) CommandKind {
 	switch c.(type) {
 	case Start:
 		return CommandStart
-	case Deliver:
-		return CommandDeliver
+	case AddMessages:
+		return CommandAddMessages
 	case Continue:
 		return CommandContinue
-	case Settle:
-		return CommandSettle
+	case Resolve:
+		return CommandResolve
 	case Cancel:
 		return CommandCancel
 	}
@@ -164,11 +164,11 @@ func CommandIDOf(c Command) string {
 	switch v := c.(type) {
 	case Start:
 		return v.CommandID
-	case Deliver:
+	case AddMessages:
 		return v.CommandID
 	case Continue:
 		return v.CommandID
-	case Settle:
+	case Resolve:
 		return v.CommandID
 	case Cancel:
 		return v.CommandID
@@ -213,12 +213,12 @@ func UnmarshalCommand(data []byte) (Command, error) {
 	switch env.Kind {
 	case CommandStart:
 		return decodeCommand[Start](env.Command)
-	case CommandDeliver:
-		return decodeCommand[Deliver](env.Command)
+	case CommandAddMessages:
+		return decodeCommand[AddMessages](env.Command)
 	case CommandContinue:
 		return decodeCommand[Continue](env.Command)
-	case CommandSettle:
-		return decodeCommand[Settle](env.Command)
+	case CommandResolve:
+		return decodeCommand[Resolve](env.Command)
 	case CommandCancel:
 		return decodeCommand[Cancel](env.Command)
 	}
@@ -248,13 +248,13 @@ func normalizeCommand(c Command) Command {
 		v.OutputSchema = absentNull(v.OutputSchema)
 		v.Agent.OutputSchema = absentNull(v.Agent.OutputSchema)
 		return v
-	case Deliver:
+	case AddMessages:
 		v.CommandID = id
 		return v
 	case Continue:
 		v.CommandID = id
 		return v
-	case Settle:
+	case Resolve:
 		v.CommandID = id
 		return v
 	case Cancel:

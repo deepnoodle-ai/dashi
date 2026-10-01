@@ -15,8 +15,8 @@ import (
 // ChildServices freezes a child's model and reference services. Nil fields
 // retain the inherited services. These do not change execution ownership.
 type ChildServices struct {
-	Client          llm.Client
-	ContentResolver dashi.ContentResolver
+	Client        llm.Client
+	ContentLoader dashi.ContentLoader
 }
 
 func copyValue[T any](value T) (T, error) {
@@ -91,8 +91,8 @@ func (ts *Tasks) bindServices(ctx context.Context, ref dashi.CallRef, agent dash
 	if services.Client != nil {
 		runner.Client = services.Client
 	}
-	if services.ContentResolver != nil {
-		runner.ContentResolver = services.ContentResolver
+	if services.ContentLoader != nil {
+		runner.ContentLoader = services.ContentLoader
 	}
 	return runner, nil
 }

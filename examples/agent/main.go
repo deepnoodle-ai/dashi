@@ -47,6 +47,6 @@ func run(ctx context.Context) error {
 	}
 	// Run's error means the command did not apply. A model failure, a limit,
 	// or a wait is a result instead: Stop says how the turn ended.
-	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 	return nil
 }

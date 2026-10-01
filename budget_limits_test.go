@@ -138,7 +138,7 @@ func usageReconciliationRecord() Turn {
 
 func appendAccountingStop(turn Turn, stop *Stop) Turn {
 	return interruptionRecord(append(turn.Steps, Step{
-		Kind: StepStopped,
+		Kind: StepTurnStopped,
 		Stop: stop,
 	})...)
 }
@@ -156,7 +156,7 @@ func reconciledUsageResult() llm.Result {
 
 func TestBudgetReconciliationBeforeTokenStopRestoresAdmission(t *testing.T) {
 	turn := appendAccountingStop(usageReconciliationRecord(),
-		&Stop{Kind: StopUncertain})
+		&Stop{Kind: StopResultUnknown})
 	view, err := Replay(turn)
 	if err != nil || !view.Spend.UsageIncomplete {
 		t.Fatalf("fixture did not expose incomplete usage: %v", err)
@@ -164,7 +164,7 @@ func TestBudgetReconciliationBeforeTokenStopRestoresAdmission(t *testing.T) {
 	result := reconciledUsageResult()
 	client := &scriptedClient{}
 	runner := Runner{Client: client}
-	out, err := runner.Run(t.Context(), turn, Settle{
+	out, err := runner.Run(t.Context(), turn, Resolve{
 		CommandID:   "reconcile",
 		CallID:      "model-1",
 		ModelResult: &result,
@@ -200,7 +200,7 @@ func TestBudgetLateReconciliationNeverRevivesEndedTurn(t *testing.T) {
 	}
 	result := reconciledUsageResult()
 	runner := Runner{Client: &scriptedClient{}}
-	out, err := runner.Run(t.Context(), turn, Settle{
+	out, err := runner.Run(t.Context(), turn, Resolve{
 		CommandID: "late", CallID: "model-1", ModelResult: &result,
 	})
 	if err != nil {
@@ -209,7 +209,7 @@ func TestBudgetLateReconciliationNeverRevivesEndedTurn(t *testing.T) {
 	if out.Spend.UsageIncomplete || out.Spend.Cost["USD"] != amount("0.5") {
 		t.Fatal("late settlement did not correct reported accounting")
 	}
-	if !canonjson.SameValue(out.Stop, before.Stop) || out.Answer != before.Answer {
+	if !canonjson.SameValue(out.Stop, before.Stop) || out.Reply != before.Reply {
 		t.Fatal("late accounting changed the ended stop or fixed answer")
 	}
 	if out.ReadyToContinue || out.Next() != NextNone {
@@ -298,7 +298,7 @@ func TestBudgetIncompleteIntentRecoversBeforeTokenStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != StopUncertain || out.Stop.Terminal {
+	if out.Stop.Kind != StopResultUnknown || out.Stop.Terminal {
 		t.Fatal("token accounting ended the turn before dispatch reconciliation")
 	}
 	if len(out.Pending) != 1 || out.Pending[0].Kind != PendingModel {

@@ -33,7 +33,7 @@ Do not consult Turn.Context as an alternate presence source. It can disagree wit
 
 IDs remain identities of individual deliveries. They must not block a restored A after B within one turn. Preserve a configured nonempty ID when that ID is unused in the current turn. If it was used, derive a fresh ID from the configured ID, Turn.ID, and Turn.Revision. Check for collisions and append a numeric suffix if necessary. An empty configured ID remains empty, as currently permitted.
 
-Make recorded ID membership available privately to SeedContext through TurnView. Replay rebuilds it from recorded items. Clone that private membership map when a hook receives its view. No new exported method is necessary. This leaves arbitrary Deliver and steer duplicate-ID rules unchanged. The catalog's digest remains in its ID even when a suffix distinguishes another delivery. No IDs appear in projected identity metadata.
+Make recorded ID membership available privately to SeedContext through TurnView. Replay rebuilds it from recorded items. Clone that private membership map when a hook receives its view. No new exported method is necessary. This leaves arbitrary AddMessages and steer duplicate-ID rules unchanged. The catalog's digest remains in its ID even when a suffix distinguishes another delivery. No IDs appear in projected identity metadata.
 
 ## Compatibility and compaction
 

@@ -35,40 +35,40 @@ func NewTurn(id string) Turn {
 type StepKind string
 
 const (
-	// StepStarted pins the resolved agent and initial input.
-	StepStarted StepKind = "turn_started"
-	// StepDelivered records context supplied between runs.
-	StepDelivered StepKind = "context_delivered"
-	// StepContinued records a command that resumes a stopped turn.
-	StepContinued StepKind = "turn_continued"
+	// StepTurnStarted pins the resolved agent and initial input.
+	StepTurnStarted StepKind = "turn_started"
+	// StepMessagesAdded records context supplied between runs.
+	StepMessagesAdded StepKind = "messages_added"
+	// StepTurnContinued records a command that resumes a stopped turn.
+	StepTurnContinued StepKind = "turn_continued"
 	// StepLoopContinued records progression to another model call.
 	StepLoopContinued StepKind = "loop_continued"
-	// StepModelIntent records a prepared model call before dispatch.
-	StepModelIntent StepKind = "model_requested"
+	// StepModelCallStarted records a prepared model call before dispatch.
+	StepModelCallStarted StepKind = "model_call_started"
 	// StepContextCompacted records an applied active-Turn context replacement.
 	StepContextCompacted StepKind = "context_compacted"
-	// StepModelSettled records the result of a model call.
-	StepModelSettled StepKind = "model_settled"
-	// StepModelReconciled records a host-supplied result for an uncertain call.
-	StepModelReconciled StepKind = "model_reconciled"
+	// StepModelCallFinished records the result of a model call.
+	StepModelCallFinished StepKind = "model_call_finished"
+	// StepModelCallFinishedByHost records a host-supplied result for an uncertain call.
+	StepModelCallFinishedByHost StepKind = "model_call_finished_by_host"
 	// StepToolDecision records the BeforeTool verdict for a call.
 	StepToolDecision StepKind = "tool_decision"
 	// StepToolStarted records the start of tool execution.
 	StepToolStarted StepKind = "tool_started"
 	// StepToolWaiting records a tool outcome that awaits later settlement.
 	StepToolWaiting StepKind = "tool_waiting"
-	// StepToolSettled records a final tool outcome.
-	StepToolSettled StepKind = "tool_settled"
-	// StepApprovalSettled records a host answer to a deferred local tool
-	// decision, supplied by Settle.
-	StepApprovalSettled StepKind = "approval_settled"
-	// StepHostedApprovalSettled records a host answer to provider-hosted
-	// approval, supplied by Settle.
-	StepHostedApprovalSettled StepKind = "hosted_approval_settled"
+	// StepToolFinished records a final tool outcome.
+	StepToolFinished StepKind = "tool_finished"
+	// StepApprovalDecided records a host answer to a deferred local tool
+	// decision, supplied by Resolve.
+	StepApprovalDecided StepKind = "approval_decided"
+	// StepProviderToolApprovalDecided records a host answer to provider-hosted
+	// approval, supplied by Resolve.
+	StepProviderToolApprovalDecided StepKind = "provider_tool_approval_decided"
 	// StepOutputRecorded pins a validated structured result.
 	StepOutputRecorded StepKind = "output_recorded"
-	// StepStopped records why a run ended.
-	StepStopped StepKind = "turn_stopped"
+	// StepTurnStopped records why a run ended.
+	StepTurnStopped StepKind = "turn_stopped"
 )
 
 // Step is an acknowledged fact, never a model-facing synthetic message.
@@ -93,7 +93,7 @@ type Step struct {
 	Context        *ContextFact                `json:"context,omitempty"`
 	Model          *ModelFact                  `json:"model,omitempty"`
 	Tool           *ToolFact                   `json:"tool,omitempty"`
-	Approval       *ApprovalFact               `json:"approval,omitempty"`
+	Approval       *ApprovalDecision           `json:"approval,omitempty"`
 	HostedApproval *llm.HostedApprovalResponse `json:"hosted_approval,omitempty"`
 	Output         *StructuredOutput           `json:"output,omitempty"`
 	Stop           *Stop                       `json:"stop,omitempty"`
@@ -107,7 +107,7 @@ type Step struct {
 }
 
 // Items returns the context items the step delivered: those of a
-// Deliver or steer, a loop continuation, or a rejected submission. A durable
+// AddMessages or steer, a loop continuation, or a rejected submission. A durable
 // host can read steer IDs from them in the transaction that saves the step.
 func (s Step) Items() []ContextItem {
 	if s.Context == nil {
@@ -134,10 +134,10 @@ const (
 	// WarningHooksChanged means a command ran with different Runner hooks
 	// from the previous command. Supply the same hooks on every command.
 	WarningHooksChanged WarningCode = "hooks_changed"
-	// WarningDeliveryDropped means a BeforeFinish hook asked the model to
+	// WarningMessagesDropped means a BeforeFinish hook asked the model to
 	// continue when no further model call was possible, so its items were
 	// not delivered.
-	WarningDeliveryDropped WarningCode = "delivery_dropped"
+	WarningMessagesDropped WarningCode = "messages_dropped"
 	// WarningSteering means a steering source failed or returned an invalid
 	// steer, or waiting steers could not be delivered because no further
 	// model call can happen. The steers stay with their source.
@@ -207,7 +207,7 @@ var (
 	// turn that can never run again gives ErrTurnEnded instead.
 	ErrNotReady = errors.New("dashi: turn is not ready to continue")
 	// ErrTurnEnded rejects a command on a turn whose stop is terminal (see
-	// Stop.Terminal). Only a Settle reporting the result of work that had
+	// Stop.Terminal). Only a Resolve reporting the result of work that had
 	// already started is accepted after the turn ends.
 	ErrTurnEnded = errors.New("dashi: turn has ended")
 	// ErrRecordInvalid reports that steps a run recorded fail replay, a bug

@@ -96,17 +96,17 @@ func TestSessionStreamAcrossTurns(t *testing.T) {
 		t.Fatalf("order=%v outcomes=%v", got.order, got.outcomes)
 	}
 	// Turn 1 shows only its closing step.
-	if !slices.Equal(got.steps["s-1"], []dashi.StepKind{dashi.StepStopped}) {
+	if !slices.Equal(got.steps["s-1"], []dashi.StepKind{dashi.StepTurnStopped}) {
 		t.Fatalf("turn 1 steps=%v", got.steps["s-1"])
 	}
 	for _, id := range []string{"s-2", "s-3"} {
 		steps := got.steps[id]
-		if steps[0] != dashi.StepStarted || steps[len(steps)-1] != dashi.StepStopped {
+		if steps[0] != dashi.StepTurnStarted || steps[len(steps)-1] != dashi.StepTurnStopped {
 			t.Fatalf("%s steps=%v", id, steps)
 		}
 	}
-	if got.last.Turn.ID != "s-3" || got.last.Answer != "three" {
-		t.Fatalf("last=%s %q", got.last.Turn.ID, got.last.Answer)
+	if got.last.Turn.ID != "s-3" || got.last.Reply != "three" {
+		t.Fatalf("last=%s %q", got.last.Turn.ID, got.last.Reply)
 	}
 	if w := got.byTurn["s-2"].SessionWarnings; !hasWarning(w, session.WarningTurnClosed) {
 		t.Fatalf("turn 2 warnings=%+v", w)
@@ -132,7 +132,7 @@ func TestSessionStreamBreak(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ev.Step != nil && ev.Step.Kind == dashi.StepModelIntent {
+		if ev.Step != nil && ev.Step.Kind == dashi.StepModelCallStarted {
 			break
 		}
 	}
@@ -197,11 +197,11 @@ func TestSessionStreamFollowsDuplicate(t *testing.T) {
 	awaitSend(t, done)
 	got := <-events
 	if len(got.errs) != 0 || !slices.Equal(got.outcomes, []string{"s-1"}) ||
-		got.last.Answer != "answer" {
-		t.Fatalf("errs=%v outcomes=%v answer=%q", got.errs, got.outcomes, got.last.Answer)
+		got.last.Reply != "answer" {
+		t.Fatalf("errs=%v outcomes=%v answer=%q", got.errs, got.outcomes, got.last.Reply)
 	}
 	steps := got.steps["s-1"]
-	if len(steps) == 0 || steps[0] != dashi.StepStarted || steps[len(steps)-1] != dashi.StepStopped {
+	if len(steps) == 0 || steps[0] != dashi.StepTurnStarted || steps[len(steps)-1] != dashi.StepTurnStopped {
 		t.Fatalf("steps=%v", steps)
 	}
 	requireTurns(t, rec, 1)
@@ -304,7 +304,7 @@ func TestSessionStreamBreakWhileClosing(t *testing.T) {
 		t.Fatal(err)
 	}
 	for ev := range s.Stream(t.Context(), dashi.Say("second")) {
-		if ev.Step == nil || ev.Step.Kind != dashi.StepStopped || ev.TurnID != "s-1" {
+		if ev.Step == nil || ev.Step.Kind != dashi.StepTurnStopped || ev.TurnID != "s-1" {
 			t.Fatalf("first event=%+v", ev)
 		}
 		break

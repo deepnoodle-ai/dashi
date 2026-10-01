@@ -166,7 +166,7 @@ func TestLateResultAfterTerminalStopIsReadable(t *testing.T) {
 	if err != nil || int64(len(got)) != stopSeq {
 		t.Fatalf("followed %d steps to the stop at %d: err=%v", len(got), stopSeq, err)
 	}
-	if _, err := runner.Run(t.Context(), canceled.Turn, Settle{
+	if _, err := runner.Run(t.Context(), canceled.Turn, Resolve{
 		CommandID: "late",
 		CallID:    "call-1",
 		Outcome:   new(tool.Succeeded("done late")),
@@ -177,7 +177,7 @@ func TestLateResultAfterTerminalStopIsReadable(t *testing.T) {
 		t.Fatalf("follow from an ended turn's stop: steps=%d err=%v", len(got), err)
 	}
 	late, err := rec.StepsAfter(t.Context(), "t1", stopSeq, 10)
-	if err != nil || len(late) != 1 || late[0].Kind != StepToolSettled {
+	if err != nil || len(late) != 1 || late[0].Kind != StepToolFinished {
 		t.Fatalf("late steps=%+v err=%v", late, err)
 	}
 }
@@ -315,7 +315,7 @@ func TestFollowPollsSlowlyWhileResting(t *testing.T) {
 	}
 }
 
-// Settles names what a step supersedes in a real run: model_requested
+// Settles names what a step supersedes in a real run: model_call_started
 // carries the deltas' MessageID but settles nothing.
 func TestStepSettles(t *testing.T) {
 	ok := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
@@ -343,20 +343,20 @@ func TestStepSettles(t *testing.T) {
 	for _, step := range steps {
 		id := step.Settles()
 		switch step.Kind {
-		case StepModelIntent:
+		case StepModelCallStarted:
 			if !deltaMessages[step.Model.MessageID] {
 				t.Fatalf("intent message %q has no deltas", step.Model.MessageID)
 			}
 			if id != "" {
-				t.Fatalf("model_requested settles %q", id)
+				t.Fatalf("model_call_started settles %q", id)
 			}
-		case StepModelSettled:
+		case StepModelCallFinished:
 			if id != step.Model.MessageID || !deltaMessages[id] {
-				t.Fatalf("model_settled settles %q; want its message", id)
+				t.Fatalf("model_call_finished settles %q; want its message", id)
 			}
-		case StepToolSettled:
+		case StepToolFinished:
 			if id != "call-1" {
-				t.Fatalf("tool_settled settles %q; want call-1", id)
+				t.Fatalf("tool_finished settles %q; want call-1", id)
 			}
 		default:
 			if id != "" {

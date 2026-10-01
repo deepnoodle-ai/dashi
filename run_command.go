@@ -220,7 +220,7 @@ func (r Runner) apply(
 			return Outcome{}, err
 		}
 		if o := rt.commit(Step{
-			Kind:          StepStarted,
+			Kind:          StepTurnStarted,
 			CommandID:     c.CommandID,
 			CommandDigest: d,
 			Started: &StartFact{
@@ -237,7 +237,7 @@ func (r Runner) apply(
 		}); o != nil {
 			return rt.result(*o)
 		}
-	case Deliver:
+	case AddMessages:
 		if len(turn.Steps) == 0 ||
 			state.Output != nil ||
 			len(c.Items) == 0 {
@@ -252,7 +252,7 @@ func (r Runner) apply(
 			return rt.result(rt.current())
 		}
 		step := Step{
-			Kind:          StepDelivered,
+			Kind:          StepMessagesAdded,
 			CommandID:     c.CommandID,
 			CommandDigest: d,
 			Context:       &ContextFact{Items: items},
@@ -295,7 +295,7 @@ func (r Runner) apply(
 		}
 		if state.interruptionLimitReached() {
 			step := Step{
-				Kind:          StepStopped,
+				Kind:          StepTurnStopped,
 				CommandID:     c.CommandID,
 				CommandDigest: d,
 				Stop: &Stop{
@@ -328,7 +328,7 @@ func (r Runner) apply(
 		}
 		rt.history = llmclone.Messages(c.History)
 		step := Step{
-			Kind:          StepContinued,
+			Kind:          StepTurnContinued,
 			CommandID:     c.CommandID,
 			CommandDigest: d,
 			Budget:        cloneBudget(c.Budget),
@@ -345,7 +345,7 @@ func (r Runner) apply(
 		if o := rt.commit(step); o != nil {
 			return rt.result(*o)
 		}
-	case Settle:
+	case Resolve:
 		if len(turn.Steps) == 0 {
 			return Outcome{}, errors.New("dashi: cannot settle before start")
 		}
@@ -383,9 +383,9 @@ func (r Runner) apply(
 					c.CallID != state.unresolvedModel) {
 				return Outcome{}, errors.New("dashi: model attempt is not pending")
 			}
-			kind := StepModelSettled
+			kind := StepModelCallFinished
 			if c.CallID == state.unresolvedModel {
-				kind = StepModelReconciled
+				kind = StepModelCallFinishedByHost
 			}
 			fact := &ModelFact{
 				AttemptID: c.CallID,
@@ -419,7 +419,7 @@ func (r Runner) apply(
 				return Outcome{}, errors.New("dashi: hosted approval is not pending")
 			}
 			if o := rt.commit(Step{
-				Kind:           StepHostedApprovalSettled,
+				Kind:           StepProviderToolApprovalDecided,
 				CommandID:      c.CommandID,
 				CommandDigest:  d,
 				HostedApproval: c.HostedApproval,
@@ -435,7 +435,7 @@ func (r Runner) apply(
 				return Outcome{}, errors.New("dashi: stale tool approval")
 			}
 			if o := rt.commit(Step{
-				Kind:          StepApprovalSettled,
+				Kind:          StepApprovalDecided,
 				CommandID:     c.CommandID,
 				CommandDigest: d,
 				Approval:      c.Approval,
@@ -447,7 +447,7 @@ func (r Runner) apply(
 			if !ok ||
 				(v.Status != ToolStarted &&
 					v.Status != ToolWaiting &&
-					v.Status != ToolUncertain) {
+					v.Status != ToolResultUnknown) {
 				return Outcome{}, errors.New("dashi: tool result is not pending")
 			}
 			if v.Call.Name == SubmitOutputTool {
@@ -466,7 +466,7 @@ func (r Runner) apply(
 			// context.
 			rt.afterTool(ctx, fact)
 			step := Step{
-				Kind:          StepToolSettled,
+				Kind:          StepToolFinished,
 				CommandID:     c.CommandID,
 				CommandDigest: d,
 				Tool:          fact,
@@ -489,7 +489,7 @@ func (r Runner) apply(
 			return Outcome{}, errors.New("dashi: turn cannot cancel")
 		}
 		if o := rt.commit(Step{
-			Kind:          StepStopped,
+			Kind:          StepTurnStopped,
 			CommandID:     c.CommandID,
 			CommandDigest: d,
 			Stop:          &Stop{Kind: StopCanceled, Reason: c.Reason},

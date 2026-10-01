@@ -82,8 +82,8 @@ func codecCommands() map[string]Command {
 				Frame:     "summary:",
 			},
 		},
-		"deliver/empty": Deliver{},
-		"deliver/full": Deliver{
+		"add_messages/empty": AddMessages{},
+		"add_messages/full": AddMessages{
 			CommandID: "cmd-deliver",
 			Items: []ContextItem{{
 				ID:           "i1",
@@ -102,8 +102,8 @@ func codecCommands() map[string]Command {
 			ModelAttempts:     9,
 			OnHistoryMismatch: HistoryMismatchReject,
 		},
-		"settle/empty": Settle{},
-		"settle/outcome": Settle{
+		"resolve/empty": Resolve{},
+		"resolve/outcome": Resolve{
 			CommandID: "cmd-settle",
 			CallID:    "c1",
 			Outcome: &tool.Outcome{
@@ -112,16 +112,16 @@ func codecCommands() map[string]Command {
 				Cost:   &tool.Cost{Amount: money.MustParseAmount("0.01"), Currency: "USD"},
 			},
 		},
-		"settle/approval": Settle{
+		"resolve/approval": Resolve{
 			CommandID: "cmd-approve",
 			CallID:    "c1",
-			Approval:  &ApprovalFact{CallID: "c1", Approve: false, ArgsDigest: ArgsDigest(call.Args), Reason: "no"},
+			Approval:  &ApprovalDecision{CallID: "c1", Approve: false, ArgsDigest: ArgsDigest(call.Args), Reason: "no"},
 		},
-		"settle/hosted": Settle{
+		"resolve/hosted": Resolve{
 			CommandID:      "cmd-hosted",
 			HostedApproval: &llm.HostedApprovalResponse{RequestID: "r1", Approve: true, Reason: "fine", Origin: origin},
 		},
-		"settle/result": Settle{
+		"resolve/result": Resolve{
 			CommandID: "cmd-result",
 			ModelResult: &llm.Result{
 				ID:      "resp",
@@ -137,7 +137,7 @@ func codecCommands() map[string]Command {
 				},
 			},
 		},
-		"settle/failure": Settle{
+		"resolve/failure": Resolve{
 			CommandID: "cmd-failure",
 			ModelFailure: &ModelFailure{
 				Disposition: llm.FailureNotDispatched,
@@ -268,7 +268,7 @@ func TestUnmarshalCommandRejectsBadInput(t *testing.T) {
 
 func TestCommandIdentityOfPointers(t *testing.T) {
 	for _, c := range []Command{
-		(*Start)(nil), (*Deliver)(nil), (*Continue)(nil), (*Settle)(nil), (*Cancel)(nil),
+		(*Start)(nil), (*AddMessages)(nil), (*Continue)(nil), (*Resolve)(nil), (*Cancel)(nil),
 		&Start{CommandID: "s"}, &Cancel{CommandID: "c"},
 	} {
 		if id, kind := CommandIDOf(c), CommandKindOf(c); id != "" || kind != "" {

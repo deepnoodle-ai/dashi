@@ -114,7 +114,7 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 	settled, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		out.Turn,
-		Settle{CommandID: "late", CallID: "a", Outcome: &late},
+		Resolve{CommandID: "late", CallID: "a", Outcome: &late},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -250,7 +250,7 @@ func TestExplicitCancelSettlesUnstartedApproval(t *testing.T) {
 		t.Fatalf("cancel=%+v err=%v", canceled, err)
 	}
 	view, err := Replay(canceled.Turn)
-	if err != nil || view.Tools["call-1"].Status != ToolSettled || view.Tools["call-1"].Outcome.State != tool.StateNotExecuted {
+	if err != nil || view.Tools["call-1"].Status != ToolFinished || view.Tools["call-1"].Outcome.State != tool.StateNotExecuted {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}
 }
@@ -262,7 +262,7 @@ func TestInterruptedAfterModelIntentDoesNotSend(t *testing.T) {
 	rec := notifyingRecorder{
 		Recorder: NewMemoryRecorder(),
 		onCommit: func(step Step) {
-			if step.Kind == StepModelIntent {
+			if step.Kind == StepModelCallStarted {
 				cancel()
 			}
 		},
@@ -280,7 +280,7 @@ func TestInterruptedAfterModelIntentDoesNotSend(t *testing.T) {
 		t.Fatalf("out=%+v err=%v sends=%d", out, err, client.sends)
 	}
 	settled := out.Turn.Steps[len(out.Turn.Steps)-2]
-	if settled.Kind != StepModelSettled ||
+	if settled.Kind != StepModelCallFinished ||
 		settled.Model.Interrupted != InterruptRun {
 		t.Fatalf("settlement=%+v", settled)
 	}
@@ -300,7 +300,7 @@ func TestInterruptedAfterModelResultDoesNotStartPendingTool(t *testing.T) {
 	rec := notifyingRecorder{
 		Recorder: NewMemoryRecorder(),
 		onCommit: func(step Step) {
-			if step.Kind == StepModelSettled {
+			if step.Kind == StepModelCallFinished {
 				cancel()
 			}
 		},
@@ -395,7 +395,7 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	defer r.mu.Unlock()
 	step := req.Step
 	var admission testAdmission
-	if step.Kind == StepModelIntent {
+	if step.Kind == StepModelCallStarted {
 		if err := json.Unmarshal(
 			step.Model.Admission["budget"],
 			&admission,
@@ -415,7 +415,7 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	if err := r.base.Commit(ctx, req); err != nil {
 		return err
 	}
-	if step.Kind == StepModelIntent {
+	if step.Kind == StepModelCallStarted {
 		if _, exists := r.reservations[step.Model.AttemptID]; !exists {
 			r.balance -= admission.Units
 			r.reservations[step.Model.AttemptID] = admission.Units
@@ -425,7 +425,7 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 			return errors.New("admission acknowledgment lost after commit")
 		}
 	}
-	if (step.Kind == StepModelSettled || step.Kind == StepModelReconciled) && !r.charged[step.Model.AttemptID] {
+	if (step.Kind == StepModelCallFinished || step.Kind == StepModelCallFinishedByHost) && !r.charged[step.Model.AttemptID] {
 		reserved := r.reservations[step.Model.AttemptID]
 		charged := reserved
 		if step.Model.Failure == llm.FailureNotDispatched || step.Model.Failure == llm.FailureRejected {
@@ -444,7 +444,7 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	// The third and last attempt must complete the turn normally.
 	def := testAgent()
-	def.Limits.NoReservedFinalAnswer = true
+	def.Limits.NoReservedFinalReply = true
 	firstModel := callResult("job", "work")
 	firstModel.Usage = &llm.Usage{InputTokens: 2}
 	lastModel := final("done")
@@ -505,7 +505,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		t.Fatalf("changed agent accepted: %v", err)
 	}
 	rec.Claim(t.Context(), "t1", "owner-b")
-	proof := Settle{
+	proof := Resolve{
 		CommandID: "no-dispatch",
 		CallID:    "t1:model:1",
 		ModelFailure: &ModelFailure{
@@ -559,7 +559,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		State:  tool.StateSucceeded,
 		Output: new(tool.TextOutput("completed in host worker")),
 	}
-	settle := Settle{CommandID: "external-result", CallID: "job", Outcome: &result}
+	settle := Resolve{CommandID: "external-result", CallID: "job", Outcome: &result}
 	stale, err = runner.Run(
 		t.Context(),
 		waiting.Turn,
@@ -596,7 +596,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		Continue{CommandID: "finish", History: history},
 		WithOwner("owner-c"),
 	)
-	if err != nil || done.Stop.Kind != StopCompleted || client.sends != 2 || rec.balance != 7 || done.Answer != "done" {
+	if err != nil || done.Stop.Kind != StopCompleted || client.sends != 2 || rec.balance != 7 || done.Reply != "done" {
 		t.Fatalf(
 			"done: out=%+v err=%v sends=%d balance=%d",
 			done,

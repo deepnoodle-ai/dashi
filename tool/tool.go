@@ -355,7 +355,7 @@ func Waiting(reason string) Outcome {
 }
 
 // Detached returns an outcome for work that continues elsewhere and whose
-// result the host records later with Settle. handleID correlates that result
+// result the host records later with Resolve. handleID correlates that result
 // and is required: Detached("") is invalid, and the runner stops the turn
 // with ErrInvalidOutcome if an executor returns it.
 func Detached(handleID string) Outcome {
@@ -484,7 +484,7 @@ func (e fatalError) Is(target error) bool {
 // KindProviderHosted tool runs inside the model call, so the runner neither
 // dispatches it nor runs hooks for it; provider packages construct these. A
 // KindExternal tool passes the BeforeTool hooks like a local tool, then waits
-// until the host records its result with Settle. A local or unspecified-kind
+// until the host records its result with Resolve. A local or unspecified-kind
 // tool with a nil Executor stops the turn as failed when the model calls it.
 type Tool struct {
 	// Definition is presented to the model; copying Tool shares its nested

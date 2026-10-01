@@ -18,7 +18,7 @@ func (s *replayState) apply(step Step) error {
 	}
 	if s.Stop.Terminal {
 		switch step.Kind {
-		case StepModelSettled, StepModelReconciled, StepToolSettled:
+		case StepModelCallFinished, StepModelCallFinishedByHost, StepToolFinished:
 		default:
 			return errors.New("ended turn only accepts late results")
 		}
@@ -28,11 +28,11 @@ func (s *replayState) apply(step Step) error {
 	// Continue then completes the existing output without another model call.
 	if s.Output != nil {
 		switch {
-		case step.Kind == StepContinued:
-		case step.Kind == StepStopped && step.Stop != nil && step.Stop.Kind == StopCompleted:
-		case step.Kind == StepStopped && step.Stop != nil &&
+		case step.Kind == StepTurnContinued:
+		case step.Kind == StepTurnStopped && step.Stop != nil && step.Stop.Kind == StopCompleted:
+		case step.Kind == StepTurnStopped && step.Stop != nil &&
 			step.Stop.Kind == StopInterrupted:
-		case step.Kind == StepStopped && step.Stop != nil &&
+		case step.Kind == StepTurnStopped && step.Stop != nil &&
 			step.Stop.Kind == StopLimited && step.Stop.Limit != nil &&
 			(step.Stop.Limit.Kind == LimitDeadline ||
 				step.Stop.Limit.Kind == LimitInterruptions ||
@@ -45,7 +45,7 @@ func (s *replayState) apply(step Step) error {
 		}
 	}
 	switch step.Kind {
-	case StepStarted:
+	case StepTurnStarted:
 		if step.Started == nil {
 			return errors.New("missing start")
 		}
@@ -126,7 +126,7 @@ func (s *replayState) apply(step Step) error {
 			s.Budget = &budget
 		}
 		s.OutputSchema = append(json.RawMessage(nil), outputSchema...)
-	case StepDelivered:
+	case StepMessagesAdded:
 		if step.Context == nil || len(step.Context.Items) == 0 {
 			return errors.New("missing context")
 		}
@@ -138,7 +138,7 @@ func (s *replayState) apply(step Step) error {
 				return err
 			}
 		}
-	case StepContinued:
+	case StepTurnContinued:
 		if err := s.calculateSpend(); err != nil {
 			return err
 		}
@@ -194,7 +194,7 @@ func (s *replayState) apply(step Step) error {
 				s.answerVetoed = true
 			}
 		}
-	case StepModelIntent:
+	case StepModelCallStarted:
 		if step.Model == nil ||
 			step.Model.AttemptID == "" ||
 			step.Model.MessageID == "" ||
@@ -226,8 +226,8 @@ func (s *replayState) apply(step Step) error {
 				return err
 			}
 		}
-		if step.Model.FinalAnswerOnly &&
-			(s.Agent.Limits.NoReservedFinalAnswer ||
+		if step.Model.FinalReplyOnly &&
+			(s.Agent.Limits.NoReservedFinalReply ||
 				s.ModelAttempts == 0 ||
 				s.ModelAttempts+1 != s.attemptCap) {
 			return errors.New("final-answer intent is not the last model attempt")
@@ -236,7 +236,7 @@ func (s *replayState) apply(step Step) error {
 		s.modelIntents[step.Model.AttemptID] = step.Model
 		s.modelOrder = append(s.modelOrder, step.Model.AttemptID)
 		s.modelCalls++
-		s.finalAnswerOnly = step.Model.FinalAnswerOnly
+		s.finalAnswerOnly = step.Model.FinalReplyOnly
 		s.unresolvedPartial = false
 		if _, exists := s.modelMessages[step.Model.AttemptID]; exists {
 			return errors.New("repeated model attempt ID")
@@ -260,7 +260,7 @@ func (s *replayState) apply(step Step) error {
 					return errors.New("invalid reserved output tool")
 				}
 				outputTool = true
-			} else if step.Model.FinalAnswerOnly {
+			} else if step.Model.FinalReplyOnly {
 				return errors.New("final-answer intent offers an application tool")
 			}
 			s.modelDefs[d.Name] = d
@@ -268,7 +268,7 @@ func (s *replayState) apply(step Step) error {
 		if len(s.OutputSchema) > 0 && !outputTool && step.Model.Purpose != ModelPurposeCompaction {
 			return errors.New("output schema requires reserved output tool")
 		}
-	case StepModelSettled:
+	case StepModelCallFinished:
 		if step.Model == nil ||
 			step.Model.AttemptID == "" ||
 			step.Model.AttemptID != s.modelIntent ||
@@ -353,7 +353,7 @@ func (s *replayState) apply(step Step) error {
 		if err := s.checkStillOpen(); err != nil {
 			return err
 		}
-	case StepModelReconciled:
+	case StepModelCallFinishedByHost:
 		if step.Model == nil ||
 			step.Model.AttemptID != s.unresolvedModel ||
 			step.Model.MessageID != s.modelMessages[s.unresolvedModel] ||
@@ -496,7 +496,7 @@ func (s *replayState) apply(step Step) error {
 		v.Status = ToolWaiting
 		v.Outcome = step.Tool.Outcome
 		s.Tools[v.Call.ID] = v
-	case StepToolSettled:
+	case StepToolFinished:
 		s.awaitingClassification = false
 		if step.Tool == nil {
 			return errors.New("missing tool settlement")
@@ -527,7 +527,7 @@ func (s *replayState) apply(step Step) error {
 			}
 		}
 		v, ok := s.Tools[step.Tool.Call.ID]
-		if !ok || v.Status == ToolSettled || !canonjson.SameValue(v.Call, step.Tool.Call) {
+		if !ok || v.Status == ToolFinished || !canonjson.SameValue(v.Call, step.Tool.Call) {
 			return errors.New("tool settlement without pending call")
 		}
 		if step.Tool.Outcome == nil {
@@ -535,11 +535,11 @@ func (s *replayState) apply(step Step) error {
 			// panic, or a start with no result after a crash. A returned
 			// error settles with a failed outcome instead. Replay does not
 			// second-guess the reason text, so an older or forged record
-			// claiming uncertainty for an error still needs Settle.
+			// claiming uncertainty for an error still needs Resolve.
 			if v.Status != ToolStarted && v.Status != ToolWaiting {
 				return errors.New("uncertainty without start")
 			}
-			v.Status = ToolUncertain
+			v.Status = ToolResultUnknown
 		} else {
 			if e := step.Tool.Outcome.Validate(); e != nil {
 				return e
@@ -579,7 +579,7 @@ func (s *replayState) apply(step Step) error {
 					step.Tool.Reason != reasonSteering {
 					return errors.New("only a steer settles an allowed call without running it")
 				}
-			case ToolStarted, ToolWaiting, ToolUncertain:
+			case ToolStarted, ToolWaiting, ToolResultUnknown:
 			default:
 				return errors.New("tool result without execution or denial")
 			}
@@ -587,7 +587,7 @@ func (s *replayState) apply(step Step) error {
 				// Only a tool's or host's content passes AfterTool.
 				if v.Call.Name == SubmitOutputTool ||
 					(v.Status != ToolStarted && v.Status != ToolWaiting &&
-						v.Status != ToolUncertain) ||
+						v.Status != ToolResultUnknown) ||
 					step.Tool.Result.CallID != v.Call.ID {
 					return errors.New("result replacement without a tool result")
 				}
@@ -608,7 +608,7 @@ func (s *replayState) apply(step Step) error {
 			v.steered = (v.Status == ToolRequested || v.Status == ToolAllowed) &&
 				step.Tool.Outcome.State == tool.StateNotExecuted &&
 				step.Tool.Reason == reasonSteering
-			v.Status = ToolSettled
+			v.Status = ToolFinished
 			v.Outcome = step.Tool.Outcome
 		}
 		if step.Tool.Result != nil && step.Tool.Outcome == nil {
@@ -618,7 +618,7 @@ func (s *replayState) apply(step Step) error {
 		if err := s.checkStillOpen(); err != nil {
 			return err
 		}
-	case StepApprovalSettled:
+	case StepApprovalDecided:
 		s.awaitingClassification = false
 		if step.Approval == nil {
 			return errors.New("missing approval")
@@ -641,7 +641,7 @@ func (s *replayState) apply(step Step) error {
 			v.Status = ToolDenied
 		}
 		s.Tools[v.Call.ID] = v
-	case StepHostedApprovalSettled:
+	case StepProviderToolApprovalDecided:
 		s.awaitingClassification = false
 		if step.HostedApproval == nil {
 			return errors.New("missing hosted approval")
@@ -670,7 +670,7 @@ func (s *replayState) apply(step Step) error {
 			v, ok := s.Tools[step.Output.ToolCallID]
 			if !ok ||
 				v.Call.Name != SubmitOutputTool ||
-				v.Status != ToolSettled ||
+				v.Status != ToolFinished ||
 				v.Outcome == nil ||
 				v.Outcome.State != tool.StateSucceeded ||
 				s.callAttempts[v.Call.ID] != step.Output.AttemptID ||
@@ -700,7 +700,7 @@ func (s *replayState) apply(step Step) error {
 		value.Value = append(json.RawMessage(nil), value.Value...)
 		s.Output = &value
 		s.awaitingClassification = false
-	case StepStopped:
+	case StepTurnStopped:
 		if step.Stop == nil {
 			return errors.New("missing stop")
 		}
@@ -725,7 +725,7 @@ func (s *replayState) apply(step Step) error {
 		}
 		switch step.Stop.Kind {
 		case StopCompleted, StopWaiting, StopLimited, StopRefused,
-			StopCanceled, StopFailed, StopUncertain, StopInterrupted:
+			StopCanceled, StopFailed, StopResultUnknown, StopInterrupted:
 		default:
 			return errors.New("invalid stop kind")
 		}
@@ -758,7 +758,7 @@ func (s *replayState) apply(step Step) error {
 				v := s.Tools[id]
 				switch v.Status {
 				case ToolRequested, ToolApprovalPending, ToolAllowed, ToolDenied:
-					v.Status = ToolSettled
+					v.Status = ToolFinished
 					v.Outcome = &tool.Outcome{State: tool.StateNotExecuted}
 					s.Tools[id] = v
 				}

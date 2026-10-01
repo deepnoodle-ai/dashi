@@ -18,7 +18,7 @@ so a UI shows a spinner and people cannot tell working from hung
 ([openai/codex#4751](https://github.com/openai/codex/issues/4751),
 [adk-go#292](https://github.com/google/adk-go/issues/292)).
 
-A **step** is a recorded fact (`tool_started`, `tool_settled`). A **preview**
+A **step** is a recorded fact (`tool_started`, `tool_finished`). A **preview**
 is a live-only event, like model text deltas, that the record supersedes.
 **Snapshot** progress replaces the previous value; **appended** output adds to it.
 
@@ -114,7 +114,7 @@ them in call order. The lock is never held while emitting, so a slow `Stream`
 consumer never blocks `Report`; snapshots merge instead. Only the runner
 goroutine emits, which removes Dive's race by construction.
 
-**Settle.** Before committing a call's `tool_settled` or `tool_waiting`,
+**Resolve.** Before committing a call's `tool_finished` or `tool_waiting`,
 `settle` emits its last unsent snapshot, so a final "100/100" arrives, and then
 forgets the slot. Nothing for that call follows, including reports from a
 detached call or a leaked goroutine, and nothing is emitted after `tools()`

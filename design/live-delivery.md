@@ -43,7 +43,7 @@ AttemptID, MessageID, Gap: true}` naming the message that lost deltas;
 markers do not count against the bound, and consecutive drops make one
 marker. Evicted progress sets no gap: each snapshot replaces the last and the
 settled step follows (tool-progress.md). Consumer rules: after a gap, discard
-that message's preview and ignore its later deltas until its `model_settled`
+that message's preview and ignore its later deltas until its `model_call_finished`
 step arrives; a gap with no such step after it (only when a commit failed and
 the run ended) means load the turn. A step whose commit ended with unknown
 persistence is only in the record. `Stream` never drops, so it never yields a
@@ -95,7 +95,7 @@ constants.
 
 **4. A terminal stop means the turn is over.** `Stop.Terminal` (recorded as
 `"terminal"`, omitted when false) is set in one place, `rt.commit` of a
-`StepStopped` step, from `replayState.terminal()` on the state after that step.
+`StepTurnStopped` step, from `replayState.terminal()` on the state after that step.
 That covers `stop`, `stopWith`, `Cancel`, the interruptions stop inside
 `Continue`, and stops the hooks work adds. Replay recomputes it after each stop
 and rejects a recorded value that differs (`ErrRecordInvalid`). It is not
@@ -118,21 +118,21 @@ any raise. Every input only grows (attempts, unknown cost) or is fixed at
 Start (agent limits, deadline), so a recorded `true` stays true. A recorded
 `false` stays accurate because a turn becomes non-continuable only through a
 recorded stop: only model results raise those counts, and replay rejects one
-that would make an open limited stop terminal; `Settle` checks this before
+that would make an open limited stop terminal; `Resolve` checks this before
 saving. Cost of a field over a method: if decision 25 later lets `Continue`
 raise agent limits, old records carry a stale value; acceptable before
 release.
 
 *After a terminal stop the record accepts only late results of work that had
-already started* (`StepModelSettled`, `StepModelReconciled`,
-`StepToolSettled`), as a canceled turn does today. Replay applies the cancel
+already started* (`StepModelCallFinished`, `StepModelCallFinishedByHost`,
+`StepToolFinished`), as a canceled turn does today. Replay applies the cancel
 rules to every terminal stop: unstarted calls settle as not executed and
 pending hosted approvals clear, so no UI offers "Approve" on a dead turn; a
 late model result's tool calls never enter the turn (the two replay checks
 and the top of `run()` that test "canceled" today test "terminal"). After the
 idempotent-retry check, so a retried `Cancel` still gets its recorded answer,
-the runner rejects `Deliver`, approvals, `Cancel`, raises, new work, and a
-`Settle` for a call the terminal rules settled with `ErrTurnEnded` ("dashi:
+the runner rejects `AddMessages`, approvals, `Cancel`, raises, new work, and a
+`Resolve` for a call the terminal rules settled with `ErrTurnEnded` ("dashi:
 turn has ended"). `canContinue` also keys on `Limit.Kind`, so the two checks
 cannot disagree. Late results may therefore follow a
 terminal stop: `Follow` ending there is a display convenience; a reload or
@@ -185,7 +185,7 @@ type StepWaiter interface {
 func Follow(ctx context.Context, r StepReader, turnID string,
 	after int64) iter.Seq2[Step, error]
 // Settles names the previews a step supersedes: the MessageID of
-// model_settled or model_reconciled, or the call ID of tool_settled.
+// model_call_finished or model_call_finished_by_host, or the call ID of tool_finished.
 func (s Step) Settles() string
 var ErrCursorAhead = errors.New("dashi: cursor is past the turn's last step")
 ```

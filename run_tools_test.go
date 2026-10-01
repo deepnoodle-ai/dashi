@@ -38,7 +38,7 @@ func TestToolFailureRecordShapes(t *testing.T) {
 			executor:     failingFunc(t, errors.New("quota exceeded")),
 			results:      []llm.Result{oneCall, final("ok")},
 			stop:         *testStop(StopCompleted, ""),
-			status:       ToolSettled,
+			status:       ToolFinished,
 			state:        tool.StateFailed,
 			reasonPrefix: "quota exceeded",
 		},
@@ -47,7 +47,7 @@ func TestToolFailureRecordShapes(t *testing.T) {
 			executor:     failingFunc(t, revoked),
 			results:      []llm.Result{oneCall},
 			stop:         failedStop(StopReasonToolFatal),
-			status:       ToolSettled,
+			status:       ToolFinished,
 			state:        tool.StateFailed,
 			reasonPrefix: "credentials revoked",
 		},
@@ -56,7 +56,7 @@ func TestToolFailureRecordShapes(t *testing.T) {
 			executor:     invalid,
 			results:      []llm.Result{oneCall},
 			stop:         failedStop(StopReasonToolOutcomeInvalid),
-			status:       ToolSettled,
+			status:       ToolFinished,
 			state:        tool.StateFailed,
 			reasonPrefix: "tool: invalid outcome",
 		},
@@ -67,7 +67,7 @@ func TestToolFailureRecordShapes(t *testing.T) {
 			}),
 			results:      []llm.Result{oneCall},
 			stop:         failedStop(StopReasonToolOutcomeInvalid),
-			status:       ToolSettled,
+			status:       ToolFinished,
 			state:        tool.StateFailed,
 			reasonPrefix: "tool: invalid outcome",
 		},
@@ -78,10 +78,10 @@ func TestToolFailureRecordShapes(t *testing.T) {
 			}),
 			results: []llm.Result{oneCall},
 			stop: Stop{
-				Kind:   StopUncertain,
+				Kind:   StopResultUnknown,
 				Reason: "tool outcome needs reconciliation",
 			},
-			status:       ToolUncertain,
+			status:       ToolResultUnknown,
 			reasonPrefix: "panic: boom",
 		},
 	}
@@ -231,17 +231,17 @@ func TestToolPanicIsRecordedAsUncertain(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if first.Stop.Kind != StopUncertain {
+			if first.Stop.Kind != StopResultUnknown {
 				t.Fatalf("stop=%+v", first.Stop)
 			}
 			view, err := Replay(first.Turn)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if view.Tools["a"].Status != ToolUncertain {
+			if view.Tools["a"].Status != ToolResultUnknown {
 				t.Fatalf("panicked call status=%s", view.Tools["a"].Status)
 			}
-			if view.Tools["b"].Status != ToolSettled {
+			if view.Tools["b"].Status != ToolFinished {
 				t.Fatalf("sibling call status=%s", view.Tools["b"].Status)
 			}
 			reason := settledFact(t, first.Turn, "a").Reason
@@ -253,7 +253,7 @@ func TestToolPanicIsRecordedAsUncertain(t *testing.T) {
 				t.Fatal("continued past an unreconciled panic")
 			}
 			out := succeeded("verified")
-			settle := Settle{CommandID: "reconcile", CallID: "a", Outcome: &out}
+			settle := Resolve{CommandID: "reconcile", CallID: "a", Outcome: &out}
 			accepted, err := apply(first.Turn, settle, runner)
 			if err != nil {
 				t.Fatal(err)
@@ -286,7 +286,7 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 	// for a returned error. Replay honors the record rather than guessing.
 	forged := Turn{ID: got.Turn.ID}
 	for _, step := range got.Turn.Steps {
-		if step.Kind == StepToolSettled {
+		if step.Kind == StepToolFinished {
 			break
 		}
 		forged.Steps = append(forged.Steps, step)
@@ -298,7 +298,7 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 			Version: 1,
 			TurnID:  forged.ID,
 			Seq:     int64(len(forged.Steps) + 1),
-			Kind:    StepToolSettled,
+			Kind:    StepToolFinished,
 			Tool:    &ToolFact{Call: call, Reason: "connection lost"},
 		},
 	)
@@ -313,7 +313,7 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Tools["call-1"].Status != ToolUncertain {
+	if view.Tools["call-1"].Status != ToolResultUnknown {
 		t.Fatalf("status=%s", view.Tools["call-1"].Status)
 	}
 	client = &scriptedClient{results: []llm.Result{final("ok")}}
@@ -326,7 +326,7 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 		State:  tool.StateFailed,
 		Output: new(tool.TextOutput("connection lost")),
 	}
-	settle := Settle{CommandID: "reconcile", CallID: "call-1", Outcome: &out}
+	settle := Resolve{CommandID: "reconcile", CallID: "call-1", Outcome: &out}
 	accepted, err := apply(forged, settle, runner)
 	if err != nil {
 		t.Fatal(err)
@@ -434,7 +434,7 @@ func callsResult(ids ...string) llm.Result {
 func settledFact(t *testing.T, turn Turn, callID string) *ToolFact {
 	t.Helper()
 	for _, step := range turn.Steps {
-		if step.Kind == StepToolSettled && step.Tool.Call.ID == callID {
+		if step.Kind == StepToolFinished && step.Tool.Call.ID == callID {
 			return step.Tool
 		}
 	}
@@ -519,14 +519,14 @@ func TestContinueRepeatsOnlySafeStartedLocalTools(t *testing.T) {
 			wantRuns:    1,
 			wantStop:    StopCompleted,
 		},
-		{name: "unannotated", wantStop: StopUncertain},
+		{name: "unannotated", wantStop: StopResultUnknown},
 		{
 			name: "explicitly not safe",
 			annotations: tool.Annotations{
 				ReadOnly:   new(false),
 				Idempotent: new(false),
 			},
-			wantStop: StopUncertain,
+			wantStop: StopResultUnknown,
 		},
 	}
 	for _, tc := range tests {
@@ -678,7 +678,7 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Tools["first"].Status != ToolSettled {
+	if view.Tools["first"].Status != ToolFinished {
 		t.Fatalf("first tool status=%s; want settled", view.Tools["first"].Status)
 	}
 	secondStatus := view.Tools["second"].Status
@@ -747,7 +747,7 @@ func TestToolResultAfterContextEndIsDropped(t *testing.T) {
 		t.Fatalf("tool status=%s; want started", view.Tools["call-1"].Status)
 	}
 	for _, step := range saved.Steps {
-		if step.Kind == StepToolSettled && step.Tool.Call.ID == "call-1" {
+		if step.Kind == StepToolFinished && step.Tool.Call.ID == "call-1" {
 			t.Fatal("late tool result was committed")
 		}
 	}
@@ -776,14 +776,14 @@ func startedLocalToolTurn(
 	}
 	call := tool.Call{ID: "call-1", Name: "work", Args: []byte(`{}`)}
 	commit(Step{
-		Kind: StepStarted,
+		Kind: StepTurnStarted,
 		Started: &StartFact{
 			Agent: def,
 			Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
 	})
 	commit(Step{
-		Kind: StepModelIntent,
+		Kind: StepModelCallStarted,
 		Model: &ModelFact{
 			AttemptID:     "t1:model:1",
 			MessageID:     "t1:model:1:message",
@@ -803,7 +803,7 @@ func startedLocalToolTurn(
 		Requested: llm.ModelRef{Provider: def.Provider, Model: def.Model},
 	}
 	commit(Step{
-		Kind: StepModelSettled,
+		Kind: StepModelCallFinished,
 		Model: &ModelFact{
 			AttemptID: "t1:model:1",
 			MessageID: "t1:model:1:message",

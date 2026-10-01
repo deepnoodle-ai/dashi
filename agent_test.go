@@ -141,7 +141,7 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 	}
 
 	// Other commands run with the recorded agent.
-	delivered, err := runner.Run(t.Context(), got.Turn, Deliver{Items: []ContextItem{{
+	delivered, err := runner.Run(t.Context(), got.Turn, AddMessages{Items: []ContextItem{{
 		Origin:  "user",
 		Message: llm.UserMessage(llm.Text("more")),
 	}}})
@@ -152,7 +152,7 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 	settled, err := runner.Run(
 		t.Context(),
 		delivered.Turn,
-		Settle{CallID: "call-1", Outcome: &out},
+		Resolve{CallID: "call-1", Outcome: &out},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +219,7 @@ func TestAgentRevisionTracksBehaviorFields(t *testing.T) {
 		"settings":     func(a *Agent) { a.Settings.MaxTokens = 10 },
 		"schema":       func(a *Agent) { a.OutputSchema = json.RawMessage(`{"type":"object"}`) },
 		"limits":       func(a *Agent) { a.Limits.ModelAttempts = 2 },
-		"final answer": func(a *Agent) { a.Limits.NoReservedFinalAnswer = true },
+		"final answer": func(a *Agent) { a.Limits.NoReservedFinalReply = true },
 	}
 	for name, change := range changes {
 		a := base
@@ -390,7 +390,7 @@ func TestContinueKeepsRecordedModel(t *testing.T) {
 		t.Fatalf("start stop=%+v err=%v", got.Stop, err)
 	}
 	out := tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("r"))}
-	settled, err := runner.Run(t.Context(), got.Turn, Settle{CallID: "call-1", Outcome: &out})
+	settled, err := runner.Run(t.Context(), got.Turn, Resolve{CallID: "call-1", Outcome: &out})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +446,7 @@ func TestRejectsSnapshotWithTamperedAgent(t *testing.T) {
 	tampered := cloneTurn(got.Turn)
 	tampered.Steps[0].Started.Agent.Instructions = "EVIL"
 	out := tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("r"))}
-	_, err = runner.Run(t.Context(), tampered, Settle{CallID: "call-1", Outcome: &out})
+	_, err = runner.Run(t.Context(), tampered, Resolve{CallID: "call-1", Outcome: &out})
 	if !errors.Is(err, ErrAgentChanged) {
 		t.Fatalf("tampered snapshot error = %v, want ErrAgentChanged", err)
 	}
@@ -458,7 +458,7 @@ func TestRejectsSnapshotWithTamperedAgent(t *testing.T) {
 	if _, err := runner.Run(
 		t.Context(),
 		got.Turn,
-		Settle{CallID: "call-1", Outcome: &out},
+		Resolve{CallID: "call-1", Outcome: &out},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -548,12 +548,12 @@ func TestLimitsZeroValueResolvesToDefaults(t *testing.T) {
 func TestLimitsResolveKeepsExplicitValues(t *testing.T) {
 	def := testAgent()
 	def.Limits = Limits{
-		ModelAttempts:         2,
-		Interruptions:         4,
-		ProviderPauses:        5,
-		ToolConcurrency:       6,
-		ToolResultBytes:       2048,
-		NoReservedFinalAnswer: true,
+		ModelAttempts:        2,
+		Interruptions:        4,
+		ProviderPauses:       5,
+		ToolConcurrency:      6,
+		ToolResultBytes:      2048,
+		NoReservedFinalReply: true,
 	}
 	if got := def.resolved().Limits; got != def.Limits {
 		t.Fatalf("explicit limits resolved to %+v, want %+v", got, def.Limits)
@@ -662,7 +662,7 @@ func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
 
 func TestNoReservedFinalAnswerAdvertisesToolsOnLastAttempt(t *testing.T) {
 	def := testAgent()
-	def.Limits = Limits{ModelAttempts: 2, NoReservedFinalAnswer: true}
+	def.Limits = Limits{ModelAttempts: 2, NoReservedFinalReply: true}
 	client := &scriptedClient{
 		results: []llm.Result{callResult("lookup-1", "lookup"), final("42")},
 	}

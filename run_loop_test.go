@@ -309,8 +309,8 @@ func TestRetryWithRecordedAgentSucceeds(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if again.Stop.Kind != StopCompleted || again.Answer != "done" {
-			t.Fatalf("%s: stop=%+v answer=%q", name, again.Stop, again.Answer)
+		if again.Stop.Kind != StopCompleted || again.Reply != "done" {
+			t.Fatalf("%s: stop=%+v answer=%q", name, again.Stop, again.Reply)
 		}
 	}
 }
@@ -338,7 +338,7 @@ func TestCommandsOnExistingTurnUseRecordedAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Next() != NextAnswer {
+	if out.Next() != NextResolvePending {
 		t.Fatalf("next=%s, want answer", out.Next())
 	}
 	out, err = runner.Run(t.Context(), out.Turn, out.Pending[0].Approve())

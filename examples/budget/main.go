@@ -76,7 +76,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 	report(out)
-	fmt.Println(out.Answer)
+	fmt.Println(out.Reply)
 	return nil
 }
 

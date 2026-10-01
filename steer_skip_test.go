@@ -248,7 +248,7 @@ func TestUrgentSteerSkipsLaterCallsInSequentialBatch(t *testing.T) {
 	}
 	for _, id := range []string{"b", "c"} {
 		v := view.Tools[id]
-		if v.Status != ToolSettled || modelText(v.Result()) != steerSkipText {
+		if v.Status != ToolFinished || modelText(v.Result()) != steerSkipText {
 			t.Fatalf("replayed %s: %+v", id, v)
 		}
 	}
@@ -410,7 +410,7 @@ func TestUrgentSteerLeavesApprovalsAndExternalWaitsPending(t *testing.T) {
 	}
 	requireRan(t, out.Turn, "a")
 	requireSkipped(t, out.Turn, "b", true)
-	for _, step := range stepsOf(out.Turn, StepDelivered) {
+	for _, step := range stepsOf(out.Turn, StepMessagesAdded) {
 		if step.Context.Steering {
 			t.Fatal("the steer was recorded with no model call to read it")
 		}
@@ -418,7 +418,7 @@ func TestUrgentSteerLeavesApprovalsAndExternalWaitsPending(t *testing.T) {
 	// The host answers both. The approved call runs: it came before the
 	// skip, and the steer reaches the next model call after its result.
 	for _, pending := range out.Pending {
-		var settle Settle
+		var settle Resolve
 		switch pending.ID {
 		case "p":
 			settle = pending.Approve()
@@ -463,7 +463,7 @@ type crashOnSkip struct {
 }
 
 func (c *crashOnSkip) Commit(ctx context.Context, req CommitRequest) error {
-	if req.Step.Kind == StepToolSettled && req.Step.Tool.Call.ID == c.id &&
+	if req.Step.Kind == StepToolFinished && req.Step.Tool.Call.ID == c.id &&
 		req.Step.Tool.Reason == reasonSteering && c.fired.CompareAndSwap(false, true) {
 		return errors.New("injected: worker crashed")
 	}
@@ -511,7 +511,7 @@ func TestCrashAfterSteeringSkipResumesFromTheRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	if view.Tools["b"].Status != ToolStarted ||
-		view.Tools["c"].Status != ToolSettled ||
+		view.Tools["c"].Status != ToolFinished ||
 		view.Tools["d"].Status != ToolRequested {
 		t.Fatalf(
 			"saved b=%s c=%s d=%s",
@@ -574,7 +574,7 @@ func TestReplayAcceptsAllowedToNotExecutedOnlyForSteering(t *testing.T) {
 	for _, reason := range []string{"", "tool unavailable", "not accepted: steering"} {
 		forged := cloneTurn(out.Turn)
 		for i, step := range forged.Steps {
-			if step.Kind == StepToolSettled && step.Tool.Call.ID == "b" {
+			if step.Kind == StepToolFinished && step.Tool.Call.ID == "b" {
 				forged.Steps[i].Tool.Reason = reason
 			}
 		}
@@ -596,14 +596,14 @@ func TestSteerSkipsOnlyUnstartedCalls(t *testing.T) {
 		ToolWaiting:         false,
 		ToolApprovalPending: false,
 		ToolDenied:          false,
-		ToolUncertain:       false,
+		ToolResultUnknown:   false,
 	} {
 		s := &replayState{
 			callOrder:    []string{"a", "b"},
 			callAttempts: map[string]string{"a": "m1", "b": "m1"},
 		}
 		s.Tools = map[string]ToolView{
-			"a": {Status: ToolSettled, steered: true},
+			"a": {Status: ToolFinished, steered: true},
 			"b": {Status: status},
 		}
 		if got := r.steerSkips(s, "b"); got != want {
@@ -625,7 +625,7 @@ func TestUrgentSteerNeverSkipsSubmission(t *testing.T) {
 	agent := testAgent()
 	agent.OutputSchema = json.RawMessage(`{"type":"object"}`)
 	agent.Limits.ModelAttempts = 1
-	agent.Limits.NoReservedFinalAnswer = true
+	agent.Limits.NoReservedFinalReply = true
 	submit := func(string) string { return SubmitOutputTool }
 	client := newUrgentClient(urgentCall{
 		during: func(ctx context.Context) {
@@ -653,7 +653,7 @@ func TestUrgentSteerSkipsNothingWithoutANextCall(t *testing.T) {
 	bench := newSkipBench()
 	agent := testAgent()
 	agent.Limits.ModelAttempts = 1
-	agent.Limits.NoReservedFinalAnswer = true
+	agent.Limits.NoReservedFinalReply = true
 	client := newUrgentClient(urgentCall{
 		during: func(ctx context.Context) {
 			inbox.sendUrgent(t, "note")
@@ -723,7 +723,7 @@ func TestUrgentSteerOnLastAttemptReachesFinalAnswerCall(t *testing.T) {
 	}
 	delivered := false
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepDelivered && step.Context != nil &&
+		if step.Kind == StepMessagesAdded && step.Context != nil &&
 			step.Context.Steering {
 			delivered = true
 		}
@@ -821,7 +821,7 @@ func (c *steerOnModelSettled) Commit(ctx context.Context, req CommitRequest) err
 	if err := c.MemoryRecorder.Commit(ctx, req); err != nil {
 		return err
 	}
-	if req.Step.Kind == StepModelSettled && c.fired.CompareAndSwap(false, true) {
+	if req.Step.Kind == StepModelCallFinished && c.fired.CompareAndSwap(false, true) {
 		c.inbox.sendUrgent(c.t, "also mention the date")
 	}
 	return nil
@@ -1052,7 +1052,7 @@ func TestReplayRejectsSteeringSkipOfSubmission(t *testing.T) {
 			if step.Kind == StepToolStarted {
 				continue
 			}
-			if step.Kind == StepToolSettled {
+			if step.Kind == StepToolFinished {
 				skipped := tool.Outcome{
 					State:  tool.StateNotExecuted,
 					Output: new(tool.TextOutput(steerSkipText)),

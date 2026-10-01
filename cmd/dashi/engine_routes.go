@@ -41,7 +41,7 @@ func (e *Engine) bindCommand(ctx context.Context, command dashi.Command) error {
 			(last.View.Agent.Provider != start.Agent.Provider || last.View.Agent.API != start.Agent.API) {
 			// Session closes a stopped turn before admitting Start, and checks
 			// its old destination during that close. Complete that close first.
-			if last.Next == dashi.NextRunning || last.Next == dashi.NextAnswer {
+			if last.Next == dashi.NextRunning || last.Next == dashi.NextResolvePending {
 				return &session.TurnBusyError{TurnID: last.View.ID, Next: last.Next}
 			}
 			if err := p.bind(ctx, last.View.Agent); err != nil {

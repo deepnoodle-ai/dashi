@@ -550,7 +550,7 @@ func TestAttemptsSumToSpend(t *testing.T) {
 	}
 	var ids []string
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelIntent {
+		if step.Kind == StepModelCallStarted {
 			ids = append(ids, step.Model.AttemptID)
 		}
 	}
@@ -566,9 +566,9 @@ func TestAttemptsSumToSpend(t *testing.T) {
 	intents := map[string]*ModelFact{}
 	for _, step := range out.Turn.Steps {
 		switch step.Kind {
-		case StepModelIntent:
+		case StepModelCallStarted:
 			intents[step.Model.AttemptID] = step.Model
-		case StepModelSettled:
+		case StepModelCallFinished:
 			got := AttemptSpendOf(intents[step.Model.AttemptID], step.Model)
 			var want AttemptSpend
 			for _, a := range view.Attempts {

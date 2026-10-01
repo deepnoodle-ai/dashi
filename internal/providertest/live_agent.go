@@ -74,13 +74,13 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 		},
 	)
 	if err != nil || out.Stop.Kind != dashi.StopCompleted || !strings.Contains(
-		strings.ToLower(out.Answer),
+		strings.ToLower(out.Reply),
 		"indigo",
 	) {
 		t.Fatalf(
 			"outcome=%+v answer=%q err=%v",
 			out.Stop,
-			out.Answer,
+			out.Reply,
 			err,
 		)
 	}
@@ -144,7 +144,7 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 		}
 	}
 	if outcome == nil || outcome.Stop.Kind != dashi.StopCompleted || !strings.Contains(
-		strings.ToLower(outcome.Answer),
+		strings.ToLower(outcome.Reply),
 		"indigo",
 	) || previews == 0 || committed < 4 {
 		t.Fatalf(
@@ -218,7 +218,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 	)
 	if err != nil || out.Stop.Kind != dashi.StopLimited || out.Stop.Reason != "model_attempts" ||
 		!strings.Contains(
-			out.Answer,
+			out.Reply,
 			"56",
 		) || counted.sends != 2 || runs != 1 {
 		t.Fatalf(
@@ -234,7 +234,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
 	for _, step := range out.Turn.Steps {
-		if step.Kind == dashi.StepModelIntent && step.Model.FinalAnswerOnly {
+		if step.Kind == dashi.StepModelCallStarted && step.Model.FinalReplyOnly {
 			if len(step.Model.Tools) != 0 {
 				t.Fatalf("final request advertised tools: %+v", step.Model.Tools)
 			}
@@ -242,7 +242,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 				"model=%s attempts=%d answer=%q",
 				modelName,
 				view.ModelAttempts,
-				out.Answer,
+				out.Reply,
 			)
 			return
 		}
@@ -340,11 +340,11 @@ func AgentTurn(
 			t.Fatal(err)
 		}
 		if out.Stop.Kind != dashi.StopCompleted ||
-			!strings.Contains(strings.ToLower(out.Answer), "indigo") {
+			!strings.Contains(strings.ToLower(out.Reply), "indigo") {
 			t.Fatalf(
 				"streamed turn: stop=%+v answer=%q",
 				out.Stop,
-				out.Answer,
+				out.Reply,
 			)
 		}
 		view, err := dashi.Replay(out.Turn)
@@ -359,7 +359,7 @@ func AgentTurn(
 			"streamed turn: attempts=%d steps=%d answer=%q",
 			view.ModelAttempts,
 			len(out.Turn.Steps),
-			out.Answer,
+			out.Reply,
 		)
 	})
 
@@ -418,13 +418,13 @@ func AgentTurn(
 			}
 			if out.Stop.Kind != dashi.StopCompleted ||
 				!strings.Contains(
-					out.Answer,
+					out.Reply,
 					"56",
 				) || runs != 1 || counted.sends != 2 {
 				t.Fatalf(
 					"tool turn: stop=%+v answer=%q runs=%d sends=%d",
 					out.Stop,
-					out.Answer,
+					out.Reply,
 					runs,
 					counted.sends,
 				)
@@ -434,21 +434,21 @@ func AgentTurn(
 				t.Fatalf("tool record: view=%+v err=%v", view, err)
 			}
 			for _, observed := range view.Tools {
-				if observed.Status != dashi.ToolSettled || observed.Outcome == nil ||
+				if observed.Status != dashi.ToolFinished || observed.Outcome == nil ||
 					observed.Outcome.State != tool.StateSucceeded {
 					t.Fatalf("tool was not settled: %+v", observed)
 				}
 			}
 			expected := []dashi.StepKind{
-				dashi.StepStarted,
-				dashi.StepModelIntent,
-				dashi.StepModelSettled,
+				dashi.StepTurnStarted,
+				dashi.StepModelCallStarted,
+				dashi.StepModelCallFinished,
 				dashi.StepToolDecision,
 				dashi.StepToolStarted,
-				dashi.StepToolSettled,
-				dashi.StepModelIntent,
-				dashi.StepModelSettled,
-				dashi.StepStopped,
+				dashi.StepToolFinished,
+				dashi.StepModelCallStarted,
+				dashi.StepModelCallFinished,
+				dashi.StepTurnStopped,
 			}
 			if len(out.Turn.Steps) != len(expected) {
 				t.Fatalf(
@@ -488,7 +488,7 @@ func AgentTurn(
 				view.ModelAttempts,
 				len(out.Turn.Steps),
 				runs,
-				out.Answer,
+				out.Reply,
 			)
 		},
 	)
@@ -581,8 +581,8 @@ func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
 		dashi.WithSteering(inbox),
 	)
 	if err != nil || out.Stop.Kind != dashi.StopCompleted ||
-		!strings.Contains(out.Answer, "66") {
-		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+		!strings.Contains(out.Reply, "66") {
+		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
 	}
 	delivered := 0
 	for _, step := range out.Turn.Steps {
@@ -591,7 +591,7 @@ func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
 	if delivered != 1 {
 		t.Fatalf("delivered %d steers; want 1", delivered)
 	}
-	t.Logf("model=%s answer=%q", modelName, out.Answer)
+	t.Logf("model=%s answer=%q", modelName, out.Reply)
 }
 
 // UrgentSteerCutsStream makes two paid calls. An urgent steer sent once a
@@ -647,7 +647,7 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 	}
 	var cut *dashi.ModelFact
 	for _, step := range out.Turn.Steps {
-		if step.Kind == dashi.StepModelSettled &&
+		if step.Kind == dashi.StepModelCallFinished &&
 			step.Model.Interrupted == dashi.InterruptSteering {
 			cut = step.Model
 		}
@@ -660,14 +660,14 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 		)
 	}
 	if out.Stop.Kind != dashi.StopCompleted ||
-		!strings.Contains(strings.ToUpper(out.Answer), "PINEAPPLE") {
-		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Answer)
+		!strings.Contains(strings.ToUpper(out.Reply), "PINEAPPLE") {
+		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Reply)
 	}
 	t.Logf(
 		"model=%s partial=%d chars answer=%q",
 		modelName,
 		len(cut.Result.Message.Text()),
-		out.Answer,
+		out.Reply,
 	)
 }
 
@@ -730,15 +730,15 @@ func UrgentSteerPartialEndsInWhitespace(
 		)
 	}
 	if out.Stop.Kind != dashi.StopCompleted ||
-		!strings.Contains(strings.ToUpper(out.Answer), "PINEAPPLE") {
-		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Answer)
+		!strings.Contains(strings.ToUpper(out.Reply), "PINEAPPLE") {
+		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Reply)
 	}
 	t.Logf(
 		"model=%s partial=%d chars ending %q answer=%q",
 		modelName,
 		len(partial),
 		partial[max(0, len(partial)-6):],
-		out.Answer,
+		out.Reply,
 	)
 }
 
@@ -850,7 +850,7 @@ func UrgentSteerAfterPause(
 			out = *event.Outcome
 		}
 		if step := event.Step; paused == "" && step != nil &&
-			step.Kind == dashi.StepModelSettled && step.Model.Result != nil &&
+			step.Kind == dashi.StepModelCallFinished && step.Model.Result != nil &&
 			step.Model.Result.Stop.Kind == llm.StopPause {
 			paused = step.Model.AttemptID
 		}
@@ -881,14 +881,14 @@ func UrgentSteerAfterPause(
 	case !pending && cut == nil:
 		t.Fatalf("the continuation was not cut short: stop=%+v", out.Stop)
 	}
-	answer := strings.TrimSpace(out.Answer)
+	answer := strings.TrimSpace(out.Reply)
 	if out.Stop.Kind != dashi.StopCompleted ||
 		!strings.Contains(strings.ToUpper(answer), "PINEAPPLE") ||
 		len(answer) > 40 {
 		t.Fatalf(
 			"stop=%+v answer=%q calls=%s",
 			out.Stop,
-			out.Answer,
+			out.Reply,
 			describeCalls(out.Turn),
 		)
 	}
@@ -897,7 +897,7 @@ func UrgentSteerAfterPause(
 		modelName,
 		pending,
 		cut != nil,
-		out.Answer,
+		out.Reply,
 		out.Spend.Cost,
 	)
 }
@@ -906,7 +906,7 @@ func UrgentSteerAfterPause(
 // call without its result.
 func unfinishedHosted(turn dashi.Turn, attempt string) bool {
 	for _, step := range turn.Steps {
-		if step.Kind != dashi.StepModelSettled ||
+		if step.Kind != dashi.StepModelCallFinished ||
 			step.Model.AttemptID != attempt || step.Model.Result == nil {
 			continue
 		}
@@ -940,7 +940,7 @@ func hasWarning(turn dashi.Turn, text string) bool {
 func describeCalls(turn dashi.Turn) string {
 	var b strings.Builder
 	for _, step := range turn.Steps {
-		if step.Kind != dashi.StepModelSettled {
+		if step.Kind != dashi.StepModelCallFinished {
 			continue
 		}
 		m := step.Model
@@ -958,7 +958,7 @@ func describeCalls(turn dashi.Turn) string {
 func steeringCut(turn dashi.Turn) *dashi.ModelFact {
 	var cut *dashi.ModelFact
 	for _, step := range turn.Steps {
-		if step.Kind == dashi.StepModelSettled &&
+		if step.Kind == dashi.StepModelCallFinished &&
 			step.Model.Interrupted == dashi.InterruptSteering {
 			cut = step.Model
 		}

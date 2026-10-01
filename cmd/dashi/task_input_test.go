@@ -68,7 +68,7 @@ func TestTaskCopiesOriginalEvidenceAndResourcesAcrossRetryAndReopen(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := dashi.Runner{Client: client, Recorder: recorder, ContentResolver: attachments, Tools: tool.List{taskTool}, Hooks: dashi.ModelHook{Name: "resource-fixture", Func: func(ctx context.Context, plan dashi.ModelPlan) (dashi.ModelDecision, error) {
+	runner := dashi.Runner{Client: client, Recorder: recorder, ContentLoader: attachments, Tools: tool.List{taskTool}, Hooks: dashi.ModelHook{Name: "resource-fixture", Func: func(ctx context.Context, plan dashi.ModelPlan) (dashi.ModelDecision, error) {
 		return dashi.SeedContext(resource).Func(ctx, plan)
 	}}.Hooks()}
 	parentID := session.TurnID(meta.ID, 1)
@@ -108,11 +108,11 @@ func TestTaskCopiesOriginalEvidenceAndResourcesAcrossRetryAndReopen(t *testing.T
 		t.Fatal("recorded client was replaced by foreground service")
 	}
 	childTurn := session.TurnID(delegate.ChildID(refCall.TurnID, refCall.CallID), 1)
-	data, err := services.ContentResolver.Resolve(ctx, childTurn, childRef)
+	data, err := services.ContentLoader.Load(ctx, childTurn, childRef)
 	if err != nil || string(data) != "original admitted bytes" {
 		t.Fatalf("recovery changed evidence: %q %v", data, err)
 	}
-	if _, err := services.ContentResolver.Resolve(ctx, parentID, childRef); err == nil {
+	if _, err := services.ContentLoader.Load(ctx, parentID, childRef); err == nil {
 		t.Fatal("parent authorized by child resolver")
 	}
 }
@@ -121,7 +121,7 @@ func TestTaskResourcesSkipLiveRediscovery(t *testing.T) {
 	manager := newResourceManager(filepath.Join(t.TempDir(), "missing"), "")
 	ref := dashi.CallRef{TurnID: "parent", CallID: "call"}
 	decision, err := manager.beforeModel(t.Context(), dashi.ModelPlan{Turn: dashi.TurnView{Parent: &ref}})
-	if err != nil || decision.Stop != nil || len(decision.Deliver) != 0 {
+	if err != nil || decision.Stop != nil || len(decision.AddMessages) != 0 {
 		t.Fatalf("child read live resources: %+v %v", decision, err)
 	}
 }

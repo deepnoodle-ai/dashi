@@ -89,8 +89,8 @@ func TestSessionSettleAfterRecordInvalid(t *testing.T) {
 // notStarted names the proofs that a Start's turn_started step was not
 // recorded.
 func TestSessionNotStarted(t *testing.T) {
-	started := &dashi.Step{Kind: dashi.StepStarted}
-	model := &dashi.Step{Kind: dashi.StepModelIntent}
+	started := &dashi.Step{Kind: dashi.StepTurnStarted}
+	model := &dashi.Step{Kind: dashi.StepModelCallStarted}
 	cases := []struct {
 		name string
 		err  error

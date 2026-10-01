@@ -243,7 +243,7 @@ func TestAttachmentOwnedPublicationRealisticMedia(t *testing.T) {
 	if len(source.Data) != 0 || source.Ref == nil || source.Ref.Size != int64(len(body)) {
 		t.Fatalf("%+v", source)
 	}
-	got, err := store.Resolve(context.Background(), s.ID+"-2", *source.Ref)
+	got, err := store.Load(context.Background(), s.ID+"-2", *source.Ref)
 	if err != nil || len(got) != len(body) || got[0] != 0x89 {
 		t.Fatalf("len=%d %v", len(got), err)
 	}

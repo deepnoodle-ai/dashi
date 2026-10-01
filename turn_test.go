@@ -325,12 +325,12 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 			t.Fatalf("approval digest of %s does not match", args)
 		}
 	}
-	approval := ApprovalFact{
+	approval := ApprovalDecision{
 		CallID:     "call-1",
 		Approve:    true,
 		ArgsDigest: canonjson.Digest(messyArgs),
 	}
-	settle := Settle{CommandID: "approve", CallID: "call-1", Approval: &approval}
+	settle := Resolve{CommandID: "approve", CallID: "call-1", Approval: &approval}
 	out, err = runner.Run(t.Context(), turn, settle)
 	if err != nil || !out.ReadyToContinue {
 		t.Fatalf("approve=%+v err=%v", out, err)
@@ -532,7 +532,7 @@ func equalFixture() Step {
 		TurnID:        "turn",
 		Seq:           1,
 		At:            time.Date(2026, 1, 2, 3, 4, 5, 123456789, time.UTC),
-		Kind:          StepStarted,
+		Kind:          StepTurnStarted,
 		CommandID:     "start",
 		CommandDigest: "digest",
 		Started: &StartFact{

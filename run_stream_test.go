@@ -50,9 +50,9 @@ func TestRunnerStreamIsLazyOrderedAndTerminal(t *testing.T) {
 	}
 	want := []string{
 		"turn_started",
-		"model_requested",
+		"model_call_started",
 		"delta:done",
-		"model_settled",
+		"model_call_finished",
 		"turn_stopped",
 		"outcome",
 	}
@@ -102,7 +102,7 @@ func TestRunnerStreamValidationAndRejectedWrite(t *testing.T) {
 	if client.sends != 0 {
 		t.Fatal("invalid command dispatched model")
 	}
-	recorder := &failOnceKind{base: NewMemoryRecorder(), kind: StepStarted}
+	recorder := &failOnceKind{base: NewMemoryRecorder(), kind: StepTurnStarted}
 	steps, terminals := 0, 0
 	for event, err := range (Runner{
 		Client:   client,
@@ -128,7 +128,7 @@ func TestRunnerStreamValidationAndRejectedWrite(t *testing.T) {
 }
 
 func TestRunnerStreamBreakBeforeDispatchRecordsInterruption(t *testing.T) {
-	for _, stopAt := range []StepKind{StepStarted, StepModelIntent} {
+	for _, stopAt := range []StepKind{StepTurnStarted, StepModelCallStarted} {
 		t.Run(string(stopAt), func(t *testing.T) {
 			client := &scriptedClient{results: []llm.Result{final("unused")}}
 			recorder := NewMemoryRecorder()
@@ -151,10 +151,10 @@ func TestRunnerStreamBreakBeforeDispatchRecordsInterruption(t *testing.T) {
 			if err != nil || view.Stop.Kind != StopInterrupted || client.sends != 0 {
 				t.Fatalf("view=%+v err=%v sends=%d", view, err, client.sends)
 			}
-			if stopAt == StepModelIntent {
+			if stopAt == StepModelCallStarted {
 				found := false
 				for _, step := range turn.Steps {
-					if step.Kind == StepModelSettled && step.Model != nil &&
+					if step.Kind == StepModelCallFinished && step.Model != nil &&
 						step.Model.Interrupted != InterruptNone {
 						found = true
 					}
@@ -212,7 +212,7 @@ func TestStreamBreakKeepsInterruptedPartialResult(t *testing.T) {
 	}
 	found := false
 	for _, step := range turn.Steps {
-		if step.Kind == StepModelSettled && step.Model != nil &&
+		if step.Kind == StepModelCallFinished && step.Model != nil &&
 			step.Model.Interrupted == InterruptRun &&
 			step.Model.Result != nil &&
 			step.Model.Result.ID == "partial" {
@@ -273,7 +273,7 @@ func TestRunnerStreamBreakWithContextCancelEndsTurn(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if event.Step != nil && event.Step.Kind == StepModelSettled {
+		if event.Step != nil && event.Step.Kind == StepModelCallFinished {
 			break
 		}
 	}
@@ -288,7 +288,7 @@ func TestRunnerStreamBreakWithContextCancelEndsTurn(t *testing.T) {
 	if view.Stop.Kind != StopCanceled {
 		t.Fatalf("stop=%+v, want canceled", view.Stop)
 	}
-	if view.Tools["call"].Status != ToolSettled {
+	if view.Tools["call"].Status != ToolFinished {
 		t.Fatalf("unstarted call status=%s, want settled", view.Tools["call"].Status)
 	}
 	if view.Tools["call"].Outcome == nil ||

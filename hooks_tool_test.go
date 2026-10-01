@@ -213,7 +213,7 @@ func TestAfterToolWithholdsWhenTheRunEnds(t *testing.T) {
 		t.Fatalf("stop=%+v runs=%d err=%v", out.Stop, runs, err)
 	}
 	view := out.Tools["call-1"]
-	if view.Status != ToolSettled || view.Outcome.State != tool.StateSucceeded ||
+	if view.Status != ToolFinished || view.Outcome.State != tool.StateSucceeded ||
 		!strings.Contains(modelText(view.Result()), "withheld") ||
 		!hasWarning(out, WarningHookFailed) {
 		t.Fatalf("view=%+v result=%+v warnings=%+v", view, view.Result(), out.Warnings)
@@ -352,7 +352,7 @@ func TestAfterToolRunsOnSettledHostResults(t *testing.T) {
 			hasWarning(out, WarningHooksChanged) {
 			t.Fatalf("settled=%+v warnings=%+v", settled, out.Warnings)
 		}
-		// A Settle from a handler without the hooks is recorded as a change.
+		// A Resolve from a handler without the hooks is recorded as a change.
 		bare := runner
 		bare.Hooks = Hooks{}
 		out2, err := bare.Run(t.Context(), cloneTurn(out.Turn), Continue{CommandID: "go"})
@@ -394,7 +394,7 @@ func TestAfterToolRunsOnSettledHostResults(t *testing.T) {
 		if err != nil || out.Stop.Kind != StopCanceled {
 			t.Fatalf("cancel stop=%+v err=%v", out.Stop, err)
 		}
-		late := Settle{CommandID: "late", CallID: "call-1", Outcome: &result}
+		late := Resolve{CommandID: "late", CallID: "call-1", Outcome: &result}
 		out, err = runner.Run(t.Context(), out.Turn, late)
 		if err != nil || modelText(out.Tools["call-1"].Result()) != "key=[redacted]" {
 			t.Fatalf("late result=%+v err=%v", out.Tools["call-1"].Result(), err)
@@ -419,7 +419,7 @@ func TestReplayRejectsAResultOnRunnerWrittenOutcomes(t *testing.T) {
 	}
 	turn := cloneTurn(out.Turn)
 	for i, step := range turn.Steps {
-		if step.Kind == StepToolSettled {
+		if step.Kind == StepToolFinished {
 			turn.Steps[i].Tool.Result = &llm.ToolResult{
 				CallID: "call-1",
 				Output: tool.TextOutput("forged"),
@@ -622,12 +622,12 @@ func TestAfterToolRunsOnFatalAndUncertainResults(t *testing.T) {
 			Agent:     testAgent(),
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		})
-		if err != nil || out.Stop.Kind != StopUncertain || calls != 0 {
+		if err != nil || out.Stop.Kind != StopResultUnknown || calls != 0 {
 			t.Fatalf("stop=%+v calls=%d err=%v", out.Stop, calls, err)
 		}
 		result := tool.Succeeded("reconciled")
 		out, err = runner.Run(t.Context(), out.Turn, out.Pending[0].Result(result))
-		if err != nil || calls != 1 || out.Tools["call-1"].Status != ToolSettled {
+		if err != nil || calls != 1 || out.Tools["call-1"].Status != ToolFinished {
 			t.Fatalf("status=%s calls=%d err=%v", out.Tools["call-1"].Status, calls, err)
 		}
 	})

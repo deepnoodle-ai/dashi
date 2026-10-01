@@ -33,7 +33,7 @@ func TestNamedFinishContextSurvivesFreshRunnerResume(t *testing.T) {
 						t.Fatal("first finish already contains the named context")
 					}
 					firstDeliveries++
-					return dashi.FinishDecision{Deliver: []dashi.ContextItem{item}}, nil
+					return dashi.FinishDecision{AddMessages: []dashi.ContextItem{item}}, nil
 				},
 			}},
 			BeforeModel: []dashi.ModelHook{{
@@ -87,9 +87,9 @@ func TestNamedFinishContextSurvivesFreshRunnerResume(t *testing.T) {
 	}
 	resumed, err := freshRunner.Run(t.Context(), saved, dashi.Continue{CommandID: "resume"})
 	if err != nil || resumed.Stop.Kind != dashi.StopCompleted ||
-		resumed.Answer != "Next step: remove unused files." || freshChecks != 1 {
+		resumed.Reply != "Next step: remove unused files." || freshChecks != 1 {
 		t.Fatalf("resumed stop=%+v answer=%q checks=%d err=%v",
-			resumed.Stop, resumed.Answer, freshChecks, err)
+			resumed.Stop, resumed.Reply, freshChecks, err)
 	}
 	if len(freshClient.Inputs()) != 1 {
 		t.Fatalf("resumed model calls=%d, want 1", len(freshClient.Inputs()))

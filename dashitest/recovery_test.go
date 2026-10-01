@@ -30,15 +30,15 @@ func TestRecoveryFromEachCommitFault(t *testing.T) {
 		kind dashi.StepKind
 		seq  int64
 	}{
-		{kind: dashi.StepStarted},
-		{kind: dashi.StepModelIntent},
-		{kind: dashi.StepModelSettled},
+		{kind: dashi.StepTurnStarted},
+		{kind: dashi.StepModelCallStarted},
+		{kind: dashi.StepModelCallFinished},
 		{kind: dashi.StepToolDecision},
 		{kind: dashi.StepToolStarted},
-		{kind: dashi.StepToolSettled},
-		{kind: dashi.StepModelIntent, seq: 7},
-		{kind: dashi.StepModelSettled, seq: 8},
-		{kind: dashi.StepStopped},
+		{kind: dashi.StepToolFinished},
+		{kind: dashi.StepModelCallStarted, seq: 7},
+		{kind: dashi.StepModelCallFinished, seq: 8},
+		{kind: dashi.StepTurnStopped},
 	}
 	faults := []dashitest.Fault{
 		dashitest.Reject,
@@ -141,7 +141,7 @@ func testRecovery(
 
 	// Nothing may depend on a step before it is acknowledged.
 	switch kind {
-	case dashi.StepModelIntent:
+	case dashi.StepModelCallStarted:
 		want := countIntents(saved, fired.Seq)
 		if model.calls() != want {
 			t.Fatalf(
@@ -161,7 +161,7 @@ func testRecovery(
 	if uncertainTool(kind, committed) {
 		// The record cannot show whether the tool took effect, so the
 		// runner must stop and ask rather than run it again or assume.
-		if out.Stop.Kind != dashi.StopUncertain {
+		if out.Stop.Kind != dashi.StopResultUnknown {
 			t.Fatalf("resumed stop is %+v; want uncertain", out.Stop)
 		}
 		result := tool.Outcome{
@@ -171,7 +171,7 @@ func testRecovery(
 		out = run(
 			t,
 			out.Turn,
-			dashi.Settle{CommandID: "reconcile", CallID: "call-1", Outcome: &result},
+			dashi.Resolve{CommandID: "reconcile", CallID: "call-1", Outcome: &result},
 			runner,
 			dashi.WithOwner("worker-2"),
 		)
@@ -187,7 +187,7 @@ func testRecovery(
 	if out.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("recovered stop is %+v; want completed", out.Stop)
 	}
-	if got := out.Answer; got != "done" {
+	if got := out.Reply; got != "done" {
 		t.Fatalf("answer is %q; want done", got)
 	}
 	final, err := store.Load(t.Context(), "t1")
@@ -206,7 +206,7 @@ func testRecovery(
 	// docs promise Continue resends an interrupted call. Anything recorded
 	// must not be repeated.
 	wantCalls := 2
-	if kind == dashi.StepModelSettled && !committed {
+	if kind == dashi.StepModelCallFinished && !committed {
 		wantCalls = 3
 	}
 	if model.calls() != wantCalls {
@@ -232,7 +232,7 @@ func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 		kind dashi.StepKind
 	}{
 		{name: "completed"},
-		{name: "after model intent", kind: dashi.StepModelIntent},
+		{name: "after model intent", kind: dashi.StepModelCallStarted},
 		{name: "after tool start", kind: dashi.StepToolStarted},
 	}
 	for _, tc := range tests {
@@ -426,7 +426,7 @@ func run(
 // with no result. Only the host can reconcile that call.
 func uncertainTool(kind dashi.StepKind, committed bool) bool {
 	return kind == dashi.StepToolStarted && committed ||
-		kind == dashi.StepToolSettled && !committed
+		kind == dashi.StepToolFinished && !committed
 }
 
 func requireReported(
@@ -499,7 +499,7 @@ func requireRecordAt(
 func countIntents(turn dashi.Turn, seq int64) int {
 	n := 0
 	for _, step := range turn.Steps {
-		if step.Seq < seq && step.Kind == dashi.StepModelIntent {
+		if step.Seq < seq && step.Kind == dashi.StepModelCallStarted {
 			n++
 		}
 	}
@@ -513,9 +513,9 @@ func requireEveryIntentSettled(t *testing.T, turn dashi.Turn) {
 	open := map[string]bool{}
 	for _, step := range turn.Steps {
 		switch step.Kind {
-		case dashi.StepModelIntent:
+		case dashi.StepModelCallStarted:
 			open[step.Model.AttemptID] = true
-		case dashi.StepModelSettled, dashi.StepModelReconciled:
+		case dashi.StepModelCallFinished, dashi.StepModelCallFinishedByHost:
 			delete(open, step.Model.AttemptID)
 		}
 	}

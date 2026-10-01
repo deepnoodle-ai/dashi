@@ -55,7 +55,7 @@ func ExampleRunUntilQuiet() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(out.Answer)
+	fmt.Println(out.Reply)
 	fmt.Println("turn 2:", out.Turn.ID == session.TurnID(s.ID, 2))
 	fmt.Println("origin:", out.Origin)
 	// Output:
@@ -129,7 +129,7 @@ func ExampleTasks_Run() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(out.Answer)
+	fmt.Println(out.Reply)
 	fmt.Println("writes:", writes.Load(), "final notices:", notices.Load())
 	// Output:
 	// child: waiting

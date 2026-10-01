@@ -148,7 +148,7 @@ func (c *Controller) runTaskCommand(ctx context.Context, snapshot taskSnapshot, 
 	case dashi.Cancel:
 		cmd.CommandID = id
 		command = cmd
-	case dashi.Settle:
+	case dashi.Resolve:
 		if cmd.CommandID == "" {
 			cmd.CommandID = id
 		}
@@ -212,7 +212,7 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 		var pending *dashi.Pending
 		for i := range snapshot.View.Pending {
 			p := &snapshot.View.Pending[i]
-			if p.ID == callID && p.Kind == dashi.PendingTool && p.Tool != nil && (p.Tool.Status == dashi.ToolStarted || p.Tool.Status == dashi.ToolWaiting || p.Tool.Status == dashi.ToolUncertain) {
+			if p.ID == callID && p.Kind == dashi.PendingTool && p.Tool != nil && (p.Tool.Status == dashi.ToolStarted || p.Tool.Status == dashi.ToolWaiting || p.Tool.Status == dashi.ToolResultUnknown) {
 				pending = p
 				break
 			}
@@ -224,7 +224,7 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 			return err
 		}
 		outcome := tool.Succeeded("Operator verified this exact call completed; its output was not captured.")
-		_, err = c.runTaskCommand(ctx, snapshot, action, callID, dashi.Settle{CallID: callID, Outcome: &outcome})
+		_, err = c.runTaskCommand(ctx, snapshot, action, callID, dashi.Resolve{CallID: callID, Outcome: &outcome})
 		return err
 	case "discard":
 		if err := c.confirmTask(ctx, snapshot, "", fmt.Sprintf("Discard task %s, Turn %s, revision %d? Uncertain effects may already have run. This does not prove they stopped.", id, snapshot.View.ID, snapshot.View.Revision)); err != nil {
@@ -271,7 +271,7 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 			if err := c.confirmTask(ctx, snapshot, "", fmt.Sprintf("Raise the exact task %s Turn %s attempt cap from %d to %d? This is not a dollar cap.", id, snapshot.View.ID, limit.Limit, cmd.ModelAttempts)); err != nil {
 				return err
 			}
-		case dashi.NextResolve:
+		case dashi.NextFix:
 			if !snapshot.View.ReadyToContinue || snapshot.View.Stop.Kind != dashi.StopFailed && snapshot.View.Stop.Kind != dashi.StopRefused {
 				return fmt.Errorf("resolve the recorded cause before continuation")
 			}

@@ -239,9 +239,9 @@ func writeAttachment(ctx context.Context, dir *attachmentDir, name string, data 
 	return errors.Join(err, f.Close())
 }
 
-// Resolve reads only a strictly identified snapshot in this bound session.
+// Load reads only a strictly identified snapshot in this bound session.
 // The runner verifies the returned bytes' final size and digest.
-func (a *AttachmentStore) Resolve(ctx context.Context, turnID string, ref content.Ref) ([]byte, error) {
+func (a *AttachmentStore) Load(ctx context.Context, turnID string, ref content.Ref) ([]byte, error) {
 	prefix := a.sessionID + "-"
 	if !strings.HasPrefix(turnID, prefix) {
 		return nil, fmt.Errorf("session: attachment belongs to another session")

@@ -374,7 +374,7 @@ func request(seq int64) dashi.CommitRequest {
 			TurnID:  "turn",
 			Seq:     seq,
 			At:      time.Date(2026, 1, 2, 3, 4, 5, int(seq), time.UTC),
-			Kind:    dashi.StepDelivered,
+			Kind:    dashi.StepMessagesAdded,
 		},
 		ExpectedSeq: seq - 1,
 	}

@@ -19,9 +19,9 @@ const (
 	// settle each Pending item (for example, reconcile a model attempt
 	// whose result is unknown), or Cancel the turn.
 	NextResume Next = "resume"
-	// NextAnswer means the turn waits for approvals or tool results; see
-	// TurnView.Pending. Settle each one, then Continue.
-	NextAnswer Next = "answer"
+	// NextResolvePending means the turn waits for approvals or tool results; see
+	// TurnView.Pending. Resolve each one, then Continue.
+	NextResolvePending Next = "resolve_pending"
 	// NextContinue means Continue can run the turn now.
 	NextContinue Next = "continue"
 	// NextRaiseBudget means a cost or token cap stopped the turn. Continue
@@ -31,11 +31,11 @@ const (
 	// NextRaiseAttempts means the model-call limit stopped the turn.
 	// Continue with a higher Continue.ModelAttempts.
 	NextRaiseAttempts Next = "raise_attempts"
-	// NextResolve means a cause outside the turn must be fixed first: a
+	// NextFix means a cause outside the turn must be fixed first: a
 	// failure, a refusal, a host limit, an uncertain effect to settle, or
 	// an interruption the turn cannot resume from. Fix it and Continue, or
 	// Cancel the turn.
-	NextResolve Next = "resolve"
+	NextFix Next = "fix"
 )
 
 // Next maps the turn's recorded stop to the host's next action. A stop
@@ -58,7 +58,7 @@ func (v TurnView) Next() Next {
 	case stop.Terminal, stop.Kind == StopCompleted, stop.Kind == StopCanceled:
 		return NextNone
 	case stop.Kind == StopRefused, stop.Kind == StopFailed:
-		return NextResolve
+		return NextFix
 	case v.Output != nil && v.ReadyToContinue:
 		// Continue finishes the recorded output without a model call.
 		return NextContinue
@@ -70,20 +70,20 @@ func (v TurnView) Next() Next {
 		if v.ReadyToContinue {
 			return NextContinue
 		}
-		return NextAnswer
-	case StopInterrupted, StopUncertain:
+		return NextResolvePending
+	case StopInterrupted, StopResultUnknown:
 		if v.ReadyToContinue {
 			return NextContinue
 		}
 	}
-	return NextResolve
+	return NextFix
 }
 
 // limitNext maps a limited stop that has not ended the turn.
 func (v TurnView) limitNext() Next {
 	if v.Stop.Limit == nil {
 		// One call hit its output or context window.
-		return NextResolve
+		return NextFix
 	}
 	switch v.Stop.Limit.Kind {
 	case LimitModelAttempts:
@@ -93,7 +93,7 @@ func (v TurnView) limitNext() Next {
 		// caused by the cap: the cost of the next call could not be
 		// bounded, and a raise would stop it again.
 		if v.ReadyToContinue {
-			return NextResolve
+			return NextFix
 		}
 		return NextRaiseBudget
 	case LimitProviderPauses:
@@ -101,5 +101,5 @@ func (v TurnView) limitNext() Next {
 			return NextContinue
 		}
 	}
-	return NextResolve
+	return NextFix
 }

@@ -258,7 +258,7 @@ func (s *indexedStore) Commit(ctx context.Context, req dashi.CommitRequest) erro
 	if err := s.MemoryRecorder.Commit(ctx, req); err != nil {
 		return err
 	}
-	if req.Step.Kind == dashi.StepStarted {
+	if req.Step.Kind == dashi.StepTurnStarted {
 		s.mu.Lock()
 		s.turns[req.Step.TurnID] = true
 		s.mu.Unlock()

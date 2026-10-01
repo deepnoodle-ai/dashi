@@ -27,7 +27,7 @@ func TestTaskRunsAsTurnOneOfAChildSession(t *testing.T) {
 	if v.SessionID != childID() || v.TurnID != childTurnID() || v.Turns != 1 {
 		t.Fatalf("view session=%q turn=%q turns=%d", v.SessionID, v.TurnID, v.Turns)
 	}
-	if got := h.view(t, childTurnID()).Answer; got != "found" {
+	if got := h.view(t, childTurnID()).Reply; got != "found" {
 		t.Fatalf("child turn 1 answer=%q", got)
 	}
 	if _, err := h.rec.Load(t.Context(), childID()); err == nil {
@@ -107,8 +107,8 @@ func TestConfigSessionDeliversNotices(t *testing.T) {
 		h.next(t, delegate.TaskEnded)
 		parentHeld.open()
 		out := <-done
-		if out.Answer != "parent read the notice" {
-			t.Fatalf("answer=%q: the turn did not read the notice", out.Answer)
+		if out.Reply != "parent read the notice" {
+			t.Fatalf("answer=%q: the turn did not read the notice", out.Reply)
 		}
 		if n := countItems(out.Turn, delegate.NoticeID(sessionChildTurn(s))); n != 1 {
 			t.Fatalf("notice recorded %d times, want 1", n)
@@ -121,8 +121,8 @@ func TestConfigSessionDeliversNotices(t *testing.T) {
 		g := newGate()
 		h := newHarness(t, scripted(gated(g, "found")), delegate.Config{}, nil)
 		s := sessionTasks(t, h)
-		if out, err := s.Send(t.Context(), "go"); err != nil || out.Answer != "parent done" {
-			t.Fatalf("answer=%q err=%v", out.Answer, err)
+		if out, err := s.Send(t.Context(), "go"); err != nil || out.Reply != "parent done" {
+			t.Fatalf("answer=%q err=%v", out.Reply, err)
 		}
 		g.open()
 		out, err := delegate.RunUntilQuiet(t.Context(), s, h.tasks)
@@ -130,8 +130,8 @@ func TestConfigSessionDeliversNotices(t *testing.T) {
 			t.Fatal(err)
 		}
 		if out.Turn.ID != session.TurnID("conv", 2) || out.Origin != dashi.StartScheduled ||
-			out.Answer != "parent read the notice" {
-			t.Fatalf("turn=%s origin=%q answer=%q", out.Turn.ID, out.Origin, out.Answer)
+			out.Reply != "parent read the notice" {
+			t.Fatalf("turn=%s origin=%q answer=%q", out.Turn.ID, out.Origin, out.Reply)
 		}
 		key := out.Turn.Steps[0].CommandID
 		if key != `queue:["`+delegate.NoticeID(sessionChildTurn(s))+`"]` {
@@ -358,10 +358,10 @@ func TestLaterChildTurnsAcrossRecover(t *testing.T) {
 
 	usd := money.MustParseAmount
 	v := h.tasks.List()[0]
-	if v.Turns != 2 || v.TurnID != turn2 || v.Answer != "done" ||
+	if v.Turns != 2 || v.TurnID != turn2 || v.Reply != "done" ||
 		v.Spend.Cost["USD"] != usd("0.5") {
 		t.Fatalf("view turns=%d turn=%q answer=%q spend=%v",
-			v.Turns, v.TurnID, v.Answer, v.Spend.Cost)
+			v.Turns, v.TurnID, v.Reply, v.Spend.Cost)
 	}
 	// Turn 2 counts under parent turn 7, not under the turn that started
 	// the task.

@@ -67,7 +67,7 @@ After a valid settlement, check budgets before executing further tools, classify
 A token stop caused by UsageIncomplete records `Terminal: true` even if its retained count is below the cap.
 
 Prospective intents need a separate guard because replay includes their fallback usage before dispatch.
-Before committing StepModelIntent, validate its candidate accounting against the current record.
+Before committing StepModelCallStarted, validate its candidate accounting against the current record.
 If it would newly make usage incomplete under an active token cap, return a PersistenceRejected CommitError with that proposed step.
 Do not call the recorder or model. This preserves the existing rejected-intent safety case.
 The existing record remains complete, so do not fabricate a terminal stop based on facts that were never committed.
@@ -75,7 +75,7 @@ Apply this runner guard with either recorder. Cost-only and uncapped intents ret
 If a recorded intent needs recovery, establish its execution outcome under existing nondispatch/reconciliation rules before deciding a terminal token stop.
 
 Separate stop validation from the ended-turn predicate in `state.go` and `runtime.terminalAfter`.
-At StepStopped, calculate terminality from that step's prefix and compare it with its supplied Terminal value.
+At StepTurnStopped, calculate terminality from that step's prefix and compare it with its supplied Terminal value.
 An incomplete-usage token stop is terminal only when that prefix has incomplete usage and the corresponding active token cap.
 After successful validation, the recorded Terminal flag remains authoritative for execution, continuation, and Next.
 Do not recompute an accepted ended state from later corrected accounting.

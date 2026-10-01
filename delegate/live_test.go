@@ -77,15 +77,15 @@ func TestLiveBackgroundTask(t *testing.T) {
 	}
 	select {
 	case v := <-ended:
-		t.Logf("task %s %s: %q", v.ID, v.State, v.Answer)
-		if v.State != "completed" || !strings.Contains(v.Answer, "Priya") {
+		t.Logf("task %s %s: %q", v.ID, v.State, v.Reply)
+		if v.State != "completed" || !strings.Contains(v.Reply, "Priya") {
 			t.Fatalf("task=%+v", v)
 		}
 	default:
 		t.Fatal("the task never ended")
 	}
-	t.Logf("answer: %s", out.Answer)
-	if !strings.Contains(out.Answer, "Priya") {
-		t.Fatalf("the agent never used the result: %q", out.Answer)
+	t.Logf("answer: %s", out.Reply)
+	if !strings.Contains(out.Reply, "Priya") {
+		t.Fatalf("the agent never used the result: %q", out.Reply)
 	}
 }

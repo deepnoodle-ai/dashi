@@ -158,7 +158,7 @@ func (h *taskInputs) prepareStart(ctx context.Context, ref dashi.CallRef, start 
 			if err != nil {
 				return start, err
 			}
-			data, err := parent.Resolve(ctx, ref.TurnID, *source.Ref)
+			data, err := parent.Load(ctx, ref.TurnID, *source.Ref)
 			if err != nil {
 				return start, err
 			}
@@ -204,7 +204,7 @@ func (h *taskInputs) bindServices(ctx context.Context, ref dashi.CallRef, agent 
 	if err != nil {
 		return delegate.ChildServices{}, err
 	}
-	return delegate.ChildServices{Client: client, ContentResolver: store}, nil
+	return delegate.ChildServices{Client: client, ContentLoader: store}, nil
 }
 
 func taskBindingContext(ctx context.Context, ref dashi.CallRef) context.Context {

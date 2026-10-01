@@ -292,7 +292,7 @@ func startStep(id string) dashi.Step {
 		TurnID:        id,
 		Seq:           1,
 		At:            stepTime,
-		Kind:          dashi.StepStarted,
+		Kind:          dashi.StepTurnStarted,
 		CommandID:     "start",
 		CommandDigest: "dashitest-digest",
 		Started: &dashi.StartFact{
@@ -314,7 +314,7 @@ func contextStep(id string, seq int64, text string) dashi.Step {
 		TurnID:  id,
 		Seq:     seq,
 		At:      stepTime.Add(time.Duration(seq) * time.Millisecond),
-		Kind:    dashi.StepDelivered,
+		Kind:    dashi.StepMessagesAdded,
 		Context: &dashi.ContextFact{
 			Items: []dashi.ContextItem{
 				{Origin: dashi.ContextUser, Message: llm.UserMessage(llm.Text(text))},

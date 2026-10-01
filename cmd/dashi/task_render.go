@@ -246,7 +246,7 @@ func taskDetails(snapshot taskSnapshot) string {
 		fmt.Fprintf(&b, "Target controls: /task %s continue · /task %s done CALL_ID · /task %s discard\nContinue requires the recorded remedy; done requires verified completion of the exact started call.\n", snapshot.Task.ID, snapshot.Task.ID, snapshot.Task.ID)
 	}
 	for _, step := range snapshot.Turn.Steps {
-		if step.Kind == dashi.StepToolSettled && step.Tool != nil && step.Tool.Outcome != nil {
+		if step.Kind == dashi.StepToolFinished && step.Tool != nil && step.Tool.Outcome != nil {
 			fmt.Fprintf(&b, "Recorded tool result: %s · call %s · %s\n%s\n", step.Tool.Call.Name, step.Tool.Call.ID, step.Tool.Outcome.State, taskDetailText(outputText(step.Tool.Outcome)))
 		}
 		if step.Model != nil && step.Model.Result != nil && step.Model.Purpose != dashi.ModelPurposeCompaction {
@@ -268,11 +268,11 @@ func taskDispatchCounts(turn dashi.Turn) (int, int) {
 		if f == nil {
 			continue
 		}
-		if step.Kind == dashi.StepModelIntent {
+		if step.Kind == dashi.StepModelCallStarted {
 			intents[f.AttemptID] = true
 			continue
 		}
-		if step.Kind != dashi.StepModelSettled && step.Kind != dashi.StepModelReconciled {
+		if step.Kind != dashi.StepModelCallFinished && step.Kind != dashi.StepModelCallFinishedByHost {
 			continue
 		}
 		settled[f.AttemptID] = !f.Uncertain && f.Failure != llm.FailureUnknown

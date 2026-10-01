@@ -45,12 +45,12 @@ Projection still uses the newest completed nonempty summary. Failed summaries re
 
 The Engine owns one private pending Start and a FIFO of later submitted lines. The Start gets a command ID and frozen input/agent when submitted. A brand-new prompt that first encounters unreadable history may use the existing Exclusive fresh-Start path. The library generates its identity; the first acknowledgment or CommitError freezes it before retry. This narrow exception preserves damaged-log skipping for new input. It never applies after an admission attempt. This is memory-only delivery coordination, not another Session history. Existing Session queued items remain where they are.
 
-While this Start lacks an ordinary StepStarted acknowledgment, later `/queue`, ordinary text, and `!text` enter the Engine FIFO. Acknowledge their queued state immediately. Strip the urgent prefix and explain that it cannot interrupt compaction. Ctrl-C still interrupts. Serialize admission and FIFO transfer under an input mutex, independently of screen events.
+While this Start lacks an ordinary StepTurnStarted acknowledgment, later `/queue`, ordinary text, and `!text` enter the Engine FIFO. Acknowledge their queued state immediately. Strip the urgent prefix and explain that it cannot interrupt compaction. Ctrl-C still interrupts. Serialize admission and FIFO transfer under an input mutex, independently of screen events.
 
 | Boundary or action | Required action |
 | --- | --- |
 | Automatic summary starts/completes | Keep the pending Start and later FIFO. Summary acknowledgment does not acknowledge ordinary input. |
-| Ordinary StepStarted acknowledges the pending command | Clear the pending Start. Transfer later FIFO items to Session.Enqueue in order before admitting later queue writes. |
+| Ordinary StepTurnStarted acknowledges the pending command | Clear the pending Start. Transfer later FIFO items to Session.Enqueue in order before admitting later queue writes. |
 | Ctrl-C before ordinary Start | Show original text as pending and retain both input groups. |
 | Enter with pending original and interrupted summary | Continue that summary, then retry the original keyed Start once it completes. |
 | Continuation stops again | Retain original and later input. Show the next recovery action. |
@@ -63,7 +63,7 @@ Without a pending original, Continue retains normal queue dispatch. After manual
 
 ## Recording acknowledgment and duplicate prevention
 
-Only an acknowledged ordinary StepStarted with the pending CommandID releases the prompt. Compaction events, deltas, metadata saves, and StopCompleted do not. Keep the pending key on rejected or unknown Start writes. Ordinary pre-admission refusals remain visible and require resubmission after recovery; /discard does not run a refused prompt.
+Only an acknowledged ordinary StepTurnStarted with the pending CommandID releases the prompt. Compaction events, deltas, metadata saves, and StopCompleted do not. Keep the pending key on rejected or unknown Start writes. Ordinary pre-admission refusals remain visible and require resubmission after recovery; /discard does not run a refused prompt.
 
 Before resending after an unknown acknowledgment, load the affected turn from CommitError.Step and reconcile its initial CommandID/input. Use the existing Session duplicate/reservation checks when retrying the same Start. A matching recorded Start proves delivery and consumes its reservations. Missing Start permits retry with the same key. Unreadable or conflicting records block resend and retain input with a warning. Never send a fresh key to bypass uncertainty. No later caller Start may evict the idempotency window before this check.
 
@@ -73,7 +73,7 @@ After confirming an existing Start, clear the pending prompt and enqueue later i
 
 Engine configures `compaction.New` from the selected client's ModelInfo when opening a session and changing models. Refresh it before new/manual work. Unknown windows use Policy's 128,000 fallback and warn once per selected model per process. A pending Start retains its chosen model through retry. Do not change an already recorded summary's model on Continue.
 
-Renderer detects StartCompaction at StepStarted. Suppress its user/assistant blocks and deltas. Add an origin-based compaction block with a stable turn-derived ID. Wonton replaces that block for running, completed, failed/canceled, and interrupted states. Pending input uses a separate stable block, resolved after acknowledgment. Plain mode prints each state transition. `-p` sends markers/warnings to stderr and ordinary answer only to stdout.
+Renderer detects StartCompaction at StepTurnStarted. Suppress its user/assistant blocks and deltas. Add an origin-based compaction block with a stable turn-derived ID. Wonton replaces that block for running, completed, failed/canceled, and interrupted states. Pending input uses a separate stable block, resolved after acknowledgment. Plain mode prints each state transition. `-p` sends markers/warnings to stderr and ordinary answer only to stdout.
 
 Derive replayed marker state from records, including empty tagged summaries and failed summaries later closed. Move existing summary-text extraction to a small internal helper shared by Session and renderer. This avoids a new public projection API and divergent tag rules. RenderTurn collapses marker updates to the current recorded state. Reopening never shows summary content or invents a running worker. Keep Session titles derived only from ordinary user input. Existing printable sanitization applies.
 

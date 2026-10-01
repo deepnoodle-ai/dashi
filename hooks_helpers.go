@@ -55,7 +55,7 @@ func SeedContext(item ContextItem) ModelHook {
 					delivery.ID = fmt.Sprintf("%s:%d", base, suffix)
 				}
 			}
-			return ModelDecision{Deliver: []ContextItem{delivery}}, nil
+			return ModelDecision{AddMessages: []ContextItem{delivery}}, nil
 		},
 	}
 }

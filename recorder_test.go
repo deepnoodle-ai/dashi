@@ -15,7 +15,7 @@ func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {
 		Version:       1,
 		TurnID:        "t1",
 		Seq:           1,
-		Kind:          StepStarted,
+		Kind:          StepTurnStarted,
 		CommandID:     "start",
 		CommandDigest: "digest",
 		Started: &StartFact{
@@ -41,7 +41,7 @@ func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {
 		Version: 1,
 		TurnID:  "t1",
 		Seq:     2,
-		Kind:    StepDelivered,
+		Kind:    StepMessagesAdded,
 		Context: &ContextFact{
 			Items: []ContextItem{
 				{Origin: "user", Message: llm.UserMessage(llm.Text("more"))},
@@ -56,7 +56,7 @@ func TestMemoryRecorderFencesOwnerAndRevision(t *testing.T) {
 				Version:       1,
 				TurnID:        "t1",
 				Seq:           1,
-				Kind:          StepStarted,
+				Kind:          StepTurnStarted,
 				CommandID:     "start",
 				CommandDigest: "different",
 				Started:       start.Started,

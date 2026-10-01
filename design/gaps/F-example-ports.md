@@ -164,14 +164,14 @@ Follow-ups found while fixing (Low · Small unless noted):
 
 - **8.1 High · Design. Approving a call takes six steps.** Replay the turn;
   look up `view.Tools[id]`; copy `ArgsDigest` and `Decision.Revision`; pass
-  `CallID` twice (on `Settle` and `ApprovalFact`); `Settle` with its own
+  `CallID` twice (on `Resolve` and `ApprovalDecision`); `Resolve` with its own
   `CommandID`; check `ReadyToContinue`; `Continue`. The binding is right; the
   caller should not have to know it. Direction: approval items on the outcome
   with `Approve()` and `Deny(reason)` that build the command.
 - **8.2 High · Small. A denial reaches the model without a reason.** A denied
   call is recorded as "not executed" with no text, and the model guessed at
   network trouble and offered to retry. `examples/approval` works around it
-  with a `Deliver` note. Direction: a `Reason` on the approval, shown to the
+  with a `AddMessages` note. Direction: a `Reason` on the approval, shown to the
   model. (A recorded-format change, which is free before release.)
 
 ## 9. Content and outputs
@@ -192,7 +192,7 @@ title)` beside `llm.Text`.
 - **9.4 Medium · Small. `AnswerText()` joins text blocks with no separator.**
   Around hosted tool calls the output reads `…53^4.**Tanzania's…`.
 - **9.5 Medium · Small. No helper for citations or hosted activity across a
-  turn.** Callers walk `turn.Steps`, filter `StepModelSettled`, and search
+  turn.** Callers walk `turn.Steps`, filter `StepModelCallFinished`, and search
   content by hand.
 - **9.6 Medium · Small. No schema-from-struct helper for structured output.**
   `Agent.OutputSchema` takes raw JSON, so users write it by hand or import the

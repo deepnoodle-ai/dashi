@@ -141,7 +141,7 @@ arrived), or `not_executed` (the provider verifiably never ran it, so it costs
 nothing). A nil `Charge` on an executed attempt is unknown, for example an
 unpriced model. `Final` means the charge is exact: a measured, complete charge,
 or zero for an attempt that never ran. A charge that is not final is an
-estimate, a lower bound, or unknown. Settle a final attempt at its charge, and
+estimate, a lower bound, or unknown. Resolve a final attempt at its charge, and
 settle the rest by your own rule, such as keeping the hold. A recorder settles
 in the same transaction as the settlement step, with the intent fact it stored
 when it reserved:
@@ -149,16 +149,16 @@ when it reserved:
 ```go
 func (r *Recorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
 	return r.db.Tx(ctx, func(tx *Tx) error {
-		// ...append req.Step, and reserve on StepModelIntent...
+		// ...append req.Step, and reserve on StepModelCallStarted...
 		switch req.Step.Kind {
-		case dashi.StepModelSettled, dashi.StepModelReconciled:
+		case dashi.StepModelCallFinished, dashi.StepModelCallFinishedByHost:
 			intent := tx.ReservedIntent(req.Step.Model.AttemptID)
 			a := dashi.AttemptSpendOf(intent, req.Step.Model)
 			switch {
 			case a.Basis == dashi.SpendNotExecuted:
 				return tx.Release(a.AttemptID)
 			case a.Final:
-				return tx.Settle(a.AttemptID, roundUpToMicros(a.Charge.Total))
+				return tx.Resolve(a.AttemptID, roundUpToMicros(a.Charge.Total))
 			}
 			// Estimated, partial, or unknown: the host's rule, here
 			// keeping the hold.

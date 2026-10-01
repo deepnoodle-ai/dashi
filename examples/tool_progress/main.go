@@ -72,11 +72,11 @@ func run(ctx context.Context) error {
 				100*p.Done/p.Total,
 				p.Message,
 			)
-		case event.Step != nil && event.Step.Kind == dashi.StepToolSettled:
+		case event.Step != nil && event.Step.Kind == dashi.StepToolFinished:
 			fmt.Println()
 		case event.Outcome != nil:
 			out := event.Outcome
-			fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+			fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 		}
 	}
 	return nil

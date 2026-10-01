@@ -4,7 +4,7 @@ Source review of Dashi main at 9d28264 on 2026-09-27; findings are directions,
 not decisions.
 
 **Names:** written before [decision 30](../decisions.md); read `Definition` as
-`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
+`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Resolve`, and a command's
 `ID` as `CommandID`.
 
 Dashi keeps Dive's four wire implementations and the same thin wrappers:
@@ -152,7 +152,7 @@ caller receives:
 | Per-call cost filled automatically | List price from registry | Catalog + Dive | **Partial**: provider-reported only (CC) | `completions.go:469`; `Estimate` has no caller | Let the application optionally configure a qualified price sheet per client, and record the sheet on the ModelFact |
 | Price catalog | Generated tables | Own catalog, checked against Dive | **Missing** | `ModelInfo.Pricing` is supplied by the application | Ship a versioned catalog next to the model catalog |
 | Turn cost total | Summed `Usage.Cost` | Summed on the turn | **Missing** (tokens only) | `TurnView` has `Usage` but no `Cost` (`state.go:32-44`) | Add `TurnView.Cost` per currency, with a completeness flag |
-| Unknown usage in the total | `UsageUnknown` | Charged the full hold | **Partial**: per-call nil and `StopUncertain`, but calls with nil usage are dropped from the sum | `state.go:115-121`; `engine.go:385` | Add unknown and uncertain attempt counts to `TurnView` |
+| Unknown usage in the total | `UsageUnknown` | Charged the full hold | **Partial**: per-call nil and `StopResultUnknown`, but calls with nil usage are dropped from the sum | `state.go:115-121`; `engine.go:385` | Add unknown and uncertain attempt counts to `TurnView` |
 | Budget declared | None | Turn, agent (narrow only), install ceiling | **Missing** | `Limits` has attempts, pauses, concurrency, deadline (`turn.go:35-43`) | Add `Limits.MaxOutputTokens` and `MaxCost`. Allow Start to narrow the Definition's limits |
 | Pre-call check / reservation | – | Worst-case at-risk hold | **Partial**: hook plus atomic Admission, no estimate | `policy.go` BeforeSend; `design/turn.md:88-94` | Add `llm.MaxCostAtRisk(Request, Pricing)` (input estimate plus max output) |
 | Post-usage check between steps | Hooks only | `checkpointBudgetExceeded` | **Partial**: `BeforeModel` can stop the turn, but has no built-in check | `policy.go` ModelDecision.Stop | Check the new limits in the engine before each attempt, using recorded usage and cost |

@@ -208,7 +208,7 @@ func TestCrashInCommandThenDiscard(t *testing.T) {
 	}
 	if view.Stop.Kind != dashi.StopCanceled ||
 		view.Stop.Reason != "The user discarded the turn." ||
-		view.Tools["c1"].Status == dashi.ToolSettled {
+		view.Tools["c1"].Status == dashi.ToolFinished {
 		t.Fatalf("stop=%+v call=%s", view.Stop, view.Tools["c1"].Status)
 	}
 }

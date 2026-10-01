@@ -109,7 +109,7 @@ func (cl *call) run(ctx context.Context, c dashi.Command) (dashi.Outcome, error)
 	case dashi.Continue:
 		out, err = cl.command(ctx, c)
 	default:
-		// Settle, Deliver, and Cancel run no model call, so nothing queued
+		// Resolve, AddMessages, and Cancel run no model call, so nothing queued
 		// runs after them.
 		return cl.command(ctx, c)
 	}
@@ -342,7 +342,7 @@ func (cl *call) exec(
 // committed for turn turnID.
 func startedBy(step *dashi.Step, turnID string, c dashi.Command) bool {
 	start, ok := c.(dashi.Start)
-	return ok && step.Kind == dashi.StepStarted && step.TurnID == turnID &&
+	return ok && step.Kind == dashi.StepTurnStarted && step.TurnID == turnID &&
 		step.CommandID == start.CommandID
 }
 
@@ -423,7 +423,7 @@ func (cl *call) follow(
 	}
 	// The turn stopped after the duplicate check. Follow would wait while
 	// it rests at a stop that has not ended it, so report it now.
-	if n := len(turn.Steps); n > 0 && turn.Steps[n-1].Kind == dashi.StepStopped {
+	if n := len(turn.Steps); n > 0 && turn.Steps[n-1].Kind == dashi.StepTurnStopped {
 		return cl.reportTurn(turn)
 	}
 	for step, err := range dashi.Follow(ctx, reader, turnID, after) {
@@ -433,7 +433,7 @@ func (cl *call) follow(
 		if !cl.forward([]dashi.Event{{TurnID: turnID, Seq: step.Seq, Step: &step}}) {
 			return dashi.Outcome{}, context.Canceled
 		}
-		if step.Kind == dashi.StepStopped {
+		if step.Kind == dashi.StepTurnStopped {
 			break
 		}
 	}

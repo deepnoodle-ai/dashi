@@ -107,7 +107,7 @@ call or tool call and record `interrupted` ("pause requested"); in-flight work
 is not cut off. Rationale: `Policy` is a four-method interface every app would
 have to wrap, and `BeforeModel` does not fire during a long tool loop.
 
-**16. `Settle` on an interrupted turn only records.** Decided. `Continue`
+**16. `Resolve` on an interrupted turn only records.** Decided. `Continue`
 resumes the turn. Generalized by decision 18.
 
 **17. The caller can declare that an ended context means cancel.** Decided.
@@ -117,9 +117,9 @@ Interrupted is the default; a runner setting
 client disconnected knows the turn will not resume, and `net/http` cancels
 without a cause, so the cause alone cannot say so.
 
-**18. `Settle` only records; only `Continue` runs a turn.** Decided. This
+**18. `Resolve` only records; only `Continue` runs a turn.** Decided. This
 applies everywhere, including approvals and tool results delivered to a waiting
-turn, which today carry on immediately. The report is committed before `Settle`
+turn, which today carry on immediately. The report is committed before `Resolve`
 returns, and the outcome and saved turn say when the turn is ready to continue.
 Rationale: one consistent rule, and the request that records an approval should
 not run the model inline; the ready flag keeps a forgotten `Continue` visible.
@@ -235,7 +235,7 @@ imports `tool`, so `tool` cannot import `llm`.
 **29. The zero `Limits` is the default configuration.** Decided. A zero count
 means its default (8 model attempts, 10 interruptions, 3 provider pauses, 1
 concurrent tool); a negative `Interruptions` or `ProviderPauses` means none, as
-with `net.Dialer.KeepAlive`. `NoReservedFinalAnswer` keeps the reserve on by
+with `net.Dialer.KeepAlive`. `NoReservedFinalReply` keeps the reserve on by
 default. `DefaultLimits` was removed. Dashi resolves defaults when it accepts
 an agent and records the concrete values, so a saved turn keeps its limits.
 Known cost, accepted: after a default changes, continuing an older turn with
@@ -245,7 +245,7 @@ stored turns, so there is no migration, and such a turn must be restarted.
 Rationale: `Limits{}` used to be rejected, and a forgotten bool silently turned
 off the final-answer reserve.
 
-**30. Names: `Agent`, `Runner`, `Settle`, and `CommandID`.** Decided 2026-09-28.
+**30. Names: `Agent`, `Runner`, `Resolve`, and `CommandID`.** Decided 2026-09-28.
 `Definition` becomes `Agent`: the same plain JSON configuration, recorded under
 `"agent"`, with `ErrAgentChanged`. `Engine` and `Bindings` merge into `Runner`,
 a value holding the agent and its long-lived services (client, tools, recorder,
@@ -254,8 +254,8 @@ collects a result and `Runner.Stream` yields one; per-call options are
 `WithOwner` and `WithPause`, and `OnHistoryMismatch` moves to `Continue`. An
 empty `Agent.Provider` or `Agent.API` is filled from the runner's client; a
 value that differs from the client's is still an error. The command `Accept`
-becomes `Settle`, and every command's `ID` becomes `CommandID`. The approval
-steps become `approval_settled` and `hosted_approval_settled`. "Turn" keeps its
+becomes `Resolve`, and every command's `ID` becomes `CommandID`. The approval
+steps become `approval_decided` and `provider_tool_approval_decided`. "Turn" keeps its
 meaning: one input processed until the agent settles, possibly many model calls.
 "Session" is reserved for a future conversation of many turns. Dashi keeps Go's
 `StopCanceled`; an ACP adapter maps it to `cancelled`. Rationale: every
@@ -266,7 +266,7 @@ the turn in the Codex App Server's thread, turn, and item, and Anthropic's
 `end_turn`. Some SDKs (OpenAI Agents, Claude Agent, pi) count one model call
 plus its tool calls as a turn; Dashi calls that a model attempt, as in
 `Limits.ModelAttempts`. `Accept` read like "approve", which is confusing for a
-denial; `Settle` matches the step names `model_settled` and `tool_settled`. A
+denial; `Resolve` matches the step names `model_call_finished` and `tool_finished`. A
 command's `ID` looked like the turn ID; `CommandID` names its idempotency role.
 Dashi had no users, so there is no migration.
 

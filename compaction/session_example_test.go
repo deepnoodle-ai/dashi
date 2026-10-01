@@ -45,7 +45,7 @@ func ExampleCompactor() {
 			fmt.Println(err)
 			return
 		}
-		fmt.Printf("%s: %s\n", out.Turn.ID, out.Answer)
+		fmt.Printf("%s: %s\n", out.Turn.ID, out.Reply)
 	}
 	for turn, err := range s.Turns(ctx) {
 		if err != nil {

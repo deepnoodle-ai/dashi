@@ -54,7 +54,7 @@ func TestActiveTranscriptReferencesRequireVerifiedBytes(t *testing.T) {
 				declared.Size++
 			}
 			resolver := &countingResolver{files: map[string][]byte{ref.ID: data}}
-			r := runtime{runner: Runner{ContentResolver: resolver}, compactionCandidate: &candidate}
+			r := runtime{runner: Runner{ContentLoader: resolver}, compactionCandidate: &candidate}
 			if mode == "missing" {
 				r.compactionCandidate = nil
 			}

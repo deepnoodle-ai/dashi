@@ -11,7 +11,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// ArgsDigest returns the digest that binds an ApprovalFact to a tool call's
+// ArgsDigest returns the digest that binds an ApprovalDecision to a tool call's
 // arguments. It depends only on the arguments' JSON meaning, so arguments
 // shown before a recorder stored them and the same arguments reloaded from a
 // store that reorders keys or respells numbers give the same digest. A
@@ -125,10 +125,10 @@ type ContextFact struct {
 	Items []ContextItem `json:"items"`
 	// Vetoed marks a loop continuation that records a BeforeFinish veto of
 	// the latest answer. Until a new model result arrives, that answer never
-	// reaches the host through TurnView.Answer, whatever the stop.
+	// reaches the host through TurnView.Reply, whatever the stop.
 	Vetoed bool `json:"vetoed,omitempty"`
 	// Steering marks items that came from a Steering source, recorded on
-	// their own step. Inbox.Leftovers uses it to tell steers from Deliver
+	// their own step. Inbox.Leftovers uses it to tell steers from AddMessages
 	// and hook items.
 	Steering bool `json:"steering,omitempty"`
 }
@@ -144,8 +144,8 @@ type ModelFact struct {
 	MessageID string `json:"message_id,omitempty"`
 	// RequestDigest identifies the prepared bytes without recording their body.
 	RequestDigest string `json:"request_digest,omitempty"`
-	// FinalAnswerOnly records that application tools were withheld on this call.
-	FinalAnswerOnly bool `json:"final_answer_only,omitempty"`
+	// FinalReplyOnly records that application tools were withheld on this call.
+	FinalReplyOnly bool `json:"final_reply_only,omitempty"`
 	// Admission carries each BeforeSend hook's reservation terms, keyed by
 	// hook name.
 	Admission map[string]json.RawMessage `json:"admission,omitempty"`
@@ -245,16 +245,16 @@ type ToolFact struct {
 	Shortened *Shortened `json:"shortened,omitempty"`
 	// Vetoed marks a dashi_submit_output call turned down by a BeforeFinish
 	// veto. Until a new model result arrives, the text of the message that
-	// made the call never reaches the host through TurnView.Answer.
+	// made the call never reaches the host through TurnView.Reply.
 	Vetoed  bool          `json:"vetoed,omitempty"`
 	Outcome *tool.Outcome `json:"outcome,omitempty"`
 	Reason  string        `json:"reason,omitempty"`
 }
 
-// ApprovalFact answers a deferred tool call. Settle accepts it only while
+// ApprovalDecision answers a deferred tool call. Resolve accepts it only while
 // the call awaits approval and its arguments are the ones the fact names.
 // Pending.Approve and Pending.Deny build it.
-type ApprovalFact struct {
+type ApprovalDecision struct {
 	CallID  string `json:"call_id"`
 	Approve bool   `json:"approve"`
 	// ArgsDigest binds the answer to the call's arguments by JSON meaning,
@@ -287,8 +287,8 @@ const (
 	StopInterrupted StopKind = "interrupted"
 	// StopFailed means execution ended after a known failure.
 	StopFailed StopKind = "failed"
-	// StopUncertain means an effect requires host reconciliation.
-	StopUncertain StopKind = "uncertain"
+	// StopResultUnknown means an effect requires host reconciliation.
+	StopResultUnknown StopKind = "result_unknown"
 )
 
 // Stop records a turn's terminal or resumable condition.
@@ -313,7 +313,7 @@ type Stop struct {
 	// that had already started, and other commands give ErrTurnEnded. A
 	// live reader that stops at a terminal stop can miss those results; a
 	// reload shows them. Project ignores them: an ended turn's projection
-	// is fixed at its terminal stop, and so is TurnView.Answer.
+	// is fixed at its terminal stop, and so is TurnView.Reply.
 	Terminal bool `json:"terminal,omitempty"`
 	// Projected means the record holds no stop after the latest Start or
 	// Continue: the run ended without recording one, or is still going.
@@ -349,7 +349,7 @@ const (
 	// StopReasonOutputRejected means a BeforeFinish hook vetoed the final
 	// answer with a Reason when no further model call could happen, or
 	// vetoed the reserved final answer itself. The
-	// rejection is recorded and no output is accepted; Outcome.Answer is
+	// rejection is recorded and no output is accepted; Outcome.Reply is
 	// empty. Continue after raising the limit that stopped it (such as the
 	// Budget) lets the model see the rejection and answer again; with no
 	// model attempts left, Continue ends the turn limited.
@@ -358,15 +358,15 @@ const (
 
 // Stop reasons for a StopFailed turn that a content reference stopped. Stop.RefID
 // names the reference. The stop is not terminal. The runner asks the
-// ContentResolver again on Continue, so a host can fix the cause (restore the
+// ContentLoader again on Continue, so a host can fix the cause (restore the
 // bytes, grant access, raise ContentLimits, or set a resolver) and then
 // Continue. The stop never holds bytes or the resolver's error text.
 const (
-	// StopReasonContentNoResolver means the input holds a reference and the
-	// Runner has no ContentResolver.
-	StopReasonContentNoResolver = "content_no_resolver"
+	// StopReasonContentNoLoader means the input holds a reference and the
+	// Runner has no ContentLoader.
+	StopReasonContentNoLoader = "content_no_loader"
 
-	// StopReasonContentUnavailable means the ContentResolver returned an
+	// StopReasonContentUnavailable means the ContentLoader returned an
 	// error for the reference: it is missing, or the turn may not read it.
 	StopReasonContentUnavailable = "content_unavailable"
 

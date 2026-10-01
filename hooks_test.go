@@ -424,7 +424,7 @@ func TestBeforeModelChainsSettingsAndSkipsFailures(t *testing.T) {
 		t.Fatalf("warnings = %+v", out.Warnings)
 	}
 	intent := out.Turn.Steps[1]
-	if intent.Kind != StepModelIntent || len(intent.HookResults) != 3 {
+	if intent.Kind != StepModelCallStarted || len(intent.HookResults) != 3 {
 		t.Fatalf("intent = %+v", intent)
 	}
 }
@@ -437,7 +437,7 @@ func TestBeforeModelStopDiscardsDeliveries(t *testing.T) {
 	}
 	hooks := Hooks{BeforeModel: []ModelHook{
 		{Name: "inject", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
-			return ModelDecision{Deliver: []ContextItem{item}}, nil
+			return ModelDecision{AddMessages: []ContextItem{item}}, nil
 		}},
 		{Name: "stop", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
 			return ModelDecision{Stop: &Stop{Kind: StopRefused, Reason: "closed"}}, nil
@@ -449,7 +449,7 @@ func TestBeforeModelStopDiscardsDeliveries(t *testing.T) {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepDelivered {
+		if step.Kind == StepMessagesAdded {
 			t.Fatal("a stopped chain delivered context")
 		}
 	}
@@ -470,7 +470,7 @@ func TestContextViewTracksLiveNamedItems(t *testing.T) {
 		if current {
 			return ModelDecision{}, nil
 		}
-		return ModelDecision{Deliver: []ContextItem{{
+		return ModelDecision{AddMessages: []ContextItem{{
 			Origin:   ContextRuntime,
 			Name:     "clock",
 			Snapshot: true,
@@ -490,7 +490,7 @@ func TestContextViewTracksLiveNamedItems(t *testing.T) {
 	}
 	delivered := 0
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepDelivered {
+		if step.Kind == StepMessagesAdded {
 			delivered++
 		}
 	}
@@ -579,8 +579,8 @@ func TestBeforeFinishDeliversAcceptsEmptyAndRetries(t *testing.T) {
 			p FinishPlan,
 		) (FinishDecision, error) {
 			asked++
-			if p.Answer == "draft" {
-				return FinishDecision{Deliver: []ContextItem{{
+			if p.Reply == "draft" {
+				return FinishDecision{AddMessages: []ContextItem{{
 					Origin:  ContextRuntime,
 					Message: llm.UserMessage(llm.Text("tests fail")),
 				}}}, nil
@@ -589,9 +589,9 @@ func TestBeforeFinishDeliversAcceptsEmptyAndRetries(t *testing.T) {
 		}}
 		client := &scriptedClient{results: []llm.Result{final("draft"), final("fixed")}}
 		out, err := runHooked(t, client, nil, green.Hooks())
-		if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "fixed" ||
+		if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "fixed" ||
 			asked != 2 {
-			t.Fatalf("stop=%+v answer=%q asked=%d err=%v", out.Stop, out.Answer, asked, err)
+			t.Fatalf("stop=%+v answer=%q asked=%d err=%v", out.Stop, out.Reply, asked, err)
 		}
 	})
 	t.Run("accept empty", func(t *testing.T) {
@@ -627,7 +627,7 @@ func TestBeforeFinishDeliversAcceptsEmptyAndRetries(t *testing.T) {
 		fail = false
 		out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "retry"})
 		if err != nil || out.Stop.Kind != StopCompleted || client.sends != 1 ||
-			asked != 2 || out.Answer != "answer" {
+			asked != 2 || out.Reply != "answer" {
 			t.Fatalf("resumed=%+v sends=%d asked=%d err=%v", out.Stop, client.sends, asked, err)
 		}
 	})
@@ -641,7 +641,7 @@ func TestBeforeFinishSeesStructuredOutputOrItsError(t *testing.T) {
 	) (FinishDecision, error) {
 		plans = append(plans, p)
 		if p.OutputErr != nil {
-			return FinishDecision{Deliver: []ContextItem{{
+			return FinishDecision{AddMessages: []ContextItem{{
 				Origin:  ContextRuntime,
 				Message: llm.UserMessage(llm.Text("return valid JSON")),
 			}}}, nil
@@ -676,7 +676,7 @@ func TestBeforeFinishSeesStructuredOutputOrItsError(t *testing.T) {
 
 func TestBeforeFinishDeliveryDroppedOnReservedFinalAnswer(t *testing.T) {
 	always := FinishHook{Name: "more", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
-		return FinishDecision{Deliver: []ContextItem{{
+		return FinishDecision{AddMessages: []ContextItem{{
 			Origin:  ContextRuntime,
 			Message: llm.UserMessage(llm.Text("keep going")),
 		}}}, nil
@@ -698,20 +698,20 @@ func TestBeforeFinishDeliveryDroppedOnReservedFinalAnswer(t *testing.T) {
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
 	if err != nil || out.Stop.Kind != StopLimited ||
-		!hasWarning(out, WarningDeliveryDropped) {
+		!hasWarning(out, WarningMessagesDropped) {
 		t.Fatalf("stop=%+v warnings=%+v err=%v", out.Stop, out.Warnings, err)
 	}
 }
 
 func TestBeforeFinishDeliveryDroppedWithoutReserveAtLastAttempt(t *testing.T) {
 	more := FinishHook{Name: "more", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
-		return FinishDecision{Deliver: []ContextItem{{
+		return FinishDecision{AddMessages: []ContextItem{{
 			Message: llm.UserMessage(llm.Text("keep going")),
 		}}}, nil
 	}}
 	agent := testAgent()
 	agent.Limits.ModelAttempts = 1
-	agent.Limits.NoReservedFinalAnswer = true
+	agent.Limits.NoReservedFinalReply = true
 	client := &scriptedClient{results: []llm.Result{final("only")}}
 	out, err := (Runner{Client: client, Hooks: more.Hooks()}).Run(
 		t.Context(),
@@ -722,8 +722,8 @@ func TestBeforeFinishDeliveryDroppedWithoutReserveAtLastAttempt(t *testing.T) {
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		},
 	)
-	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "only" ||
-		!hasWarning(out, WarningDeliveryDropped) {
+	if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "only" ||
+		!hasWarning(out, WarningMessagesDropped) {
 		t.Fatalf("stop=%+v warnings=%+v err=%v", out.Stop, out.Warnings, err)
 	}
 	for _, step := range out.Turn.Steps {
@@ -757,7 +757,7 @@ func TestBeforeModelInvalidSettingsAreSkipped(t *testing.T) {
 
 func TestBeforeFinishDeliveryCannotSpendTheReservedCall(t *testing.T) {
 	more := FinishHook{Name: "more", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
-		return FinishDecision{Deliver: []ContextItem{{
+		return FinishDecision{AddMessages: []ContextItem{{
 			Message: llm.UserMessage(llm.Text("keep going")),
 		}}}, nil
 	}}
@@ -773,8 +773,8 @@ func TestBeforeFinishDeliveryCannotSpendTheReservedCall(t *testing.T) {
 			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		},
 	)
-	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "first" ||
-		client.sends != 1 || !hasWarning(out, WarningDeliveryDropped) {
+	if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "first" ||
+		client.sends != 1 || !hasWarning(out, WarningMessagesDropped) {
 		t.Fatalf("stop=%+v sends=%d warnings=%+v err=%v", out.Stop, client.sends, out.Warnings, err)
 	}
 }
@@ -799,7 +799,7 @@ func TestRoomForNormalCallCountsACallInFlight(t *testing.T) {
 		if tc.inFlight {
 			s.modelIntent = "t1:model:x"
 		}
-		s.Agent.Limits.NoReservedFinalAnswer = !tc.reserve
+		s.Agent.Limits.NoReservedFinalReply = !tc.reserve
 		if got := s.roomForNormalCall(); got != tc.want {
 			t.Fatalf("%+v: room = %v", tc, got)
 		}
@@ -820,7 +820,7 @@ func TestFinishDeliveryChecksTheCostCap(t *testing.T) {
 			green := FinishHook{Name: "tests", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
 				asked++
 				if asked == 1 {
-					return FinishDecision{Deliver: []ContextItem{{
+					return FinishDecision{AddMessages: []ContextItem{{
 						Message: llm.UserMessage(llm.Text("tests fail")),
 					}}}, nil
 				}
@@ -837,7 +837,7 @@ func TestFinishDeliveryChecksTheCostCap(t *testing.T) {
 			if err != nil || out.Stop.Kind != StopCompleted || client.sends != tc.sends {
 				t.Fatalf("stop=%+v sends=%d spend=%+v err=%v", out.Stop, client.sends, out.Spend, err)
 			}
-			if dropped := hasWarning(out, WarningDeliveryDropped); dropped != (tc.sends == 1) {
+			if dropped := hasWarning(out, WarningMessagesDropped); dropped != (tc.sends == 1) {
 				t.Fatalf("warnings = %+v", out.Warnings)
 			}
 		})
@@ -1089,7 +1089,7 @@ func TestPendingApproveNeedsOnlyCallAndArguments(t *testing.T) {
 		t.Fatalf("verdict = %+v", out.Tools["call-1"].Verdict)
 	}
 	// The answer comes from a handler whose Runner has no hooks, which
-	// Settle does not need; that is not a change of hooks.
+	// Resolve does not need; that is not a change of hooks.
 	settler := runner
 	settler.Hooks = Hooks{}
 	answer := out.Pending[0].Approve()
@@ -1211,7 +1211,7 @@ func TestDeliveryAfterFinishFailureAsksTheModelAgain(t *testing.T) {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
 	fail = false
-	out, err = runner.Run(t.Context(), out.Turn, Deliver{
+	out, err = runner.Run(t.Context(), out.Turn, AddMessages{
 		CommandID: "note",
 		Items: []ContextItem{{
 			Message: llm.UserMessage(llm.Text("answer in French")),
@@ -1221,9 +1221,9 @@ func TestDeliveryAfterFinishFailureAsksTheModelAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "retry"})
-	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "nouveau" ||
+	if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "nouveau" ||
 		client.sends != 2 {
-		t.Fatalf("stop=%+v answer=%q sends=%d err=%v", out.Stop, out.Answer, client.sends, err)
+		t.Fatalf("stop=%+v answer=%q sends=%d err=%v", out.Stop, out.Reply, client.sends, err)
 	}
 	last := client.inputs[len(client.inputs)-1].Messages
 	if last[len(last)-1].Text() != "answer in French" {
@@ -1262,7 +1262,7 @@ func TestDeliveryAfterFinishFailureWithNoCallLeftIsDropped(t *testing.T) {
 	// The next call would be the reserved final answer, so there is no room
 	// for a normal call that could use the delivery.
 	fail = false
-	out, err = runner.Run(t.Context(), out.Turn, Deliver{
+	out, err = runner.Run(t.Context(), out.Turn, AddMessages{
 		CommandID: "note",
 		Items:     []ContextItem{{Message: llm.UserMessage(llm.Text("more"))}},
 	})
@@ -1270,9 +1270,9 @@ func TestDeliveryAfterFinishFailureWithNoCallLeftIsDropped(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "retry"})
-	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "second" ||
-		client.sends != 2 || !hasWarning(out, WarningDeliveryDropped) {
-		t.Fatalf("stop=%+v answer=%q sends=%d warnings=%+v err=%v", out.Stop, out.Answer, client.sends, out.Warnings, err)
+	if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "second" ||
+		client.sends != 2 || !hasWarning(out, WarningMessagesDropped) {
+		t.Fatalf("stop=%+v answer=%q sends=%d warnings=%+v err=%v", out.Stop, out.Reply, client.sends, out.Warnings, err)
 	}
 }
 
@@ -1306,9 +1306,9 @@ func TestFinishFailureOnReservedFinalAnswerResumesWithoutACall(t *testing.T) {
 	}
 	fail = false
 	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "retry"})
-	if err != nil || out.Stop.Kind != StopLimited || out.Answer != "last" ||
+	if err != nil || out.Stop.Kind != StopLimited || out.Reply != "last" ||
 		client.sends != 2 {
-		t.Fatalf("stop=%+v answer=%q sends=%d err=%v", out.Stop, out.Answer, client.sends, err)
+		t.Fatalf("stop=%+v answer=%q sends=%d err=%v", out.Stop, out.Reply, client.sends, err)
 	}
 }
 

@@ -26,7 +26,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	if steers := r.waitingSteers(s); len(steers) > 0 {
 		o := r.commitSteers(
 			Step{
-				Kind:    StepDelivered,
+				Kind:    StepMessagesAdded,
 				Context: &ContextFact{Items: steers, Steering: true},
 			},
 			steers,
@@ -39,7 +39,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			return r.stop(StopFailed, err.Error()), false
 		}
 	}
-	finalAnswerOnly := purpose == "" && !r.agent.Limits.NoReservedFinalAnswer &&
+	finalAnswerOnly := purpose == "" && !r.agent.Limits.NoReservedFinalReply &&
 		s.ModelAttempts > 0 &&
 		s.ModelAttempts+1 == s.attemptCap
 	messages, err := projectWithHistory(r.turn, r.history)
@@ -130,7 +130,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	}
 	if len(deliver) > 0 {
 		if o := r.commit(Step{
-			Kind:    StepDelivered,
+			Kind:    StepMessagesAdded,
 			Context: &ContextFact{Items: deliver},
 		}); o != nil {
 			return *o, false
@@ -274,7 +274,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		AttemptID:            attempt,
 		MessageID:            messageID,
 		RequestDigest:        canonjson.Digest(req.Body()),
-		FinalAnswerOnly:      finalAnswerOnly,
+		FinalReplyOnly:       finalAnswerOnly,
 		Admission:            admission,
 		AtRisk:               atRisk,
 		EstimatedInputTokens: llm.EstimatedInputTokens(req),
@@ -292,7 +292,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		Hidden:               hidden,
 	}
 	if o := r.commit(Step{
-		Kind:     StepModelIntent,
+		Kind:     StepModelCallStarted,
 		Model:    fact,
 		Warnings: budgetWarnings,
 	}); o != nil {
@@ -310,7 +310,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			Interrupted: InterruptRun,
 			NoDispatch:  true,
 		}
-		if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
+		if o := r.commit(Step{Kind: StepModelCallFinished, Model: settled}); o != nil {
 			return *o, false
 		}
 		if err != nil {
@@ -426,14 +426,14 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		settled.Uncertain = tooldef.UnsafeHosted(defs)
 		settled.Result = partial(InterruptRun)
 		setSettlementCharge(fact, settled)
-		step := Step{Kind: StepModelSettled, Model: settled}
+		step := Step{Kind: StepModelCallFinished, Model: settled}
 		if o := r.commit(step); o != nil {
 			return *o, false
 		}
 		if settled.Uncertain && r.runner.OnContextDone != ContextCancel &&
 			!errors.Is(context.Cause(r.ctx), errTurnDeadline) {
 			return r.stop(
-				StopUncertain,
+				StopResultUnknown,
 				"provider-hosted tool may have run",
 			), false
 		}
@@ -481,7 +481,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		settled.Result = &result
 	}
 	setSettlementCharge(fact, settled)
-	if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
+	if o := r.commit(Step{Kind: StepModelCallFinished, Model: settled}); o != nil {
 		return *o, false
 	}
 	if r.ctx.Err() != nil && !timeoutWon {
@@ -489,7 +489,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	}
 	if sendErr != nil {
 		if settled.Uncertain {
-			return r.stop(StopUncertain, sendErr.Error()), false
+			return r.stop(StopResultUnknown, sendErr.Error()), false
 		}
 		return r.stop(StopFailed, sendErr.Error()), false
 	}
@@ -561,7 +561,7 @@ func (r *runtime) handOff(
 		Interrupted: InterruptSteering,
 		NoDispatch:  true,
 	}
-	if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
+	if o := r.commit(Step{Kind: StepModelCallFinished, Model: settled}); o != nil {
 		return handOffResult{done: true, outcome: *o}
 	}
 	return handOffResult{done: true, again: true}
@@ -598,7 +598,7 @@ func (r *runtime) settleSteered(
 		settled.Result = partial
 		setSettlementCharge(intent, settled)
 	}
-	if o := r.commit(Step{Kind: StepModelSettled, Model: settled}); o != nil {
+	if o := r.commit(Step{Kind: StepModelCallFinished, Model: settled}); o != nil {
 		return *o, false
 	}
 	return Outcome{}, true

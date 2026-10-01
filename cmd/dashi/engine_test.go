@@ -612,7 +612,7 @@ func (r *lockDirAfterStart) Commit(ctx context.Context, req dashi.CommitRequest)
 	if err := r.Recorder.Commit(ctx, req); err != nil {
 		return err
 	}
-	if req.Step.Kind == dashi.StepStarted {
+	if req.Step.Kind == dashi.StepTurnStarted {
 		id := req.Step.TurnID[:strings.LastIndex(req.Step.TurnID, "-")]
 		return os.Chmod(filepath.Join(r.root, id), 0o500)
 	}

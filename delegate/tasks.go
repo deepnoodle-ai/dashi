@@ -21,10 +21,10 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// defaultMaxAnswer is the byte cap on an answer returned to the model when
-// Config.MaxAnswer is zero. A longer answer would refill the context the
+// defaultMaxReply is the byte cap on an answer returned to the model when
+// Config.MaxReply is zero. A longer answer would refill the context the
 // model delegated to protect.
-const defaultMaxAnswer = 16 << 10
+const defaultMaxReply = 16 << 10
 
 // defaultMaxTaskTurns bounds the turns of one child session when
 // Config.MaxTaskTurns is zero.
@@ -83,9 +83,9 @@ type TaskView struct {
 	ToolCalls  int
 	// Spend is the spend of every child turn. It is live for a running turn.
 	Spend dashi.Spend
-	// Answer is the answer of the turn TurnID names, cut at
-	// Config.MaxAnswer. It is empty unless that turn completed.
-	Answer string
+	// Reply is the answer of the turn TurnID names, cut at
+	// Config.MaxReply. It is empty unless that turn completed.
+	Reply string
 	// Reason says why that turn stopped, when it did not complete.
 	Reason string
 }
@@ -743,7 +743,7 @@ func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 		case err != nil:
 			runErr = err
 		case ev.Step != nil:
-			if ev.Step.Kind == dashi.StepStarted && ev.TurnID != current {
+			if ev.Step.Kind == dashi.StepTurnStarted && ev.TurnID != current {
 				// A later turn of the same call, such as a queue turn.
 				current = ev.TurnID
 				ts.mu.Lock()
@@ -864,7 +864,7 @@ func endState(
 	if stop.Kind != dashi.StopCompleted {
 		return state, "", stop.Reason
 	}
-	text := view.Answer
+	text := view.Reply
 	if view.Output != nil && len(view.Output.Value) > 0 {
 		text = string(view.Output.Value)
 	}
@@ -958,7 +958,7 @@ func (ts *Tasks) viewLocked(t *task, c *childTurn) TaskView {
 		c = t.last()
 	}
 	if c != nil {
-		v.TurnID, v.State, v.Answer, v.Reason = c.id, c.state, c.answer, c.reason
+		v.TurnID, v.State, v.Reply, v.Reason = c.id, c.state, c.answer, c.reason
 	}
 	for _, c := range t.turns {
 		tv := c.view()
@@ -1004,7 +1004,7 @@ func (ts *Tasks) names() []string {
 }
 
 func (ts *Tasks) capAnswer(text string) string {
-	limit := cmp.Or(ts.cfg.MaxAnswer, defaultMaxAnswer)
+	limit := cmp.Or(ts.cfg.MaxReply, defaultMaxReply)
 	if limit < 0 || len(text) <= limit {
 		return text
 	}

@@ -173,7 +173,7 @@ func RecordedStopSummary(e *Execution) string {
 		return "recorded interrupted; reopen for recovery checks"
 	case dashi.StopWaiting:
 		return "recorded waiting; reopen to inspect pending work"
-	case dashi.StopUncertain:
+	case dashi.StopResultUnknown:
 		return "recorded uncertain; reopen and verify effects"
 	case dashi.StopLimited:
 		return "recorded limited; reopen to inspect the limit"

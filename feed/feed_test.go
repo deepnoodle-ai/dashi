@@ -137,8 +137,8 @@ func shape(events []dashi.Event) string {
 	return strings.Join(out, " ")
 }
 
-// A live reader sees steps with the deltas between model_requested and
-// model_settled, and every event carries its place.
+// A live reader sees steps with the deltas between model_call_started and
+// model_call_finished, and every event carries its place.
 func TestFollowMergesPreviewsInPlace(t *testing.T) {
 	var hub Hub
 	rec := dashi.NewMemoryRecorder()
@@ -180,7 +180,7 @@ func TestFollowMergesPreviewsInPlace(t *testing.T) {
 	}
 	for _, e := range events {
 		if e.Delta != nil && e.Seq != 2 {
-			t.Fatalf("delta at seq %d; want its model_requested (2)", e.Seq)
+			t.Fatalf("delta at seq %d; want its model_call_started (2)", e.Seq)
 		}
 	}
 	if len(out.Turn.Steps) != 4 {
@@ -251,10 +251,10 @@ func TestFollowDropsPreviewsSettledBeforeCursor(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		return len(held) > 0 && held[len(held)-1].Step != nil &&
-			held[len(held)-1].Step.Kind == dashi.StepStopped
+			held[len(held)-1].Step.Kind == dashi.StepTurnStopped
 	})
-	settled := int64(3) // model_settled
-	if out.Turn.Steps[settled-1].Kind != dashi.StepModelSettled {
+	settled := int64(3) // model_call_finished
+	if out.Turn.Steps[settled-1].Kind != dashi.StepModelCallFinished {
 		t.Fatalf("seq 3 is %s", out.Turn.Steps[settled-1].Kind)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
@@ -323,7 +323,7 @@ func TestFollowReleasesHeldPreviewsWithinAPage(t *testing.T) {
 }
 
 // A reader that joins while a message streams gets a gap for it, never a
-// message missing its start; one resuming at model_requested gets the same.
+// message missing its start; one resuming at model_call_started gets the same.
 func TestFollowGapsAMessageJoinedMidStream(t *testing.T) {
 	for name, after := range map[string]int64{"page load": 0, "reconnect": 2} {
 		t.Run(name, func(t *testing.T) {
@@ -553,7 +553,7 @@ func TestOpenMessageIgnoresOlderRuns(t *testing.T) {
 	hub.Observe(dashi.Event{TurnID: "t1", MessageID: "m2", Seq: 8, Delta: &llm.Delta{Text: "x"}})
 	hub.Observe(dashi.Event{TurnID: "t1", MessageID: "m1", Seq: 2, Delta: &llm.Delta{Text: "y"}})
 	hub.Observe(dashi.Event{TurnID: "t1", Seq: 3, Step: &dashi.Step{
-		TurnID: "t1", Seq: 3, Kind: dashi.StepModelSettled,
+		TurnID: "t1", Seq: 3, Kind: dashi.StepModelCallFinished,
 		Model: &dashi.ModelFact{MessageID: "m1"},
 	}})
 	rd := hub.subscribe("t1")
@@ -575,7 +575,7 @@ func TestSettledMessageStaysClosed(t *testing.T) {
 	delta := dashi.Event{TurnID: "t1", MessageID: "m", Seq: 2, Delta: &llm.Delta{Text: "x"}}
 	hub.Observe(delta)
 	hub.Observe(dashi.Event{TurnID: "t1", Seq: 3, Step: &dashi.Step{
-		TurnID: "t1", Seq: 3, Kind: dashi.StepModelSettled,
+		TurnID: "t1", Seq: 3, Kind: dashi.StepModelCallFinished,
 		Model: &dashi.ModelFact{MessageID: "m"},
 	}})
 	hub.take("t1", rd)
@@ -591,7 +591,7 @@ func TestSettledMessageStaysClosed(t *testing.T) {
 	}
 	hub.unsubscribe("t1", late)
 	hub.Observe(dashi.Event{TurnID: "t1", Seq: 4, Step: &dashi.Step{
-		TurnID: "t1", Seq: 4, Kind: dashi.StepStopped,
+		TurnID: "t1", Seq: 4, Kind: dashi.StepTurnStopped,
 		Stop: &dashi.Stop{Kind: dashi.StopCompleted, Terminal: true},
 	}})
 	if n := hub.entries(); n != 0 {
@@ -680,7 +680,7 @@ func TestFollowAfterAFailedCommit(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	faulty := &dashitest.FaultRecorder{
 		Recorder: rec,
-		Kind:     dashi.StepModelSettled,
+		Kind:     dashi.StepModelCallFinished,
 		Fault:    dashitest.LoseWrite,
 	}
 	client := &streamClient{words: []string{"a", "b"}, hold: make(chan struct{})}

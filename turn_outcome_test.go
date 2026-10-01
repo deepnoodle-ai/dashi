@@ -118,7 +118,7 @@ func TestPendingBuildersAnswerMixedWork(t *testing.T) {
 		t.Fatalf("hosted item=%+v", hosted)
 	}
 
-	answers := []Settle{
+	answers := []Resolve{
 		ask.Approve(),
 		ext.Result(tool.Outcome{
 			State:  tool.StateSucceeded,
@@ -155,8 +155,8 @@ func TestPendingBuildersAnswerMixedWork(t *testing.T) {
 	if err != nil || done.Stop.Kind != StopCompleted || runs != 1 {
 		t.Fatalf("continue stop=%+v err=%v runs=%d", done.Stop, err, runs)
 	}
-	if done.Answer != "done" {
-		t.Fatalf("answer=%q", done.Answer)
+	if done.Reply != "done" {
+		t.Fatalf("answer=%q", done.Reply)
 	}
 }
 
@@ -190,7 +190,7 @@ func TestApproveOnNonApprovalIsRejected(t *testing.T) {
 	}
 }
 
-// A denial is recorded by Settle alone. A crash while the next Continue
+// A denial is recorded by Resolve alone. A crash while the next Continue
 // settles the call must not lose the operator's reason.
 func TestDenialReasonSurvivesCrashAndReachesModel(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{
@@ -226,15 +226,15 @@ func TestDenialReasonSurvivesCrashAndReachesModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, step := range denied.Turn.Steps {
-		if step.Kind == StepToolSettled {
-			t.Fatal("Settle recorded more than the approval")
+		if step.Kind == StepToolFinished {
+			t.Fatal("Resolve recorded more than the approval")
 		}
 	}
 	if len(denied.Pending) != 0 || !denied.ReadyToContinue {
 		t.Fatalf("denied pending=%v ready=%t", denied.Pending, denied.ReadyToContinue)
 	}
 
-	runner.Recorder = &failOnceKind{base: base, kind: StepToolSettled}
+	runner.Recorder = &failOnceKind{base: base, kind: StepToolFinished}
 	_, err = runner.Run(t.Context(), denied.Turn, Continue{CommandID: "c1"})
 	if persistence(err) != PersistenceRejected {
 		t.Fatalf("crashing continue err=%v", err)
@@ -289,7 +289,7 @@ func TestContinueOnWaitingTurnIsNotReady(t *testing.T) {
 }
 
 func TestRejectedInvalidTurnKeepsCallerTurn(t *testing.T) {
-	turn := Turn{ID: "t1", Steps: []Step{{Kind: StepStopped}}}
+	turn := Turn{ID: "t1", Steps: []Step{{Kind: StepTurnStopped}}}
 	out, err := (Runner{Client: &scriptedClient{}}).Run(
 		t.Context(),
 		turn,
@@ -303,7 +303,7 @@ func TestRejectedInvalidTurnKeepsCallerTurn(t *testing.T) {
 type conflictRecorder struct{ base *MemoryRecorder }
 
 func (r conflictRecorder) Commit(ctx context.Context, req CommitRequest) error {
-	if req.Step.Kind == StepModelIntent {
+	if req.Step.Kind == StepModelCallStarted {
 		return &CommitError{
 			Persistence: PersistenceRejected,
 			Err:         ErrRevisionConflict,
@@ -319,7 +319,7 @@ func TestCommitErrorWrapsRecorderConflict(t *testing.T) {
 		t.Fatalf("err=%v does not match ErrRevisionConflict", err)
 	}
 	ce, ok := errors.AsType[*CommitError](err)
-	if !ok || ce.Step == nil || ce.Step.Kind != StepModelIntent {
+	if !ok || ce.Step == nil || ce.Step.Kind != StepModelCallStarted {
 		t.Fatalf("commit error=%+v", ce)
 	}
 	if n := strings.Count(err.Error(), "rejected"); n != 1 {
@@ -334,7 +334,7 @@ func TestFailedModelSettlementKeepsUsageOnStep(t *testing.T) {
 	result := final("answer")
 	result.Usage = &llm.Usage{InputTokens: 3, OutputTokens: 5}
 	client := &scriptedClient{results: []llm.Result{result}}
-	rec := &failOnceKind{base: NewMemoryRecorder(), kind: StepModelSettled}
+	rec := &failOnceKind{base: NewMemoryRecorder(), kind: StepModelCallFinished}
 	out, err := start(t, client, nil, rec, Hooks{})
 	step := unacknowledged(err)
 	if persistence(err) != PersistenceRejected ||
@@ -421,8 +421,8 @@ func TestHookViewStopIsEmptyMidRun(t *testing.T) {
 			t.Fatalf("hook view stop=%+v", stop)
 		}
 	}
-	if out.Answer != "pauseddone" {
-		t.Fatalf("paused answer=%q", out.Answer)
+	if out.Reply != "pauseddone" {
+		t.Fatalf("paused answer=%q", out.Reply)
 	}
 }
 
@@ -442,7 +442,7 @@ func TestReplayProjectsStopLikeOutcome(t *testing.T) {
 		t.Fatalf("outcome stop=%+v replay stop=%+v", got.Stop, view.Stop)
 	}
 	view, err = Replay(out.Turn)
-	if err != nil || view.Stop != out.Stop || view.Answer != out.Answer {
+	if err != nil || view.Stop != out.Stop || view.Reply != out.Reply {
 		t.Fatalf("replay=%+v outcome stop=%+v", view.Stop, out.Stop)
 	}
 	if view.Spend.Usage.InputTokens != out.Spend.Usage.InputTokens {
@@ -536,7 +536,7 @@ func TestJoinTextKeepsSentencesIntact(t *testing.T) {
 
 func settledStep(result llm.Result) Step {
 	return Step{
-		Kind:  StepModelSettled,
+		Kind:  StepModelCallFinished,
 		Model: &ModelFact{Result: &result},
 	}
 }
@@ -605,9 +605,9 @@ func TestPendingItemsListOnlyHostWork(t *testing.T) {
 		ToolDenied,
 		ToolStarted,
 		ToolWaiting,
-		ToolUncertain,
+		ToolResultUnknown,
 		ToolApprovalPending,
-		ToolSettled,
+		ToolFinished,
 	}
 	for _, status := range statuses {
 		id := string(status)
@@ -621,7 +621,7 @@ func TestPendingItemsListOnlyHostWork(t *testing.T) {
 	}
 	s.modelIntent = "attempt-1"
 	got := strings.Join(pendingIDs(s.pendingItems()), ",")
-	want := "attempt-1,started,waiting,uncertain,approval_pending,h9,h1,h5"
+	want := "attempt-1,started,waiting,result_unknown,approval_pending,h9,h1,h5"
 	if got != want {
 		t.Fatalf("pending=%s, want %s", got, want)
 	}
@@ -630,7 +630,7 @@ func TestPendingItemsListOnlyHostWork(t *testing.T) {
 		kinds[p.ID] = p.Kind
 	}
 	if kinds["attempt-1"] != PendingModel ||
-		kinds["uncertain"] != PendingTool ||
+		kinds["result_unknown"] != PendingTool ||
 		kinds["approval_pending"] != PendingApproval ||
 		kinds["h1"] != PendingApproval {
 		t.Fatalf("kinds=%v", kinds)
@@ -651,7 +651,7 @@ func TestProjectedStopForRequestedCallsIsInterrupted(t *testing.T) {
 	if stop := s.projectedStop(); stop.Kind != StopInterrupted || !stop.Projected {
 		t.Fatalf("stop=%+v", stop)
 	}
-	s.Tools["a"] = ToolView{Call: tool.Call{ID: "a"}, Status: ToolSettled}
+	s.Tools["a"] = ToolView{Call: tool.Call{ID: "a"}, Status: ToolFinished}
 	if stop := s.projectedStop(); stop.Kind != "" || !stop.Projected {
 		t.Fatalf("settled turn without a stop step projected %+v", stop)
 	}
@@ -775,7 +775,7 @@ func TestReplayRejectsStaleApprovalStep(t *testing.T) {
 		Version:       1,
 		TurnID:        "t1",
 		Seq:           int64(len(turn.Steps) + 1),
-		Kind:          StepApprovalSettled,
+		Kind:          StepApprovalDecided,
 		CommandID:     "forged",
 		CommandDigest: "forged",
 		Approval:      fact,
@@ -786,7 +786,7 @@ func TestReplayRejectsStaleApprovalStep(t *testing.T) {
 }
 
 func TestCorruptRecordAfterCommitIsDistinct(t *testing.T) {
-	rt := &runtime{turn: Turn{ID: "t1", Steps: []Step{{Kind: StepStopped}}}}
+	rt := &runtime{turn: Turn{ID: "t1", Steps: []Step{{Kind: StepTurnStopped}}}}
 	out := rt.current()
 	if !errors.Is(rt.err, ErrRecordInvalid) || !errors.Is(rt.err, ErrInvalidTurn) {
 		t.Fatalf("err=%v", rt.err)
@@ -811,7 +811,7 @@ func TestCorruptRecordAfterCommitIsDistinct(t *testing.T) {
 type wrappingRecorder struct{ base *MemoryRecorder }
 
 func (r wrappingRecorder) Commit(ctx context.Context, req CommitRequest) error {
-	if req.Step.Kind == StepModelIntent {
+	if req.Step.Kind == StepModelCallStarted {
 		return fmt.Errorf("pg: %w", &CommitError{
 			Persistence: PersistenceRejected,
 			Err:         errors.New("fence"),
@@ -867,7 +867,7 @@ func TestMalformedInputTurnReturnsErrorWithoutPanic(t *testing.T) {
 		Version: 1,
 		TurnID:  "t1",
 		Seq:     1,
-		Kind:    StepStarted,
+		Kind:    StepTurnStarted,
 		Output:  &StructuredOutput{Value: json.RawMessage(`{bad`)},
 	}}}
 	out, err := (Runner{Client: &scriptedClient{}}).Run(
@@ -992,7 +992,7 @@ func TestIncompleteHostedApprovalIsNotActionable(t *testing.T) {
 	}).Run(
 		t.Context(),
 		first.Turn,
-		Settle{
+		Resolve{
 			CommandID:      "approve",
 			CallID:         request.ID,
 			HostedApproval: &response,

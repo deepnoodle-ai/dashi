@@ -4,7 +4,7 @@ Source review of Dashi main at 9d28264 on 2026-09-27; findings are directions,
 not decisions.
 
 **Names:** written before [decision 30](../decisions.md); read `Definition` as
-`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
+`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Resolve`, and a command's
 `ID` as `CommandID`.
 
 Dashi already adopts the survey's hardest-won structural ideas. Its turn record
@@ -48,7 +48,7 @@ yet; they are noted as N/A where relevant.
 | 15 | Stock policies: stuck detection with one nudge; token/cost budget | OpenHands, MAF (#7472) | Loops and runaway spend are top complaints everywhere | Partial | The seams exist (`policy.go:49-54`; `BeforeSend` admission, `engine.go:554-563`), but no stock policy and no token or cost field in `Limits` | Ship opt-in policies and a way to compose them, so hosts don't write a four-method policy for each concern |
 
 Also covered, and not repeated as rows:
-- Steering through `Deliver` and `BeforeModel.Deliver` at step boundaries, with
+- Steering through `AddMessages` and `BeforeModel.AddMessages` at step boundaries, with
   `ContextItem.Origin` (`turn.go:69-75`, `engine.go:519-528`).
 - Refusing tool calls from truncated or unknown stops (`engine.go:658-663`).
 - Deterministic attempt IDs (`engine.go:564`). The clock is not injectable
@@ -60,14 +60,14 @@ Also covered, and not repeated as rows:
 |---|---|---|---|---|---|
 | 1 | Deciding tool use from early stream chunks; streaming path diverges from collected | Eino #806/#892; MAF #3848 | Avoided | The full result is classified (`engine.go:635-665`); both modes use `llm.Stream` (`engine.go:579`) | Keep a parity test per provider |
 | 2 | OpenAI-compatible tool-call assembly: missing `index`, reused index with a new ID, empty arguments | Eino #631, #927, #493; pi #4228 | Exposed | Calls keyed by `index` only; a new ID overwrites the old one (`completions/stream.go:118-133`); empty arguments fail `Call.Validate` (`tool/tool.go:178`), which becomes a protocol error and then an uncertain stop | Key by ID, then index; start a new call on an ID change; normalize `""` to `{}`; add recorded fixtures |
-| 3 | Tool errors abort the run | Eino #258; ADK #260 | Exposed (reframed) | Any executor `error` means uncertain, so the turn stops with `StopUncertain`. Probe: a `404` error from a tool gave `uncertain: tool outcome needs reconciliation` | Recommendation 2 |
+| 3 | Tool errors abort the run | Eino #258; ADK #260 | Exposed (reframed) | Any executor `error` means uncertain, so the turn stops with `StopResultUnknown`. Probe: a `404` error from a tool gave `uncertain: tool outcome needs reconciliation` | Recommendation 2 |
 | 4 | Provider-generated call IDs used as durable identity | Eino #1290; Nvoken discrepancy 1; pi #198 | Exposed | Replay rejects a repeated ID (`state.go:580-582`). Probe: two attempts that both return `call_0` leave the turn at model intent pending, `uncertain`, with `Continue` refused. A host recorder that doesn't replay on commit would store the step and then fail every later `Apply` | Recommendation 1 |
 | 5 | Tool panic crashes the process | ADK-Go parallel dispatch | Exposed | No `recover` around `ex.Execute` (`tools_loop.go:229-237`). Probe: the test binary panicked | Recover at the executor boundary; record the call as uncertain with a panic reason |
 | 6 | Hangs: stalled streams; a total timeout kills slow local streams | pi #8331, #3715, #4945 (240 issues) | Exposed | Default `http.Client{Timeout: 5*time.Minute}` (`internal/providerhttp/http.go:123`) covers the body read; no idle watchdog; `Limits.Deadline` is only checked before a call (`engine.go:459`) and does not bound `Send` or tools | Use a separate idle-stream timeout; derive the call context from `Deadline` |
 | 7 | Unbounded tool results re-sent on every later call | ADK #1618 | Exposed | No size bound on `tool.Output` (`tool/tool.go:198-205`, `project.go:125-132`); only structured output is capped | Add a per-turn result cap with an actionable truncation notice, recorded as a projection adjustment |
 | 8 | Strict arguments reject harmless extra keys | pi #6278, #5501 | Exposed | `DisallowAdditionalProperties` plus `DisallowUnknownFields` (`tool/function.go:30,81`); each rejection costs one of 8 default attempts | Lenient by default; strict per tool |
 | 9 | No loop bound, or bound reset by re-entry | ADK #1287; MAF #7472 | Avoided | `ModelAttempts ≥ 1` is required (`turn.go:53`), counted across `Continue` (`state.go:canContinue`) | Add token and cost bounds when child turns arrive |
-| 10 | Batch approval, implicit consent, conflated pending states | MAF #3054, #8079; OpenHands sdk#5092 | Avoided | Separate statuses: `approval_pending`, `waiting`, `uncertain` (`state.go:16-21`); `Deliver` never approves | Keep one contract test per path (external, streamed, hosted) |
+| 10 | Batch approval, implicit consent, conflated pending states | MAF #3054, #8079; OpenHands sdk#5092 | Avoided | Separate statuses: `approval_pending`, `waiting`, `uncertain` (`state.go:16-21`); `AddMessages` never approves | Keep one contract test per path (external, streamed, hosted) |
 | 11 | Partial turns lost on cancel or crash | MAF #2889, #8157 | Avoided | Commit per step; a bounded commit context after cancel (`engine.go:315-320`) | Qualify with a durable host (the open gate) |
 | 12 | Re-scanning the whole history per step; record growth | ADK; OpenHands sdk#1824; pi #8746 | At risk | Every turn's start fact copies the full prior session history (`engine.go:158`), so storage grows quadratically over a session. Replay and project run from scratch (idea 11) | Pin history by reference plus digest; cache the projection |
 | 13 | One unknown event kind makes the conversation unloadable | OpenHands sdk#4080 | At risk | Replay errors on an unknown kind or version (`state.go:88,537`), so `Replay`, `Project` and `StructuredOutput` all fail. The design promises inspection (`turn.md`) | Add an inspect-only replay that tolerates unknown kinds and blocks only execution |

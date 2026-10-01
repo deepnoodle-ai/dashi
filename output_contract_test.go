@@ -233,7 +233,7 @@ func TestStructuredOutputStartedSubmissionRecoversWithoutModelResend(
 		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
 	}
 	base := NewMemoryRecorder()
-	rec := &failOnceKind{base: base, kind: StepToolSettled}
+	rec := &failOnceKind{base: base, kind: StepToolFinished}
 	first, err := applyStructuredErr(client, nil, rec)
 	if persistence(err) != PersistenceRejected || client.sends != 1 {
 		t.Fatalf("first=%+v sends=%d", first, client.sends)
@@ -300,7 +300,7 @@ func TestStructuredOutputSchemaCanVaryPerTurn(t *testing.T) {
 	// The admitted request is part of the record; altering it invalidates the
 	// accepted model intent and submission evidence.
 	for i := range out.Turn.Steps {
-		if out.Turn.Steps[i].Kind == StepStarted {
+		if out.Turn.Steps[i].Kind == StepTurnStarted {
 			out.Turn.Steps[i].Started.OutputSchema = append(
 				json.RawMessage(nil),
 				answerSchema...,
@@ -370,7 +370,7 @@ func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
 		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
 	}
 	base := NewMemoryRecorder()
-	rec := &failOnceKind{base: base, kind: StepToolSettled}
+	rec := &failOnceKind{base: base, kind: StepToolFinished}
 	first, err := applyStructuredErr(client, nil, rec)
 	if persistence(err) != PersistenceRejected {
 		t.Fatalf("first=%+v err=%v", first, err)
@@ -386,7 +386,7 @@ func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
 	}).Run(
 		t.Context(),
 		saved,
-		Settle{CommandID: "host-result", CallID: "submission", Outcome: &result},
+		Resolve{CommandID: "host-result", CallID: "submission", Outcome: &result},
 	)
 	if err == nil {
 		t.Fatal("host settled a runner-owned output submission")
@@ -400,7 +400,7 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
 	}
 	base := NewMemoryRecorder()
-	rec := &failOnceKind{base: base, kind: StepStopped}
+	rec := &failOnceKind{base: base, kind: StepTurnStopped}
 	first, err := applyStructuredErr(client, nil, rec)
 	if persistence(err) != PersistenceRejected {
 		t.Fatalf("err=%v", err)
@@ -431,7 +431,7 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 		Client:   client,
 		Recorder: rec,
 	}
-	deliver := Deliver{
+	deliver := AddMessages{
 		CommandID: "nudge",
 		Items: []ContextItem{
 			{Origin: "user", Message: llm.UserMessage(llm.Text("more"))},
@@ -511,7 +511,7 @@ func TestReplayRejectsContextAfterRecordedOutput(t *testing.T) {
 			Version: recorded.Version,
 			TurnID:  recorded.TurnID,
 			Seq:     seq,
-			Kind:    StepDelivered,
+			Kind:    StepMessagesAdded,
 			Context: &ContextFact{
 				Items: []ContextItem{
 					{Origin: "user", Message: llm.UserMessage(llm.Text("more"))},
@@ -522,7 +522,7 @@ func TestReplayRejectsContextAfterRecordedOutput(t *testing.T) {
 			Version: recorded.Version,
 			TurnID:  recorded.TurnID,
 			Seq:     seq,
-			Kind:    StepStopped,
+			Kind:    StepTurnStopped,
 			Stop:    testStop(StopCanceled, ""),
 		},
 	}

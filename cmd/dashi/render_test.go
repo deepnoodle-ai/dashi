@@ -46,7 +46,7 @@ func TestRenderTextDeltasGrowOneBlock(t *testing.T) {
 	}
 	// The settled step replaces the text and closes the block.
 	done := onlyBlock(t, r.Event(stepEvent(dashi.Step{
-		Kind: dashi.StepModelSettled,
+		Kind: dashi.StepModelCallFinished,
 		Model: &dashi.ModelFact{
 			MessageID: "m1",
 			Result: &llm.Result{
@@ -107,7 +107,7 @@ func TestRenderToolLifecycle(t *testing.T) {
 	}
 	ok := tl.Succeeded("PASS")
 	done := onlyBlock(t, r.Event(stepEvent(toolStep(
-		dashi.StepToolSettled, t0.Add(1500*time.Millisecond), &ok,
+		dashi.StepToolFinished, t0.Add(1500*time.Millisecond), &ok,
 	))))
 	if done.State != StateOK || done.Elapsed != 1500*time.Millisecond || !done.Done {
 		t.Fatalf("done=%+v", done)
@@ -116,7 +116,7 @@ func TestRenderToolLifecycle(t *testing.T) {
 		t.Fatalf("line=%q", got)
 	}
 	failed := tl.Failed("exit status 1\nmore")
-	bad := onlyBlock(t, r.Event(stepEvent(toolStep(dashi.StepToolSettled, t0, &failed))))
+	bad := onlyBlock(t, r.Event(stepEvent(toolStep(dashi.StepToolFinished, t0, &failed))))
 	if bad.State != StateFailed || strings.Join(bad.Lines, "|") != "more" {
 		t.Fatalf("bad=%+v", bad)
 	}
@@ -133,7 +133,7 @@ func TestRenderDeniedTool(t *testing.T) {
 		t.Fatalf("decision shown: %+v", got)
 	}
 	out := tl.Outcome{State: tl.StateNotExecuted}
-	b := onlyBlock(t, r.Event(stepEvent(toolStep(dashi.StepToolSettled, time.Time{}, &out))))
+	b := onlyBlock(t, r.Event(stepEvent(toolStep(dashi.StepToolFinished, time.Time{}, &out))))
 	if b.State != StateDenied || len(b.Lines) != 1 ||
 		b.Lines[0] != "The user declined this call." {
 		t.Fatalf("denied=%+v", b)
@@ -178,7 +178,7 @@ func TestRenderStopKinds(t *testing.T) {
 		},
 		{
 			"uncertain",
-			dashi.Stop{Kind: dashi.StopUncertain, Reason: "model call"},
+			dashi.Stop{Kind: dashi.StopResultUnknown, Reason: "model call"},
 			"The turn stopped with an unknown result: model call.",
 		},
 	}
@@ -187,7 +187,7 @@ func TestRenderStopKinds(t *testing.T) {
 			r := NewRenderer(3, "m", "/repo")
 			stop := tt.stop
 			b := onlyBlock(t, r.Event(stepEvent(dashi.Step{
-				Kind: dashi.StepStopped,
+				Kind: dashi.StepTurnStopped,
 				Stop: &stop,
 			})))
 			if b.Kind != KindStop || b.Text != tt.want {
@@ -198,7 +198,7 @@ func TestRenderStopKinds(t *testing.T) {
 	// A completed turn adds no stop line.
 	r := NewRenderer(1, "m", "/repo")
 	if got := r.Event(stepEvent(dashi.Step{
-		Kind: dashi.StepStopped,
+		Kind: dashi.StepTurnStopped,
 		Stop: &dashi.Stop{Kind: dashi.StopCompleted},
 	})); len(got) != 0 {
 		t.Fatalf("completed shown: %+v", got)
@@ -208,7 +208,7 @@ func TestRenderStopKinds(t *testing.T) {
 func TestRenderSteerAndWarning(t *testing.T) {
 	r := NewRenderer(1, "m", "/repo")
 	got := r.Event(stepEvent(dashi.Step{
-		Kind: dashi.StepDelivered,
+		Kind: dashi.StepMessagesAdded,
 		Context: &dashi.ContextFact{
 			Steering: true,
 			Items: []dashi.ContextItem{{
@@ -281,7 +281,7 @@ func TestSettledToolOnlyMessageClearsStreamedText(t *testing.T) {
 	var tr Transcript
 	tr.Apply(live)
 	done := onlyBlock(t, r.Event(stepEvent(dashi.Step{
-		Kind: dashi.StepModelSettled,
+		Kind: dashi.StepModelCallFinished,
 		Model: &dashi.ModelFact{
 			MessageID: "m1",
 			Result:    &llm.Result{Message: llm.AssistantMessage()},
@@ -297,7 +297,7 @@ func TestSettledToolOnlyMessageClearsStreamedText(t *testing.T) {
 	// Replay has no text and no block.
 	replay := NewRenderer(1, "m", "/repo")
 	if got := replay.Event(stepEvent(dashi.Step{
-		Kind: dashi.StepModelSettled,
+		Kind: dashi.StepModelCallFinished,
 		Model: &dashi.ModelFact{
 			MessageID: "m1",
 			Result:    &llm.Result{Message: llm.AssistantMessage()},

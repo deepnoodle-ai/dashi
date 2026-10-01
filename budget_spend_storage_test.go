@@ -203,7 +203,7 @@ func TestRecordersRejectUnsafeTokenIntentBeforeStorage(t *testing.T) {
 		var rejected *dashi.CommitError
 		if !errors.As(err, &rejected) ||
 			rejected.Persistence != dashi.PersistenceRejected ||
-			rejected.Step.Kind != dashi.StepModelIntent {
+			rejected.Step.Kind != dashi.StepModelCallStarted {
 			t.Fatalf("unsafe intent was not rejected before admission: %v", err)
 		}
 		if len(client.Inputs()) != 1 {
@@ -216,7 +216,7 @@ func TestRecordersRejectUnsafeTokenIntentBeforeStorage(t *testing.T) {
 		if len(saved.Steps) != len(out.Turn.Steps) {
 			t.Fatal("rejected intent reached storage")
 		}
-		if saved.Steps[len(saved.Steps)-1].Kind == dashi.StepModelIntent {
+		if saved.Steps[len(saved.Steps)-1].Kind == dashi.StepModelCallStarted {
 			t.Fatal("rejected model intent is the stored last step")
 		}
 	}
@@ -270,7 +270,7 @@ func TestLateToolOverflowCannotPoisonOpenCostStop(t *testing.T) {
 			late.Cost = &tool.Cost{Amount: 1, Currency: "USD"}
 			bad := dashi.Step{
 				Version: 1, TurnID: turn.ID, Seq: int64(len(turn.Steps) + 1),
-				Kind: dashi.StepToolSettled,
+				Kind: dashi.StepToolFinished,
 				Tool: &dashi.ToolFact{Call: before.Tools["call-2"].Call, Outcome: &late},
 			}
 			candidate := turn
@@ -296,7 +296,7 @@ func TestLateToolOverflowCannotPoisonOpenCostStop(t *testing.T) {
 				}
 			}
 			runner.Recorder = recorder
-			if _, err := runner.Run(t.Context(), turn, dashi.Settle{
+			if _, err := runner.Run(t.Context(), turn, dashi.Resolve{
 				CommandID: "late", CallID: "call-2", Outcome: &late,
 			}); !errors.Is(err, dashi.ErrInvalidTurn) {
 				t.Fatalf("unsafe late charge was not rejected: %v", err)

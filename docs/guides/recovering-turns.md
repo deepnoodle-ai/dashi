@@ -16,7 +16,7 @@ and reuse them on retry; nobody can reuse an ID generated inside a call that
 crashed. Without that, a retry from an old turn snapshot is still refused by
 the recorder, because its step numbers are taken, so no model call or tool
 runs twice. What can happen is a second turn from a `Start` retried with no
-turn ID, or a `Deliver` recorded twice when its items carry no IDs.
+turn ID, or a `AddMessages` recorded twice when its items carry no IDs.
 
 A host that saves whole commands before running them, such as an outbox that
 replays the same command after a crash, encodes them with
@@ -27,7 +27,7 @@ the identity to index saved commands by. Commands also encode with plain
 `encoding/json`; a JSON `null` output schema reads as none.
 
 Values a turn records travel on its commands: `Start.Agent` carries the agent,
-and the turn records it. `Continue`, `Settle`, and `Cancel` take no agent;
+and the turn records it. `Continue`, `Resolve`, and `Cancel` take no agent;
 they run with the one recorded in the turn you pass in, so load that turn
 from your own store. Process wiring for one call, such as steering, goes in
 run options, and long-lived services go on the `Runner`. A retried `Start`
@@ -52,7 +52,7 @@ already running finishes.
 
 Only `Start` and `Continue` call the model, so only they need
 `Runner.Client`, and an admitting `Start` (below) does not when its Agent names
-its provider, API, and model. `Settle`, `Deliver`, and `Cancel` record facts
+its provider, API, and model. `Resolve`, `AddMessages`, and `Cancel` record facts
 and run with a `Runner` that has just a `Recorder`. A turn with no steps has not started, so
 `Cancel` refuses it; a host that admitted work and never ran it withdraws its
 own admission.
@@ -112,8 +112,8 @@ the call, `InterruptWorker` when recovery settles a call left open by a
 worker that stopped. A started tool without a result is
 rerun only if declared `ReadOnly` or `Idempotent` (see
 [read-only and idempotent tools](tools.md#read-only-and-idempotent-tools)). Otherwise its outcome is
-uncertain: check the outside system, report the result with `Settle`, and call
-`Continue`. `Settle` only records, including for [approvals](approvals.md) and external tool
+uncertain: check the outside system, report the result with `Resolve`, and call
+`Continue`. `Resolve` only records, including for [approvals](approvals.md) and external tool
 results. `Outcome.ReadyToContinue` and the replayed turn's
 `TurnView.ReadyToContinue` show when no unresolved effect blocks the next `Continue`. The host's sweeper
 should pick up ready turns with no active worker.
@@ -128,7 +128,7 @@ cap that can no longer be checked, including a token cap with incomplete usage.
 Before that stop is recorded, Continue can recover existing work or record the
 stop after a crash, but dispatch guards prevent new execution. Raising a budget does not revive such a
 turn. After that, only
-`Settle` reporting the result of work that had already started is accepted;
+`Resolve` reporting the result of work that had already started is accepted;
 every other command returns `dashi.ErrTurnEnded`. Unstarted calls are settled
 as not executed, so no approval stays pending on an ended turn.
 

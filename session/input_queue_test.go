@@ -110,8 +110,8 @@ func TestSessionDispatchOnIdle(t *testing.T) {
 	}
 	close(client.gate.release)
 	out := awaitSend(t, done)
-	if out.Turn.ID != "s-2" || out.Answer != "two" || out.Origin != dashi.StartUser {
-		t.Fatalf("turn=%s answer=%q origin=%q", out.Turn.ID, out.Answer, out.Origin)
+	if out.Turn.ID != "s-2" || out.Reply != "two" || out.Origin != dashi.StartUser {
+		t.Fatalf("turn=%s answer=%q origin=%q", out.Turn.ID, out.Reply, out.Origin)
 	}
 	if got, want := out.Turn.Steps[0].CommandID, `queue:["`+q.ID+`"]`; got != want {
 		t.Fatalf("command ID=%q, want %q", got, want)
@@ -161,8 +161,8 @@ func TestSessionQueueWaitsForStop(t *testing.T) {
 	}
 	close(client.gate.release)
 	out, err = s.Run(t.Context(), dashi.Continue{})
-	if err != nil || out.Turn.ID != "s-2" || out.Answer != "two" {
-		t.Fatalf("turn=%s answer=%q err=%v", out.Turn.ID, out.Answer, err)
+	if err != nil || out.Turn.ID != "s-2" || out.Reply != "two" {
+		t.Fatalf("turn=%s answer=%q err=%v", out.Turn.ID, out.Reply, err)
 	}
 	if got := input(t, rec, "s-2"); !slices.Equal(got, []string{"later"}) {
 		t.Fatalf("input=%q", got)
@@ -188,8 +188,8 @@ func TestSessionSteer(t *testing.T) {
 	}
 	close(client.gate.release)
 	out := awaitSend(t, done)
-	if out.Turn.ID != "s-1" || out.Answer != "done" {
-		t.Fatalf("turn=%s answer=%q", out.Turn.ID, out.Answer)
+	if out.Turn.ID != "s-1" || out.Reply != "done" {
+		t.Fatalf("turn=%s answer=%q", out.Turn.ID, out.Reply)
 	}
 	if !recordsSteer(out.Turn, q.ID) {
 		t.Fatal("the steer was not recorded")
@@ -204,8 +204,8 @@ func TestSessionSteer(t *testing.T) {
 		t.Fatalf("queued=%+v err=%v", q, err)
 	}
 	out, ran, err := s.RunQueue(t.Context())
-	if err != nil || !ran || out.Answer != "queued answer" {
-		t.Fatalf("ran=%v answer=%q err=%v", ran, out.Answer, err)
+	if err != nil || !ran || out.Reply != "queued answer" {
+		t.Fatalf("ran=%v answer=%q err=%v", ran, out.Reply, err)
 	}
 
 	// Empty text, a repeated ID, and a host source that is not an Inbox.
@@ -279,8 +279,8 @@ func TestSessionMissedSteers(t *testing.T) {
 		}
 		close(client.gate.release)
 		out := awaitSend(t, done)
-		if out.Turn.ID != "s-2" || out.Answer != "also done" {
-			t.Fatalf("turn=%s answer=%q", out.Turn.ID, out.Answer)
+		if out.Turn.ID != "s-2" || out.Reply != "also done" {
+			t.Fatalf("turn=%s answer=%q", out.Turn.ID, out.Reply)
 		}
 		if got := input(t, rec, "s-2"); !slices.Equal(got, []string{"also this"}) {
 			t.Fatalf("input=%q", got)
@@ -306,8 +306,8 @@ func TestSessionMissedSteers(t *testing.T) {
 		}
 		close(client.gate.release)
 		out, err := s.Send(t.Context(), "new")
-		if err != nil || out.Turn.ID != "s-2" || out.Answer != "fresh" {
-			t.Fatalf("turn=%s answer=%q err=%v", out.Turn.ID, out.Answer, err)
+		if err != nil || out.Turn.ID != "s-2" || out.Reply != "fresh" {
+			t.Fatalf("turn=%s answer=%q err=%v", out.Turn.ID, out.Reply, err)
 		}
 		if !hasWarning(out.SessionWarnings, session.WarningTurnClosed) {
 			t.Fatalf("warnings=%+v", out.SessionWarnings)
@@ -339,8 +339,8 @@ func TestSessionMissedSteers(t *testing.T) {
 		<-done
 		close(client.gate.release)
 		out, err := s.Run(t.Context(), dashi.Continue{})
-		if err != nil || out.Turn.ID != "s-1" || out.Answer != "resumed" {
-			t.Fatalf("turn=%s answer=%q err=%v", out.Turn.ID, out.Answer, err)
+		if err != nil || out.Turn.ID != "s-1" || out.Reply != "resumed" {
+			t.Fatalf("turn=%s answer=%q err=%v", out.Turn.ID, out.Reply, err)
 		}
 		if !recordsSteer(out.Turn, q.ID) {
 			t.Fatal("the continued turn did not record the steer")
@@ -448,8 +448,8 @@ func TestSessionDispatchKeepsWarnings(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := s.Send(t.Context(), "new")
-	if err != nil || out.Turn.ID != "s-3" || out.Answer != "three" {
-		t.Fatalf("turn=%s answer=%q err=%v", out.Turn.ID, out.Answer, err)
+	if err != nil || out.Turn.ID != "s-3" || out.Reply != "three" {
+		t.Fatalf("turn=%s answer=%q err=%v", out.Turn.ID, out.Reply, err)
 	}
 	if !hasWarning(out.SessionWarnings, session.WarningTurnClosed) {
 		t.Fatalf("warnings=%+v", out.SessionWarnings)

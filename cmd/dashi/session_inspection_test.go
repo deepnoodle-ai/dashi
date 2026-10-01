@@ -184,7 +184,7 @@ func TestStatusDuringWorkDoesNotSteerOrAuthorize(t *testing.T) {
 }
 
 func TestInspectionOwnerGuidanceUsesExactPendingCallAndNoFalseRecovery(t *testing.T) {
-	base := sessionstore.Inspection{Metadata: sessionstore.Session{ID: "target"}, Latest: &sessionstore.Execution{Readable: true, Next: dashi.NextResolve, Pending: []sessionstore.PendingObservation{{ID: "effect-42", UnsafeEffect: true}}}}
+	base := sessionstore.Inspection{Metadata: sessionstore.Session{ID: "target"}, Latest: &sessionstore.Execution{Readable: true, Next: dashi.NextFix, Pending: []sessionstore.PendingObservation{{ID: "effect-42", UnsafeEffect: true}}}}
 	own := inspectionOwner{ID: "target", Owned: true, Mode: ModeIdle}
 	got := inspectionGuidance(base, own)
 	if !strings.Contains(got, "verify the exact external effect for call effect-42") || !strings.Contains(got, "/done effect-42") || strings.Contains(got, "Press Enter") {

@@ -75,9 +75,9 @@ func TestDurableSteeringSurvivesEachCommitFault(t *testing.T) {
 		kind dashi.StepKind
 		seq  int64
 	}{
-		{kind: dashi.StepDelivered, seq: 2},
-		{kind: dashi.StepModelIntent, seq: 3},
-		{kind: dashi.StepStopped},
+		{kind: dashi.StepMessagesAdded, seq: 2},
+		{kind: dashi.StepModelCallStarted, seq: 3},
+		{kind: dashi.StepTurnStopped},
 	}
 	faults := []dashitest.Fault{
 		dashitest.Reject,
@@ -159,7 +159,7 @@ func TestInboxKeepsInDoubtSteersForTheirTurn(t *testing.T) {
 			store := dashi.NewMemoryRecorder()
 			rec := &dashitest.FaultRecorder{
 				Recorder: store,
-				Kind:     dashi.StepDelivered,
+				Kind:     dashi.StepMessagesAdded,
 				Fault:    fault,
 			}
 			inbox := dashi.NewInbox()
@@ -316,8 +316,8 @@ func TestSteerSupersedingTextSurvivesEachCommitFault(t *testing.T) {
 				runner,
 				dashi.WithSteering(inbox),
 			)
-			if out.Stop.Kind != dashi.StopCompleted || out.Answer != "final" {
-				t.Fatalf("stop=%+v answer=%q", out.Stop, out.Answer)
+			if out.Stop.Kind != dashi.StopCompleted || out.Reply != "final" {
+				t.Fatalf("stop=%+v answer=%q", out.Stop, out.Reply)
 			}
 			final, err := store.Load(t.Context(), "t1")
 			if err != nil {
@@ -351,7 +351,7 @@ func TestInboxContinuesAfterInDoubtDelivery(t *testing.T) {
 			store := dashi.NewMemoryRecorder()
 			rec := &dashitest.FaultRecorder{
 				Recorder: store,
-				Kind:     dashi.StepDelivered,
+				Kind:     dashi.StepMessagesAdded,
 				Fault:    fault,
 			}
 			inbox := dashi.NewInbox()

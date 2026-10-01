@@ -56,7 +56,7 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 			sawAction = true
 			for _, call := range plan.Turn.Tools {
 				if call.Call.Name == "invoke_skill" &&
-					call.Status == dashi.ToolSettled {
+					call.Status == dashi.ToolFinished {
 					loadSettledAtAuthorization = true
 				}
 			}
@@ -95,7 +95,7 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded := view.Tools["load-call"]
-	if loaded.Status != dashi.ToolSettled ||
+	if loaded.Status != dashi.ToolFinished ||
 		loaded.Outcome == nil ||
 		loaded.Outcome.State != tool.StateSucceeded ||
 		!strings.Contains(

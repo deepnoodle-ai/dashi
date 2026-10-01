@@ -25,7 +25,7 @@ func TestKnownProviderRejectionCanContinueWithNewAttempt(t *testing.T) {
 		t.Fatalf("first=%+v err=%v sends=%d", first, err, client.sends)
 	}
 	settled := first.Turn.Steps[len(first.Turn.Steps)-2]
-	if settled.Kind != StepModelSettled || settled.Model.Failure != llm.FailureRejected || settled.Model.Uncertain {
+	if settled.Kind != StepModelCallFinished || settled.Model.Failure != llm.FailureRejected || settled.Model.Uncertain {
 		t.Fatalf("settlement=%+v", settled)
 	}
 	second, err := (Runner{
@@ -44,7 +44,7 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 	}
 	rec := NewMemoryRecorder()
 	first, err := start(t, client, nil, rec, Hooks{})
-	if err != nil || first.Stop.Kind != StopUncertain || client.sends != 1 {
+	if err != nil || first.Stop.Kind != StopResultUnknown || client.sends != 1 {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	if _, err := (Runner{
@@ -63,7 +63,7 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 	}).Run(
 		t.Context(),
 		first.Turn,
-		Settle{
+		Resolve{
 			CommandID: "proof",
 			CallID:    "t1:model:1",
 			ModelFailure: &ModelFailure{
@@ -107,7 +107,7 @@ func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(
 	}
 	rec := NewMemoryRecorder()
 	first, err := start(t, client, nil, rec, Hooks{})
-	if err != nil || first.Stop.Kind != StopUncertain {
+	if err != nil || first.Stop.Kind != StopResultUnknown {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	view, err := Replay(first.Turn)
@@ -120,7 +120,7 @@ func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(
 	}).Run(
 		t.Context(),
 		first.Turn,
-		Settle{
+		Resolve{
 			CommandID: "false-proof",
 			CallID:    "t1:model:1",
 			ModelFailure: &ModelFailure{

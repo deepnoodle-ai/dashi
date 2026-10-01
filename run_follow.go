@@ -61,17 +61,17 @@ type StepWaiter interface {
 // Settles returns the ID of the live previews this step supersedes: the
 // MessageID of a settled or reconciled model call, whose deltas it replaces,
 // or the call ID of a settled tool call, whose progress it ends. It returns
-// "" for every other step, including model_requested, which carries the
+// "" for every other step, including model_call_started, which carries the
 // same MessageID as the deltas that follow it but settles nothing.
 //
 // A handler that merges previews with Follow's steps drops a preview whose
 // MessageID (for a delta) or CallID (for progress) a sent step settled.
 func (s Step) Settles() string {
 	switch {
-	case (s.Kind == StepModelSettled || s.Kind == StepModelReconciled) &&
+	case (s.Kind == StepModelCallFinished || s.Kind == StepModelCallFinishedByHost) &&
 		s.Model != nil:
 		return s.Model.MessageID
-	case s.Kind == StepToolSettled && s.Tool != nil:
+	case s.Kind == StepToolFinished && s.Tool != nil:
 		return s.Tool.Call.ID
 	}
 	return ""
@@ -159,7 +159,7 @@ func Follow(
 				if last.Stop != nil && last.Stop.Terminal {
 					return
 				}
-				resting = last.Kind == StepStopped
+				resting = last.Kind == StepTurnStopped
 				steps = steps[1:]
 			}
 			for _, step := range steps {
@@ -174,7 +174,7 @@ func Follow(
 				if step.Stop != nil && step.Stop.Terminal {
 					return
 				}
-				resting = step.Kind == StepStopped
+				resting = step.Kind == StepTurnStopped
 			}
 			if full {
 				continue

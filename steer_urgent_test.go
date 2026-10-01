@@ -208,7 +208,7 @@ func lookupTool() tool.Tool {
 
 func settlements(turn Turn) []*ModelFact {
 	var out []*ModelFact
-	for _, step := range stepsOf(turn, StepModelSettled) {
+	for _, step := range stepsOf(turn, StepModelCallFinished) {
 		out = append(out, step.Model)
 	}
 	return out
@@ -268,8 +268,8 @@ func TestUrgentSteerCutsStreamedCall(t *testing.T) {
 	if strings.Contains(next[partial].Text(), "never shown") {
 		t.Fatal("text streamed after the cut reached the model")
 	}
-	if out.Answer != "ok, editing util.go" {
-		t.Fatalf("answer = %q; a cut call is never an answer", out.Answer)
+	if out.Reply != "ok, editing util.go" {
+		t.Fatalf("answer = %q; a cut call is never an answer", out.Reply)
 	}
 }
 
@@ -366,7 +366,7 @@ func (h *intentHook) Commit(ctx context.Context, req CommitRequest) error {
 	if err := h.MemoryRecorder.Commit(ctx, req); err != nil {
 		return err
 	}
-	if !h.fired && req.Step.Kind == StepModelIntent {
+	if !h.fired && req.Step.Kind == StepModelCallStarted {
 		h.fired = true
 		h.onIntent()
 	}
@@ -397,7 +397,7 @@ func TestUrgentSteerAfterBeforeModelGoesBackForTheSteer(t *testing.T) {
 	if out.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("stop=%+v sends=%d", out.Stop, client.sends)
 	}
-	if n := len(stepsOf(out.Turn, StepModelIntent)); n != 1 {
+	if n := len(stepsOf(out.Turn, StepModelCallStarted)); n != 1 {
 		t.Fatalf(
 			"%d model requests recorded; the first pass must record none",
 			n,
@@ -438,8 +438,8 @@ func TestCallCompletingAsSteerArrivesStands(t *testing.T) {
 			t.Fatalf("a complete result was settled as interrupted: %+v", fact)
 		}
 	}
-	if out.ModelAttempts != 2 || out.Answer != "tests checked" {
-		t.Fatalf("attempts=%d answer=%q", out.ModelAttempts, out.Answer)
+	if out.ModelAttempts != 2 || out.Reply != "tests checked" {
+		t.Fatalf("attempts=%d answer=%q", out.ModelAttempts, out.Reply)
 	}
 	if hasText(client.inputs()[1].Messages, "also check the tests") < 0 {
 		t.Fatal("the steer did not reach the next call")
@@ -513,7 +513,7 @@ func TestTimeoutRacingSteerCutWins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != StopUncertain {
+	if out.Stop.Kind != StopResultUnknown {
 		t.Fatalf("stop=%+v; a timeout stops the run as uncertain", out.Stop)
 	}
 	facts := settlements(out.Turn)
@@ -529,7 +529,7 @@ func TestTimeoutRacingSteerCutWins(t *testing.T) {
 	if out.ModelAttempts != 1 {
 		t.Fatalf("attempts=%d; a timeout counts as an attempt", out.ModelAttempts)
 	}
-	if steps := stepsOf(out.Turn, StepDelivered); len(steps) != 0 {
+	if steps := stepsOf(out.Turn, StepMessagesAdded); len(steps) != 0 {
 		t.Fatalf("the steer was reported delivered: %+v", steps)
 	}
 	saved, err := rec.Load(t.Context(), "t1")
@@ -559,12 +559,12 @@ func TestReservedFinalAnswerCallIsCutAndAskedAgain(t *testing.T) {
 		r.Tools = tool.List{lookupTool()}
 	})
 	// An answer on the reserved call ends the turn as limited, as always.
-	if out.Stop.Reason != "model_attempts" || out.Answer != "Réponse finale" {
-		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Answer)
+	if out.Stop.Reason != "model_attempts" || out.Reply != "Réponse finale" {
+		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Reply)
 	}
-	intents := stepsOf(out.Turn, StepModelIntent)
-	if len(intents) != 3 || !intents[1].Model.FinalAnswerOnly ||
-		!intents[2].Model.FinalAnswerOnly {
+	intents := stepsOf(out.Turn, StepModelCallStarted)
+	if len(intents) != 3 || !intents[1].Model.FinalReplyOnly ||
+		!intents[2].Model.FinalReplyOnly {
 		t.Fatal("the replacement must still be the reserved final-answer call")
 	}
 	if out.ModelAttempts != 2 {
@@ -607,7 +607,7 @@ func TestUrgentSteerUnderCostCapChargesWorstCase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent := stepsOf(out.Turn, StepModelIntent)[0].Model
+	intent := stepsOf(out.Turn, StepModelCallStarted)[0].Model
 	cut := settlements(out.Turn)[0]
 	if cut.Interrupted != InterruptSteering || cut.Charge == nil ||
 		intent.AtRisk == nil || cut.Charge.Total != intent.AtRisk.Total {
@@ -648,7 +648,7 @@ func TestUrgentSteerDoesNotCutCallWhenReplacementExceedsCostCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	settled := stepsOf(out.Turn, StepModelSettled)[0]
+	settled := stepsOf(out.Turn, StepModelCallFinished)[0]
 	if settled.Model.Interrupted != InterruptNone {
 		t.Fatal("a call whose replacement would not fit the cap was cut")
 	}
@@ -767,11 +767,11 @@ func TestVetoHoldsAcrossSteeringInterrupt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != StopInterrupted || out.Answer != "" {
+	if out.Stop.Kind != StopInterrupted || out.Reply != "" {
 		t.Fatalf(
 			"stop=%+v answer=%q; the veto must stay in force",
 			out.Stop,
-			out.Answer,
+			out.Reply,
 		)
 	}
 }
@@ -828,7 +828,7 @@ func TestSteeredTurnReplaysDeterministically(t *testing.T) {
 	}
 	if !canonjson.SameValue(view.Spend, out.Spend) ||
 		view.ModelAttempts != out.ModelAttempts ||
-		view.Answer != out.Answer {
+		view.Reply != out.Reply {
 		t.Fatalf("replay differs: %+v vs %+v", view.Spend, out.Spend)
 	}
 	projected, err := Project(decoded)
@@ -851,7 +851,7 @@ func (c *crashOnSteeredSettlement) Commit(
 	ctx context.Context,
 	req CommitRequest,
 ) error {
-	if !c.fired && req.Step.Kind == StepModelSettled &&
+	if !c.fired && req.Step.Kind == StepModelCallFinished &&
 		req.Step.Model.Interrupted == InterruptSteering {
 		c.fired = true
 		return errors.New("injected: worker crashed")
@@ -892,7 +892,7 @@ func TestCrashAfterSteeringCancelRecoversAsWorker(t *testing.T) {
 		t.Fatalf("recovered cause = %q", got)
 	}
 	delivered := 0
-	for _, step := range stepsOf(out.Turn, StepDelivered) {
+	for _, step := range stepsOf(out.Turn, StepMessagesAdded) {
 		for _, item := range step.Items() {
 			if strings.Contains(item.Message.Text(), "use staging") {
 				delivered++
@@ -1141,10 +1141,10 @@ func TestAnswerAfterSteerOmitsTextBeforeThePause(t *testing.T) {
 	if out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
-	if out.Answer != "Editing util.go instead." {
+	if out.Reply != "Editing util.go instead." {
 		t.Fatalf(
 			"answer = %q; text from before the steer was joined",
-			out.Answer,
+			out.Reply,
 		)
 	}
 }
@@ -1256,8 +1256,8 @@ func TestIncompleteResultAfterUrgentCutIsSteered(t *testing.T) {
 		urgentCall{result: final("ok")},
 	)
 	out := runUrgent(t, client, inbox)
-	if out.Stop.Kind != StopCompleted || out.Answer != "ok" {
-		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Answer)
+	if out.Stop.Kind != StopCompleted || out.Reply != "ok" {
+		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Reply)
 	}
 	if cut := settlements(out.Turn)[0]; cut.Interrupted != InterruptSteering {
 		t.Fatalf("the incomplete call was settled as %+v", cut)

@@ -15,8 +15,8 @@ type Event struct {
 	// Seq places the event in the turn's record. On a step event it equals
 	// Step.Seq. On a preview or gap it is the Seq of the last step committed
 	// before it: the preview belongs after that step and is superseded by a
-	// later one. A delta's Seq is its model_requested step; a progress
-	// snapshot's lies between its tool_started and tool_settled steps. A
+	// later one. A delta's Seq is its model_call_started step; a progress
+	// snapshot's lies between its tool_started and tool_finished steps. A
 	// relay that carries events between processes keeps Seq unchanged.
 	Seq   int64
 	Step  *Step
@@ -27,7 +27,7 @@ type Event struct {
 	// Gap marks model deltas the Observer dropped because it fell behind.
 	// AttemptID and MessageID name the message that lost them. Its preview
 	// now has a hole: discard it, and ignore further deltas for that
-	// MessageID until the step that settles it (model_settled) arrives. A
+	// MessageID until the step that settles it (model_call_finished) arrives. A
 	// gap with no such step after it means the run ended early, as after a
 	// failed commit; load the turn from the recorder. Dropped tool progress
 	// makes no gap, since each snapshot replaces the last. Runner.Stream

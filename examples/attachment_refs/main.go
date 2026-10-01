@@ -34,10 +34,10 @@ type upload struct {
 // store stands in for the host's upload storage.
 type store map[string]upload
 
-// Resolve implements dashi.ContentResolver. It reads the tenant from the
+// Load implements dashi.ContentLoader. It reads the tenant from the
 // context of the Run call, so a shared Runner cannot serve one tenant's file
 // to another.
-func (s store) Resolve(
+func (s store) Load(
 	ctx context.Context,
 	_ string,
 	ref content.Ref,
@@ -79,8 +79,8 @@ func run(ctx context.Context) error {
 		Size:   int64(len(text)),
 	}
 	runner := dashi.Runner{
-		Client:          client,
-		ContentResolver: uploads,
+		Client:        client,
+		ContentLoader: uploads,
 	}
 	tenantCtx := context.WithValue(ctx, tenantKey{}, "acme")
 	out, err := runner.Run(tenantCtx, dashi.Turn{}, dashi.Start{
@@ -96,7 +96,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 
 	// The record holds the reference and none of the bytes.
 	record, err := json.Marshal(out.Turn)

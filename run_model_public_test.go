@@ -163,7 +163,7 @@ func TestTurnRequestsKeepThePromptPrefixAcrossReminders(t *testing.T) {
 					}),
 				})
 			}
-			return dashi.ModelDecision{Deliver: items}, nil
+			return dashi.ModelDecision{AddMessages: items}, nil
 		},
 	}
 	r := dashi.Runner{
@@ -176,8 +176,8 @@ func TestTurnRequestsKeepThePromptPrefixAcrossReminders(t *testing.T) {
 		Agent:     dashi.Agent{Model: "claude-sonnet-5", Instructions: "Look."},
 		Input:     []llm.Message{llm.UserMessage(llm.Text("Go."))},
 	})
-	if err != nil || out.Answer != "Done." {
-		t.Fatalf("outcome %q, %v", out.Answer, err)
+	if err != nil || out.Reply != "Done." {
+		t.Fatalf("outcome %q, %v", out.Reply, err)
 	}
 	reqs := w.requests(t)
 	if len(reqs) != 3 {
@@ -339,7 +339,7 @@ func TestOneHourCacheBudgetUsesTheOneHourRate(t *testing.T) {
 	out := run(&rate)
 	var intent *dashi.ModelFact
 	for _, step := range out.Turn.Steps {
-		if step.Kind == dashi.StepModelIntent {
+		if step.Kind == dashi.StepModelCallStarted {
 			intent = step.Model
 		}
 	}

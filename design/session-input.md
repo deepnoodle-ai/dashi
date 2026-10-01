@@ -68,7 +68,7 @@ another process is later.
 When a `Start` or `Continue` this handle runs ends its turn with `NextNone`
 and the queue holds items, the same `Run` or `Stream` call starts the next
 turn from them, and repeats until the queue is empty or a turn stops any other
-way. `Settle`, `Deliver`, and `Cancel` run no model call, so nothing queued
+way. `Resolve`, `AddMessages`, and `Cancel` run no model call, so nothing queued
 runs after them. Every peer queue does
 this (Codex's queue extension, pi's next design, LangGraph's `enqueue`, ACP's
 inject); a queue that waits for the next send strands input. `RunQueue` does the

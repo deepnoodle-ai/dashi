@@ -411,7 +411,7 @@ func TestStreamCarriesRawResultAndSameView(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if event.Step != nil && event.Step.Kind == StepToolSettled {
+		if event.Step != nil && event.Step.Kind == StepToolFinished {
 			streamed = event.Step.Tool
 		}
 		if event.Outcome != nil {
@@ -463,7 +463,7 @@ func TestReplayRejectsBadShortenedRecords(t *testing.T) {
 	} {
 		turn := cloneTurn(out.Turn)
 		for i, s := range turn.Steps {
-			if s.Kind == StepToolSettled && s.Tool.Call.ID == "call-1" {
+			if s.Kind == StepToolFinished && s.Tool.Call.ID == "call-1" {
 				fact := *s.Tool
 				sh := *fact.Shortened
 				fact.Shortened = &sh

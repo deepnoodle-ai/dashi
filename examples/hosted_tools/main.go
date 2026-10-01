@@ -65,7 +65,7 @@ func run(ctx context.Context, prompt string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 
 	// The provider may split hosted work across several model calls, so
 	// these read every call in the turn, not only the last message.

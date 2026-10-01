@@ -26,8 +26,8 @@ a turn with one tool call that is about nine steps. The bytes that matter:
 |---|---|---|
 | `turn_started` | Definition, full `History` copy, full `Input` | `engine.go:158`, `turn.go:172-178` |
 | `model_intent` | Request digest, effective settings, tool definitions (no body) | `engine.go:566` |
-| `model_settled` | Complete assistant message, usage | `turn.go:197-219` |
-| `tool_settled` | Call and complete `tool.Output` | `turn.go` `ToolFact`, `tools_loop.go:30` |
+| `model_call_finished` | Complete assistant message, usage | `turn.go:197-219` |
+| `tool_finished` | Call and complete `tool.Output` | `turn.go` `ToolFact`, `tools_loop.go:30` |
 | others | Headers, decisions, stop | `turn.go:138-154` |
 
 Attachments are `content.Source.Data` (`content/content.go:37-62`), a `[]byte`
@@ -167,7 +167,7 @@ type Ref struct {
 
 **Resolution.** Replay, `Project`, and inspection never resolve. Immediately
 before `Prepare`, the engine hydrates a copy of the model input through
-`Runner.ContentResolver`: `Resolve(ctx, turnID, Ref) ([]byte, error)`. It
+`Runner.ContentLoader`: `Resolve(ctx, turnID, Ref) ([]byte, error)`. It
 returns bytes only. Dashi cannot verify a signed URL or a provider file ID
 against the digest, so those are a later contract. The engine checks declared
 size against limits, then the length and SHA-256 of the returned bytes. The

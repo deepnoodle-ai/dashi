@@ -25,10 +25,10 @@ const (
 	ToolStarted ToolStatus = "started"
 	// ToolWaiting means execution deferred completion.
 	ToolWaiting ToolStatus = "waiting"
-	// ToolUncertain means execution may have occurred without a known result.
-	ToolUncertain ToolStatus = "uncertain"
-	// ToolSettled means a final outcome was recorded.
-	ToolSettled ToolStatus = "settled"
+	// ToolResultUnknown means execution may have occurred without a known result.
+	ToolResultUnknown ToolStatus = "result_unknown"
+	// ToolFinished means a final outcome was recorded.
+	ToolFinished ToolStatus = "finished"
 )
 
 // ToolView projects the current call state from committed facts.
@@ -40,12 +40,12 @@ type ToolView struct {
 	Verdict ToolVerdict
 	Outcome *tool.Outcome
 	// ArgsDigest is set while Status is ToolApprovalPending. It identifies
-	// Call.Args by JSON meaning; echo it in ApprovalFact.ArgsDigest to approve
+	// Call.Args by JSON meaning; echo it in ApprovalDecision.ArgsDigest to approve
 	// or deny exactly the arguments shown.
 	ArgsDigest string
-	// Approval is the host's answer to a deferred call, recorded by Settle.
+	// Approval is the host's answer to a deferred call, recorded by Resolve.
 	// Verdict remains the hooks' deferral.
-	Approval *ApprovalFact
+	Approval *ApprovalDecision
 	// result is what the model sees instead of the outcome; see Result.
 	result    *llm.ToolResult
 	shortened *Shortened
@@ -71,7 +71,7 @@ func (v ToolView) Result() llm.ToolResult {
 	if v.result != nil {
 		return llmclone.ToolResult(*v.result)
 	}
-	if v.Outcome == nil || v.Status != ToolSettled {
+	if v.Outcome == nil || v.Status != ToolFinished {
 		return llm.ToolResult{}
 	}
 	return modelToolResult(v.Call.ID, v.Outcome)
@@ -120,12 +120,12 @@ type TurnView struct {
 	// about the stop.
 	Stop   Stop
 	Output *StructuredOutput
-	// Answer is the text of the latest assistant message. On a completed
+	// Reply is the text of the latest assistant message. On a completed
 	// turn it is the final answer, and valid tool-only work can leave it
 	// empty; on a waiting turn it is text the model wrote alongside its
 	// tool calls. On an ended turn (Stop.Terminal) it is fixed at the
 	// terminal stop, as Project is: a late model result does not change it.
-	Answer string
+	Reply string
 	// Pending lists the work awaiting a host action or settlement: model
 	// attempts, then local calls in call order, then hosted approval
 	// requests in the order the model made them.

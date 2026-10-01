@@ -217,7 +217,7 @@ type lostAdmission struct {
 
 func (r *lostAdmission) Commit(ctx context.Context, req dashi.CommitRequest) error {
 	r.mu.Lock()
-	lose := !r.lost && req.Step.Kind == dashi.StepStarted && req.Step.Started.Origin != dashi.StartCompaction
+	lose := !r.lost && req.Step.Kind == dashi.StepTurnStarted && req.Step.Started.Origin != dashi.StartCompaction
 	if lose {
 		r.lost = true
 		r.target = req.Step.TurnID

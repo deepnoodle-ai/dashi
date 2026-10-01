@@ -488,7 +488,7 @@ func step(turnID string, seq int64, text string) dashi.Step {
 		TurnID:  turnID,
 		Seq:     seq,
 		At:      stepTime.Add(time.Duration(seq) * time.Millisecond),
-		Kind:    dashi.StepDelivered,
+		Kind:    dashi.StepMessagesAdded,
 		Context: &dashi.ContextFact{
 			Items: []dashi.ContextItem{
 				{Origin: "user", Message: llm.UserMessage(llm.Text(text))},
@@ -496,7 +496,7 @@ func step(turnID string, seq int64, text string) dashi.Step {
 		},
 	}
 	if seq == 1 {
-		s.Kind = dashi.StepStarted
+		s.Kind = dashi.StepTurnStarted
 		s.CommandID = "start"
 		s.CommandDigest = "digest"
 	}

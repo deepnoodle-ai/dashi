@@ -143,7 +143,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 	}).Run(
 		t.Context(),
 		start.Turn,
-		Deliver{CommandID: "deliver", Items: []ContextItem{first, second}},
+		AddMessages{CommandID: "deliver", Items: []ContextItem{first, second}},
 	)
 	if err != nil {
 		t.Fatalf("delivery=%+v err=%v", delivered, err)
@@ -162,9 +162,9 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 	}).Run(
 		t.Context(),
 		delivered.Turn,
-		Deliver{CommandID: "bad", Items: []ContextItem{bad}},
+		AddMessages{CommandID: "bad", Items: []ContextItem{bad}},
 	)
-	// Deliver checks its items before recording anything.
+	// AddMessages checks its items before recording anything.
 	if persistence(err) != "other" ||
 		len(rejected.Turn.Steps) != len(delivered.Turn.Steps) {
 		t.Fatalf("untrusted operator reminder accepted: %+v err=%v", rejected, err)
@@ -176,7 +176,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 	}).Run(
 		t.Context(),
 		delivered.Turn,
-		Settle{
+		Resolve{
 			CommandID: "accept",
 			CallID:    "c1",
 			Outcome: &tool.Outcome{
@@ -263,7 +263,7 @@ func TestPreparedRequestCannotDropReminder(t *testing.T) {
 		t.Fatalf("outcome=%+v err=%v sends=%d", got.Stop, err, base.sends)
 	}
 	for _, step := range got.Turn.Steps {
-		if step.Kind == StepModelIntent {
+		if step.Kind == StepModelCallStarted {
 			t.Fatal("model intent recorded for a request with missing reminder")
 		}
 	}
@@ -305,7 +305,7 @@ func TestSystemPromptStableAcrossReminders(t *testing.T) {
 			if calls != 2 {
 				return ModelDecision{}, nil
 			}
-			return ModelDecision{Deliver: []ContextItem{{
+			return ModelDecision{AddMessages: []ContextItem{{
 				Origin: ContextRuntime,
 				Message: llm.ReminderMessage(llm.Reminder{
 					Name:    "scope",
@@ -409,7 +409,7 @@ func unsettledCallsTurn() Turn {
 	steps := []Step{
 		interruptionStart(testAgent()),
 		intent,
-		{Kind: StepModelSettled, Model: &ModelFact{
+		{Kind: StepModelCallFinished, Model: &ModelFact{
 			AttemptID: "model-1",
 			MessageID: "message-1",
 			Result:    &result,
@@ -427,8 +427,8 @@ func unsettledCallsTurn() Turn {
 	wait := tool.Outcome{State: tool.StateWaiting, Wait: &tool.Wait{Reason: "external"}}
 	steps = append(steps,
 		Step{Kind: StepToolWaiting, Tool: &ToolFact{Call: calls[1], Outcome: &wait}},
-		Step{Kind: StepToolSettled, Tool: &ToolFact{Call: calls[2]}},
-		Step{Kind: StepStopped, Stop: &Stop{Kind: StopUncertain}},
+		Step{Kind: StepToolFinished, Tool: &ToolFact{Call: calls[2]}},
+		Step{Kind: StepTurnStopped, Stop: &Stop{Kind: StopResultUnknown}},
 	)
 	return interruptionRecord(steps...)
 }
@@ -461,12 +461,12 @@ func TestCanceledTurnProjectsUnsettledCallsAndFreezes(t *testing.T) {
 	before, _ := json.Marshal(messages)
 
 	// A late result is recorded and counted, but the projection is frozen.
-	late, err := runner.Run(t.Context(), canceled.Turn, Settle{
+	late, err := runner.Run(t.Context(), canceled.Turn, Resolve{
 		CommandID: "late",
 		CallID:    "started",
 		Outcome:   new(tool.Succeeded("done late")),
 	})
-	if err != nil || late.Tools["started"].Status != ToolSettled {
+	if err != nil || late.Tools["started"].Status != ToolFinished {
 		t.Fatalf("late=%+v err=%v", late.Tools["started"], err)
 	}
 	after, err := Project(late.Turn)
@@ -563,7 +563,7 @@ func TestLateModelResultKeepsEndedAnswer(t *testing.T) {
 		errors:  []error{errors.New("connection lost")},
 	}
 	first, err := start(t, client, writeTool(), NewMemoryRecorder(), Hooks{})
-	if err != nil || first.Stop.Kind != StopUncertain {
+	if err != nil || first.Stop.Kind != StopResultUnknown {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
 	}
 	runner := Runner{Client: client}
@@ -577,7 +577,7 @@ func TestLateModelResultKeepsEndedAnswer(t *testing.T) {
 	}
 	late := final("late")
 	late.Usage = &llm.Usage{InputTokens: 5, OutputTokens: 2}
-	out, err := runner.Run(t.Context(), canceled.Turn, Settle{
+	out, err := runner.Run(t.Context(), canceled.Turn, Resolve{
 		CommandID:   "late",
 		CallID:      "t1:model:1",
 		ModelResult: &late,
@@ -588,12 +588,12 @@ func TestLateModelResultKeepsEndedAnswer(t *testing.T) {
 	if out.Spend.Usage.OutputTokens != 2 {
 		t.Fatalf("late result not counted: spend=%+v", out.Spend.Usage)
 	}
-	if out.Answer != "" || out.Next() != NextNone {
-		t.Fatalf("answer=%q next=%s", out.Answer, out.Next())
+	if out.Reply != "" || out.Next() != NextNone {
+		t.Fatalf("answer=%q next=%s", out.Reply, out.Next())
 	}
 	view, err := Replay(out.Turn)
-	if err != nil || view.Answer != "" {
-		t.Fatalf("replayed answer=%q err=%v", view.Answer, err)
+	if err != nil || view.Reply != "" {
+		t.Fatalf("replayed answer=%q err=%v", view.Reply, err)
 	}
 	after, err := Project(out.Turn)
 	if err != nil {
@@ -622,7 +622,7 @@ func TestRepeatedCrashResumeCarriesOneReminder(t *testing.T) {
 		t.Fatal(err)
 	}
 	cut := slices.IndexFunc(first.Turn.Steps, func(s Step) bool {
-		return s.Kind == StepContinued
+		return s.Kind == StepTurnContinued
 	})
 	if cut < 0 {
 		t.Fatal("no continuation step recorded")

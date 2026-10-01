@@ -94,7 +94,7 @@ func TestAttachmentStoreAncestorLinkAndSpecialBlob(t *testing.T) {
 	if err := unix.Mkfifo(blob, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Resolve(context.Background(), s.ID+"-1", ref); err == nil {
+	if _, err := a.Load(context.Background(), s.ID+"-1", ref); err == nil {
 		t.Fatal("special blob accepted")
 	}
 	alias := filepath.Join(t.TempDir(), "linked-parent")
@@ -116,10 +116,10 @@ func TestAttachmentCrossSessionNoFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Resolve(context.Background(), other.ID+"-1", ref); err == nil {
+	if _, err := b.Load(context.Background(), other.ID+"-1", ref); err == nil {
 		t.Fatal("foreign ref found outside bound session")
 	}
-	if _, err := b.Resolve(context.Background(), s.ID+"-1", ref); err == nil {
+	if _, err := b.Load(context.Background(), s.ID+"-1", ref); err == nil {
 		t.Fatal("foreign Turn accepted")
 	}
 }
@@ -134,7 +134,7 @@ func TestAttachmentPublicationRetryAndSameSessionTurns(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, n := range []string{"1", "2", "100"} {
-		got, err := a.Resolve(ctx, s.ID+"-"+n, ref)
+		got, err := a.Load(ctx, s.ID+"-"+n, ref)
 		if err != nil || string(got) != string(data) {
 			t.Fatalf("%q %v", got, err)
 		}
@@ -149,7 +149,7 @@ func TestAttachmentPublicationRetryAndSameSessionTurns(t *testing.T) {
 		t.Fatal("content conflict accepted")
 	}
 	for _, turn := range []string{"other-1", s.ID + "-01", s.ID + "-0", s.ID + "--1", s.ID + "-1/.."} {
-		if _, err := a.Resolve(ctx, turn, ref); err == nil {
+		if _, err := a.Load(ctx, turn, ref); err == nil {
 			t.Fatalf("Turn %q accepted", turn)
 		}
 	}
@@ -186,7 +186,7 @@ func TestAttachmentCorruptionAndStrictIDs(t *testing.T) {
 	for _, bad := range []string{"../" + id, "ATT_" + strings.Repeat("a", 32), "att_" + strings.Repeat("a", 31), id + "/blob"} {
 		r := ref
 		r.ID = bad
-		if _, err := a.Resolve(ctx, s.ID+"-1", r); err == nil {
+		if _, err := a.Load(ctx, s.ID+"-1", r); err == nil {
 			t.Fatalf("ID %q accepted", bad)
 		}
 	}
@@ -203,7 +203,7 @@ func TestAttachmentCorruptionAndStrictIDs(t *testing.T) {
 			tt.change(&m)
 			b, _ := json.Marshal(m)
 			os.WriteFile(filepath.Join(path, "metadata.json"), b, 0o600)
-			if _, err := a.Resolve(ctx, s.ID+"-1", ref); err == nil {
+			if _, err := a.Load(ctx, s.ID+"-1", ref); err == nil {
 				t.Fatal("corrupt metadata accepted")
 			}
 		})
@@ -212,11 +212,11 @@ func TestAttachmentCorruptionAndStrictIDs(t *testing.T) {
 	b, _ := json.Marshal(m)
 	os.WriteFile(filepath.Join(path, "metadata.json"), b, 0o600)
 	os.WriteFile(filepath.Join(path, "blob"), []byte("abcd"), 0o600)
-	if _, err := a.Resolve(ctx, s.ID+"-1", ref); err == nil {
+	if _, err := a.Load(ctx, s.ID+"-1", ref); err == nil {
 		t.Fatal("growing blob accepted")
 	}
 	os.WriteFile(filepath.Join(path, "blob"), []byte("xyz"), 0o600)
-	got, err := a.Resolve(ctx, s.ID+"-1", ref)
+	got, err := a.Load(ctx, s.ID+"-1", ref)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestAttachmentCorruptionAndStrictIDs(t *testing.T) {
 		t.Fatal("corrupt retry reused")
 	}
 	os.WriteFile(filepath.Join(path, "metadata.json"), []byte(strings.Repeat(" ", attachmentMetadataLimit+1)), 0o600)
-	if _, err := a.Resolve(ctx, s.ID+"-1", ref); err == nil {
+	if _, err := a.Load(ctx, s.ID+"-1", ref); err == nil {
 		t.Fatal("large metadata accepted")
 	}
 	if !st.RetainsAttachments(s) {
@@ -263,7 +263,7 @@ func TestAttachmentAllStorageLinksRejected(t *testing.T) {
 					t.Fatal("linked binding accepted")
 				}
 			} else {
-				if _, err := a.Resolve(ctx, s.ID+"-1", ref); err == nil {
+				if _, err := a.Load(ctx, s.ID+"-1", ref); err == nil {
 					t.Fatal("linked storage accepted")
 				}
 			}
@@ -294,7 +294,7 @@ func TestAttachmentCancellationAndEmptyCollision(t *testing.T) {
 	if !st.RetainsAttachments(s) {
 		t.Fatal("uncertain empty publication not retained")
 	}
-	if _, err := a.Resolve(ctx, s.ID+"-1", content.Ref{ID: id, Size: 3, SHA256: strings.Repeat("0", 64)}); !errors.Is(err, context.Canceled) {
+	if _, err := a.Load(ctx, s.ID+"-1", content.Ref{ID: id, Size: 3, SHA256: strings.Repeat("0", 64)}); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 }

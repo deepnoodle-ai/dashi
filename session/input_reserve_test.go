@@ -41,24 +41,24 @@ func TestSessionReservedItems(t *testing.T) {
 		consumed  bool
 	}{
 		{name: "start fails validation", badAgent: true},
-		{name: "recorder rejects the start", fault: dashitest.Reject, kind: dashi.StepStarted},
-		{name: "start write lost", fault: dashitest.LoseWrite, kind: dashi.StepStarted},
+		{name: "recorder rejects the start", fault: dashitest.Reject, kind: dashi.StepTurnStarted},
+		{name: "start write lost", fault: dashitest.LoseWrite, kind: dashi.StepTurnStarted},
 		{
 			name:     "start acknowledgement lost",
 			fault:    dashitest.LoseAck,
-			kind:     dashi.StepStarted,
+			kind:     dashi.StepTurnStarted,
 			consumed: true,
 		},
 		{
 			name:     "model step rejected after the start",
 			fault:    dashitest.Reject,
-			kind:     dashi.StepModelIntent,
+			kind:     dashi.StepModelCallStarted,
 			consumed: true,
 		},
 		{
 			name:      "load fails after an unknown result",
 			fault:     dashitest.LoseWrite,
-			kind:      dashi.StepStarted,
+			kind:      dashi.StepTurnStarted,
 			loadFails: 2,
 		},
 	}
@@ -178,7 +178,7 @@ func TestSessionStreamBreakWriteOnly(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ev.Step != nil && ev.Step.Kind == dashi.StepStarted {
+		if ev.Step != nil && ev.Step.Kind == dashi.StepTurnStarted {
 			break
 		}
 	}
@@ -209,7 +209,7 @@ func TestSessionStreamBreakWriteOnlyContinue(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ev.Step != nil && ev.Step.Kind == dashi.StepStarted {
+		if ev.Step != nil && ev.Step.Kind == dashi.StepTurnStarted {
 			break
 		}
 	}
@@ -242,7 +242,7 @@ type ackLost struct {
 
 func (r *ackLost) Commit(ctx context.Context, req dashi.CommitRequest) error {
 	err := r.MemoryRecorder.Commit(ctx, req)
-	if err == nil && req.Step.TurnID == "s-1" && req.Step.Kind == dashi.StepStarted {
+	if err == nil && req.Step.TurnID == "s-1" && req.Step.Kind == dashi.StepTurnStarted {
 		r.lost.Store(true)
 		return errors.New("acknowledgement lost")
 	}

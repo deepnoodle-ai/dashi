@@ -80,7 +80,7 @@ func run(ctx context.Context) error {
 		for _, w := range out.SessionWarnings {
 			fmt.Printf("  (%s: %s)\n", w.Code, w.Message)
 		}
-		fmt.Printf("  %s: %s\n", out.Turn.ID, out.Answer)
+		fmt.Printf("  %s: %s\n", out.Turn.ID, out.Reply)
 	}
 
 	// The compaction turn is in the record, beside the conversation.

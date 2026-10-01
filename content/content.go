@@ -70,7 +70,7 @@ type Source struct {
 	// Ref names bytes that the application stores. It requires MIMEType and
 	// excludes every other location, Origin, and ExpiresAt. A recorded turn
 	// keeps only the reference; the runner asks the application's
-	// ContentResolver for the bytes before each model request.
+	// ContentLoader for the bytes before each model request.
 	Ref *Ref `json:"ref,omitempty"`
 }
 

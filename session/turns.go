@@ -122,7 +122,7 @@ func (r refined) busy(t *sessionTurn, exclusive bool) *TurnBusyError {
 		return e
 	}
 	switch r.next {
-	case dashi.NextRunning, dashi.NextAnswer:
+	case dashi.NextRunning, dashi.NextResolvePending:
 		return e
 	case dashi.NextResume:
 		if r.liveness == LivenessStopped || exclusive {
@@ -141,7 +141,7 @@ func uncertainCall(t *sessionTurn) string {
 	for _, p := range t.view.Pending {
 		switch {
 		case p.Kind == dashi.PendingTool && p.Tool != nil &&
-			(p.Tool.Status == dashi.ToolUncertain ||
+			(p.Tool.Status == dashi.ToolResultUnknown ||
 				p.Tool.Status == dashi.ToolStarted && !tooldef.SafeRepeat(p.Tool.Definition)):
 			return p.ID
 		case p.Kind == dashi.PendingModel && offeredUnsafeHosted(t.turn, p.ID):
@@ -153,7 +153,7 @@ func uncertainCall(t *sessionTurn) string {
 
 func offeredUnsafeHosted(turn dashi.Turn, attemptID string) bool {
 	for _, step := range turn.Steps {
-		if step.Kind == dashi.StepModelIntent && step.Model != nil &&
+		if step.Kind == dashi.StepModelCallStarted && step.Model != nil &&
 			step.Model.AttemptID == attemptID {
 			return tooldef.UnsafeHosted(step.Model.Tools)
 		}

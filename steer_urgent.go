@@ -594,7 +594,7 @@ func (r *runtime) skipForSteer(call tool.Call) *Outcome {
 		Output: new(tool.TextOutput(steerSkipText)),
 	}
 	return r.commit(Step{
-		Kind: StepToolSettled,
+		Kind: StepToolFinished,
 		Tool: &ToolFact{Call: call, Outcome: &out, Reason: reasonSteering},
 	})
 }

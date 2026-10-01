@@ -62,9 +62,9 @@ func TestSessionLastTurnRules(t *testing.T) {
 		{
 			name:  "uncertain call, stopped",
 			build: buildUncertainStop,
-			next:  dashi.NextResolve,
+			next:  dashi.NextFix,
 			want: func(session.Liveness, bool) expect {
-				return expect{busy: dashi.NextResolve, callID: true}
+				return expect{busy: dashi.NextFix, callID: true}
 			},
 		},
 		{
@@ -82,9 +82,9 @@ func TestSessionLastTurnRules(t *testing.T) {
 		{
 			name:  "waiting",
 			build: buildWaiting,
-			next:  dashi.NextAnswer,
+			next:  dashi.NextResolvePending,
 			want: func(session.Liveness, bool) expect {
-				return expect{busy: dashi.NextAnswer}
+				return expect{busy: dashi.NextResolvePending}
 			},
 		},
 		{
@@ -114,7 +114,7 @@ func TestSessionLastTurnRules(t *testing.T) {
 		{
 			name:  "refused",
 			build: buildRefused,
-			next:  dashi.NextResolve,
+			next:  dashi.NextFix,
 			want:  closes,
 		},
 		{
@@ -206,7 +206,7 @@ func TestSessionBusyMessages(t *testing.T) {
 			[]string{"s-7", "Continue{}", "Cancel{}"},
 		},
 		{
-			session.TurnBusyError{TurnID: "s-7", Next: dashi.NextAnswer},
+			session.TurnBusyError{TurnID: "s-7", Next: dashi.NextResolvePending},
 			[]string{"s-7", "answer", "Cancel{}"},
 		},
 		{
@@ -219,7 +219,7 @@ func TestSessionBusyMessages(t *testing.T) {
 				Next:   dashi.NextResume,
 				CallID: "c-3",
 			},
-			[]string{"c-3", "s-7", "Settle{}", "Cancel{}"},
+			[]string{"c-3", "s-7", "Resolve{}", "Cancel{}"},
 		},
 		{
 			session.TurnBusyError{
@@ -298,15 +298,15 @@ func TestSessionLostWorker(t *testing.T) {
 		_, err := b.Send(t.Context(), "again")
 		requireBusy(t, err, dashi.NextResume, false)
 		out, err := b.Run(t.Context(), dashi.Continue{}, dashi.WithOwner("b"))
-		if err != nil || out.Stop.Kind != dashi.StopCompleted || out.Answer != "done" {
-			t.Fatalf("takeover: %v, %s %q", err, out.Stop.Kind, out.Answer)
+		if err != nil || out.Stop.Kind != dashi.StopCompleted || out.Reply != "done" {
+			t.Fatalf("takeover: %v, %s %q", err, out.Stop.Kind, out.Reply)
 		}
 		close(g.release)
 		if err := <-done; !errors.Is(err, dashi.ErrRevisionConflict) {
 			t.Fatalf("late commit: %v; want a revision conflict", err)
 		}
 		requireTurns(t, rec, 1)
-		if load(t, rec, first).Answer != "done" {
+		if load(t, rec, first).Reply != "done" {
 			t.Fatal("the late result changed the turn")
 		}
 	})
@@ -334,14 +334,14 @@ func TestSessionLostWorker(t *testing.T) {
 		_, err := b.Send(t.Context(), "again")
 		requireBusy(t, err, dashi.NextResume, true)
 		out, err := b.Run(t.Context(), dashi.Continue{}, dashi.WithOwner("b"))
-		if err != nil || out.Stop.Kind != dashi.StopUncertain {
+		if err != nil || out.Stop.Kind != dashi.StopResultUnknown {
 			t.Fatalf("takeover: %v, stop %+v", err, out.Stop)
 		}
 		if n := charge.runs.Load(); n != 1 {
 			t.Fatalf("charge ran %d times; want 1", n)
 		}
 		_, err = b.Send(t.Context(), "again")
-		requireBusy(t, err, dashi.NextResolve, true)
+		requireBusy(t, err, dashi.NextFix, true)
 		close(g.release)
 		if err := <-done; !errors.Is(err, dashi.ErrRevisionConflict) {
 			t.Fatalf("late commit: %v; want a revision conflict", err)
@@ -430,7 +430,7 @@ func TestSessionRunningOnThisHandle(t *testing.T) {
 // TestSessionRunningCallNamesNoCall runs a call that is not idempotent and
 // sends while it runs. A handle that knows a worker runs the turn (its own,
 // or TurnLiveness says live) refuses as running, with no CallID and no
-// Settle{} or Cancel{} advice; a handle that knows of no worker names the
+// Resolve{} or Cancel{} advice; a handle that knows of no worker names the
 // call.
 func TestSessionRunningCallNamesNoCall(t *testing.T) {
 	rec := newLiveRecorder()
@@ -453,7 +453,7 @@ func TestSessionRunningCallNamesNoCall(t *testing.T) {
 		_, err := s.Send(t.Context(), "again")
 		busy := requireBusy(t, err, dashi.NextRunning, false)
 		msg := busy.Error()
-		if strings.Contains(msg, "Settle{}") || strings.Contains(msg, "Cancel{}") {
+		if strings.Contains(msg, "Resolve{}") || strings.Contains(msg, "Cancel{}") {
 			t.Fatalf("%s: running turn advises %q", name, msg)
 		}
 	}
@@ -486,7 +486,7 @@ func buildCrashInModel(t *testing.T, rec *liveRecorder) {
 	t.Helper()
 	fault := &dashitest.FaultRecorder{
 		Recorder: rec,
-		Kind:     dashi.StepModelSettled,
+		Kind:     dashi.StepModelCallFinished,
 		Fault:    dashitest.Reject,
 	}
 	sendErr(t, fault, dashitest.NewClient(dashitest.Reply("hi")), nil)
@@ -499,7 +499,7 @@ func buildCrashInTool(name string) func(*testing.T, *liveRecorder) {
 		t.Helper()
 		fault := &dashitest.FaultRecorder{
 			Recorder: rec,
-			Kind:     dashi.StepToolSettled,
+			Kind:     dashi.StepToolFinished,
 			Fault:    dashitest.Reject,
 		}
 		client := dashitest.NewClient(dashitest.CallTool("call-1", name, `{}`))
@@ -517,7 +517,7 @@ func buildUncertainStop(t *testing.T, rec *liveRecorder) {
 	s := handle(rec.MemoryRecorder, dashitest.NewClient())
 	s.Runner.Tools = (&chargeTool{}).tools()
 	out, err := s.Run(t.Context(), dashi.Continue{})
-	if err != nil || out.Stop.Kind != dashi.StopUncertain {
+	if err != nil || out.Stop.Kind != dashi.StopResultUnknown {
 		t.Fatalf("resume: %v, stop %+v", err, out.Stop)
 	}
 }
@@ -561,7 +561,7 @@ func buildAttemptLimit(t *testing.T, rec *liveRecorder) {
 	client := dashitest.NewClient(dashitest.CallTool("call-1", "lookup", `{}`))
 	sendFirst(t, rec, client, func(s *session.Session) {
 		s.Runner.Tools = (&chargeTool{}).tools()
-		s.Agent.Limits = dashi.Limits{ModelAttempts: 1, NoReservedFinalAnswer: true}
+		s.Agent.Limits = dashi.Limits{ModelAttempts: 1, NoReservedFinalReply: true}
 	})
 }
 
@@ -832,7 +832,7 @@ func (r *interleave) Load(ctx context.Context, id string) (dashi.Turn, error) {
 }
 
 func (r *interleave) Commit(ctx context.Context, req dashi.CommitRequest) error {
-	if r.atCommit && req.Step.Kind == dashi.StepStarted {
+	if r.atCommit && req.Step.Kind == dashi.StepTurnStarted {
 		r.once.Do(r.other)
 	}
 	return r.MemoryRecorder.Commit(ctx, req)

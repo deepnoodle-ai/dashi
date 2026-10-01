@@ -157,7 +157,7 @@ with state, tool calls, cost, and the answer.
 
 ## Answers, budgets, and spend
 
-`MaxAnswer` caps the answer in bytes (default 16 KiB; negative means no cap).
+`MaxReply` caps the answer in bytes (default 16 KiB; negative means no cap).
 A child keeps its own `Limits` and `Budget`. A parent `Budget` does not cap a
 child, and the end of the parent turn does not stop it.
 

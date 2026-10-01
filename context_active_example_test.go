@@ -45,7 +45,7 @@ func ExampleActiveCompactionPolicy() {
 	}
 	raw, _ := dashi.Project(out.Turn)
 	view, _ := dashi.ProjectContext(out.Turn)
-	fmt.Println("answer:", out.Answer)
+	fmt.Println("answer:", out.Reply)
 	fmt.Println("completed effects:", effects)
 	fmt.Println("recorded summaries:", len(out.ContextCompactions))
 	fmt.Println("ordinary history messages:", len(raw))

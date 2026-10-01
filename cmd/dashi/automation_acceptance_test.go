@@ -263,7 +263,7 @@ func TestAutomationOutputCoalescesWithoutDroppingOrBlocking(t *testing.T) {
 		t.Fatal(err)
 	}
 	o.source(func(_ context.Context, n int) (dashi.TurnView, error) {
-		return dashi.TurnView{Origin: dashi.StartUser, Answer: fmt.Sprint(n)}, nil
+		return dashi.TurnView{Origin: dashi.StartUser, Reply: fmt.Sprint(n)}, nil
 	}, nil)
 	for i := 1; i <= 1000; i++ {
 		o.selectTurn(i)
@@ -295,7 +295,7 @@ func TestAutomationOutputFailureCancelsOwnedExecution(t *testing.T) {
 	o := startAutomationOutput(t.Context(), "jsonl", w, 30*time.Millisecond)
 	var canceled atomic.Bool
 	o.source(func(context.Context, int) (dashi.TurnView, error) {
-		return dashi.TurnView{Answer: "response", Origin: dashi.StartUser}, nil
+		return dashi.TurnView{Reply: "response", Origin: dashi.StartUser}, nil
 	}, func() { canceled.Store(true) })
 	o.selectTurn(1)
 	if err := o.Finish(); err == nil || !canceled.Load() {

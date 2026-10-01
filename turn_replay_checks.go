@@ -17,7 +17,7 @@ func (s *replayState) pending() []string {
 		out = append(out, s.unresolvedModel)
 	}
 	for _, id := range s.callOrder {
-		if s.Tools[id].Status != ToolSettled {
+		if s.Tools[id].Status != ToolFinished {
 			out = append(out, id)
 		}
 	}
@@ -44,7 +44,7 @@ func (s *replayState) pendingItems() []Pending {
 		switch v.Status {
 		case ToolApprovalPending:
 			kind = PendingApproval
-		case ToolStarted, ToolWaiting, ToolUncertain:
+		case ToolStarted, ToolWaiting, ToolResultUnknown:
 		default:
 			continue
 		}
@@ -83,7 +83,7 @@ func (s *replayState) projectedStop() Stop {
 		return s.Stop
 	case s.unresolvedModel != "":
 		return Stop{
-			Kind:      StopUncertain,
+			Kind:      StopResultUnknown,
 			Reason:    "model attempt needs reconciliation",
 			Projected: true,
 		}
@@ -191,7 +191,7 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 	if s.interruptionLimitReached() {
 		return false
 	}
-	if s.Stop.Kind == StopUncertain {
+	if s.Stop.Kind == StopResultUnknown {
 		// An explicit uncertain stop is evidence that the host must report
 		// the outcome. A missing stop means the worker may have crashed and
 		// Continue may first establish which work can safely be repeated.
@@ -253,7 +253,7 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 	for _, id := range s.callOrder {
 		v := s.Tools[id]
 		switch v.Status {
-		case ToolSettled, ToolRequested, ToolAllowed, ToolDenied:
+		case ToolFinished, ToolRequested, ToolAllowed, ToolDenied:
 		case ToolStarted:
 		default:
 			return false
@@ -296,13 +296,13 @@ func (s *replayState) stopTerminal(stop Stop) bool {
 	return false
 }
 
-// acceptsAfterEnd rejects a command on an ended turn unless it is a Settle
+// acceptsAfterEnd rejects a command on an ended turn unless it is a Resolve
 // reporting the result of work that had already started.
 func (s *replayState) acceptsAfterEnd(command Command) error {
 	if !s.Stop.Terminal {
 		return nil
 	}
-	if c, ok := command.(Settle); ok &&
+	if c, ok := command.(Resolve); ok &&
 		c.Approval == nil && c.HostedApproval == nil {
 		if c.ModelResult != nil || c.ModelFailure != nil {
 			if c.CallID != "" &&
@@ -311,7 +311,7 @@ func (s *replayState) acceptsAfterEnd(command Command) error {
 			}
 		} else if v, ok := s.Tools[c.CallID]; ok &&
 			(v.Status == ToolStarted || v.Status == ToolWaiting ||
-				v.Status == ToolUncertain) {
+				v.Status == ToolResultUnknown) {
 			return nil
 		}
 	}
@@ -428,7 +428,7 @@ func (s *replayState) trackHooks(step Step) {
 // that was dispatched follows them, as Project does.
 func (s *replayState) trackContext(step Step) {
 	switch step.Kind {
-	case StepDelivered, StepLoopContinued, StepToolSettled:
+	case StepMessagesAdded, StepLoopContinued, StepToolFinished:
 		if step.Context == nil {
 			return
 		}
@@ -444,12 +444,12 @@ func (s *replayState) trackContext(step Step) {
 			s.live[key] = cloneContextItem(item)
 			s.liveSeq[key] = step.Seq
 		}
-	case StepModelIntent:
+	case StepModelCallStarted:
 		if s.intentSeq == nil {
 			s.intentSeq = map[string]int64{}
 		}
 		s.intentSeq[step.Model.AttemptID] = step.Seq
-	case StepModelSettled, StepModelReconciled:
+	case StepModelCallFinished, StepModelCallFinishedByHost:
 		if intent := s.modelIntents[step.Model.AttemptID]; intent != nil && intent.Purpose == ModelPurposeCompaction {
 			return
 		}
@@ -532,7 +532,7 @@ func (s *replayState) roomForNormalCall() bool {
 		used++
 	}
 	limit := s.attemptCap
-	if s.Agent.Limits.NoReservedFinalAnswer {
+	if s.Agent.Limits.NoReservedFinalReply {
 		return used < limit
 	}
 	return used+1 < limit

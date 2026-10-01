@@ -18,7 +18,7 @@ const (
 	defaultMaxTotalBytes = 64 << 20
 )
 
-// ContentResolver turns an application reference into bytes. The application
+// ContentLoader turns an application reference into bytes. The application
 // owns the storage and the access rules; Dashi records only the reference.
 //
 // The runner calls Resolve before every model request that holds the
@@ -26,14 +26,14 @@ const (
 // failed with a StopReasonContent... code and Stop.RefID. Continue calls
 // Resolve again, so a host can restore the bytes or grant access and resume. It keeps no cache, so a
 // reference the application has revoked stops the turn at the next call.
-type ContentResolver interface {
-	// Resolve returns the bytes of ref. ctx is the context of the Run or
+type ContentLoader interface {
+	// Load returns the bytes of ref. ctx is the context of the Run or
 	// Stream call, so the application can read its tenant and session from
 	// it. turnID names the turn that asks. The application must check that
 	// the turn may read ref, and return an error when it may not. The runner
 	// checks the length and the SHA-256 of the result, but the application
 	// must bound its own read.
-	Resolve(
+	Load(
 		ctx context.Context,
 		turnID string,
 		ref content.Ref,
@@ -114,8 +114,8 @@ func (r *runtime) checkRefSizes(sources []*content.Source) (string, string) {
 		}
 		total += size
 	}
-	if r.runner.ContentResolver == nil {
-		return StopReasonContentNoResolver, sources[0].Ref.ID
+	if r.runner.ContentLoader == nil {
+		return StopReasonContentNoLoader, sources[0].Ref.ID
 	}
 	return "", ""
 }
@@ -130,7 +130,7 @@ func limitOrDefault(limit, fallback int64) int64 {
 // resolveRef calls the resolver and verifies the result against the
 // reference. It returns a reason, never the resolver's own error text.
 func (r *runtime) resolveRef(ref content.Ref) ([]byte, string) {
-	data, err := r.runner.ContentResolver.Resolve(r.ctx, r.turn.ID, ref)
+	data, err := r.runner.ContentLoader.Load(r.ctx, r.turn.ID, ref)
 	if err != nil {
 		return nil, StopReasonContentUnavailable
 	}

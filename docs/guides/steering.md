@@ -6,7 +6,7 @@ at a safe point: before the next model call, or, when the model has just
 answered, as a reason to ask it again. A steer never lands between a tool
 call and its result, and never stops a running tool.
 [Running turns](running-turns.md) covers the basics. To add context while
-no run is active, use [`Deliver`](#delivering-context). A
+no run is active, use [`AddMessages`](#delivering-context). A
 [session](sessions.md#steering-and-queued-input) does the inbox work below for
 you: `Session.Steer` reaches its running turn, and missed steers move to its
 queue.
@@ -80,6 +80,6 @@ what happened to its steers.
 
 ## Delivering context
 
-`Deliver` adds context to a turn that is not running. Its items may carry IDs
+`AddMessages` adds context to a turn that is not running. Its items may carry IDs
 too; a repeat with the same content is skipped. Context items, from steers,
-`Deliver`, or hooks, may hold only text, media, documents, and reminders.
+`AddMessages`, or hooks, may hold only text, media, documents, and reminders.

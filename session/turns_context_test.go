@@ -258,7 +258,7 @@ func TestSeedContextDoesNotInferIdentityOrConsultTurnView(t *testing.T) {
 		{{Role: llm.RoleUser, Content: []llm.Content{llm.Text("A")}, Context: &llm.MessageContext{Origin: "user", Name: "other"}}},
 	} {
 		d, err := seed.Func(t.Context(), dashi.ModelPlan{Input: llm.Input{Messages: messages}})
-		if err != nil || len(d.Deliver) != 1 {
+		if err != nil || len(d.AddMessages) != 1 {
 			t.Fatalf("decision=%+v err=%v", d, err)
 		}
 	}
@@ -273,7 +273,7 @@ func TestSeedContextDoesNotInferIdentityOrConsultTurnView(t *testing.T) {
 		t.Fatal(err)
 	}
 	d, err := seed.Func(t.Context(), dashi.ModelPlan{Turn: view})
-	if err != nil || len(d.Deliver) != 1 {
+	if err != nil || len(d.AddMessages) != 1 {
 		t.Fatalf("decision=%+v err=%v", d, err)
 	}
 }

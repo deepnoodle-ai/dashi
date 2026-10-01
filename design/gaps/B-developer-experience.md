@@ -4,7 +4,7 @@ Source review of Dashi main at 9d28264 on 2026-09-27; findings are directions,
 not decisions.
 
 **Names:** written before [decision 30](../decisions.md); read `Definition` as
-`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
+`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Resolve`, and a command's
 `ID` as `CommandID`.
 
 Dashi's model-call layer (`llm`, `tool`, `content`) is already a clear DX
@@ -27,7 +27,7 @@ docs or examples shows a tool, an approval, or a recovery.
 | (b) Streamed call | Adds `Prepare`, `Input.Stream: true`, and `llm.Stream`; ~12 lines. There is no Input-level stream helper, and forgetting `Stream: true` yields a result with no deltas. | Type-assert `StreamingLLM`, then Next/Event/Err/Close plus manual accumulation; ~15 lines. **Dashi is better.** |
 | (c) Agent turn with a tool | `tool.Func`, a hand-written `Toolset` type, `Definition` (ID, Revision, Provider, API, Model, Limits), `Turn{ID}`, `Start{ID, Input}`, `Bindings`, `MemoryRecorder`, `AllowLocalPolicy`, then checks on `Persistence` and `Stop`; ~25 lines, **4 IDs, 5 structs, 1 interface**. | `NewAgent(AgentOptions{Model, Tools})` and `CreateResponse(WithInput)`; ~8 lines, 0 IDs, 1 struct. |
 | (d) Resume after a crash | Host-specific `Load` (not part of `Recorder`), `Replay`, classify each `Pending` string (model attempt, tool call, or hosted request), gather evidence, then `Accept{…ModelFailure/Outcome}` or `Continue`. You must re-supply a byte-identical `Definition`. ~30-40 lines. | Session store, `CreateResponse` with resume or tool results, and `TurnOutcome.Next` says what to do; ~6-10 lines. |
-| (e) Approve a tool call | Implement `Policy` (4 methods; embed `AllowLocalPolicy`) and return `DecisionDefer` with a `Revision`. On `StopWaiting`: `Replay`, look up the call, **recompute the unexported args digest**, then `Accept{ID, CallID, Approval: &ApprovalFact{CallID, Approve, ArgsDigest, PolicyRevision}}`. ~25 lines. | `PreToolUse` hook or permission rules plus a `Dialog`, or `NewSuspendResult` then `WithToolResults`; ~10 lines. **Dashi's model is more correct** (binding to args and revision). |
+| (e) Approve a tool call | Implement `Policy` (4 methods; embed `AllowLocalPolicy`) and return `DecisionDefer` with a `Revision`. On `StopWaiting`: `Replay`, look up the call, **recompute the unexported args digest**, then `Accept{ID, CallID, Approval: &ApprovalDecision{CallID, Approve, ArgsDigest, PolicyRevision}}`. ~25 lines. | `PreToolUse` hook or permission rules plus a `Dialog`, or `NewSuspendResult` then `WithToolResults`; ~10 lines. **Dashi's model is more correct** (binding to args and revision). |
 
 ## Findings
 
@@ -49,7 +49,7 @@ host-level primitive. **High.**
 
 **2. Tool approval cannot be completed with public API.** Evidence:
 `engine.go:249` and `state.go:454` compare `digest(v.Call.Args)` against
-`ApprovalFact.ArgsDigest`. `digest` is unexported (`turn.go:324-328`) and is
+`ApprovalDecision.ArgsDigest`. `digest` is unexported (`turn.go:324-328`) and is
 sha256 over `json.Marshal(json.RawMessage)`, which compacts whitespace. So
 `sha256(args)` computed by a caller can differ. Only tests compute it
 (`engine_test.go:288`). `Accept.CallID` must also repeat `Approval.CallID`
@@ -60,8 +60,8 @@ Consider a separate `Approve` command rather than a fourth `Accept` payload.
 
 **3. An error from a tool function halts the turn as uncertain.** Evidence:
 `tools_loop.go:24-26` turns an executor error into a nil `Outcome`.
-`state.go:406-410` marks the call `ToolUncertain`, and `tools_loop.go:247-249`
-stops with `StopUncertain`. `tool.Func` passes the callback's error straight
+`state.go:406-410` marks the call `ToolResultUnknown`, and `tools_loop.go:247-249`
+stops with `StopResultUnknown`. `tool.Func` passes the callback's error straight
 through (`tool/function.go:88-91`). Dive turned the same `return nil, err` into
 an `IsError` result the model sees (`dive/agent.go:3482-3498`). A Dashi live
 test also returns `errors.New` for bad arguments (`agent_live_test.go:221-223`).
@@ -132,7 +132,7 @@ runner default to the recorded Definition, and move `Deadline` to
 `Start`/`Bindings`. **Medium.**
 
 **9. Invalid input is detected only after it is committed.** Evidence: the
-`Deliver` and `Start` branches check only emptiness (`engine.go:143,162`) before
+`AddMessages` and `Start` branches check only emptiness (`engine.go:143,162`) before
 `commit`. `ContextItem` and message validation run only inside `replay`
 (`state.go:207,229,708-720`). `MemoryRecorder` happens to replay before
 accepting (`recorder.go:107`), but the Recorder contract does not require it
@@ -208,8 +208,8 @@ polling helpers (an iterator candidate). **Low.**
 | Definition | `dashi.Definition` (agent), `tool.Definition`, `StartFact.Definition`, `ToolFact.Definition` | The glossary says "Agent definition… tools" (`ubiquitous-language.md:10-11`), but the type has no tools, and no `Agent` type exists. | `AgentDefinition`, or an `Agent` facade. |
 | Origin | `content.Origin` (endpoint/credential scope struct); `StartOrigin` (user/scheduled/operator, typed); `ContextItem.Origin string` (user/library/tool/operator, untyped, `state.go:709-720`) | Three meanings, two overlapping closed vocabularies, one of them untyped. | `content.Scope` for replay; one typed `Authority` enum for starts and context. |
 | Revision | `Definition.Revision` (version string), `TurnView.Revision` (int64 sequence), `ToolDecision.Revision` (policy version), `ErrRevisionConflict` (sequence) | Three meanings. | `Version`, `Seq`, and `PolicyVersion`. |
-| Step / Fact / Event | `Step` holds `*Fact` payloads; `ApprovalFact` is also a command input; `dashi.Event` vs `llm.StreamEvent` vs `Delta` | "Fact" is used both for records and inputs. The glossary says "Event and observer… callback" only. | Keep Step as the record; make inputs `Approval`, not `ApprovalFact`. |
-| StepKind names vs values | `StepStarted="turn_started"`, `StepModelIntent="model_requested"`, `StepApproval="approval_accepted"` (also used for denials) | Constant names, JSON values, and meaning disagree. | Align names with values; use `approval_recorded`. |
+| Step / Fact / Event | `Step` holds `*Fact` payloads; `ApprovalDecision` is also a command input; `dashi.Event` vs `llm.StreamEvent` vs `Delta` | "Fact" is used both for records and inputs. The glossary says "Event and observer… callback" only. | Keep Step as the record; make inputs `Approval`, not `ApprovalDecision`. |
+| StepKind names vs values | `StepTurnStarted="turn_started"`, `StepModelCallStarted="model_call_started"`, `StepApproval="approval_accepted"` (also used for denials) | Constant names, JSON values, and meaning disagree. | Align names with values; use `approval_recorded`. |
 | Input | `llm.Input` (model input), `Start.Input []llm.Message` | The glossary says turn input is "context items" (`ubiquitous-language.md:48-49`). | Update the glossary or accept `[]ContextItem`. |
 | Accept / Continue | Code: `Accept` carries 5 payloads (tool, approval, hosted approval, model result, model failure); `Continue{ID}` only | The glossary: Accept is "a tool call's… outcome", Continue is "optionally with more context" (`ubiquitous-language.md:38-40`). | Split `Approve` and `Reconcile`; fix the glossary. |
 | Decision | `ToolDecision{Kind: DecisionAllow…}` vs `ModelAuthorization{Allow bool}` vs `StopDecision{Continue bool}` | Three decision shapes on one interface (`policy.go:15-45`). | One `Decision` shape. |

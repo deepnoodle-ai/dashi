@@ -254,7 +254,7 @@ func (w *wakingReader) StepsAfter(
 ) ([]dashi.Step, error) {
 	steps, err := w.StepReader.StepsAfter(ctx, turnID, after, limit)
 	if len(steps) > 0 {
-		w.resting = steps[len(steps)-1].Kind == dashi.StepStopped
+		w.resting = steps[len(steps)-1].Kind == dashi.StepTurnStopped
 	}
 	return steps, err
 }

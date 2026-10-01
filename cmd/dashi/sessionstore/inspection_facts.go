@@ -22,7 +22,7 @@ func ordinaryText(turn dashi.Turn) []recordedText {
 	purposes := map[string]dashi.ModelPurpose{}
 	delivered := map[string]bool{}
 	for _, step := range turn.Steps {
-		if step.Model != nil && step.Kind == dashi.StepModelIntent {
+		if step.Model != nil && step.Kind == dashi.StepModelCallStarted {
 			purposes[step.Model.AttemptID] = step.Model.Purpose
 		}
 		if step.Started != nil {
@@ -49,7 +49,7 @@ func ordinaryText(turn dashi.Turn) []recordedText {
 				out = appendText(out, item.Message, false)
 			}
 		}
-		if step.Model != nil && (step.Kind == dashi.StepModelSettled || step.Kind == dashi.StepModelReconciled) && step.Model.Result != nil {
+		if step.Model != nil && (step.Kind == dashi.StepModelCallFinished || step.Kind == dashi.StepModelCallFinishedByHost) && step.Model.Result != nil {
 			if purposes[step.Model.AttemptID] == dashi.ModelPurposeCompaction || step.Model.Purpose == dashi.ModelPurposeCompaction {
 				continue
 			}
@@ -112,11 +112,11 @@ func turnAccounting(turn dashi.Turn, view dashi.TurnView) Accounting {
 		if f == nil {
 			continue
 		}
-		if step.Kind == dashi.StepModelIntent {
+		if step.Kind == dashi.StepModelCallStarted {
 			intents[f.AttemptID] = true
 			continue
 		}
-		if step.Kind != dashi.StepModelSettled && step.Kind != dashi.StepModelReconciled {
+		if step.Kind != dashi.StepModelCallFinished && step.Kind != dashi.StepModelCallFinishedByHost {
 			continue
 		}
 		settled[f.AttemptID] = !f.Uncertain && f.Failure != llm.FailureUnknown
@@ -146,7 +146,7 @@ func executionSnapshot(turn dashi.Turn, view dashi.TurnView, accounting Accounti
 			p.ToolStatus = item.Tool.Status
 			a := item.Tool.Definition.Annotations
 			safe := a.ReadOnly != nil && *a.ReadOnly || a.Idempotent != nil && *a.Idempotent
-			p.UnsafeEffect = item.Tool.Status == dashi.ToolUncertain || item.Tool.Status == dashi.ToolStarted && !safe
+			p.UnsafeEffect = item.Tool.Status == dashi.ToolResultUnknown || item.Tool.Status == dashi.ToolStarted && !safe
 		}
 		e.Pending = append(e.Pending, p)
 	}
@@ -172,10 +172,10 @@ func contextOccupancy(turn dashi.Turn, view dashi.TurnView) ContextOccupancy {
 		if step.Model == nil {
 			continue
 		}
-		if step.Kind == dashi.StepModelIntent {
+		if step.Kind == dashi.StepModelCallStarted {
 			intent = step.Model
 			settled = nil
-		} else if intent != nil && step.Model.AttemptID == intent.AttemptID && (step.Kind == dashi.StepModelSettled || step.Kind == dashi.StepModelReconciled) {
+		} else if intent != nil && step.Model.AttemptID == intent.AttemptID && (step.Kind == dashi.StepModelCallFinished || step.Kind == dashi.StepModelCallFinishedByHost) {
 			settled = step.Model
 		}
 	}

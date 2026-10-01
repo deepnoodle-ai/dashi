@@ -103,11 +103,11 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 		t.Fatalf("limited view=%+v err=%v", view, err)
 	}
 	last := limited.Turn.Steps[len(limited.Turn.Steps)-1]
-	if last.Kind != StepStopped || last.CommandID != "over-limit" {
+	if last.Kind != StepTurnStopped || last.CommandID != "over-limit" {
 		t.Fatalf("excess continue ran work: %+v", last)
 	}
 	for _, step := range limited.Turn.Steps {
-		if step.Kind == StepModelSettled &&
+		if step.Kind == StepModelCallFinished &&
 			step.Model.Interrupted == InterruptNone {
 			t.Fatalf("model settlement was actionable: %+v", step.Model)
 		}
@@ -146,7 +146,7 @@ func TestInterruptedModelKeepsDeltaOnlyPartialOutputAndUsage(t *testing.T) {
 	}
 	var partial *ModelFact
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelSettled {
+		if step.Kind == StepModelCallFinished {
 			partial = step.Model
 		}
 	}
@@ -157,7 +157,7 @@ func TestInterruptedModelKeepsDeltaOnlyPartialOutputAndUsage(t *testing.T) {
 		t.Fatalf("partial result=%+v", partial)
 	}
 	messages, err := Project(out.Turn)
-	if err != nil || len(messages) != 1 || out.Answer != "" {
+	if err != nil || len(messages) != 1 || out.Reply != "" {
 		t.Fatalf(
 			"partial output reached model history: messages=%+v err=%v",
 			messages,
@@ -185,7 +185,7 @@ func TestContinueRecoversCrashedModelIntent(t *testing.T) {
 	}
 	var causes []InterruptCause
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelSettled &&
+		if step.Kind == StepModelCallFinished &&
 			step.Model.Interrupted != InterruptNone {
 			causes = append(causes, step.Model.Interrupted)
 		}
@@ -214,7 +214,7 @@ func TestCrashedModelWithUnsafeHostedToolRequiresReport(t *testing.T) {
 		turn,
 		Continue{CommandID: "recover"},
 	)
-	if err != nil || out.Stop.Kind != StopUncertain || client.sends != 0 ||
+	if err != nil || out.Stop.Kind != StopResultUnknown || client.sends != 0 ||
 		len(out.Pending) != 1 {
 		t.Fatalf("recovery=%+v err=%v sends=%d", out, err, client.sends)
 	}
@@ -222,7 +222,7 @@ func TestCrashedModelWithUnsafeHostedToolRequiresReport(t *testing.T) {
 	accepted, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		out.Turn,
-		Settle{
+		Resolve{
 			CommandID:   "report",
 			CallID:      "t1:model:1",
 			ModelResult: &answer,
@@ -443,14 +443,14 @@ func seedOpenModelIntent(
 	turn := Turn{ID: "t1"}
 	for _, step := range []Step{
 		{
-			Kind: StepStarted,
+			Kind: StepTurnStarted,
 			Started: &StartFact{
 				Agent: def,
 				Input: []llm.Message{llm.UserMessage(llm.Text("go"))},
 			},
 		},
 		{
-			Kind: StepModelIntent,
+			Kind: StepModelCallStarted,
 			Model: &ModelFact{
 				AttemptID:     "t1:model:1",
 				MessageID:     "t1:model:1:message",

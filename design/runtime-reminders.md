@@ -9,8 +9,8 @@ tag in ordinary user text cannot create a typed reminder or raise authority.
 
 ## Lifetime and record
 
-`Start.Input` and `Deliver` accept `llm.ReminderMessage`. `BeforeModel` can
-return one through `ModelDecision.Deliver`. The full typed content is saved in
+`Start.Input` and `AddMessages` accept `llm.ReminderMessage`. `BeforeModel` can
+return one through `ModelDecision.AddMessages`. The full typed content is saved in
 the turn record and reconstructed by `Project`, including after an external tool
 wait or process restart. A `ContextItem.Snapshot` item supersedes older items
 of the same origin and context-item name: `Turn.Context` returns the latest,

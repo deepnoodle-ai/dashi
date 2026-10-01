@@ -119,7 +119,7 @@ func TestRunnerContinueWarnsOnDifferentHistoryAndProceeds(t *testing.T) {
 		t.Fatal("continued turn did not save new steps")
 	}
 	continued := out.Turn.Steps[len(first.Turn.Steps)]
-	if continued.Kind != StepContinued {
+	if continued.Kind != StepTurnContinued {
 		t.Fatalf("first new step = %s, want continued", continued.Kind)
 	}
 	if len(continued.Warnings) != 1 {
@@ -391,7 +391,7 @@ func TestRunnerCrashThenContinueUsesSuppliedHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(saved.Steps) != 1 || saved.Steps[0].Kind != StepStarted {
+	if len(saved.Steps) != 1 || saved.Steps[0].Kind != StepTurnStarted {
 		t.Fatalf("saved prefix after crash = %#v", saved.Steps)
 	}
 	out, err := (Runner{
@@ -513,7 +513,7 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 	}).Run(
 		t.Context(),
 		first.Turn,
-		Settle{CommandID: "result", CallID: "call-1", Outcome: &result},
+		Resolve{CommandID: "result", CallID: "call-1", Outcome: &result},
 	)
 	if err != nil || !accepted.ReadyToContinue || client.sends != 1 {
 		t.Fatalf("settle: out=%+v err=%v sends=%d", accepted, err, client.sends)
@@ -767,7 +767,7 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		delivered, err := clientless(rec).Run(t.Context(), waiting.Turn, Deliver{
+		delivered, err := clientless(rec).Run(t.Context(), waiting.Turn, AddMessages{
 			CommandID: "note",
 			Items: []ContextItem{{
 				ID:      "note-1",
@@ -781,7 +781,7 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 		settled, err := clientless(rec).Run(
 			t.Context(),
 			delivered.Turn,
-			Settle{CommandID: "result", CallID: "call-1", Outcome: &result},
+			Resolve{CommandID: "result", CallID: "call-1", Outcome: &result},
 		)
 		if err != nil || !settled.ReadyToContinue || client.sends != 1 {
 			t.Fatalf("settled=%+v err=%v sends=%d", settled.Stop, err, client.sends)
@@ -801,7 +801,7 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 		}
 		client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
 		waiting, err := start(t, client, tool.List{local}, rec, RequireApproval())
-		if err != nil || waiting.Next() != NextAnswer {
+		if err != nil || waiting.Next() != NextResolvePending {
 			t.Fatalf("waiting=%+v err=%v", waiting.Stop, err)
 		}
 		approved, err := (Runner{Recorder: rec}).Run(
@@ -816,10 +816,10 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
-		settle Settle
+		settle Resolve
 	}{
-		{"model result", Settle{ModelResult: new(final("recovered"))}},
-		{"model failure", Settle{ModelFailure: &ModelFailure{
+		{"model result", Resolve{ModelResult: new(final("recovered"))}},
+		{"model failure", Resolve{ModelFailure: &ModelFailure{
 			Disposition: llm.FailureNotDispatched,
 			Reason:      "worker did not send",
 			Evidence:    "dispatch log",
@@ -839,17 +839,17 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 }
 
 // crashedModelIntent records a turn whose model attempt has an intent and
-// an uncertain stop, so a Settle must reconcile it.
+// an uncertain stop, so a Resolve must reconcile it.
 func crashedModelIntent(t *testing.T, rec *MemoryRecorder) Turn {
 	t.Helper()
 	def := testAgent()
 	turn := Turn{ID: "t1"}
 	for _, step := range []Step{
-		{Kind: StepStarted, Started: &StartFact{
+		{Kind: StepTurnStarted, Started: &StartFact{
 			Agent: def,
 			Input: []llm.Message{llm.UserMessage(llm.Text("hello"))},
 		}},
-		{Kind: StepModelIntent, Model: &ModelFact{
+		{Kind: StepModelCallStarted, Model: &ModelFact{
 			AttemptID:     "t1:model:1",
 			MessageID:     "t1:model:1:message",
 			RequestDigest: "digest",
@@ -857,7 +857,7 @@ func crashedModelIntent(t *testing.T, rec *MemoryRecorder) Turn {
 			API:           def.API,
 			Model:         def.Model,
 		}},
-		{Kind: StepStopped, Stop: &Stop{Kind: StopUncertain, Reason: "worker crashed"}},
+		{Kind: StepTurnStopped, Stop: &Stop{Kind: StopResultUnknown, Reason: "worker crashed"}},
 	} {
 		step.Version = 1
 		step.TurnID = turn.ID
@@ -892,8 +892,8 @@ func TestAdmitWithoutRunning(t *testing.T) {
 	}
 	steps := admitted.Turn.Steps
 	if len(steps) != 2 ||
-		steps[0].Kind != StepStarted ||
-		steps[1].Kind != StepStopped ||
+		steps[0].Kind != StepTurnStarted ||
+		steps[1].Kind != StepTurnStopped ||
 		steps[1].Stop.Kind != StopInterrupted ||
 		steps[1].Stop.Reason != "pause requested" {
 		t.Fatalf("steps=%+v", steps)

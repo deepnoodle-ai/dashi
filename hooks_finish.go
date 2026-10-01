@@ -36,7 +36,7 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 		p.Output = slices.Clone(plan.Output)
 		d, err := callHook(hookContext(r.ctx, plan.Turn), h, p)
 		if err == nil {
-			for _, item := range d.Deliver {
+			for _, item := range d.AddMessages {
 				if e := item.Validate(); e != nil {
 					err = fmt.Errorf("invalid context item: %w", e)
 					break
@@ -57,9 +57,9 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 			o := r.stopWith(hookFailedStop())
 			return finishResult{}, &o
 		}
-		if len(d.Deliver) > 0 || d.Reason != "" {
+		if len(d.AddMessages) > 0 || d.Reason != "" {
 			reason := boundedReason(d.Reason)
-			for _, item := range d.Deliver {
+			for _, item := range d.AddMessages {
 				out.deliver = append(out.deliver, cloneContextItem(item))
 			}
 			if out.hook == "" {
@@ -68,7 +68,7 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *Outcome) {
 			if out.reason == "" {
 				out.reason = reason
 			}
-			verdict := VerdictDeliver
+			verdict := VerdictAddMessages
 			if reason != "" {
 				verdict = VerdictReject
 			}
@@ -142,7 +142,7 @@ func (r *runtime) finishPoint(
 		return finish, nil
 	}
 	r.pendingWarnings = append(r.pendingWarnings, Warning{
-		Code: WarningDeliveryDropped,
+		Code: WarningMessagesDropped,
 		Message: fmt.Sprintf(
 			"BeforeFinish hook %s asked for another model call, but none "+
 				"can happen before the reserved final answer or a limit; "+
@@ -171,7 +171,7 @@ const sourceSteering = "steering"
 // cannot reach the model, because no further model call can happen.
 func (r *runtime) deliveryDropped() {
 	r.pendingWarnings = append(r.pendingWarnings, Warning{
-		Code: WarningDeliveryDropped,
+		Code: WarningMessagesDropped,
 		Message: "context delivered after the answer was kept cannot " +
 			"reach the model: no further model call can happen, so the " +
 			"answer is checked again",
@@ -188,7 +188,7 @@ func (r *runtime) deliveryDropped() {
 // the one recorded as output.
 //
 // vetoed records a BeforeFinish veto, which keeps the text of the model
-// message that made the call out of TurnView.Answer until a new model result
+// message that made the call out of TurnView.Reply until a new model result
 // arrives.
 func (r *runtime) rejectSubmission(
 	call tool.Call,
@@ -202,7 +202,7 @@ func (r *runtime) rejectSubmission(
 		Output: new(tool.TextOutput(notAccepted(reason))),
 	}
 	step := Step{
-		Kind: StepToolSettled,
+		Kind: StepToolFinished,
 		Tool: &ToolFact{
 			Call:    call,
 			Outcome: &out,

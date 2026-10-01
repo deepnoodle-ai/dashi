@@ -85,7 +85,7 @@ func RunUntilQuiet(ctx context.Context, s *session.Session, t *Tasks,
 `FollowUp` and `FollowUpTurnID` were replaced by the session's queue turns
 ([session-input.md](session-input.md#delegation)).
 
-`ChildID`, `Report`, `OnChild`, `MaxAnswer`, `Subagent`, `CurrentCall`,
+`ChildID`, `Report`, `OnChild`, `MaxReply`, `Subagent`, `CurrentCall`,
 `CurrentRunner`, `Spend.Add`, and the Loader rule stay as in PR 77.
 "Parent" means the parent Turn. A notice goes to the Turn that runs now, or to
 a follow-up Turn.
@@ -213,7 +213,7 @@ check after each test.
    sender tag that Dashi sets, and origin `ContextAgent`.
 7. **One follow-up Turn for all waiting notices**, `StartScheduled`.
    `FollowUp` records the delivered children in the start's `CommandID`.
-   Deliver cannot reach an ended Turn, so a follow-up Turn is the only way.
+   AddMessages cannot reach an ended Turn, so a follow-up Turn is the only way.
 8. **Idle rule: show it and start a follow-up Turn at once.**
 9. **Task ID is a fixed function of the child ID.**
 10. **States are `running` plus `StopKind` words**, including `waiting` (a

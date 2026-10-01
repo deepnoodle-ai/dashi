@@ -21,11 +21,11 @@ const (
     NextNone          Next = "none"           // completed, or ended for good
     NextRunning       Next = "running"        // no stop recorded; live (hook view, session)
     NextResume        Next = "resume"         // no stop recorded; not known to be live
-    NextAnswer        Next = "answer"         // pending approvals or results
+    NextResolvePending        Next = "answer"         // pending approvals or results
     NextContinue      Next = "continue"       // Continue can run now
     NextRaiseBudget   Next = "raise_budget"   // stopped at a cost or token cap
     NextRaiseAttempts Next = "raise_attempts" // stopped at the model-call limit
-    NextResolve       Next = "resolve"        // fix a cause, then Continue, or close
+    NextFix       Next = "resolve"        // fix a cause, then Continue, or close
 )
 
 func (v TurnView) Next() Next
@@ -54,31 +54,31 @@ Every `StopKind`, `LimitKind`, and stop reason in the code maps to one value:
 | `limited` | `Terminal`: `deadline`, `interruptions`, or `cost` with unpriced spend | `NextNone` |
 | `limited` | `model_attempts`, also with structured output recorded (the reserved final answer) | `NextRaiseAttempts` |
 | `limited` | `cost`, `output_tokens`, `total_tokens`, cap spent (not `ReadyToContinue`) | `NextRaiseBudget` (raise attempts as well when none are left; decision 34) |
-| `limited` | `cost` with `ReadyToContinue`: the next call's cost risk is unbounded (no price, no finite `max_tokens`, hosted tools), so a raise would not help | `NextResolve` |
-| `limited` | `provider_pauses`, `ReadyToContinue` (otherwise `NextResolve`) | `NextContinue` |
-| `limited` | `host` (a `BeforeSend` hook's spending denial) | `NextResolve` |
-| `limited` | reason `output` or `context` (one call hit its output or context window; no `Limit` detail) | `NextResolve` |
+| `limited` | `cost` with `ReadyToContinue`: the next call's cost risk is unbounded (no price, no finite `max_tokens`, hosted tools), so a raise would not help | `NextFix` |
+| `limited` | `provider_pauses`, `ReadyToContinue` (otherwise `NextFix`) | `NextContinue` |
+| `limited` | `host` (a `BeforeSend` hook's spending denial) | `NextFix` |
+| `limited` | reason `output` or `context` (one call hit its output or context window; no `Limit` detail) | `NextFix` |
 | `waiting` | `ReadyToContinue` (every answer recorded) | `NextContinue` |
-| `waiting` | otherwise: deferred approval, external tool result, `provider approval pending`, `tool result or approval pending` | `NextAnswer` |
+| `waiting` | otherwise: deferred approval, external tool result, `provider approval pending`, `tool result or approval pending` | `NextResolvePending` |
 | `interrupted` | `ReadyToContinue`: `pause requested`, a context cause, `worker stopped before result` | `NextContinue` |
-| `interrupted` | not ready (interruptions used up, pending host work) | `NextResolve` |
-| `refused` | a model refusal (the provider's raw reason) or a hook `Deny` | `NextResolve` |
-| `failed` | `tool_fatal`, `tool_outcome_invalid`, `hook_failed`, `output_rejected` | `NextResolve` |
-| `failed` | `content_no_resolver`, `content_unavailable`, `content_too_large`, `content_size_mismatch`, `content_digest_mismatch` | `NextResolve` |
-| `failed` | free-text failures: provider rejection, invalid or `incomplete_model_result`, `empty_response`, `tool binding unavailable`, `tool binding changed or unavailable`, `hosted tool cannot execute locally`, `prepared request changed destination`, `prepared request changed original model input`, `untrusted stop with client calls`, `untrusted stop with hosted approval`, native output schema unsupported, replay errors | `NextResolve` |
+| `interrupted` | not ready (interruptions used up, pending host work) | `NextFix` |
+| `refused` | a model refusal (the provider's raw reason) or a hook `Deny` | `NextFix` |
+| `failed` | `tool_fatal`, `tool_outcome_invalid`, `hook_failed`, `output_rejected` | `NextFix` |
+| `failed` | `content_no_loader`, `content_unavailable`, `content_too_large`, `content_size_mismatch`, `content_digest_mismatch` | `NextFix` |
+| `failed` | free-text failures: provider rejection, invalid or `incomplete_model_result`, `empty_response`, `tool binding unavailable`, `tool binding changed or unavailable`, `hosted tool cannot execute locally`, `prepared request changed destination`, `prepared request changed original model input`, `untrusted stop with client calls`, `untrusted stop with hosted approval`, native output schema unsupported, replay errors | `NextFix` |
 | `uncertain` | `ReadyToContinue` (the host settled it) | `NextContinue` |
-| `uncertain` | otherwise: `model attempt needs reconciliation`, `tool outcome needs reconciliation`, `provider-hosted tool may have run`, uncertain dispatch | `NextResolve` |
+| `uncertain` | otherwise: `model attempt needs reconciliation`, `tool outcome needs reconciliation`, `provider-hosted tool may have run`, uncertain dispatch | `NextFix` |
 
 `NextContinue` is never returned for a refusal, so a host is never told to ask
 the model again after it refused. A test builds each row; a new reason with no
 row fails the test. Track 3 may map an `interrupted` turn that is not ready but
-has `Pending` items to `NextAnswer`.
+has `Pending` items to `NextResolvePending`.
 
 **CLI.** `LimitStopped` becomes `Next() == NextRaiseAttempts`, and `Open`
 becomes `Next() != NextNone`. `CanGoOn` accepts `NextContinue`,
 `NextRaiseAttempts`, and `NextResume` with `ReadyToContinue` (the CLI holds the
 session lock, so a turn with no recorded stop is not live). It also accepts a
-failed turn that is ready (`NextResolve`, `ReadyToContinue`, and `Stop.Kind ==
+failed turn that is ready (`NextFix`, `ReadyToContinue`, and `Stop.Kind ==
 StopFailed`, never a refusal): the library cannot tell a rejected request from
 a rate limit, but the user can, so the CLI shows "Press Enter to retry".
 
@@ -95,11 +95,11 @@ before a call reaches the provider still give that call one reminder.
 
 A turn has **ended** when its stop is terminal (`ErrTurnEnded` guards it). A
 session *closes* a stopped turn by canceling it, which ends it. Today a terminal
-stop settles only calls that never started (`state.go`, the `StepStopped` case).
+stop settles only calls that never started (`state.go`, the `StepTurnStopped` case).
 Calls in state started, waiting, or uncertain stay pending, and so does a model
 intent. `Project` then fails ("client tool call is unresolved", "model intent
 needs reconciliation"; `project.go`). And `acceptsAfterEnd` still accepts a
-`Settle` for started work after the terminal stop (`state.go`), which would
+`Resolve` for started work after the terminal stop (`state.go`), which would
 change an old turn's projection after later turns were built on it. With the
 skip-unreadable rule, an ended turn would vanish from the projected history,
 including the user's prompt.
@@ -113,7 +113,7 @@ Two fixes in track 1:
   terminal stop.
 - **Freeze at the terminal stop.** `Project` reads an ended turn's steps only up
   to its terminal stop. Later results are still recorded, for audit and
-  accounting (`Spend` counts them), but never projected, and `TurnView.Answer`
+  accounting (`Spend` counts them), but never projected, and `TurnView.Reply`
   stays fixed there too.
 
 The fix avoids LangGraph's opposite mistake of patching dangling calls with fake
@@ -134,7 +134,7 @@ type Runner struct {
     Hooks           Hooks
     Observer        Observer
     OnContextDone   ContextDone
-    ContentResolver ContentResolver
+    ContentLoader ContentLoader
     ContentLimits   ContentLimits
 }
 

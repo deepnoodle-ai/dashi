@@ -23,7 +23,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 		interruptionStart(def),
 		interruptionModelIntent("model-1"),
 		Step{
-			Kind: StepModelSettled,
+			Kind: StepModelCallFinished,
 			Model: &ModelFact{
 				AttemptID:   "model-1",
 				MessageID:   "message-1",
@@ -32,11 +32,11 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 				Interrupted: InterruptRun,
 			},
 		},
-		Step{Kind: StepStopped, Stop: &Stop{Kind: StopInterrupted}},
-		Step{Kind: StepContinued},
+		Step{Kind: StepTurnStopped, Stop: &Stop{Kind: StopInterrupted}},
+		Step{Kind: StepTurnContinued},
 		interruptionModelIntent("model-2"),
 		Step{
-			Kind: StepModelSettled,
+			Kind: StepModelCallFinished,
 			Model: &ModelFact{
 				AttemptID:   "model-2",
 				MessageID:   "message-2",
@@ -44,11 +44,11 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 				Interrupted: InterruptRun,
 			},
 		},
-		Step{Kind: StepStopped, Stop: &Stop{Kind: StopInterrupted}},
-		Step{Kind: StepContinued},
+		Step{Kind: StepTurnStopped, Stop: &Stop{Kind: StopInterrupted}},
+		Step{Kind: StepTurnContinued},
 		interruptionModelIntent("model-3"),
 		Step{
-			Kind: StepModelSettled,
+			Kind: StepModelCallFinished,
 			Model: &ModelFact{
 				AttemptID:   "model-3",
 				MessageID:   "message-3",
@@ -56,8 +56,8 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 				Interrupted: InterruptRun,
 			},
 		},
-		Step{Kind: StepStopped, Stop: &Stop{Kind: StopInterrupted}},
-		Step{Kind: StepContinued},
+		Step{Kind: StepTurnStopped, Stop: &Stop{Kind: StopInterrupted}},
+		Step{Kind: StepTurnContinued},
 	)
 	state, err := replay(turn)
 	if err != nil {
@@ -91,7 +91,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 			Version: 1,
 			TurnID:  turn.ID,
 			Seq:     int64(len(turn.Steps) + 1),
-			Kind:    StepStopped,
+			Kind:    StepTurnStopped,
 			Stop:    testStop(StopLimited, LimitInterruptions),
 		},
 	)
@@ -110,7 +110,7 @@ func TestReplayRejectsUnknownInterruptCause(t *testing.T) {
 		interruptionStart(testAgent()),
 		interruptionModelIntent("model-1"),
 		Step{
-			Kind: StepModelSettled,
+			Kind: StepModelCallFinished,
 			Model: &ModelFact{
 				AttemptID:   "model-1",
 				MessageID:   "message-1",
@@ -169,7 +169,7 @@ func TestReplayCrashWithModelIntentCanContinue(t *testing.T) {
 			Version: 1,
 			TurnID:  turn.ID,
 			Seq:     int64(len(turn.Steps) + 1),
-			Kind:    StepContinued,
+			Kind:    StepTurnContinued,
 		},
 	)
 	state, err := replay(turn)
@@ -195,15 +195,15 @@ func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
 	steps := []Step{
 		interruptionStart(def),
 		interruptionModelIntent("model-1"),
-		{Kind: StepModelSettled, Model: &ModelFact{
+		{Kind: StepModelCallFinished, Model: &ModelFact{
 			AttemptID:   "model-1",
 			MessageID:   "message-1",
 			Error:       "pause requested",
 			Interrupted: InterruptRun,
 			NoDispatch:  true,
 		}},
-		{Kind: StepStopped, Stop: &Stop{Kind: StopInterrupted}},
-		{Kind: StepContinued},
+		{Kind: StepTurnStopped, Stop: &Stop{Kind: StopInterrupted}},
+		{Kind: StepTurnContinued},
 	}
 	crashed := interruptionRecord(steps...)
 	view, err := Replay(crashed)
@@ -215,7 +215,7 @@ func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
 	}
 	interrupted := interruptionRecord(append(
 		slices.Clone(steps),
-		Step{Kind: StepStopped, Stop: &Stop{Kind: StopInterrupted}},
+		Step{Kind: StepTurnStopped, Stop: &Stop{Kind: StopInterrupted}},
 	)...)
 	view, err = Replay(interrupted)
 	if err != nil {
@@ -226,7 +226,7 @@ func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
 	}
 	failed := interruptionRecord(append(
 		slices.Clone(steps),
-		Step{Kind: StepStopped, Stop: &Stop{Kind: StopFailed}},
+		Step{Kind: StepTurnStopped, Stop: &Stop{Kind: StopFailed}},
 	)...)
 	view, err = Replay(failed)
 	if err != nil {
@@ -241,7 +241,7 @@ func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
 			Version: 1,
 			TurnID:  failed.ID,
 			Seq:     int64(len(failed.Steps) + 1),
-			Kind:    StepContinued,
+			Kind:    StepTurnContinued,
 		},
 	)
 	view, err = Replay(failed)
@@ -261,8 +261,8 @@ func TestReplayUncertainModelIntentNeedsReport(t *testing.T) {
 		interruptionStart(testAgent()),
 		interruptionModelIntent("model-1"),
 		Step{
-			Kind: StepStopped,
-			Stop: &Stop{Kind: StopUncertain, Reason: "model outcome unknown"},
+			Kind: StepTurnStopped,
+			Stop: &Stop{Kind: StopResultUnknown, Reason: "model outcome unknown"},
 		},
 	)
 	view, err := Replay(turn)
@@ -280,15 +280,15 @@ func TestReplayInterruptionPreservesSettledAnswer(t *testing.T) {
 		interruptionStart(testAgent()),
 		interruptionModelIntent("model-1"),
 		Step{
-			Kind: StepModelSettled,
+			Kind: StepModelCallFinished,
 			Model: &ModelFact{
 				AttemptID: "model-1",
 				MessageID: "message-1",
 				Result:    &answer,
 			},
 		},
-		Step{Kind: StepStopped, Stop: &Stop{Kind: StopInterrupted}},
-		Step{Kind: StepContinued},
+		Step{Kind: StepTurnStopped, Stop: &Stop{Kind: StopInterrupted}},
+		Step{Kind: StepTurnContinued},
 	)
 	state, err := replay(turn)
 	if err != nil {
@@ -311,7 +311,7 @@ func TestReplayReportedModelNonexecutionCanContinue(t *testing.T) {
 		interruptionStart(testAgent()),
 		interruptionModelIntent("model-1"),
 		Step{
-			Kind: StepModelSettled,
+			Kind: StepModelCallFinished,
 			Model: &ModelFact{
 				AttemptID: "model-1",
 				MessageID: "message-1",
@@ -319,9 +319,9 @@ func TestReplayReportedModelNonexecutionCanContinue(t *testing.T) {
 				Uncertain: true,
 			},
 		},
-		Step{Kind: StepStopped, Stop: &Stop{Kind: StopUncertain}},
+		Step{Kind: StepTurnStopped, Stop: &Stop{Kind: StopResultUnknown}},
 		Step{
-			Kind: StepModelReconciled,
+			Kind: StepModelCallFinishedByHost,
 			Model: &ModelFact{
 				AttemptID: "model-1",
 				MessageID: "message-1",
@@ -344,7 +344,7 @@ func TestReplayReportedModelNonexecutionCanContinue(t *testing.T) {
 			Version: 1,
 			TurnID:  turn.ID,
 			Seq:     int64(len(turn.Steps) + 1),
-			Kind:    StepContinued,
+			Kind:    StepTurnContinued,
 		},
 	)
 	state, err := replay(turn)
@@ -364,7 +364,7 @@ func TestReplayCrashReportedModelNonexecutionCanContinue(t *testing.T) {
 		interruptionStart(testAgent()),
 		interruptionModelIntent("model-1"),
 		Step{
-			Kind: StepModelSettled,
+			Kind: StepModelCallFinished,
 			Model: &ModelFact{
 				AttemptID: "model-1",
 				MessageID: "message-1",
@@ -373,7 +373,7 @@ func TestReplayCrashReportedModelNonexecutionCanContinue(t *testing.T) {
 				Evidence:  "provider request log",
 			},
 		},
-		Step{Kind: StepContinued},
+		Step{Kind: StepTurnContinued},
 	)
 	state, err := replay(turn)
 	if err != nil {
@@ -414,7 +414,7 @@ func TestReplayStartedToolResumptionDependsOnStop(t *testing.T) {
 		interruptionStart(testAgent()),
 		intent,
 		Step{
-			Kind: StepModelSettled,
+			Kind: StepModelCallFinished,
 			Model: &ModelFact{
 				AttemptID: "model-1",
 				MessageID: "message-1",
@@ -436,11 +436,11 @@ func TestReplayStartedToolResumptionDependsOnStop(t *testing.T) {
 		ready bool
 	}{
 		{name: "interrupted", stop: StopInterrupted, ready: true},
-		{name: "uncertain", stop: StopUncertain, ready: false},
+		{name: "uncertain", stop: StopResultUnknown, ready: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			steps := append([]Step(nil), base...)
-			steps = append(steps, Step{Kind: StepStopped, Stop: &Stop{Kind: tc.stop}})
+			steps = append(steps, Step{Kind: StepTurnStopped, Stop: &Stop{Kind: tc.stop}})
 			view, err := Replay(interruptionRecord(steps...))
 			if err != nil {
 				t.Fatal(err)
@@ -456,7 +456,7 @@ func TestReplayDeadlineLimitIsFinal(t *testing.T) {
 	turn := interruptionRecord(
 		interruptionStart(testAgent()),
 		Step{
-			Kind: StepStopped,
+			Kind: StepTurnStopped,
 			Stop: testStop(StopLimited, LimitDeadline),
 		},
 	)
@@ -482,7 +482,7 @@ func interruptionRecord(steps ...Step) Turn {
 
 func interruptionStart(def Agent) Step {
 	return Step{
-		Kind: StepStarted,
+		Kind: StepTurnStarted,
 		Started: &StartFact{
 			Agent: def,
 			Input: []llm.Message{llm.UserMessage(llm.Text("answer"))},
@@ -493,7 +493,7 @@ func interruptionStart(def Agent) Step {
 func interruptionModelIntent(id string) Step {
 	messageID := "message-" + id[len("model-"):]
 	return Step{
-		Kind: StepModelIntent,
+		Kind: StepModelCallStarted,
 		Model: &ModelFact{
 			AttemptID:     id,
 			MessageID:     messageID,

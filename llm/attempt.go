@@ -23,8 +23,8 @@ type Call struct {
 // zero.
 //
 // Dashi's runner sets AttemptID to the ModelFact.AttemptID it records in the
-// turn's StepModelIntent step and repeats in StepModelSettled or
-// StepModelReconciled, and to Event.AttemptID on live updates, so clients,
+// turn's StepModelCallStarted step and repeats in StepModelCallFinished or
+// StepModelCallFinishedByHost, and to Event.AttemptID on live updates, so clients,
 // recorders, and observers can correlate by it. Under Dashi:
 //
 //   - Send receives an ID only after its intent is durably recorded, and
@@ -38,8 +38,8 @@ type Call struct {
 //     stale: Dashi will not act on its output, though its usage is the
 //     application's to account. After a worker crash leaves the intent
 //     unsettled, a host that finds the old job finished can record it with
-//     Settle{CallID: id, ModelResult: ...} before Continue, and Dashi will
-//     not send again. The same Settle settles an attempt left uncertain, for
+//     Resolve{CallID: id, ModelResult: ...} before Continue, and Dashi will
+//     not send again. The same Resolve settles an attempt left uncertain, for
 //     example by a provider-hosted tool.
 type Attempt struct {
 	// TurnID identifies the caller's unit of work, such as a Dashi turn.

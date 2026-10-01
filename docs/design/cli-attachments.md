@@ -130,7 +130,7 @@ Session metadata saving does not establish or revoke submission.
 After publication, save the non-authoritative header under its lease with the next-turn destination/model, permitting crash reopen.
 A header alone never lists completed work or authorizes acknowledgement; recorded Start facts do.
 
-Bind a resolver to each Engine-opened session and wire it into that session's `Runner.ContentResolver`.
+Bind a resolver to each Engine-opened session and wire it into that session's `Runner.ContentLoader`.
 `Resolve(ctx, turnID, ref)` requires a valid session Turn ID matching the bound session and a strictly parsed attachment ID.
 Prior-Turn references remain usable under later Turns in that same session; no creation-Turn-only authorization.
 Open only the fixed session attachment directory through a descriptor-relative, no-follow storage helper using `os.Root` and platform no-follow opens.
@@ -157,7 +157,7 @@ Existing attachment-free text FIFO behavior remains intact.
 
 Publish blobs before entering this pending Start; preserve full reference input while between-Turn compaction runs.
 Drive a submission receipt through the UI event loop using submission ID and draft revision, distinguishing pre-record failure, pending/unknown, and recorded.
-Do not clear the composer at OnSubmit. Freeze the submitted draft during admission; acknowledge it only from the matching ordinary `StepStarted` or reconciled loaded Start.
+Do not clear the composer at OnSubmit. Freeze the submitted draft during admission; acknowledge it only from the matching ordinary `StepTurnStarted` or reconciled loaded Start.
 Clear its entries once on acknowledgement, even when later model execution fails. Never clear an independently edited/new draft.
 Known pre-record failure releases the frozen draft unchanged. Summary Start acknowledgement does not consume it.
 Unknown writes retain the pending identity and snapshots; existing `reconcilePrompt` loads and compares the full reference-bearing input before allowing another Start.

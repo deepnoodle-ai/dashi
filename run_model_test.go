@@ -56,7 +56,7 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 		},
 	)
 	if err != nil || !limitedForAttempts(out.Stop) ||
-		out.Answer != "Found 42; further work is unfinished." || client.sends != 2 || runs != 1 {
+		out.Reply != "Found 42; further work is unfinished." || client.sends != 2 || runs != 1 {
 		t.Fatalf("out=%+v err=%v sends=%d runs=%d", out, err, client.sends, runs)
 	}
 	if len(client.inputs) != 2 || len(client.inputs[0].Tools) != 1 || len(client.inputs[1].Tools) != 0 ||
@@ -68,11 +68,11 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 	}
 	intents := 0
 	for _, step := range out.Turn.Steps {
-		if step.Kind != StepModelIntent {
+		if step.Kind != StepModelCallStarted {
 			continue
 		}
 		intents++
-		if step.Model.FinalAnswerOnly != (intents == 2) || (intents == 2 && len(step.Model.Tools) != 0) {
+		if step.Model.FinalReplyOnly != (intents == 2) || (intents == 2 && len(step.Model.Tools) != 0) {
 			t.Fatalf("intent %d=%+v", intents, step.Model)
 		}
 	}
@@ -145,7 +145,7 @@ func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 		t.Fatalf("structured output=%+v", out.Output)
 	}
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelIntent && step.Model.FinalAnswerOnly {
+		if step.Kind == StepModelCallStarted && step.Model.FinalReplyOnly {
 			step.Model.Tools = append(step.Model.Tools, binding.Definition)
 			if _, err := Replay(out.Turn); err == nil {
 				t.Fatal("replay accepted an application tool on the final-answer request")
@@ -194,7 +194,7 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 					Version: recorded.Version,
 					TurnID:  recorded.TurnID,
 					Seq:     int64(i + 2),
-					Kind:    StepStopped,
+					Kind:    StepTurnStopped,
 					Stop:    &stop,
 				},
 			)
@@ -281,7 +281,7 @@ func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
 		t.Fatalf("out=%+v err=%v sends=%d runs=%d", out, err, client.sends, runs)
 	}
 	view, err := Replay(out.Turn)
-	if err != nil || view.Tools["second"].Status != ToolSettled ||
+	if err != nil || view.Tools["second"].Status != ToolFinished ||
 		view.Tools["second"].Outcome == nil || view.Tools["second"].Outcome.State != tool.StateNotExecuted {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
@@ -307,7 +307,7 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 		}),
 	}
 	base := NewMemoryRecorder()
-	rec := &failOnceKind{base: base, kind: StepStopped}
+	rec := &failOnceKind{base: base, kind: StepTurnStopped}
 	first, err := (Runner{
 		Client:   client,
 		Tools:    tool.List{binding},
@@ -334,7 +334,7 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 		Recorder: rec,
 	}).Run(t.Context(), saved, Continue{CommandID: "recover"})
 	if err != nil || !limitedForAttempts(second.Stop) ||
-		second.Answer != "42" || client.sends != 2 {
+		second.Reply != "42" || client.sends != 2 {
 		t.Fatalf("recovered=%+v err=%v sends=%d", second, err, client.sends)
 	}
 }
@@ -355,7 +355,7 @@ func answerLookup() tool.Tool {
 
 func TestContinueRaisesModelAttemptLimit(t *testing.T) {
 	def := testAgent()
-	def.Limits = Limits{ModelAttempts: 2, NoReservedFinalAnswer: true}
+	def.Limits = Limits{ModelAttempts: 2, NoReservedFinalReply: true}
 	client := &scriptedClient{
 		results: []llm.Result{
 			callResult("c1", "lookup"),
@@ -425,8 +425,8 @@ func TestContinueRaisesModelAttemptLimit(t *testing.T) {
 		CommandID:     "raise-2",
 		ModelAttempts: 10,
 	})
-	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "done" {
-		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+	if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "done" {
+		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
 	}
 	if _, err := Replay(out.Turn); err != nil {
 		t.Fatalf("replay: %v", err)
@@ -506,12 +506,12 @@ func TestRunnerTimeoutRetainsOrderedMixedPartialData(t *testing.T) {
 		},
 	}
 	out, err := start(t, client, nil, NewMemoryRecorder(), Hooks{})
-	if err != nil || out.Stop.Kind != StopUncertain || out.Answer != "" {
+	if err != nil || out.Stop.Kind != StopResultUnknown || out.Reply != "" {
 		t.Fatalf("outcome=%+v err=%v", out, err)
 	}
 	var settled *ModelFact
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelSettled {
+		if step.Kind == StepModelCallFinished {
 			settled = step.Model
 		}
 	}
@@ -534,7 +534,7 @@ func TestRunnerTimeoutRetainsOrderedMixedPartialData(t *testing.T) {
 		t.Fatalf("usage=%+v spend=%+v", settled.Result.Usage, out.Spend)
 	}
 	replayed, err := Replay(out.Turn)
-	if err != nil || replayed.Answer != "" || replayed.Stop.Kind != StopUncertain {
+	if err != nil || replayed.Reply != "" || replayed.Stop.Kind != StopResultUnknown {
 		t.Fatalf("replayed=%+v err=%v", replayed, err)
 	}
 }
@@ -571,11 +571,11 @@ func TestRunnerKeepsProviderTimeoutWhenHostCancelsLater(t *testing.T) {
 		Client:   client,
 		Recorder: NewMemoryRecorder(),
 	}).Run(ctx, Turn{ID: "t1"}, streamStart())
-	if err != nil || out.Stop.Kind != StopUncertain {
+	if err != nil || out.Stop.Kind != StopResultUnknown {
 		t.Fatalf("outcome=%+v err=%v", out, err)
 	}
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelSettled {
+		if step.Kind == StepModelCallFinished {
 			if step.Model.Interrupted != InterruptNone ||
 				step.Model.ErrorReason != llm.ReasonStreamIdleTimeout {
 				t.Fatalf("provider timeout lost to later host cancel: %+v", step.Model)
@@ -641,7 +641,7 @@ func TestClientReceivesRecordedAttemptIdentity(t *testing.T) {
 			t.Fatal(err)
 		}
 		last := saved.Steps[len(saved.Steps)-1]
-		if last.Kind != StepModelIntent || last.Model.AttemptID != a.AttemptID {
+		if last.Kind != StepModelCallStarted || last.Model.AttemptID != a.AttemptID {
 			t.Fatalf(
 				"send %q before its intent was recorded: last step %s",
 				a.AttemptID,
@@ -660,7 +660,7 @@ func TestClientReceivesRecordedAttemptIdentity(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	intents := stepAttempts(out.Turn, StepModelIntent)
+	intents := stepAttempts(out.Turn, StepModelCallStarted)
 	if want := []string{"t1:model:1"}; !slices.Equal(intents, want) {
 		t.Fatalf("intents=%v", intents)
 	}
@@ -698,7 +698,7 @@ func TestInterruptedAttemptIsResentUnderNewID(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("continue stop=%+v err=%v", out.Stop, err)
 	}
-	intents := stepAttempts(out.Turn, StepModelIntent)
+	intents := stepAttempts(out.Turn, StepModelCallStarted)
 	if want := []string{
 		"t1:model:1",
 		"t1:model:2",
@@ -709,7 +709,7 @@ func TestInterruptedAttemptIsResentUnderNewID(t *testing.T) {
 		t.Fatalf("sent=%v intents=%v", got, intents)
 	}
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelSettled &&
+		if step.Kind == StepModelCallFinished &&
 			step.Model.AttemptID == "t1:model:1" &&
 			step.Model.Interrupted == InterruptNone {
 			t.Fatalf("first attempt settled without interruption: %+v", step.Model)
@@ -737,7 +737,7 @@ func TestCrashedIntentIsNeverSentUnderItsID(t *testing.T) {
 	}; !slices.Equal(got, want) {
 		t.Fatalf("sent=%v, want %v", got, want)
 	}
-	settled := stepAttempts(out.Turn, StepModelSettled)
+	settled := stepAttempts(out.Turn, StepModelCallFinished)
 	if want := []string{
 		"t1:model:1",
 		"t1:model:2",

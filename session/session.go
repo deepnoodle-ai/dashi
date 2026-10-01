@@ -141,7 +141,7 @@ type TurnBusyError struct {
 	// still be running.
 	Duplicate bool `json:"duplicate,omitempty"`
 	// CallID names the unsettled uncertain call that makes the turn busy
-	// when no worker is known to run the turn. Settle it after checking its
+	// when no worker is known to run the turn. Resolve it after checking its
 	// effect, or Cancel the turn. It is empty while the turn is running.
 	CallID string `json:"call_id,omitempty"`
 }
@@ -157,7 +157,7 @@ func (e *TurnBusyError) Error() string {
 		)
 	case e.CallID != "":
 		return fmt.Sprintf(
-			"session: call %s in turn %s may still be running; Settle{} it "+
+			"session: call %s in turn %s may still be running; Resolve{} it "+
 				"after checking its effect, or Cancel{} the turn to accept "+
 				"the risk",
 			e.CallID,
@@ -180,7 +180,7 @@ func (e *TurnBusyError) Error() string {
 				"take it over with Continue{} or discard it with Cancel{}",
 			e.TurnID,
 		)
-	case e.Next == dashi.NextAnswer:
+	case e.Next == dashi.NextResolvePending:
 		return fmt.Sprintf(
 			"session: turn %s waits on the host; answer its pending work or "+
 				"Cancel{} it",
@@ -220,17 +220,17 @@ func (s *Session) Send(
 	return s.Run(ctx, dashi.Say(text), opts...)
 }
 
-// Answer records each answer with Settle, then runs one Continue, so a
+// Resolve records each answer with Resolve, then runs one Continue, so a
 // host answers a waiting turn in one call; the record keeps a step per
-// answer. It stops at the first Settle error. A Settle without a command
-// ID gets "settle:" and its CallID, as Pending's builders derive theirs
+// answer. It stops at the first Resolve error. A Resolve without a command
+// ID gets "resolve:" and its CallID, as Pending's builders derive theirs
 // from the call, and the Continue's command ID derives from the answers',
-// so a retried Answer is recognized. Each run gets opts, as Run's would:
+// so a retried Resolve is recognized. Each run gets opts, as Run's would:
 // WithOwner for a leasing host, WithObserver for a live view of the
 // Continue.
-func (s *Session) Answer(
+func (s *Session) Resolve(
 	ctx context.Context,
-	answers []dashi.Settle,
+	answers []dashi.Resolve,
 	opts ...dashi.RunOption,
 ) (dashi.Outcome, error) {
 	ids := make([]string, 0, len(answers))
@@ -238,7 +238,7 @@ func (s *Session) Answer(
 		if answer.CommandID == "" && answer.CallID != "" {
 			// Call IDs are unique within a turn, and command IDs are
 			// scoped to their turn.
-			answer.CommandID = "settle:" + answer.CallID
+			answer.CommandID = "resolve:" + answer.CallID
 		}
 		if answer.CommandID == "" {
 			// The Continue's command ID derives from this one.
@@ -264,7 +264,7 @@ func (s *Session) Answer(
 // Exclusive: then the Start leaves it out of the history with a
 // dashi.WarningTurnUnreadable and starts the turn after it. Queued user
 // input (see Enqueue) goes ahead of the Start's Input. Any other command
-// (Continue, Settle, Deliver, Cancel) goes to the last turn. The session sets Start.History and Continue.History to the
+// (Continue, Resolve, AddMessages, Cancel) goes to the last turn. The session sets Start.History and Continue.History to the
 // projected history of the turns before the target turn, replacing any the
 // caller set, and gives a Start the carried agent. A Start's command ID
 // must not begin with "queue:" or "compact:", which mark the session's own
@@ -408,7 +408,7 @@ func (s *Session) planCommand(
 func lostStart(err error) bool {
 	var ce *dashi.CommitError
 	return errors.As(err, &ce) && ce.Step != nil &&
-		ce.Step.Kind == dashi.StepStarted &&
+		ce.Step.Kind == dashi.StepTurnStarted &&
 		errors.Is(ce.Err, dashi.ErrRevisionConflict)
 }
 
@@ -422,7 +422,7 @@ func takenKey(err error) bool {
 	}
 	var ce *dashi.CommitError
 	return !errors.As(err, &ce) || ce.Step == nil ||
-		ce.Step.Kind == dashi.StepStarted
+		ce.Step.Kind == dashi.StepTurnStarted
 }
 
 // startPlan is a chosen new turn, or the answer that replaces running one.

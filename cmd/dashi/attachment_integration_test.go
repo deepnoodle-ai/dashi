@@ -354,7 +354,7 @@ type attachmentAdmissionFault struct {
 }
 
 func (r *attachmentAdmissionFault) Commit(ctx context.Context, req dashi.CommitRequest) error {
-	if !r.failed && req.Step.Kind == dashi.StepStarted && req.Step.Started.Origin != dashi.StartCompaction {
+	if !r.failed && req.Step.Kind == dashi.StepTurnStarted && req.Step.Started.Origin != dashi.StartCompaction {
 		r.failed = true
 		r.target = req.Step.TurnID
 		if r.mode == "conflict" {
@@ -445,7 +445,7 @@ func (r *attachmentCrashRecorder) Commit(ctx context.Context, req dashi.CommitRe
 	if err := r.Recorder.Commit(ctx, req); err != nil {
 		return err
 	}
-	if req.Step.Kind == dashi.StepStarted && req.Step.Started.Origin != dashi.StartCompaction {
+	if req.Step.Kind == dashi.StepTurnStarted && req.Step.Started.Origin != dashi.StartCompaction {
 		id := req.Step.TurnID[:strings.LastIndexByte(req.Step.TurnID, '-')]
 		if err := os.WriteFile(r.state, []byte(id), 0o600); err != nil {
 			return err

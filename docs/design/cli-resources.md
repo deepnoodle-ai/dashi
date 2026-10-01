@@ -27,7 +27,7 @@ links, nonregular files, and identity changes. Read failures warn and select
 explicit empty instructions without fallback or partial content.
 
 Use separate contextual messages for source and body, preserving the full
-64 KiB body allowance. Deliver through `SeedContext`; existing visible-value
+64 KiB body allowance. AddMessages through `SeedContext`; existing visible-value
 deduplication and compaction rules apply. Instructions grant no tool authority.
 
 Use `LoadDirs(DefaultDirs(workspace, home)...)` and `Set.Bundle` for skills.

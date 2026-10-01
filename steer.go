@@ -361,7 +361,7 @@ func noCallCause(s *replayState) string {
 	if s.roomForNormalCall() {
 		return "a limit, the deadline, or a pause"
 	}
-	if s.Agent.Limits.NoReservedFinalAnswer {
+	if s.Agent.Limits.NoReservedFinalReply {
 		return fmt.Sprintf(
 			"the model attempt limit (%d of %d used)",
 			s.ModelAttempts,
@@ -398,7 +398,7 @@ func (r *runtime) skipRecordedItems(items []ContextItem) []ContextItem {
 		}
 		if !canonjson.SameValue(old, item) {
 			r.pendingWarnings = append(r.pendingWarnings, Warning{
-				Code: WarningDeliveryDropped,
+				Code: WarningMessagesDropped,
 				Message: fmt.Sprintf(
 					"context item %s dropped: the turn records a different "+
 						"item with its ID",
@@ -410,7 +410,7 @@ func (r *runtime) skipRecordedItems(items []ContextItem) []ContextItem {
 	return out
 }
 
-// newDeliveries validates a Deliver command's items and drops those the
+// newDeliveries validates a AddMessages command's items and drops those the
 // turn already records with the same content. An ID repeated with different
 // content is an error, since an ID names one delivery.
 func newDeliveries(s *replayState, items []ContextItem) ([]ContextItem, error) {

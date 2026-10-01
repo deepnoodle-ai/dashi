@@ -16,7 +16,7 @@ The turn record is the authority: a steer ID is recorded at most once, and
 sources present a steer until `Delivered`. `Inbox` claims steers per run and
 keeps writes of unknown outcome in doubt; `Leftovers(turn)` returns unrecorded
 steers. Steers are delivered before each model call (FR-6, one
-`StepDelivered` before `BeforeModel`) and at a candidate answer when
+`StepMessagesAdded` before `BeforeModel`) and at a candidate answer when
 `nextCallPossible` holds, never between a tool call and its result. A steer is
 a nudge, never a veto. Non-goals: queueing follow-up turns, cancelling running
 tools, waking a waiting turn, rewriting steer text.
@@ -64,7 +64,7 @@ urgent steer FR-6 delivers from it records one `WarningSteering` per run.
   guards the snapshot, the urgent set, the registered call, and the reason
   the listener last declined to interrupt; commits take only it. The
   listener writes no warnings; the run attaches that reason to the call's
-  `StepModelSettled`, or at the latest to the stop step.
+  `StepModelCallFinished`, or at the latest to the stop step.
 - **U-3. What a signal does.** The listener calls `Steers`. For a fresh
   urgent steer, it adds the ID to the run's *urgent set* and cancels the
   registered model call if eligible (U-4). Each ID causes at most one

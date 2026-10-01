@@ -116,7 +116,7 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 		cache.needed = map[int64]bool{}
 	}
 	for _, step := range t.Steps {
-		if step.Kind == StepModelIntent && step.Model != nil && step.Model.Compaction != nil {
+		if step.Kind == StepModelCallStarted && step.Model != nil && step.Model.Compaction != nil {
 			cache.needed[step.Model.Compaction.Through] = true
 		}
 	}
@@ -161,10 +161,10 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 			}
 			s.commandDigests[step.CommandID] = step.CommandDigest
 		}
-		if i == 0 && step.Kind != StepStarted {
+		if i == 0 && step.Kind != StepTurnStarted {
 			return nil, fmt.Errorf("%w: first step is not start", ErrInvalidTurn)
 		}
-		if i > 0 && step.Kind == StepStarted {
+		if i > 0 && step.Kind == StepTurnStarted {
 			return nil, fmt.Errorf("%w: duplicate start", ErrInvalidTurn)
 		}
 		if err := s.apply(step); err != nil {
@@ -197,10 +197,10 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 		s.Tools[id] = v
 	}
 	s.Pending = s.pendingItems()
-	s.Answer = answerText(t.Steps)
+	s.Reply = answerText(t.Steps)
 	// A vetoed answer never reaches the host through Answer.
 	if s.answerVetoed {
-		s.Answer = ""
+		s.Reply = ""
 	}
 	if err := s.calculateSpend(); err != nil {
 		return nil, fmt.Errorf("%w: calculate spend: %v", ErrInvalidTurn, err)
@@ -215,7 +215,7 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 		if err != nil {
 			return nil, err
 		}
-		s.Answer = ended.Answer
+		s.Reply = ended.Reply
 	}
 	return s, nil
 }
@@ -279,7 +279,7 @@ func (s *replayState) calculateSpend() error {
 	}
 	for _, id := range slices.Sorted(maps.Keys(s.Tools)) {
 		view := s.Tools[id]
-		if view.Status == ToolSettled && view.Outcome != nil &&
+		if view.Status == ToolFinished && view.Outcome != nil &&
 			view.Outcome.Cost != nil {
 			cost := view.Outcome.Cost
 			s.Spend.ToolCost = addSpendCost(

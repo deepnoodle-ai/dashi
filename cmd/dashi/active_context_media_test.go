@@ -86,7 +86,7 @@ func TestCLIActiveMediaPrintAndRecordedReopen(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := finishAutomationContent(writer, res.Outcome.Answer); err != nil {
+			if err := finishAutomationContent(writer, res.Outcome.Reply); err != nil {
 				t.Fatal(err)
 			}
 			if stdout.String() != "Image inspected.\n" || c.sends != 1 || res.Outcome.Stop.Kind != dashi.StopCompleted || len(res.Outcome.ContextCompactions) != 0 {
@@ -196,7 +196,7 @@ func TestRuntimeActiveMediaUnavailableAndReopen(t *testing.T) {
 }
 func TestActiveMediaRendererMarksUnavailableMedia(t *testing.T) {
 	r := NewRenderer(1, "fixture", "")
-	started := dashi.Step{Kind: dashi.StepStarted, TurnID: "media", Started: &dashi.StartFact{Agent: dashi.Agent{ActiveCompaction: &dashi.ActiveCompactionPolicy{}}, ActiveCompactionWindow: 128000}}
+	started := dashi.Step{Kind: dashi.StepTurnStarted, TurnID: "media", Started: &dashi.StartFact{Agent: dashi.Agent{ActiveCompaction: &dashi.ActiveCompactionPolicy{}}, ActiveCompactionWindow: 128000}}
 	var live Transcript
 	for _, b := range r.Event(stepEvent(started)) {
 		live.Apply(b)
@@ -205,7 +205,7 @@ func TestActiveMediaRendererMarksUnavailableMedia(t *testing.T) {
 	if len(live.Blocks) != 1 || live.Blocks[0].Kind != KindUser {
 		t.Fatalf("start showed more than the prompt: %+v", live.Blocks)
 	}
-	event := dashi.Step{Kind: dashi.StepModelIntent, TurnID: "media", Warnings: []dashi.Warning{{Code: dashi.WarningActiveCompactionMediaEstimateUnavailable, Message: "Media context size cannot be estimated; provider content preparation and actual window acceptance govern it."}}}
+	event := dashi.Step{Kind: dashi.StepModelCallStarted, TurnID: "media", Warnings: []dashi.Warning{{Code: dashi.WarningActiveCompactionMediaEstimateUnavailable, Message: "Media context size cannot be estimated; provider content preparation and actual window acceptance govern it."}}}
 	b := onlyBlock(t, r.Event(stepEvent(event)))
 	live.Apply(b)
 	if b.Kind != KindCompaction || b.State != "unavailable" || !b.Done || b.ID != "active-protection:media" {

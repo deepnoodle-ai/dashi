@@ -85,9 +85,9 @@ Use the five **turn commands** as the shared verbs. Each carries a
 payload acknowledges the recorded step instead of repeating the effect.
 
 - **Start**: Begin a new turn with input.
-- **Deliver**: Add context to an existing turn without advancing execution.
+- **AddMessages**: Add context to an existing turn without advancing execution.
 - **Continue**: Advance an eligible existing turn, optionally with more context.
-- **Settle**: Record a host-supplied tool outcome, approval answer, hosted
+- **Resolve**: Record a host-supplied tool outcome, approval answer, hosted
   approval, or model result. It never runs the turn; `Continue` does.
 - **Cancel**: Request that the turn stop.
 

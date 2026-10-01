@@ -251,7 +251,7 @@ needed by the CLI for long turns) and compact-and-retry on overflow.
 
 **Status:** First slice ready for review, on two branches. Part B,
 `content/mention`, turns `@file` mentions and image or PDF paths into content.
-Part A adds `content.Ref`, `Runner.ContentResolver`, and `Runner.ContentLimits`:
+Part A adds `content.Ref`, `Runner.ContentLoader`, and `Runner.ContentLimits`:
 the record holds an ID, digest, and size, and the runner verifies resolved
 bytes before every model request. **Size:** M. **Difficulty:** High.
 **Reference:** [decision 19](decisions.md), [history storage](history-storage.md),
@@ -380,8 +380,8 @@ items above; hook state has a deferred design in the linked document.
 - **Output, then a deadline.** A turn whose structured output is recorded
   stops `limited` at the deadline instead of completing.
 - **Tool-argument deltas** carry no byte offset or call ID.
-- **Context after a paused hosted call.** A `BeforeModel` hook's `Deliver`, or
-  a host `Deliver` while paused, can land after an unfinished paused hosted
+- **Context after a paused hosted call.** A `BeforeModel` hook's `AddMessages`, or
+  a host `AddMessages` while paused, can land after an unfinished paused hosted
   search; steers already wait (`pausedMidHostedCall`).
 - **Urgent steer during `BeforeSend`** of a paused continuation cancels the
   call before sending, and hooks run again: wasted work only.

@@ -122,10 +122,10 @@ type Config struct {
 	// Tools is ignored. A Recorder should implement dashi.Loader.
 	// Without one, children run but do not survive a restart.
 	Runner dashi.Runner
-	// MaxAnswer caps the bytes of a child's answer that reach the model,
+	// MaxReply caps the bytes of a child's answer that reach the model,
 	// in a notice or a status result. Zero means 16 KiB; a negative value
 	// means no cap.
-	MaxAnswer int
+	MaxReply int
 	// OnChild receives every child event for live display: committed steps,
 	// model deltas, and tool progress. The Observer in Runner, if set, also
 	// receives each event, after OnChild. It runs on the child's observer

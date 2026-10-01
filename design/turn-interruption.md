@@ -131,14 +131,14 @@ a real outcome. The call stays marked as started with no result.
   second email or charge a card twice. The turn stops `uncertain`, and the
   application must report what happened.
 
-The application reports with `Settle`: the tool's result if it can find it (for
+The application reports with `Resolve`: the tool's result if it can find it (for
 example by looking up an idempotency key in the downstream system), or a
 failure; for an uncertain model call, the result or evidence that it never ran.
-Or it can `Cancel` the turn. `Settle` only records the report; `Continue`
-resumes the turn. The same holds everywhere `Settle` is used, including an
+Or it can `Cancel` the turn. `Resolve` only records the report; `Continue`
+resumes the turn. The same holds everywhere `Resolve` is used, including an
 approval or a tool result delivered to a waiting turn, which today carries on
 immediately: one rule, and the request that records an approval does not run
-the model inline. The report is committed before `Settle` returns, so a
+the model inline. The report is committed before `Resolve` returns, so a
 forgotten `Continue` loses nothing; the turn stays stopped. To make that
 visible, `Outcome` and the saved turn say when nothing blocks the turn and it
 is ready to continue, so an application calls `Continue` and a host's sweeper
@@ -207,7 +207,7 @@ Explicit `Cancel` tests are unchanged. New tests: `Continue` after an
 interruption and after a crash, with an interrupted model call, a started safe
 tool, and a started unsafe tool; a hosted tool of unknown safety; the `Pause`
 channel during a model call and during a tool loop; `ContextCancel` with a
-broken `Stream`; `Settle` on an interrupted turn; repeated interruptions
+broken `Stream`; `Resolve` on an interrupted turn; repeated interruptions
 during model calls, which reach the interruption limit while `ModelAttempts`
 is unchanged and usage still accumulates; a
 deadline cutting off a running call; and a lease loss rejected by the store.

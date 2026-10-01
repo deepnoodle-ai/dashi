@@ -21,13 +21,13 @@ NoticeReady func(dashi.TurnView) bool
 
 type ChildServices struct {
     Client llm.Client
-    ContentResolver dashi.ContentResolver
+    ContentLoader dashi.ContentLoader
 }
 type TaskTarget struct { ID, TurnID string; Revision int64 }
 func (*Tasks) Run(context.Context, TaskTarget, dashi.Command) (dashi.Outcome, error)
 ```
 
-Run accepts only Continue, Settle, and Cancel with a nonempty CommandID.
+Run accepts only Continue, Resolve, and Cancel with a nonempty CommandID.
 PrepareStart runs outside `Tasks.mu` only for a new child, after resolving child tools and before launch/Start commit.
 Give it an owned Start. Preserve CommandID, Parent, Origin, task prompt, child instructions, tool restrictions, limits, and empty caller History.
 It may append input and pin settings, active-compaction policy, and behavior revision; reject changed protected fields.
@@ -91,7 +91,7 @@ On process restart, derive state from records; no retained UI confirmation impli
 | Action | Child behavior |
 | --- | --- |
 | `/task ID continue` | Continue ready/interrupted work. Pending approval opens its original attributed approval, records its answer, and requires all pending items settled. For `NextRaiseAttempts`, disclose checked doubling of the effective recorded cap; overflow rejects. Other limits retain their required remedy; no child monetary raise. |
-| `/task ID done CALL_ID` | Require an already-started pending external/uncertain tool call. Display exact child Turn/tool/args and require operator affirmation of completion. Settle `tool.Succeeded("Operator verified this exact call completed; its output was not captured.")`; no tool execution, model settlement, or unexecuted approval bypass. Do not continue automatically. |
+| `/task ID done CALL_ID` | Require an already-started pending external/uncertain tool call. Display exact child Turn/tool/args and require operator affirmation of completion. Resolve `tool.Succeeded("Operator verified this exact call completed; its output was not captured.")`; no tool execution, model settlement, or unexecuted approval bypass. Do not continue automatically. |
 | `/task ID discard` | Cancel the stopped nonterminal child with recorded operator reason; uncertain effects may have run. Terminal/running/stale/wrong-call targets reject. |
 | `/task-stop ID` | Existing live Stop, with cancellation confirmed from authoritative record; unresolved timeout/write remains visible. |
 

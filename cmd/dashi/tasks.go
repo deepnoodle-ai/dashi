@@ -213,7 +213,7 @@ func (e *Engine) taskParents(ctx context.Context) ([]dashi.Turn, error) {
 				continue
 			}
 			problem := fmt.Sprintf("required parent %s unavailable: %v; restore its journal and reopen", parentID, err)
-			task.State, task.Answer, task.Reason = "record unavailable", "", problem
+			task.State, task.Reply, task.Reason = "record unavailable", "", problem
 			if host.recorded == nil {
 				host.recorded = map[string]taskSnapshot{}
 			}
@@ -256,7 +256,7 @@ func recordedTaskNotices(turns []dashi.Turn) map[string]bool {
 					delivered[item.ID] = true
 				}
 			}
-			if step.Kind == dashi.StepStarted {
+			if step.Kind == dashi.StepTurnStarted {
 				if list, ok := strings.CutPrefix(step.CommandID, "queue:"); ok {
 					var ids []string
 					if json.Unmarshal([]byte(list), &ids) == nil {
@@ -405,7 +405,7 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 				return Result{Outcome: out}, loadErr
 			}
 			for _, step := range turn.Steps {
-				if step.Kind == dashi.StepStarted {
+				if step.Kind == dashi.StepTurnStarted {
 					if saveErr := e.record(&step); saveErr != nil {
 						e.warn("Task queue header was not saved: %v", saveErr)
 					}
@@ -554,7 +554,7 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 				task.ModelCalls += state.ModelAttempts
 				task.ToolCalls += len(state.Tools)
 				if state.Stop.Kind == dashi.StopCompleted {
-					task.Answer = state.Answer
+					task.Reply = state.Reply
 				}
 				last = taskSnapshot{Task: task, Turn: turn, View: state, Target: delegate.TaskTarget{ID: id, TurnID: turn.ID, Revision: state.Revision}}
 			}
@@ -562,7 +562,7 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 				// A damaged latest record cannot borrow an earlier stop as
 				// completion. Keep the derived task visible with uncertainty.
 				task.State = "record unavailable"
-				task.Answer = ""
+				task.Reply = ""
 				task.Reason = problems[id]
 				last.Task = task
 				recorded[id] = last

@@ -12,11 +12,11 @@ import (
 )
 
 // recordsActiveHooks reports the steps that record ActiveHooks: the first
-// step of the commands that run hooks, Start, Continue, and a Settle with a
+// step of the commands that run hooks, Start, Continue, and a Resolve with a
 // tool result, which runs AfterTool.
 func recordsActiveHooks(step Step) bool {
-	return step.Kind == StepStarted || step.Kind == StepContinued ||
-		step.Kind == StepToolSettled && step.CommandID != ""
+	return step.Kind == StepTurnStarted || step.Kind == StepTurnContinued ||
+		step.Kind == StepToolFinished && step.CommandID != ""
 }
 
 // hookVerdicts lists the verdicts each hook point can record.
@@ -32,7 +32,7 @@ var hookVerdicts = map[HookPoint][]HookVerdict{
 	},
 	HookAfterTool: {VerdictReplace, VerdictFailed},
 	HookBeforeFinish: {
-		VerdictDeliver,
+		VerdictAddMessages,
 		VerdictReject,
 		VerdictAcceptEmpty,
 		VerdictFailed,
@@ -80,7 +80,7 @@ func (a ActiveHooks) validate() error {
 // named once each, never the submit tool, and not also offered. The
 // reserved final-answer call runs no hides, so it records none.
 func validateHidden(fact *ModelFact) error {
-	if fact.FinalAnswerOnly && len(fact.Hidden) > 0 {
+	if fact.FinalReplyOnly && len(fact.Hidden) > 0 {
 		return errors.New("invalid hidden tools")
 	}
 	seen := map[string]bool{}
@@ -112,10 +112,10 @@ func validateAdmission(admission map[string]json.RawMessage) error {
 }
 
 func validateStepPayload(step Step) error {
-	if step.Budget != nil && step.Kind != StepContinued {
+	if step.Budget != nil && step.Kind != StepTurnContinued {
 		return errors.New("budget raise requires a continuation step")
 	}
-	if step.ModelAttempts != 0 && step.Kind != StepContinued {
+	if step.ModelAttempts != 0 && step.Kind != StepTurnContinued {
 		return errors.New("model-attempt raise requires a continuation step")
 	}
 	// Warnings ride on whatever step comes next, except the two that
@@ -124,15 +124,15 @@ func validateStepPayload(step Step) error {
 		valid := false
 		switch warning.Code {
 		case WarningHistoryMismatch:
-			valid = step.Kind == StepContinued
+			valid = step.Kind == StepTurnContinued
 		case WarningBudgetClamp:
-			valid = step.Kind == StepModelIntent
-		case WarningActiveCompactionUnavailable, WarningActiveCompactionBlocked, WarningActiveCompactionMediaEstimateUnavailable, WarningHookFailed, WarningHooksChanged, WarningDeliveryDropped,
+			valid = step.Kind == StepModelCallStarted
+		case WarningActiveCompactionUnavailable, WarningActiveCompactionBlocked, WarningActiveCompactionMediaEstimateUnavailable, WarningHookFailed, WarningHooksChanged, WarningMessagesDropped,
 			WarningSteering, WarningToolChoiceCleared, WarningHideIgnored,
 			WarningToolNotOffered:
 			valid = true
 		case WarningLimitAdjusted:
-			valid = step.Kind == StepStarted
+			valid = step.Kind == StepTurnStarted
 		}
 		if !valid || warning.Message == "" {
 			return errors.New("invalid warning")
@@ -144,7 +144,7 @@ func validateStepPayload(step Step) error {
 		}
 	}
 	if step.Tool != nil && step.Tool.Result != nil &&
-		step.Kind != StepToolSettled {
+		step.Kind != StepToolFinished {
 		return errors.New("only a settlement records what the model sees")
 	}
 	if step.Kind != StepLoopContinued && step.Context != nil &&
@@ -159,7 +159,7 @@ func validateStepPayload(step Step) error {
 		if step.CommandID != "" {
 			return errors.New("a command cannot record steers")
 		}
-		if step.Kind == StepToolSettled &&
+		if step.Kind == StepToolFinished &&
 			(step.Tool == nil || step.Tool.Call.Name != SubmitOutputTool) {
 			return errors.New("only a rejected submission settles with steers")
 		}
@@ -195,13 +195,13 @@ func validateStepPayload(step Step) error {
 	}
 	expected := 1
 	switch step.Kind {
-	case StepContinued:
+	case StepTurnContinued:
 		expected = 0
 	case StepLoopContinued:
 		if step.Context == nil {
 			expected = 0
 		}
-	case StepToolSettled:
+	case StepToolFinished:
 		// A turned-down submission carries the items to deliver.
 		if step.Context != nil {
 			expected = 2
@@ -211,31 +211,31 @@ func validateStepPayload(step Step) error {
 		return errors.New("step has unexpected payloads")
 	}
 	switch step.Kind {
-	case StepStarted:
+	case StepTurnStarted:
 		if step.Started == nil {
 			return errors.New("start payload missing")
 		}
-	case StepDelivered, StepLoopContinued:
-		if step.Kind == StepDelivered && step.Context == nil {
+	case StepMessagesAdded, StepLoopContinued:
+		if step.Kind == StepMessagesAdded && step.Context == nil {
 			return errors.New("context payload missing")
 		}
-	case StepContinued:
-	case StepModelIntent, StepModelSettled, StepModelReconciled:
+	case StepTurnContinued:
+	case StepModelCallStarted, StepModelCallFinished, StepModelCallFinishedByHost:
 		if step.Model == nil {
 			return errors.New("model payload missing")
 		}
 		if !step.Model.CapabilityPolicy.Valid() {
 			return errors.New("invalid capability policy")
 		}
-	case StepToolDecision, StepToolStarted, StepToolWaiting, StepToolSettled:
+	case StepToolDecision, StepToolStarted, StepToolWaiting, StepToolFinished:
 		if step.Tool == nil {
 			return errors.New("tool payload missing")
 		}
-	case StepApprovalSettled:
+	case StepApprovalDecided:
 		if step.Approval == nil {
 			return errors.New("approval payload missing")
 		}
-	case StepHostedApprovalSettled:
+	case StepProviderToolApprovalDecided:
 		if step.HostedApproval == nil {
 			return errors.New("hosted approval payload missing")
 		}
@@ -247,7 +247,7 @@ func validateStepPayload(step Step) error {
 		if step.Compacted == nil {
 			return errors.New("compaction payload missing")
 		}
-	case StepStopped:
+	case StepTurnStopped:
 		if step.Stop == nil {
 			return errors.New("stop payload missing")
 		}

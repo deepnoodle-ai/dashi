@@ -67,11 +67,11 @@ func TestSeedContextIDCollisionAndHookViewOwnership(t *testing.T) {
 	}
 	seed := SeedContext(ContextItem{ID: "seed", Name: "seed", Message: llm.UserMessage(llm.Text("value"))})
 	d, err := seed.Func(t.Context(), ModelPlan{Turn: view})
-	if err != nil || len(d.Deliver) != 1 || d.Deliver[0].ID != "seed:turn:5:2" {
+	if err != nil || len(d.AddMessages) != 1 || d.AddMessages[0].ID != "seed:turn:5:2" {
 		t.Fatalf("decision=%+v err=%v", d, err)
 	}
 	again, err := seed.Func(t.Context(), ModelPlan{Turn: view})
-	if err != nil || again.Deliver[0].ID != d.Deliver[0].ID {
+	if err != nil || again.AddMessages[0].ID != d.AddMessages[0].ID {
 		t.Fatalf("unstable decision=%+v err=%v", again, err)
 	}
 }
@@ -81,8 +81,8 @@ func TestProjectContextOwnsMetadataAndPreservesRecord(t *testing.T) {
 	// slot from recorded ContextItem fields and overrides embedded metadata.
 	turn := NewTurn("legacy")
 	turn.Steps = []Step{
-		{Version: 1, TurnID: turn.ID, Seq: 1, Kind: StepStarted, Started: &StartFact{Agent: Agent{Revision: "test", Provider: "test", API: "test.chat", Model: "test"}, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}},
-		{Version: 1, TurnID: turn.ID, Seq: 2, Kind: StepDelivered, Context: &ContextFact{Items: []ContextItem{{Name: "seed", Message: llm.UserMessage(llm.Text("seed"))}}}},
+		{Version: 1, TurnID: turn.ID, Seq: 1, Kind: StepTurnStarted, Started: &StartFact{Agent: Agent{Revision: "test", Provider: "test", API: "test.chat", Model: "test"}, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}},
+		{Version: 1, TurnID: turn.ID, Seq: 2, Kind: StepMessagesAdded, Context: &ContextFact{Items: []ContextItem{{Name: "seed", Message: llm.UserMessage(llm.Text("seed"))}}}},
 	}
 	data, err := json.Marshal(turn)
 	if err != nil {

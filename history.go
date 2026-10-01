@@ -141,7 +141,7 @@ func digestMismatch(id, digest string, covered []llm.Message) *Warning {
 // nothing. The result shares message content with v.
 func (v TurnView) ReplacementHistory() ([]llm.Message, bool) {
 	f := v.Compaction
-	answer := compactiontext.Summary(v.Answer)
+	answer := compactiontext.Summary(v.Reply)
 	if f == nil || v.Stop.Kind != StopCompleted || answer == "" {
 		return nil, false
 	}

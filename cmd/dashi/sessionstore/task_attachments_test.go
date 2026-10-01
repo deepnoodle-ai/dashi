@@ -40,7 +40,7 @@ func TestChildAttachmentsStrictNamespaceConflictAndNoFollow(t *testing.T) {
 		t.Fatal("conflicting child publication overwritten")
 	}
 	turn := session.TurnID(delegate.ChildID(ref.TurnID, ref.CallID), 1)
-	if data, err := child.Resolve(t.Context(), turn, snapshot); err != nil || string(data) != "fixed" {
+	if data, err := child.Load(t.Context(), turn, snapshot); err != nil || string(data) != "fixed" {
 		t.Fatalf("%q %v", data, err)
 	}
 	for _, wrong := range []string{ref.TurnID, turn + "/../1", turn + "0", session.TurnID(delegate.ChildID(ref.TurnID, "other"), 1)} {
@@ -48,7 +48,7 @@ func TestChildAttachmentsStrictNamespaceConflictAndNoFollow(t *testing.T) {
 		if wrong == turn+"0" {
 			wrong = delegate.ChildID(ref.TurnID, ref.CallID) + "-01"
 		}
-		if _, err := child.Resolve(t.Context(), wrong, snapshot); err == nil {
+		if _, err := child.Load(t.Context(), wrong, snapshot); err == nil {
 			t.Fatalf("wrong namespace accepted %s", wrong)
 		}
 	}

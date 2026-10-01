@@ -186,7 +186,7 @@ func TestApprovalDigestFromPublicView(t *testing.T) {
 	if pending.ArgsDigest != dashi.ArgsDigest(shownArgs) {
 		t.Fatal("view digest differs from the digest of the arguments first shown")
 	}
-	approval := dashi.ApprovalFact{
+	approval := dashi.ApprovalDecision{
 		CallID:     "call-1",
 		Approve:    true,
 		ArgsDigest: pending.ArgsDigest,
@@ -194,7 +194,7 @@ func TestApprovalDigestFromPublicView(t *testing.T) {
 	accepted, err := runner.Run(
 		t.Context(),
 		turn,
-		dashi.Settle{CommandID: "approve", CallID: "call-1", Approval: &approval},
+		dashi.Resolve{CommandID: "approve", CallID: "call-1", Approval: &approval},
 	)
 	if err != nil || !accepted.ReadyToContinue {
 		t.Fatalf("approve=%+v err=%v", accepted, err)
@@ -220,7 +220,7 @@ func TestApprovalDigestFromPublicView(t *testing.T) {
 func TestApprovalDigestFromShownArguments(t *testing.T) {
 	turn, runner, _, _ := pendingApproval(t)
 	// The UI saw the arguments before the store normalized them.
-	approval := dashi.ApprovalFact{
+	approval := dashi.ApprovalDecision{
 		CallID:     "call-1",
 		Approve:    true,
 		ArgsDigest: dashi.ArgsDigest(shownArgs),
@@ -228,7 +228,7 @@ func TestApprovalDigestFromShownArguments(t *testing.T) {
 	accepted, err := runner.Run(
 		t.Context(),
 		turn,
-		dashi.Settle{CommandID: "approve", CallID: "call-1", Approval: &approval},
+		dashi.Resolve{CommandID: "approve", CallID: "call-1", Approval: &approval},
 	)
 	if err != nil || !accepted.ReadyToContinue {
 		t.Fatalf("approve=%+v err=%v", accepted, err)
@@ -238,7 +238,7 @@ func TestApprovalDigestFromShownArguments(t *testing.T) {
 func TestApprovalOfChangedArgumentsIsStale(t *testing.T) {
 	turn, runner, _, runs := pendingApproval(t)
 	changed := json.RawMessage(`{"b": 101, "a": "café"}`)
-	approval := dashi.ApprovalFact{
+	approval := dashi.ApprovalDecision{
 		CallID:     "call-1",
 		Approve:    true,
 		ArgsDigest: dashi.ArgsDigest(changed),
@@ -246,7 +246,7 @@ func TestApprovalOfChangedArgumentsIsStale(t *testing.T) {
 	_, err := runner.Run(
 		t.Context(),
 		turn,
-		dashi.Settle{CommandID: "approve", CallID: "call-1", Approval: &approval},
+		dashi.Resolve{CommandID: "approve", CallID: "call-1", Approval: &approval},
 	)
 	if err == nil || !strings.Contains(
 		err.Error(),

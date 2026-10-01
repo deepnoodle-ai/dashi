@@ -42,7 +42,7 @@ func TestNextCallFitsWithACallInFlight(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Cut the record while the first call runs.
-	inFlight := prefixThrough(t, out.Turn, StepModelIntent, 1)
+	inFlight := prefixThrough(t, out.Turn, StepModelCallStarted, 1)
 	s, err := replay(inFlight)
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +153,7 @@ func TestNextRequestEstimateIsAnUpperBound(t *testing.T) {
 				t.Fatalf("stop=%+v sizes=%v err=%v", out.Stop, client.sizes, err)
 			}
 			// Estimate the second request from the record before it.
-			before := prefixThrough(t, out.Turn, StepToolSettled, 1)
+			before := prefixThrough(t, out.Turn, StepToolFinished, 1)
 			s, err := replay(before)
 			if err != nil {
 				t.Fatal(err)

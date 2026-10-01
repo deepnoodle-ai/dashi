@@ -255,14 +255,14 @@ func (o *automationOutput) run() {
 			if view.Origin == dashi.StartCompaction || view.Parent != nil {
 				continue
 			}
-			lastAnswer = view.Answer // An empty last answer must stay empty.
-			if view.Answer == "" {
+			lastAnswer = view.Reply // An empty last answer must stay empty.
+			if view.Reply == "" {
 				continue
 			}
 			if o.format == "text" {
 				continue
 			}
-			data, err := json.Marshal(responseMessage{Content: view.Answer})
+			data, err := json.Marshal(responseMessage{Content: view.Reply})
 			if err != nil {
 				fail(errors.New("cannot encode response"))
 				return

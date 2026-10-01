@@ -3,7 +3,7 @@
 An approval is a [hook](hooks.md) on `BeforeTool` that allows, denies, or
 defers a tool call. Ask inline when the program can wait for a person; defer
 when it cannot. [Running turns](running-turns.md) covers `Run` and
-`Continue`; [recovering turns](recovering-turns.md) covers `Settle` and the
+`Continue`; [recovering turns](recovering-turns.md) covers `Resolve` and the
 [turn states](recovering-turns.md#turn-states-and-limits), including
 `StopWaiting`.
 
@@ -69,7 +69,7 @@ runner.Hooks = gate.Hooks()
 shown; hooks do not run again. `Result(outcome)` reports the result of a
 waiting external call the same way. Each builder derives its command ID from
 the call, so a retried answer is a duplicate and a different second answer
-fails with `ErrCommandConflict`. `Settle` only records; `Continue` runs the
+fails with `ErrCommandConflict`. `Resolve` only records; `Continue` runs the
 approved calls and returns `ErrNotReady` while any call is unanswered. Once
 every call is answered, `out.Pending` is empty and `out.ReadyToContinue` is
 true, but `out.Stop` still says waiting until `Continue` runs.
@@ -104,7 +104,7 @@ required host approval. Compose a separate judge turn with deferred approval:
    requesting another review. Require host authorization for any budget raise.
 6. Check current authority and that the advice still matches the call and
    review policy. Only the authorized host answers with `Pending.Approve` or
-   `Pending.Deny`. `Settle` records the answer. `Continue` executes or refuses
+   `Pending.Deny`. `Resolve` records the answer. `Continue` executes or refuses
    the bound call. Never turn model advice into a remembered approval rule.
 
 On reopening, load the parent and its associated judge record. Inspect

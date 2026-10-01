@@ -9,7 +9,7 @@ already ahead of Dive and the surveyed projects. The gaps sit around it. Gaps
 are directions, not decisions.
 
 **Names:** written before [decision 30](decisions.md); read `Definition` as
-`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Settle`, and a command's
+`Agent`, `Engine`/`Bindings` as `Runner`, `Accept` as `Resolve`, and a command's
 `ID` as `CommandID`.
 
 ## Summary table

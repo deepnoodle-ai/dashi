@@ -72,12 +72,12 @@ func ExampleTurnView_HookActed() {
 	nextStep := dashi.FinishHook{Name: "next-step", Func: func(
 		_ context.Context, p dashi.FinishPlan) (dashi.FinishDecision, error) {
 		if p.Turn.HookActed(dashi.HookBeforeFinish, "next-step") ||
-			strings.Contains(p.Answer, "Next step:") {
-			fmt.Println("accepted:", p.Answer)
+			strings.Contains(p.Reply, "Next step:") {
+			fmt.Println("accepted:", p.Reply)
 			return dashi.FinishDecision{}, nil
 		}
-		fmt.Println("nudged:", p.Answer)
-		return dashi.FinishDecision{Deliver: []dashi.ContextItem{{
+		fmt.Println("nudged:", p.Reply)
+		return dashi.FinishDecision{AddMessages: []dashi.ContextItem{{
 			Name:    "next-step",
 			Origin:  dashi.ContextRuntime,
 			Message: llm.UserMessage(llm.Text("End with a next step.")),

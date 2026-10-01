@@ -36,7 +36,7 @@ never mutated), so the message is not doubled. Check in this order:
    saved (`PersistenceRejected`) or may have been (`PersistenceUnknown`, reload
    first). `Outcome.Turn` holds the steps this run knows were saved, and
    recovery treats the failure as a crash after them. If the failed step was
-   the command's first, nothing ran. When it is a `model_settled` step,
+   the command's first, nothing ran. When it is a `model_call_finished` step,
    `out.Spend` omits that call; its usage is on `commitErr.Step`.
 3. Any other error: the command was rejected and nothing was recorded.
    `Outcome` is the caller's turn and its view, unchanged, so
@@ -87,9 +87,9 @@ type Pending struct {
 	Hosted *llm.HostedApprovalRequest // set for hosted approval requests
 }
 
-func (p Pending) Approve() Settle
-func (p Pending) Deny(reason string) Settle
-func (p Pending) Result(outcome tool.Outcome) Settle
+func (p Pending) Approve() Resolve
+func (p Pending) Deny(reason string) Resolve
+func (p Pending) Result(outcome tool.Outcome) Resolve
 ```
 
 `PendingApproval` covers a local call deferred by policy and a provider-hosted
@@ -111,12 +111,12 @@ produces a command `Run` rejects.
 
 `dashi.RequireApproval(tools ...string)` is a policy that allows local tools
 and defers the named ones, with a fixed revision derived from the names. It
-can later be expressed as a `BeforeTool` hook. `Settle` and `Continue` stay
+can later be expressed as a `BeforeTool` hook. `Resolve` and `Continue` stay
 separate (decision 18); a combined command is deferred.
 
-**4. A denial carries its reason to the model (8.2).** `ApprovalFact` gains
-`Reason`. `Settle` records only the approval, as decision 18 intends; today
-it also writes an uncommanded `tool_settled` step, and a crash between the two
+**4. A denial carries its reason to the model (8.2).** `ApprovalDecision` gains
+`Reason`. `Resolve` records only the approval, as decision 18 intends; today
+it also writes an uncommanded `tool_finished` step, and a crash between the two
 writes loses the operator's reason. Replay keeps the policy's decision and
 records the answer beside it in `ToolView.Approval`, and the next `Continue`
 settles the call as not executed with the reason as its
@@ -178,7 +178,7 @@ for err == nil && out.Stop.Kind == dashi.StopWaiting {
 
 - Commit failures: rejected and unknown writes return `*CommitError` with
   `Step`; a recorder's `ErrRevisionConflict` matches `errors.Is` with no doubled
-  message; a failed `model_settled` write leaves the usage on `Step`.
+  message; a failed `model_call_finished` write leaves the usage on `Step`.
 - A rejected command returns the caller's turn and view.
 - A crash between recording a denial and continuing keeps the operator's
   reason; the model receives it.

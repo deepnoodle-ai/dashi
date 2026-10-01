@@ -43,14 +43,14 @@ func plan(turn dashi.Turn, view dashi.TurnView, history []llm.Message) dashi.Com
 	switch view.Next() {
 	case dashi.NextContinue, dashi.NextResume: // Resume once the old worker is gone.
 		return dashi.Continue{CommandID: id, History: history}
-	case dashi.NextAnswer:
+	case dashi.NextResolvePending:
 		// The host settles each pending item when its answer arrives; here a
 		// person approves the call.
 		return view.Pending[0].Approve()
 	case dashi.NextRaiseBudget, dashi.NextRaiseAttempts:
 		// Or Continue with a raised Budget or ModelAttempts.
 		return dashi.Cancel{CommandID: id, Reason: "limit reached"}
-	case dashi.NextResolve:
+	case dashi.NextFix:
 		// Host-specific: fix the cause and Continue, or Cancel.
 		return dashi.Cancel{CommandID: id, Reason: view.Stop.Reason}
 	}
@@ -114,7 +114,7 @@ func Example_hostTurnLoop() {
 		fmt.Println(dashi.CommandIDOf(cmd), "->", out.Stop.Kind, out.Next())
 	}
 	// Output:
-	// t1@2 -> waiting answer
+	// t1@2 -> waiting resolve_pending
 	// approval:c1 -> waiting continue
 	// t1@8 -> completed none
 }

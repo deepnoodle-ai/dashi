@@ -41,14 +41,14 @@ func ownedCommand(cmd dashi.Command) (dashi.Command, string, string, error) {
 		v, err = copyValue(c)
 		v.OnHistoryMismatch = c.OnHistoryMismatch
 		owned, id = v, c.CommandID
-	case dashi.Settle:
-		var v dashi.Settle
+	case dashi.Resolve:
+		var v dashi.Resolve
 		v, err = copyValue(c)
 		owned, id = v, c.CommandID
 	case dashi.Cancel:
 		owned, id = c, c.CommandID
 	default:
-		return nil, "", "", errors.New("delegate: task control accepts Continue, Settle, or Cancel")
+		return nil, "", "", errors.New("delegate: task control accepts Continue, Resolve, or Cancel")
 	}
 	if err != nil {
 		return nil, "", "", err
@@ -169,7 +169,7 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 	for ev, e := range t.session.Runner.Stream(workCtx, turn, owned) {
 		if ev.Step != nil {
 			ts.observe(t, *ev.Step)
-			if ev.Step.Kind == dashi.StepContinued {
+			if ev.Step.Kind == dashi.StepTurnContinued {
 				ts.mu.Lock()
 				started := ts.viewLocked(t, nil)
 				ts.mu.Unlock()

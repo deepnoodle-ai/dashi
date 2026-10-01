@@ -61,13 +61,13 @@ redact := dashi.ResultHook{Name: "redact", Func: func(
 
 - **When it runs.** Once for each final outcome whose content came from a tool
   or the host: an executor's result (succeeded, failed, `tool.Fatal`, or an
-  executor-returned `not_executed`), and a `Settle` result. Not for denied,
+  executor-returned `not_executed`), and a `Resolve` result. Not for denied,
   invalid, unknown or submitted calls, calls settled with no outcome, waiting
   results, or steering's not-run outcomes: the runner wrote those.
 - **Where.** In the drain loop, one result at a time, before the settlement
   is committed, so the settlement carries the hooks' answers. A slow hook
   delays draining, and so steering's urgent-steer check during a batch. In the
-  `Settle` command, before its commit, including on an ended turn. A `Settle`
+  `Resolve` command, before its commit, including on an ended turn. A `Resolve`
   with a tool result records `ActiveHooks` like `Start` and `Continue`; hosts
   pass the same hooks to it.
 - **What it changes.** Only what the model sees: the next model call and the
@@ -85,7 +85,7 @@ redact := dashi.ResultHook{Name: "redact", Func: func(
   failure.
 - **Ended context.** If the run's context ends while the chain runs, the
   settlement is still committed with a warning, withheld unless every hook left
-  to answer fails open; the outcome and its cost are kept. A `Settle` runs its
+  to answer fails open; the outcome and its cost are kept. A `Resolve` runs its
   hooks under the command's context, not the turn's deadline. A context that
   ended before the chain started keeps today's rule. `Project` never refuses a
   turn because of hooks.
@@ -95,11 +95,11 @@ the settlement only when a hook changed it; projection uses it, and
 `ToolView.Result()` returns what the model sees, derived by the same function
 projection uses. `HookResults` gain the point `after_tool` and the verdicts
 `replace` and `failed`. `ActiveHooks` gains `after_tool` and is recorded on a
-`Settle` with a tool result.
+`Resolve` with a tool result.
 
 **Tests.** Chains of replacements; an equal replacement as no opinion;
 error, panic, invalid replacement, `FailOpen`; the ended context; parallel
-calls presenting one at a time; `Settle` results, on a running and an ended
+calls presenting one at a time; `Resolve` results, on a running and an ended
 turn, with `ActiveHooks`; which outcomes run hooks; projection and
 `ToolView.Result()` agreeing; replay of recorded results; `MapText` keeping
 non-text blocks; and the redactor example run live.

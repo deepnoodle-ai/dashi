@@ -113,7 +113,7 @@ func (e *Engine) runPending(ctx context.Context) (Result, error) {
 	var ce *dashi.CommitError
 	rejectedInput := p.input != nil && !p.summary && errors.As(err, &ce) &&
 		ce.Persistence == dashi.PersistenceRejected && ce.Step != nil &&
-		ce.Step.Kind == dashi.StepStarted && ce.Step.Started != nil &&
+		ce.Step.Kind == dashi.StepTurnStarted && ce.Step.Started != nil &&
 		ce.Step.Started.Origin != dashi.StartCompaction && ce.Step.CommandID == p.start.CommandID
 	if e.pending == p && p.uncertain == "" && (!p.attempted || rejectedInput) && !p.summary &&
 		res.Outcome.Origin != dashi.StartCompaction {
@@ -173,7 +173,7 @@ func (e *Engine) resumePending(ctx context.Context) (Result, error) {
 	res, err := e.stream(ctx, chat.Stream(ctx, cmd), true)
 	e.driverMu.Unlock()
 	if err != nil || res.Outcome.Stop.Kind != dashi.StopCompleted ||
-		compactiontext.Summary(res.Outcome.Answer) == "" {
+		compactiontext.Summary(res.Outcome.Reply) == "" {
 		return res, err
 	}
 	return e.runPending(ctx)
@@ -182,7 +182,7 @@ func (e *Engine) resumePending(ctx context.Context) (Result, error) {
 func (e *Engine) rememberPromptError(err error) {
 	var ce *dashi.CommitError
 	if !errors.As(err, &ce) || ce.Step == nil ||
-		ce.Step.Kind != dashi.StepStarted || ce.Step.Started == nil {
+		ce.Step.Kind != dashi.StepTurnStarted || ce.Step.Started == nil {
 		return
 	}
 	e.inputMu.Lock()
@@ -219,7 +219,7 @@ func (e *Engine) reconcilePrompt(ctx context.Context, p *pendingPrompt) error {
 		return fmt.Errorf("pending prompt waits until turn %s can be read: %w", id, err)
 	}
 	step := turn.Steps[0]
-	if step.Kind != dashi.StepStarted || step.Started == nil ||
+	if step.Kind != dashi.StepTurnStarted || step.Started == nil ||
 		step.CommandID != p.start.CommandID ||
 		len(step.Started.Input) < len(p.start.Input) ||
 		!reflect.DeepEqual(step.Started.Input[len(step.Started.Input)-len(p.start.Input):], p.start.Input) {
@@ -237,7 +237,7 @@ func (e *Engine) reconcilePrompt(ctx context.Context, p *pendingPrompt) error {
 // acknowledgePrompt moves later input only after the ordinary Start commits.
 // Admission uses the same lock, so a new queue write cannot overtake the FIFO.
 func (e *Engine) acknowledgePrompt(step *dashi.Step) error {
-	if step == nil || step.Kind != dashi.StepStarted || step.Started == nil ||
+	if step == nil || step.Kind != dashi.StepTurnStarted || step.Started == nil ||
 		step.Started.Origin == dashi.StartCompaction {
 		return nil
 	}

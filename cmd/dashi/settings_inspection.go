@@ -140,11 +140,11 @@ func (e *Engine) inspectSettings(ctx context.Context) settingsInspection {
 		turn, err := loader.Load(ctx, last.View.ID)
 		if err == nil {
 			for _, step := range turn.Steps {
-				if started := step.Started; step.Kind == dashi.StepStarted && started != nil &&
+				if started := step.Started; step.Kind == dashi.StepTurnStarted && started != nil &&
 					started.Agent.ActiveCompaction != nil && !started.Agent.ActiveCompaction.Disabled {
 					view.ActiveTurnWindow = started.ActiveCompactionWindow
 				}
-				if step.Kind == dashi.StepModelIntent && step.Model != nil {
+				if step.Kind == dashi.StepModelCallStarted && step.Model != nil {
 					fact := step.Model
 					show := last.View.Agent.Settings.ReasoningSummary != nil && *last.View.Agent.Settings.ReasoningSummary
 					view.Recorded = &recordedSettings{AttemptID: fact.AttemptID, Destination: fact.Provider, Model: fact.Model, Effective: inspectControls(fact.Effective, show), Summary: "no settled summary"}

@@ -122,8 +122,8 @@ func TestActiveCompactionNativeSeparateHostedStatus(t *testing.T) {
 				Agent: dashi.Agent{Model: "claude-sonnet-4-5", Settings: llm.Settings{MaxTokens: 256}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, Fraction: .5, MaxTokens: 256}},
 				Input: []llm.Message{llm.UserMessage(llm.Text("Check the remote result and report its status."))},
 			})
-			if err != nil || out.Stop.Kind != dashi.StopCompleted || !c.summaryHadEvidence || out.Answer != "Checked hosted result. "+tc.status {
-				t.Fatalf("stop=%+v summary evidence=%v answer=%q err=%v", out.Stop, c.summaryHadEvidence, out.Answer, err)
+			if err != nil || out.Stop.Kind != dashi.StopCompleted || !c.summaryHadEvidence || out.Reply != "Checked hosted result. "+tc.status {
+				t.Fatalf("stop=%+v summary evidence=%v answer=%q err=%v", out.Stop, c.summaryHadEvidence, out.Reply, err)
 			}
 			if effects != 1 || c.summaries != 1 || len(c.sent) != 3 || len(out.ContextCompactions) != 1 || out.ModelAttempts != 3 || len(transport.requests(t)) != 1 {
 				t.Fatalf("effects=%d summaries=%d sends=%d applications=%d attempts=%d", effects, c.summaries, len(c.sent), len(out.ContextCompactions), out.ModelAttempts)
@@ -187,8 +187,8 @@ func TestActiveCompactionNativeCombinedHostedDiagnostic(t *testing.T) {
 				Agent: dashi.Agent{Model: "gpt-6-luna", Settings: llm.Settings{MaxTokens: 256}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}},
 				Input: []llm.Message{llm.UserMessage(llm.Text("Investigate and fix the failure from hosted diagnostics."))},
 			})
-			if err != nil || out.Stop.Kind != dashi.StopCompleted || !c.summaryHadEvidence || out.Answer != "Fixed and verified. "+activeDiagnostic {
-				t.Fatalf("stop=%+v summary evidence=%v answer=%q err=%v", out.Stop, c.summaryHadEvidence, out.Answer, err)
+			if err != nil || out.Stop.Kind != dashi.StopCompleted || !c.summaryHadEvidence || out.Reply != "Fixed and verified. "+activeDiagnostic {
+				t.Fatalf("stop=%+v summary evidence=%v answer=%q err=%v", out.Stop, c.summaryHadEvidence, out.Reply, err)
 			}
 			if effects != 1 || c.summaries != 1 || len(c.sent) != 3 || len(out.ContextCompactions) != 1 || out.ModelAttempts != 3 || len(transport.requests(t)) != 1 {
 				t.Fatalf("effects=%d summaries=%d sends=%d applications=%d attempts=%d", effects, c.summaries, len(c.sent), len(out.ContextCompactions), out.ModelAttempts)
@@ -277,7 +277,7 @@ func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 				first, err := (dashi.Runner{Client: client, Tools: tool.List{read}, Recorder: fault}).Run(ctx, dashi.Turn{ID: "application-recovery"}, dashi.Start{
 					Agent: dashi.Agent{
 						Model: dashitest.Model, Settings: llm.Settings{MaxTokens: 256},
-						Limits: dashi.Limits{ModelAttempts: attempts, NoReservedFinalAnswer: true},
+						Limits: dashi.Limits{ModelAttempts: attempts, NoReservedFinalReply: true},
 						// The applied replacement remains above this soft threshold.
 						ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, Fraction: .3, MaxTokens: 256},
 					},
@@ -324,8 +324,8 @@ func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 					t.Fatalf("replacement must exceed soft threshold and fit hard limit: estimate=%d allowance=%d", estimate, allowance)
 				}
 				out, err := (dashi.Runner{Client: client, Tools: tool.List{read}, Recorder: recorder}).Run(t.Context(), restored, dashi.Continue{CommandID: "resume"})
-				if err != nil || out.Stop.Kind != dashi.StopCompleted || out.Answer != "Fixed and verified." {
-					t.Fatalf("resume: stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+				if err != nil || out.Stop.Kind != dashi.StopCompleted || out.Reply != "Fixed and verified." {
+					t.Fatalf("resume: stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
 				}
 				if effects != 1 || len(client.Inputs()) != 3 || len(out.ContextCompactions) != 1 || out.ModelAttempts != 3 {
 					t.Fatalf("resume repeated work: effects=%d sends=%d summaries=%d attempts=%d", effects, len(client.Inputs()), len(out.ContextCompactions), out.ModelAttempts)
@@ -335,7 +335,7 @@ func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 				}
 				summaryIntents := 0
 				for _, step := range out.Turn.Steps {
-					if step.Kind == dashi.StepModelIntent && step.Model.Purpose == dashi.ModelPurposeCompaction {
+					if step.Kind == dashi.StepModelCallStarted && step.Model.Purpose == dashi.ModelPurposeCompaction {
 						summaryIntents++
 					}
 				}
@@ -404,7 +404,7 @@ type activeDiagnosticResolver struct {
 	calls int
 }
 
-func (r *activeDiagnosticResolver) Resolve(_ context.Context, _ string, ref content.Ref) ([]byte, error) {
+func (r *activeDiagnosticResolver) Load(_ context.Context, _ string, ref content.Ref) ([]byte, error) {
 	r.calls++
 	if ref != r.ref {
 		return nil, fmt.Errorf("unexpected reference: %+v", ref)
@@ -440,12 +440,12 @@ func TestActiveCompactionTextDocumentDiagnostic(t *testing.T) {
 				}
 				return tool.Outcome{State: tool.StateSucceeded, Output: &tool.Output{Content: blocks}}, nil
 			})
-			out, err := (dashi.Runner{Client: c, Tools: tool.List{read}, ContentResolver: resolver}).Run(t.Context(), dashi.Turn{}, dashi.Start{
+			out, err := (dashi.Runner{Client: c, Tools: tool.List{read}, ContentLoader: resolver}).Run(t.Context(), dashi.Turn{}, dashi.Start{
 				Agent: dashi.Agent{Model: dashitest.Model, Settings: llm.Settings{MaxTokens: 256}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}},
 				Input: []llm.Message{llm.UserMessage(llm.Text("Read the diagnostic and fix the failure."))},
 			})
-			if err != nil || out.Stop.Kind != dashi.StopCompleted || effects != 1 || len(out.ContextCompactions) != 1 || c.summaries != 1 || !c.summaryHadDiagnostic || out.Answer != "Fixed and verified. "+activeDiagnostic {
-				t.Fatalf("stop=%+v effects=%d compactions=%d summaries=%d summary diagnostic=%v answer=%q err=%v", out.Stop, effects, len(out.ContextCompactions), c.summaries, c.summaryHadDiagnostic, out.Answer, err)
+			if err != nil || out.Stop.Kind != dashi.StopCompleted || effects != 1 || len(out.ContextCompactions) != 1 || c.summaries != 1 || !c.summaryHadDiagnostic || out.Reply != "Fixed and verified. "+activeDiagnostic {
+				t.Fatalf("stop=%+v effects=%d compactions=%d summaries=%d summary diagnostic=%v answer=%q err=%v", out.Stop, effects, len(out.ContextCompactions), c.summaries, c.summaryHadDiagnostic, out.Reply, err)
 			}
 			activeDocumentWarnings(t, out, 0)
 			wantReads := 0
@@ -558,8 +558,8 @@ func TestActiveCompactionNativeTextDocumentLongRequest(t *testing.T) {
 				Agent: dashi.Agent{Model: provider.model, Limits: dashi.Limits{ModelAttempts: 12}, Settings: llm.Settings{MaxTokens: 256}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}},
 				Input: input,
 			})
-			if err != nil || out.Stop.Kind != dashi.StopCompleted || effects != 4 || len(out.ContextCompactions) != 2 || len(c.sent) != 7 || out.Answer != "Fixed and verified." {
-				t.Fatalf("stop=%+v effects=%d compactions=%d sends=%d answer=%q err=%v", out.Stop, effects, len(out.ContextCompactions), len(c.sent), out.Answer, err)
+			if err != nil || out.Stop.Kind != dashi.StopCompleted || effects != 4 || len(out.ContextCompactions) != 2 || len(c.sent) != 7 || out.Reply != "Fixed and verified." {
+				t.Fatalf("stop=%+v effects=%d compactions=%d sends=%d answer=%q err=%v", out.Stop, effects, len(out.ContextCompactions), len(c.sent), out.Reply, err)
 			}
 			activeDocumentWarnings(t, out, 0)
 			for i, req := range c.sent {

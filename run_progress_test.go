@@ -98,7 +98,7 @@ func (o *progressOrder) add(event Event) {
 		switch event.Step.Kind {
 		case StepToolStarted:
 			o.started[id] = true
-		case StepToolSettled, StepToolWaiting:
+		case StepToolFinished, StepToolWaiting:
 			o.settled[id] = true
 		}
 	case event.Progress != nil:
@@ -286,7 +286,7 @@ func TestProgressBeforePanicIsDelivered(t *testing.T) {
 	if len(order.progress) != 1 || order.progress[0].Message != "about to fail" {
 		t.Fatalf("progress=%+v", order.progress)
 	}
-	if order.outcome == nil || order.outcome.Stop.Kind != StopUncertain {
+	if order.outcome == nil || order.outcome.Stop.Kind != StopResultUnknown {
 		t.Fatalf("outcome=%+v", order.outcome)
 	}
 }
@@ -490,7 +490,7 @@ func TestObserverAndStreamGetSeparateProgressCopies(t *testing.T) {
 		if event.Progress != nil {
 			observed = append(observed, *event.Progress)
 		}
-		if event.Step != nil && event.Step.Kind == StepStopped {
+		if event.Step != nil && event.Step.Kind == StepTurnStopped {
 			close(stopped)
 		}
 	}
@@ -613,7 +613,7 @@ func TestStreamBreakStopsObserverProgress(t *testing.T) {
 		if event.Progress != nil {
 			observed++
 		}
-		if event.Step != nil && event.Step.Kind == StepStopped {
+		if event.Step != nil && event.Step.Kind == StepTurnStopped {
 			close(stopped)
 		}
 	}
@@ -662,7 +662,7 @@ func TestProgressFloodKeepsObserverSteps(t *testing.T) {
 	runner := progressRunner(oneCall("work"), work)
 	runner.Observer = func(event Event) {
 		<-release
-		if event.Step != nil && event.Step.Kind == StepStopped {
+		if event.Step != nil && event.Step.Kind == StepTurnStopped {
 			close(stopped)
 		}
 	}

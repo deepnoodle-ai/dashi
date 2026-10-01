@@ -6,7 +6,7 @@ model attempt.
 
 An `Agent` pins reusable behavior and limits as plain JSON data. Values the
 turn records travel on the command: `Start.Agent` carries the agent, and the
-turn records it resolved, so `Continue`, `Settle`, and `Cancel` take none and
+turn records it resolved, so `Continue`, `Resolve`, and `Cancel` take none and
 always run with the recorded one. A `Runner` holds only long-lived services:
 the model client, tool source, hooks, and optional recorder and observer.
 Process wiring for one call, such as steering, goes in run options. An empty
@@ -50,22 +50,22 @@ turn.
 | any other error                               | The command was rejected and nothing was recorded. The outcome is the caller's turn.          |
 
 Check the conflicts with `errors.Is` first; they may arrive inside a
-`*CommitError`. A failed `model_settled` write leaves that call's usage out of
+`*CommitError`. A failed `model_call_finished` write leaves that call's usage out of
 `Outcome.Spend`; it is on `CommitError.Step`.
 
 | Stop              | Caller action                                                                           |
 | ----------------- | --------------------------------------------------------------------------------------- |
 | `StopWaiting`     | Answer each `Pending` item with `Approve`, `Deny`, or `Result`, then `Continue`.         |
 | `StopInterrupted` | Call `Continue` with the saved record and earlier history, on any worker.               |
-| `StopUncertain`   | Reconcile the identified model or tool effect with `Settle`, then `Continue`.            |
+| `StopResultUnknown`   | Reconcile the identified model or tool effect with `Resolve`, then `Continue`.            |
 | `StopCompleted`   | No further execution is allowed.                                                        |
-| any, `Terminal`   | The turn has ended. Record late results of started work with `Settle`; nothing else.    |
+| any, `Terminal`   | The turn has ended. Record late results of started work with `Resolve`; nothing else.    |
 
 `StopFailed`, `StopRefused`, and `StopLimited` keep their reason and record.
-`Settle` records a result, approval, or reconciliation; it never runs the turn.
+`Resolve` records a result, approval, or reconciliation; it never runs the turn.
 `Continue` resumes a stopped turn and returns `ErrNotReady`, naming what the
 turn waits on, when it cannot. `Outcome.ReadyToContinue`, and the same flag on
-a replayed turn, tells a host's sweeper when to schedule `Continue`. `Deliver`
+a replayed turn, tells a host's sweeper when to schedule `Continue`. `AddMessages`
 records context without running. `Cancel` ends a started turn. Only `Start`
 and `Continue` need `Runner.Client`. `Stop.Terminal`
 marks every stop that ends a turn: completed, canceled, a deadline or
@@ -83,8 +83,8 @@ as limited, and `Limits.Interruptions` bounds resumptions (default 10).
 
 By default the last allowed model attempt, after earlier ones, is reserved for
 a final answer: it omits tools and ends with `StopLimited` and reason
-`model_attempts`, with its text in `Outcome.Answer`. Set
-`Limits.NoReservedFinalAnswer` to turn this off.
+`model_attempts`, with its text in `Outcome.Reply`. Set
+`Limits.NoReservedFinalReply` to turn this off.
 
 ## Structured final results
 
@@ -100,7 +100,7 @@ Without a valid value the turn stops with `output_schema_unsatisfied`.
 and call IDs; `Answer` may be empty. `dashi.DecodeOutput[T](outcome)` decodes
 the value, or returns an error wrapping `ErrNoOutput` that names the stop when
 there is none. Once recorded the result is final: `Continue` can finish an
-unacknowledged stop, while `Deliver` and `Cancel` are rejected. This is a
+unacknowledged stop, while `AddMessages` and `Cancel` are rejected. This is a
 result contract; the provider may not constrain generation.
 
 ## Recorder contract
@@ -133,7 +133,7 @@ have had an effect. `ModelFact.Interrupted` records why a call was cut short
 at once). Interrupted calls do not use `ModelAttempts`. A started
 tool with no result is rerun only when declared `ReadOnly` or `Idempotent`;
 otherwise the effect is uncertain until the host reconciles it with
-`Settle{Outcome}` or `Settle{ModelResult}`. `Settle{ModelFailure}` requires
+`Resolve{Outcome}` or `Resolve{ModelResult}`. `Resolve{ModelFailure}` requires
 verified nonexecution evidence; never infer nonexecution from an unclassified
 transport error. `llm.Call.Attempt` carries the recorded attempt ID, sent at
 most once, so a client can key durable jobs by it.
@@ -144,7 +144,7 @@ Tools resolve before each model request, and the intent records their
 definitions. A local executor runs only after valid arguments and an allowed
 `BeforeTool` verdict; a hook's rewrite is checked against the schema and every
 hook is asked again about the new arguments. `tool.KindExternal` calls wait for
-the host's `Settle`. A deferred call needs an answer bound to its call ID and
+the host's `Resolve`. A deferred call needs an answer bound to its call ID and
 arguments: `Pending.Approve` and `Pending.Deny(reason)` build it, and
 `dashi.ArgsDigest` computes the digest from arguments shown earlier. The digest
 compares JSON meaning, so it survives a store that respells the arguments. A

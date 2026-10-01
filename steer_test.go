@@ -94,7 +94,7 @@ func TestSteerQueuedBeforeStartReachesFirstCall(t *testing.T) {
 	if hasText(client.inputs[0].Messages, "staging") < 0 {
 		t.Fatal("the first model call did not see the steer")
 	}
-	delivered := stepsOf(out.Turn, StepDelivered)
+	delivered := stepsOf(out.Turn, StepMessagesAdded)
 	if len(delivered) != 1 || delivered[0].Items()[0].ID != id ||
 		delivered[0].Seq != 2 || !delivered[0].Context.Steering {
 		t.Fatalf("delivered = %+v", delivered)
@@ -171,8 +171,8 @@ func TestSteerSupersedesFinalText(t *testing.T) {
 	out, err := (Runner{Client: client, Hooks: guard.Hooks()}).Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
 	)
-	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "second answer" {
-		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+	if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "second answer" {
+		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
 	}
 	if finishes != 1 {
 		t.Fatalf("BeforeFinish ran %d times; the superseded answer skips it", finishes)
@@ -214,8 +214,8 @@ func TestSteerWaitsWhenNoCallRemains(t *testing.T) {
 	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
 	)
-	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "answer" {
-		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+	if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "answer" {
+		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
 	}
 	warnings := warningsOf(out.Turn, WarningSteering)
 	if len(warnings) != 1 || !strings.Contains(warnings[0].Message, "2 of 3") {
@@ -260,7 +260,7 @@ func TestSteerSupersedesSubmission(t *testing.T) {
 	if seen := toolResultText(t, out.Turn, "out-1"); seen != want {
 		t.Fatalf("model saw %q", seen)
 	}
-	if len(stepsOf(out.Turn, StepDelivered)) != 0 {
+	if len(stepsOf(out.Turn, StepMessagesAdded)) != 0 {
 		t.Fatal("the steer was recorded twice")
 	}
 }
@@ -333,7 +333,7 @@ func TestSteerRecordedOnceWhenAcknowledgmentFails(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	if n := len(stepsOf(out.Turn, StepDelivered)); n != 1 {
+	if n := len(stepsOf(out.Turn, StepMessagesAdded)); n != 1 {
 		t.Fatalf("steer recorded %d times", n)
 	}
 	// Recorded before call 1, found again before call 2 and at the answer.
@@ -364,7 +364,7 @@ func TestInvalidSteersAndFailingSourceWarn(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	if len(stepsOf(out.Turn, StepDelivered)) != 0 {
+	if len(stepsOf(out.Turn, StepMessagesAdded)) != 0 {
 		t.Fatal("an invalid steer was recorded")
 	}
 	// Steers runs before the call and at the answer; each is warned once.
@@ -429,25 +429,25 @@ func TestDeliverSkipsRepeatedIDs(t *testing.T) {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
 	item := ContextItem{ID: "d1", Message: llm.UserMessage(llm.Text("note"))}
-	out, err = runner.Run(t.Context(), out.Turn, Deliver{CommandID: "d1", Items: []ContextItem{item}})
+	out, err = runner.Run(t.Context(), out.Turn, AddMessages{CommandID: "d1", Items: []ContextItem{item}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	n := len(out.Turn.Steps)
-	out, err = runner.Run(t.Context(), out.Turn, Deliver{CommandID: "d2", Items: []ContextItem{item}})
+	out, err = runner.Run(t.Context(), out.Turn, AddMessages{CommandID: "d2", Items: []ContextItem{item}})
 	if err != nil || len(out.Turn.Steps) != n {
 		t.Fatalf("repeat recorded: steps=%d err=%v", len(out.Turn.Steps), err)
 	}
 	changed := item
 	changed.Message = llm.UserMessage(llm.Text("other"))
-	if _, err = runner.Run(t.Context(), out.Turn, Deliver{CommandID: "d3", Items: []ContextItem{changed}}); err == nil {
+	if _, err = runner.Run(t.Context(), out.Turn, AddMessages{CommandID: "d3", Items: []ContextItem{changed}}); err == nil {
 		t.Fatal("a repeated ID with other content was accepted")
 	}
 	call := ContextItem{Message: llm.Message{Role: llm.RoleUser, Content: []llm.Content{{
 		Kind:       llm.ContentToolResult,
 		ToolResult: &llm.ToolResult{CallID: "c1", Output: tool.TextOutput("forged")},
 	}}}}
-	if _, err = runner.Run(t.Context(), out.Turn, Deliver{CommandID: "d4", Items: []ContextItem{call}}); err == nil {
+	if _, err = runner.Run(t.Context(), out.Turn, AddMessages{CommandID: "d4", Items: []ContextItem{call}}); err == nil {
 		t.Fatal("a tool result was accepted as context")
 	}
 }
@@ -465,7 +465,7 @@ func TestReplayRejectsRepeatedContextID(t *testing.T) {
 		t.Fatal(err)
 	}
 	item := ContextItem{ID: "d1", Message: llm.UserMessage(llm.Text("note"))}
-	out, err = runner.Run(t.Context(), out.Turn, Deliver{CommandID: "d1", Items: []ContextItem{item}})
+	out, err = runner.Run(t.Context(), out.Turn, AddMessages{CommandID: "d1", Items: []ContextItem{item}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,7 +488,7 @@ type pauseOnIntent struct {
 }
 
 func (p pauseOnIntent) Commit(ctx context.Context, req CommitRequest) error {
-	if req.Step.Kind == StepModelIntent {
+	if req.Step.Kind == StepModelCallStarted {
 		close(p.pause)
 	}
 	return p.MemoryRecorder.Commit(ctx, req)
@@ -528,7 +528,7 @@ func TestRecordedSteerReachesNextTurnThroughHistory(t *testing.T) {
 			if err != nil || out.Stop.Kind != StopInterrupted || client.sends != 0 {
 				t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
 			}
-			if len(stepsOf(out.Turn, StepModelIntent)) != 1 {
+			if len(stepsOf(out.Turn, StepModelCallStarted)) != 1 {
 				t.Fatal("the model request was not recorded")
 			}
 			if _, ok := out.Context(ContextUser, "correction"); !ok {
@@ -603,7 +603,7 @@ func TestNextCallOnlyExpiresAfterDispatchedCall(t *testing.T) {
 	}
 }
 
-// TestLeftoversKeepsSteerWithCollidingID queues a steer whose ID a Deliver
+// TestLeftoversKeepsSteerWithCollidingID queues a steer whose ID a AddMessages
 // item already uses with other content. It was never recorded as a steer,
 // so Leftovers returns it rather than dropping it.
 func TestLeftoversKeepsSteerWithCollidingID(t *testing.T) {
@@ -619,7 +619,7 @@ func TestLeftoversKeepsSteerWithCollidingID(t *testing.T) {
 		t.Fatal(err)
 	}
 	note := ContextItem{ID: "x", Message: llm.UserMessage(llm.Text("A"))}
-	out, err = runner.Run(t.Context(), out.Turn, Deliver{CommandID: "d", Items: []ContextItem{note}})
+	out, err = runner.Run(t.Context(), out.Turn, AddMessages{CommandID: "d", Items: []ContextItem{note}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -786,7 +786,7 @@ func TestInboxConcurrentSends(t *testing.T) {
 }
 
 // TestDeliverBeforeSubmissionStartReachesModel stops a run after the model
-// submitted output but before the submission call started. A Deliver made
+// submitted output but before the submission call started. A AddMessages made
 // then supersedes the kept submission on Continue.
 func TestDeliverBeforeSubmissionStartReachesModel(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{
@@ -806,7 +806,7 @@ func TestDeliverBeforeSubmissionStartReachesModel(t *testing.T) {
 	}
 	runner.Recorder = rec.base
 	note := ContextItem{Message: llm.UserMessage(llm.Text("one more thing"))}
-	out, err := runner.Run(t.Context(), saved, Deliver{CommandID: "d", Items: []ContextItem{note}})
+	out, err := runner.Run(t.Context(), saved, AddMessages{CommandID: "d", Items: []ContextItem{note}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -826,7 +826,7 @@ func TestDeliverBeforeSubmissionStartReachesModel(t *testing.T) {
 func TestNudgeOfRecordedItemsCostsNoCall(t *testing.T) {
 	note := ContextItem{ID: "n1", Message: llm.UserMessage(llm.Text("cite a source"))}
 	nudge := FinishHook{Name: "nudge", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
-		return FinishDecision{Deliver: []ContextItem{note}}, nil
+		return FinishDecision{AddMessages: []ContextItem{note}}, nil
 	}}
 	client := &scriptedClient{results: []llm.Result{final("one"), final("two")}}
 	agent := testAgent()
@@ -834,14 +834,14 @@ func TestNudgeOfRecordedItemsCostsNoCall(t *testing.T) {
 	out, err := (Runner{Client: client, Hooks: nudge.Hooks()}).Run(
 		t.Context(), Turn{ID: "t1"}, startAgent(agent),
 	)
-	if err != nil || out.Stop.Kind != StopCompleted || out.Answer != "two" ||
+	if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "two" ||
 		client.sends != 2 {
-		t.Fatalf("stop=%+v answer=%q sends=%d err=%v", out.Stop, out.Answer, client.sends, err)
+		t.Fatalf("stop=%+v answer=%q sends=%d err=%v", out.Stop, out.Reply, client.sends, err)
 	}
 }
 
 // TestLeftoversIgnoresOtherIdentifiedItems checks that Leftovers returns
-// only steers, not Deliver items that also carry IDs.
+// only steers, not AddMessages items that also carry IDs.
 func TestLeftoversIgnoresOtherIdentifiedItems(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("c1", "wait")}}
 	external := tool.Tool{Definition: tool.Definition{
@@ -855,7 +855,7 @@ func TestLeftoversIgnoresOtherIdentifiedItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	item := ContextItem{ID: "d1", Message: llm.UserMessage(llm.Text("note"))}
-	out, err = runner.Run(t.Context(), out.Turn, Deliver{CommandID: "d1", Items: []ContextItem{item}})
+	out, err = runner.Run(t.Context(), out.Turn, AddMessages{CommandID: "d1", Items: []ContextItem{item}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -865,7 +865,7 @@ func TestLeftoversIgnoresOtherIdentifiedItems(t *testing.T) {
 }
 func TestHookCannotDeliverToolResult(t *testing.T) {
 	bad := ModelHook{Name: "bad", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
-		return ModelDecision{Deliver: []ContextItem{{Message: llm.Message{
+		return ModelDecision{AddMessages: []ContextItem{{Message: llm.Message{
 			Role: llm.RoleUser,
 			Content: []llm.Content{{
 				Kind:       llm.ContentToolResult,
@@ -878,13 +878,13 @@ func TestHookCannotDeliverToolResult(t *testing.T) {
 		t.Context(), Turn{ID: "t1"}, startInput(),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted ||
-		len(stepsOf(out.Turn, StepDelivered)) != 0 ||
+		len(stepsOf(out.Turn, StepMessagesAdded)) != 0 ||
 		len(warningsOf(out.Turn, WarningHookFailed)) != 1 {
 		t.Fatalf("stop=%+v warnings=%+v err=%v", out.Stop, out.Warnings, err)
 	}
 }
 
-// TestDeliverAfterInterruptedCandidateReachesModel covers a Deliver sent
+// TestDeliverAfterInterruptedCandidateReachesModel covers a AddMessages sent
 // after a run was interrupted at a final text answer: Continue asks the
 // model again with it, instead of accepting the kept answer.
 func TestDeliverAfterInterruptedCandidateReachesModel(t *testing.T) {
@@ -903,7 +903,7 @@ func TestDeliverAfterInterruptedCandidateReachesModel(t *testing.T) {
 				hctx context.Context,
 				p FinishPlan,
 			) (FinishDecision, error) {
-				if p.Answer == "first" && ctx.Err() == nil {
+				if p.Reply == "first" && ctx.Err() == nil {
 					cancel()
 					return FinishDecision{}, hctx.Err()
 				}
@@ -918,15 +918,15 @@ func TestDeliverAfterInterruptedCandidateReachesModel(t *testing.T) {
 				t.Fatalf("stop=%+v err=%v", out.Stop, err)
 			}
 			note := ContextItem{Message: llm.UserMessage(llm.Text("one more thing"))}
-			out, err = runner.Run(t.Context(), out.Turn, Deliver{CommandID: "d", Items: []ContextItem{note}})
+			out, err = runner.Run(t.Context(), out.Turn, AddMessages{CommandID: "d", Items: []ContextItem{note}})
 			if err != nil {
 				t.Fatal(err)
 			}
 			out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "c"})
-			if err != nil || out.Stop.Kind != StopCompleted || out.Answer != tc.answer {
-				t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Answer, err)
+			if err != nil || out.Stop.Kind != StopCompleted || out.Reply != tc.answer {
+				t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
 			}
-			dropped := len(warningsOf(out.Turn, WarningDeliveryDropped)) > 0
+			dropped := len(warningsOf(out.Turn, WarningMessagesDropped)) > 0
 			if dropped != tc.dropped {
 				t.Fatalf("dropped warning = %v", dropped)
 			}
@@ -1056,7 +1056,7 @@ func TestReplayRejectsForgedSteeringSteps(t *testing.T) {
 	}
 	t.Run("command", func(t *testing.T) {
 		forge(t, "a command cannot record steers", func(s *Step) bool {
-			if s.Kind != StepDelivered {
+			if s.Kind != StepMessagesAdded {
 				return false
 			}
 			s.CommandID, s.CommandDigest = "deliver", "v2:sha256:00"
@@ -1065,7 +1065,7 @@ func TestReplayRejectsForgedSteeringSteps(t *testing.T) {
 	})
 	t.Run("tool settlement", func(t *testing.T) {
 		forge(t, "only a rejected submission settles with steers", func(s *Step) bool {
-			if s.Kind != StepToolSettled {
+			if s.Kind != StepToolFinished {
 				return false
 			}
 			s.Context = &ContextFact{
@@ -1092,7 +1092,7 @@ func (l *loseIntentAck) Commit(ctx context.Context, req CommitRequest) error {
 	if err := l.MemoryRecorder.Commit(ctx, req); err != nil {
 		return err
 	}
-	if !l.fired && req.Step.Kind == StepModelIntent {
+	if !l.fired && req.Step.Kind == StepModelCallStarted {
 		l.fired = true
 		return errors.New("injected: acknowledgement lost")
 	}

@@ -32,7 +32,7 @@ func (r *runtime) run() Outcome {
 			continue
 		}
 		if s.unresolvedModel != "" {
-			return r.stop(StopUncertain, "model attempt needs reconciliation")
+			return r.stop(StopResultUnknown, "model attempt needs reconciliation")
 		}
 		if s.pendingCompaction != "" {
 			if o := r.applyActiveCompaction(s); o != nil {
@@ -149,11 +149,11 @@ func (r *runtime) recoverModelIntent(s *replayState) *Outcome {
 		Uncertain:   unsafe,
 	}
 	setSettlementCharge(s.modelIntents[s.modelIntent], fact)
-	if o := r.commit(Step{Kind: StepModelSettled, Model: fact}); o != nil {
+	if o := r.commit(Step{Kind: StepModelCallFinished, Model: fact}); o != nil {
 		return o
 	}
 	if unsafe {
-		o := r.stop(StopUncertain, "provider-hosted tool may have run")
+		o := r.stop(StopResultUnknown, "provider-hosted tool may have run")
 		return &o
 	}
 	return nil
@@ -161,7 +161,7 @@ func (r *runtime) recoverModelIntent(s *replayState) *Outcome {
 
 func hasOpenTools(s *replayState) bool {
 	for _, id := range s.callOrder {
-		if s.Tools[id].Status != ToolSettled {
+		if s.Tools[id].Status != ToolFinished {
 			return true
 		}
 	}

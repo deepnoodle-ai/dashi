@@ -83,17 +83,17 @@ runner.Hooks = ask.Hooks()
   `FinishPlan{Turn, AttemptID, Answer, Output, OutputErr}`, where on a
   structured turn `Output` is the parsed value or `OutputErr` says why parsing
   failed.
-- `ModelDecision{Settings, Deliver, Stop}`;
+- `ModelDecision{Settings, AddMessages, Stop}`;
   `SendDecision{Deny, Reason, Limit, Admission}` (a `Limit` implies `Deny`);
   `ToolDecision{Kind, Reason, Revision, Rewrite}`;
-  `FinishDecision{Deliver, AcceptEmpty, Reason}`.
+  `FinishDecision{AddMessages, AcceptEmpty, Reason}`.
 - `ToolVerdict{Kind, Reason, Hook, Revision}` is the combined result for a
   call, recorded as `ToolFact.Verdict` and shown as `ToolView.Verdict`. An
   allow takes the name and reason of the first hook that returned `Allow`;
   with none, `Hook` is empty and the reason is `no hook opinion`.
 
 Removed: `Runner.Policy`, `Policy`, `AllowLocalPolicy`, `ModelAuthorization`,
-`StopDecision`, `ApprovalFact.PolicyRevision`.
+`StopDecision`, `ApprovalDecision.PolicyRevision`.
 
 ## Hook points
 
@@ -104,10 +104,10 @@ nothing is recorded for that hook.
 
 | Point | Combining rule | Hook error or invalid result |
 |---|---|---|
-| `BeforeModel` | Each hook sees settings as changed by earlier ones; non-nil `Settings` replaces them; `Deliver` appends; the first `Stop` ends the chain and no deliveries commit. A `Stop` may be `refused`, `failed`, or `limited` with a host, cost or token `Limit` | Fails open: `WarningHookFailed`; that answer is dropped |
+| `BeforeModel` | Each hook sees settings as changed by earlier ones; non-nil `Settings` replaces them; `AddMessages` appends; the first `Stop` ends the chain and no deliveries commit. A `Stop` may be `refused`, `failed`, or `limited` with a host, cost or token `Limit` | Fails open: `WarningHookFailed`; that answer is dropped |
 | `BeforeSend` | The first `Deny` stops: `StopRefused`, or `StopLimited` with `Limit`. `Admission` is kept per hook name, 16 KiB in total | `StopFailed`, reason `hook_failed` |
 | `BeforeTool` | The first deny ends the chain; otherwise defer beats allow. A `Rewrite` is schema-checked and restarts the chain | The call is denied ("Denied: check `<name>` failed."); `WarningHookFailed` |
-| `BeforeFinish` | `Deliver` items append; `AcceptEmpty` if any hook says so; the first `Reason` is kept | `StopFailed`, reason `hook_failed` |
+| `BeforeFinish` | `AddMessages` items append; `AcceptEmpty` if any hook says so; the first `Reason` is kept | `StopFailed`, reason `hook_failed` |
 
 - **`hook_failed`** sits beside `tool_fatal`: fix the cause, then `Continue`.
   It does not count toward `Interruptions`, so auto-resuming hosts do not loop.
@@ -123,7 +123,7 @@ nothing is recorded for that hook.
   and `dashi_submit_output` calls skip hooks. An `OnTool` decode failure is a
   hook error.
 - **Approvals.** The call ID and argument digest bind an approval; hooks do not
-  re-run at `Settle`.
+  re-run at `Resolve`.
 - **Validation.** `Run` rejects an empty or duplicate name within a point and a
   nil `Func`, before recording. Reusable packages prefix their names. The host
   supplies the same `Runner.Hooks` on every command. Hook
@@ -135,7 +135,7 @@ A *candidate* is a model answer that would end the turn: final text, or a
 schema-valid `dashi_submit_output` call. One function handles both, in order:
 steering's check, the output parse, `BeforeFinish`, then the empty-answer and
 schema checks, unless a hook rejected the answer. A `Reason` is a *veto*
-(the answer is unacceptable); `Deliver` alone is a *nudge*. The model sees
+(the answer is unacceptable); `AddMessages` alone is a *nudge*. The model sees
 "Not accepted: <reason>" on either path.
 
 - **Text path.** The reason and the items are recorded in a
@@ -147,7 +147,7 @@ schema checks, unless a hook rejected the answer. A `Reason` is a *veto*
   `ToolFact.Reason` naming the source, and the items in the same step's
   `Context`, so a crash cannot separate them.
 - **No further call.** A nudge never spends the reserved call: without a
-  normal call it is dropped with `WarningDeliveryDropped` and the answer
+  normal call it is dropped with `WarningMessagesDropped` and the answer
   stands. A veto may use the reserved call; when no call fits at all, or the
   reserved answer is vetoed, it is still recorded and the turn stops
   `StopFailed` with `output_rejected` and no output. A vetoed answer never

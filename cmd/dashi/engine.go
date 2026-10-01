@@ -161,18 +161,18 @@ func (e *Engine) openOwned(s *sessionstore.Session, ownedUnlock func()) error {
 	chat := &session.Session{
 		ID: s.ID,
 		Runner: dashi.Runner{
-			Client:          e.cfg.Client,
-			Tools:           e.cfg.Wiring.Tools,
-			Hooks:           e.cfg.Wiring.Hooks,
-			Recorder:        recorder,
-			ContentResolver: resolver,
+			Client:        e.cfg.Client,
+			Tools:         e.cfg.Wiring.Tools,
+			Hooks:         e.cfg.Wiring.Hooks,
+			Recorder:      recorder,
+			ContentLoader: resolver,
 		},
 		Steering:  inbox,
 		Exclusive: true,
 	}
 	if stopped := e.cfg.ParentStopped; stopped != nil {
 		chat.Runner.Observer = func(ev dashi.Event) {
-			if ev.Step != nil && ev.Step.Kind == dashi.StepStopped && strings.HasPrefix(ev.TurnID, s.ID+"-") {
+			if ev.Step != nil && ev.Step.Kind == dashi.StepTurnStopped && strings.HasPrefix(ev.TurnID, s.ID+"-") {
 				// Child IDs are hashes. Only exact numbered parent identities qualify.
 				n := turnNumber(ev.TurnID)
 				if n > 0 && ev.TurnID == session.TurnID(s.ID, n) {
@@ -281,7 +281,7 @@ func (l *LastTurn) Retryable() bool {
 // request from a rate limit or an overload; a person at the terminal can,
 // so Enter retries. A refusal is not a failure, so it is never retried.
 func retryable(v dashi.TurnView) bool {
-	return v.Next() == dashi.NextResolve && v.ReadyToContinue &&
+	return v.Next() == dashi.NextFix && v.ReadyToContinue &&
 		v.Stop.Kind == dashi.StopFailed
 }
 
@@ -318,7 +318,7 @@ func (l *LastTurn) OpenCall() (id, name string) {
 		}
 		a := p.Tool.Definition.Annotations
 		safe := a.ReadOnly != nil && *a.ReadOnly || a.Idempotent != nil && *a.Idempotent
-		if p.Tool.Status == dashi.ToolUncertain ||
+		if p.Tool.Status == dashi.ToolResultUnknown ||
 			p.Tool.Status == dashi.ToolStarted && !safe {
 			return p.ID, p.Tool.Call.Name
 		}
@@ -489,7 +489,7 @@ func (e *Engine) MarkDone(ctx context.Context) (Result, error) {
 	}
 	done := tool.Succeeded("The user checked this command after dashi stopped " +
 		"and marked it done. Its output was not captured.")
-	return e.run(ctx, dashi.Settle{CallID: id, Outcome: &done})
+	return e.run(ctx, dashi.Resolve{CallID: id, Outcome: &done})
 }
 
 // Discard cancels the last turn, accepting that a command it started may
@@ -638,7 +638,7 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 			if loader, ok := e.handle().Runner.Recorder.(dashi.Loader); ok {
 				if turn, err := loader.Load(ctx, id); err == nil {
 					if view, err := dashi.Replay(turn); err == nil {
-						r.Origin, r.summary = view.Origin, view.Answer
+						r.Origin, r.summary = view.Origin, view.Reply
 						r.showReasoning = view.Agent.Settings.ReasoningSummary != nil && *view.Agent.Settings.ReasoningSummary
 					}
 				}
@@ -696,7 +696,7 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 			continue
 		}
 		r := renderer(ev.TurnID)
-		if ev.Step != nil && ev.Step.Kind == dashi.StepStarted {
+		if ev.Step != nil && ev.Step.Kind == dashi.StepTurnStarted {
 			if p := e.cfg.Preferences; p != nil {
 				if err := p.bind(ctx, ev.Step.Started.Agent); err != nil {
 					runErr = err
@@ -723,7 +723,7 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 				e.cfg.Emit(b)
 			}
 		}
-		if ev.Step != nil && ev.Step.Kind == dashi.StepToolSettled &&
+		if ev.Step != nil && ev.Step.Kind == dashi.StepToolFinished &&
 			r.CallName(ev.Step.Tool.Call.ID) == "bash" {
 			if b, ok := gitDiffBlock(ctx, e.cfg.Dir, ev.Step.Seq); ok {
 				b.ID = diffID(ev.TurnID, ev.Step.Seq)

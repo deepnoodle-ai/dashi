@@ -28,7 +28,7 @@ const activeSummaryFrame = "Summary of earlier settled work in this request (con
 
 func modelPurpose(t Turn, attempt string) ModelPurpose {
 	for _, step := range t.Steps {
-		if step.Kind == StepModelIntent && step.Model.AttemptID == attempt {
+		if step.Kind == StepModelCallStarted && step.Model.AttemptID == attempt {
 			return step.Model.Purpose
 		}
 	}
@@ -36,7 +36,7 @@ func modelPurpose(t Turn, attempt string) ModelPurpose {
 }
 func compactionPlan(t Turn, attempt string) *ContextCompactionPlan {
 	for _, step := range t.Steps {
-		if step.Kind == StepModelIntent && step.Model.AttemptID == attempt {
+		if step.Kind == StepModelCallStarted && step.Model.AttemptID == attempt {
 			return step.Model.Compaction
 		}
 	}
@@ -79,7 +79,7 @@ func contextGroups(t Turn, messages []contextMessage) []contextGroup {
 		case StepContextCompacted:
 			groupSeq[step.Seq] = step.Seq
 			eligible[step.Seq] = true
-		case StepModelSettled, StepModelReconciled:
+		case StepModelCallFinished, StepModelCallFinishedByHost:
 			f := step.Model
 			if modelPurpose(t, f.AttemptID) == ModelPurposeCompaction || f.Result == nil || f.Error != "" || f.Interrupted != "" {
 				continue
@@ -205,7 +205,7 @@ func (s *replayState) validateCompactionIntent(step Step) error {
 		}
 		return nil
 	}
-	if f.Purpose != ModelPurposeCompaction || f.Compaction == nil || f.Compaction.Through >= step.Seq || f.Compaction.Window != s.ActiveCompactionWindow || s.Agent.ActiveCompaction == nil || s.Agent.ActiveCompaction.Disabled || s.Origin == StartCompaction || len(f.Tools) > 0 || f.FinalAnswerOnly || s.attemptCap-s.ModelAttempts < 2 || s.pendingCompaction != "" {
+	if f.Purpose != ModelPurposeCompaction || f.Compaction == nil || f.Compaction.Through >= step.Seq || f.Compaction.Window != s.ActiveCompactionWindow || s.Agent.ActiveCompaction == nil || s.Agent.ActiveCompaction.Disabled || s.Origin == StartCompaction || len(f.Tools) > 0 || f.FinalReplyOnly || s.attemptCap-s.ModelAttempts < 2 || s.pendingCompaction != "" {
 		return errors.New("invalid summary intent")
 	}
 	_, err := coveredMessagesCached(s.source, f.Compaction, s.contextCache)
@@ -279,7 +279,7 @@ func (s *replayState) applyContextCompaction(step Step) error {
 func lastModelPurpose(t Turn) ModelPurpose {
 	for i := len(t.Steps) - 1; i >= 0; i-- {
 		step := t.Steps[i]
-		if step.Kind == StepModelIntent {
+		if step.Kind == StepModelCallStarted {
 			return step.Model.Purpose
 		}
 	}

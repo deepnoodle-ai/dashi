@@ -189,7 +189,7 @@ func (r *runtime) activeEstimateAfter(plan *ContextCompactionPlan, result *llm.R
 	// its result against the already-settled prefix without projecting an intent.
 	for i := len(projectionTurn.Steps) - 1; i >= 0; i-- {
 		step := projectionTurn.Steps[i]
-		if step.Kind == StepModelIntent && step.Model.Purpose == ModelPurposeCompaction {
+		if step.Kind == StepModelCallStarted && step.Model.Purpose == ModelPurposeCompaction {
 			if i == len(projectionTurn.Steps)-1 {
 				projectionTurn.Steps = projectionTurn.Steps[:i]
 			}

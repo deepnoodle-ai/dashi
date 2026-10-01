@@ -99,7 +99,7 @@ func nextRows() []nextRow {
 				Limit:  &LimitDetail{Kind: LimitCost, UnpricedModel: "m"},
 			},
 			setup: func(s *replayState) { s.Budget = &Budget{MaxCost: usd(100)} },
-			want:  NextResolve,
+			want:  NextFix,
 		},
 		{
 			name:   "output tokens",
@@ -132,15 +132,15 @@ func nextRows() []nextRow {
 			name:   "host",
 			covers: []string{"limited/host", "limited/*"},
 			stop:   limited(LimitHost),
-			want:   NextResolve,
+			want:   NextFix,
 		},
-		{name: "active context window", covers: []string{"limited/context_window"}, stop: limited(LimitContextWindow), want: NextResolve},
-		{name: "compaction failed", covers: []string{"failed/compaction_failed"}, stop: &Stop{Kind: StopFailed, Reason: StopReasonCompactionFailed}, want: NextResolve},
+		{name: "active context window", covers: []string{"limited/context_window"}, stop: limited(LimitContextWindow), want: NextFix},
+		{name: "compaction failed", covers: []string{"failed/compaction_failed"}, stop: &Stop{Kind: StopFailed, Reason: StopReasonCompactionFailed}, want: NextFix},
 		{
 			name:   "one call hit its output or context window",
 			covers: []string{"limited/output", "limited/context"},
 			stop:   &Stop{Kind: StopLimited, Reason: "output"},
-			want:   NextResolve,
+			want:   NextFix,
 		},
 		{
 			name:   "waiting, every answer recorded",
@@ -153,13 +153,13 @@ func nextRows() []nextRow {
 			covers: []string{"waiting/tool result or approval pending"},
 			stop:   &Stop{Kind: StopWaiting, Reason: "tool result or approval pending"},
 			setup:  pendingCall(ToolApprovalPending),
-			want:   NextAnswer,
+			want:   NextResolvePending,
 		},
 		{
 			name:  "waiting on an external result",
 			stop:  &Stop{Kind: StopWaiting, Reason: "tool result or approval pending"},
 			setup: pendingCall(ToolWaiting),
-			want:  NextAnswer,
+			want:  NextResolvePending,
 		},
 		{
 			name:   "waiting on a provider approval",
@@ -168,7 +168,7 @@ func nextRows() []nextRow {
 			setup: func(s *replayState) {
 				s.hosted["h1"] = llm.HostedApprovalRequest{ID: "h1"}
 			},
-			want: NextAnswer,
+			want: NextResolvePending,
 		},
 		{
 			name: "interrupted",
@@ -187,19 +187,19 @@ func nextRows() []nextRow {
 				s.modelCalls = 1
 				s.Interruptions = s.Agent.Limits.Interruptions
 			},
-			want: NextResolve,
+			want: NextFix,
 		},
 		{
 			name:  "interrupted, hosted approval pending",
 			stop:  &Stop{Kind: StopInterrupted, Reason: "context canceled"},
 			setup: func(s *replayState) { s.hosted["h1"] = llm.HostedApprovalRequest{ID: "h1"} },
-			want:  NextResolve,
+			want:  NextFix,
 		},
 		{
 			name:   "refused",
 			covers: []string{"refused/*"},
 			stop:   &Stop{Kind: StopRefused, Reason: "refusal"},
-			want:   NextResolve,
+			want:   NextFix,
 		},
 		{
 			name: "failed by a tool or a hook",
@@ -210,19 +210,19 @@ func nextRows() []nextRow {
 				"failed/" + StopReasonOutputRejected,
 			},
 			stop: failed(StopReasonToolFatal),
-			want: NextResolve,
+			want: NextFix,
 		},
 		{
 			name: "failed on a content reference",
 			covers: []string{
-				"failed/" + StopReasonContentNoResolver,
+				"failed/" + StopReasonContentNoLoader,
 				"failed/" + StopReasonContentUnavailable,
 				"failed/" + StopReasonContentTooLarge,
 				"failed/" + StopReasonContentSizeMismatch,
 				"failed/" + StopReasonContentDigestMismatch,
 			},
 			stop: failed(StopReasonContentUnavailable),
-			want: NextResolve,
+			want: NextFix,
 		},
 		{
 			name: "failed, free text",
@@ -241,30 +241,30 @@ func nextRows() []nextRow {
 				"failed/tool name is reserved for structured output",
 			},
 			stop: failed("provider rejected the request"),
-			want: NextResolve,
+			want: NextFix,
 		},
 		{
 			name:   "uncertain, settled by the host",
-			covers: []string{"uncertain/*"},
-			stop:   &Stop{Kind: StopUncertain, Reason: "tool outcome needs reconciliation"},
+			covers: []string{"result_unknown/*"},
+			stop:   &Stop{Kind: StopResultUnknown, Reason: "tool outcome needs reconciliation"},
 			want:   NextContinue,
 		},
 		{
 			name:   "uncertain tool call",
-			covers: []string{"uncertain/tool outcome needs reconciliation"},
-			stop:   &Stop{Kind: StopUncertain, Reason: "tool outcome needs reconciliation"},
-			setup:  pendingCall(ToolUncertain),
-			want:   NextResolve,
+			covers: []string{"result_unknown/tool outcome needs reconciliation"},
+			stop:   &Stop{Kind: StopResultUnknown, Reason: "tool outcome needs reconciliation"},
+			setup:  pendingCall(ToolResultUnknown),
+			want:   NextFix,
 		},
 		{
 			name: "uncertain model attempt",
 			covers: []string{
-				"uncertain/model attempt needs reconciliation",
-				"uncertain/provider-hosted tool may have run",
+				"result_unknown/model attempt needs reconciliation",
+				"result_unknown/provider-hosted tool may have run",
 			},
-			stop:  &Stop{Kind: StopUncertain, Reason: "model attempt needs reconciliation"},
+			stop:  &Stop{Kind: StopResultUnknown, Reason: "model attempt needs reconciliation"},
 			setup: func(s *replayState) { s.unresolvedModel = "m1" },
-			want:  NextResolve,
+			want:  NextFix,
 		},
 		{
 			name:  "output recorded, interrupted",
@@ -507,7 +507,7 @@ func TestNextReadsRecordedStop(t *testing.T) {
 	}
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
 	out, err := start(t, client, writeTool(), NewMemoryRecorder(), deferredHooks())
-	if err != nil || out.Next() != NextAnswer {
+	if err != nil || out.Next() != NextResolvePending {
 		t.Fatalf("waiting: stop=%+v next=%s err=%v", out.Stop, out.Next(), err)
 	}
 	canceled, err := (Runner{Client: client}).Run(

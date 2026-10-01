@@ -51,7 +51,7 @@ type Session struct {
 func (s *Session) Run(ctx context.Context, c Command, opts ...RunOption) (Outcome, error)
 func (s *Session) Stream(ctx context.Context, c Command, opts ...RunOption) iter.Seq2[Event, error]
 func (s *Session) Send(ctx context.Context, text string, opts ...RunOption) (Outcome, error)
-func (s *Session) Answer(ctx context.Context, answers []Settle, opts ...RunOption) (Outcome, error)
+func (s *Session) Answer(ctx context.Context, answers []Resolve, opts ...RunOption) (Outcome, error)
 func (s *Session) Steer(ctx context.Context, text string) (Queued, error)
 func (s *Session) SteerItem(ctx context.Context, steer Steer) (Queued, error)
 func (s *Session) Enqueue(ctx context.Context, text string) (Queued, error)
@@ -68,7 +68,7 @@ func Say(text string) Start
 
 **Routing.** `Run` mirrors the engine without the turn argument. A `Start` opens
 the next turn after the idempotency check and the last-turn rules below. Any
-other command (`Continue`, `Settle`, `Deliver`, `Cancel`) goes to the last turn.
+other command (`Continue`, `Resolve`, `AddMessages`, `Cancel`) goes to the last turn.
 The session fills `Start.History` and `Continue.History` with the projected
 history of the turns before the target turn, the turn ID, and, on a `Start`, the
 merged agent ([session-engine.md](session-engine.md#carry-forward)). A command
@@ -78,9 +78,9 @@ on a session with no turns returns `session.ErrNotFound`.
 wrapper; drifting entry points made one peer's streaming path ignore its session
 (maf#3848).
 
-**`Answer`** runs `Settle` for each answer, then one `Continue`. The user makes
+**`Answer`** runs `Resolve` for each answer, then one `Continue`. The user makes
 one call; the record has separate steps, so decision 18 holds. It stops at the
-first `Settle` error. A `Settle` without a command ID gets `settle:` and its
+first `Resolve` error. A `Resolve` without a command ID gets `settle:` and its
 `CallID`, as `Pending`'s builders derive theirs from the call, and the
 `Continue`'s command ID is `answer:` and the settles' IDs, so a retried `Answer`
 is recognized. It takes `RunOption`s, as `Run` does,
@@ -199,7 +199,7 @@ whether a worker drives the turn; a tool's child process or a remote operation
 can outlive its caller. So a last turn holding an **unsettled uncertain call**
 (a started call, neither `ReadOnly` nor `Idempotent`, with no result, or a model
 call that offered a hosted tool unsafe to repeat) is busy for a new message
-whatever its liveness, even under `Exclusive`. The host releases it: `Settle`
+whatever its liveness, even under `Exclusive`. The host releases it: `Resolve`
 the call with the real result after checking the effect, or `Cancel{}` the turn.
 A cancel records the host's acceptance of the risk, not a guarantee: the call
 stays unsettled beside a `StopCanceled` step with the host's reason, projects as
@@ -227,10 +227,10 @@ The first matching row applies:
 | Holds an unsettled uncertain call, and no worker is known to run it (stopped or `Exclusive` included) | any other | Refuses, with `CallID` |
 | No stop recorded; stopped, or `Exclusive` | `NextResume` | Closes, starts |
 | No stop recorded; liveness unknown (an expired lease included) | `NextResume` | Refuses |
-| Waiting on approvals or results | `NextAnswer` | Refuses |
+| Waiting on approvals or results | `NextResolvePending` | Refuses |
 | Interrupted, provider-pause limit, or answered and ready | `NextContinue` | Closes, starts |
 | At a budget or model-call limit | `NextRaiseBudget`, `NextRaiseAttempts` | Closes, starts |
-| Refused, failed, or other limits | `NextResolve` | Closes, starts |
+| Refused, failed, or other limits | `NextFix` | Closes, starts |
 
 A turn is **busy** when a `Start` refuses on it: live, possibly live, waiting on
 the host, or holding an unsettled uncertain call. To add input to a running
@@ -253,8 +253,8 @@ func (e *TurnBusyError) Unwrap() error { return ErrTurnBusy }
 
 The message names the way out. For `NextResume`: "dashi: turn S-7 may still be
 running; if its worker is lost, take it over with Continue{} or discard it with
-Cancel{}". For `NextAnswer`: "answer its pending work or Cancel{} it". With
-`CallID`: "call c-3 in turn S-7 may still be running; Settle{} it after checking
+Cancel{}". For `NextResolvePending`: "answer its pending work or Cancel{} it". With
+`CallID`: "call c-3 in turn S-7 may still be running; Resolve{} it after checking
 its effect, or Cancel{} the turn to accept the risk". The CLI asks: "the last
 command may still be running: mark it done, or discard it?"
 

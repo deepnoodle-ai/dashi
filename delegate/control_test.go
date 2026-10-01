@@ -57,11 +57,11 @@ func TestTaskRunSettlesExactWaitingChildWithoutRepeatingEffect(t *testing.T) {
 	if h.ran.Load() != 1 {
 		t.Fatal("write was not started exactly once")
 	}
-	if out, err := h.tasks.Run(t.Context(), original, dashi.Settle{CommandID: "wrong-call", CallID: "other", Outcome: ptrOutcome(tool.Succeeded("verified"))}); err == nil {
+	if out, err := h.tasks.Run(t.Context(), original, dashi.Resolve{CommandID: "wrong-call", CallID: "other", Outcome: ptrOutcome(tool.Succeeded("verified"))}); err == nil {
 		t.Fatalf("wrong call accepted: %+v", out)
 	}
 	attention(h, t)
-	settlement := dashi.Settle{CommandID: "verify-write", CallID: "c1", Outcome: ptrOutcome(tool.Succeeded("Operator verified this exact call completed; its output was not captured."))}
+	settlement := dashi.Resolve{CommandID: "verify-write", CallID: "c1", Outcome: ptrOutcome(tool.Succeeded("Operator verified this exact call completed; its output was not captured."))}
 	settled, err := h.tasks.Run(t.Context(), original, settlement)
 	if err != nil {
 		t.Fatal(err)
@@ -81,8 +81,8 @@ func TestTaskRunSettlesExactWaitingChildWithoutRepeatingEffect(t *testing.T) {
 		t.Fatalf("stale action: %v", err)
 	}
 	out, err := h.tasks.Run(t.Context(), delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), Revision: settled.Revision}, dashi.Continue{CommandID: "finish"})
-	if err != nil || out.Answer != "child finished" {
-		t.Fatalf("answer=%q err=%v", out.Answer, err)
+	if err != nil || out.Reply != "child finished" {
+		t.Fatalf("answer=%q err=%v", out.Reply, err)
 	}
 	event := h.next(t, delegate.TaskEnded)
 	if event.Task.State != "completed" || h.ran.Load() != 1 {
@@ -119,7 +119,7 @@ func TestTaskRunLimitedChildRaiseAndDiscard(t *testing.T) {
 	}
 	before := target(h, t)
 	out, err := h.tasks.Run(t.Context(), before, dashi.Continue{CommandID: "raise", ModelAttempts: 3})
-	if err != nil || out.Answer != "child finished" {
+	if err != nil || out.Reply != "child finished" {
 		t.Fatalf("out=%+v err=%v", out.Stop, err)
 	}
 	h.next(t, delegate.TaskEnded)
@@ -158,7 +158,7 @@ func TestTaskRunUnknownCommandReconciliation(t *testing.T) {
 				return recorder
 			})
 			before := target(h, t)
-			cmd := dashi.Settle{CommandID: "verify", CallID: "c1", Outcome: ptrOutcome(tool.Succeeded("verified without captured output"))}
+			cmd := dashi.Resolve{CommandID: "verify", CallID: "c1", Outcome: ptrOutcome(tool.Succeeded("verified without captured output"))}
 			recorder.mode.Store(mode)
 			if _, err := h.tasks.Run(t.Context(), before, cmd); err == nil {
 				t.Fatal("lost acknowledgement not exposed")
@@ -268,7 +268,7 @@ func TestTaskPreparationAndFrozenBindings(t *testing.T) {
 	if _, err := h.start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.next(t, delegate.TaskEnded).Task; got.Answer != "frozen child route" {
+	if got := h.next(t, delegate.TaskEnded).Task; got.Reply != "frozen child route" {
 		t.Fatalf("task=%+v", got)
 	}
 	h.newTasks(t)

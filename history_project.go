@@ -103,7 +103,7 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 			return nil, errors.New("dashi: model intent needs reconciliation")
 		}
 		for _, id := range state.callOrder {
-			if state.Tools[id].Status != ToolSettled {
+			if state.Tools[id].Status != ToolFinished {
 				return nil, errors.New("dashi: client tool call is unresolved")
 			}
 		}
@@ -125,7 +125,7 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 	}
 	settledHosted := map[string]bool{}
 	for _, step := range t.Steps {
-		if step.Kind == StepHostedApprovalSettled && step.HostedApproval != nil {
+		if step.Kind == StepProviderToolApprovalDecided && step.HostedApproval != nil {
 			settledHosted[step.HostedApproval.RequestID] = true
 		}
 	}
@@ -137,18 +137,18 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 	for _, step := range t.Steps {
 		seq, index = step.Seq, 0
 		switch step.Kind {
-		case StepStarted:
+		case StepTurnStarted:
 			for _, m := range step.Started.Input {
 				emit(m.Clone())
 			}
-		case StepContinued:
+		case StepTurnContinued:
 			// The reminder is for the next dispatched model call only, and
 			// one is enough however many crashes came before that call. An
 			// ended turn makes none.
 			if step.Seq == resumed && !ended && lastDispatched <= step.Seq {
 				emit(crashResumeReminder())
 			}
-		case StepDelivered, StepLoopContinued, StepToolSettled:
+		case StepMessagesAdded, StepLoopContinued, StepToolFinished:
 			// A turned-down submission's items follow its result, which is
 			// projected with the model message that made the call.
 			if step.Context == nil {
@@ -173,7 +173,7 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 				}
 				emit(message)
 			}
-		case StepModelSettled, StepModelReconciled:
+		case StepModelCallFinished, StepModelCallFinishedByHost:
 			if modelPurpose(t, step.Model.AttemptID) == ModelPurposeCompaction {
 				continue
 			}
@@ -210,7 +210,7 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 						continue
 					}
 					v, ok := state.Tools[part.ToolCall.ID]
-					if !ok || v.Status != ToolSettled && !ended {
+					if !ok || v.Status != ToolFinished && !ended {
 						continue
 					}
 				}
@@ -231,7 +231,7 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 				}
 				var result llm.ToolResult
 				switch {
-				case v.Status != ToolSettled:
+				case v.Status != ToolFinished:
 					// Only an ended turn projects an unsettled call.
 					result = endedToolResult(v.Call.ID)
 				case v.Outcome == nil:
@@ -253,7 +253,7 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 			if compact {
 				out = replaceContext(out, compactionPlan(t, step.Compacted.AttemptID), *step.Compacted, step.Seq)
 			}
-		case StepHostedApprovalSettled:
+		case StepProviderToolApprovalDecided:
 			response := *step.HostedApproval
 			emit(llm.Message{
 				Role: llm.RoleUser,
@@ -277,7 +277,7 @@ func endedLength(steps []Step, stop Stop) int {
 	if !stop.Terminal {
 		return end
 	}
-	for end > 0 && steps[end-1].Kind != StepStopped {
+	for end > 0 && steps[end-1].Kind != StepTurnStopped {
 		end--
 	}
 	return end
@@ -291,9 +291,9 @@ func lastCrashResume(steps []Step) int64 {
 	stopped := false
 	for _, step := range steps {
 		switch step.Kind {
-		case StepStopped:
+		case StepTurnStopped:
 			stopped = true
-		case StepContinued:
+		case StepTurnContinued:
 			if !stopped {
 				last = step.Seq
 			}
@@ -375,9 +375,9 @@ func lastDispatchedIntent(t Turn) int64 {
 	var last int64
 	for _, step := range t.Steps {
 		switch step.Kind {
-		case StepModelIntent:
+		case StepModelCallStarted:
 			intents[step.Model.AttemptID] = step.Seq
-		case StepModelSettled, StepModelReconciled:
+		case StepModelCallFinished, StepModelCallFinishedByHost:
 			if seq := intents[step.Model.AttemptID]; modelPurpose(t, step.Model.AttemptID) != ModelPurposeCompaction && modelDispatched(step.Model) &&
 				seq > last {
 				last = seq

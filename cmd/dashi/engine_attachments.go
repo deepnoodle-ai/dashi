@@ -33,12 +33,12 @@ func (r *engineAttachmentResolver) bind() (*sessionstore.AttachmentStore, error)
 	}
 	return r.bound, nil
 }
-func (r *engineAttachmentResolver) Resolve(ctx context.Context, id string, ref content.Ref) ([]byte, error) {
+func (r *engineAttachmentResolver) Load(ctx context.Context, id string, ref content.Ref) ([]byte, error) {
 	a, err := r.bind()
 	if err != nil {
 		return nil, err
 	}
-	return a.Resolve(ctx, id, ref)
+	return a.Load(ctx, id, ref)
 }
 func (r *engineAttachmentResolver) close() {
 	r.mu.Lock()

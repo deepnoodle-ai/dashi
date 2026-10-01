@@ -165,7 +165,7 @@ func accountingRecord(usages ...llm.Usage) Turn {
 		result := final("answer")
 		result.Usage = usage.Copy()
 		steps = append(steps, intent, Step{
-			Kind: StepModelSettled,
+			Kind: StepModelCallFinished,
 			Model: &ModelFact{
 				AttemptID: id,
 				MessageID: id + ":message",
@@ -399,7 +399,7 @@ func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch req.Step.Kind {
-	case StepModelIntent:
+	case StepModelCallStarted:
 		fact := req.Step.Model
 		var admission creditAdmission
 		if fact == nil || fact.AtRisk == nil ||
@@ -419,7 +419,7 @@ func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
 		r.balance -= admission.Amount
 		r.holds[fact.AttemptID] = admission.Amount
 		return nil
-	case StepModelSettled:
+	case StepModelCallFinished:
 		fact := req.Step.Model
 		if fact != nil {
 			if hold, ok := r.holds[fact.AttemptID]; ok {

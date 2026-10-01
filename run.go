@@ -20,7 +20,7 @@ type Runner struct {
 	// or Continue that would call the model, or a Start whose agent leaves
 	// any of the three empty. A Start with an already-closed pause, whose
 	// agent names all three, records the turn without one (see WithPause),
-	// and Settle, Deliver, and Cancel record facts with a Recorder alone.
+	// and Resolve, AddMessages, and Cancel record facts with a Recorder alone.
 	// When set, it must match the turn's provider and API.
 	Client llm.Client
 	// Tools implements the tools a turn may call. It is resolved before each
@@ -41,9 +41,9 @@ type Runner struct {
 	Observer Observer
 	// OnContextDone controls whether an ended host context pauses or cancels.
 	OnContextDone ContextDone
-	// ContentResolver supplies the bytes of content.Ref sources. When nil, a
+	// ContentLoader supplies the bytes of content.Ref sources. When nil, a
 	// turn that holds a reference fails before its first model request.
-	ContentResolver ContentResolver
+	ContentLoader ContentLoader
 	// ContentLimits bounds the bytes that references add to a model request.
 	ContentLimits ContentLimits
 

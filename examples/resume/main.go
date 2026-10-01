@@ -104,7 +104,7 @@ func run(ctx context.Context, mode, dir string) error {
 		fmt.Println("Stop: waiting. Run again with -mode=resume.")
 		return nil
 	}
-	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Answer)
+	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 	return nil
 }
 

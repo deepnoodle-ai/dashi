@@ -314,7 +314,7 @@ func TestInspectionLiteralSearchSteeringAndSummaryExclusion(t *testing.T) {
 	start := out.Turn.Steps[0]
 	start.TurnID = prefix.ID
 	start.Started.Input = dashi.Say("next ordinary request").Input
-	prefix.Steps = []dashi.Step{start, {Version: 1, TurnID: prefix.ID, Seq: 2, Kind: dashi.StepDelivered, Context: &dashi.ContextFact{Items: []dashi.ContextItem{{ID: "steer-1", Message: llm.UserMessage(llm.Text("steering needle"))}, {ID: "runtime-1", Origin: dashi.ContextRuntime, Message: llm.UserMessage(llm.Text("runtime secret"))}}}}}
+	prefix.Steps = []dashi.Step{start, {Version: 1, TurnID: prefix.ID, Seq: 2, Kind: dashi.StepMessagesAdded, Context: &dashi.ContextFact{Items: []dashi.ContextItem{{ID: "steer-1", Message: llm.UserMessage(llm.Text("steering needle"))}, {ID: "runtime-1", Origin: dashi.ContextRuntime, Message: llm.UserMessage(llm.Text("runtime secret"))}}}}}
 	if _, err := dashi.Replay(prefix); err != nil {
 		t.Fatal(err)
 	}
@@ -537,7 +537,7 @@ func TestInspectionReferencesRemainUnresolved(t *testing.T) {
 	start.Agent = dashi.Agent{ID: "fixture", Provider: "test", API: "test.chat", Model: "recorded-model"}
 	start.Input[0].Content = append(start.Input[0].Content, llm.Document(content.Source{Ref: &ref, MIMEType: "application/pdf"}, "ATTACHMENT_TITLE_NEEDLE.pdf"))
 	out, err := (&dashi.Runner{Client: client, Recorder: rec}).Run(t.Context(), dashi.NewTurn(session.TurnID(s.ID, 1)), start)
-	if err != nil || out.Stop.Reason != dashi.StopReasonContentNoResolver || client.sent != 0 {
+	if err != nil || out.Stop.Reason != dashi.StopReasonContentNoLoader || client.sent != 0 {
 		t.Fatalf("unresolved fixture stop=%+v err=%v", out.Stop, err)
 	}
 	before := storeImage(t, st.root)
@@ -555,7 +555,7 @@ func TestInspectionReferencesRemainUnresolved(t *testing.T) {
 	// A newer attachment-only request must not inherit older request prose.
 	start.Input[0].Content = []llm.Content{llm.Document(content.Source{Ref: &ref, MIMEType: "application/pdf"}, "evidence.pdf")}
 	second, err := (&dashi.Runner{Client: client, Recorder: rec}).Run(t.Context(), dashi.NewTurn(session.TurnID(s.ID, 2)), start)
-	if err != nil || second.Stop.Reason != dashi.StopReasonContentNoResolver {
+	if err != nil || second.Stop.Reason != dashi.StopReasonContentNoLoader {
 		t.Fatalf("attachment-only fixture: %v", err)
 	}
 	report, err := st.Inspect(t.Context(), dir, s.ID)
@@ -573,7 +573,7 @@ func TestInspectionIncompleteAndUnresolvedContextNeverUsesOlderCall(t *testing.T
 	// Crash snapshot: Started, first intent, settled response, continuation,
 	// second intent. No fake model settlement or run stop is introduced.
 	for _, step := range out.Turn.Steps {
-		if step.Kind == dashi.StepModelSettled {
+		if step.Kind == dashi.StepModelCallFinished {
 			step.Model.EstimatedUsage = true
 			c := contextOccupancy(dashi.Turn{ID: out.Turn.ID, Steps: []dashi.Step{out.Turn.Steps[0], out.Turn.Steps[1], step}}, out.TurnView)
 			if c.Available || !c.Estimated {
@@ -585,13 +585,13 @@ func TestInspectionIncompleteAndUnresolvedContextNeverUsesOlderCall(t *testing.T
 	turn := dashi.NewTurn("fixture")
 	var intent dashi.ModelFact
 	for _, step := range out.Turn.Steps {
-		if step.Kind == dashi.StepModelIntent {
+		if step.Kind == dashi.StepModelCallStarted {
 			intent = *step.Model
 			break
 		}
 	}
 	intent.AttemptID = "new-unresolved"
-	turn.Steps = []dashi.Step{{Kind: dashi.StepModelIntent, Model: &intent}}
+	turn.Steps = []dashi.Step{{Kind: dashi.StepModelCallStarted, Model: &intent}}
 	c := contextOccupancy(turn, out.TurnView)
 	if c.Available || c.AttemptID != "new-unresolved" || c.UnavailableReason != "model intent unresolved" {
 		t.Fatalf("unresolved context=%+v", c)

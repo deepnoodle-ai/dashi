@@ -92,10 +92,10 @@ Rules for a reference:
 - A reference can appear in a start message, in a message from a hook or a
   steer, and in a tool result.
 
-Set `Runner.ContentResolver` to turn a reference into bytes:
+Set `Runner.ContentLoader` to turn a reference into bytes:
 
 ```go
-type ContentResolver interface {
+type ContentLoader interface {
 	Resolve(ctx context.Context, turnID string, ref content.Ref) ([]byte, error)
 }
 ```
@@ -134,7 +134,7 @@ reference. A host can branch on the code:
 
 | Code | Meaning |
 | --- | --- |
-| `StopReasonContentNoResolver` | `Runner.ContentResolver` is nil. |
+| `StopReasonContentNoLoader` | `Runner.ContentLoader` is nil. |
 | `StopReasonContentUnavailable` | The resolver returned an error. Denied and deleted files look the same. |
 | `StopReasonContentTooLarge` | The declared size is over a limit. |
 | `StopReasonContentSizeMismatch` | The resolver returned a different number of bytes. |

@@ -50,9 +50,9 @@ same page. Before yielding a step, `feed.Follow` places the previews already
 queued. The store can be ahead of the Observer, so a delta can arrive after
 its settling step; it is dropped, and the step carries the whole message.
 Waiting for the hub instead would stall every step behind a dead run or a
-blocked Observer. A delta sits at its `model_requested` step, since nothing
-commits before its `model_settled`, and a progress snapshot sits between its
-call's `tool_started` and `tool_settled`. An unplaced preview (`Seq` 0) is dropped.
+blocked Observer. A delta sits at its `model_call_started` step, since nothing
+commits before its `model_call_finished`, and a progress snapshot sits between its
+call's `tool_started` and `tool_finished`. An unplaced preview (`Seq` 0) is dropped.
 
 ## The hub
 

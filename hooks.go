@@ -203,10 +203,10 @@ const (
 	VerdictAllow   HookVerdict = "allow"
 	VerdictDefer   HookVerdict = "defer"
 	VerdictRewrite HookVerdict = "rewrite"
-	// VerdictDeliver, VerdictReject and VerdictAcceptEmpty are BeforeFinish
+	// VerdictAddMessages, VerdictReject and VerdictAcceptEmpty are BeforeFinish
 	// answers: delivered items, a reason alone, or accepting an empty
 	// answer.
-	VerdictDeliver     HookVerdict = "deliver"
+	VerdictAddMessages HookVerdict = "add_messages"
 	VerdictReject      HookVerdict = "reject"
 	VerdictAcceptEmpty HookVerdict = "accept_empty"
 	// VerdictReplace is an AfterTool answer: the model sees a replaced
@@ -231,7 +231,7 @@ type HookResult struct {
 }
 
 // ActiveHooks lists the names of the Runner's hooks per point, recorded on
-// the first step of each Start and Continue and on a Settle with a tool
+// the first step of each Start and Continue and on a Resolve with a tool
 // result, the commands that run hooks.
 // Hooks added with WithHooks are left out, since they are per-command by
 // design.
@@ -258,8 +258,8 @@ type ModelPlan struct {
 type ModelDecision struct {
 	// Settings replaces the input settings when non-nil.
 	Settings *llm.Settings
-	// Deliver records additional context before preparing the model request.
-	Deliver []ContextItem
+	// AddMessages records additional context before preparing the model request.
+	AddMessages []ContextItem
 	// Hide removes the named tools from this call; every hook's list
 	// applies, and names must match exactly. Names no tool of this call has,
 	// and dashi_submit_output, which cannot be hidden, are ignored with one
@@ -396,8 +396,8 @@ type FinishPlan struct {
 	// CallID is the dashi_submit_output call for a submitted output, and
 	// empty for a final text answer.
 	CallID string
-	// Answer is the candidate model message's text.
-	Answer string
+	// Reply is the candidate model message's text.
+	Reply string
 	// Output is the structured result on a turn with an output schema: the
 	// submitted value, or the value parsed from the text. It is nil when
 	// parsing failed, in which case OutputErr says why.
@@ -408,18 +408,18 @@ type FinishPlan struct {
 // FinishDecision is a BeforeFinish answer. The zero value accepts the
 // candidate.
 type FinishDecision struct {
-	// Deliver, when nonempty, asks the model again with these items instead
+	// AddMessages, when nonempty, asks the model again with these items instead
 	// of accepting the candidate. When no further normal model call can
 	// happen, such as on the reserved final-answer call, the items are
 	// dropped with a warning and the candidate stands.
-	Deliver []ContextItem
+	AddMessages []ContextItem
 	// Reason vetoes the candidate: it is unacceptable. The model sees "Not
 	// accepted: " and the reason, on either path, and answers again, using
 	// the reserved final-answer call if that is the only one left. When no
 	// model call at all can happen, or the reserved answer itself is vetoed,
 	// the veto still holds: the rejection is recorded and the turn stops as
 	// StopFailed with StopReasonOutputRejected, instead of accepting the
-	// answer. Deliver alone is a nudge, which never spends the reserved call
+	// answer. AddMessages alone is a nudge, which never spends the reserved call
 	// and is dropped when no normal call remains. The first hook's
 	// reason is used, bounded to 1 KiB. An empty reason on a submission
 	// turned down by items gives "a check did not accept this output".
@@ -561,7 +561,7 @@ func validHookLimit(limit LimitDetail) bool {
 func reservedStopReason(reason string) bool {
 	switch reason {
 	case StopReasonHookFailed, StopReasonOutputRejected, StopReasonToolFatal,
-		StopReasonToolOutcomeInvalid, StopReasonContentNoResolver,
+		StopReasonToolOutcomeInvalid, StopReasonContentNoLoader,
 		StopReasonContentUnavailable, StopReasonContentTooLarge,
 		StopReasonContentSizeMismatch, StopReasonContentDigestMismatch:
 		return true

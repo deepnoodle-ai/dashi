@@ -187,8 +187,8 @@ type AttemptSpend struct {
 // AttemptSpendOf classifies one model attempt from its intent fact and its
 // settlement, or nil while the call is pending. It is the same derivation
 // TurnView.Attempts uses. A recorder that reserved credits on the
-// StepModelIntent step can call it in the commit of the StepModelSettled or
-// StepModelReconciled step, with the intent it stored at reservation, to
+// StepModelCallStarted step can call it in the commit of the StepModelCallFinished or
+// StepModelCallFinishedByHost step, with the intent it stored at reservation, to
 // settle the hold in the same transaction. A nil intent gives the zero value.
 func AttemptSpendOf(intent, settlement *ModelFact) AttemptSpend {
 	if intent == nil {

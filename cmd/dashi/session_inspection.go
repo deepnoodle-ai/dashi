@@ -160,11 +160,11 @@ func inspectionGuidance(report sessionstore.Inspection, owner inspectionOwner) s
 		if e.ReadyToContinue {
 			return prefix + "owned and idle. No run stop was recorded. Press Enter to recover this target after existing checks."
 		}
-	case dashi.NextResolve:
+	case dashi.NextFix:
 		if e.ReadyToContinue && e.Stop.Kind == dashi.StopFailed {
 			return prefix + "owned and idle. Review the recorded failure before pressing Enter to retry this target. Recorded destination checks still apply."
 		}
-	case dashi.NextAnswer:
+	case dashi.NextResolvePending:
 		return prefix + "owned and idle. Pending results or approvals are not ready to continue. Resolve them through existing recovery checks, or /discard this open Turn. Permission is not granted."
 	}
 	return prefix + "owned and idle. Resolve the recorded cause or verify pending outcomes before recovery. /discard discards this target's open Turn."

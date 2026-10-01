@@ -42,7 +42,7 @@ func ExampleCompactor_Start() {
 			return
 		}
 		turns = append(turns, out.Turn)
-		fmt.Printf("%s %s: %s\n", id, out.Origin, out.Answer)
+		fmt.Printf("%s %s: %s\n", id, out.Origin, out.Reply)
 	}
 	for _, text := range []string{
 		"My project Heron deploys on port 8443.",

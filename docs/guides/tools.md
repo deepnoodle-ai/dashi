@@ -156,7 +156,7 @@ read-only subagent gets only tools marked read-only.
 ## Outcomes and errors
 
 Return `tool.Succeeded(text)` for the common case. `tool.Detached(id)` hands
-work to another system whose result the host records later with `Settle`, and
+work to another system whose result the host records later with `Resolve`, and
 `tool.Waiting(reason)` pauses the call until the host settles it. `Waiting("")`
 and `Detached("")` are invalid; the runner stops the turn if an executor
 returns them.

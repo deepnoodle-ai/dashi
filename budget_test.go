@@ -779,7 +779,7 @@ func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
 	}
 	var charge *llm.Cost
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelSettled && step.Model != nil {
+		if step.Kind == StepModelCallFinished && step.Model != nil {
 			charge = step.Model.Charge
 		}
 	}
@@ -1005,8 +1005,8 @@ func TestBudgetReportsProviderTokenOverrunOnFinalAnswer(t *testing.T) {
 		Hooks{},
 	)
 	requireBudgetLimit(t, out, LimitOutputTokens)
-	if out.Answer != "answer" {
-		t.Fatalf("answer=%q", out.Answer)
+	if out.Reply != "answer" {
+		t.Fatalf("answer=%q", out.Reply)
 	}
 }
 
@@ -1051,7 +1051,7 @@ func TestBudgetCumulativeOverflowRejectsNextIntent(t *testing.T) {
 	if persistence(err) != PersistenceRejected {
 		t.Fatalf("overflowing intent error=%v", err)
 	}
-	if step := unacknowledged(err); step == nil || step.Kind != StepModelIntent {
+	if step := unacknowledged(err); step == nil || step.Kind != StepModelCallStarted {
 		t.Fatalf("overflowing intent was acknowledged: %+v", step)
 	}
 	if client.sends != 1 {
@@ -1167,7 +1167,7 @@ func TestRunCancelKeepsReturnedHostedContent(t *testing.T) {
 	}
 	var settled *ModelFact
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelSettled {
+		if step.Kind == StepModelCallFinished {
 			settled = step.Model
 		}
 	}
@@ -1380,7 +1380,7 @@ func TestBudgetInterruptedSilentHostedToolIsPartial(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A cut-off call with a hosted tool may have run it, so it is uncertain.
-	if out.Stop.Kind != StopUncertain {
+	if out.Stop.Kind != StopResultUnknown {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
 	view, err := Replay(out.Turn)

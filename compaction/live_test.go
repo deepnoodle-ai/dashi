@@ -90,13 +90,13 @@ func TestLiveCompactionContinuity(t *testing.T) {
 	}
 	sum := run(start)
 	t.Logf("summary (%d output tokens, cost %v):\n%s",
-		sum.Spend.Usage.OutputTokens, sum.Spend.Cost, sum.Answer)
+		sum.Spend.Usage.OutputTokens, sum.Spend.Cost, sum.Reply)
 	view, _ := dashi.ProjectHistory(turns)
 	if len(view) != 1 {
 		t.Fatalf("view has %d messages, want the summary alone", len(view))
 	}
 	out := ask("What was the release codename? Answer with the codename only.")
-	if !strings.Contains(out.Answer, "PELICAN-4471") {
-		t.Fatalf("answer %q lacks the codename", out.Answer)
+	if !strings.Contains(out.Reply, "PELICAN-4471") {
+		t.Fatalf("answer %q lacks the codename", out.Reply)
 	}
 }

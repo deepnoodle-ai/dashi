@@ -16,7 +16,7 @@ available from a fresh checkout.
 | Unit of work | Response creation owns the loop and session behavior. | An identified `Turn` advances through commands; a session can sit above it. | Addresses the central organizing problem. |
 | Durable authority | Transcript and callbacks carry much of the lifecycle. | Versioned steps are authoritative; `Project` derives model history. | Better recovery boundary, subject to a durable host test. |
 | Effects | Hooks mix control and observation. | Typed policy, acknowledged intent and result steps, and an observer that never drops steps have distinct roles. | Prevents many invisible effects; does not guarantee remote exactly-once behavior. |
-| Late work | Background and external outcomes use separate paths. | `Settle` correlates model results, verified nonexecution, external tools, and approvals to pending IDs. | One path for late facts; the host must authenticate them. |
+| Late work | Background and external outcomes use separate paths. | `Resolve` correlates model results, verified nonexecution, external tools, and approvals to pending IDs. | One path for late facts; the host must authenticate them. |
 | Integration | Dive owns much session and tool coordination. | `Runner` holds the agent, clients, tools, policy, and recorder; external tools can run in a host worker. | Keeps the core small, but the host seam is not proven in Nvoken. |
 | Structured result | Dive has provider-level response formatting without a turn result contract. | A per-turn schema yields a validated, recorded value with tool-call or text provenance. | Matches the result shape applications consume; native constrained generation remains provider-specific. |
 

@@ -101,7 +101,7 @@ func TestSessionPickerRestoresPreferencesAndDispatchesSelectedRoute(t *testing.T
 				t.Fatalf("restored agent=%+v settings=%+v", agent, agent.Settings)
 			}
 			result, err := e.Prompt(t.Context(), "after session picker")
-			if err != nil || result.Outcome.Answer != wantRoute+" answer" || len(dispatched) != 1 || dispatched[0] != wantRoute {
+			if err != nil || result.Outcome.Reply != wantRoute+" answer" || len(dispatched) != 1 || dispatched[0] != wantRoute {
 				t.Fatalf("dispatch=%v result=%+v error=%v", dispatched, result, err)
 			}
 			// The actual admitted turn retains the resolved controls, independently of convenience metadata.

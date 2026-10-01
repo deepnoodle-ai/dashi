@@ -76,8 +76,8 @@ func settledResults(steps []Step) []*llm.Result {
 // actionableResult returns the step's assistant result when the step
 // settles or reconciles a call that neither failed nor was interrupted.
 func actionableResult(step Step) *llm.Result {
-	if (step.Kind != StepModelSettled &&
-		step.Kind != StepModelReconciled) ||
+	if (step.Kind != StepModelCallFinished &&
+		step.Kind != StepModelCallFinishedByHost) ||
 		step.Model == nil ||
 		step.Model.Purpose == ModelPurposeCompaction ||
 		step.Model.Result == nil ||
@@ -100,7 +100,7 @@ func answerText(steps []Step) string {
 		if step.Model != nil && modelPurpose(turn, step.Model.AttemptID) == ModelPurposeCompaction {
 			continue
 		}
-		if step.Kind == StepModelSettled && step.Model != nil &&
+		if step.Kind == StepModelCallFinished && step.Model != nil &&
 			step.Model.Interrupted == InterruptSteering {
 			chain = nil
 			continue

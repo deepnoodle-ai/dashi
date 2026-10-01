@@ -100,7 +100,7 @@ type Loader interface {
 type CommitError struct {
 	// Persistence states whether this failed call could have committed a step.
 	Persistence Persistence
-	// Step is the step Run tried to record. A failed model_settled step
+	// Step is the step Run tried to record. A failed model_call_finished step
 	// carries the call's usage, which the Outcome's spend does not include.
 	Step *Step
 	Err  error

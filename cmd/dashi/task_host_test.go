@@ -172,8 +172,8 @@ func TestTaskHostQuietDeliversOneRecordedNoticeAndKeepsChildTextSeparate(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Outcome.Answer != "Task result received." {
-		t.Fatalf("quiet answer=%q", result.Outcome.Answer)
+	if result.Outcome.Reply != "Task result received." {
+		t.Fatalf("quiet answer=%q", result.Outcome.Reply)
 	}
 	task := waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopCompleted) })
 	count := 0
@@ -182,7 +182,7 @@ func TestTaskHostQuietDeliversOneRecordedNoticeAndKeepsChildTextSeparate(t *test
 			t.Fatal(err)
 		}
 		for _, step := range turn.Steps {
-			if step.Kind == dashi.StepStarted && strings.Contains(step.CommandID, delegate.NoticeID(task.TurnID)) {
+			if step.Kind == dashi.StepTurnStarted && strings.Contains(step.CommandID, delegate.NoticeID(task.TurnID)) {
 				count++
 			}
 		}
@@ -424,7 +424,7 @@ type taskQueueCrashRecorder struct {
 
 func (r *taskQueueCrashRecorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
 	r.mu.Lock()
-	lose := !r.lost && req.Step.Kind == dashi.StepStarted && strings.HasPrefix(req.Step.CommandID, "queue:")
+	lose := !r.lost && req.Step.Kind == dashi.StepTurnStarted && strings.HasPrefix(req.Step.CommandID, "queue:")
 	if lose {
 		r.lost = true
 		r.target = req.Step.TurnID
@@ -520,7 +520,7 @@ func TestTaskNoticeUnknownAdmissionPausesUntilExactReconciliation(t *testing.T) 
 					t.Fatal(err)
 				}
 				for _, step := range turn.Steps {
-					if step.Kind == dashi.StepStarted && strings.Contains(step.CommandID, delegate.NoticeID(task.TurnID)) {
+					if step.Kind == dashi.StepTurnStarted && strings.Contains(step.CommandID, delegate.NoticeID(task.TurnID)) {
 						count++
 					}
 				}
@@ -533,13 +533,13 @@ func TestTaskNoticeUnknownAdmissionPausesUntilExactReconciliation(t *testing.T) 
 }
 func TestTaskDetailsSeparateAttemptEstimateFromDispatchAndHidePrivateContent(t *testing.T) {
 	turn := dashi.Turn{ID: "child", Steps: []dashi.Step{
-		{Kind: dashi.StepModelIntent, Model: &dashi.ModelFact{AttemptID: "not-sent", EstimatedInputTokens: 1234}},
-		{Kind: dashi.StepModelSettled, Model: &dashi.ModelFact{AttemptID: "not-sent", NoDispatch: true, EstimatedUsage: true}},
-		{Kind: dashi.StepModelIntent, Model: &dashi.ModelFact{AttemptID: "unknown"}},
-		{Kind: dashi.StepModelSettled, Model: &dashi.ModelFact{AttemptID: "unknown", Failure: llm.FailureUnknown, Uncertain: true}},
-		{Kind: dashi.StepModelIntent, Model: &dashi.ModelFact{AttemptID: "sent"}},
-		{Kind: dashi.StepModelSettled, Model: &dashi.ModelFact{AttemptID: "sent", Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("public answer"))}}},
-		{Kind: dashi.StepModelSettled, Model: &dashi.ModelFact{Purpose: dashi.ModelPurposeCompaction, Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("private summary"))}}},
+		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{AttemptID: "not-sent", EstimatedInputTokens: 1234}},
+		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{AttemptID: "not-sent", NoDispatch: true, EstimatedUsage: true}},
+		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{AttemptID: "unknown"}},
+		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{AttemptID: "unknown", Failure: llm.FailureUnknown, Uncertain: true}},
+		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{AttemptID: "sent"}},
+		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{AttemptID: "sent", Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("public answer"))}}},
+		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{Purpose: dashi.ModelPurposeCompaction, Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("private summary"))}}},
 	}}
 	calls, unresolved := taskDispatchCounts(turn)
 	if calls != 2 || unresolved != 1 {

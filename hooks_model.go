@@ -87,13 +87,13 @@ func (r *runtime) beforeModel(
 		ignored.merge(hookIgnored)
 		r.pendingWarnings = append(r.pendingWarnings, warnings...)
 		hid := len(candidateHidden) > len(hidden)
-		if d.Settings == nil && len(d.Deliver) == 0 && !hid {
+		if d.Settings == nil && len(d.AddMessages) == 0 && !hid {
 			continue
 		}
 		input.Settings = candidate.Settings
 		input.Tools = candidate.Tools
 		hidden = candidateHidden
-		for _, item := range d.Deliver {
+		for _, item := range d.AddMessages {
 			deliver = append(deliver, cloneContextItem(item))
 		}
 		r.addHookResult(HookResult{
@@ -240,7 +240,7 @@ func validModelDecision(d ModelDecision, input llm.Input) error {
 				"or token limit, and may not use a reserved stop reason",
 		)
 	}
-	for _, item := range d.Deliver {
+	for _, item := range d.AddMessages {
 		if err := item.Validate(); err != nil {
 			return fmt.Errorf("invalid context item: %w", err)
 		}

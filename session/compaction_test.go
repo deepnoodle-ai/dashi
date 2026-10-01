@@ -115,8 +115,8 @@ func TestSessionCompactionTurn(t *testing.T) {
 	s.New = true
 	s.Compactor = keepLast{limit: 100, keep: 1}
 	out := sendAll(t, s, "first", "second", "third")
-	if out.Turn.ID != "s-4" || out.Answer != "three" || len(out.SessionWarnings) != 0 {
-		t.Fatalf("turn=%s answer=%q warnings=%v", out.Turn.ID, out.Answer, out.SessionWarnings)
+	if out.Turn.ID != "s-4" || out.Reply != "three" || len(out.SessionWarnings) != 0 {
+		t.Fatalf("turn=%s answer=%q warnings=%v", out.Turn.ID, out.Reply, out.SessionWarnings)
 	}
 
 	c := load(t, rec, "s-3")
@@ -495,7 +495,7 @@ func TestSessionStreamCompaction(t *testing.T) {
 			t.Fatalf("event of turn %q", ev.TurnID)
 		}
 		if ev.Outcome != nil {
-			outcomes = append(outcomes, ev.TurnID+" "+ev.Outcome.Answer)
+			outcomes = append(outcomes, ev.TurnID+" "+ev.Outcome.Reply)
 		}
 	}
 	if !slices.Equal(outcomes, []string{"s-2 summary", "s-3 two"}) {
@@ -536,8 +536,8 @@ func TestSessionContinueCompaction(t *testing.T) {
 	cancel()
 	<-done
 	out, err := s.Run(t.Context(), dashi.Continue{})
-	if err != nil || out.Turn.ID != "s-2" || out.Answer != "summary" {
-		t.Fatalf("turn=%s answer=%q err=%v", out.Turn.ID, out.Answer, err)
+	if err != nil || out.Turn.ID != "s-2" || out.Reply != "summary" {
+		t.Fatalf("turn=%s answer=%q err=%v", out.Turn.ID, out.Reply, err)
 	}
 	for _, w := range out.Warnings {
 		if w.Code == dashi.WarningHistoryMismatch {
@@ -578,10 +578,10 @@ func TestSessionCompactionRace(t *testing.T) {
 	if bErr != nil || bOut.Turn.ID != "s-3" {
 		t.Fatalf("b: turn=%s err=%v", bOut.Turn.ID, bErr)
 	}
-	if err != nil || out.Turn.ID != "s-4" || out.Answer != "a" ||
+	if err != nil || out.Turn.ID != "s-4" || out.Reply != "a" ||
 		len(out.SessionWarnings) != 0 {
 		t.Fatalf("a: turn=%s answer=%q warnings=%v err=%v",
-			out.Turn.ID, out.Answer, out.SessionWarnings, err)
+			out.Turn.ID, out.Reply, out.SessionWarnings, err)
 	}
 	if n := len(client.Inputs()); n != 4 {
 		t.Fatalf("%d model calls; want 4", n)
@@ -633,11 +633,11 @@ func TestSessionCompactionBudget(t *testing.T) {
 	if v := load(t, rec, "s-2"); v.Stop.Kind != dashi.StopCanceled {
 		t.Fatalf("s-2 stop=%s", v.Stop.Kind)
 	}
-	if out.Turn.ID != "s-3" || out.Answer != "two" || !slices.Equal(
+	if out.Turn.ID != "s-3" || out.Reply != "two" || !slices.Equal(
 		codes(out.SessionWarnings),
 		[]dashi.WarningCode{session.WarningCompactionFailed},
 	) {
-		t.Fatalf("turn=%s answer=%q warnings=%v", out.Turn.ID, out.Answer, out.SessionWarnings)
+		t.Fatalf("turn=%s answer=%q warnings=%v", out.Turn.ID, out.Reply, out.SessionWarnings)
 	}
 }
 

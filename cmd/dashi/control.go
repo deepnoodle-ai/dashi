@@ -571,7 +571,7 @@ func busyText(err error) string {
 		return fmt.Sprintf("The last command (call %s in turn %d) may still "+
 			"be running. Type /done once it has finished, or /discard to "+
 			"discard the turn.", busy.CallID, n)
-	case busy.Next == dashi.NextAnswer:
+	case busy.Next == dashi.NextResolvePending:
 		return fmt.Sprintf("Turn %d waits for an answer. Press Enter to "+
 			"continue it, or type /discard to discard it.", n)
 	case busy.Next == dashi.NextContinue || busy.Next == dashi.NextResume:

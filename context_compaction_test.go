@@ -83,7 +83,7 @@ func TestActiveCompactionLongRequestAndViews(t *testing.T) {
 	if out.Stop.Kind != StopCompleted || calls != 4 || len(out.ContextCompactions) != 2 || out.ModelAttempts != 7 || finish != 1 {
 		t.Fatalf("stop=%+v calls=%d applications=%d attempts=%d finish=%d", out.Stop, calls, len(out.ContextCompactions), out.ModelAttempts, finish)
 	}
-	if out.Answer != "Fixed and verified." || out.Spend.Usage.InputTokens != 700 || out.Spend.Usage.OutputTokens != 14 {
+	if out.Reply != "Fixed and verified." || out.Spend.Usage.InputTokens != 700 || out.Spend.Usage.OutputTokens != 14 {
 		t.Fatalf("answer/accounting=%+v", out.TurnView)
 	}
 	summaries := 0
@@ -222,7 +222,7 @@ func (f *activeFault) Commit(ctx context.Context, req CommitRequest) error {
 	return f.Recorder.Commit(ctx, req)
 }
 func TestActiveCompactionAcknowledgedCrashRecovery(t *testing.T) {
-	for _, kind := range []StepKind{StepModelIntent, StepModelSettled, StepContextCompacted} {
+	for _, kind := range []StepKind{StepModelCallStarted, StepModelCallFinished, StepContextCompacted} {
 		t.Run(string(kind), func(t *testing.T) {
 			c, a := activeFixture()
 			calls := 0
@@ -242,7 +242,7 @@ func TestActiveCompactionAcknowledgedCrashRecovery(t *testing.T) {
 			if err != nil || out.Stop.Kind != StopCompleted || calls != 4 || len(out.ContextCompactions) != 2 || c.sends != 7 {
 				t.Fatalf("stop=%+v calls=%d summaries=%d sends=%d prior=%d err=%v", out.Stop, calls, len(out.ContextCompactions), c.sends, dispatchedBefore, err)
 			}
-			if kind == StepModelIntent {
+			if kind == StepModelCallStarted {
 				found := false
 				for _, step := range out.Turn.Steps {
 					if step.Model != nil && step.Model.Purpose == ModelPurposeCompaction && step.Model.Interrupted == InterruptWorker {
@@ -272,8 +272,8 @@ func TestActiveCompactionRejectsSummaryWorkAndNoSavings(t *testing.T) {
 			if err != nil || out.Stop.Kind != StopFailed || out.Stop.Reason != StopReasonCompactionFailed || len(out.ContextCompactions) != 0 || calls != 2 || out.ModelAttempts != 3 || out.Spend.Usage.InputTokens != 300 {
 				t.Fatalf("stop=%+v calls=%d attempts=%d applied=%d spend=%+v err=%v", out.Stop, calls, out.ModelAttempts, len(out.ContextCompactions), out.Spend, err)
 			}
-			if out.Answer != "" {
-				t.Fatalf("summary became answer: %q", out.Answer)
+			if out.Reply != "" {
+				t.Fatalf("summary became answer: %q", out.Reply)
 			}
 			// A new admitted summary on explicit Continue replaces the rejected one.
 			retry := final("<summary>Original objective. Evidence 1 and 2 checked.</summary>")
@@ -319,7 +319,7 @@ func TestActiveCompactionHookDeliveryReachesOrdinaryRequest(t *testing.T) {
 		if p.Purpose != ModelPurposeCompaction {
 			return ModelDecision{}, nil
 		}
-		return ModelDecision{Settings: &llm.Settings{MaxTokens: 5000, ToolChoice: &llm.ToolChoice{Mode: llm.ToolChoiceAny}}, Deliver: []ContextItem{{ID: "summary-note", Name: "verification", Origin: ContextRuntime, NextCallOnly: true, Message: llm.UserMessage(llm.Text(note))}}}, nil
+		return ModelDecision{Settings: &llm.Settings{MaxTokens: 5000, ToolChoice: &llm.ToolChoice{Mode: llm.ToolChoiceAny}}, AddMessages: []ContextItem{{ID: "summary-note", Name: "verification", Origin: ContextRuntime, NextCallOnly: true, Message: llm.UserMessage(llm.Text(note))}}}, nil
 	}}}, BeforeSend: []SendHook{{Name: "purpose", Func: func(_ context.Context, p SendPlan) (SendDecision, error) {
 		sends = append(sends, p.Purpose)
 		if p.Purpose == ModelPurposeCompaction {
@@ -399,7 +399,7 @@ func TestActiveCompactionRejectsChangedCoverage(t *testing.T) {
 		func(t *Turn) {
 			for i := range t.Steps {
 				f := t.Steps[i].Model
-				if f != nil && f.Purpose == ModelPurposeCompaction && t.Steps[i].Kind == StepModelSettled {
+				if f != nil && f.Purpose == ModelPurposeCompaction && t.Steps[i].Kind == StepModelCallFinished {
 					f.Purpose = "other"
 					return
 				}
@@ -496,7 +496,7 @@ func TestActiveCompactionProtectedHooksCannotBuyRoom(t *testing.T) {
 		if p.Turn.ModelAttempts < 2 {
 			return ModelDecision{}, nil
 		}
-		return ModelDecision{Deliver: []ContextItem{{ID: "large", Origin: ContextRuntime, Name: "fixed", Message: llm.UserMessage(llm.Text(strings.Repeat("protected", 4000)))}}}, nil
+		return ModelDecision{AddMessages: []ContextItem{{ID: "large", Origin: ContextRuntime, Name: "fixed", Message: llm.UserMessage(llm.Text(strings.Repeat("protected", 4000)))}}}, nil
 	}}
 	out, err := (Runner{Client: c, Tools: activeTools(&calls), Hooks: Hooks{BeforeModel: []ModelHook{hook}}}).Run(t.Context(), Turn{}, activeStart(a))
 	if err != nil || out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitContextWindow || c.sends != 2 || len(out.ContextCompactions) != 0 {
@@ -588,7 +588,7 @@ func TestActiveCompactionHydratedReferenceSizing(t *testing.T) {
 	a.ActiveCompaction = &ActiveCompactionPolicy{}
 	start := activeStart(a)
 	start.Input[0].Content = append(start.Input[0].Content, llm.Document(content.Source{Ref: &ref, MIMEType: "application/pdf"}, "evidence.pdf"))
-	out, err := (Runner{Client: c, ContentResolver: resolver}).Run(t.Context(), Turn{}, start)
+	out, err := (Runner{Client: c, ContentLoader: resolver}).Run(t.Context(), Turn{}, start)
 	if err != nil || out.Stop.Kind != StopCompleted || resolver.count() != 1 || c.sends != 1 || activeMediaWarnings(out.Warnings) != 1 {
 		t.Fatalf("stop=%+v resolutions=%d sends=%d err=%v", out.Stop, resolver.count(), c.sends, err)
 	}
@@ -643,7 +643,7 @@ func TestActiveCompactionSummaryUsesLiveProjectedContext(t *testing.T) {
 		if p.Turn.ModelAttempts != 0 {
 			return ModelDecision{}, nil
 		}
-		return ModelDecision{Deliver: []ContextItem{
+		return ModelDecision{AddMessages: []ContextItem{
 			{ID: "temporary", Origin: ContextRuntime, NextCallOnly: true, Message: llm.UserMessage(llm.Text(temporary))},
 			{ID: "runtime", Origin: ContextRuntime, Name: "persistent", Message: runtimeMessage},
 			{ID: "operator", Origin: ContextOperator, Name: "objective", Message: operatorMessage},

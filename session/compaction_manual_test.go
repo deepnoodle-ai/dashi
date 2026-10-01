@@ -120,7 +120,7 @@ func TestSessionManualCompactionPreparationAndBusy(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ev.Step != nil && ev.Step.Kind == dashi.StepStarted {
+		if ev.Step != nil && ev.Step.Kind == dashi.StepTurnStarted {
 			cancel()
 			break
 		}
@@ -148,7 +148,7 @@ func TestSessionManualCompactionSlotRace(t *testing.T) {
 	a := handle(&raceRecorder{MemoryRecorder: rec, before: func() { winner, winnerErr = b.Compact(t.Context(), nil) }}, client)
 	a.Compactor = keepLast{limit: 10000}
 	loser, err := a.Compact(t.Context(), nil)
-	if err != nil || winnerErr != nil || loser.Turn.ID != winner.Turn.ID || loser.Answer != "summary" || len(client.Inputs()) != 2 {
+	if err != nil || winnerErr != nil || loser.Turn.ID != winner.Turn.ID || loser.Reply != "summary" || len(client.Inputs()) != 2 {
 		t.Fatalf("winner=%s/%v loser=%s/%v calls=%d", winner.Turn.ID, winnerErr, loser.Turn.ID, err, len(client.Inputs()))
 	}
 }
@@ -164,7 +164,7 @@ func TestSessionManualCompactionPreservesPendingApproval(t *testing.T) {
 	out := sendAll(t, s, "pay")
 	before := loadTurn(t, rec, out.Turn.ID)
 	var busy *session.TurnBusyError
-	if _, err := s.Compact(t.Context(), nil); !errors.As(err, &busy) || busy.Next != dashi.NextAnswer {
+	if _, err := s.Compact(t.Context(), nil); !errors.As(err, &busy) || busy.Next != dashi.NextResolvePending {
 		t.Fatalf("pending approval: %+v, %v", busy, err)
 	}
 	if !reflect.DeepEqual(before, loadTurn(t, rec, out.Turn.ID)) || len(client.Inputs()) != 1 {
@@ -214,7 +214,7 @@ func TestSessionManualCompactionRecorderFailures(t *testing.T) {
 			s.New = true
 			sendAll(t, s, "first")
 			s.Compactor = keepLast{limit: 10000}
-			s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepStarted, Fault: fault}
+			s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepTurnStarted, Fault: fault}
 			if _, err := s.Compact(t.Context(), nil); !errors.Is(err, dashitest.ErrInjected) {
 				t.Fatalf("recorder error=%v", err)
 			}
@@ -238,7 +238,7 @@ func TestSessionStreamManualCompactionAdmissionFailure(t *testing.T) {
 			s.New = true
 			sendAll(t, s, "first")
 			s.Compactor = keepLast{limit: 10000}
-			s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepStarted, Fault: fault}
+			s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepTurnStarted, Fault: fault}
 			var gotErr error
 			for ev, err := range s.StreamCompact(t.Context(), nil) {
 				if ev.Outcome != nil || ev.Step != nil {
@@ -260,7 +260,7 @@ func TestSessionStreamAutomaticCompactionRejectedAdmission(t *testing.T) {
 	s.New = true
 	sendAll(t, s, "first")
 	s.Compactor = keepLast{limit: 100}
-	s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepStarted, Fault: dashitest.Reject}
+	s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepTurnStarted, Fault: dashitest.Reject}
 	var outcomes []string
 	for ev, err := range s.Stream(t.Context(), dashi.Say("second")) {
 		if err != nil {

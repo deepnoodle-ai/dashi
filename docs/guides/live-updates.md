@@ -146,7 +146,7 @@ goroutine and must return promptly.
   previews. Progress is dropped first; dropped deltas are reported by one
   event with `Gap` set, naming the message in `MessageID`. That message's
   preview now has a hole: discard it and ignore its later deltas until its
-  `model_settled` step arrives with the whole message. A gap with no such step
+  `model_call_finished` step arrives with the whole message. A gap with no such step
   after it means the run ended early; load the turn.
 - **Delivery runs behind the call.** `Run` can return before the Observer has
   every event, and a `Continue` issued before the previous call's events

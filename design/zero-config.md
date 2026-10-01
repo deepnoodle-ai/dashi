@@ -70,7 +70,7 @@ protects the record: a retry from an old turn snapshot writes at an occupied
 sequence number, the recorder rejects the write, and no model call or tool
 runs twice; the caller sees a rejected write rather than the recorded result.
 What remains possible is a second turn from a `Start` retried with no turn ID,
-and a duplicate `Deliver` sent after reloading. No warning is recorded for
+and a duplicate `AddMessages` sent after reloading. No warning is recorded for
 generated IDs, and there is no durability interface: the guide says this.
 
 `Agent{}` is valid; `Validate` no longer requires identity fields or a model.

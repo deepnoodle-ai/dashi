@@ -382,8 +382,8 @@ func describe(v TaskView, detail bool) string {
 	}
 	fmt.Fprintf(&sb, "%d tool calls, %s", v.ToolCalls, formatSpend(v.Spend))
 	if detail {
-		if v.Answer != "" {
-			sb.WriteString("\n" + v.Answer)
+		if v.Reply != "" {
+			sb.WriteString("\n" + v.Reply)
 		}
 		if v.Reason != "" {
 			sb.WriteString("\nReason: " + v.Reason)

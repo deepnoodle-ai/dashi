@@ -101,7 +101,7 @@ func TestModelIntentRecordsResolvedCapabilityPolicy(t *testing.T) {
 	}
 	var intent *ModelFact
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelIntent {
+		if step.Kind == StepModelCallStarted {
 			intent = step.Model
 		}
 	}
@@ -128,7 +128,7 @@ func TestReplayRejectsUnknownCapabilityPolicy(t *testing.T) {
 	}
 	turn := cloneTurn(out.Turn)
 	for _, step := range turn.Steps {
-		if step.Kind == StepModelIntent {
+		if step.Kind == StepModelCallStarted {
 			step.Model.CapabilityPolicy = "lenient"
 		}
 	}

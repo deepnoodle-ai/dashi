@@ -46,9 +46,9 @@ its turn state and pending-subject correlation.
 | Command | Contract |
 | --- | --- |
 | **Start** | Admit a new turn, its origin, pinned prior history, initial input, limits, and agent revision; only the first acknowledged start permits execution. |
-| **Deliver** | Record context for an open, waiting, or continuable turn without advancing it. The next eligible model call sees it according to its scope and replacement rule. |
+| **AddMessages** | Record context for an open, waiting, or continuable turn without advancing it. The next eligible model call sees it according to its scope and replacement rule. |
 | **Continue** | Resume a stopped turn, including one interrupted by a context end or crash. It does not reset limits. |
-| **Settle** | Record a typed late fact against a pending subject: an external tool result, a human decision, or a reconciled uncertain effect. It never runs the turn. |
+| **Resolve** | Record a typed late fact against a pending subject: an external tool result, a human decision, or a reconciled uncertain effect. It never runs the turn. |
 | **Cancel** | Request no further work. Unstarted calls become known not executed; started effects remain pending for late reconciliation and accounting, without restarting the loop. |
 
 The admitted agent must be available by revision on recovery. A hash alone
@@ -87,7 +87,7 @@ record. The saved turn's replay has the same flag, so a host can find ready turn
 belongs to the runner, not the turn. Known tool failure, confirmed
 nonexecution, waiting, and uncertain execution remain different states. Stops
 distinguish completed, waiting, interrupted, limited, refused, canceled,
-failed, and uncertain. `Settle` commits a report or approval but does not
+failed, and uncertain. `Resolve` commits a report or approval but does not
 restart the loop; only `Continue` does.
 Invalid commands and corrupt records fail before a first write; after a first
 acknowledged step, the outcome retains partial work and its stop even on failure.

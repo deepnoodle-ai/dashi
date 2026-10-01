@@ -44,7 +44,7 @@ func toolNames(defs []tool.Definition) []string {
 // intentOf returns the n-th recorded model intent.
 func intentOf(t *testing.T, turn Turn, n int) *ModelFact {
 	t.Helper()
-	prefix := prefixThrough(t, turn, StepModelIntent, n)
+	prefix := prefixThrough(t, turn, StepModelCallStarted, n)
 	return prefix.Steps[len(prefix.Steps)-1].Model
 }
 
@@ -241,7 +241,7 @@ func TestHideWithDeliverAppliesBoth(t *testing.T) {
 	both := ModelHook{Name: "plan", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
 		return ModelDecision{
 			Hide: []string{"write", "nope"},
-			Deliver: []ContextItem{{
+			AddMessages: []ContextItem{{
 				Origin:  ContextRuntime,
 				Message: llm.UserMessage(llm.Text("plan mode is on")),
 			}},
@@ -259,7 +259,7 @@ func TestHideWithDeliverAppliesBoth(t *testing.T) {
 	}
 	delivered := false
 	for _, step := range out.Turn.Steps {
-		if step.Kind == StepDelivered {
+		if step.Kind == StepMessagesAdded {
 			delivered = true
 			if len(step.Warnings) != 1 || step.Warnings[0].Code != WarningHideIgnored {
 				t.Fatalf("delivered step warnings = %+v", step.Warnings)
@@ -298,7 +298,7 @@ func TestHideHasNoEffectOnTheReservedFinalAnswer(t *testing.T) {
 	// Replay rejects a record that claims hides on the final call.
 	turn := cloneTurn(out.Turn)
 	for i, step := range turn.Steps {
-		if step.Kind == StepModelIntent && step.Model.FinalAnswerOnly {
+		if step.Kind == StepModelCallStarted && step.Model.FinalReplyOnly {
 			turn.Steps[i].Model.Hidden = []string{"remote"}
 		}
 	}
@@ -367,7 +367,7 @@ func TestHiddenCallResolvesFromTheRecordAfterACrash(t *testing.T) {
 	_, err := (Runner{
 		Client:   client,
 		Tools:    tools,
-		Recorder: &failNthKind{base: base, kind: StepToolSettled, n: 1},
+		Recorder: &failNthKind{base: base, kind: StepToolFinished, n: 1},
 		Hooks:    hider.Hooks(),
 	}).Run(t.Context(), Turn{ID: "t1"}, Start{
 		CommandID: "start",
@@ -434,7 +434,7 @@ func TestReplayRejectsInvalidHiddenTools(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			turn := cloneTurn(out.Turn)
 			for i, step := range turn.Steps {
-				if step.Kind == StepModelIntent {
+				if step.Kind == StepModelCallStarted {
 					turn.Steps[i].Model.Hidden = hidden
 				}
 			}
