@@ -89,6 +89,8 @@ type Controller struct {
 	workerMode       Mode
 	taskPump         bool
 	autoTaskDelivery bool
+	// knownNames caches command names for highlighting in the composer.
+	knownNames commandNameCache
 }
 
 // NewController returns a controller. base ends every run when it is done.

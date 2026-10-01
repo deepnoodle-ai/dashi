@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/runewidth"
@@ -676,8 +677,8 @@ func (s *screen) inputView(mode Mode) tui.View {
 		// an 80×24 terminal, including the running-work indicator.
 		maxHeight = 6
 	}
-	// Wonton v0.2.1 retains a field's initial placeholder. Keep it neutral;
-	// the ordinary text view above it updates the current input meaning.
+	// The hint line above the field says what input means now; the
+	// placeholder stays neutral.
 	return tui.InputField(&s.input).
 		ID(inputID).
 		Prompt("❯").
@@ -703,7 +704,27 @@ func (s *screen) inputView(mode Mode) tui.View {
 			s.updateAttachmentUnsaved()
 		}).
 		OnComplete(s.completeDraft).
+		Highlight(s.highlightCommand).
 		OnSubmit(s.inputSubmit(s.promptID))
+}
+
+var commandHighlightStyle = tui.NewStyle().WithForeground(tui.ColorCyan).WithBold()
+
+// highlightCommand styles the draft's first word when it names a known
+// command, so a typo or an unfinished name stays plain. An answer to a
+// question is never a command.
+func (s *screen) highlightCommand(value string) []tui.TextRange {
+	if s.asking != nil || s.ctrl == nil || !strings.HasPrefix(value, "/") {
+		return nil
+	}
+	end := strings.IndexFunc(value, unicode.IsSpace)
+	if end < 0 {
+		end = len(value)
+	}
+	if !s.ctrl.knownCommand(value[:end]) {
+		return nil
+	}
+	return []tui.TextRange{{Start: 0, End: end, Style: commandHighlightStyle}}
 }
 
 func (s *screen) inputHint(mode Mode) string {

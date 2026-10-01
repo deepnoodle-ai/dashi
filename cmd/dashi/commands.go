@@ -7,6 +7,8 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 
 	"github.com/deepnoodle-ai/dashi/session"
@@ -212,7 +214,53 @@ func (c *Controller) commandNames() []string {
 		names = append(names, entry.name)
 		names = append(names, entry.aliases...)
 	}
+	c.knownNames.store(names)
 	return names
+}
+
+// commandNamesMaxAge is how long the composer trusts its cached command
+// names. A skill added on disk is highlighted within about this long.
+const commandNamesMaxAge = 2 * time.Second
+
+// commandNameCache holds the names that commandNames last returned. Listing
+// commands discovers skills on disk, which is too slow for every render.
+type commandNameCache struct {
+	mu         sync.Mutex
+	names      map[string]bool // lowercase
+	loaded     time.Time
+	refreshing bool
+}
+
+func (k *commandNameCache) store(names []string) {
+	set := make(map[string]bool, len(names))
+	for _, name := range names {
+		set[strings.ToLower(name)] = true
+	}
+	k.mu.Lock()
+	k.names, k.loaded = set, time.Now()
+	k.mu.Unlock()
+}
+
+// knownCommand reports whether name is a command or alias that commandNames
+// lists, matched without regard to case as dispatch does. It is cheap enough
+// to call on every render: it reads the cache and, when the cache is old,
+// refreshes it in the background for a later render.
+func (c *Controller) knownCommand(name string) bool {
+	k := &c.knownNames
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if !k.refreshing && time.Since(k.loaded) > commandNamesMaxAge {
+		k.refreshing = true
+		go func() {
+			defer func() {
+				k.mu.Lock()
+				k.refreshing = false
+				k.mu.Unlock()
+			}()
+			c.commandNames()
+		}()
+	}
+	return k.names[strings.ToLower(name)]
 }
 
 // helpGroups orders the built-in command groups in help. Skills follow.

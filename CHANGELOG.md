@@ -69,7 +69,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (`── turn 3 · model · 2 model calls · 12,345 tokens · $0.0421`). The idle
   "Ask anything" hint is gone; the status line shows "/help lists commands"
   when it fits. The mouse wheel scrolls three lines per notch, and also
-  scrolls dialog details.
+  scrolls dialog details. In the composer, a draft that starts with a known
+  command, alias, or skill name (such as `/effort` or `/q`) shows that name
+  in bold cyan; a partial or unknown name stays plain.
 - **The CLI shows delegated tasks on their tool lines.** The `task` tool line
   reads `task  explore · find the parser · t_k3f2`. One status line under it
   follows the task, such as `⎿ completed · 1 model call · $0.0069 · /task
@@ -83,7 +85,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   fullscreen mode, holding a selection drag on the transcript's top row now
   scrolls up and extends the selection, as dragging below the transcript
   already scrolled down. The transcript starts on the screen's first row, so
-  the terminal could never report the pointer above it.
+  the terminal could never report the pointer above it. Wonton v0.5.0 now
+  handles this edge row.
 - **A task result no longer shows an empty user line in the CLI.** The turn
   that a finished task's result starts now opens with `↳ task t_k3f2
   (explore) completed · result delivered`, live, after a reopen, inline, and

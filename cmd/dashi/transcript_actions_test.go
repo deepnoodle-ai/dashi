@@ -111,6 +111,52 @@ func TestDragHeldOnTheTopRowScrollsUpAndExtendsTheSelection(t *testing.T) {
 	}
 }
 
+// The transcript's last row is not the screen's last row: the composer sits
+// below it. A drag held there selects that row without scrolling. Only a drag
+// into the rows below scrolls down.
+func TestDragOnTheLastTranscriptRowScrollsOnlyBelowIt(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	s := h.scr
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := range 40 {
+		s.Emit(Block{Kind: KindAssistant, Text: fmt.Sprintf("answer %d", i), Done: true})
+	}
+	s.drain()
+	render := func() { tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24)) }
+	mouse := func(typ tui.MouseEventType, y int) {
+		s.HandleEvent(tui.MouseEvent{Type: typ, Button: tui.MouseButtonLeft, X: 3, Y: y})
+	}
+	tick := func(n int) {
+		for range n {
+			s.HandleEvent(tui.TickEvent{})
+			render()
+		}
+	}
+	render()
+	s.vp.ScrollBy(-20)
+	render()
+	last := s.vp.Y + s.vp.Height - 1
+	if last >= 23 {
+		t.Fatalf("transcript reaches the screen's last row %d; nothing sits below it", last)
+	}
+	topBefore, _ := s.vp.Anchor()
+
+	mouse(tui.MousePress, 5)
+	mouse(tui.MouseDrag, last)
+	tick(10)
+	if top, _ := s.vp.Anchor(); top != topBefore {
+		t.Fatalf("top item moved from %d to %d with the pointer on the last transcript row", topBefore, top)
+	}
+
+	mouse(tui.MouseDrag, last+1)
+	tick(10)
+	if top, _ := s.vp.Anchor(); top <= topBefore {
+		t.Fatalf("top item %d, want below %d: a drag under the transcript did not scroll down", top, topBefore)
+	}
+	mouse(tui.MouseRelease, last+1)
+}
+
 // At the start of the transcript there is nothing to scroll to, so the top
 // row selects like any other row.
 func TestDragOnTheTopRowAtTheStartSelectsThatRow(t *testing.T) {
