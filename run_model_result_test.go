@@ -26,7 +26,7 @@ func TestKnownProviderRejectionCanContinueWithNewModelCall(t *testing.T) {
 	}
 	finished := first.Turn.Steps[len(first.Turn.Steps)-2]
 	if finished.Kind != StepModelCallFinished || finished.Model.SendStatus != llm.SendStatusProviderRejected || finished.Model.ResultUnknown {
-		t.Fatalf("settlement=%+v", finished)
+		t.Fatalf("finish=%+v", finished)
 	}
 	second, err := (Runner{
 		Client:   client,
@@ -55,7 +55,7 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 		first.Turn,
 		Continue{CommandID: "unsafe-retry"},
 	); err == nil || client.sends != 1 {
-		t.Fatalf("uncertain attempt retried: err=%v sends=%d", err, client.sends)
+		t.Fatalf("result unknown attempt retried: err=%v sends=%d", err, client.sends)
 	}
 	proved, err := (Runner{
 		Client:   client,

@@ -277,7 +277,7 @@ func TestBudgetStopsForUnboundedProviderToolRequests(t *testing.T) {
 	}
 	_, _, stop := checkSendBudget(state, request, "fixture")
 	if stop == nil || stop.Limit == nil || stop.Limit.Kind != LimitCost {
-		t.Fatalf("provider tool cost was admitted: stop=%+v", stop)
+		t.Fatalf("provider tool cost was recorded: stop=%+v", stop)
 	}
 	if !strings.Contains(stop.Reason, "remove provider tools") {
 		t.Fatalf("reason=%q", stop.Reason)
@@ -346,7 +346,7 @@ func TestBudgetClampsOutputAndRecordsCharge(t *testing.T) {
 	callStart := out.Turn.Steps[1].Model
 	finished := out.Turn.Steps[2].Model
 	if callStart.WorstCaseCost == nil || finished.Cost == nil {
-		t.Fatalf("missing risk or charge: intent=%+v settled=%+v", callStart, finished)
+		t.Fatalf("missing risk or charge: start=%+v finished=%+v", callStart, finished)
 	}
 	if callStart.WorstCaseCost.Total <= finished.Cost.Total {
 		t.Fatalf("risk=%s charge=%s", callStart.WorstCaseCost.Total, finished.Cost.Total)
@@ -368,7 +368,7 @@ func TestValidationFailureKeepsFinishedProviderUsage(t *testing.T) {
 	finished := out.Turn.Steps[2].Model
 	if finished == nil || finished.Error == "" || finished.Result == nil ||
 		finished.Result.Stop.Kind != llm.StopFinished {
-		t.Fatalf("settlement=%+v", finished)
+		t.Fatalf("finish=%+v", finished)
 	}
 	if finished.EstimatedUsage {
 		t.Fatal("finished provider usage was marked estimated")
@@ -413,7 +413,7 @@ func TestInvalidStopKeepsPartialUsageEstimated(t *testing.T) {
 			finished := out.Turn.Steps[2].Model
 			if finished == nil || !finished.EstimatedUsage ||
 				finished.Error == "" {
-				t.Fatalf("settlement=%+v", finished)
+				t.Fatalf("finish=%+v", finished)
 			}
 			if out.Spend.Usage.OutputTokens != 12 ||
 				out.Spend.Estimated != 1 {
@@ -507,7 +507,7 @@ func TestBudgetMissingUsageUsesRecordedBestGuess(t *testing.T) {
 	finished := out.Turn.Steps[2].Model
 	if view.Spend.Estimated != 1 || !finished.EstimatedUsage {
 		t.Fatalf(
-			"missing estimation marker: spend=%+v settled=%+v",
+			"missing estimation marker: spend=%+v finished=%+v",
 			view.Spend,
 			finished,
 		)
@@ -523,7 +523,7 @@ func TestBudgetMissingUsageUsesRecordedBestGuess(t *testing.T) {
 		t.Fatalf("estimated output=%d", view.Spend.Usage.OutputTokens)
 	}
 	if finished.Cost == nil || callStart.WorstCaseCost == nil {
-		t.Fatalf("missing charge or risk: intent=%+v settled=%+v", callStart, finished)
+		t.Fatalf("missing charge or risk: start=%+v finished=%+v", callStart, finished)
 	}
 	if finished.Cost.Total >= callStart.WorstCaseCost.Total {
 		t.Fatalf("charge=%s risk=%s", finished.Cost.Total, callStart.WorstCaseCost.Total)
@@ -784,7 +784,7 @@ func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
 		}
 	}
 	if charge == nil || !charge.Partial() {
-		t.Fatalf("settled charge=%+v", charge)
+		t.Fatalf("final cost=%+v", charge)
 	}
 	clone := spend.Clone()
 	clone.UnpricedRequests[llm.MeterCodeExecution] = 9
@@ -924,7 +924,7 @@ func TestBudgetInterruptedCallCountsPartialBestGuess(t *testing.T) {
 	}
 	if out.Turn.Steps[2].Model.Cost == nil ||
 		!out.Turn.Steps[2].Model.EstimatedUsage {
-		t.Fatalf("settlement=%+v", out.Turn.Steps[2].Model)
+		t.Fatalf("finish=%+v", out.Turn.Steps[2].Model)
 	}
 }
 
@@ -952,7 +952,7 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 				t.Fatalf("estimated output tokens=%d", view.Spend.Usage.OutputTokens)
 			}
 			if view.Spend.Estimated != 1 {
-				t.Fatalf("estimated attempts=%d", view.Spend.Estimated)
+				t.Fatalf("estimated calls=%d", view.Spend.Estimated)
 			}
 			if view.Spend.Cost["USD"] != amount("0.000102") {
 				t.Fatalf("replayed charge=%s", view.Spend.Cost["USD"])
@@ -1049,13 +1049,13 @@ func TestBudgetCumulativeOverflowRejectsNextCallStart(t *testing.T) {
 		Hooks{},
 	)
 	if !nothingWritten(err) {
-		t.Fatalf("overflowing intent error=%v", err)
+		t.Fatalf("overflowing call start error=%v", err)
 	}
 	if step := unacknowledged(err); step == nil || step.Kind != StepModelCallStarted {
-		t.Fatalf("overflowing intent was acknowledged: %+v", step)
+		t.Fatalf("overflowing call start was acknowledged: %+v", step)
 	}
 	if client.sends != 1 {
-		t.Fatalf("overflowing intent dispatched a call: sends=%d", client.sends)
+		t.Fatalf("overflowing call start dispatched a call: sends=%d", client.sends)
 	}
 	view, err := out.Turn.View()
 	if err != nil {
@@ -1175,7 +1175,7 @@ func TestRunCancelKeepsReturnedProviderToolContent(t *testing.T) {
 	}
 	if finished == nil || finished.Interrupted != InterruptRun ||
 		finished.Result == nil {
-		t.Fatalf("settled=%+v", finished)
+		t.Fatalf("finished=%+v", finished)
 	}
 	uses := 0
 	for _, part := range finished.Result.Message.Content {

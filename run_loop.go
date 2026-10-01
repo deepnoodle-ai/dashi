@@ -32,7 +32,7 @@ func (r *runtime) run() RunResult {
 			continue
 		}
 		if s.unresolvedModel != "" {
-			return r.stop(StopResultUnknown, "model attempt needs reconciliation")
+			return r.stop(StopResultUnknown, "model call result unknown; the host must resolve it")
 		}
 		if s.pendingCompaction != "" {
 			if o := r.applyActiveCompaction(s); o != nil {
@@ -53,7 +53,7 @@ func (r *runtime) run() RunResult {
 			return r.stop(StopWaiting, "provider approval pending")
 		}
 		if s.Output != nil {
-			return r.stopAfterAnswer(s)
+			return r.stopAfterReply(s)
 		}
 		if submitted := submittedOutput(s); submitted != nil {
 			if o := r.commit(Step{
@@ -62,7 +62,7 @@ func (r *runtime) run() RunResult {
 			}); o != nil {
 				return *o
 			}
-			return r.stopAfterAnswer(s)
+			return r.stopAfterReply(s)
 		}
 		if s.awaitingClassification && s.latestResult != nil {
 			o, again := r.classify(*s.latestResult)

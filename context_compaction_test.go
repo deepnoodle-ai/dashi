@@ -81,7 +81,7 @@ func TestActiveCompactionLongRequestAndViews(t *testing.T) {
 		t.Fatal(err)
 	}
 	if out.Stop.Kind != StopCompleted || calls != 4 || len(out.ContextCompactions) != 2 || out.ModelCalls != 7 || finish != 1 {
-		t.Fatalf("stop=%+v calls=%d applications=%d attempts=%d finish=%d", out.Stop, calls, len(out.ContextCompactions), out.ModelCalls, finish)
+		t.Fatalf("stop=%+v calls=%d applications=%d calls=%d finish=%d", out.Stop, calls, len(out.ContextCompactions), out.ModelCalls, finish)
 	}
 	if out.Reply != "Fixed and verified." || out.Spend.Usage.InputTokens != 700 || out.Spend.Usage.OutputTokens != 14 {
 		t.Fatalf("answer/accounting=%+v", out.TurnView)
@@ -270,7 +270,7 @@ func TestActiveCompactionRejectsSummaryWorkAndNoSavings(t *testing.T) {
 			r := Runner{Client: c, Tools: activeTools(&calls)}
 			out, err := r.Run(t.Context(), Turn{ID: "reject"}, activeStart(a))
 			if err != nil || out.Stop.Kind != StopFailed || out.Stop.Reason != StopReasonCompactionFailed || len(out.ContextCompactions) != 0 || calls != 2 || out.ModelCalls != 3 || out.Spend.Usage.InputTokens != 300 {
-				t.Fatalf("stop=%+v calls=%d attempts=%d applied=%d spend=%+v err=%v", out.Stop, calls, out.ModelCalls, len(out.ContextCompactions), out.Spend, err)
+				t.Fatalf("stop=%+v calls=%d calls=%d applied=%d spend=%+v err=%v", out.Stop, calls, out.ModelCalls, len(out.ContextCompactions), out.Spend, err)
 			}
 			if out.Reply != "" {
 				t.Fatalf("summary became answer: %q", out.Reply)
@@ -651,7 +651,7 @@ func TestActiveCompactionSummaryUsesLiveTurnMessages(t *testing.T) {
 		}}, nil
 	}}}}
 	calls := 0
-	out, err := (Runner{Client: c, Tools: activeTools(&calls), Hooks: hooks}).Run(t.Context(), Turn{ID: "projected-context"}, activeStart(a))
+	out, err := (Runner{Client: c, Tools: activeTools(&calls), Hooks: hooks}).Run(t.Context(), Turn{ID: "inferred-context"}, activeStart(a))
 	if err != nil || out.Stop.Kind != StopCompleted || calls != 2 || c.sends != 4 || len(out.ContextCompactions) != 1 {
 		t.Fatalf("stop=%+v calls=%d sends=%d summaries=%d err=%v", out.Stop, calls, c.sends, len(out.ContextCompactions), err)
 	}

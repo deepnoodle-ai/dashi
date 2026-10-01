@@ -84,7 +84,7 @@ func (s *replayState) inferredStop() Stop {
 	case s.unresolvedModel != "":
 		return Stop{
 			Kind:     StopResultUnknown,
-			Reason:   "model attempt needs reconciliation",
+			Reason:   "model call result unknown; the host must resolve it",
 			Inferred: true,
 		}
 	case s.modelCallStart != "" || hasStartedTool(s):
@@ -175,7 +175,7 @@ func (s *replayState) canContinue() bool {
 // canContinueWith reports whether Continue can run, given the raised budget
 // and model call limit it carries (nil and zero when it raises nothing).
 func (s *replayState) canContinueWith(raise *Budget, raisedCap int) bool {
-	if s.LastSeq == 0 || s.terminal() || s.unresolvedModel != "" ||
+	if s.LastSeq == 0 || s.ended() || s.unresolvedModel != "" ||
 		len(s.providerTool) > 0 {
 		return false
 	}
@@ -266,7 +266,7 @@ func (s *replayState) canContinueWith(raise *Budget, raisedCap int) bool {
 // terminal reports whether the turn has ended. It keeps an accepted ended
 // stop even when a late result corrects its accounting. New stops check
 // their Ended flag with stopEnds.
-func (s *replayState) terminal() bool {
+func (s *replayState) ended() bool {
 	return s.Stop.Ended || s.stopEnds(s.Stop)
 }
 
@@ -356,7 +356,7 @@ func (s *replayState) checkStillOpen() error {
 	if err := s.calculateSpend(); err != nil {
 		return err
 	}
-	if s.terminal() || incompleteUsageStop(s) != nil {
+	if s.ended() || incompleteUsageStop(s) != nil {
 		return errors.New("late result ended the turn without a stop")
 	}
 	return nil

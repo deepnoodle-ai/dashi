@@ -48,7 +48,7 @@ func TestSessionLastTurnRules(t *testing.T) {
 			want:  func(session.WorkerStatus, bool) expect { return expect{} },
 		},
 		{
-			name:  "uncertain call, no stop",
+			name:  "result unknown call, no stop",
 			build: buildCrashInTool("charge"),
 			next:  dashi.NextRecover,
 			want: func(l session.WorkerStatus, _ bool) expect {
@@ -60,7 +60,7 @@ func TestSessionLastTurnRules(t *testing.T) {
 			},
 		},
 		{
-			name:  "uncertain call, stopped",
+			name:  "result unknown call, stopped",
 			build: buildResultUnknownStop,
 			next:  dashi.NextFix,
 			want: func(session.WorkerStatus, bool) expect {
@@ -207,7 +207,7 @@ func TestSessionBusyMessages(t *testing.T) {
 		},
 		{
 			session.TurnBusyError{TurnID: "s-7", Next: dashi.NextResolvePending},
-			[]string{"s-7", "answer", "Cancel{}"},
+			[]string{"s-7", "resolve", "Cancel{}"},
 		},
 		{
 			session.TurnBusyError{TurnID: "s-7", Next: dashi.NextRunning},

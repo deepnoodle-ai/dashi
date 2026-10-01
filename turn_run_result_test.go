@@ -347,7 +347,7 @@ func TestFailedModelFinishKeepsUsageOnStep(t *testing.T) {
 		t.Fatalf("step usage output tokens=%d", got)
 	}
 	if out.Spend.Usage.OutputTokens == 5 {
-		t.Fatal("outcome spend counted an unsaved settlement")
+		t.Fatal("outcome spend counted an unsaved finish")
 	}
 }
 
@@ -438,7 +438,7 @@ func TestViewInfersStopLikeRun(t *testing.T) {
 	if err != nil || view.Stop.Kind != StopInterrupted {
 		t.Fatalf("replayed stop=%+v err=%v", view.Stop, err)
 	}
-	if got := restingOutcome(crashed); got.Stop != view.Stop {
+	if got := unchangedResult(crashed); got.Stop != view.Stop {
 		t.Fatalf("outcome stop=%+v replay stop=%+v", got.Stop, view.Stop)
 	}
 	view, err = out.Turn.View()
@@ -653,7 +653,7 @@ func TestInferredStopForRequestedCallsIsInterrupted(t *testing.T) {
 	}
 	s.Tools["a"] = ToolView{Call: tool.Call{ID: "a"}, Status: ToolFinished}
 	if stop := s.inferredStop(); stop.Kind != "" || !stop.Inferred {
-		t.Fatalf("settled turn without a stop step projected %+v", stop)
+		t.Fatalf("finished turn without a stop step inferred %+v", stop)
 	}
 }
 
@@ -1072,7 +1072,7 @@ func TestCanceledProviderToolApprovalDoesNotLeaveDanglingMessage(t *testing.T) {
 	for _, message := range messages {
 		for _, part := range message.Content {
 			if part.Kind == llm.ContentProviderToolApprovalRequest {
-				t.Fatal("canceled approval reached projection")
+				t.Fatal("canceled approval reached messages")
 			}
 			if part.Kind == llm.ContentBlock && part.Block != nil && part.Block.Text != nil && part.Block.Text.Text == "before approval" {
 				keptText = true

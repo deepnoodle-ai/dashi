@@ -1063,8 +1063,8 @@ func TestReplayRejectsForgedSteeringSteps(t *testing.T) {
 			return true
 		})
 	})
-	t.Run("tool settlement", func(t *testing.T) {
-		forge(t, "only a rejected submission settles with steers", func(s *Step) bool {
+	t.Run("tool result", func(t *testing.T) {
+		forge(t, "only a rejected submission finishes with steers", func(s *Step) bool {
 			if s.Kind != StepToolFinished {
 				return false
 			}

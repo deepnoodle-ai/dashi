@@ -83,7 +83,7 @@ func TestAfterToolChainsReplacements(t *testing.T) {
 		t.Fatalf("the outcome changed: %q", got)
 	}
 	if seen := toolResultText(t, out.Turn, "call-1"); seen != "KEY=[REDACTED] OK" {
-		t.Fatalf("projection = %q", seen)
+		t.Fatalf("messages = %q", seen)
 	}
 	sent := client.inputs[1].Messages
 	if !strings.Contains(sent[len(sent)-1].Content[0].ToolResult.Output.Content[0].Text.Text, "REDACTED") {
@@ -92,7 +92,7 @@ func TestAfterToolChainsReplacements(t *testing.T) {
 	finished := finishOf(t, out.Turn, "call-1")
 	if finished.Tool.Result == nil || len(finished.HookResults) != 2 ||
 		finished.HookResults[0].Verdict != VerdictReplace {
-		t.Fatalf("settled = %+v", finished)
+		t.Fatalf("finished = %+v", finished)
 	}
 	if _, err := out.Turn.View(); err != nil {
 		t.Fatal(err)
@@ -350,7 +350,7 @@ func TestAfterToolRunsOnFinishedHostResults(t *testing.T) {
 		finished := finishOf(t, out.Turn, "call-1")
 		if finished.ActiveHooks == nil || len(finished.ActiveHooks.AfterTool) != 1 ||
 			hasWarning(out, WarningHooksChanged) {
-			t.Fatalf("settled=%+v warnings=%+v", finished, out.Warnings)
+			t.Fatalf("finished=%+v warnings=%+v", finished, out.Warnings)
 		}
 		// A Resolve from a handler without the hooks is recorded as a change.
 		bare := runner
@@ -360,7 +360,7 @@ func TestAfterToolRunsOnFinishedHostResults(t *testing.T) {
 			t.Fatalf("continue stop=%+v err=%v", out2.Stop, err)
 		}
 	})
-	t.Run("hookless settle warns", func(t *testing.T) {
+	t.Run("hookless finish warns", func(t *testing.T) {
 		client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
 		runner := Runner{Client: client, Tools: tool.List{external}, Hooks: redact.Hooks()}
 		out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
@@ -603,7 +603,7 @@ func TestAfterToolRunsOnFatalAndResultUnknownResults(t *testing.T) {
 			t.Fatalf("stop=%+v calls=%d err=%v", out.Stop, calls, err)
 		}
 	})
-	t.Run("uncertain", func(t *testing.T) {
+	t.Run("result unknown", func(t *testing.T) {
 		calls = 0
 		panicky := tool.Tool{
 			Definition: tool.Definition{
@@ -625,7 +625,7 @@ func TestAfterToolRunsOnFatalAndResultUnknownResults(t *testing.T) {
 		if err != nil || out.Stop.Kind != StopResultUnknown || calls != 0 {
 			t.Fatalf("stop=%+v calls=%d err=%v", out.Stop, calls, err)
 		}
-		result := tool.Succeeded("reconciled")
+		result := tool.Succeeded("resolved")
 		out, err = runner.Run(t.Context(), out.Turn, out.Pending[0].Result(result))
 		if err != nil || calls != 1 || out.Tools["call-1"].Status != ToolFinished {
 			t.Fatalf("status=%s calls=%d err=%v", out.Tools["call-1"].Status, calls, err)

@@ -583,7 +583,7 @@ func TestFinishedMessageStaysClosed(t *testing.T) {
 	hub.Observe(delta)
 	hub.Observe(dashi.Event{TurnID: "t1", MessageID: "m", Seq: 2, Gap: true})
 	if events := hub.take("t1", rd); len(events) != 0 {
-		t.Fatalf("a settled message reopened for a reader: %q", shape(events))
+		t.Fatalf("a finished message reopened for a reader: %q", shape(events))
 	}
 	hub.unsubscribe("t1", rd)
 	late := hub.subscribe("t1")
@@ -596,7 +596,7 @@ func TestFinishedMessageStaysClosed(t *testing.T) {
 		Stop: &dashi.Stop{Kind: dashi.StopCompleted, Ended: true},
 	}})
 	if n := hub.entries(); n != 0 {
-		t.Fatalf("hub holds %d turns after a terminal stop", n)
+		t.Fatalf("hub holds %d turns after a ending stop", n)
 	}
 }
 

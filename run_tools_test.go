@@ -79,7 +79,7 @@ func TestToolFailureRecordShapes(t *testing.T) {
 			results: []llm.Result{oneCall},
 			stop: Stop{
 				Kind:   StopResultUnknown,
-				Reason: "tool outcome needs reconciliation",
+				Reason: "tool call result unknown; the host must resolve it",
 			},
 			status:       ToolResultUnknown,
 			reasonPrefix: "panic: boom",
@@ -253,7 +253,7 @@ func TestToolPanicIsRecordedAsResultUnknown(t *testing.T) {
 				t.Fatal("continued past an unreconciled panic")
 			}
 			out := succeeded("verified")
-			finish := Resolve{CommandID: "reconcile", CallID: "a", Outcome: &out}
+			finish := Resolve{CommandID: "resolve", CallID: "a", Outcome: &out}
 			accepted, err := apply(first.Turn, finish, runner)
 			if err != nil {
 				t.Fatal(err)
@@ -307,7 +307,7 @@ func TestReplayKeepsRecordedToolUnknownResult(t *testing.T) {
 	for _, step := range forged.Steps {
 		req := CommitRequest{Step: step, ExpectedSeq: step.Seq - 1}
 		if err := rec.Commit(t.Context(), req); err != nil {
-			t.Fatalf("recorder rejected the uncertain record: %v", err)
+			t.Fatalf("recorder rejected the result unknown record: %v", err)
 		}
 	}
 	view, err := forged.View()
@@ -321,13 +321,13 @@ func TestReplayKeepsRecordedToolUnknownResult(t *testing.T) {
 	runner = toolRunner(client, rec, executor)
 	continued := Continue{CommandID: "continue"}
 	if _, err := apply(forged, continued, runner); err == nil {
-		t.Fatal("continued past a recorded uncertain call")
+		t.Fatal("continued past a recorded result unknown call")
 	}
 	out := tool.Outcome{
 		State:  tool.StateFailed,
 		Output: new(tool.TextOutput("connection lost")),
 	}
-	finish := Resolve{CommandID: "reconcile", CallID: "call-1", Outcome: &out}
+	finish := Resolve{CommandID: "resolve", CallID: "call-1", Outcome: &out}
 	accepted, err := apply(forged, finish, runner)
 	if err != nil {
 		t.Fatal(err)
@@ -439,7 +439,7 @@ func finishedFact(t *testing.T, turn Turn, callID string) *ToolFact {
 			return step.Tool
 		}
 	}
-	t.Fatalf("no settled step for %s", callID)
+	t.Fatalf("no finished step for %s", callID)
 	return nil
 }
 
@@ -680,7 +680,7 @@ func TestPauseDuringToolLoopFinishesRunningCallBeforeStopping(t *testing.T) {
 		t.Fatal(err)
 	}
 	if view.Tools["first"].Status != ToolFinished {
-		t.Fatalf("first tool status=%s; want settled", view.Tools["first"].Status)
+		t.Fatalf("first tool status=%s; want finished", view.Tools["first"].Status)
 	}
 	secondStatus := view.Tools["second"].Status
 	if secondStatus != ToolRequested && secondStatus != ToolAllowed {
@@ -788,7 +788,7 @@ func startedLocalToolTurn(
 		Model: &ModelFact{
 			ModelCallID: "t1:model:1",
 			MessageID:   "t1:model:1:message",
-			RequestHash: "digest",
+			RequestHash: "hash",
 			Provider:    def.Provider,
 			API:         def.API,
 			Model:       def.Model,

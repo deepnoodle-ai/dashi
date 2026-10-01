@@ -184,7 +184,7 @@ func TestSpendStringUsageOverflow(t *testing.T) {
 	}
 	if !spend.UsageIncomplete || spend.CostUnknown != 0 ||
 		spend.CostPartial != 0 {
-		t.Fatal("usage overflow must be distinct from monetary uncertainty")
+		t.Fatal("usage overflow must be distinct from unknown money")
 	}
 	want := "model: 0.75 USD; tools: 5 USD; usage incomplete"
 	if got := spend.String(); got != want {
@@ -260,7 +260,7 @@ func TestBudgetCostCapBoundaryIsExact(t *testing.T) {
 	}
 	stop := check(used + risk.Total - 1)
 	if stop == nil || stop.Limit == nil || stop.Limit.Kind != LimitCost {
-		t.Fatalf("a call one nano over the cap was admitted: %+v", stop)
+		t.Fatalf("a call one nano over the cap was recorded: %+v", stop)
 	}
 	if stop.Limit.WorstCaseCost != risk.Total || stop.Limit.CostUsed != used ||
 		stop.Limit.Currency != "USD" {
@@ -460,12 +460,12 @@ func TestModelCallCostClassifiesEachModelCall(t *testing.T) {
 		},
 		{
 			// Usage without a final stop reason may describe an earlier frame.
-			name:     "no terminal stop",
+			name:     "no ending stop",
 			finish:   &ModelFact{Result: cutStop},
 			finished: true, basis: UsageSourceEstimated, charged: true,
 		},
 		{
-			name:     "uncertain",
+			name:     "result unknown",
 			finish:   &ModelFact{Error: "timeout", ResultUnknown: true},
 			finished: true, basis: UsageSourceEstimated, charged: true,
 		},
@@ -546,7 +546,7 @@ func TestModelCallCostsSumToSpend(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(view.ModelCallCosts) != 2 {
-		t.Fatalf("attempts=%+v", view.ModelCallCosts)
+		t.Fatalf("calls=%+v", view.ModelCallCosts)
 	}
 	var ids []string
 	for _, step := range out.Turn.Steps {
@@ -561,7 +561,7 @@ func TestModelCallCostsSumToSpend(t *testing.T) {
 	}
 	if !view.ModelCallCosts[0].Exact || view.ModelCallCosts[1].UsageSource != UsageSourceEstimated ||
 		view.ModelCallCosts[1].Exact {
-		t.Fatalf("attempts=%+v", view.ModelCallCosts)
+		t.Fatalf("calls=%+v", view.ModelCallCosts)
 	}
 	callStarts := map[string]*ModelFact{}
 	for _, step := range out.Turn.Steps {
@@ -582,7 +582,7 @@ func TestModelCallCostsSumToSpend(t *testing.T) {
 		}
 	}
 	if (ModelCallCostOf(nil, nil) != ModelCallCost{}) {
-		t.Fatal("nil intent is not the zero value")
+		t.Fatal("nil call start is not the zero value")
 	}
 	sum := map[string]money.Amount{}
 	var usage llm.Usage
@@ -621,7 +621,7 @@ func TestModelCallCostsIncludePendingModelCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(view.ModelCallCosts) != 1 {
-		t.Fatalf("attempts=%+v", view.ModelCallCosts)
+		t.Fatalf("calls=%+v", view.ModelCallCosts)
 	}
 	a := view.ModelCallCosts[0]
 	if a.ModelCallID != "model-1" || a.Finished || a.Exact ||
@@ -651,7 +651,7 @@ func TestMoneyHashIgnoresStoredSpelling(t *testing.T) {
 	}
 	want := canonjson.Hash(live)
 	if got := canonjson.Hash(jsonbRoundTrip(live)); got != want {
-		t.Fatal("a jsonb round trip changed the budget digest")
+		t.Fatal("a jsonb round trip changed the budget hash")
 	}
 	for _, spelling := range []string{
 		`"0.5"`,
@@ -669,7 +669,7 @@ func TestMoneyHashIgnoresStoredSpelling(t *testing.T) {
 			t.Fatalf("decode %s: %v", spelling, err)
 		}
 		if canonjson.Hash(stored) != want {
-			t.Fatalf("stored amount %s changed the budget digest", spelling)
+			t.Fatalf("stored amount %s changed the budget hash", spelling)
 		}
 	}
 }

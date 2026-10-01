@@ -64,7 +64,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutModelCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	if state.ModelCalls != 0 {
-		t.Fatalf("interrupted calls consumed %d model attempts", state.ModelCalls)
+		t.Fatalf("interrupted calls consumed %d model calls", state.ModelCalls)
 	}
 	if state.modelCalls != 3 {
 		t.Fatalf("model call sequence=%d, want 3", state.modelCalls)
@@ -180,7 +180,7 @@ func TestReplayCrashWithModelCallStartCanContinue(t *testing.T) {
 		t.Fatalf("crash resume count=%d, want 1", state.Resumes)
 	}
 	if state.modelCallStart != "model-1" {
-		t.Fatalf("unclosed model intent=%q, want model-1", state.modelCallStart)
+		t.Fatalf("unclosed model call start=%q, want model-1", state.modelCallStart)
 	}
 	if state.ModelCalls != 0 {
 		t.Fatalf("crashed call consumed %d attempts", state.ModelCalls)
@@ -270,7 +270,7 @@ func TestReplayResultUnknownModelCallStartNeedsReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	if view.ReadyToContinue {
-		t.Fatal("explicit uncertain model call needs a report")
+		t.Fatal("explicit result unknown model call needs a report")
 	}
 }
 
@@ -298,7 +298,7 @@ func TestReplayInterruptionPreservesFinishedAnswer(t *testing.T) {
 		t.Fatal("completed model result was lost before classification")
 	}
 	if state.ModelCalls != 1 {
-		t.Fatalf("settled call attempts=%d, want 1", state.ModelCalls)
+		t.Fatalf("finished call calls=%d, want 1", state.ModelCalls)
 	}
 	if state.latestResult == nil ||
 		state.latestResult.Message.Text() != "finished before pause" {
@@ -355,7 +355,7 @@ func TestReplayReportedModelNonexecutionCanContinue(t *testing.T) {
 		t.Fatalf("reported nonexecution still fails the turn: %q", state.failedModel)
 	}
 	if state.unresolvedModel != "" {
-		t.Fatalf("reported model call remains uncertain: %q", state.unresolvedModel)
+		t.Fatalf("reported model call remains result unknown: %q", state.unresolvedModel)
 	}
 }
 
@@ -436,7 +436,7 @@ func TestReplayStartedToolResumptionDependsOnStop(t *testing.T) {
 		ready bool
 	}{
 		{name: "interrupted", stop: StopInterrupted, ready: true},
-		{name: "uncertain", stop: StopResultUnknown, ready: false},
+		{name: "result unknown", stop: StopResultUnknown, ready: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			steps := append([]Step(nil), base...)

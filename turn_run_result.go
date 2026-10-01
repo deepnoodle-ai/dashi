@@ -79,14 +79,14 @@ type Pending struct {
 // the arguments shown. Resolve only records the decision; Continue runs the
 // call.
 func (p Pending) Approve() Resolve {
-	return p.answer(true, "")
+	return p.decide(true, "")
 }
 
 // Deny builds the Resolve command that denies this call. The next Continue
 // gives the reason to the model as the call's result, so the model knows why
 // the call did not run; an empty reason gives "The call was denied."
 func (p Pending) Deny(reason string) Resolve {
-	return p.answer(false, reason)
+	return p.decide(false, reason)
 }
 
 // Result builds the Resolve command that reports a final outcome for a
@@ -100,7 +100,7 @@ func (p Pending) Result(outcome tool.Outcome) Resolve {
 	}
 }
 
-func (p Pending) answer(approve bool, reason string) Resolve {
+func (p Pending) decide(approve bool, reason string) Resolve {
 	if p.ProviderTool != nil {
 		// A provider may reuse a request ID after the earlier request was
 		// resolved, so the model call ID scopes the command ID to this
@@ -136,7 +136,7 @@ func (p Pending) answer(approve bool, reason string) Resolve {
 
 // restingOutcome is the RunResult for a command that did not apply: the
 // caller's turn and its view. A turn whose view cannot be built has no view.
-func restingOutcome(turn Turn) RunResult {
+func unchangedResult(turn Turn) RunResult {
 	s, err := replay(turn)
 	if err != nil {
 		return RunResult{Turn: turn.Clone()}

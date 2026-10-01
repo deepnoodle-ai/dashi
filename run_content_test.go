@@ -124,7 +124,7 @@ func requireNoModelCallStart(t *testing.T, out RunResult, client *scriptedClient
 	t.Helper()
 	for _, step := range out.Turn.Steps {
 		if step.Kind == StepModelCallStarted {
-			t.Fatal("a model intent was recorded")
+			t.Fatal("a model call start was recorded")
 		}
 	}
 	if len(client.inputs) != 0 || client.sends != 0 {
@@ -284,7 +284,7 @@ func TestRefRequestHashCoversHydratedBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if hashOf != canonjson.Hash(body) {
-		t.Fatalf("digest %q does not cover the hydrated request", hashOf)
+		t.Fatalf("hash %q does not cover the hydrated request", hashOf)
 	}
 	if !bytes.Contains(body, []byte(base64Of(refBytes))) {
 		t.Fatal("the hydrated request holds no bytes")
@@ -417,7 +417,7 @@ func TestRefFailuresStopBeforeModelCallStart(t *testing.T) {
 			resolved: 1,
 		},
 		{
-			name: "digest mismatch",
+			name: "hash mismatch",
 			ref:  wrongHash,
 			resolver: &countingResolver{
 				files: map[string][]byte{"upl_1": refBytes},
@@ -725,7 +725,7 @@ func TestRefTurnMessagesAndViewNeverLoad(t *testing.T) {
 	}
 	source := projected[0].Content[1].Block.Document.Source
 	if source.Ref == nil || source.Data != nil {
-		t.Fatalf("projection holds %+v, want the reference only", source)
+		t.Fatalf("messages holds %+v, want the reference only", source)
 	}
 }
 

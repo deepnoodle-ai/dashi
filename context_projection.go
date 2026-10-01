@@ -191,7 +191,7 @@ func coveredMessagesCached(t Turn, plan *ContextCompactionPlan, cache *contextVa
 		return nil, err
 	}
 	if hash != plan.Hash {
-		return nil, errors.New("compaction coverage digest mismatch")
+		return nil, errors.New("compaction coverage hash mismatch")
 	}
 	return messages, nil
 }
@@ -199,7 +199,7 @@ func (s *replayState) validateCompactionCallStart(step Step) error {
 	f := step.Model
 	if f.Purpose == "" {
 		if f.Compaction != nil {
-			return errors.New("ordinary intent has compaction plan")
+			return errors.New("ordinary call start has compaction plan")
 		}
 		if s.pendingCompaction != "" {
 			return errors.New("summary must be applied before ordinary dispatch")
@@ -207,7 +207,7 @@ func (s *replayState) validateCompactionCallStart(step Step) error {
 		return nil
 	}
 	if f.Purpose != ModelPurposeCompaction || f.Compaction == nil || f.Compaction.Through >= step.Seq || f.Compaction.Window != s.ActiveCompactionWindow || s.Agent.ActiveCompaction == nil || s.Agent.ActiveCompaction.Disabled || s.Origin == StartCompaction || len(f.Tools) > 0 || f.FinalReplyOnly || s.modelCallCap-s.ModelCalls < 2 || s.pendingCompaction != "" {
-		return errors.New("invalid summary intent")
+		return errors.New("invalid summary call start")
 	}
 	_, err := coveredMessagesCached(s.source, f.Compaction, s.contextCache)
 	return err
@@ -215,13 +215,13 @@ func (s *replayState) validateCompactionCallStart(step Step) error {
 func (s *replayState) validateCompactionFinish(f *ModelFact) error {
 	callStart := s.startedModelCalls[f.ModelCallID]
 	if callStart == nil {
-		return errors.New("missing model intent")
+		return errors.New("missing model call start")
 	}
 	if f.Purpose != "" && f.Purpose != callStart.Purpose {
-		return errors.New("model settlement changed purpose")
+		return errors.New("model call result changed purpose")
 	}
 	if f.Compaction != nil {
-		return errors.New("settlement cannot change summary plan")
+		return errors.New("a call's result cannot change the summary plan")
 	}
 	if callStart.Purpose == ModelPurposeCompaction && f.Error == "" && f.Interrupted == "" {
 		if f.Result == nil {

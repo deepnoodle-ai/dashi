@@ -131,7 +131,7 @@ func (r *runtime) commit(step Step) *RunResult {
 		candidate.Steps = append(slices.Clone(r.turn.Steps), step)
 		state, err := replay(candidate)
 		if err == nil && incompleteUsageStop(state) != nil {
-			err = errors.New("dashi: model intent usage aggregation overflows")
+			err = errors.New("dashi: model call start usage aggregation overflows")
 		}
 		if err != nil {
 			r.err = &CommitError{
@@ -305,7 +305,7 @@ func (r *runtime) stopWith(stop *Stop) RunResult {
 	return r.current()
 }
 
-func (r *runtime) stopAfterAnswer(s *replayState) RunResult {
+func (r *runtime) stopAfterReply(s *replayState) RunResult {
 	if r.ctx.Err() != nil {
 		return r.contextStop()
 	}

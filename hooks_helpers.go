@@ -47,15 +47,15 @@ func SeedContext(item ContextItem) ModelHook {
 				}
 				break
 			}
-			delivery := cloneContextItem(item)
-			if delivery.ID != "" && p.Turn.usedContextIDs[delivery.ID] {
-				base := fmt.Sprintf("%s:%s:%d", delivery.ID, p.Turn.ID, p.Turn.LastSeq)
-				delivery.ID = base
-				for suffix := 1; p.Turn.usedContextIDs[delivery.ID]; suffix++ {
-					delivery.ID = fmt.Sprintf("%s:%d", base, suffix)
+			added := cloneContextItem(item)
+			if added.ID != "" && p.Turn.usedContextIDs[added.ID] {
+				base := fmt.Sprintf("%s:%s:%d", added.ID, p.Turn.ID, p.Turn.LastSeq)
+				added.ID = base
+				for suffix := 1; p.Turn.usedContextIDs[added.ID]; suffix++ {
+					added.ID = fmt.Sprintf("%s:%d", base, suffix)
 				}
 			}
-			return ModelDecision{AddMessages: []ContextItem{delivery}}, nil
+			return ModelDecision{AddMessages: []ContextItem{added}}, nil
 		},
 	}
 }

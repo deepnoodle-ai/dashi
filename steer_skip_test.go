@@ -143,7 +143,7 @@ func requireSkipped(t *testing.T, turn Turn, id string, decided bool) {
 	if fact.Reason != reasonSteering || fact.Outcome == nil ||
 		fact.Outcome.State != tool.StateNotExecuted ||
 		modelText(modelToolResult(id, fact.Outcome)) != steerSkipText {
-		t.Fatalf("%s settled as %+v", id, fact)
+		t.Fatalf("%s finished as %+v", id, fact)
 	}
 	got := false
 	for _, step := range stepsOf(turn, StepToolDecision) {
@@ -158,7 +158,7 @@ func requireRan(t *testing.T, turn Turn, id string) {
 	t.Helper()
 	fact := finishedFact(t, turn, id)
 	if fact.Outcome == nil || fact.Outcome.State != tool.StateSucceeded {
-		t.Fatalf("%s settled as %+v", id, fact)
+		t.Fatalf("%s finished as %+v", id, fact)
 	}
 }
 
@@ -319,7 +319,7 @@ func TestUrgentSteerSkipsOnlyUnstartedCallsInParallelBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	if hasText(projected, "stop") < 0 {
-		t.Fatal("the steer is not projected from the decoded record")
+		t.Fatal("the steer is not inferred from the decoded record")
 	}
 }
 
@@ -500,7 +500,7 @@ func TestCrashAfterSteeringSkipResumesFromTheRecord(t *testing.T) {
 		skipStart(2),
 		WithSteering(inbox),
 	); err == nil {
-		t.Fatal("the lost settlement was not reported")
+		t.Fatal("the lost finish was not reported")
 	}
 	saved, err := rec.Load(t.Context(), "t1")
 	if err != nil {
@@ -767,7 +767,7 @@ func TestUrgentSteerLeavesUnknownToolResult(t *testing.T) {
 	requireSkipped(t, out.Turn, "b", true)
 	requireSkipped(t, out.Turn, "c", false)
 	if fact := finishedFact(t, out.Turn, "x"); fact.Reason != "unknown tool" {
-		t.Fatalf("x settled as %+v", fact)
+		t.Fatalf("x finished as %+v", fact)
 	}
 	if _, err := cloneTurn(out.Turn).View(); err != nil {
 		t.Fatal(err)
@@ -851,7 +851,7 @@ func TestUrgentSteerLeavesSubmissionToTheFinishPoint(t *testing.T) {
 	}
 	fact := finishedFact(t, out.Turn, "s1")
 	if fact.Reason != "not accepted: "+sourceSteering {
-		t.Fatalf("s1 settled as %+v", fact)
+		t.Fatalf("s1 finished as %+v", fact)
 	}
 }
 

@@ -85,7 +85,7 @@ func TestSameBatchAuthorizationPrecedesLoadFinish(t *testing.T) {
 	}
 	if !sawAction || loadFinishedAtAuthorization {
 		t.Fatalf(
-			"action hook saw load settled=%v, saw action=%v",
+			"action hook saw load finished=%v, saw action=%v",
 			loadFinishedAtAuthorization,
 			sawAction,
 		)

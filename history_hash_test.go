@@ -25,7 +25,7 @@ func TestHistoryHashTreatsNoHistoryConsistently(t *testing.T) {
 	}
 	const want = "v2:sha256:4ab94c2dfa357a765e52d52e4f941b1026a936d05ff1ed73d6131a19d755327b"
 	if withoutHistory != want {
-		t.Fatalf("empty history fingerprint = %q, want %q", withoutHistory, want)
+		t.Fatalf("empty history hash = %q, want %q", withoutHistory, want)
 	}
 }
 
@@ -38,14 +38,14 @@ func TestHistoryHashTracksMessageFields(t *testing.T) {
 	}
 	const want = "v2:sha256:160ff8c56674801daacaaa1ac2da75233ffd696107738894116b0cdaa17363a9"
 	if base != want {
-		t.Fatalf("single-message fingerprint = %q, want %q", base, want)
+		t.Fatalf("single-message hash = %q, want %q", base, want)
 	}
 	copyHash, err := historyHash([]llm.Message{first.Clone()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if base != copyHash {
-		t.Fatal("equivalent messages have different fingerprints")
+		t.Fatal("equivalent messages have different hash")
 	}
 
 	changedContent := first.Clone()
@@ -64,7 +64,7 @@ func TestHistoryHashTracksMessageFields(t *testing.T) {
 			t.Fatal(err)
 		}
 		if got == base {
-			t.Fatalf("changed message kept fingerprint %q", got)
+			t.Fatalf("changed message kept hash %q", got)
 		}
 	}
 }
@@ -98,7 +98,7 @@ func TestTurnMessagesUsesCallHistoryWithoutSavingIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(projected) != 1 || projected[0].Text() != "current" {
-		t.Fatalf("turn projection included prior history: %+v", projected)
+		t.Fatalf("turn messages included prior history: %+v", projected)
 	}
 	withHistory, err := turnMessagesWithHistory(turn, []llm.Message{history})
 	if err != nil {
@@ -112,7 +112,7 @@ func TestTurnMessagesUsesCallHistoryWithoutSavingIt(t *testing.T) {
 	}
 	withHistory[0].Content[0] = llm.Text("changed")
 	if history.Text() != "earlier" {
-		t.Fatal("projection shared caller history content")
+		t.Fatal("messages shared caller history content")
 	}
 }
 

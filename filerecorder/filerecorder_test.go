@@ -498,7 +498,7 @@ func step(turnID string, seq int64, text string) dashi.Step {
 	if seq == 1 {
 		s.Kind = dashi.StepTurnStarted
 		s.CommandID = "start"
-		s.CommandHash = "digest"
+		s.CommandHash = "hash"
 	}
 	return s
 }

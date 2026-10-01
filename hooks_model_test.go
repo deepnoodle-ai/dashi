@@ -97,10 +97,10 @@ func TestHideRemovesToolsFromTheCall(t *testing.T) {
 	}
 	callStart := callStartOf(t, out.Turn, 1)
 	if got := toolNames(callStart.Tools); !slices.Equal(got, []string{"read"}) {
-		t.Fatalf("intent tools = %v", got)
+		t.Fatalf("call start tools = %v", got)
 	}
 	if !slices.Equal(callStart.Hidden, []string{"write", "bash"}) {
-		t.Fatalf("intent hidden = %v", callStart.Hidden)
+		t.Fatalf("call start hidden = %v", callStart.Hidden)
 	}
 	if len(out.Warnings) != 0 {
 		t.Fatalf("warnings = %+v", out.Warnings)

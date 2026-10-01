@@ -192,7 +192,7 @@ func testRetriesCommand(t *testing.T, s Store) {
 func testRejectsCommandConflict(t *testing.T, s Store) {
 	steps := seed(t, s, turnID, 1)
 	conflict := steps[0]
-	conflict.CommandHash = "dashitest-different-digest"
+	conflict.CommandHash = "dashitest-different-hash"
 	err := commit(t, s, conflict, owner)
 	requireRejected(t, err, dashi.ErrCommandIDReused)
 	requireRecord(t, s, turnID, steps)
@@ -205,7 +205,7 @@ func testIsolatesTurns(t *testing.T, s Store) {
 	err := commit(t, s, contextStep(other, 3, "wrong turn"), owner)
 	requireRejected(t, err, dashi.ErrStaleTurn)
 	start := startStep(other)
-	start.CommandHash = "dashitest-other-digest"
+	start.CommandHash = "dashitest-other-hash"
 	if err := commit(t, s, start, owner); err != nil {
 		t.Fatalf("command ID reused in another turn was not accepted: %v", err)
 	}
@@ -294,7 +294,7 @@ func startStep(id string) dashi.Step {
 		At:          stepTime,
 		Kind:        dashi.StepTurnStarted,
 		CommandID:   "start",
-		CommandHash: "dashitest-digest",
+		CommandHash: "dashitest-hash",
 		Started: &dashi.StartFact{
 			Agent: def,
 			// Raw JSON that a meaning-preserving store may respell: keys out

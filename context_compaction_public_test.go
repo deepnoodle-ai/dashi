@@ -126,7 +126,7 @@ func TestActiveCompactionNativeSeparateProviderToolStatus(t *testing.T) {
 				t.Fatalf("stop=%+v summary evidence=%v answer=%q err=%v", out.Stop, c.summaryHadEvidence, out.Reply, err)
 			}
 			if effects != 1 || c.summaries != 1 || len(c.sent) != 3 || len(out.ContextCompactions) != 1 || out.ModelCalls != 3 || len(transport.requests(t)) != 1 {
-				t.Fatalf("effects=%d summaries=%d sends=%d applications=%d attempts=%d", effects, c.summaries, len(c.sent), len(out.ContextCompactions), out.ModelCalls)
+				t.Fatalf("effects=%d summaries=%d sends=%d applications=%d calls=%d", effects, c.summaries, len(c.sent), len(out.ContextCompactions), out.ModelCalls)
 			}
 			if out.Spend.Usage.InputTokens != 300 || out.Spend.Usage.OutputTokens != 6 {
 				t.Fatalf("accounting=%+v", out.Spend)
@@ -191,7 +191,7 @@ func TestActiveCompactionNativeCombinedProviderToolDiagnostic(t *testing.T) {
 				t.Fatalf("stop=%+v summary evidence=%v answer=%q err=%v", out.Stop, c.summaryHadEvidence, out.Reply, err)
 			}
 			if effects != 1 || c.summaries != 1 || len(c.sent) != 3 || len(out.ContextCompactions) != 1 || out.ModelCalls != 3 || len(transport.requests(t)) != 1 {
-				t.Fatalf("effects=%d summaries=%d sends=%d applications=%d attempts=%d", effects, c.summaries, len(c.sent), len(out.ContextCompactions), out.ModelCalls)
+				t.Fatalf("effects=%d summaries=%d sends=%d applications=%d calls=%d", effects, c.summaries, len(c.sent), len(out.ContextCompactions), out.ModelCalls)
 			}
 			if out.Spend.Usage.InputTokens != 300 || out.Spend.Usage.OutputTokens != 6 {
 				t.Fatalf("accounting=%+v", out.Spend)
@@ -263,7 +263,7 @@ func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 				})
 				replies := []llm.Result{
 					dashitest.CallTool("read-1", "read", "{}"),
-					dashitest.Reply("<summary>Original objective retained. Evidence read finished. " + strings.Repeat("settled evidence ", 300) + "</summary>"),
+					dashitest.Reply("<summary>Original objective retained. Evidence read finished. " + strings.Repeat("finished evidence ", 300) + "</summary>"),
 					dashitest.Reply("Fixed and verified."),
 				}
 				for i := range replies {
@@ -307,7 +307,7 @@ func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 				}
 				view, err := restored.View()
 				if err != nil || view.ModelCalls != 2 || len(view.ContextCompactions) != 1 {
-					t.Fatalf("reload: attempts=%d summaries=%d err=%v", view.ModelCalls, len(view.ContextCompactions), err)
+					t.Fatalf("reload: calls=%d summaries=%d err=%v", view.ModelCalls, len(view.ContextCompactions), err)
 				}
 				input := client.Inputs()[0]
 				input.Messages, err = dashi.TurnMessages(restored)
@@ -328,7 +328,7 @@ func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 					t.Fatalf("resume: stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
 				}
 				if effects != 1 || len(client.Inputs()) != 3 || len(out.ContextCompactions) != 1 || out.ModelCalls != 3 {
-					t.Fatalf("resume repeated work: effects=%d sends=%d summaries=%d attempts=%d", effects, len(client.Inputs()), len(out.ContextCompactions), out.ModelCalls)
+					t.Fatalf("resume repeated work: effects=%d sends=%d summaries=%d calls=%d", effects, len(client.Inputs()), len(out.ContextCompactions), out.ModelCalls)
 				}
 				if out.Spend.Usage.InputTokens != 300 || out.Spend.Usage.OutputTokens != 6 {
 					t.Fatalf("resume accounting: %+v", out.Spend)

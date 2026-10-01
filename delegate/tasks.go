@@ -759,7 +759,7 @@ func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 	ts.mu.Unlock()
 	if unended {
 		// The session failed before the turn recorded a result.
-		out, err := dashi.RunResult{}, cmp.Or(runErr, errNoOutcome)
+		out, err := dashi.RunResult{}, cmp.Or(runErr, errNoResult)
 		if ts.isStopping(t) {
 			out, err = ts.recordCancel(t, current, out, err)
 		}
@@ -775,7 +775,7 @@ func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 }
 
 // errNoOutcome marks a run that ended without a result or an error.
-var errNoOutcome = errors.New("the child session ended without an outcome")
+var errNoResult = errors.New("the child session ended without an outcome")
 
 func (ts *Tasks) isStopping(t *task) bool {
 	ts.mu.Lock()

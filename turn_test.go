@@ -322,7 +322,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		view.Tools["call-1"].Call.Args,
 	} {
 		if canonjson.Hash(args) != ArgsHash(view.Tools["call-1"].Call.Args) {
-			t.Fatalf("approval digest of %s does not match", args)
+			t.Fatalf("approval hash of %s does not match", args)
 		}
 	}
 	approval := ApprovalDecision{
@@ -534,7 +534,7 @@ func equalFixture() Step {
 		At:          time.Date(2026, 1, 2, 3, 4, 5, 123456789, time.UTC),
 		Kind:        StepTurnStarted,
 		CommandID:   "start",
-		CommandHash: "digest",
+		CommandHash: "hash",
 		Started: &StartFact{
 			OutputSchema: messySchema,
 			Input: []llm.Message{

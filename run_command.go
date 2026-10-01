@@ -316,7 +316,7 @@ func (r Runner) apply(
 		if c.ModelCalls < 0 ||
 			c.ModelCalls != 0 && c.ModelCalls <= state.modelCallCap {
 			return RunResult{}, fmt.Errorf(
-				"dashi: model-attempt raise must exceed the current limit of %d",
+				"dashi: model-call raise must exceed the current limit of %d",
 				state.modelCallCap,
 			)
 		}
@@ -347,7 +347,7 @@ func (r Runner) apply(
 		}
 	case Resolve:
 		if len(turn.Steps) == 0 {
-			return RunResult{}, errors.New("dashi: cannot settle before start")
+			return RunResult{}, errors.New("dashi: cannot resolve before start")
 		}
 		n := 0
 		if c.Outcome != nil {
@@ -375,13 +375,13 @@ func (r Runner) apply(
 			n++
 		}
 		if n != 1 {
-			return RunResult{}, errors.New("dashi: settle requires one fact")
+			return RunResult{}, errors.New("dashi: resolve requires one fact")
 		}
 		if c.ModelResult != nil || c.ModelFailure != nil {
 			if c.CallID == "" ||
 				(c.CallID != state.modelCallStart &&
 					c.CallID != state.unresolvedModel) {
-				return RunResult{}, errors.New("dashi: model attempt is not pending")
+				return RunResult{}, errors.New("dashi: model call is not pending")
 			}
 			kind := StepModelCallFinished
 			if c.CallID == state.unresolvedModel {
@@ -451,14 +451,14 @@ func (r Runner) apply(
 				return RunResult{}, errors.New("dashi: tool result is not pending")
 			}
 			if v.Call.Name == SubmitOutputTool {
-				return RunResult{}, errors.New("dashi: structured output is settled by the runner")
+				return RunResult{}, errors.New("dashi: structured output is recorded by the runner")
 			}
 			if e := c.Outcome.Validate(); e != nil {
 				return RunResult{}, e
 			}
 			if c.Outcome.State == tool.StateWaiting ||
 				c.Outcome.State == tool.StateDetached {
-				return RunResult{}, errors.New("dashi: settle requires a final tool outcome")
+				return RunResult{}, errors.New("dashi: resolve requires a final tool outcome")
 			}
 			fact := &ToolFact{Call: v.Call, Outcome: c.Outcome}
 			// The turn deadline limits the turn's own work, not the host

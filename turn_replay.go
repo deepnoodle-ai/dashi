@@ -155,7 +155,7 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 		}
 		if step.CommandID != "" {
 			if step.CommandHash == "" {
-				return nil, fmt.Errorf("%w: command digest missing", ErrInvalidTurn)
+				return nil, fmt.Errorf("%w: command hash missing", ErrInvalidTurn)
 			}
 			if old, ok := s.commandHashes[step.CommandID]; ok &&
 				old != step.CommandHash {

@@ -43,7 +43,7 @@ func TestRunnerStartUsesHistoryWithoutRecordingIt(t *testing.T) {
 		t.Fatalf("model request omitted history: %#v", client.inputs[0].Messages)
 	}
 	if out.Turn.Steps[0].Started.HistoryHash == "" {
-		t.Fatal("start did not record a history fingerprint")
+		t.Fatal("start did not record a history hash")
 	}
 	encoded, err := json.Marshal(out.Turn)
 	if err != nil {
@@ -382,7 +382,7 @@ func TestRunnerCrashThenContinueUsesSuppliedHistory(t *testing.T) {
 		},
 	)
 	if !nothingWritten(err) {
-		t.Fatalf("model intent write was not rejected: %v", err)
+		t.Fatalf("model call start write was not rejected: %v", err)
 	}
 	if first.Turn.ID != "history-recovery" {
 		t.Fatalf("outcome lost the turn: %+v", first.Turn)
@@ -516,7 +516,7 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 		Resolve{CommandID: "result", CallID: "call-1", Outcome: &result},
 	)
 	if err != nil || !accepted.ReadyToContinue || client.sends != 1 {
-		t.Fatalf("settle: out=%+v err=%v sends=%d", accepted, err, client.sends)
+		t.Fatalf("finish: out=%+v err=%v sends=%d", accepted, err, client.sends)
 	}
 	completed, err := (Runner{
 		Client:   client,
@@ -524,7 +524,7 @@ func TestDuplicateCommandLoadsCurrentTurn(t *testing.T) {
 		Recorder: rec,
 	}).Run(t.Context(), accepted.Turn, Continue{CommandID: "continue"})
 	if err != nil || completed.Stop.Kind != StopCompleted {
-		t.Fatalf("settle: stop=%+v err=%v", completed.Stop, err)
+		t.Fatalf("finish: stop=%+v err=%v", completed.Stop, err)
 	}
 	duplicate, err := (Runner{
 		Client:   client,
@@ -587,7 +587,7 @@ func TestRecordWithoutClient(t *testing.T) {
 		admitted.Stop.Kind != StopInterrupted ||
 		admitted.Stop.Reason != "pause requested" ||
 		admitted.Next() != NextContinue {
-		t.Fatalf("admitted=%+v steps=%d", admitted.Stop, len(admitted.Turn.Steps))
+		t.Fatalf("recorded=%+v steps=%d", admitted.Stop, len(admitted.Turn.Steps))
 	}
 
 	// The same unrun Start with a Client records the same Start step.
@@ -784,7 +784,7 @@ func TestResolveAndAddMessagesWithoutClient(t *testing.T) {
 			Resolve{CommandID: "result", CallID: "call-1", Outcome: &result},
 		)
 		if err != nil || !finished.ReadyToContinue || client.sends != 1 {
-			t.Fatalf("settled=%+v err=%v sends=%d", finished.Stop, err, client.sends)
+			t.Fatalf("finished=%+v err=%v sends=%d", finished.Stop, err, client.sends)
 		}
 	})
 
@@ -828,7 +828,7 @@ func TestResolveAndAddMessagesWithoutClient(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := NewMemoryRecorder()
 			turn := crashedModelCallStart(t, rec)
-			tc.finish.CommandID = "reconcile"
+			tc.finish.CommandID = "resolve"
 			tc.finish.CallID = "t1:model:1"
 			out, err := (Runner{Recorder: rec}).Run(t.Context(), turn, tc.finish)
 			if err != nil || !out.ReadyToContinue {
@@ -853,7 +853,7 @@ func crashedModelCallStart(t *testing.T, rec *MemoryRecorder) Turn {
 		{Kind: StepModelCallStarted, Model: &ModelFact{
 			ModelCallID: "t1:model:1",
 			MessageID:   "t1:model:1:message",
-			RequestHash: "digest",
+			RequestHash: "hash",
 			Provider:    def.Provider,
 			API:         def.API,
 			Model:       def.Model,
@@ -907,7 +907,7 @@ func TestRecordWithoutRunning(t *testing.T) {
 	canceled, err := (Runner{Recorder: rec}).Run(
 		t.Context(),
 		admitted.Turn,
-		Cancel{CommandID: "cancel", Reason: "admission withdrawn"},
+		Cancel{CommandID: "cancel", Reason: "reservation withdrawn"},
 	)
 	if err != nil || canceled.Stop.Kind != StopCanceled {
 		t.Fatalf("canceled=%+v err=%v", canceled.Stop, err)
@@ -960,7 +960,7 @@ func TestRecordedTurnResumesWithNoResumesAllowed(t *testing.T) {
 		WithPause(paused),
 	)
 	if err != nil || admitted.Next() != NextContinue {
-		t.Fatalf("admitted=%+v err=%v", admitted.Stop, err)
+		t.Fatalf("recorded=%+v err=%v", admitted.Stop, err)
 	}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	done, err := (Runner{Client: client, Recorder: rec}).Run(

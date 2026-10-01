@@ -271,7 +271,7 @@ func TestSessionTurnsAndHistory(t *testing.T) {
 	}
 	projected, err := s.NextHistory(t.Context())
 	if err != nil || texts(projected) != texts(history) {
-		t.Fatalf("projected=%q err=%v", texts(projected), err)
+		t.Fatalf("inferred=%q err=%v", texts(projected), err)
 	}
 	broken := &brokenLoader{MemoryRecorder: rec, id: "s-1"}
 	var ids []string

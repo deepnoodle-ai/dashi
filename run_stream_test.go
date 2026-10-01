@@ -160,7 +160,7 @@ func TestRunnerStreamBreakBeforeDispatchRecordsInterruption(t *testing.T) {
 					}
 				}
 				if !found {
-					t.Fatalf("missing interrupted settlement: %+v", turn.Steps)
+					t.Fatalf("missing interrupted finish: %+v", turn.Steps)
 				}
 			}
 		})
@@ -208,7 +208,7 @@ func TestStreamBreakKeepsInterruptedPartialResult(t *testing.T) {
 	}
 	if view.ModelCalls != 0 || view.Spend.Usage.InputTokens != 3 ||
 		view.Spend.Usage.OutputTokens != 2 {
-		t.Fatalf("attempts=%d usage=%+v", view.ModelCalls, view.Spend.Usage)
+		t.Fatalf("calls=%d usage=%+v", view.ModelCalls, view.Spend.Usage)
 	}
 	found := false
 	for _, step := range turn.Steps {
@@ -220,7 +220,7 @@ func TestStreamBreakKeepsInterruptedPartialResult(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("missing interrupted partial settlement: %+v", turn.Steps)
+		t.Fatalf("missing interrupted partial finish: %+v", turn.Steps)
 	}
 }
 
@@ -289,7 +289,7 @@ func TestRunnerStreamBreakWithContextCancelEndsTurn(t *testing.T) {
 		t.Fatalf("stop=%+v, want canceled", view.Stop)
 	}
 	if view.Tools["call"].Status != ToolFinished {
-		t.Fatalf("unstarted call status=%s, want settled", view.Tools["call"].Status)
+		t.Fatalf("unstarted call status=%s, want finished", view.Tools["call"].Status)
 	}
 	if view.Tools["call"].Outcome == nil ||
 		view.Tools["call"].Outcome.State != tool.StateNotExecuted {

@@ -170,7 +170,7 @@ func New(definitions []Definition, options Options) (*Bundle, error) {
 		Definitions []Definition
 	}{ToolName: name, Definitions: entries})
 	if err != nil {
-		return nil, fmt.Errorf("skill: digest input: %w", err)
+		return nil, fmt.Errorf("skill: hash input: %w", err)
 	}
 	sum := sha256.Sum256(raw)
 	bundle := &Bundle{

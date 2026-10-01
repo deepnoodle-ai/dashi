@@ -527,7 +527,7 @@ func TestSessionCarryForward(t *testing.T) {
 
 // TestSessionAnswer checks that Session.Resolve records each Resolve, then
 // continues, in one call.
-func TestSessionAnswer(t *testing.T) {
+func TestSessionResolve(t *testing.T) {
 	client := dashitest.NewClient(
 		dashitest.CallTool("call-1", "charge", `{}`),
 		dashitest.Reply("I did not charge the card."),
@@ -553,7 +553,7 @@ func TestSessionAnswer(t *testing.T) {
 // Continue committed but the caller lost the result. The retry returns the
 // recorded result and records and runs nothing more, for a Resolve from the
 // Pending builders and for a Resolve without a command ID.
-func TestSessionAnswerRetry(t *testing.T) {
+func TestSessionResolveRetry(t *testing.T) {
 	for _, name := range []string{"builder", "no command ID"} {
 		t.Run(name, func(t *testing.T) {
 			rec := dashi.NewMemoryRecorder()
@@ -600,7 +600,7 @@ func TestSessionAnswerRetry(t *testing.T) {
 // TestSessionAnswerOptions passes Session.Resolve's options to the runs it
 // makes: a leasing worker's WithOwner reaches the recorder on the Resolve
 // and on the Continue.
-func TestSessionAnswerOptions(t *testing.T) {
+func TestSessionResolveOptions(t *testing.T) {
 	client := dashitest.NewClient(
 		dashitest.CallTool("call-1", "charge", `{}`),
 		dashitest.Reply("I did not charge the card."),
@@ -625,7 +625,7 @@ func TestSessionAnswerOptions(t *testing.T) {
 		t.Fatalf("answer: %v, stop %+v", err, out.Stop)
 	}
 	if len(rec.owners) < 2 {
-		t.Fatalf("commits = %d; want the settle and the continue", len(rec.owners))
+		t.Fatalf("commits = %d; want the finish and the continue", len(rec.owners))
 	}
 	for i, owner := range rec.owners {
 		if owner != "w1" {
@@ -735,7 +735,7 @@ func TestSessionProbingReads(t *testing.T) {
 				At:          time.Now(),
 				Kind:        dashi.StepTurnStarted,
 				CommandID:   "start",
-				CommandHash: "digest",
+				CommandHash: "hash",
 				Started: &dashi.StartFact{
 					Agent: dashi.Agent{
 						Version:  "r1",

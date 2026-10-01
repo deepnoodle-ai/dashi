@@ -274,7 +274,7 @@ func TestExternalToolResolve(t *testing.T) {
 		t.Fatal(err)
 	}
 	if same.Stop.Kind != StopCompleted || client.sends != 2 {
-		t.Fatalf("duplicate settlement sent again")
+		t.Fatalf("duplicate finish sent again")
 	}
 }
 
@@ -556,7 +556,7 @@ func TestFinishedModelResultDoesNotSendAgain(t *testing.T) {
 		Model: &ModelFact{
 			ModelCallID: "t1:model:1",
 			MessageID:   "t1:model:1:message",
-			RequestHash: "digest",
+			RequestHash: "hash",
 			Provider:    def.Provider,
 			API:         def.API,
 			Model:       def.Model,
@@ -571,7 +571,7 @@ func TestFinishedModelResultDoesNotSendAgain(t *testing.T) {
 		t.Context(),
 		turn,
 		Resolve{
-			CommandID:   "reconcile",
+			CommandID:   "resolve",
 			CallID:      "t1:model:1",
 			ModelResult: &answer,
 		},
@@ -622,7 +622,7 @@ func TestCommittedFinalResultRecoversWithoutNewModelCall(t *testing.T) {
 		Model: &ModelFact{
 			ModelCallID: "t1:model:1",
 			MessageID:   "t1:model:1:message",
-			RequestHash: "digest",
+			RequestHash: "hash",
 			Provider:    def.Provider,
 			API:         def.API,
 			Model:       def.Model,
@@ -670,7 +670,7 @@ func TestResultUnknownModelNeedsResolution(t *testing.T) {
 		Continue{CommandID: "retry"},
 	)
 	if err == nil {
-		t.Fatal("uncertain model attempt was retryable")
+		t.Fatal("result unknown model call was retryable")
 	}
 	answer := final("recovered")
 	answer.Usage = &llm.Usage{InputTokens: 5}
@@ -681,7 +681,7 @@ func TestResultUnknownModelNeedsResolution(t *testing.T) {
 		t.Context(),
 		got.Turn,
 		Resolve{
-			CommandID:   "reconcile",
+			CommandID:   "resolve",
 			CallID:      "t1:model:1",
 			ModelResult: &answer,
 		},
@@ -690,7 +690,7 @@ func TestResultUnknownModelNeedsResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !finished.ReadyToContinue || client.sends != 1 {
-		t.Fatalf("settled=%+v sends=%d", finished, client.sends)
+		t.Fatalf("finished=%+v sends=%d", finished, client.sends)
 	}
 	completed, err := (Runner{
 		Client:   client,
@@ -975,14 +975,14 @@ func TestIncompleteModelCallIsNotShownAsExecutableCall(t *testing.T) {
 			}
 			if part.Kind == llm.ContentToolCall {
 				t.Fatalf(
-					"incomplete tool call projected into new model request: %+v",
+					"incomplete tool call inferred into new model request: %+v",
 					client.inputs[1].Messages,
 				)
 			}
 		}
 	}
 	if !keptText {
-		t.Fatal("partial assistant text was lost from projection")
+		t.Fatal("partial assistant text was lost from messages")
 	}
 }
 
@@ -1020,7 +1020,7 @@ func TestParallelToolsRecordCompletionButKeepCallOrder(t *testing.T) {
 					Output: new(tool.TextOutput("first result")),
 				}, nil
 			case <-time.After(5 * time.Second):
-				return tool.Outcome{}, errors.New("second tool did not settle concurrently")
+				return tool.Outcome{}, errors.New("second tool did not finish concurrently")
 			}
 		}),
 	}
@@ -1068,7 +1068,7 @@ func TestParallelToolsRecordCompletionButKeepCallOrder(t *testing.T) {
 		}
 	}
 	if strings.Join(projected, ",") != "a,b" {
-		t.Fatalf("projection order=%v", projected)
+		t.Fatalf("messages order=%v", projected)
 	}
 }
 
@@ -1108,7 +1108,7 @@ func TestStartedToolCanBeResolvedAfterCrash(t *testing.T) {
 		Model: &ModelFact{
 			ModelCallID: "t1:model:1",
 			MessageID:   "t1:model:1:message",
-			RequestHash: "digest",
+			RequestHash: "hash",
 			Provider:    def.Provider,
 			API:         def.API,
 			Model:       def.Model,
@@ -1146,7 +1146,7 @@ func TestStartedToolCanBeResolvedAfterCrash(t *testing.T) {
 	got, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		turn,
-		Resolve{CommandID: "reconcile", CallID: "a", Outcome: &outcome},
+		Resolve{CommandID: "resolve", CallID: "a", Outcome: &outcome},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1290,7 +1290,7 @@ func TestSnapshotContextKeepsReplacedItemInPlace(t *testing.T) {
 	if len(messages) != 3 ||
 		messages[1].Content[0].Block.Text.Text != "old" ||
 		messages[2].Content[0].Block.Text.Text != "new" {
-		t.Fatalf("projection=%+v", messages)
+		t.Fatalf("messages=%+v", messages)
 	}
 	view, err := turn.View()
 	if err != nil {
@@ -1342,7 +1342,7 @@ func TestUnknownCommitRequiresReloadBeforeContinuation(t *testing.T) {
 	}
 	view, err := saved.View()
 	if err != nil || !view.ReadyToContinue {
-		t.Fatalf("saved intent is not ready: view=%+v err=%v", view, err)
+		t.Fatalf("saved call start is not ready: view=%+v err=%v", view, err)
 	}
 	recovered, err := (Runner{
 		Client:   client,
@@ -1412,7 +1412,7 @@ func TestToolContextCannotClaimPrivilegedRole(t *testing.T) {
 			},
 		}
 		if _, err := TurnMessagesFull(turn); !errors.Is(err, ErrInvalidTurn) {
-			t.Fatalf("tool context with role %q reached projection: %v", role, err)
+			t.Fatalf("tool context with role %q reached messages: %v", role, err)
 		}
 	}
 }

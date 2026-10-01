@@ -75,7 +75,7 @@ func (s *Session) RunQueue(
 		return out, ran, err
 	}
 	if !ran {
-		out, err = s.lastOutcome(ctx)
+		out, err = s.lastResult(ctx)
 		return out, false, err
 	}
 	out, err = cl.dispatch(ctx, out, err)
@@ -490,7 +490,7 @@ func collectRun(
 
 // lastOutcome returns the current result of the session's last turn, or a
 // zero RunResult when it has none.
-func (s *Session) lastOutcome(ctx context.Context) (dashi.RunResult, error) {
+func (s *Session) lastResult(ctx context.Context) (dashi.RunResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ID == "" {

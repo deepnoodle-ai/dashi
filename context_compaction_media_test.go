@@ -155,7 +155,7 @@ func (c activePricedClient) Prepare(ctx context.Context, in llm.Input) (llm.Requ
 func TestActiveCompactionMediaCostCheckUnchanged(t *testing.T) {
 	data := activePNG(t)
 	for _, affordable := range []bool{false, true} {
-		t.Run(map[bool]string{false: "refused", true: "admitted"}[affordable], func(t *testing.T) {
+		t.Run(map[bool]string{false: "refused", true: "recorded"}[affordable], func(t *testing.T) {
 			c := activePricedClient{&activeClient{window: 128000, scriptedClient: scriptedClient{results: []llm.Result{final("inspected")}}}}
 			a := testAgent()
 			a.ActiveCompaction = &ActiveCompactionPolicy{}
@@ -182,7 +182,7 @@ func TestActiveCompactionMediaCostCheckUnchanged(t *testing.T) {
 			}
 			if affordable {
 				if out.Stop.Kind != StopCompleted || c.sends != 1 || !observed {
-					t.Fatalf("admission=%+v sends=%d", out.Stop, c.sends)
+					t.Fatalf("reservation=%+v sends=%d", out.Stop, c.sends)
 				}
 			} else {
 				if out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitCost || c.sends != 0 || observed {

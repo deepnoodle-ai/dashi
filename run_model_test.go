@@ -73,7 +73,7 @@ func TestReservedFinalReplyUsesLastModelCallWithoutExtraCall(t *testing.T) {
 		}
 		callStarts++
 		if step.Model.FinalReplyOnly != (callStarts == 2) || (callStarts == 2 && len(step.Model.Tools) != 0) {
-			t.Fatalf("intent %d=%+v", callStarts, step.Model)
+			t.Fatalf("call start %d=%+v", callStarts, step.Model)
 		}
 	}
 	view, err := out.Turn.View()
@@ -135,7 +135,7 @@ func TestReservedFinalReplyKeepsStructuredOutputSubmission(t *testing.T) {
 		},
 	)
 	if err != nil || !limitedForModelCalls(out.Stop) ||
-		out.Output == nil || out.Output.Source != OutputFromTool || string(out.Output.Value) != `{"answer":42}` || client.sends != 2 {
+		out.Output == nil || out.Output.Source != OutputSourceToolCall || string(out.Output.Value) != `{"answer":42}` || client.sends != 2 {
 		t.Fatalf("out=%+v err=%v sends=%d", out, err, client.sends)
 	}
 	if len(client.inputs[1].Tools) != 1 || client.inputs[1].Tools[0].Name != SubmitOutputTool {
@@ -153,7 +153,7 @@ func TestReservedFinalReplyKeepsStructuredOutputSubmission(t *testing.T) {
 			return
 		}
 	}
-	t.Fatal("missing final-answer intent")
+	t.Fatal("missing final-reply call start")
 }
 
 func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
@@ -175,7 +175,7 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 		allowed bool
 	}{
 		{
-			name: "model attempts without final attempt",
+			name: "model calls without final attempt",
 			stop: *testStop(StopLimited, LimitModelCalls),
 		},
 		{
@@ -519,7 +519,7 @@ func TestRunnerTimeoutRetainsOrderedMixedPartialData(t *testing.T) {
 		finished.SendStatus != llm.SendStatusUnknown || !finished.ResultUnknown ||
 		!finished.EstimatedUsage || finished.Result == nil ||
 		finished.Result.Stop.Kind != llm.StopIncomplete {
-		t.Fatalf("settlement=%+v", finished)
+		t.Fatalf("finish=%+v", finished)
 	}
 	parts := finished.Result.Message.Content
 	if len(parts) != 4 || parts[0].Block.Text.Text != "A" ||
@@ -583,7 +583,7 @@ func TestRunnerKeepsProviderTimeoutWhenHostCancelsLater(t *testing.T) {
 			return
 		}
 	}
-	t.Fatal("missing model settlement")
+	t.Fatal("missing model call result")
 }
 
 // identityClient records the call identity each Send receives.
@@ -644,7 +644,7 @@ func TestClientReceivesRecordedCallIdentity(t *testing.T) {
 		last := saved.Steps[len(saved.Steps)-1]
 		if last.Kind != StepModelCallStarted || last.Model.ModelCallID != a.ModelCallID {
 			t.Fatalf(
-				"send %q before its intent was recorded: last step %s",
+				"send %q before its call start was recorded: last step %s",
 				a.ModelCallID,
 				last.Kind,
 			)
@@ -663,10 +663,10 @@ func TestClientReceivesRecordedCallIdentity(t *testing.T) {
 	}
 	callStarts := stepModelCalls(out.Turn, StepModelCallStarted)
 	if want := []string{"t1:model:1"}; !slices.Equal(callStarts, want) {
-		t.Fatalf("intents=%v", callStarts)
+		t.Fatalf("call starts=%v", callStarts)
 	}
 	if got := modelCallIDs(t, client.sent); !slices.Equal(got, callStarts) {
-		t.Fatalf("sent=%v intents=%v", got, callStarts)
+		t.Fatalf("sent=%v call starts=%v", got, callStarts)
 	}
 }
 
@@ -704,16 +704,16 @@ func TestInterruptedModelCallIsResentUnderNewID(t *testing.T) {
 		"t1:model:1",
 		"t1:model:2",
 	}; !slices.Equal(callStarts, want) {
-		t.Fatalf("intents=%v", callStarts)
+		t.Fatalf("call starts=%v", callStarts)
 	}
 	if got := modelCallIDs(t, client.sent); !slices.Equal(got, callStarts) {
-		t.Fatalf("sent=%v intents=%v", got, callStarts)
+		t.Fatalf("sent=%v call starts=%v", got, callStarts)
 	}
 	for _, step := range out.Turn.Steps {
 		if step.Kind == StepModelCallFinished &&
 			step.Model.ModelCallID == "t1:model:1" &&
 			step.Model.Interrupted == InterruptNone {
-			t.Fatalf("first attempt settled without interruption: %+v", step.Model)
+			t.Fatalf("first attempt finished without interruption: %+v", step.Model)
 		}
 	}
 }
@@ -743,6 +743,6 @@ func TestCrashedCallStartIsNeverSentUnderItsID(t *testing.T) {
 		"t1:model:1",
 		"t1:model:2",
 	}; !slices.Equal(finished, want) {
-		t.Fatalf("settled=%v", finished)
+		t.Fatalf("finished=%v", finished)
 	}
 }

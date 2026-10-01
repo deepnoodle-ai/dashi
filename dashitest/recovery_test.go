@@ -145,7 +145,7 @@ func testRecovery(
 		want := countCallStarts(saved, fired.Seq)
 		if model.calls() != want {
 			t.Fatalf(
-				"model called %d times before intent %d was acknowledged; want %d",
+				"model called %d times before call start %d was acknowledged; want %d",
 				model.calls(),
 				fired.Seq,
 				want,
@@ -162,7 +162,7 @@ func testRecovery(
 		// The record cannot show whether the tool took effect, so the
 		// runner must stop and ask rather than run it again or assume.
 		if out.Stop.Kind != dashi.StopResultUnknown {
-			t.Fatalf("resumed stop is %+v; want uncertain", out.Stop)
+			t.Fatalf("resumed stop is %+v; want result unknown", out.Stop)
 		}
 		result := tool.Outcome{
 			State:  tool.StateSucceeded,
@@ -171,14 +171,14 @@ func testRecovery(
 		out = run(
 			t,
 			out.Turn,
-			dashi.Resolve{CommandID: "reconcile", CallID: "call-1", Outcome: &result},
+			dashi.Resolve{CommandID: "resolve", CallID: "call-1", Outcome: &result},
 			runner,
 			dashi.WithOwner("worker-2"),
 		)
 		out = run(
 			t,
 			out.Turn,
-			dashi.Continue{CommandID: "after-reconcile"},
+			dashi.Continue{CommandID: "after-resolve"},
 			runner,
 			dashi.WithOwner("worker-2"),
 		)
@@ -232,7 +232,7 @@ func TestStaleRetryAfterFailedLoadRepeatsNothing(t *testing.T) {
 		kind dashi.StepKind
 	}{
 		{name: "completed"},
-		{name: "after model intent", kind: dashi.StepModelCallStarted},
+		{name: "after model call start", kind: dashi.StepModelCallStarted},
 		{name: "after tool start", kind: dashi.StepToolStarted},
 	}
 	for _, tc := range tests {
@@ -517,7 +517,7 @@ func requireEveryCallStartFinished(t *testing.T, turn dashi.Turn) {
 		}
 	}
 	if len(open) > 0 {
-		t.Fatalf("model attempts without a settlement: %v", open)
+		t.Fatalf("model calls without a finish: %v", open)
 	}
 }
 

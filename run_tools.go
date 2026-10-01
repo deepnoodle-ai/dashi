@@ -440,7 +440,7 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 	for _, id := range state.callOrder {
 		v := state.Tools[id]
 		if v.Status == ToolResultUnknown {
-			return r.stop(StopResultUnknown, "tool outcome needs reconciliation"), true
+			return r.stop(StopResultUnknown, "tool call result unknown; the host must resolve it"), true
 		}
 	}
 	// A call with an unknown result outranks a fatal one: Continue is
@@ -580,7 +580,7 @@ func (r *runtime) finishOutputSubmission(call tool.Call) *RunResult {
 			return r.rejectSubmission(
 				call,
 				"new context arrived. Read it, then submit again.",
-				"delivered context",
+				"added messages",
 				nil,
 				false,
 			)

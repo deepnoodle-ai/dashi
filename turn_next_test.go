@@ -45,7 +45,7 @@ func nextRows() []nextRow {
 		{name: "not started", setup: func(s *replayState) { s.LastSeq = 0 }, want: NextNone},
 		{name: "no stop", want: NextRecover},
 		{
-			name:  "no stop, model attempt in flight",
+			name:  "no stop, model call in flight",
 			setup: func(s *replayState) { s.modelCallStart = "m1" },
 			want:  NextRecover,
 		},
@@ -70,7 +70,7 @@ func nextRows() []nextRow {
 			want:  NextNone,
 		},
 		{
-			name:   "model attempts",
+			name:   "model calls",
 			covers: []string{"limited/model_calls"},
 			stop:   limited(LimitModelCalls),
 			setup:  modelCallsSpent,
@@ -84,7 +84,7 @@ func nextRows() []nextRow {
 			want:   NextRaiseBudget,
 		},
 		{
-			name:  "cost after the last attempt",
+			name:  "cost after the last model call",
 			stop:  limited(LimitCost),
 			setup: func(s *replayState) { costSpent(s); modelCallsSpent(s) },
 			want:  NextRaiseBudget,
@@ -243,25 +243,25 @@ func nextRows() []nextRow {
 			want: NextFix,
 		},
 		{
-			name:   "uncertain, settled by the host",
+			name:   "result unknown, finished by the host",
 			covers: []string{"result_unknown/*"},
-			stop:   &Stop{Kind: StopResultUnknown, Reason: "tool outcome needs reconciliation"},
+			stop:   &Stop{Kind: StopResultUnknown, Reason: "tool call result unknown; the host must resolve it"},
 			want:   NextContinue,
 		},
 		{
-			name:   "uncertain tool call",
-			covers: []string{"result_unknown/tool outcome needs reconciliation"},
-			stop:   &Stop{Kind: StopResultUnknown, Reason: "tool outcome needs reconciliation"},
+			name:   "result unknown tool call",
+			covers: []string{"result_unknown/tool call result unknown; the host must resolve it"},
+			stop:   &Stop{Kind: StopResultUnknown, Reason: "tool call result unknown; the host must resolve it"},
 			setup:  pendingCall(ToolResultUnknown),
 			want:   NextFix,
 		},
 		{
-			name: "uncertain model attempt",
+			name: "result unknown model call",
 			covers: []string{
-				"result_unknown/model attempt needs reconciliation",
+				"result_unknown/model call result unknown; the host must resolve it",
 				"result_unknown/provider tool may have run",
 			},
-			stop:  &Stop{Kind: StopResultUnknown, Reason: "model attempt needs reconciliation"},
+			stop:  &Stop{Kind: StopResultUnknown, Reason: "model call result unknown; the host must resolve it"},
 			setup: func(s *replayState) { s.unresolvedModel = "m1" },
 			want:  NextFix,
 		},
@@ -309,7 +309,7 @@ func rowView(row nextRow) TurnView {
 	if row.setup != nil {
 		row.setup(s)
 	}
-	s.Stop.Ended = s.Stop.Kind != "" && s.terminal()
+	s.Stop.Ended = s.Stop.Kind != "" && s.ended()
 	s.ReadyToContinue = s.canContinue()
 	view := s.TurnView
 	view.Stop = s.inferredStop()

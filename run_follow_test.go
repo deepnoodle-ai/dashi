@@ -345,22 +345,22 @@ func TestStepFinishes(t *testing.T) {
 		switch step.Kind {
 		case StepModelCallStarted:
 			if !deltaMessages[step.Model.MessageID] {
-				t.Fatalf("intent message %q has no deltas", step.Model.MessageID)
+				t.Fatalf("call start message %q has no deltas", step.Model.MessageID)
 			}
 			if id != "" {
-				t.Fatalf("model_call_started settles %q", id)
+				t.Fatalf("model_call_started finishes %q", id)
 			}
 		case StepModelCallFinished:
 			if id != step.Model.MessageID || !deltaMessages[id] {
-				t.Fatalf("model_call_finished settles %q; want its message", id)
+				t.Fatalf("model_call_finished finishes %q; want its message", id)
 			}
 		case StepToolFinished:
 			if id != "call-1" {
-				t.Fatalf("tool_finished settles %q; want call-1", id)
+				t.Fatalf("tool_finished finishes %q; want call-1", id)
 			}
 		default:
 			if id != "" {
-				t.Fatalf("%s settles %q", step.Kind, id)
+				t.Fatalf("%s finishes %q", step.Kind, id)
 			}
 		}
 		if id != "" {
@@ -368,7 +368,7 @@ func TestStepFinishes(t *testing.T) {
 		}
 	}
 	if len(finished) != len(deltaMessages)+1 {
-		t.Fatalf("settled=%v deltas=%v", finished, deltaMessages)
+		t.Fatalf("finished=%v deltas=%v", finished, deltaMessages)
 	}
 }
 

@@ -182,7 +182,7 @@ func (e *TurnBusyError) Error() string {
 		)
 	case e.Next == dashi.NextResolvePending:
 		return fmt.Sprintf(
-			"session: turn %s waits on the host; answer its pending work or "+
+			"session: turn %s waits on the host; resolve its pending work or "+
 				"Cancel{} it",
 			e.TurnID,
 		)
@@ -251,7 +251,7 @@ func (s *Session) Resolve(
 	}
 	next := dashi.Continue{}
 	if len(ids) > 0 {
-		next.CommandID = "answer:" + strings.Join(ids, ",")
+		next.CommandID = "resolve:" + strings.Join(ids, ",")
 	}
 	return s.Run(ctx, next, opts...)
 }

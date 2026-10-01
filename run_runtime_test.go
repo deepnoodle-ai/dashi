@@ -282,14 +282,14 @@ func TestInterruptedAfterModelCallStartDoesNotSend(t *testing.T) {
 	callFinished := out.Turn.Steps[len(out.Turn.Steps)-2]
 	if callFinished.Kind != StepModelCallFinished ||
 		callFinished.Model.Interrupted != InterruptRun {
-		t.Fatalf("settlement=%+v", callFinished)
+		t.Fatalf("finish=%+v", callFinished)
 	}
 	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if view.ModelCalls != 0 {
-		t.Fatalf("model attempts=%d, want 0", view.ModelCalls)
+		t.Fatalf("model calls=%d, want 0", view.ModelCalls)
 	}
 }
 
@@ -402,7 +402,7 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 		); err != nil || admission.Units <= 0 || admission.RequestProof != step.Model.RequestHash {
 			return &CommitError{
 				NothingWritten: true,
-				Err:            errors.New("invalid admission"),
+				Err:            errors.New("invalid reservation"),
 			}
 		}
 		if r.balance < admission.Units {
@@ -422,7 +422,7 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 		}
 		if r.loseCallStart {
 			r.loseCallStart = false
-			return errors.New("admission acknowledgment lost after commit")
+			return errors.New("reservation acknowledgment lost after commit")
 		}
 	}
 	if (step.Kind == StepModelCallFinished || step.Kind == StepModelCallFinishedByHost) && !r.charged[step.Model.ModelCallID] {
@@ -483,7 +483,7 @@ func TestHostReservationTakeoverAndExternalToolRecovery(t *testing.T) {
 	)
 	if !writeUnknown(err) || client.sends != 0 || rec.balance != 7 {
 		t.Fatalf(
-			"lost admission: out=%+v err=%v sends=%d balance=%d",
+			"lost reservation: out=%+v err=%v sends=%d balance=%d",
 			first,
 			err,
 			client.sends,
@@ -496,7 +496,7 @@ func TestHostReservationTakeoverAndExternalToolRecovery(t *testing.T) {
 	}
 	view, err := saved.View()
 	if err != nil || !view.ReadyToContinue {
-		t.Fatalf("crashed model intent is not ready: view=%+v err=%v", view, err)
+		t.Fatalf("crashed model call start is not ready: view=%+v err=%v", view, err)
 	}
 	changed := startCommand
 	changed.Agent.Version = "r2"
@@ -532,7 +532,7 @@ func TestHostReservationTakeoverAndExternalToolRecovery(t *testing.T) {
 	if err != nil || !proved.ReadyToContinue || rec.balance != 10 ||
 		client.sends != 0 {
 		t.Fatalf(
-			"no-dispatch reconciliation: out=%+v err=%v balance=%d sends=%d",
+			"no-dispatch resolution: out=%+v err=%v balance=%d sends=%d",
 			proved,
 			err,
 			rec.balance,

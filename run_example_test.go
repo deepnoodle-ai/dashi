@@ -85,10 +85,10 @@ func Example_hostTurnLoop() {
 		Input:     []llm.Message{llm.UserMessage(llm.Text("write it"))},
 	}
 	outbox.save(start)
-	admitted := make(chan struct{})
-	close(admitted)
+	paused := make(chan struct{})
+	close(paused)
 	runner.Run(ctx, dashi.NewTurn("t1"), start,
-		dashi.WithOwner(owner), dashi.WithPause(admitted))
+		dashi.WithOwner(owner), dashi.WithPause(paused))
 
 	// A worker plans and saves the next command, then crashes before
 	// running it.

@@ -257,7 +257,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (RunResult, bool) {
 		if !useful && !finish.acceptEmpty {
 			return r.stop(StopFailed, StopReasonEmptyResponse), false
 		}
-		return r.stopAfterAnswer(state), false
+		return r.stopAfterReply(state), false
 	}
 	if plan.OutputErr != nil {
 		return r.stop(
@@ -267,13 +267,13 @@ func (r *runtime) finishText(result llm.Result, useful bool) (RunResult, bool) {
 	}
 	fact := &StructuredOutput{
 		Value:       plan.Output,
-		Source:      OutputFromText,
+		Source:      OutputSourceText,
 		ModelCallID: state.latestModelCall,
 	}
 	if o := r.commit(Step{Kind: StepOutputRecorded, Output: fact}); o != nil {
 		return *o, false
 	}
-	return r.stopAfterAnswer(state), false
+	return r.stopAfterReply(state), false
 }
 
 func submittedOutput(s *replayState) *StructuredOutput {
@@ -288,7 +288,7 @@ func submittedOutput(s *replayState) *StructuredOutput {
 			v.Outcome.State == tool.StateSucceeded {
 			return &StructuredOutput{
 				Value:       slices.Clone(v.Call.Args),
-				Source:      OutputFromTool,
+				Source:      OutputSourceToolCall,
 				ToolCallID:  id,
 				ModelCallID: s.modelCallOfTool[id],
 			}

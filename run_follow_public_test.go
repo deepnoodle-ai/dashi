@@ -246,7 +246,7 @@ func TestGuideHandlerServesATurn(t *testing.T) {
 	select {
 	case events = <-got:
 	case <-time.After(10 * time.Second):
-		t.Fatal("handler did not end after the terminal stop")
+		t.Fatal("handler did not end after the ending stop")
 	}
 	var seqs []string
 	var text string

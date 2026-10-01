@@ -580,7 +580,7 @@ func TestLimitsRejectNegativeModelCallsAndConcurrency(t *testing.T) {
 		name   string
 		limits Limits
 	}{
-		{name: "model attempts", limits: Limits{ModelCalls: -1}},
+		{name: "model calls", limits: Limits{ModelCalls: -1}},
 		{name: "tool concurrency", limits: Limits{ToolConcurrency: -1}},
 	}
 	for _, tt := range tests {
@@ -682,7 +682,7 @@ func TestNoReservedFinalReplyAdvertisesToolsOnLastModelCall(t *testing.T) {
 		t.Fatalf("stop=%+v err=%v, want completed", out.Stop, err)
 	}
 	if len(client.inputs) != 2 || len(client.inputs[1].Tools) != 1 {
-		t.Fatalf("last attempt did not advertise tools: %+v", client.inputs)
+		t.Fatalf("last model call did not advertise tools: %+v", client.inputs)
 	}
 }
 

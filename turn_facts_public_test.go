@@ -184,7 +184,7 @@ func TestApprovalHashFromPublicView(t *testing.T) {
 		t.Fatalf("pending call=%+v", pending)
 	}
 	if pending.ArgsHash != dashi.ArgsHash(shownArgs) {
-		t.Fatal("view digest differs from the digest of the arguments first shown")
+		t.Fatal("view hash differs from the hash of the arguments first shown")
 	}
 	approval := dashi.ApprovalDecision{
 		CallID:   "call-1",
@@ -202,7 +202,7 @@ func TestApprovalHashFromPublicView(t *testing.T) {
 	view, err = accepted.Turn.View()
 	if err != nil || view.Tools["call-1"].ArgsHash != "" {
 		t.Fatalf(
-			"answered call keeps its approval digest: %+v err=%v",
+			"answered call keeps its approval hash: %+v err=%v",
 			view.Tools["call-1"],
 			err,
 		)

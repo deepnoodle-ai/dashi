@@ -34,7 +34,7 @@ func finishOf(t *testing.T, turn Turn, callID string) Step {
 			return step
 		}
 	}
-	t.Fatalf("no settlement for %s", callID)
+	t.Fatalf("no finish for %s", callID)
 	return Step{}
 }
 
@@ -99,7 +99,7 @@ func TestFinishRejectsSubmissionWithItemsOnTheSameStep(t *testing.T) {
 	}
 	rejected := finishOf(t, out.Turn, "out-1")
 	if rejected.Context == nil || len(rejected.Context.Items) != 1 {
-		t.Fatalf("items not on the settlement: %+v", rejected)
+		t.Fatalf("items not on the finish: %+v", rejected)
 	}
 	if seen := toolResultText(t, out.Turn, "out-1"); seen != "Not accepted: a check did not accept this output" {
 		t.Fatalf("model saw %q", seen)
@@ -249,7 +249,7 @@ func TestVetoedAnswerNeverReturnsThroughAnswer(t *testing.T) {
 			t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
 		}
 	})
-	t.Run("uncertain", func(t *testing.T) {
+	t.Run("result unknown", func(t *testing.T) {
 		asked := 0
 		veto := FinishHook{Name: "pii", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
 			asked++

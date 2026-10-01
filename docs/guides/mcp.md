@@ -128,7 +128,7 @@ replies. The MCP connection and tool result are real:
 ```text
 MCP server demo: connected (1 tool)
 MCP result: {"sum":5}
-Scripted answer: 2 + 3 = 5.
+Scripted reply: 2 + 3 = 5.
 ```
 
 The `mcp/example` program asks before it starts each server and before each

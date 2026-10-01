@@ -148,7 +148,7 @@ func TestSessionCompactionTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := textsOf(projected); !slices.Equal(got, append(replaced, "third", "three")) {
-		t.Fatalf("projected=%q", got)
+		t.Fatalf("inferred=%q", got)
 	}
 	n := 0
 	for turn, err := range s.Turns(t.Context()) {
@@ -171,7 +171,7 @@ func TestSessionCompactionTurn(t *testing.T) {
 	a, _ := json.Marshal(projected)
 	b, _ := json.Marshal(again)
 	if string(a) != string(b) {
-		t.Fatalf("fresh handle projected\n%s\nwant\n%s", b, a)
+		t.Fatalf("fresh handle inferred\n%s\nwant\n%s", b, a)
 	}
 	if slices.Contains(counting.loaded, "s-1") || slices.Contains(counting.loaded, "s-2") {
 		t.Fatalf("fresh handle loaded %q", counting.loaded)
@@ -670,7 +670,7 @@ func TestSessionCompactionSummaryTags(t *testing.T) {
 				t.Fatal(err)
 			}
 			if got := textsOf(projected); !slices.Equal(got, want) {
-				t.Fatalf("answer %q: projected=%q", tc.answer, got)
+				t.Fatalf("answer %q: inferred=%q", tc.answer, got)
 			}
 		}
 	}

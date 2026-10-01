@@ -20,7 +20,7 @@ func TestContextIdentityDoesNotChangeHistoryHash(t *testing.T) {
 	message.Context = &llm.MessageContext{Origin: "runtime", Name: "seed"}
 	after, err := historyHash([]llm.Message{message})
 	if err != nil || before != after {
-		t.Fatalf("fingerprints differ: %s %s %v", before, after, err)
+		t.Fatalf("hash differ: %s %s %v", before, after, err)
 	}
 	message.Content = []llm.Content{llm.Text("changed")}
 	changed, err := historyHash([]llm.Message{message})
@@ -102,11 +102,11 @@ func TestTurnMessagesOwnsMetadataAndPreservesRecord(t *testing.T) {
 	}
 	messages[1].Context.Name = "changed"
 	if restored.Steps[1].Context.Items[0].Message.Context != nil {
-		t.Fatal("projection changed record")
+		t.Fatal("messages changed record")
 	}
 	again, err := TurnMessagesFull(restored)
 	if err != nil || again[1].Context.Name != "seed" {
-		t.Fatalf("projection aliases metadata %v", err)
+		t.Fatalf("messages aliases metadata %v", err)
 	}
 }
 

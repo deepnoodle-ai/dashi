@@ -97,7 +97,7 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 		}
 	}
 	if !found {
-		t.Fatal("recorded reminder missing from projected history")
+		t.Fatal("recorded reminder missing from history")
 	}
 }
 
@@ -239,7 +239,7 @@ func ReservedFinalReply(t *testing.T, client llm.Client, modelName string) {
 				t.Fatalf("final request advertised tools: %+v", step.Model.Tools)
 			}
 			t.Logf(
-				"model=%s attempts=%d answer=%q",
+				"model=%s calls=%d answer=%q",
 				modelName,
 				view.ModelCalls,
 				out.Reply,
@@ -247,7 +247,7 @@ func ReservedFinalReply(t *testing.T, client llm.Client, modelName string) {
 			return
 		}
 	}
-	t.Fatal("missing final-answer intent")
+	t.Fatal("missing final-reply call start")
 }
 
 // StructuredOutput makes one paid call and checks that a per-turn schema is
@@ -280,7 +280,7 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != dashi.StopCompleted || out.Output == nil || out.Output.Source != dashi.OutputFromTool || string(out.Output.Value) != `{"answer":42}` {
+	if out.Stop.Kind != dashi.StopCompleted || out.Output == nil || out.Output.Source != dashi.OutputSourceToolCall || string(out.Output.Value) != `{"answer":42}` {
 		t.Fatalf(
 			"stop=%+v output=%+v",
 			out.Stop,
@@ -356,7 +356,7 @@ func AgentTurn(
 			t.Fatalf("streamed answer lost %s message provenance", provider)
 		}
 		t.Logf(
-			"streamed turn: attempts=%d steps=%d answer=%q",
+			"streamed turn: calls=%d steps=%d answer=%q",
 			view.ModelCalls,
 			len(out.Turn.Steps),
 			out.Reply,
@@ -436,7 +436,7 @@ func AgentTurn(
 			for _, observed := range view.Tools {
 				if observed.Status != dashi.ToolFinished || observed.Outcome == nil ||
 					observed.Outcome.State != tool.StateSucceeded {
-					t.Fatalf("tool was not settled: %+v", observed)
+					t.Fatalf("tool did not finish: %+v", observed)
 				}
 			}
 			expected := []dashi.StepKind{
@@ -484,7 +484,7 @@ func AgentTurn(
 				)
 			}
 			t.Logf(
-				"tool turn: attempts=%d steps=%d tool_runs=%d answer=%q",
+				"tool turn: calls=%d steps=%d tool_runs=%d answer=%q",
 				view.ModelCalls,
 				len(out.Turn.Steps),
 				runs,

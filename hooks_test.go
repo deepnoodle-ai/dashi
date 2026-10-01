@@ -425,7 +425,7 @@ func TestBeforeModelChainsSettingsAndSkipsFailures(t *testing.T) {
 	}
 	callStart := out.Turn.Steps[1]
 	if callStart.Kind != StepModelCallStarted || len(callStart.HookResults) != 3 {
-		t.Fatalf("intent = %+v", callStart)
+		t.Fatalf("call start = %+v", callStart)
 	}
 }
 
@@ -515,7 +515,7 @@ func TestBeforeSendReservationDenyAndFailure(t *testing.T) {
 	}
 	admission := out.Turn.Steps[1].Model.Reservation
 	if len(admission) != 2 || string(admission["quota"]) != `{"slot":"a"}` {
-		t.Fatalf("admission = %v", admission)
+		t.Fatalf("reservation = %v", admission)
 	}
 
 	deny := SendHook{Name: "funds", Func: func(context.Context, SendPlan) (SendDecision, error) {

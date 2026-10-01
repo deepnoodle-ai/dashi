@@ -114,7 +114,7 @@ func TestBundleDeterministicHashAndEmptySet(t *testing.T) {
 	}
 	if first.Hash() == changed.Hash() ||
 		first.Hash() == renamedTool.Hash() {
-		t.Fatal("changed body or loader name did not change digest")
+		t.Fatal("changed body or loader name did not change hash")
 	}
 	empty, err := skill.New(nil, skill.Options{})
 	emptyTools, toolErr := empty.Tools(t.Context())

@@ -116,7 +116,7 @@ func (a Agent) Validate() error {
 	}
 	if a.Limits.ModelCalls < 0 || a.Limits.ToolConcurrency < 0 {
 		return errors.New(
-			"dashi: model attempts and tool concurrency cannot be negative",
+			"dashi: model calls and tool concurrency cannot be negative",
 		)
 	}
 	if schema := absentNull(a.OutputSchema); len(schema) > 0 {

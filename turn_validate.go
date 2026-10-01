@@ -102,12 +102,12 @@ func validateReservation(admission map[string]json.RawMessage) error {
 	total := 0
 	for name, raw := range admission {
 		if name == "" || len(raw) == 0 || !json.Valid(raw) {
-			return errors.New("invalid model admission metadata")
+			return errors.New("invalid model reservation terms")
 		}
 		total += len(raw)
 	}
 	if total > maxReservation {
-		return errors.New("model admission metadata exceeds 16 KiB")
+		return errors.New("model reservation terms exceed 16 KiB")
 	}
 	return nil
 }
@@ -117,7 +117,7 @@ func validateStepPayload(step Step) error {
 		return errors.New("budget raise requires a continuation step")
 	}
 	if step.ModelCalls != 0 && step.Kind != StepTurnContinued {
-		return errors.New("model-attempt raise requires a continuation step")
+		return errors.New("model-call raise requires a continuation step")
 	}
 	// Warnings ride on whatever step comes next, except the two that
 	// describe their own step.
@@ -146,7 +146,7 @@ func validateStepPayload(step Step) error {
 	}
 	if step.Tool != nil && step.Tool.Result != nil &&
 		step.Kind != StepToolFinished {
-		return errors.New("only a settlement records what the model sees")
+		return errors.New("only a final result records what the model sees")
 	}
 	if step.Kind != StepLoopContinued && step.Context != nil &&
 		step.Context.Vetoed {
@@ -162,7 +162,7 @@ func validateStepPayload(step Step) error {
 		}
 		if step.Kind == StepToolFinished &&
 			(step.Tool == nil || step.Tool.Call.Name != SubmitOutputTool) {
-			return errors.New("only a rejected submission settles with steers")
+			return errors.New("only a rejected submission finishes with steers")
 		}
 		for _, item := range step.Context.Items {
 			if item.ID == "" {
@@ -172,7 +172,7 @@ func validateStepPayload(step Step) error {
 	}
 	if step.ActiveHooks != nil {
 		if !recordsActiveHooks(step) {
-			return errors.New("active hooks require a start, continuation, or settled result")
+			return errors.New("active hooks require a start, continuation, or final result")
 		}
 		if err := step.ActiveHooks.validate(); err != nil {
 			return err

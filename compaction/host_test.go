@@ -46,7 +46,7 @@ func TestHostCompactionHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	if start.Compaction.Hash == "" {
-		t.Fatal("the compaction fact has no digest")
+		t.Fatal("the compaction fact has no hash")
 	}
 	run(start)
 

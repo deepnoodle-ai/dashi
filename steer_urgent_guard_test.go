@@ -229,7 +229,7 @@ func TestUrgentSteerDuringBeforeSendGoesBackForTheSteer(t *testing.T) {
 	}
 	for _, fact := range finishes(out.Turn) {
 		if fact.NotSent {
-			t.Fatalf("a call cut during BeforeSend was settled: %+v", fact)
+			t.Fatalf("a call cut during BeforeSend was finished: %+v", fact)
 		}
 	}
 	if asked != 2 {
@@ -247,7 +247,7 @@ func TestUrgentSteerDuringBeforeSendGoesBackForTheSteer(t *testing.T) {
 	admission := string(callStarts[0].Model.Reservation["reserve"])
 	if admission != `{"pass":2}` {
 		t.Fatalf(
-			"admission = %s; the request must carry the second pass's",
+			"reservation = %s; the request must carry the second pass's",
 			admission,
 		)
 	}

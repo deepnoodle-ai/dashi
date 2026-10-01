@@ -47,10 +47,10 @@ func New(policy Policy) *Compactor {
 	return &Compactor{Policy: policy}
 }
 
-// Needed reports whether Policy.Due(last) and projected, the history the
+// Needed reports whether Policy.Due(last) and messages, the history the
 // next turn would get, has a message to summarize.
-func (c *Compactor) Needed(projected []llm.Message, last llm.Usage) bool {
-	return c.Policy.Due(last) && len(withoutAuthoritative(projected)) > 0
+func (c *Compactor) Needed(messages []llm.Message, last llm.Usage) bool {
+	return c.Policy.Due(last) && len(withoutAuthoritative(messages)) > 0
 }
 
 // Start builds the compaction turn's Start. It keeps the newest messages
@@ -60,12 +60,12 @@ func (c *Compactor) Needed(projected []llm.Message, last llm.Usage) bool {
 // without their reminders, but with agent mail (a reminder with a From).
 // Their system and developer messages are kept ahead of the summary, with
 // their own role. The Start has origin StartCompaction and no tools, and
-// its fact's Hash is the dashi.HistoryHash of projected. The caller sets its
+// its fact's Hash is the dashi.HistoryHash of messages. The caller sets its
 // CommandID and may set Budget; a Session also sets the fact's Through.
-func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
+func (c *Compactor) Start(messages []llm.Message) (dashi.Start, error) {
 	window, _ := c.Policy.Window()
-	cut := c.cut(projected, window)
-	covered := withoutReminders(withoutAuthoritative(projected[:cut]))
+	cut := c.cut(messages, window)
+	covered := withoutReminders(withoutAuthoritative(messages[:cut]))
 	if len(covered) == 0 {
 		return dashi.Start{}, ErrNothingToCompact
 	}
@@ -78,11 +78,11 @@ func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
 	if err != nil {
 		return dashi.Start{}, err
 	}
-	hash, err := dashi.HistoryHash(projected)
+	hash, err := dashi.HistoryHash(messages)
 	if err != nil {
 		return dashi.Start{}, err
 	}
-	kept := authoritative(projected[:cut])
+	kept := authoritative(messages[:cut])
 	return dashi.Start{
 		Agent: dashi.Agent{
 			Model:    c.Model,
@@ -92,7 +92,7 @@ func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
 		Origin: dashi.StartCompaction,
 		Input:  []llm.Message{request},
 		Compaction: &dashi.CompactionFact{
-			Keep:      append(slices.Clone(kept), projected[cut:]...),
+			Keep:      append(slices.Clone(kept), messages[cut:]...),
 			SummaryAt: len(kept),
 			Frame:     summaryFrame,
 			Hash:      hash,
@@ -118,24 +118,24 @@ func (c *Compactor) summaryWindow(window int) int {
 }
 
 // cut returns the index of the first kept message: the earliest cut whose
-// tail fits in the tail budget, or len(projected) to keep none.
-func (c *Compactor) cut(projected []llm.Message, window int) int {
+// tail fits in the tail budget, or len(messages) to keep none.
+func (c *Compactor) cut(messages []llm.Message, window int) int {
 	fraction := c.TailFraction
 	if fraction == 0 {
 		fraction = DefaultTailFraction
 	}
 	budget := max(0, int(fraction*float64(window)))
-	sizes := make([]int, len(projected)+1)
-	for i := len(projected) - 1; i >= 0; i-- {
-		sizes[i] = sizes[i+1] + estimate(projected[i])
+	sizes := make([]int, len(messages)+1)
+	for i := len(messages) - 1; i >= 0; i-- {
+		sizes[i] = sizes[i+1] + estimate(messages[i])
 	}
 	var starts []int
-	for i, m := range projected {
+	for i, m := range messages {
 		if m.Role == llm.RoleUser && !slices.ContainsFunc(m.Content, isResult) {
 			starts = append(starts, i)
 		}
 	}
-	return chooseCut(projected, starts, sizes, budget)
+	return chooseCut(messages, starts, sizes, budget)
 }
 
 func isResult(c llm.Content) bool {

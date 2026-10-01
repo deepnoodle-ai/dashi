@@ -45,7 +45,7 @@ func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {
 	projected, err := TurnMessagesFull(first.Turn)
 	if err != nil || len(projected) != 2 ||
 		projected[0].Text() != "scheduled report" {
-		t.Fatalf("projected=%+v err=%v", projected, err)
+		t.Fatalf("inferred=%+v err=%v", projected, err)
 	}
 	again := Start{
 		CommandID: "start",
@@ -106,17 +106,17 @@ func TestModelCallStartRecordsResolvedCapabilityPolicy(t *testing.T) {
 		}
 	}
 	if callStart == nil {
-		t.Fatal("turn recorded no model intent")
+		t.Fatal("turn recorded no model call start")
 	}
 	if callStart.CapabilityPolicy != llm.CapabilityAdjust {
-		t.Fatalf("intent recorded policy %q", callStart.CapabilityPolicy)
+		t.Fatalf("call start recorded policy %q", callStart.CapabilityPolicy)
 	}
 	raw, err := json.Marshal(callStart)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Contains(raw, []byte(`"capability_policy":"adjust"`)) {
-		t.Fatalf("intent omitted the resolved policy: %s", raw)
+		t.Fatalf("call start omitted the resolved policy: %s", raw)
 	}
 }
 

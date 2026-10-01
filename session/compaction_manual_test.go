@@ -219,7 +219,7 @@ func TestSessionManualCompactionRecorderFailures(t *testing.T) {
 				t.Fatalf("recorder error=%v", err)
 			}
 			if len(client.Inputs()) != 1 {
-				t.Fatal("summary dispatched without acknowledged admission")
+				t.Fatal("summary dispatched without acknowledged reservation")
 			}
 			projected, err := handle(rec, client).NextHistory(t.Context())
 			if err != nil || !slices.Equal(textsOf(projected), []string{"first", "answer"}) {
@@ -242,7 +242,7 @@ func TestSessionStreamManualCompactionStartFailure(t *testing.T) {
 			var gotErr error
 			for ev, err := range s.StreamCompact(t.Context(), nil) {
 				if ev.Result != nil || ev.Step != nil {
-					t.Fatalf("unacknowledged admission emitted record facts: %+v", ev)
+					t.Fatalf("unacknowledged reservation emitted record facts: %+v", ev)
 				}
 				gotErr = errors.Join(gotErr, err)
 			}

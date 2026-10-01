@@ -52,7 +52,7 @@ func HistoryHash(history []llm.Message) (string, error) {
 func historyHash(history []llm.Message) (string, error) {
 	encoded, err := canonjson.Marshal(hashMessages(history))
 	if err != nil {
-		return "", fmt.Errorf("dashi: encode history fingerprint: %w", err)
+		return "", fmt.Errorf("dashi: encode history hash: %w", err)
 	}
 	hash := sha256.New()
 	_, _ = hash.Write([]byte(historyHashDomain))

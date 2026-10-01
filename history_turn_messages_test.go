@@ -88,7 +88,7 @@ func TestRecordedReminderAcrossToolIterations(t *testing.T) {
 	}
 	projected, err := TurnMessagesFull(got.Turn)
 	if err != nil || !hasReminder(projected, "scope") {
-		t.Fatalf("recorded reminder missing from projection: %v %+v", err, projected)
+		t.Fatalf("recorded reminder missing from messages: %v %+v", err, projected)
 	}
 }
 
@@ -202,7 +202,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 	if err != nil || !reminderBefore(projected, "old", "new") ||
 		!reminderBefore(client.inputs[1].Messages, "old", "new") {
 		t.Fatalf(
-			"projected=%+v model=%+v err=%v",
+			"inferred=%+v model=%+v err=%v",
 			projected,
 			client.inputs[1].Messages,
 			err,
@@ -264,7 +264,7 @@ func TestPreparedRequestCannotDropReminder(t *testing.T) {
 	}
 	for _, step := range got.Turn.Steps {
 		if step.Kind == StepModelCallStarted {
-			t.Fatal("model intent recorded for a request with missing reminder")
+			t.Fatal("model call start recorded for a request with missing reminder")
 		}
 	}
 }
@@ -396,7 +396,7 @@ func unfinishedCallsTurn() Turn {
 	callStart.Model.Tools = []tool.Definition{def}
 	var parts []llm.Content
 	var calls []tool.Call
-	for _, id := range []string{"started", "waiting", "uncertain"} {
+	for _, id := range []string{"started", "waiting", "result unknown"} {
 		call := tool.Call{ID: id, Name: "work", Args: []byte(`{}`)}
 		calls = append(calls, call)
 		parts = append(parts, llm.Content{Kind: llm.ContentToolCall, ToolCall: &call})
@@ -436,7 +436,7 @@ func unfinishedCallsTurn() Turn {
 func TestCanceledTurnShowsUnfinishedCallsAndFreezes(t *testing.T) {
 	turn := unfinishedCallsTurn()
 	if _, err := TurnMessagesFull(turn); err == nil {
-		t.Fatal("an open turn with unsettled calls projected")
+		t.Fatal("an open turn with unfinished calls inferred")
 	}
 	runner := Runner{Client: &scriptedClient{}}
 	canceled, err := runner.Run(t.Context(), turn, Cancel{CommandID: "close"})
@@ -449,9 +449,9 @@ func TestCanceledTurnShowsUnfinishedCallsAndFreezes(t *testing.T) {
 	}
 	// The input, the model's calls, then one error result per call.
 	if len(messages) != 5 {
-		t.Fatalf("projected %d messages, want 5", len(messages))
+		t.Fatalf("inferred %d messages, want 5", len(messages))
 	}
-	for i, id := range []string{"started", "waiting", "uncertain"} {
+	for i, id := range []string{"started", "waiting", "result unknown"} {
 		r := messages[2+i].Content[0].ToolResult
 		if r == nil || r.CallID != id || !r.IsError ||
 			!canonjson.SameValue(r.Output, tool.TextOutput(endedToolText)) {
@@ -475,7 +475,7 @@ func TestCanceledTurnShowsUnfinishedCallsAndFreezes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if raw, _ := json.Marshal(after); !bytes.Equal(raw, before) {
-		t.Fatalf("late result changed the projection:\n%s\n%s", before, raw)
+		t.Fatalf("late result changed the messages:\n%s\n%s", before, raw)
 	}
 }
 
@@ -603,7 +603,7 @@ func TestLateModelResultKeepsEndedAnswer(t *testing.T) {
 	a, _ := json.Marshal(before)
 	b, _ := json.Marshal(after)
 	if !bytes.Equal(a, b) {
-		t.Fatalf("late result changed the projection:\n%s\n%s", a, b)
+		t.Fatalf("late result changed the messages:\n%s\n%s", a, b)
 	}
 }
 

@@ -453,7 +453,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		if !finished.ResultUnknown {
 			if failure, ok := errors.AsType[*llm.Error](sendErr); ok {
 				finished.Evidence = fmt.Sprintf(
-					"client disposition %s; HTTP %d",
+					"client send status %s; HTTP %d",
 					failure.SendStatus,
 					failure.Status,
 				)

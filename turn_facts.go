@@ -70,10 +70,10 @@ func validateCompaction(origin StartOrigin, f *CompactionFact) error {
 type OutputSource string
 
 const (
-	// OutputFromTool was submitted through the reserved output tool.
-	OutputFromTool OutputSource = "tool_call"
-	// OutputFromText was extracted from the final assistant text.
-	OutputFromText OutputSource = "text"
+	// OutputSourceToolCall was submitted through the reserved output tool.
+	OutputSourceToolCall OutputSource = "tool_call"
+	// OutputSourceText was extracted from the final assistant text.
+	OutputSourceText OutputSource = "text"
 )
 
 // StructuredOutput is a schema-validated final value. ToolCallID or ModelCallID

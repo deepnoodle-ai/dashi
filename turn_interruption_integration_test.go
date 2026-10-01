@@ -109,7 +109,7 @@ func TestRepeatedModelInterruptionsKeepUsageAndModelCallAllowance(
 	for _, step := range limited.Turn.Steps {
 		if step.Kind == StepModelCallFinished &&
 			step.Model.Interrupted == InterruptNone {
-			t.Fatalf("model settlement was actionable: %+v", step.Model)
+			t.Fatalf("model call result was actionable: %+v", step.Model)
 		}
 	}
 }
@@ -218,7 +218,7 @@ func TestCrashedModelWithUnsafeProviderToolRequiresReport(t *testing.T) {
 		len(out.Pending) != 1 {
 		t.Fatalf("recovery=%+v err=%v sends=%d", out, err, client.sends)
 	}
-	answer := final("reconciled")
+	answer := final("resolved")
 	accepted, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		out.Turn,
@@ -454,7 +454,7 @@ func seedOpenModelCallStart(
 			Model: &ModelFact{
 				ModelCallID: "t1:model:1",
 				MessageID:   "t1:model:1:message",
-				RequestHash: "request-digest",
+				RequestHash: "request-hash",
 				Provider:    def.Provider,
 				API:         def.API,
 				Model:       def.Model,

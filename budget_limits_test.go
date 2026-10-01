@@ -76,7 +76,7 @@ func TestBudgetIncompleteUsageEndsTokenCappedTurn(t *testing.T) {
 			}
 			view, err := out.Turn.View()
 			if err != nil || !view.Stop.Ended || view.Next() != NextNone {
-				t.Fatalf("recorded terminal stop changed in replay: %v", err)
+				t.Fatalf("recorded ending stop changed in replay: %v", err)
 			}
 			raise := tc.budget.Clone()
 			if raise.MaxOutputTokens > 0 {
@@ -116,7 +116,7 @@ func TestBudgetIncompleteUsagePreservesExactCostReservation(t *testing.T) {
 			t.Fatal(err)
 		}
 		if out.Stop.Kind != StopCompleted || client.sends != 3 {
-			t.Fatal("usage failure blocked independently exact monetary admission")
+			t.Fatal("usage failure blocked independently exact monetary reservation")
 		}
 		if !out.Spend.UsageIncomplete || out.Spend.CostUnknown != 0 {
 			t.Fatal("continued execution lost the usage signal")
@@ -165,7 +165,7 @@ func TestBudgetResolutionBeforeTokenStopRestoresReservation(t *testing.T) {
 	client := &scriptedClient{}
 	runner := Runner{Client: client}
 	out, err := runner.Run(t.Context(), turn, Resolve{
-		CommandID:   "reconcile",
+		CommandID:   "resolve",
 		CallID:      "model-1",
 		ModelResult: &result,
 	})
@@ -174,14 +174,14 @@ func TestBudgetResolutionBeforeTokenStopRestoresReservation(t *testing.T) {
 	}
 	if out.Spend.UsageIncomplete || !out.ReadyToContinue ||
 		out.Next() != NextContinue {
-		t.Fatal("pre-stop reconciliation did not restore ordinary continuation")
+		t.Fatal("pre-stop resolution did not restore ordinary continuation")
 	}
 	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "continue"})
 	if err != nil || out.Stop.Kind != StopCompleted {
-		t.Fatalf("reconciled answer did not complete normally: %v", err)
+		t.Fatalf("resolved answer did not complete normally: %v", err)
 	}
 	if client.sends != 0 {
-		t.Fatal("reconciliation unnecessarily dispatched another call")
+		t.Fatal("resolution unnecessarily dispatched another call")
 	}
 }
 
@@ -207,7 +207,7 @@ func TestBudgetLateResolutionNeverRevivesEndedTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if out.Spend.UsageIncomplete || out.Spend.Cost["USD"] != amount("0.5") {
-		t.Fatal("late settlement did not correct reported accounting")
+		t.Fatal("late finish did not correct reported accounting")
 	}
 	if !canonjson.SameValue(out.Stop, before.Stop) || out.Reply != before.Reply {
 		t.Fatal("late accounting changed the ended stop or fixed answer")
@@ -240,7 +240,7 @@ func TestReplayValidatesTokenEndedFlagAtStopPrefix(t *testing.T) {
 		stop.Ended = !incomplete
 		invalid := appendAccountingStop(turn, stop)
 		if _, err := invalid.View(); !errors.Is(err, ErrInvalidTurn) {
-			t.Fatalf("invalid terminal flag accepted: %v", err)
+			t.Fatalf("invalid ended flag accepted: %v", err)
 		}
 	}
 }
@@ -253,7 +253,7 @@ func TestBudgetIncompleteFinishRecoversToEndedStop(t *testing.T) {
 	turn.Steps[0].Started.Budget = &Budget{MaxOutputTokens: 100}
 	view, err := turn.View()
 	if err != nil || !view.Spend.UsageIncomplete || !view.ReadyToContinue {
-		t.Fatalf("settled prefix cannot reach stop recovery: %v", err)
+		t.Fatalf("finished prefix cannot reach stop recovery: %v", err)
 	}
 	client := &scriptedClient{}
 	out, err := (Runner{Client: client}).Run(t.Context(), turn,
@@ -264,14 +264,14 @@ func TestBudgetIncompleteFinishRecoversToEndedStop(t *testing.T) {
 	if out.Stop.Kind != StopLimited || !out.Stop.Ended ||
 		out.Stop.Limit.Kind != LimitOutputTokens || out.ReadyToContinue ||
 		out.Next() != NextNone {
-		t.Fatal("settled prefix did not recover to a terminal token stop")
+		t.Fatal("finished prefix did not recover to a ending token stop")
 	}
 	if client.sends != 0 {
 		t.Fatal("stop recovery dispatched new work")
 	}
 	if _, err := (Runner{Client: client}).Run(t.Context(), out.Turn,
 		Continue{CommandID: "revive"}); !errors.Is(err, ErrTurnEnded) {
-		t.Fatalf("accepted terminal stop revived: %v", err)
+		t.Fatalf("accepted ending stop revived: %v", err)
 	}
 }
 
@@ -290,7 +290,7 @@ func TestBudgetIncompleteCallStartRecoversBeforeTokenStop(t *testing.T) {
 	turn = interruptionRecord(append(turn.Steps, callStart)...)
 	view, err := turn.View()
 	if err != nil || !view.Spend.UsageIncomplete || !view.ReadyToContinue {
-		t.Fatalf("recorded intent cannot reach recovery: %v", err)
+		t.Fatalf("recorded call start cannot reach recovery: %v", err)
 	}
 	client := &scriptedClient{}
 	out, err := (Runner{Client: client}).Run(t.Context(), turn,
@@ -299,7 +299,7 @@ func TestBudgetIncompleteCallStartRecoversBeforeTokenStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	if out.Stop.Kind != StopResultUnknown || out.Stop.Ended {
-		t.Fatal("token accounting ended the turn before dispatch reconciliation")
+		t.Fatal("token accounting ended the turn before dispatch resolution")
 	}
 	if len(out.Pending) != 1 || out.Pending[0].Kind != PendingModel {
 		t.Fatal("unknown dispatched model effect disappeared")

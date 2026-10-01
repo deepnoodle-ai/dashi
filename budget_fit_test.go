@@ -48,7 +48,7 @@ func TestNextCallFitsWithACallInFlight(t *testing.T) {
 		t.Fatal(err)
 	}
 	if s.modelCallStart == "" || s.latestModelCall != "" {
-		t.Fatalf("not in flight: intent=%q latest=%q", s.modelCallStart, s.latestModelCall)
+		t.Fatalf("not in flight: start=%q latest=%q", s.modelCallStart, s.latestModelCall)
 	}
 	risk := s.startedModelCalls[s.modelCallStart].WorstCaseCost.Total
 	r := &runtime{ctx: t.Context(), agent: s.Agent}

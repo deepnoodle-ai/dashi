@@ -104,7 +104,7 @@ func codecCommands() map[string]Command {
 		},
 		"resolve/empty": Resolve{},
 		"resolve/outcome": Resolve{
-			CommandID: "cmd-settle",
+			CommandID: "cmd-finish",
 			CallID:    "c1",
 			Outcome: &tool.Outcome{
 				State:  tool.StateSucceeded,
@@ -176,7 +176,7 @@ func TestCommandCodecRoundTrip(t *testing.T) {
 				t.Fatal(err)
 			}
 			if d, _ := commandHash(got); d != want {
-				t.Fatalf("digest changed: %s != %s", d, want)
+				t.Fatalf("hash changed: %s != %s", d, want)
 			}
 			// A second round trip is byte-stable.
 			again, err := MarshalCommand(got)
@@ -206,7 +206,7 @@ func TestCommandCodecCompactsRawJSON(t *testing.T) {
 	a, _ := commandHash(c)
 	b, _ := commandHash(got)
 	if a != b {
-		t.Fatal("compacting raw JSON changed the digest")
+		t.Fatal("compacting raw JSON changed the hash")
 	}
 }
 
@@ -236,7 +236,7 @@ func TestCommandHashIgnoresOnHistoryMismatch(t *testing.T) {
 	a, _ := commandHash(Continue{CommandID: "c"})
 	b, _ := commandHash(Continue{CommandID: "c", OnHistoryMismatch: HistoryMismatchReject})
 	if a != b {
-		t.Fatal("OnHistoryMismatch changed the digest")
+		t.Fatal("OnHistoryMismatch changed the hash")
 	}
 }
 

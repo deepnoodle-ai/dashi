@@ -322,10 +322,10 @@ func validSendDecision(d SendDecision, used int) error {
 		)
 	}
 	if len(d.Reservation) > 0 && !json.Valid(d.Reservation) {
-		return errors.New("admission is not valid JSON")
+		return errors.New("reservation is not valid JSON")
 	}
 	if used+len(d.Reservation) > maxReservation {
-		return errors.New("admissions exceed 16 KiB")
+		return errors.New("reservations exceed 16 KiB")
 	}
 	return nil
 }

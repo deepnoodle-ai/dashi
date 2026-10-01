@@ -159,7 +159,7 @@ func TestRecordersReopenSeparateUsageAndMonetaryOverflow(t *testing.T) {
 					t.Fatal("usage-only failure changed exact monetary certainty")
 				}
 				if !usageFailed && view.Spend.CostUnknown != 1 {
-					t.Fatal("actual monetary overflow lost its uncertainty")
+					t.Fatal("actual monetary overflow lost its unknown result")
 				}
 				if scenario == "usage" &&
 					view.Spend.String() != "model: 0.75 USD; tools: 5 USD; usage incomplete" {
@@ -172,7 +172,7 @@ func TestRecordersReopenSeparateUsageAndMonetaryOverflow(t *testing.T) {
 				if scenario == "token" && (!view.Stop.Ended ||
 					view.Stop.Limit.Kind != dashi.LimitOutputTokens ||
 					view.Next() != dashi.NextNone || view.ReadyToContinue) {
-					t.Fatal("reopening storage revived a terminal token stop")
+					t.Fatal("reopening storage revived a ending token stop")
 				}
 			})
 		}
@@ -204,20 +204,20 @@ func TestRecordersRejectUnsafeTokenCallStartBeforeStorage(t *testing.T) {
 		if !errors.As(err, &rejected) ||
 			!rejected.NothingWritten ||
 			rejected.Step.Kind != dashi.StepModelCallStarted {
-			t.Fatalf("unsafe intent was not rejected before admission: %v", err)
+			t.Fatalf("unsafe call start was not rejected before reservation: %v", err)
 		}
 		if len(client.Inputs()) != 1 {
-			t.Fatal("unsafe prospective intent reached model dispatch")
+			t.Fatal("unsafe prospective call start reached model dispatch")
 		}
 		saved, err := reopen().Load(t.Context(), out.Turn.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(saved.Steps) != len(out.Turn.Steps) {
-			t.Fatal("rejected intent reached storage")
+			t.Fatal("rejected call start reached storage")
 		}
 		if saved.Steps[len(saved.Steps)-1].Kind == dashi.StepModelCallStarted {
-			t.Fatal("rejected model intent is the stored last step")
+			t.Fatal("rejected model call start is the stored last step")
 		}
 	}
 }

@@ -75,6 +75,6 @@ func TestSessionFillsEmptyCompactionHash(t *testing.T) {
 	}
 	sendAll(t, s, "third")
 	if got := load(t, rec, "s-3").Compaction.Hash; got != want {
-		t.Fatalf("digest=%q, want %q", got, want)
+		t.Fatalf("hash=%q, want %q", got, want)
 	}
 }

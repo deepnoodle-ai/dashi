@@ -51,12 +51,12 @@ func TestEndedStops(t *testing.T) {
 		{name: "failed", stop: Stop{Kind: StopFailed}},
 		{name: "hook failed", stop: Stop{Kind: StopFailed, Reason: "hook_failed"}},
 		{name: "refused", stop: Stop{Kind: StopRefused}},
-		{name: "uncertain", stop: Stop{Kind: StopResultUnknown}},
+		{name: "result unknown", stop: Stop{Kind: StopResultUnknown}},
 		{name: "deadline", stop: limited(LimitDeadline), want: true},
 		{name: "resumes", stop: limited(LimitResumes), want: true},
-		{name: "model attempts", stop: limited(LimitModelCalls), modelCalls: 8},
-		{name: "cost after last attempt", stop: limited(LimitCost), modelCalls: 8},
-		{name: "host after last attempt", stop: limited(LimitHost), modelCalls: 9},
+		{name: "model calls", stop: limited(LimitModelCalls), modelCalls: 8},
+		{name: "cost after last model call", stop: limited(LimitCost), modelCalls: 8},
+		{name: "host after last model call", stop: limited(LimitHost), modelCalls: 9},
 		{name: "cost", stop: limited(LimitCost)},
 		{name: "cost with unknown spend", stop: limited(LimitCost), costUnknown: 1, want: true},
 		{name: "unpriced model", stop: Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: LimitCost, UnpricedModel: "m"}}},
@@ -73,8 +73,8 @@ func TestEndedStops(t *testing.T) {
 			s.modelCallCap = 8
 			s.LastSeq = 2
 			s.Spend.CostUnknown = tt.costUnknown
-			if got := s.terminal(); got != tt.want {
-				t.Fatalf("terminal=%t, want %t", got, tt.want)
+			if got := s.ended(); got != tt.want {
+				t.Fatalf("ended=%t, want %t", got, tt.want)
 			}
 			if !tt.want {
 				return
@@ -87,7 +87,7 @@ func TestEndedStops(t *testing.T) {
 				MaxCost:         &Money{Amount: money.Amount(1 << 60), Currency: "USD"},
 			}
 			if s.canContinueWith(huge, 1<<30) || s.canContinue() {
-				t.Fatal("a terminal stop can continue")
+				t.Fatal("a ending stop can continue")
 			}
 		})
 	}
@@ -120,8 +120,8 @@ func TestRecordedStopsCarryEnded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), "terminal") {
-		t.Fatalf("non-terminal stop recorded %s", raw)
+	if strings.Contains(string(raw), "ended") {
+		t.Fatalf("non-ending stop recorded %s", raw)
 	}
 }
 
@@ -141,7 +141,7 @@ func TestReplayRejectsMisstatedEnded(t *testing.T) {
 			interruptionStart(testAgent()),
 			Step{Kind: StepTurnStopped, Stop: stop},
 		)
-		if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) || !strings.Contains(err.Error(), "terminal") {
+		if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) || !strings.Contains(err.Error(), "ended") {
 			t.Fatalf("replay of %+v: err=%v", stop, err)
 		}
 	}
@@ -381,7 +381,7 @@ func TestBudgetStopAfterLastModelCallContinuesWithBothRaises(t *testing.T) {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
 	if out.Stop.Ended {
-		t.Fatal("budget stop after the last attempt is terminal")
+		t.Fatal("budget stop after the last model call is terminal")
 	}
 	if _, err := out.Turn.View(); err != nil {
 		t.Fatal(err)
@@ -416,7 +416,7 @@ func TestLateResultCannotEndTurnSilently(t *testing.T) {
 	}
 	s.Stop.Ended = true
 	if err := s.checkStillOpen(); err != nil {
-		t.Fatalf("terminal stop: %v", err)
+		t.Fatalf("ending stop: %v", err)
 	}
 }
 

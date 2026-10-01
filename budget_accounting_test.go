@@ -71,7 +71,7 @@ func TestSpendAddUsageFailuresPreserveIndependentMoney(t *testing.T) {
 				t.Fatal("usage failure lost independent monetary sums")
 			}
 			if sum.CostUnknown != 0 || sum.CostPartial != 0 {
-				t.Fatal("usage failure incorrectly marked money uncertain")
+				t.Fatal("usage failure incorrectly marked money result unknown")
 			}
 			if !reflect.DeepEqual(first, beforeFirst) ||
 				!reflect.DeepEqual(second, beforeSecond) {
@@ -118,7 +118,7 @@ func TestSpendAddSaturatesDiagnosticCounters(t *testing.T) {
 		t.Fatal("monetary overflow lost independent currency additions")
 	}
 	if _, known := sum.costIn("USD"); known {
-		t.Fatal("counter overflow made money suitable for admission")
+		t.Fatal("counter overflow made money suitable for reservation")
 	}
 	if sum.UsageIncomplete {
 		t.Fatal("monetary overflow marked usage incomplete")
@@ -193,7 +193,7 @@ func TestReplayKeepsValidOverflowingFinishes(t *testing.T) {
 			Step:        step,
 			ExpectedSeq: step.Seq - 1,
 		}); err != nil {
-			t.Fatalf("valid settlement rejected: %v", err)
+			t.Fatalf("valid finish rejected: %v", err)
 		}
 	}
 	saved, err := recorder.Load(t.Context(), turn.ID)
@@ -205,7 +205,7 @@ func TestReplayKeepsValidOverflowingFinishes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !view.Spend.UsageIncomplete || view.Spend.CostUnknown != 0 {
-		t.Fatal("replay conflated usage overflow and monetary uncertainty")
+		t.Fatal("replay conflated usage overflow and unknown money")
 	}
 	if view.Spend.Cost["USD"] != amount("0.75") {
 		t.Fatal("replay lost independent charges")
@@ -226,7 +226,7 @@ func TestReplayMonetaryOverflowRemainsResultUnknown(t *testing.T) {
 	}
 	if view.Spend.Cost["USD"] != money.Amount(math.MaxInt64) ||
 		view.Spend.CostUnknown != 1 {
-		t.Fatal("replay lost monetary overflow uncertainty")
+		t.Fatal("replay lost monetary overflow unknown")
 	}
 	if view.Spend.UsageIncomplete {
 		t.Fatal("monetary overflow incorrectly marked usage incomplete")
@@ -508,7 +508,7 @@ func TestBudgetRecorderReservesExactRiskAndFinishesCharge(t *testing.T) {
 	callStart := out.Turn.Steps[1].Model
 	finished := out.Turn.Steps[2].Model
 	if callStart.WorstCaseCost == nil || finished.Cost == nil {
-		t.Fatalf("risk or charge missing: intent=%+v settled=%+v", callStart, finished)
+		t.Fatalf("risk or charge missing: start=%+v finished=%+v", callStart, finished)
 	}
 	if callStart.WorstCaseCost.Total <= finished.Cost.Total {
 		t.Fatalf("risk=%s charge=%s", callStart.WorstCaseCost.Total, finished.Cost.Total)

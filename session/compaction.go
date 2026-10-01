@@ -373,7 +373,7 @@ func takenSlot(err error) bool {
 func compactionFailed(msg string) dashi.Warning {
 	return dashi.Warning{
 		Code:    WarningCompactionFailed,
-		Message: msg + "; the previous projected history is kept",
+		Message: msg + "; the previous history is kept",
 	}
 }
 

@@ -209,7 +209,7 @@ func (r Runner) run(
 ) (RunResult, error) {
 	out, err := r.apply(ctx, turn, command, opts)
 	if err != nil && !Recorded(err) {
-		out = restingOutcome(turn)
+		out = unchangedResult(turn)
 	}
 	return out, err
 }

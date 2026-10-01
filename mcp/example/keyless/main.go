@@ -126,6 +126,6 @@ func run(ctx context.Context, output io.Writer, server mcp.Server) (err error) {
 			}
 		}
 	}
-	_, err = fmt.Fprintf(output, "Scripted answer: %s\n", out.Reply)
+	_, err = fmt.Fprintf(output, "Scripted reply: %s\n", out.Reply)
 	return err
 }

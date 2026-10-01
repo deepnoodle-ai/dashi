@@ -17,7 +17,7 @@ func TestMemoryRecorderFencesOwnerAndSeq(t *testing.T) {
 		Seq:         1,
 		Kind:        StepTurnStarted,
 		CommandID:   "start",
-		CommandHash: "digest",
+		CommandHash: "hash",
 		Started: &StartFact{
 			Agent: testAgent(),
 			Input: []llm.Message{llm.UserMessage(llm.Text("go"))},

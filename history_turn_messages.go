@@ -102,7 +102,7 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 		}
 	} else {
 		if state.modelCallStart != "" || state.unresolvedModel != "" {
-			return nil, errors.New("dashi: model intent needs reconciliation")
+			return nil, errors.New("dashi: model call result unknown; the host must resolve it")
 		}
 		for _, id := range state.callOrder {
 			if state.Tools[id].Status != ToolFinished {

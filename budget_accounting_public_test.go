@@ -131,6 +131,6 @@ func TestCutAnthropicProviderToolStreamCostIsPartial(t *testing.T) {
 		}
 	}
 	if charge == nil || !charge.Partial() {
-		t.Fatalf("settled charge = %+v, want partial", charge)
+		t.Fatalf("final cost = %+v, want partial", charge)
 	}
 }

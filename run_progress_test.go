@@ -108,7 +108,7 @@ func (o *progressOrder) add(event Event) {
 		}
 		if !o.started[p.CallID] || o.finished[p.CallID] {
 			o.t.Fatalf(
-				"progress for %s outside its run: started=%v settled=%v",
+				"progress for %s outside its run: started=%v finished=%v",
 				p.CallID,
 				o.started[p.CallID],
 				o.finished[p.CallID],
@@ -267,7 +267,7 @@ func TestParallelToolProgressUnderRace(t *testing.T) {
 				t.Fatalf("outcome=%+v", order.outcome)
 			}
 			if len(order.finished) != len(names) {
-				t.Fatalf("settled=%v", order.finished)
+				t.Fatalf("finished=%v", order.finished)
 			}
 		})
 	}

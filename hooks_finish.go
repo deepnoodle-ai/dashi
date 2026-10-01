@@ -172,9 +172,9 @@ const sourceSteering = "steering"
 func (r *runtime) messagesDropped() {
 	r.pendingWarnings = append(r.pendingWarnings, Warning{
 		Code: WarningMessagesDropped,
-		Message: "context delivered after the answer was kept cannot " +
+		Message: "messages added after the reply was kept cannot" +
 			"reach the model: no further model call can happen, so the " +
-			"answer is checked again",
+			"reply is checked again",
 	})
 }
 

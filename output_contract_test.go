@@ -91,7 +91,7 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 	rec := NewMemoryRecorder()
 	out := applyStructured(t, client, tool.List{binding}, rec)
 	if out.Stop.Kind != StopCompleted || out.Output == nil || string(out.Output.Value) != `{"answer":42}` ||
-		out.Output.Source != OutputFromTool || out.Output.ToolCallID != "submit" || client.sends != 2 || runs != 1 {
+		out.Output.Source != OutputSourceToolCall || out.Output.ToolCallID != "submit" || client.sends != 2 || runs != 1 {
 		t.Fatalf("out=%+v sends=%d runs=%d", out, client.sends, runs)
 	}
 	for i, in := range client.inputs {
@@ -103,7 +103,7 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 		}
 	}
 	view, err := out.Turn.View()
-	if err != nil || view.Output == nil || view.Output.Source != OutputFromTool {
+	if err != nil || view.Output == nil || view.Output.Source != OutputSourceToolCall {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
 	view.Output.Value[0] = '['
@@ -159,7 +159,7 @@ func TestStructuredTurnAfterModelHookUsesSubmissionTool(t *testing.T) {
 		},
 	)
 	if err != nil || out.Stop.Kind != StopCompleted || out.Output == nil ||
-		out.Output.Source != OutputFromTool || out.Output.ToolCallID != "submit" {
+		out.Output.Source != OutputSourceToolCall || out.Output.ToolCallID != "submit" {
 		t.Fatalf("turn did not use submission tool: output=%+v err=%v", out, err)
 	}
 	if len(client.inputs) != 1 || len(client.inputs[0].OutputSchema) != 0 ||
@@ -213,7 +213,7 @@ func TestStructuredOutputTextFallbackAndUnsatisfiedFailure(t *testing.T) {
 				t.Fatalf("stop=%+v", out.Stop)
 			}
 			if tc.stop == StopCompleted {
-				if out.Output == nil || out.Output.Source != OutputFromText || string(out.Output.Value) != `{"answer":3}` {
+				if out.Output == nil || out.Output.Source != OutputSourceText || string(out.Output.Value) != `{"answer":3}` {
 					t.Fatalf("output=%+v", out.Output)
 				}
 			} else if out.Output != nil || !strings.Contains(
@@ -389,7 +389,7 @@ func TestStructuredOutputCannotBeResolvedByHost(t *testing.T) {
 		Resolve{CommandID: "host-result", CallID: "submission", Outcome: &result},
 	)
 	if err == nil {
-		t.Fatal("host settled a runner-owned output submission")
+		t.Fatal("host finished a runner-owned output submission")
 	}
 }
 
