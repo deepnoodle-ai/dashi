@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,6 +23,12 @@ func TestAttachmentLineBlankConfirmsTextAfterLastDetach(t *testing.T) {
 	client := cfg.Client.(*fakeClient)
 	if client.sends != 2 {
 		t.Fatalf("sends=%d stdout=%s", client.sends, stdout.String())
+	}
+	if dir := os.Getenv("DASHI_ATTACHMENT_TRANSCRIPTS"); dir != "" {
+		proof := "stdin:\n" + input + "\nstdout:\n" + stdout.String() + "\nstderr:\n" + stderr.String() + "\nSend=2; retained inspect request submitted after last detach; next plain prompt unchanged.\n"
+		if err := os.WriteFile(filepath.Join(dir, "line-last-detach-confirmation.txt"), []byte(proof), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for i, want := range []string{"inspect ", "plain prompt"} {
 		in := client.inputAt(i)

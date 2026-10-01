@@ -547,7 +547,8 @@ func TestAttachmentLinePrintEvidenceChild(t *testing.T) {
 	oldTerminal := isTerminal
 	isTerminal = func(*os.File) bool { return false }
 	t.Cleanup(func() { isTerminal = oldTerminal })
-	cfg := testConfig(t, say("Selected note received."), say("Ordinary next prompt received."))
+	cfg := testConfig(t)
+	cfg.Client = &mediaCLIClient{activeCLIClient: &activeCLIClient{fakeClient: fakeClient{window: 128000, script: []reply{say("Selected note received."), say("Ordinary next prompt received.")}}}}
 	fixtureSelectedText(t, cfg.Dir, "notes.txt", "original line note")
 	input := "inspect @missing.txt @notes.txt\n/detach 1\n\nordinary next prompt\n"
 	var stdout, stderr bytes.Buffer
@@ -555,11 +556,15 @@ func TestAttachmentLinePrintEvidenceChild(t *testing.T) {
 	if code != 0 {
 		t.Fatal(code, stderr.String())
 	}
-	text := fmt.Sprintf("stdin:\n%s\nstdout:\n%s\nstderr:\n%s\nexit: %d\n", input, stdout.String(), stderr.String(), code)
+	if strings.Contains(stderr.String(), "unavailable for media") {
+		t.Fatal("plain text emitted media warning", stderr.String())
+	}
+	text := fmt.Sprintf("full prepared JSON; pinned window=128000; Send=2; text media warnings=0\nstdin:\n%s\nstdout:\n%s\nstderr:\n%s\nexit: %d\n", input, stdout.String(), stderr.String(), code)
 	if err := os.WriteFile(filepath.Join(dir, "line-transcript.txt"), []byte(text), 0600); err != nil {
 		t.Fatal(err)
 	}
-	cfg = testConfig(t, say("Both original print notes received."))
+	cfg = testConfig(t)
+	cfg.Client = &mediaCLIClient{activeCLIClient: &activeCLIClient{fakeClient: fakeClient{window: 128000, script: []reply{say("Both original print notes received.")}}}}
 	fixtureSelectedText(t, cfg.Dir, "flag.txt", "flag first")
 	fixtureSelectedText(t, cfg.Dir, "mention.txt", "mention second")
 	stdout.Reset()
@@ -568,7 +573,10 @@ func TestAttachmentLinePrintEvidenceChild(t *testing.T) {
 	if code != 0 {
 		t.Fatal(code, stderr.String())
 	}
-	text = fmt.Sprintf("arguments: -p 'compare @mention.txt' --attach flag.txt\nstdout:\n%s\nstderr:\n%s\nexit: %d\n", stdout.String(), stderr.String(), code)
+	if strings.Contains(stderr.String(), "unavailable for media") {
+		t.Fatal("plain text emitted media warning", stderr.String())
+	}
+	text = fmt.Sprintf("full prepared JSON; pinned window=128000; Send=1; text media warnings=0\narguments: -p 'compare @mention.txt' --attach flag.txt\nstdout:\n%s\nstderr:\n%s\nexit: %d\n", stdout.String(), stderr.String(), code)
 	if err := os.WriteFile(filepath.Join(dir, "print-transcript.txt"), []byte(text), 0600); err != nil {
 		t.Fatal(err)
 	}

@@ -29,9 +29,12 @@ func TestAttachmentPTYChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := testConfig(t)
-	cfg.Client = &mediaCLIClient{activeCLIClient: &activeCLIClient{fakeClient: fakeClient{window: 128000, script: []reply{say("Original selected snapshot received."), say("Original screenshot received.")}}}}
+	cfg.Client = &mediaCLIClient{activeCLIClient: &activeCLIClient{fakeClient: fakeClient{window: 128000, script: []reply{say("Original selected snapshot received."), say("Remaining text confirmed after last detach."), say("Escaped-path note received with visible request."), say("Original screenshot received."), say("Original PDF received.")}}}}
 	cfg.Dir = os.Getenv("DASHI_ATTACHMENT_WORKSPACE")
 	if err := os.WriteFile(filepath.Join(cfg.Dir, "screen.png"), realisticAttachmentPNG(t), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.Dir, "evidence.pdf"), realisticAttachmentPDF(), 0600); err != nil {
 		t.Fatal(err)
 	}
 	s := newScreen(cfg.Dir)
@@ -111,11 +114,19 @@ func (s *screen) captureAttachmentEvidence() {
 	var docs []string
 	imageSize := 0
 	imageDigest := ""
+	pdfSize := 0
+	pdfDigest := ""
 	if len(client.inputs) > 0 {
 		last := client.inputs[len(client.inputs)-1]
 		docs = hydratedDocuments(last)
 		for _, m := range last.Messages {
 			for _, c := range m.Content {
+				if c.Block != nil && c.Block.Document != nil && c.Block.Document.Source.MIMEType == "application/pdf" {
+					data := c.Block.Document.Source.Data
+					pdfSize = len(data)
+					digest := sha256.Sum256(data)
+					pdfDigest = hex.EncodeToString(digest[:])
+				}
 				if c.Block != nil && c.Block.Image != nil {
 					data := c.Block.Image.Source.Data
 					imageSize = len(data)
@@ -135,9 +146,11 @@ func (s *screen) captureAttachmentEvidence() {
 		Documents   []string
 		ImageSize   int
 		ImageSHA256 string
+		PDFSize     int
+		PDFSHA256   string
 		Picker      string
 		Session     string
-	}{s.input, attachmentRows(&s.attachments, s.ctrl.attachmentRoot), s.tr.Blocks, s.ctrl.Mode(), sends, docs, imageSize, imageDigest, "", s.eng.Session().ID}
+	}{s.input, attachmentRows(&s.attachments, s.ctrl.attachmentRoot), s.tr.Blocks, s.ctrl.Mode(), sends, docs, imageSize, imageDigest, pdfSize, pdfDigest, "", s.eng.Session().ID}
 	if s.picker != nil {
 		state.Picker = s.picker.title
 	}
