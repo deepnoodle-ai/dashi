@@ -7,6 +7,12 @@ do not see the workspace: they resolve the required version, so a sub-module
 tagged while requiring an older root release fails to build for everyone
 downstream.
 
+Requirements on unreleased versions would also break the workspace itself: Go
+reads each required version's go.mod, and the release is not tagged yet. So
+``go.work`` replaces every intra-repo module at the release version with its
+directory. Go forbids unversioned replacements of workspace modules, so these
+are rewritten with each release. Consumers never read ``go.work``.
+
 ``--check`` is run by ``make tag-modules`` to make that mismatch a hard stop, and
 ``--write`` (``make release-prep``) updates the requirements before tagging.
 ``--list`` prints the tagged sub-modules, which is where the Makefile gets them.
@@ -76,12 +82,51 @@ def dashi_requirements(directory: Path) -> list[tuple[str, str]]:
     ]
 
 
+def module_dirs() -> dict[str, str]:
+    """Module path to its go.work directory, for the root and sub-modules."""
+    dirs = {MODULE_PREFIX: "."}
+    for module in SUB_MODULES:
+        dirs[f"{MODULE_PREFIX}/{module}"] = f"./{module}"
+    return dirs
+
+
+def required_paths() -> list[str]:
+    """Intra-repo module paths that some sub-module requires."""
+    return sorted(
+        {path for module in SUB_MODULES for path, _ in dashi_requirements(REPO_ROOT / module)}
+    )
+
+
+def workspace_replaces() -> list[tuple[str, str, str]]:
+    """Intra-repo replacements in go.work as (path, version, directory)."""
+    process = subprocess.run(
+        ["go", "work", "edit", "-json"],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if process.returncode != 0:
+        raise SystemExit(f"go work edit -json failed: {process.stderr.strip()}")
+    replaces = json.loads(process.stdout).get("Replace") or []
+    return [
+        (r["Old"]["Path"], r["Old"].get("Version", ""), r["New"]["Path"])
+        for r in replaces
+        if r["Old"]["Path"] == MODULE_PREFIX
+        or r["Old"]["Path"].startswith(f"{MODULE_PREFIX}/")
+    ]
+
+
 def check(version: str) -> int:
     stale: list[str] = []
     for module in SUB_MODULES:
         for path, current in dashi_requirements(REPO_ROOT / module):
             if current != version:
                 stale.append(f"  {module}: requires {path} {current}, expected {version}")
+    have = {(path, ver) for path, ver, _ in workspace_replaces()}
+    for path in required_paths():
+        if (path, version) not in have:
+            stale.append(f"  go.work: no replacement for {path} {version}")
     if stale:
         print(
             "Intra-repo module requirements do not match the release version:",
@@ -90,7 +135,7 @@ def check(version: str) -> int:
         print("\n".join(stale), file=sys.stderr)
         print(
             f"\nRun: make release-prep VERSION={version}\n"
-            "then commit the go.mod updates before tagging.",
+            "then commit the go.mod and go.work updates before tagging.",
             file=sys.stderr,
         )
         return 1
@@ -109,6 +154,14 @@ def write(version: str) -> int:
                 check=True,
             )
             print(f"{module}: {path} {current} -> {version}")
+    dirs = module_dirs()
+    args = [
+        f"-dropreplace={path}@{ver}" if ver else f"-dropreplace={path}"
+        for path, ver, _ in workspace_replaces()
+    ]
+    args += [f"-replace={path}@{version}={dirs[path]}" for path in required_paths()]
+    subprocess.run(["go", "work", "edit", *args], cwd=REPO_ROOT, check=True)
+    print(f"go.work: intra-repo replacements -> {version}")
     return 0
 
 
