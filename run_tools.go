@@ -177,7 +177,7 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 			if validationErr == nil &&
 				v.Call.Name != SubmitOutputTool &&
 				v.Definition.Kind != tool.KindExternal &&
-				v.Definition.Kind != tool.KindProviderHosted &&
+				v.Definition.Kind != tool.KindProviderTool &&
 				r.runner.Tools != nil {
 				prehookBindingChecked = true
 				bound, err := r.runner.Tools.Tools(r.toolsContext(ctx))
@@ -262,8 +262,8 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 			}
 			call := v.Call.Clone()
 			verdict := ToolVerdict{
-				Kind:     DecisionAllow,
-				Revision: "dashi-output-v1",
+				Kind:         DecisionAllow,
+				RulesVersion: "dashi-output-v1",
 			}
 			if call.Name != SubmitOutputTool {
 				var o *RunResult
@@ -302,7 +302,7 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 				}
 				continue
 			}
-			if verdict.Kind == DecisionDefer {
+			if verdict.Kind == DecisionNeedsApproval {
 				continue
 			}
 		}
@@ -350,8 +350,8 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 			}
 			continue
 		}
-		if v.Definition.Kind == tool.KindProviderHosted {
-			return r.stop(StopFailed, "hosted tool cannot execute locally"), true
+		if v.Definition.Kind == tool.KindProviderTool {
+			return r.stop(StopFailed, "provider tool cannot execute locally"), true
 		}
 		// A requested call uses only the binding checked before hooks. A
 		// resumed allowed call resolves a binding in this new run.

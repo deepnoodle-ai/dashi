@@ -299,8 +299,8 @@ func activeInputHasMedia(input llm.Input) bool {
 		for _, part := range message.Content {
 			if part.Block != nil && has([]content.Block{*part.Block}) ||
 				part.ToolResult != nil && has(part.ToolResult.Output.Content) ||
-				part.HostedUse != nil && has(part.HostedUse.Output) ||
-				part.HostedResult != nil && has(part.HostedResult.Output) {
+				part.ProviderToolUse != nil && has(part.ProviderToolUse.Output) ||
+				part.ProviderToolResult != nil && has(part.ProviderToolResult.Output) {
 				return true
 			}
 		}

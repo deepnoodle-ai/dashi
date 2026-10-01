@@ -356,7 +356,7 @@ func (r Runner) apply(
 		if c.Approval != nil {
 			n++
 		}
-		if c.HostedApproval != nil {
+		if c.ProviderToolApproval != nil {
 			n++
 		}
 		if c.ModelResult != nil {
@@ -410,19 +410,19 @@ func (r Runner) apply(
 			if o := rt.commit(step); o != nil {
 				return rt.result(*o)
 			}
-		} else if c.HostedApproval != nil {
-			if c.CallID != "" && c.CallID != c.HostedApproval.RequestID {
-				return RunResult{}, errors.New("dashi: hosted approval ID mismatch")
+		} else if c.ProviderToolApproval != nil {
+			if c.CallID != "" && c.CallID != c.ProviderToolApproval.RequestID {
+				return RunResult{}, errors.New("dashi: provider tool approval ID mismatch")
 			}
-			a, ok := state.hosted[c.HostedApproval.RequestID]
-			if !ok || a.Origin != c.HostedApproval.Origin {
-				return RunResult{}, errors.New("dashi: hosted approval is not pending")
+			a, ok := state.providerTool[c.ProviderToolApproval.RequestID]
+			if !ok || a.Origin != c.ProviderToolApproval.Origin {
+				return RunResult{}, errors.New("dashi: provider tool approval is not pending")
 			}
 			if o := rt.commit(Step{
-				Kind:           StepProviderToolApprovalDecided,
-				CommandID:      c.CommandID,
-				CommandDigest:  d,
-				HostedApproval: c.HostedApproval,
+				Kind:                 StepProviderToolApprovalDecided,
+				CommandID:            c.CommandID,
+				CommandDigest:        d,
+				ProviderToolApproval: c.ProviderToolApproval,
 			}); o != nil {
 				return rt.result(*o)
 			}

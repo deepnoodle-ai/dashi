@@ -165,7 +165,7 @@ func TestSpendCloneCopiesUsageAndCosts(t *testing.T) {
 	clone.Cost["USD"] = amount("2")
 	clone.ToolCost["EUR"] = amount("3")
 	if spend.Usage.Requests["web_search"] != 1 {
-		t.Fatal("spend clone shared hosted request counts")
+		t.Fatal("spend clone shared provider tool request counts")
 	}
 	if spend.Cost["USD"] != amount("1") {
 		t.Fatal("spend clone shared model cost totals")
@@ -249,7 +249,7 @@ func TestBudgetStopsWhenInputAloneExceedsCostCap(t *testing.T) {
 	}
 }
 
-func TestBudgetStopsForUnboundedHostedRequests(t *testing.T) {
+func TestBudgetStopsForUnboundedProviderToolRequests(t *testing.T) {
 	client := newPricedClient()
 	input := llm.Input{
 		Model:    "fixture",
@@ -257,8 +257,8 @@ func TestBudgetStopsForUnboundedHostedRequests(t *testing.T) {
 		Tools: []tool.Definition{
 			{
 				Name: "web_search",
-				Kind: tool.KindProviderHosted,
-				Hosted: &tool.HostedSpec{
+				Kind: tool.KindProviderTool,
+				ProviderTool: &tool.ProviderToolSpec{
 					Provider: "test",
 					API:      "test.chat",
 					Type:     "web_search",
@@ -277,9 +277,9 @@ func TestBudgetStopsForUnboundedHostedRequests(t *testing.T) {
 	}
 	_, _, stop := checkSendBudget(state, request, "fixture")
 	if stop == nil || stop.Limit == nil || stop.Limit.Kind != LimitCost {
-		t.Fatalf("hosted cost was admitted: stop=%+v", stop)
+		t.Fatalf("provider tool cost was admitted: stop=%+v", stop)
 	}
-	if !strings.Contains(stop.Reason, "remove hosted tools") {
+	if !strings.Contains(stop.Reason, "remove provider tools") {
 		t.Fatalf("reason=%q", stop.Reason)
 	}
 }
@@ -693,10 +693,10 @@ func TestBudgetRejectsDecreaseWithoutRecording(t *testing.T) {
 	}
 }
 
-func hostedUse(id string) llm.Content {
+func providerToolUse(id string) llm.Content {
 	return llm.Content{
-		Kind: llm.ContentHostedUse,
-		HostedUse: &llm.HostedUse{
+		Kind: llm.ContentProviderToolUse,
+		ProviderToolUse: &llm.ProviderToolUse{
 			ID:   id,
 			Name: "web_search",
 			Type: "web_search_call",
@@ -710,7 +710,7 @@ func hostedUse(id string) llm.Content {
 	}
 }
 
-func TestBudgetHostedRequestsUseAdapterCounts(t *testing.T) {
+func TestBudgetProviderToolRequestsUseAdapterCounts(t *testing.T) {
 	client := newPricedClient()
 	client.pricing.Requests = map[string]money.Amount{
 		llm.MeterWebSearch: amount("0.01"),
@@ -726,7 +726,7 @@ func TestBudgetHostedRequestsUseAdapterCounts(t *testing.T) {
 		RequestsComplete: true,
 	}
 	result.Message.Content = append(
-		[]llm.Content{hostedUse("search-1"), hostedUse("search-2")},
+		[]llm.Content{providerToolUse("search-1"), providerToolUse("search-2")},
 		result.Message.Content...,
 	)
 	client.results = []llm.Result{result}
@@ -793,7 +793,7 @@ func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
 	}
 }
 
-func TestBudgetUnforeseenHostedRequestStopsCappedTurn(t *testing.T) {
+func TestBudgetUnforeseenProviderToolRequestStopsCappedTurn(t *testing.T) {
 	first := callResult("lookup-1", "lookup")
 	first.Usage = &llm.Usage{
 		InputTokens:      10,
@@ -1069,12 +1069,12 @@ func TestBudgetCumulativeOverflowRejectsNextIntent(t *testing.T) {
 	}
 }
 
-type hostedCancelClient struct {
+type providerToolCancelClient struct {
 	*pricedClient
 	cancel context.CancelFunc
 }
 
-func (c *hostedCancelClient) Send(
+func (c *providerToolCancelClient) Send(
 	ctx context.Context,
 	call llm.Call,
 ) (llm.Result, error) {
@@ -1082,17 +1082,17 @@ func (c *hostedCancelClient) Send(
 	// counts; the stream is cut off before the final usage arrives.
 	call.Sink(llm.Delta{Kind: llm.DeltaUsage, Usage: &llm.Usage{InputTokens: 100}})
 	for _, id := range []string{"search-1", "search-2"} {
-		use := hostedUse(id)
+		use := providerToolUse(id)
 		call.Sink(llm.Delta{Content: &use})
 	}
 	c.cancel()
 	return llm.Result{}, ctx.Err()
 }
 
-func TestBudgetInterruptedHostedUseRecordsUnreportedRequests(t *testing.T) {
+func TestBudgetInterruptedProviderToolUseRecordsUnreportedRequests(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	client := &hostedCancelClient{pricedClient: newPricedClient(), cancel: cancel}
+	client := &providerToolCancelClient{pricedClient: newPricedClient(), cancel: cancel}
 	client.pricing.Requests = map[string]money.Amount{
 		llm.MeterWebSearch: amount("0.01"),
 	}
@@ -1126,30 +1126,30 @@ func TestBudgetInterruptedHostedUseRecordsUnreportedRequests(t *testing.T) {
 
 // hostedCollectedCancelClient streams nothing; after the run's context ends
 // it returns a message holding hosted-tool records, with no ID or usage.
-type hostedCollectedCancelClient struct {
+type providerToolCollectedCancelClient struct {
 	*pricedClient
 	cancel context.CancelFunc
 }
 
-func (c *hostedCollectedCancelClient) Send(
+func (c *providerToolCollectedCancelClient) Send(
 	ctx context.Context,
 	call llm.Call,
 ) (llm.Result, error) {
 	c.cancel()
 	return llm.Result{Message: llm.AssistantMessage(
-		hostedUse("search-1"),
-		hostedUse("search-2"),
-		hostedUse("search-3"),
+		providerToolUse("search-1"),
+		providerToolUse("search-2"),
+		providerToolUse("search-3"),
 	)}, ctx.Err()
 }
 
 // A run-cancelled call is never projected, so it keeps the message the
 // client returned: its hosted-tool records stay for audit and count as
 // unreported requests.
-func TestRunCancelKeepsReturnedHostedContent(t *testing.T) {
+func TestRunCancelKeepsReturnedProviderToolContent(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	client := &hostedCollectedCancelClient{
+	client := &providerToolCollectedCancelClient{
 		pricedClient: newPricedClient(),
 		cancel:       cancel,
 	}
@@ -1177,12 +1177,12 @@ func TestRunCancelKeepsReturnedHostedContent(t *testing.T) {
 	}
 	uses := 0
 	for _, part := range settled.Result.Message.Content {
-		if part.Kind == llm.ContentHostedUse {
+		if part.Kind == llm.ContentProviderToolUse {
 			uses++
 		}
 	}
 	if uses != 3 {
-		t.Fatalf("kept hosted uses=%d, want 3", uses)
+		t.Fatalf("kept provider tool uses=%d, want 3", uses)
 	}
 	view, err := Replay(out.Turn)
 	if err != nil {
@@ -1230,7 +1230,7 @@ func TestUncheckableCostReasonNamesEachCause(t *testing.T) {
 			name:    "missing charge",
 			spend:   Spend{CostUnknown: 1},
 			want:    []string{"unknown or in another currency"},
-			without: []string{"hosted"},
+			without: []string{"provider tool"},
 		},
 		{
 			name: "partial and missing charge",
@@ -1291,14 +1291,14 @@ func TestBudgetPartialCostsSumAcrossCalls(t *testing.T) {
 	}
 }
 
-func TestUnreportedRequestsSkipFailedUsesAndCoverSilentHostedTools(t *testing.T) {
-	failed := hostedUse("search-2")
+func TestUnreportedRequestsSkipFailedUsesAndCoverSilentProviderTools(t *testing.T) {
+	failed := providerToolUse("search-2")
 	result := &llm.Result{Message: llm.Message{Content: []llm.Content{
-		hostedUse("search-1"),
+		providerToolUse("search-1"),
 		failed,
 		{
-			Kind: llm.ContentHostedResult,
-			HostedResult: &llm.HostedResult{
+			Kind: llm.ContentProviderToolResult,
+			ProviderToolResult: &llm.ProviderToolResult{
 				CallID:  "search-2",
 				Type:    "web_search_tool_result",
 				IsError: true,
@@ -1311,24 +1311,24 @@ func TestUnreportedRequestsSkipFailedUsesAndCoverSilentHostedTools(t *testing.T)
 		t.Fatalf("a refused use counted as billed: %v", usage.Requests)
 	}
 
-	hosted := &ModelFact{Tools: []tool.Definition{{
+	providerTool := &ModelFact{Tools: []tool.Definition{{
 		Name: "google_search",
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "test",
 			API:      "test.chat",
 			Type:     "googleSearch",
 		},
 	}}}
 	usage = &llm.Usage{InputTokens: 10}
-	addUnreportedRequests(usage, hosted, nil)
+	addUnreportedRequests(usage, providerTool, nil)
 	if usage.Requests[llm.MeterUnreported] != 1 {
-		t.Fatalf("silent hosted tool left the call looking complete: %v", usage.Requests)
+		t.Fatalf("silent provider tool left the call looking complete: %v", usage.Requests)
 	}
 	usage = &llm.Usage{InputTokens: 10}
 	addUnreportedRequests(usage, &ModelFact{}, nil)
 	if len(usage.Requests) != 0 {
-		t.Fatalf("call without hosted tools marked unreported: %v", usage.Requests)
+		t.Fatalf("call without provider tools marked unreported: %v", usage.Requests)
 	}
 }
 
@@ -1349,7 +1349,7 @@ func (c *groundingCutClient) Send(
 	return llm.Result{}, ctx.Err()
 }
 
-func TestBudgetInterruptedSilentHostedToolIsPartial(t *testing.T) {
+func TestBudgetInterruptedSilentProviderToolIsPartial(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	client := &groundingCutClient{pricedClient: newPricedClient(), cancel: cancel}
@@ -1357,8 +1357,8 @@ func TestBudgetInterruptedSilentHostedToolIsPartial(t *testing.T) {
 	def.Settings.MaxTokens = 100
 	search := tool.Tool{Definition: tool.Definition{
 		Name: "google_search",
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "test",
 			API:      "test.chat",
 			Type:     "googleSearch",
@@ -1395,7 +1395,7 @@ func TestBudgetInterruptedSilentHostedToolIsPartial(t *testing.T) {
 
 func TestUnreportedRequestsMarkNonFinalCounts(t *testing.T) {
 	inferred := &llm.Result{Message: llm.Message{Content: []llm.Content{
-		hostedUse("search-1"),
+		providerToolUse("search-1"),
 	}}}
 	// Counts inferred from the one visible block, with no final report.
 	usage := &llm.Usage{Requests: map[string]int{llm.MeterWebSearch: 1}}
@@ -1407,6 +1407,6 @@ func TestUnreportedRequestsMarkNonFinalCounts(t *testing.T) {
 	usage = &llm.Usage{InputTokens: 10}
 	addUnreportedRequests(usage, &ModelFact{}, &llm.Result{})
 	if len(usage.Requests) != 0 {
-		t.Fatalf("call without hosted activity marked unreported: %v", usage.Requests)
+		t.Fatalf("call without provider tool activity marked unreported: %v", usage.Requests)
 	}
 }

@@ -78,7 +78,7 @@ func (r *runtime) activeTranscript(messages []llm.Message) ([]string, error) {
 			blocks[i] = textBlock(b)
 		}
 	}
-	hostedOutput := func(blocks []content.Block, isError bool) []content.Block {
+	providerToolOutput := func(blocks []content.Block, isError bool) []content.Block {
 		render(blocks)
 		if isError {
 			// The shared renderer does not label hosted errors. Keep explicit
@@ -96,13 +96,13 @@ func (r *runtime) activeTranscript(messages []llm.Message) ([]string, error) {
 			if part.ToolResult != nil {
 				render(part.ToolResult.Output.Content)
 			}
-			if part.HostedResult != nil {
-				part.HostedResult.Output = hostedOutput(part.HostedResult.Output, part.HostedResult.IsError)
+			if part.ProviderToolResult != nil {
+				part.ProviderToolResult.Output = providerToolOutput(part.ProviderToolResult.Output, part.ProviderToolResult.IsError)
 			}
 			parts = append(parts, part)
-			if use := part.HostedUse; use != nil && (len(use.Output) > 0 || use.IsError) {
-				output := hostedOutput(use.Output, use.IsError)
-				parts = append(parts, llm.Content{Kind: llm.ContentHostedResult, HostedResult: &llm.HostedResult{
+			if use := part.ProviderToolUse; use != nil && (len(use.Output) > 0 || use.IsError) {
+				output := providerToolOutput(use.Output, use.IsError)
+				parts = append(parts, llm.Content{Kind: llm.ContentProviderToolResult, ProviderToolResult: &llm.ProviderToolResult{
 					CallID: use.ID, Type: use.Type, Origin: use.Origin, Output: output, IsError: use.IsError,
 				}})
 			}

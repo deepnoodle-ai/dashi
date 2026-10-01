@@ -61,8 +61,8 @@ func externalTool(name string) tool.Tool {
 }
 
 func TestPendingBuildersAnswerMixedWork(t *testing.T) {
-	request := llm.HostedApprovalRequest{
-		ID:        "hosted-1",
+	request := llm.ProviderToolApprovalRequest{
+		ID:        "provider-tool-1",
 		Name:      "remote",
 		Arguments: json.RawMessage(`{"q":1}`),
 		Origin:    fixtureOrigin,
@@ -72,8 +72,8 @@ func TestPendingBuildersAnswerMixedWork(t *testing.T) {
 			toolCall("ask-1", "deploy", `{"env":"prod"}`),
 			toolCall("ext-1", "mail", `{}`),
 			llm.Content{
-				Kind:                  llm.ContentHostedApprovalRequest,
-				HostedApprovalRequest: &request,
+				Kind:                        llm.ContentProviderToolApprovalRequest,
+				ProviderToolApprovalRequest: &request,
 			},
 		),
 		final("done"),
@@ -97,10 +97,10 @@ func TestPendingBuildersAnswerMixedWork(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopWaiting {
 		t.Fatalf("start stop=%+v err=%v", out.Stop, err)
 	}
-	if ids := strings.Join(pendingIDs(out.Pending), ","); ids != "ask-1,ext-1,hosted-1" {
+	if ids := strings.Join(pendingIDs(out.Pending), ","); ids != "ask-1,ext-1,provider-tool-1" {
 		t.Fatalf("pending order=%s", ids)
 	}
-	ask, ext, hosted := out.Pending[0], out.Pending[1], out.Pending[2]
+	ask, ext, providerTool := out.Pending[0], out.Pending[1], out.Pending[2]
 	if ask.Kind != PendingApproval ||
 		ask.Name != "deploy" ||
 		string(ask.Args) != `{"env":"prod"}` ||
@@ -111,11 +111,11 @@ func TestPendingBuildersAnswerMixedWork(t *testing.T) {
 		ext.Tool.Status != ToolWaiting {
 		t.Fatalf("external item=%+v", ext)
 	}
-	if hosted.Kind != PendingApproval ||
-		hosted.Hosted == nil ||
-		hosted.Name != "remote" ||
-		hosted.Tool != nil {
-		t.Fatalf("hosted item=%+v", hosted)
+	if providerTool.Kind != PendingApproval ||
+		providerTool.ProviderTool == nil ||
+		providerTool.Name != "remote" ||
+		providerTool.Tool != nil {
+		t.Fatalf("provider tool item=%+v", providerTool)
 	}
 
 	answers := []Resolve{
@@ -124,7 +124,7 @@ func TestPendingBuildersAnswerMixedWork(t *testing.T) {
 			State:  tool.StateSucceeded,
 			Output: new(tool.TextOutput("sent")),
 		}),
-		hosted.Deny("Not today."),
+		providerTool.Deny("Not today."),
 	}
 	for _, answer := range answers {
 		if out, err = runner.Run(t.Context(), out.Turn, answer); err != nil {
@@ -143,10 +143,10 @@ func TestPendingBuildersAnswerMixedWork(t *testing.T) {
 		t.Fatalf("second, different answer err=%v", err)
 	}
 	last := out.Turn.Steps[len(out.Turn.Steps)-1]
-	if last.HostedApproval == nil ||
-		last.HostedApproval.Approve ||
-		last.HostedApproval.Reason != "Not today." {
-		t.Fatalf("hosted answer=%+v", last.HostedApproval)
+	if last.ProviderToolApproval == nil ||
+		last.ProviderToolApproval.Approve ||
+		last.ProviderToolApproval.Reason != "Not today." {
+		t.Fatalf("provider tool answer=%+v", last.ProviderToolApproval)
 	}
 	if len(out.Pending) != 0 || !out.ReadyToContinue {
 		t.Fatalf("answered turn pending=%v ready=%t", out.Pending, out.ReadyToContinue)
@@ -456,10 +456,10 @@ func textPart(text string, citations ...content.Citation) llm.Content {
 	return llm.Block(block)
 }
 
-func hostedUsePart(id string) llm.Content {
+func providerToolUsePart(id string) llm.Content {
 	return llm.Content{
-		Kind: llm.ContentHostedUse,
-		HostedUse: &llm.HostedUse{
+		Kind: llm.ContentProviderToolUse,
+		ProviderToolUse: &llm.ProviderToolUse{
 			ID:     id,
 			Name:   "web_search",
 			Type:   "server_tool_use",
@@ -490,10 +490,10 @@ func TestJoinTextKeepsSentencesIntact(t *testing.T) {
 			want: "The capital is Dodoma, with about 765,000 people.",
 		},
 		{
-			name: "hosted use between passages",
+			name: "provider tool use between passages",
 			parts: []llm.Content{
 				textPart("53^4 is 7890481."),
-				hostedUsePart("u1"),
+				providerToolUsePart("u1"),
 				textPart("**Tanzania's** capital"),
 			},
 			want: "53^4 is 7890481.\n\n**Tanzania's** capital",
@@ -511,7 +511,7 @@ func TestJoinTextKeepsSentencesIntact(t *testing.T) {
 			name: "newline already present",
 			parts: []llm.Content{
 				textPart("First.\n"),
-				hostedUsePart("u1"),
+				providerToolUsePart("u1"),
 				textPart("Second."),
 			},
 			want: "First.\nSecond.",
@@ -541,10 +541,10 @@ func settledStep(result llm.Result) Step {
 	}
 }
 
-func TestTurnCitationsAndHostedUsesSpanCalls(t *testing.T) {
+func TestTurnCitationsAndProviderToolUsesSpanCalls(t *testing.T) {
 	result := llm.Content{
-		Kind: llm.ContentHostedResult,
-		HostedResult: &llm.HostedResult{
+		Kind: llm.ContentProviderToolResult,
+		ProviderToolResult: &llm.ProviderToolResult{
 			CallID:  "u1",
 			Type:    "web_search_tool_result",
 			Origin:  fixtureOrigin,
@@ -553,13 +553,13 @@ func TestTurnCitationsAndHostedUsesSpanCalls(t *testing.T) {
 		},
 	}
 	interrupted := settledStep(llm.Result{
-		Message: llm.AssistantMessage(hostedUsePart("lost")),
+		Message: llm.AssistantMessage(providerToolUsePart("lost")),
 	})
 	interrupted.Model.Interrupted = InterruptRun
 	turn := Turn{ID: "t1", Steps: []Step{
 		settledStep(llm.Result{
 			Message: llm.AssistantMessage(
-				hostedUsePart("u1"),
+				providerToolUsePart("u1"),
 				result,
 				textPart("A", content.Citation{URL: "https://a"}),
 			),
@@ -568,7 +568,7 @@ func TestTurnCitationsAndHostedUsesSpanCalls(t *testing.T) {
 		interrupted,
 		settledStep(llm.Result{
 			Message: llm.AssistantMessage(
-				hostedUsePart("u2"),
+				providerToolUsePart("u2"),
 				textPart("B", content.Citation{URL: "https://b"}),
 			),
 			Stop: llm.Stop{Kind: llm.StopFinished},
@@ -580,14 +580,14 @@ func TestTurnCitationsAndHostedUsesSpanCalls(t *testing.T) {
 		citations[1].URL != "https://b" {
 		t.Fatalf("citations=%+v", citations)
 	}
-	uses := turn.HostedUses()
+	uses := turn.ProviderToolUses()
 	if len(uses) != 2 || uses[0].ID != "u1" || uses[1].ID != "u2" {
-		t.Fatalf("hosted uses=%+v", uses)
+		t.Fatalf("provider tool uses=%+v", uses)
 	}
 	if len(uses[0].Output) != 1 ||
 		uses[0].Output[0].Text.Text != "page" ||
 		!uses[0].IsError {
-		t.Fatalf("hosted result was not paired: %+v", uses[0].Output)
+		t.Fatalf("provider tool result was not paired: %+v", uses[0].Output)
 	}
 	if got := answerText(turn.Steps); got != "A\n\nB" {
 		t.Fatalf("answer across a pause=%q", got)
@@ -596,8 +596,8 @@ func TestTurnCitationsAndHostedUsesSpanCalls(t *testing.T) {
 
 func TestPendingItemsListOnlyHostWork(t *testing.T) {
 	s := &replayState{
-		TurnView: TurnView{Tools: map[string]ToolView{}},
-		hosted:   map[string]llm.HostedApprovalRequest{},
+		TurnView:     TurnView{Tools: map[string]ToolView{}},
+		providerTool: map[string]llm.ProviderToolApprovalRequest{},
 	}
 	statuses := []ToolStatus{
 		ToolRequested,
@@ -616,8 +616,8 @@ func TestPendingItemsListOnlyHostWork(t *testing.T) {
 	}
 	// Hosted requests keep the model's order, not map order.
 	for _, id := range []string{"h9", "h1", "h5"} {
-		s.hosted[id] = llm.HostedApprovalRequest{ID: id, Name: "remote"}
-		s.hostedOrder = append(s.hostedOrder, id)
+		s.providerTool[id] = llm.ProviderToolApprovalRequest{ID: id, Name: "remote"}
+		s.providerToolOrder = append(s.providerToolOrder, id)
 	}
 	s.modelIntent = "attempt-1"
 	got := strings.Join(pendingIDs(s.pendingItems()), ",")
@@ -664,8 +664,8 @@ func TestRequireApprovalDefersNamedTools(t *testing.T) {
 	}
 	named, err := hook.Func(t.Context(), ToolPlan{Call: tool.Call{Name: "a"}})
 	if err != nil ||
-		named.Kind != DecisionDefer ||
-		named.Revision != "require_approval:a,b" {
+		named.Kind != DecisionNeedsApproval ||
+		named.RulesVersion != "require_approval:a,b" {
 		t.Fatalf("named decision=%+v err=%v", named, err)
 	}
 	other, err := hook.Func(t.Context(), ToolPlan{Call: tool.Call{Name: "c"}})
@@ -676,13 +676,13 @@ func TestRequireApprovalDefersNamedTools(t *testing.T) {
 		t.Context(),
 		ToolPlan{Call: tool.Call{Name: "a"}},
 	)
-	if single.Revision == named.Revision {
+	if single.RulesVersion == named.RulesVersion {
 		t.Fatal("different tool lists share a revision")
 	}
 	all := RequireApproval().BeforeTool[0]
 	every, err := all.Func(t.Context(), ToolPlan{Call: tool.Call{Name: "c"}})
 	if err != nil || all.Name != "require_approval:*" ||
-		every.Kind != DecisionDefer {
+		every.Kind != DecisionNeedsApproval {
 		t.Fatalf("all tools name=%q decision=%+v err=%v", all.Name, every, err)
 	}
 }
@@ -721,9 +721,9 @@ func TestDenialKeepsHookVerdictAndRecordsAnswer(t *testing.T) {
 	out, _ := deniedDeploy(t, "No.")
 	call := out.Tools["call-1"]
 	if call.Status != ToolDenied ||
-		call.Verdict.Kind != DecisionDefer ||
+		call.Verdict.Kind != DecisionNeedsApproval ||
 		call.Verdict.Hook != "require_approval:deploy" ||
-		call.Verdict.Revision != "require_approval:deploy" {
+		call.Verdict.RulesVersion != "require_approval:deploy" {
 		t.Fatalf("hook verdict changed: %+v", call.Verdict)
 	}
 	if call.Approval == nil || call.Approval.Approve || call.Approval.Reason != "No." {
@@ -883,16 +883,16 @@ func TestMalformedInputTurnReturnsErrorWithoutPanic(t *testing.T) {
 	}
 }
 
-func hostedRequest(id string) llm.Result {
-	request := llm.HostedApprovalRequest{
+func providerToolRequest(id string) llm.Result {
+	request := llm.ProviderToolApprovalRequest{
 		ID:     id,
 		Name:   "remote",
 		Origin: fixtureOrigin,
 	}
 	return llm.Result{
 		Message: llm.AssistantMessage(llm.Content{
-			Kind:                  llm.ContentHostedApprovalRequest,
-			HostedApprovalRequest: &request,
+			Kind:                        llm.ContentProviderToolApprovalRequest,
+			ProviderToolApprovalRequest: &request,
 		}),
 		Stop: llm.Stop{Kind: llm.StopFinished},
 	}
@@ -900,10 +900,10 @@ func hostedRequest(id string) llm.Result {
 
 // A provider may reuse a hosted request ID after the first request was
 // answered. The second request needs its own answer command.
-func TestReusedHostedApprovalIDGetsItsOwnAnswer(t *testing.T) {
+func TestReusedProviderToolApprovalIDGetsItsOwnAnswer(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{
-		hostedRequest("h1"),
-		hostedRequest("h1"),
+		providerToolRequest("h1"),
+		providerToolRequest("h1"),
 		final("done"),
 	}}
 	agent := testAgent()
@@ -950,14 +950,14 @@ func TestReusedHostedApprovalIDGetsItsOwnAnswer(t *testing.T) {
 	}
 }
 
-func TestIncompleteHostedApprovalIsNotActionable(t *testing.T) {
+func TestIncompleteProviderToolApprovalIsNotActionable(t *testing.T) {
 	origin := content.Origin{
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",
 		Scope:    "fixture",
 	}
-	request := llm.HostedApprovalRequest{
+	request := llm.ProviderToolApprovalRequest{
 		ID:     "approval-1",
 		Name:   "remote",
 		Origin: origin,
@@ -967,8 +967,8 @@ func TestIncompleteHostedApprovalIsNotActionable(t *testing.T) {
 		Message: llm.AssistantMessage(
 			llm.Text("partial"),
 			llm.Content{
-				Kind:                  llm.ContentHostedApprovalRequest,
-				HostedApprovalRequest: &request,
+				Kind:                        llm.ContentProviderToolApprovalRequest,
+				ProviderToolApprovalRequest: &request,
 			},
 		),
 		Stop: llm.Stop{Kind: llm.StopIncomplete},
@@ -978,10 +978,10 @@ func TestIncompleteHostedApprovalIsNotActionable(t *testing.T) {
 	}
 	rec := NewMemoryRecorder()
 	first, err := start(t, client, nil, rec, Hooks{})
-	if err != nil || first.Stop.Kind != StopFailed || first.Stop.Reason != "untrusted stop with hosted approval" || len(first.Pending) != 0 {
+	if err != nil || first.Stop.Kind != StopFailed || first.Stop.Reason != "untrusted stop with provider tool approval" || len(first.Pending) != 0 {
 		t.Fatalf("first: stop=%+v pending=%v err=%v", first.Stop, first.Pending, err)
 	}
-	response := llm.HostedApprovalResponse{
+	response := llm.ProviderToolApprovalResponse{
 		RequestID: request.ID,
 		Approve:   true,
 		Origin:    origin,
@@ -993,12 +993,12 @@ func TestIncompleteHostedApprovalIsNotActionable(t *testing.T) {
 		t.Context(),
 		first.Turn,
 		Resolve{
-			CommandID:      "approve",
-			CallID:         request.ID,
-			HostedApproval: &response,
+			CommandID:            "approve",
+			CallID:               request.ID,
+			ProviderToolApproval: &response,
 		},
 	); err == nil {
-		t.Fatal("incomplete hosted approval was accepted")
+		t.Fatal("incomplete provider tool approval was accepted")
 	}
 	second, err := (Runner{
 		Client:   client,
@@ -1014,21 +1014,21 @@ func TestIncompleteHostedApprovalIsNotActionable(t *testing.T) {
 	}
 	for _, message := range client.inputs[1].Messages {
 		for _, part := range message.Content {
-			if part.Kind == llm.ContentHostedApprovalRequest {
-				t.Fatal("incomplete hosted approval reached the next model request")
+			if part.Kind == llm.ContentProviderToolApprovalRequest {
+				t.Fatal("incomplete provider tool approval reached the next model request")
 			}
 		}
 	}
 }
 
-func TestCanceledHostedApprovalDoesNotLeaveDanglingProjection(t *testing.T) {
+func TestCanceledProviderToolApprovalDoesNotLeaveDanglingProjection(t *testing.T) {
 	origin := content.Origin{
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",
 		Scope:    "fixture",
 	}
-	request := llm.HostedApprovalRequest{
+	request := llm.ProviderToolApprovalRequest{
 		ID:     "approval-1",
 		Name:   "remote",
 		Origin: origin,
@@ -1038,8 +1038,8 @@ func TestCanceledHostedApprovalDoesNotLeaveDanglingProjection(t *testing.T) {
 		Message: llm.AssistantMessage(
 			llm.Text("before approval"),
 			llm.Content{
-				Kind:                  llm.ContentHostedApprovalRequest,
-				HostedApprovalRequest: &request,
+				Kind:                        llm.ContentProviderToolApprovalRequest,
+				ProviderToolApprovalRequest: &request,
 			},
 		),
 		Stop: llm.Stop{Kind: llm.StopToolUse},
@@ -1064,7 +1064,7 @@ func TestCanceledHostedApprovalDoesNotLeaveDanglingProjection(t *testing.T) {
 	keptText := false
 	for _, message := range messages {
 		for _, part := range message.Content {
-			if part.Kind == llm.ContentHostedApprovalRequest {
+			if part.Kind == llm.ContentProviderToolApprovalRequest {
 				t.Fatal("canceled approval reached projection")
 			}
 			if part.Kind == llm.ContentBlock && part.Block != nil && part.Block.Text != nil && part.Block.Text.Text == "before approval" {

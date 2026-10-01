@@ -200,9 +200,9 @@ const (
 	VerdictLimit   HookVerdict = "limit"
 	VerdictDeny    HookVerdict = "deny"
 	// VerdictAllow, VerdictDefer and VerdictRewrite are BeforeTool answers.
-	VerdictAllow   HookVerdict = "allow"
-	VerdictDefer   HookVerdict = "defer"
-	VerdictRewrite HookVerdict = "rewrite"
+	VerdictAllow         HookVerdict = "allow"
+	VerdictNeedsApproval HookVerdict = "needs_approval"
+	VerdictRewrite       HookVerdict = "rewrite"
 	// VerdictAddMessages, VerdictReject and VerdictAcceptEmpty are BeforeFinish
 	// answers: delivered items, a reason alone, or accepting an empty
 	// answer.
@@ -222,9 +222,9 @@ type HookResult struct {
 	Name    string      `json:"name"`
 	Verdict HookVerdict `json:"verdict"`
 	// Pass counts the rewrite restarts before a BeforeTool answer.
-	Pass     int    `json:"pass,omitempty"`
-	Revision string `json:"revision,omitempty"`
-	Reason   string `json:"reason,omitempty"`
+	Pass         int    `json:"pass,omitempty"`
+	RulesVersion string `json:"rules_version,omitempty"`
+	Reason       string `json:"reason,omitempty"`
 	// Error is the hook's error text for a failed verdict. The model never
 	// sees it.
 	Error string `json:"error,omitempty"`
@@ -333,8 +333,8 @@ const (
 	DecisionAllow DecisionKind = "allow"
 	// DecisionDeny records a denied tool call.
 	DecisionDeny DecisionKind = "deny"
-	// DecisionDefer leaves authorization to a later host decision.
-	DecisionDefer DecisionKind = "defer"
+	// DecisionNeedsApproval leaves authorization to a later host decision.
+	DecisionNeedsApproval DecisionKind = "needs_approval"
 )
 
 // ToolDecision is a BeforeTool answer; build it with Allow, Deny, Defer or
@@ -344,9 +344,9 @@ type ToolDecision struct {
 	Kind DecisionKind
 	// Reason is recorded; for a denial it is also the result the model sees.
 	Reason string
-	// Revision is audit data naming the rules that decided, such as a policy
+	// RulesVersion is audit data naming the rules that decided, such as a policy
 	// version.
-	Revision string
+	RulesVersion string
 	// Rewrite replaces the call's arguments. The new arguments are checked
 	// against the tool's schema, and every hook is asked again about them.
 	// Kind is ignored.
@@ -357,10 +357,10 @@ type ToolDecision struct {
 // names the first hook that returned Allow; when none did, Hook is empty and
 // Reason is "no hook opinion". A deny or defer names the hook that decided.
 type ToolVerdict struct {
-	Kind     DecisionKind `json:"kind"`
-	Reason   string       `json:"reason,omitempty"`
-	Hook     string       `json:"hook,omitempty"`
-	Revision string       `json:"revision,omitempty"`
+	Kind         DecisionKind `json:"kind"`
+	Reason       string       `json:"reason,omitempty"`
+	Hook         string       `json:"hook,omitempty"`
+	RulesVersion string       `json:"rules_version,omitempty"`
 }
 
 // ResultPlan gives AfterTool one final tool result. Outcome is what

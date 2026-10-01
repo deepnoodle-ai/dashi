@@ -37,9 +37,9 @@ type replayState struct {
 	attemptCap             int
 	modelDefs              map[string]tool.Definition
 	callOrder              []string
-	hosted                 map[string]llm.HostedApprovalRequest
-	hostedOrder            []string
-	hostedAttempts         map[string]string
+	providerTool           map[string]llm.ProviderToolApprovalRequest
+	providerToolOrder      []string
+	providerToolAttempts   map[string]string
 	commandDigests         map[string]string
 	latestResult           *llm.Result
 	awaitingClassification bool
@@ -53,7 +53,7 @@ type replayState struct {
 	// pause that left a hosted call unfinished. The next request must end
 	// with that result so the provider can finish the call, so no steer may
 	// follow it yet.
-	pausedHosted bool
+	pausedProviderTool bool
 	// deliveredOnKept sizes the context delivered while a final text answer
 	// was kept by a stop; see keptFinishCandidate.
 	deliveredOnKept int
@@ -121,17 +121,17 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 		}
 	}
 	s := &replayState{
-		TurnView:         TurnView{ID: t.ID, Tools: map[string]ToolView{}},
-		source:           t,
-		contextCache:     cache,
-		modelDefs:        map[string]tool.Definition{},
-		hosted:           map[string]llm.HostedApprovalRequest{},
-		hostedAttempts:   map[string]string{},
-		commandDigests:   map[string]string{},
-		modelIntents:     map[string]*ModelFact{},
-		modelSettlements: map[string]*ModelFact{},
-		modelMessages:    map[string]string{},
-		callAttempts:     map[string]string{},
+		TurnView:             TurnView{ID: t.ID, Tools: map[string]ToolView{}},
+		source:               t,
+		contextCache:         cache,
+		modelDefs:            map[string]tool.Definition{},
+		providerTool:         map[string]llm.ProviderToolApprovalRequest{},
+		providerToolAttempts: map[string]string{},
+		commandDigests:       map[string]string{},
+		modelIntents:         map[string]*ModelFact{},
+		modelSettlements:     map[string]*ModelFact{},
+		modelMessages:        map[string]string{},
+		callAttempts:         map[string]string{},
 	}
 	if t.ID == "" {
 		return nil, fmt.Errorf("%w: empty ID", ErrInvalidTurn)
@@ -296,5 +296,5 @@ func (s *replayState) calculateSpend() error {
 // projectionSnapshot captures only immutable facts needed by the pure projector.
 // It does not calculate accounting or recursively validate a prefix.
 func (s *replayState) projectionSnapshot() *replayState {
-	return &replayState{TurnView: TurnView{Stop: s.Stop, Tools: maps.Clone(s.Tools)}, modelIntent: s.modelIntent, unresolvedModel: s.unresolvedModel, callOrder: slices.Clone(s.callOrder), hosted: maps.Clone(s.hosted)}
+	return &replayState{TurnView: TurnView{Stop: s.Stop, Tools: maps.Clone(s.Tools)}, modelIntent: s.modelIntent, unresolvedModel: s.unresolvedModel, callOrder: slices.Clone(s.callOrder), providerTool: maps.Clone(s.providerTool)}
 }

@@ -271,17 +271,17 @@ func TestReplayRejectsMalformedIndividualAccounting(t *testing.T) {
 
 func TestReplayDerivedUsageOverflowPreservesRecordedCharge(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		usage    llm.Usage
-		fallback int
-		hosted   bool
+		name         string
+		usage        llm.Usage
+		fallback     int
+		providerTool bool
 	}{
 		{
 			name: "unreported requests",
 			usage: llm.Usage{
 				Requests: map[string]int{llm.MeterUnreported: math.MaxInt},
 			},
-			hosted: true,
+			providerTool: true,
 		},
 		{
 			name:     "fallback tokens",
@@ -295,10 +295,10 @@ func TestReplayDerivedUsageOverflowPreservesRecordedCharge(t *testing.T) {
 			intent.EstimatedInputTokens = tc.fallback
 			pricing := newPricedClient().pricing
 			intent.ModelInfo = &llm.ModelInfo{Pricing: &pricing}
-			if tc.hosted {
+			if tc.providerTool {
 				intent.Tools = []tool.Definition{{
-					Name: "search", Kind: tool.KindProviderHosted,
-					Hosted: &tool.HostedSpec{
+					Name: "search", Kind: tool.KindProviderTool,
+					ProviderTool: &tool.ProviderToolSpec{
 						Provider: "test", API: "test.chat", Type: "web_search",
 					},
 				}}
@@ -357,8 +357,8 @@ func TestReplayDerivedOverflowKeepsPartialMonetaryEvidence(t *testing.T) {
 	})
 	turn.Steps[1].Model.Tools = []tool.Definition{{
 		Name: "search",
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "test",
 			API:      "test.chat",
 			Type:     "web_search",

@@ -68,7 +68,7 @@ func serverToolRequests(
 // matching usage counters, which exclude uses Anthropic does not bill. MCP
 // calls are counted whatever their outcome because no documentation says
 // failed calls are free.
-func countHostedBlocks(
+func countProviderToolBlocks(
 	requests map[string]int,
 	reported map[string]bool,
 	blocks []json.RawMessage,
@@ -89,7 +89,7 @@ func countHostedBlocks(
 		}
 		decoded = append(decoded, b)
 		if b.ToolUseID != "" && strings.HasSuffix(b.Type, "_tool_result") &&
-			hostedResultError(b.Content) {
+			providerToolResultError(b.Content) {
 			failed[b.ToolUseID] = true
 		}
 	}

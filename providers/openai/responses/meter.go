@@ -13,7 +13,7 @@ import (
 // tool and its action. An empty meter marks an item type the provider
 // documents as not billed: OpenAI does not charge for listing a remote MCP
 // server's tools or for asking the caller to approve a call.
-var hostedItemMeters = map[string]string{
+var providerToolItemMeters = map[string]string{
 	"file_search_call":      llm.MeterFileSearch,
 	"code_interpreter_call": llm.MeterCodeExecution,
 	"image_generation_call": llm.MeterImageGeneration,
@@ -62,7 +62,7 @@ type meterFields struct {
 // hostedRequests returns meter counts for the hosted work in a terminal
 // response. A provider-reported counter wins for its meter; output items are
 // counted only for meters no counter reports.
-func (wire codec) hostedRequests(
+func (wire codec) providerToolRequests(
 	fields meterFields,
 	output []json.RawMessage,
 ) map[string]int {
@@ -94,7 +94,7 @@ func (wire codec) hostedRequests(
 // declaredTypes returns the request's hosted tool types, or the tools the
 // response echoes when the codec was not given them.
 func (wire codec) declaredTypes(fields meterFields) []string {
-	declared := wire.hostedTypes
+	declared := wire.providerToolTypes
 	if len(declared) == 0 {
 		for _, t := range fields.Tools {
 			declared = append(declared, t.Type)
@@ -212,11 +212,11 @@ func (wire codec) itemRequests(
 		return "", 0
 	}
 	if item.Type != "web_search_call" {
-		meter, ok := hostedItemMeters[item.Type]
+		meter, ok := providerToolItemMeters[item.Type]
 		switch {
 		case ok:
 			return meter, 1
-		case isHostedItem(item.Type):
+		case isProviderToolItem(item.Type):
 			return llm.UnrecognizedMeter(item.Type), 1
 		}
 		return "", 0
@@ -246,7 +246,7 @@ func (wire codec) itemRequests(
 
 // isHostedItem reports whether decodeItem treats an item type as hosted
 // work. It must list every type decodeItem routes to its hosted decoders.
-func isHostedItem(itemType string) bool {
+func isProviderToolItem(itemType string) bool {
 	switch itemType {
 	case "web_search_call", "x_search_call", "file_search_call",
 		"code_interpreter_call", "image_generation_call", "mcp_call",

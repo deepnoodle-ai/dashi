@@ -152,11 +152,11 @@ func steeringInterrupts(turn Turn) int {
 
 // unsafeHostedTool is a provider-hosted tool without annotations, so a
 // call offering it is not safe to repeat.
-func unsafeHostedTool() tool.Tool {
+func unsafeProviderTool() tool.Tool {
 	return tool.Tool{Definition: tool.Definition{
 		Name: "remote",
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "test",
 			API:      "test.chat",
 			Type:     "remote",
@@ -293,7 +293,7 @@ func TestUrgentSteerInterruptsOnlyOnce(t *testing.T) {
 	}
 }
 
-func TestUnsafeHostedToolCallIsNeverCutAfterHandOff(t *testing.T) {
+func TestUnsafeProviderToolCallIsNeverCutAfterHandOff(t *testing.T) {
 	source := newSignalingSource()
 	var cut bool
 	client := newUrgentClient(
@@ -308,25 +308,25 @@ func TestUnsafeHostedToolCallIsNeverCutAfterHandOff(t *testing.T) {
 		urgentCall{result: final("stopped")},
 	)
 	out := runUrgent(t, client, source, func(r *Runner) {
-		r.Tools = tool.List{unsafeHostedTool()}
+		r.Tools = tool.List{unsafeProviderTool()}
 	})
 	if out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
 	if cut || steeringInterrupts(out.Turn) != 0 {
-		t.Fatal("a call offering an unsafe hosted tool was cut")
+		t.Fatal("a call offering an unsafe provider tool was cut")
 	}
 	warnings := warningsOf(out.Turn, WarningSteering)
 	if len(warnings) != 1 ||
-		!strings.Contains(warnings[0].Message, "hosted tool") {
-		t.Fatalf("want one warning naming the hosted tool: %+v", warnings)
+		!strings.Contains(warnings[0].Message, "provider tool") {
+		t.Fatalf("want one warning naming the provider tool: %+v", warnings)
 	}
 	if hasText(client.lastMessages(), "stop") < 0 {
 		t.Fatal("the steer did not reach the next call")
 	}
 }
 
-func TestUnsafeHostedToolCallIsCutBeforeHandOff(t *testing.T) {
+func TestUnsafeProviderToolCallIsCutBeforeHandOff(t *testing.T) {
 	source := newSignalingSource()
 	client := newUrgentClient(urgentCall{result: final("ok")})
 	rec := &intentHook{MemoryRecorder: NewMemoryRecorder()}
@@ -336,7 +336,7 @@ func TestUnsafeHostedToolCallIsCutBeforeHandOff(t *testing.T) {
 	}
 	out := runUrgent(t, client, source, func(r *Runner) {
 		r.Recorder = rec
-		r.Tools = tool.List{unsafeHostedTool()}
+		r.Tools = tool.List{unsafeProviderTool()}
 	})
 	if out.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("stop=%+v sends=%d", out.Stop, client.sends)
@@ -543,8 +543,8 @@ func (c adaptingClient) Prepare(
 func searchTool() tool.Tool {
 	return tool.Tool{Definition: tool.Definition{
 		Name: "web_search",
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "test",
 			API:      "test.chat",
 			Type:     "web_search",
@@ -560,8 +560,8 @@ func pausedMidSearch() llm.Result {
 	result := final("Searching")
 	result.Stop = llm.Stop{Kind: llm.StopPause}
 	result.Message.Content = append(result.Message.Content, llm.Content{
-		Kind: llm.ContentHostedUse,
-		HostedUse: &llm.HostedUse{
+		Kind: llm.ContentProviderToolUse,
+		ProviderToolUse: &llm.ProviderToolUse{
 			ID:     "search_1",
 			Name:   "web_search",
 			Type:   "server_tool_use",
@@ -578,8 +578,8 @@ func searchFinished(text string) llm.Result {
 	result := final(text)
 	result.Message.Content = append(
 		[]llm.Content{{
-			Kind: llm.ContentHostedResult,
-			HostedResult: &llm.HostedResult{
+			Kind: llm.ContentProviderToolResult,
+			ProviderToolResult: &llm.ProviderToolResult{
 				CallID: "search_1",
 				Type:   "web_search_tool_result",
 				Origin: fixtureOrigin,
@@ -601,7 +601,7 @@ func fixtureReplay(typ string) *llm.Opaque {
 	}
 }
 
-func TestSteerWaitsForAPausedHostedCall(t *testing.T) {
+func TestSteerWaitsForAPausedProviderToolCall(t *testing.T) {
 	inbox := newWatchedInbox()
 	client := adaptingClient{newUrgentClient(
 		urgentCall{
@@ -625,14 +625,14 @@ func TestSteerWaitsForAPausedHostedCall(t *testing.T) {
 	}
 	continuation := client.inputs()[1].Messages
 	if hasText(continuation, "use staging") >= 0 {
-		t.Fatal("a steer landed between a paused hosted call and its end")
+		t.Fatal("a steer landed between a paused provider tool call and its end")
 	}
 	if hasText(client.lastMessages(), "use staging") < 0 {
 		t.Fatal("the steer did not reach the call after the continuation")
 	}
 }
 
-func TestUrgentSteerDoesNotCutAPausedHostedCall(t *testing.T) {
+func TestUrgentSteerDoesNotCutAPausedProviderToolCall(t *testing.T) {
 	source := newSignalingSource()
 	var cut bool
 	client := adaptingClient{newUrgentClient(
@@ -657,7 +657,7 @@ func TestUrgentSteerDoesNotCutAPausedHostedCall(t *testing.T) {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
 	if cut || steeringInterrupts(out.Turn) != 0 {
-		t.Fatal("the continuation of a paused hosted call was cut")
+		t.Fatal("the continuation of a paused provider tool call was cut")
 	}
 	warnings := warningsOf(out.Turn, WarningSteering)
 	if len(warnings) != 1 ||
@@ -680,12 +680,12 @@ func pausedWithFinishedSearch() llm.Result {
 	return result
 }
 
-func TestPausedMidHostedCall(t *testing.T) {
+func TestPausedMidProviderToolCall(t *testing.T) {
 	withStatus := func(status string) llm.Result {
 		result := pausedMidSearch()
 		for _, part := range result.Message.Content {
-			if part.HostedUse != nil {
-				part.HostedUse.Status = status
+			if part.ProviderToolUse != nil {
+				part.ProviderToolUse.Status = status
 			}
 		}
 		return result
@@ -705,7 +705,7 @@ func TestPausedMidHostedCall(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := pausedMidHostedCall(c.result); got != c.want {
+			if got := pausedMidProviderToolCall(c.result); got != c.want {
 				t.Fatalf("pausedMidHostedCall = %v, want %v", got, c.want)
 			}
 		})

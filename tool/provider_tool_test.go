@@ -5,18 +5,18 @@ import (
 	"testing"
 )
 
-func TestDefinitionValidateHostedRequiresBoundOptions(t *testing.T) {
+func TestDefinitionValidateProviderToolRequiresBoundOptions(t *testing.T) {
 	tests := []struct {
 		name       string
 		definition Definition
 		valid      bool
 	}{
 		{
-			name: "hosted without schema",
+			name: "provider tool without schema",
 			definition: Definition{
 				Name: "web_search",
-				Kind: KindProviderHosted,
-				Hosted: &HostedSpec{
+				Kind: KindProviderTool,
+				ProviderTool: &ProviderToolSpec{
 					Provider: "anthropic",
 					API:      "anthropic.messages",
 					Type:     "web_search_20250305",
@@ -26,12 +26,12 @@ func TestDefinitionValidateHostedRequiresBoundOptions(t *testing.T) {
 			valid: true,
 		},
 		{
-			name: "hosted with serialized missing schema",
+			name: "provider tool with serialized missing schema",
 			definition: Definition{
 				Name:   "web_search",
-				Kind:   KindProviderHosted,
+				Kind:   KindProviderTool,
 				Schema: json.RawMessage(`null`),
-				Hosted: &HostedSpec{
+				ProviderTool: &ProviderToolSpec{
 					Provider: "anthropic",
 					API:      "anthropic.messages",
 					Type:     "web_search_20250305",
@@ -40,12 +40,12 @@ func TestDefinitionValidateHostedRequiresBoundOptions(t *testing.T) {
 			valid: true,
 		},
 		{
-			name: "hosted with schema",
+			name: "provider tool with schema",
 			definition: Definition{
 				Name:   "web_search",
-				Kind:   KindProviderHosted,
+				Kind:   KindProviderTool,
 				Schema: json.RawMessage(`{"type":"object"}`),
-				Hosted: &HostedSpec{
+				ProviderTool: &ProviderToolSpec{
 					Provider: "anthropic",
 					API:      "anthropic.messages",
 					Type:     "web_search_20250305",
@@ -53,11 +53,11 @@ func TestDefinitionValidateHostedRequiresBoundOptions(t *testing.T) {
 			},
 		},
 		{
-			name: "local with hosted options",
+			name: "local with provider tool options",
 			definition: Definition{
 				Name:   "web_search",
 				Schema: json.RawMessage(`{"type":"object"}`),
-				Hosted: &HostedSpec{
+				ProviderTool: &ProviderToolSpec{
 					Provider: "anthropic",
 					API:      "anthropic.messages",
 					Type:     "web_search_20250305",
@@ -83,8 +83,8 @@ func TestDefinitionValidateHostedRequiresBoundOptions(t *testing.T) {
 			name: "malformed options",
 			definition: Definition{
 				Name: "web_search",
-				Kind: KindProviderHosted,
-				Hosted: &HostedSpec{
+				Kind: KindProviderTool,
+				ProviderTool: &ProviderToolSpec{
 					Provider: "anthropic",
 					API:      "anthropic.messages",
 					Type:     "web_search_20250305",
@@ -108,11 +108,11 @@ func TestDefinitionValidateHostedRequiresBoundOptions(t *testing.T) {
 	}
 }
 
-func TestHostedDefinitionValidatesAfterJSONRoundTrip(t *testing.T) {
+func TestProviderToolDefinitionValidatesAfterJSONRoundTrip(t *testing.T) {
 	definition := Definition{
 		Name: "web_search",
-		Kind: KindProviderHosted,
-		Hosted: &HostedSpec{
+		Kind: KindProviderTool,
+		ProviderTool: &ProviderToolSpec{
 			Provider: "anthropic",
 			API:      "anthropic.messages",
 			Type:     "web_search_20250305",
@@ -130,15 +130,15 @@ func TestHostedDefinitionValidatesAfterJSONRoundTrip(t *testing.T) {
 		t.Fatalf("saved schema=%s; want null", saved.Schema)
 	}
 	if err := saved.Validate(); err != nil {
-		t.Fatalf("saved hosted definition became invalid: %v", err)
+		t.Fatalf("saved provider tool definition became invalid: %v", err)
 	}
 }
 
-func TestDefinitionCloneCopiesHostedOptions(t *testing.T) {
+func TestDefinitionCloneCopiesProviderToolOptions(t *testing.T) {
 	definition := Definition{
 		Name: "web_search",
-		Kind: KindProviderHosted,
-		Hosted: &HostedSpec{
+		Kind: KindProviderTool,
+		ProviderTool: &ProviderToolSpec{
 			Provider: "anthropic",
 			API:      "anthropic.messages",
 			Type:     "web_search_20250305",
@@ -146,8 +146,8 @@ func TestDefinitionCloneCopiesHostedOptions(t *testing.T) {
 		},
 	}
 	clone := definition.Clone()
-	clone.Hosted.Options[0] = '['
-	if !json.Valid(definition.Hosted.Options) {
-		t.Fatal("hosted options shared caller bytes")
+	clone.ProviderTool.Options[0] = '['
+	if !json.Valid(definition.ProviderTool.Options) {
+		t.Fatal("provider tool options shared caller bytes")
 	}
 }

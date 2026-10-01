@@ -1487,7 +1487,7 @@ func TestDeferredApprovalInChildEndsTheTaskWaiting(t *testing.T) {
 			p dashi.ToolPlan,
 		) (dashi.ToolDecision, error) {
 			if p.Call.Name == "write" {
-				return dashi.Defer("needs a person"), nil
+				return dashi.NeedsApproval("needs a person"), nil
 			}
 			return dashi.ToolDecision{}, nil
 		},

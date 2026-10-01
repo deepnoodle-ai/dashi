@@ -28,7 +28,7 @@ const (
 	// KindExternal identifies a tool whose result is supplied externally.
 	KindExternal Kind = "external"
 	// KindProviderHosted identifies a tool executed by the model service.
-	KindProviderHosted Kind = "provider_hosted"
+	KindProviderTool Kind = "provider_tool"
 )
 
 // Annotations are advisory. Nil distinguishes an unspecified hint from false.
@@ -65,7 +65,7 @@ type Definition struct {
 
 	// Hosted selects a provider-owned tool configuration. Its wire options
 	// are validated again by the destination adapter before dispatch.
-	Hosted *HostedSpec `json:"hosted,omitempty"`
+	ProviderTool *ProviderToolSpec `json:"provider_tool,omitempty"`
 
 	// Kind identifies the execution location; empty leaves it unspecified.
 	Kind Kind `json:"kind,omitempty"`
@@ -76,7 +76,7 @@ type Definition struct {
 
 // HostedSpec binds a server-executed tool to one provider and API. Options
 // contain non-secret provider fields; credentials belong on the client.
-type HostedSpec struct {
+type ProviderToolSpec struct {
 	// Provider identifies the configured destination that owns this tool.
 	Provider string `json:"provider"`
 	// API prevents the same provider name from crossing wire formats.
@@ -89,9 +89,9 @@ type HostedSpec struct {
 
 // Validate requires a bound wire type and an optional JSON object. Adapters
 // impose the provider's narrower option vocabulary.
-func (s HostedSpec) Validate() error {
+func (s ProviderToolSpec) Validate() error {
 	if s.Provider == "" || s.API == "" || s.Type == "" {
-		return errors.New("tool: hosted tool requires provider, API, and type")
+		return errors.New("tool: provider tool requires provider, API, and type")
 	}
 	if len(s.Options) == 0 {
 		return nil
@@ -101,13 +101,13 @@ func (s HostedSpec) Validate() error {
 		s.Options,
 		&options,
 	); err != nil || options == nil {
-		return errors.New("tool: hosted options require a JSON object")
+		return errors.New("tool: provider tool options require a JSON object")
 	}
 	return nil
 }
 
 // Clone detaches hosted wire options from the caller's buffer.
-func (s HostedSpec) Clone() HostedSpec {
+func (s ProviderToolSpec) Clone() ProviderToolSpec {
 	s.Options = slices.Clone(s.Options)
 	return s
 }
@@ -121,23 +121,23 @@ func (d Definition) Validate() error {
 	if d.Kind != "" &&
 		d.Kind != KindLocal &&
 		d.Kind != KindExternal &&
-		d.Kind != KindProviderHosted {
+		d.Kind != KindProviderTool {
 		return fmt.Errorf("tool: invalid kind %q", d.Kind)
 	}
-	if d.Kind == KindProviderHosted {
+	if d.Kind == KindProviderTool {
 		// A missing RawMessage is written as JSON null in saved turns.
 		// Treat it as absent only for hosted tools, which have no schema.
 		hasSchema := len(d.Schema) != 0 &&
 			!bytes.Equal(bytes.TrimSpace(d.Schema), []byte("null"))
-		if hasSchema || d.Hosted == nil {
+		if hasSchema || d.ProviderTool == nil {
 			return errors.New(
-				"tool: hosted definition requires hosted options without schema",
+				"tool: provider tool definition requires provider tool options without schema",
 			)
 		}
-		return d.Hosted.Validate()
+		return d.ProviderTool.Validate()
 	}
-	if d.Hosted != nil {
-		return errors.New("tool: local or external definition cannot carry hosted options")
+	if d.ProviderTool != nil {
+		return errors.New("tool: local or external definition cannot carry provider tool options")
 	}
 	var schema any
 	if err := json.Unmarshal(d.Schema, &schema); err != nil {
@@ -161,9 +161,9 @@ func (d Definition) Validate() error {
 // with the original.
 func (d Definition) Clone() Definition {
 	d.Schema = slices.Clone(d.Schema)
-	if d.Hosted != nil {
-		v := d.Hosted.Clone()
-		d.Hosted = &v
+	if d.ProviderTool != nil {
+		v := d.ProviderTool.Clone()
+		d.ProviderTool = &v
 	}
 	d.Annotations = Annotations{
 		ReadOnly:    cloneBool(d.Annotations.ReadOnly),

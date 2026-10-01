@@ -228,7 +228,7 @@ func TestActiveCompactionMediaProviderRejectionDoesNotRetry(t *testing.T) {
 func TestActiveInputMediaDetection(t *testing.T) {
 	for _, kind := range []content.Kind{content.KindImage, content.KindDocument, content.KindAudio, content.KindVideo} {
 		block := content.Block{Kind: kind}
-		for _, part := range []llm.Content{llm.Block(block), {Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{Output: tool.Output{Content: []content.Block{block}}}}, {Kind: llm.ContentHostedUse, HostedUse: &llm.HostedUse{Output: []content.Block{block}}}, {Kind: llm.ContentHostedResult, HostedResult: &llm.HostedResult{Output: []content.Block{block}}}} {
+		for _, part := range []llm.Content{llm.Block(block), {Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{Output: tool.Output{Content: []content.Block{block}}}}, {Kind: llm.ContentProviderToolUse, ProviderToolUse: &llm.ProviderToolUse{Output: []content.Block{block}}}, {Kind: llm.ContentProviderToolResult, ProviderToolResult: &llm.ProviderToolResult{Output: []content.Block{block}}}} {
 			if !activeInputHasMedia(llm.Input{Messages: []llm.Message{llm.UserMessage(part)}}) {
 				t.Fatalf("missed %s in %s", kind, part.Kind)
 			}
@@ -266,7 +266,7 @@ func TestActiveInputTextDocumentDetection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			block := content.DocumentBlock(tc.source, "")
 			before, _ := json.Marshal(block)
-			for _, part := range []llm.Content{llm.Block(block), {Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{Output: tool.Output{Content: []content.Block{block}}}}, {Kind: llm.ContentHostedUse, HostedUse: &llm.HostedUse{Output: []content.Block{block}}}, {Kind: llm.ContentHostedResult, HostedResult: &llm.HostedResult{Output: []content.Block{block}}}} {
+			for _, part := range []llm.Content{llm.Block(block), {Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{Output: tool.Output{Content: []content.Block{block}}}}, {Kind: llm.ContentProviderToolUse, ProviderToolUse: &llm.ProviderToolUse{Output: []content.Block{block}}}, {Kind: llm.ContentProviderToolResult, ProviderToolResult: &llm.ProviderToolResult{Output: []content.Block{block}}}} {
 				if got := activeInputHasMedia(llm.Input{Messages: []llm.Message{llm.UserMessage(part)}}); got != tc.media {
 					t.Fatalf("%s media=%v, want %v", part.Kind, got, tc.media)
 				}

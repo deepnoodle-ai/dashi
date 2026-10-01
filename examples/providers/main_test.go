@@ -171,7 +171,7 @@ func TestCostKeepsUnknownAndPartialVisible(t *testing.T) {
 	}
 	if got := cost(client, "gpt-5-mini", partial); got !=
 		"at least 0.00025 USD (list_price_estimate; "+
-			"unpriced hosted requests: image_generation=1)" {
+			"unpriced provider tool requests: image_generation=1)" {
 		t.Fatalf("partial estimate cost = %q", got)
 	}
 	partial.Cost = &llm.Cost{
@@ -186,7 +186,7 @@ func TestCostKeepsUnknownAndPartialVisible(t *testing.T) {
 	partial.Served = llm.ModelRef{}
 	if got := cost(client, "gpt-5-mini", partial); got !=
 		"at least 0.04 USD (provider_reported; "+
-			"unpriced hosted requests: a_meter=1, z_meter=2)" {
+			"unpriced provider tool requests: a_meter=1, z_meter=2)" {
 		t.Fatalf("partial reported cost = %q", got)
 	}
 	partial.Cost.UnpricedRequests = nil

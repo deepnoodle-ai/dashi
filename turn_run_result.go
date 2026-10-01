@@ -70,7 +70,7 @@ type Pending struct {
 	// Tool is the call's state, set for local calls.
 	Tool *ToolView `json:"tool,omitempty"`
 	// Hosted is the provider's request, set for hosted approvals.
-	Hosted *llm.HostedApprovalRequest `json:"hosted,omitempty"`
+	ProviderTool *llm.ProviderToolApprovalRequest `json:"provider_tool,omitempty"`
 }
 
 // Approve builds the Resolve command that approves this call with exactly
@@ -99,17 +99,17 @@ func (p Pending) Result(outcome tool.Outcome) Resolve {
 }
 
 func (p Pending) answer(approve bool, reason string) Resolve {
-	if p.Hosted != nil {
+	if p.ProviderTool != nil {
 		// A provider may reuse a request ID after the earlier request was
 		// answered, so the attempt scopes the command ID to this request.
 		return Resolve{
-			CommandID: "hosted-approval:" + p.ModelCallID + ":" + p.ID,
+			CommandID: "provider-tool-approval:" + p.ModelCallID + ":" + p.ID,
 			CallID:    p.ID,
-			HostedApproval: &llm.HostedApprovalResponse{
+			ProviderToolApproval: &llm.ProviderToolApprovalResponse{
 				RequestID: p.ID,
 				Approve:   approve,
 				Reason:    reason,
-				Origin:    p.Hosted.Origin,
+				Origin:    p.ProviderTool.Origin,
 			},
 		}
 	}

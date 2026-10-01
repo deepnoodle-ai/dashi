@@ -478,7 +478,7 @@ func TestDeferredAliasWithoutExecutorCannotRunOnLaterBinding(t *testing.T) {
 		"approve",
 		func(context.Context, ToolPlan) (ToolDecision, error) {
 			hooks++
-			return Defer("operator approval"), nil
+			return NeedsApproval("operator approval"), nil
 		},
 	)
 	recorder := NewMemoryRecorder()

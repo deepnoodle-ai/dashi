@@ -815,7 +815,7 @@ func startedLocalToolTurn(
 		Tool: &ToolFact{
 			Call:       call,
 			Definition: toolDef,
-			Verdict:    ToolVerdict{Kind: DecisionAllow, Revision: "r1"},
+			Verdict:    ToolVerdict{Kind: DecisionAllow, RulesVersion: "r1"},
 		},
 	})
 	commit(Step{

@@ -57,17 +57,17 @@ func Transcript(messages []llm.Message) []string {
 					c.ToolResult.CallID,
 					blocksText(c.ToolResult.Output.Content),
 				))
-			case c.HostedUse != nil:
+			case c.ProviderToolUse != nil:
 				flush()
 				items = append(items, fmt.Sprintf(
 					"[provider tool %s]\n%s",
-					c.HostedUse.Name,
-					c.HostedUse.Input,
+					c.ProviderToolUse.Name,
+					c.ProviderToolUse.Input,
 				))
-			case c.HostedResult != nil:
+			case c.ProviderToolResult != nil:
 				flush()
 				items = append(items, "[provider tool result]\n"+
-					blocksText(c.HostedResult.Output))
+					blocksText(c.ProviderToolResult.Output))
 			case c.Reminder != nil && c.Reminder.From != "":
 				flush()
 				items = append(items, fmt.Sprintf(

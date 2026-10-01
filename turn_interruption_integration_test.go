@@ -195,19 +195,19 @@ func TestContinueRecoversCrashedModelIntent(t *testing.T) {
 	}
 }
 
-func TestCrashedModelWithUnsafeHostedToolRequiresReport(t *testing.T) {
+func TestCrashedModelWithUnsafeProviderToolRequiresReport(t *testing.T) {
 	def := testAgent()
 	rec := NewMemoryRecorder()
-	hosted := tool.Definition{
+	providerTool := tool.Definition{
 		Name: "remote",
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "test",
 			API:      "test.chat",
 			Type:     "remote",
 		},
 	}
-	turn := seedOpenModelIntent(t, rec, def, []tool.Definition{hosted})
+	turn := seedOpenModelIntent(t, rec, def, []tool.Definition{providerTool})
 	client := &scriptedClient{results: []llm.Result{final("must not send")}}
 	out, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),

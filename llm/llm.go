@@ -53,13 +53,13 @@ const (
 	// ContentToolResult answers a tool call with its output and failure flag.
 	ContentToolResult ContentKind = "tool_result"
 	// ContentHostedUse reports a provider-executed call, never a local call.
-	ContentHostedUse ContentKind = "hosted_use"
+	ContentProviderToolUse ContentKind = "provider_tool_use"
 	// ContentHostedResult reports a separate provider-executed result block.
-	ContentHostedResult ContentKind = "hosted_result"
+	ContentProviderToolResult ContentKind = "provider_tool_result"
 	// ContentHostedApprovalRequest asks for an application decision.
-	ContentHostedApprovalRequest ContentKind = "hosted_approval_request"
+	ContentProviderToolApprovalRequest ContentKind = "provider_tool_approval_request"
 	// ContentHostedApprovalResponse records that application decision.
-	ContentHostedApprovalResponse ContentKind = "hosted_approval_response"
+	ContentProviderToolApprovalResponse ContentKind = "provider_tool_approval_response"
 	// ContentReasoning carries display reasoning and optional private replay
 	// data.
 	ContentReasoning ContentKind = "reasoning"
@@ -110,16 +110,16 @@ type Content struct {
 	ToolResult *ToolResult `json:"tool_result,omitempty"`
 
 	// HostedUse is provider activity and cannot be executed locally.
-	HostedUse *HostedUse `json:"hosted_use,omitempty"`
+	ProviderToolUse *ProviderToolUse `json:"provider_tool_use,omitempty"`
 
 	// HostedResult is provider activity paired with HostedUse.
-	HostedResult *HostedResult `json:"hosted_result,omitempty"`
+	ProviderToolResult *ProviderToolResult `json:"provider_tool_result,omitempty"`
 
 	// HostedApprovalRequest requires an explicit application response.
-	HostedApprovalRequest *HostedApprovalRequest `json:"hosted_approval_request,omitempty"`
+	ProviderToolApprovalRequest *ProviderToolApprovalRequest `json:"provider_tool_approval_request,omitempty"`
 
 	// HostedApprovalResponse carries the application decision.
-	HostedApprovalResponse *HostedApprovalResponse `json:"hosted_approval_response,omitempty"`
+	ProviderToolApprovalResponse *ProviderToolApprovalResponse `json:"provider_tool_approval_response,omitempty"`
 
 	// Reasoning is required only for ContentReasoning.
 	Reasoning *Reasoning `json:"reasoning,omitempty"`
@@ -169,20 +169,20 @@ func Block(block content.Block) Content {
 // sources in blocks of a tool result, hosted-use output, or hosted result. They
 // alias c's payload.
 func (c Content) sources() []*content.Source {
-	var block, result, hosted []content.Block
+	var block, result, providerTool []content.Block
 	if c.Block != nil {
 		block = []content.Block{*c.Block}
 	}
 	if c.ToolResult != nil {
 		result = c.ToolResult.Output.Content
 	}
-	if c.HostedResult != nil {
-		hosted = c.HostedResult.Output
+	if c.ProviderToolResult != nil {
+		providerTool = c.ProviderToolResult.Output
 	}
-	if c.HostedUse != nil {
-		hosted = append(hosted[:len(hosted):len(hosted)], c.HostedUse.Output...)
+	if c.ProviderToolUse != nil {
+		providerTool = append(providerTool[:len(providerTool):len(providerTool)], c.ProviderToolUse.Output...)
 	}
-	return contentsrc.Blocks(block, result, hosted)
+	return contentsrc.Blocks(block, result, providerTool)
 }
 
 // Validate checks a recordable content value with exactly one matching payload.
@@ -192,10 +192,10 @@ func (c Content) Validate() error {
 		c.Block != nil,
 		c.ToolCall != nil,
 		c.ToolResult != nil,
-		c.HostedUse != nil,
-		c.HostedResult != nil,
-		c.HostedApprovalRequest != nil,
-		c.HostedApprovalResponse != nil,
+		c.ProviderToolUse != nil,
+		c.ProviderToolResult != nil,
+		c.ProviderToolApprovalRequest != nil,
+		c.ProviderToolApprovalResponse != nil,
 		c.Reasoning != nil,
 		c.Refusal != nil,
 		c.Reminder != nil,
@@ -210,9 +210,9 @@ func (c Content) Validate() error {
 		if c.Kind == ContentOpaque {
 			return errors.New("llm: opaque content cannot also carry replay data")
 		}
-		if c.Kind == ContentHostedApprovalResponse {
+		if c.Kind == ContentProviderToolApprovalResponse {
 			return errors.New(
-				"llm: hosted approval response cannot carry provider replay",
+				"llm: provider tool approval response cannot carry provider replay",
 			)
 		}
 		if err := c.Replay.Validate(); err != nil {
@@ -237,16 +237,16 @@ func (c Content) Validate() error {
 			}
 		}
 		return nil
-	case c.Kind == ContentHostedUse && c.HostedUse != nil:
-		return c.HostedUse.Validate()
-	case c.Kind == ContentHostedResult && c.HostedResult != nil:
-		return c.HostedResult.Validate()
-	case c.Kind == ContentHostedApprovalRequest &&
-		c.HostedApprovalRequest != nil:
-		return c.HostedApprovalRequest.Validate()
-	case c.Kind == ContentHostedApprovalResponse &&
-		c.HostedApprovalResponse != nil:
-		return c.HostedApprovalResponse.Validate()
+	case c.Kind == ContentProviderToolUse && c.ProviderToolUse != nil:
+		return c.ProviderToolUse.Validate()
+	case c.Kind == ContentProviderToolResult && c.ProviderToolResult != nil:
+		return c.ProviderToolResult.Validate()
+	case c.Kind == ContentProviderToolApprovalRequest &&
+		c.ProviderToolApprovalRequest != nil:
+		return c.ProviderToolApprovalRequest.Validate()
+	case c.Kind == ContentProviderToolApprovalResponse &&
+		c.ProviderToolApprovalResponse != nil:
+		return c.ProviderToolApprovalResponse.Validate()
 	case c.Kind == ContentReasoning && c.Reasoning != nil:
 		return nil
 	case c.Kind == ContentRefusal && c.Refusal != nil:

@@ -366,7 +366,7 @@ func TestUrgentSteerLeavesApprovalsAndExternalWaitsPending(t *testing.T) {
 		Func: func(_ context.Context, plan ToolPlan) (ToolDecision, error) {
 			switch plan.Call.ID {
 			case "p":
-				return Defer("needs a person"), nil
+				return NeedsApproval("needs a person"), nil
 			case "b":
 				once.Do(func() { close(release) })
 			}

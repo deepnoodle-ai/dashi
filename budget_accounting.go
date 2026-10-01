@@ -118,13 +118,13 @@ func addUnreportedRequests(
 	if result != nil {
 		failed := map[string]bool{}
 		for _, part := range result.Message.Content {
-			if part.HostedResult != nil && part.HostedResult.IsError {
-				failed[part.HostedResult.CallID] = true
+			if part.ProviderToolResult != nil && part.ProviderToolResult.IsError {
+				failed[part.ProviderToolResult.CallID] = true
 			}
 		}
 		for _, part := range result.Message.Content {
-			use := part.HostedUse
-			if part.Kind == llm.ContentHostedUse && use != nil &&
+			use := part.ProviderToolUse
+			if part.Kind == llm.ContentProviderToolUse && use != nil &&
 				!use.IsError && !failed[use.ID] {
 				uses++
 			}
@@ -134,7 +134,7 @@ func addUnreportedRequests(
 	for _, count := range usage.Requests {
 		counted = cappedCount(counted, max(count, 0))
 	}
-	if uses == 0 && counted == 0 && !declaresHostedTool(intent) {
+	if uses == 0 && counted == 0 && !declaresProviderTool(intent) {
 		return true
 	}
 	count, ok := sumCounts(usage.Requests[llm.MeterUnreported],
@@ -149,12 +149,12 @@ func addUnreportedRequests(
 	return true
 }
 
-func declaresHostedTool(intent *ModelFact) bool {
+func declaresProviderTool(intent *ModelFact) bool {
 	if intent == nil {
 		return false
 	}
 	for _, def := range intent.Tools {
-		if def.Kind == tool.KindProviderHosted {
+		if def.Kind == tool.KindProviderTool {
 			return true
 		}
 	}

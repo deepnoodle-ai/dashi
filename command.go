@@ -87,11 +87,11 @@ type Continue struct {
 // to a tool or provider-hosted approval, or a model result or verified
 // failure. Exactly one fact is set.
 type Resolve struct {
-	CommandID      string                      `json:"command_id,omitempty"`
-	CallID         string                      `json:"call_id,omitempty"`
-	Outcome        *tool.Outcome               `json:"outcome,omitempty"`
-	Approval       *ApprovalDecision           `json:"approval,omitempty"`
-	HostedApproval *llm.HostedApprovalResponse `json:"hosted_approval,omitempty"`
+	CommandID            string                            `json:"command_id,omitempty"`
+	CallID               string                            `json:"call_id,omitempty"`
+	Outcome              *tool.Outcome                     `json:"outcome,omitempty"`
+	Approval             *ApprovalDecision                 `json:"approval,omitempty"`
+	ProviderToolApproval *llm.ProviderToolApprovalResponse `json:"provider_tool_approval,omitempty"`
 	// ModelResult settles a pending model attempt without another dispatch.
 	ModelResult *llm.Result `json:"model_result,omitempty"`
 	// ModelFailure supplies verified evidence that an attempt did not execute.

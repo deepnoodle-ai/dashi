@@ -872,10 +872,10 @@ func UrgentSteerAfterPause(
 		)
 	}
 	cut := steeringCut(out.Turn)
-	pending := unfinishedHosted(out.Turn, paused)
+	pending := unfinishedProviderTool(out.Turn, paused)
 	switch {
 	case pending && cut != nil:
-		t.Fatal("the continuation of an unfinished hosted call was cut")
+		t.Fatal("the continuation of an unfinished provider tool call was cut")
 	case pending && !hasWarning(out.Turn, "provider paused"):
 		t.Fatal("the declined cut was not reported")
 	case !pending && cut == nil:
@@ -893,7 +893,7 @@ func UrgentSteerAfterPause(
 		)
 	}
 	t.Logf(
-		"model=%s unfinished hosted call=%t cut=%t answer=%q spend=%v",
+		"model=%s unfinished provider tool call=%t cut=%t answer=%q spend=%v",
 		modelName,
 		pending,
 		cut != nil,
@@ -904,7 +904,7 @@ func UrgentSteerAfterPause(
 
 // unfinishedHosted reports whether the result of the attempt left a hosted
 // call without its result.
-func unfinishedHosted(turn dashi.Turn, attempt string) bool {
+func unfinishedProviderTool(turn dashi.Turn, attempt string) bool {
 	for _, step := range turn.Steps {
 		if step.Kind != dashi.StepModelCallFinished ||
 			step.Model.ModelCallID != attempt || step.Model.Result == nil {
@@ -913,10 +913,10 @@ func unfinishedHosted(turn dashi.Turn, attempt string) bool {
 		open := map[string]bool{}
 		for _, part := range step.Model.Result.Message.Content {
 			switch {
-			case part.HostedUse != nil:
-				open[part.HostedUse.ID] = true
-			case part.HostedResult != nil:
-				delete(open, part.HostedResult.CallID)
+			case part.ProviderToolUse != nil:
+				open[part.ProviderToolUse.ID] = true
+			case part.ProviderToolResult != nil:
+				delete(open, part.ProviderToolResult.CallID)
 			}
 		}
 		return len(open) > 0

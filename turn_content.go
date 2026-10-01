@@ -33,22 +33,22 @@ func (t Turn) Citations() []content.Citation {
 // call in the turn, in order. Some providers report a hosted call's result
 // as a separate item; HostedUses copies that result's output and error flag
 // onto its use, so each entry is one call with its result either way.
-func (t Turn) HostedUses() []llm.HostedUse {
-	var out []llm.HostedUse
+func (t Turn) ProviderToolUses() []llm.ProviderToolUse {
+	var out []llm.ProviderToolUse
 	index := map[string]int{}
 	for _, result := range settledResults(t.Steps) {
 		for _, part := range result.Message.Content {
 			switch {
-			case part.Kind == llm.ContentHostedUse && part.HostedUse != nil:
-				index[part.HostedUse.ID] = len(out)
-				out = append(out, part.HostedUse.Clone())
-			case part.Kind == llm.ContentHostedResult &&
-				part.HostedResult != nil:
-				i, ok := index[part.HostedResult.CallID]
+			case part.Kind == llm.ContentProviderToolUse && part.ProviderToolUse != nil:
+				index[part.ProviderToolUse.ID] = len(out)
+				out = append(out, part.ProviderToolUse.Clone())
+			case part.Kind == llm.ContentProviderToolResult &&
+				part.ProviderToolResult != nil:
+				i, ok := index[part.ProviderToolResult.CallID]
 				if !ok {
 					continue
 				}
-				r := part.HostedResult.Clone()
+				r := part.ProviderToolResult.Clone()
 				out[i].Output = append(out[i].Output, r.Output...)
 				out[i].IsError = out[i].IsError || r.IsError
 			}

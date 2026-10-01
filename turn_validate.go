@@ -26,7 +26,7 @@ var hookVerdicts = map[HookPoint][]HookVerdict{
 	HookBeforeTool: {
 		VerdictAllow,
 		VerdictDeny,
-		VerdictDefer,
+		VerdictNeedsApproval,
 		VerdictRewrite,
 		VerdictFailed,
 	},
@@ -185,7 +185,7 @@ func validateStepPayload(step Step) error {
 		step.Model != nil,
 		step.Tool != nil,
 		step.Approval != nil,
-		step.HostedApproval != nil,
+		step.ProviderToolApproval != nil,
 		step.Output != nil,
 		step.Stop != nil,
 	} {
@@ -236,8 +236,8 @@ func validateStepPayload(step Step) error {
 			return errors.New("approval payload missing")
 		}
 	case StepProviderToolApprovalDecided:
-		if step.HostedApproval == nil {
-			return errors.New("hosted approval payload missing")
+		if step.ProviderToolApproval == nil {
+			return errors.New("provider tool approval payload missing")
 		}
 	case StepOutputRecorded:
 		if step.Output == nil {

@@ -262,9 +262,9 @@ func (p *Client) Prepare(
 		if c.Mode == llm.ToolChoiceTool {
 			for _, definition := range r.Tools {
 				if definition.Name == c.Name &&
-					definition.Kind == tool.KindProviderHosted {
+					definition.Kind == tool.KindProviderTool {
 					return llm.Request{}, wire.unsupported(
-						"named choice of hosted tool %q",
+						"named choice of provider tool %q",
 						c.Name,
 					)
 				}
@@ -281,8 +281,8 @@ func (p *Client) Prepare(
 	}
 	var defs []any
 	for _, d := range r.Tools {
-		if d.Kind == tool.KindProviderHosted {
-			config, includes, err := wire.hostedTool(d)
+		if d.Kind == tool.KindProviderTool {
+			config, includes, err := wire.providerTool(d)
 			if err != nil {
 				return llm.Request{}, err
 			}
@@ -448,9 +448,9 @@ func (p *Client) Send(
 ) (result llm.Result, callErr error) {
 	prepared, sink := call.Request, call.Sink
 	wire := codec{
-		origin:      p.client.Origin(prepared.Input().Model),
-		media:       providerhttp.HasMedia(prepared.Input()),
-		hostedTypes: hostedTypes(prepared.Input().Tools),
+		origin:            p.client.Origin(prepared.Input().Model),
+		media:             providerhttp.HasMedia(prepared.Input()),
+		providerToolTypes: providerToolTypes(prepared.Input().Tools),
 		// xAI explicitly documents this exact route/model event as public
 		// summarized reasoning. Neither a provider name nor the event name
 		// grants other destinations that classification.
@@ -575,8 +575,8 @@ func (wire codec) validateOutput(
 // other opaque items (including reasoning) are still allowed alongside text.
 func nativeOutputActivity(part llm.Content) bool {
 	switch part.Kind {
-	case llm.ContentHostedUse, llm.ContentHostedResult,
-		llm.ContentHostedApprovalRequest, llm.ContentHostedApprovalResponse:
+	case llm.ContentProviderToolUse, llm.ContentProviderToolResult,
+		llm.ContentProviderToolApprovalRequest, llm.ContentProviderToolApprovalResponse:
 		return true
 	case llm.ContentOpaque:
 		if part.Opaque == nil || part.Opaque.Unit != llm.OpaqueUnitItem {
@@ -601,16 +601,16 @@ type codec struct {
 	// hostedTypes lists the hosted tool types the request declared, which
 	// decide the meter a web search bills. Empty means unknown; decoding then
 	// reads the response's echo of its tools.
-	hostedTypes []string
+	providerToolTypes []string
 }
 
 // hostedTypes returns the provider types of the hosted tools in definitions.
-func hostedTypes(definitions []tool.Definition) []string {
+func providerToolTypes(definitions []tool.Definition) []string {
 	var types []string
 	for _, definition := range definitions {
-		if definition.Kind == tool.KindProviderHosted &&
-			definition.Hosted != nil {
-			types = append(types, definition.Hosted.Type)
+		if definition.Kind == tool.KindProviderTool &&
+			definition.ProviderTool != nil {
+			types = append(types, definition.ProviderTool.Type)
 		}
 	}
 	return types
@@ -778,20 +778,20 @@ func (wire codec) encode(
 			return nil, wire.unsupported("reasoning needs original replay data")
 		}
 		return providerhttp.Overlay(wire.origin, c.Replay, map[string]any{})
-	case llm.ContentHostedUse, llm.ContentHostedResult,
-		llm.ContentHostedApprovalRequest:
+	case llm.ContentProviderToolUse, llm.ContentProviderToolResult,
+		llm.ContentProviderToolApprovalRequest:
 		if c.Replay == nil || c.Replay.Unit != llm.OpaqueUnitItem {
-			return nil, wire.unsupported("hosted activity needs original item replay")
+			return nil, wire.unsupported("provider tool activity needs original item replay")
 		}
 		return providerhttp.Overlay(wire.origin, c.Replay, map[string]any{})
-	case llm.ContentHostedApprovalResponse:
+	case llm.ContentProviderToolApprovalResponse:
 		item := map[string]any{
 			"type":                "mcp_approval_response",
-			"approval_request_id": c.HostedApprovalResponse.RequestID,
-			"approve":             c.HostedApprovalResponse.Approve,
+			"approval_request_id": c.ProviderToolApprovalResponse.RequestID,
+			"approve":             c.ProviderToolApprovalResponse.Approve,
 		}
-		if c.HostedApprovalResponse.Reason != "" {
-			item["reason"] = c.HostedApprovalResponse.Reason
+		if c.ProviderToolApprovalResponse.Reason != "" {
+			item["reason"] = c.ProviderToolApprovalResponse.Reason
 		}
 		return item, nil
 	case llm.ContentOpaque:
@@ -897,7 +897,7 @@ func (wire codec) decodeWithPartial(raw []byte, requested llm.ModelRef, partial 
 	// reported no usage; the runner accounts for that case.
 	var fields meterFields
 	if r.Usage != nil && json.Unmarshal(raw, &fields) == nil {
-		r.Usage.Requests = wire.hostedRequests(fields, v.Output)
+		r.Usage.Requests = wire.providerToolRequests(fields, v.Output)
 		// Usage arrives only in a terminal response object (the stream's
 		// response.completed or response.incomplete event), whose counters
 		// and output items are complete.
@@ -1039,9 +1039,9 @@ func (wire codec) decodeItem(raw json.RawMessage) ([]llm.Content, error) {
 		}, nil
 	case "web_search_call", "x_search_call", "file_search_call", "code_interpreter_call",
 		"image_generation_call", "mcp_call":
-		return wire.decodeHostedItem(raw, replay)
+		return wire.decodeProviderToolItem(raw, replay)
 	case "mcp_approval_request":
-		return wire.decodeHostedApproval(raw, replay)
+		return wire.decodeProviderToolApproval(raw, replay)
 	case "message":
 		var message struct{ Content []json.RawMessage }
 		if err := json.Unmarshal(raw, &message); err != nil {

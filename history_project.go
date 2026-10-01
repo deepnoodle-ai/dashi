@@ -107,8 +107,8 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 				return nil, errors.New("dashi: client tool call is unresolved")
 			}
 		}
-		if len(state.hosted) > 0 {
-			return nil, errors.New("dashi: hosted approval is unresolved")
+		if len(state.providerTool) > 0 {
+			return nil, errors.New("dashi: provider tool approval is unresolved")
 		}
 	}
 	out := make([]contextMessage, 0, len(history)+len(t.Steps))
@@ -123,10 +123,10 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 	for _, m := range history {
 		emit(m.Clone())
 	}
-	settledHosted := map[string]bool{}
+	settledProviderTool := map[string]bool{}
 	for _, step := range t.Steps {
-		if step.Kind == StepProviderToolApprovalDecided && step.HostedApproval != nil {
-			settledHosted[step.HostedApproval.RequestID] = true
+		if step.Kind == StepProviderToolApprovalDecided && step.ProviderToolApproval != nil {
+			settledProviderTool[step.ProviderToolApproval.RequestID] = true
 		}
 	}
 	// A NextCallOnly item expires once a model call that was dispatched
@@ -191,13 +191,13 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 			// Keep its other content without creating a dangling call in history.
 			content := make([]llm.Content, 0, len(m.Content))
 			for _, part := range m.Content {
-				if part.Kind == llm.ContentHostedApprovalRequest {
+				if part.Kind == llm.ContentProviderToolApprovalRequest {
 					if step.Model.Result.Stop.Kind != llm.StopToolUse &&
 						step.Model.Result.Stop.Kind != llm.StopFinished {
 						continue
 					}
-					if part.HostedApprovalRequest == nil ||
-						!settledHosted[part.HostedApprovalRequest.ID] {
+					if part.ProviderToolApprovalRequest == nil ||
+						!settledProviderTool[part.ProviderToolApprovalRequest.ID] {
 						continue
 					}
 				}
@@ -254,13 +254,13 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 				out = replaceContext(out, compactionPlan(t, step.Compacted.ModelCallID), *step.Compacted, step.Seq)
 			}
 		case StepProviderToolApprovalDecided:
-			response := *step.HostedApproval
+			response := *step.ProviderToolApproval
 			emit(llm.Message{
 				Role: llm.RoleUser,
 				Content: []llm.Content{
 					{
-						Kind:                   llm.ContentHostedApprovalResponse,
-						HostedApprovalResponse: &response,
+						Kind:                         llm.ContentProviderToolApprovalResponse,
+						ProviderToolApprovalResponse: &response,
 					},
 				},
 			})

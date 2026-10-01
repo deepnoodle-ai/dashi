@@ -300,7 +300,7 @@ func TestEndedTurnIgnoresLateModelToolCalls(t *testing.T) {
 	}
 }
 
-func TestHostedApprovalAfterEndIsRefused(t *testing.T) {
+func TestProviderToolApprovalAfterEndIsRefused(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
 	rec := NewMemoryRecorder()
 	first, err := start(t, client, writeTool(), rec, deferredHooks())
@@ -313,9 +313,9 @@ func TestHostedApprovalAfterEndIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = runner.Run(t.Context(), canceled.Turn, Resolve{
-		CommandID:      "hosted",
-		CallID:         "req-1",
-		HostedApproval: &llm.HostedApprovalResponse{RequestID: "req-1", Approve: true},
+		CommandID:            "provider tool",
+		CallID:               "req-1",
+		ProviderToolApproval: &llm.ProviderToolApprovalResponse{RequestID: "req-1", Approve: true},
 	})
 	if !errors.Is(err, ErrTurnEnded) || err.Error() != "dashi: turn has ended: canceled" {
 		t.Fatalf("err=%v", err)

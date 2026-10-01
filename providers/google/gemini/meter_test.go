@@ -141,7 +141,7 @@ const groundedWithoutUsage = `{
   }]
 }`
 
-func TestDecodeCountsHostedMeters(t *testing.T) {
+func TestDecodeCountsProviderToolMeters(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		raw     string
@@ -243,7 +243,7 @@ var streamLateGrounding = []string{
 	`{"candidates":[{"content":{"role":"model","parts":[{"text":"Done."}]},"finishReason":"STOP","groundingMetadata":{"webSearchQueries":["q"]}}]}`,
 }
 
-func TestStreamCountsHostedMeters(t *testing.T) {
+func TestStreamCountsProviderToolMeters(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		chunks []string

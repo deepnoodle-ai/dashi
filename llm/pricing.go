@@ -197,11 +197,11 @@ func (p Pricing) Validate() error {
 	}
 	for name, rate := range p.Requests {
 		if name == "" || rate < 0 {
-			return errors.New("llm: invalid hosted request price")
+			return errors.New("llm: invalid provider tool request price")
 		}
 		if IsReservedMeter(name) {
 			return fmt.Errorf(
-				"llm: hosted request key %q marks unattributed usage and cannot be priced",
+				"llm: provider tool request key %q marks unattributed usage and cannot be priced",
 				name,
 			)
 		}
@@ -290,7 +290,7 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 	if !pricingDetailAvailable(p, rates, u, unattributed) {
 		return Cost{}, false
 	}
-	var input, output, cacheRead, cacheWrite, hosted, total exactSum
+	var input, output, cacheRead, cacheWrite, providerTool, total exactSum
 	applyRates := func(tokens ModalityTokenUsage, rates Rates) {
 		input.add(tokens.InputTokens, rates.Input)
 		output.add(tokens.OutputTokens, rates.Output)
@@ -335,14 +335,14 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 			unpriced[name] = count
 			continue
 		}
-		hosted.addPerCall(count, rate)
+		providerTool.addPerCall(count, rate)
 	}
 	for _, part := range []*exactSum{
 		&input,
 		&output,
 		&cacheRead,
 		&cacheWrite,
-		&hosted,
+		&providerTool,
 	} {
 		total.addSum(part)
 	}
@@ -359,7 +359,7 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 		{&output, &cost.Output},
 		{&cacheRead, &cost.CacheRead},
 		{&cacheWrite, &cost.CacheWrite},
-		{&hosted, &cost.Hosted},
+		{&providerTool, &cost.ProviderTools},
 		{&total, &cost.Total},
 	} {
 		amount, ok := field.sum.round(roundHalfEven)
@@ -404,8 +404,8 @@ type Cost struct {
 	CacheRead money.Amount `json:"cache_read"`
 	// CacheWrite values cache creation input.
 	CacheWrite money.Amount `json:"cache_write"`
-	// Hosted values priced provider-hosted requests.
-	Hosted money.Amount `json:"hosted,omitempty"`
+	// ProviderTools values priced provider tool requests.
+	ProviderTools money.Amount `json:"provider_tools,omitempty"`
 	// Total may be available even when the category breakdown is not. It is
 	// the amount that budgets and ledgers use, except that a partial cost
 	// (see Partial) is only a lower bound on the charge.
@@ -452,7 +452,7 @@ func (c Cost) Validate() error {
 		c.Output,
 		c.CacheRead,
 		c.CacheWrite,
-		c.Hosted,
+		c.ProviderTools,
 		c.Total,
 	} {
 		if amount < 0 {

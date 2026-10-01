@@ -88,15 +88,15 @@ type Step struct {
 	// Budget on a continuation records the entire raised budget for audit.
 	Budget *Budget `json:"budget,omitempty"`
 	// ModelCalls on a continuation records the raised model-attempt cap.
-	ModelCalls     int                         `json:"model_calls,omitempty"`
-	Compacted      *ContextCompactionFact      `json:"compacted,omitempty"`
-	Context        *ContextFact                `json:"context,omitempty"`
-	Model          *ModelFact                  `json:"model,omitempty"`
-	Tool           *ToolFact                   `json:"tool,omitempty"`
-	Approval       *ApprovalDecision           `json:"approval,omitempty"`
-	HostedApproval *llm.HostedApprovalResponse `json:"hosted_approval,omitempty"`
-	Output         *StructuredOutput           `json:"output,omitempty"`
-	Stop           *Stop                       `json:"stop,omitempty"`
+	ModelCalls           int                               `json:"model_calls,omitempty"`
+	Compacted            *ContextCompactionFact            `json:"compacted,omitempty"`
+	Context              *ContextFact                      `json:"context,omitempty"`
+	Model                *ModelFact                        `json:"model,omitempty"`
+	Tool                 *ToolFact                         `json:"tool,omitempty"`
+	Approval             *ApprovalDecision                 `json:"approval,omitempty"`
+	ProviderToolApproval *llm.ProviderToolApprovalResponse `json:"provider_tool_approval,omitempty"`
+	Output               *StructuredOutput                 `json:"output,omitempty"`
+	Stop                 *Stop                             `json:"stop,omitempty"`
 	// Warnings records nonfatal conditions observed when this step was made.
 	Warnings []Warning `json:"warnings,omitempty"`
 	// HookResults records the hook answers given since the previous step:

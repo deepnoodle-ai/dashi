@@ -385,7 +385,7 @@ func deferredHooks() Hooks {
 	return ToolHook{
 		Name: "defer",
 		Func: func(context.Context, ToolPlan) (ToolDecision, error) {
-			return ToolDecision{Kind: DecisionDefer, Revision: "policy-v1"}, nil
+			return ToolDecision{Kind: DecisionNeedsApproval, RulesVersion: "policy-v1"}, nil
 		},
 	}.Hooks()
 }
@@ -401,7 +401,7 @@ func rewriteHooks() Hooks {
 			if string(plan.Call.Args) != `{"value":2}` {
 				return ToolDecision{}, errors.New("unexpected effective arguments")
 			}
-			return ToolDecision{Kind: DecisionAllow, Revision: "rewrite-v1"}, nil
+			return ToolDecision{Kind: DecisionAllow, RulesVersion: "rewrite-v1"}, nil
 		},
 	}.Hooks()
 }
@@ -731,14 +731,14 @@ func TestProviderPauseUsesBoundedNextAttempt(t *testing.T) {
 	}
 }
 
-func TestHostedApprovalWaitsForExplicitDecision(t *testing.T) {
+func TestProviderToolApprovalWaitsForExplicitDecision(t *testing.T) {
 	origin := content.Origin{
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",
 		Scope:    "fixture",
 	}
-	request := llm.HostedApprovalRequest{
+	request := llm.ProviderToolApprovalRequest{
 		ID:     "approval-1",
 		Name:   "remote",
 		Origin: origin,
@@ -746,8 +746,8 @@ func TestHostedApprovalWaitsForExplicitDecision(t *testing.T) {
 	first := llm.Result{
 		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
 		Message: llm.AssistantMessage(llm.Content{
-			Kind:                  llm.ContentHostedApprovalRequest,
-			HostedApprovalRequest: &request,
+			Kind:                        llm.ContentProviderToolApprovalRequest,
+			ProviderToolApprovalRequest: &request,
 		}),
 		Stop: llm.Stop{Kind: llm.StopFinished},
 	}
@@ -760,7 +760,7 @@ func TestHostedApprovalWaitsForExplicitDecision(t *testing.T) {
 	if got.Stop.Kind != StopWaiting || client.sends != 1 {
 		t.Fatalf("stop=%+v sends=%d", got.Stop, client.sends)
 	}
-	response := llm.HostedApprovalResponse{
+	response := llm.ProviderToolApprovalResponse{
 		RequestID: "approval-1",
 		Approve:   true,
 		Origin:    origin,
@@ -772,9 +772,9 @@ func TestHostedApprovalWaitsForExplicitDecision(t *testing.T) {
 		t.Context(),
 		got.Turn,
 		Resolve{
-			CommandID:      "approve",
-			CallID:         "approval-1",
-			HostedApproval: &response,
+			CommandID:            "approve",
+			CallID:               "approval-1",
+			ProviderToolApproval: &response,
 		},
 	)
 	if err != nil {
@@ -1135,7 +1135,7 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 		Kind: StepToolDecision,
 		Tool: &ToolFact{
 			Call:    call,
-			Verdict: ToolVerdict{Kind: DecisionAllow, Revision: "r1"},
+			Verdict: ToolVerdict{Kind: DecisionAllow, RulesVersion: "r1"},
 		},
 	})
 	commit(Step{Kind: StepToolStarted, Tool: &ToolFact{Call: call}})

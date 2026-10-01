@@ -14,13 +14,13 @@ const (
 )
 
 // HostedActivityPolicy controls omission of completed foreign hosted work.
-type HostedActivityPolicy string
+type ProviderToolActivityPolicy string
 
 const (
 	// HostedReject preserves the strict default for provider-owned work.
-	HostedReject HostedActivityPolicy = ""
+	ProviderToolReject ProviderToolActivityPolicy = ""
 	// HostedOmit permits recorded omission of complete, paired foreign work.
-	HostedOmit HostedActivityPolicy = "omit"
+	ProviderToolOmit ProviderToolActivityPolicy = "omit"
 )
 
 // ContentPolicy selects specific content losses for one input. It never
@@ -32,7 +32,7 @@ type ContentPolicy struct {
 
 	// ForeignHostedActivity permits omission of complete provider-owned work
 	// only when its private replay cannot reach the selected destination.
-	ForeignHostedActivity HostedActivityPolicy `json:"foreign_hosted_activity,omitempty"`
+	ForeignProviderToolActivity ProviderToolActivityPolicy `json:"foreign_provider_tool_activity,omitempty"`
 }
 
 // Validate rejects unknown loss policies rather than silently ignoring them.
@@ -42,10 +42,10 @@ func (p ContentPolicy) Validate() error {
 	default:
 		return errors.New("llm: unsupported unreplayable reasoning policy")
 	}
-	switch p.ForeignHostedActivity {
-	case HostedReject, HostedOmit:
+	switch p.ForeignProviderToolActivity {
+	case ProviderToolReject, ProviderToolOmit:
 		return nil
 	default:
-		return errors.New("llm: unsupported foreign hosted activity policy")
+		return errors.New("llm: unsupported foreign provider tool activity policy")
 	}
 }

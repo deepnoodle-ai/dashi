@@ -24,7 +24,7 @@ import (
 //     counts one search.
 //   - websearch-max-uses-exceeded-stream.sse: the same scenario streamed.
 
-func TestHostedRequestsFromResponse(t *testing.T) {
+func TestProviderToolRequestsFromResponse(t *testing.T) {
 	tests := []struct {
 		name     string
 		response string
@@ -157,7 +157,7 @@ func TestHostedRequestsFromResponse(t *testing.T) {
 	}
 }
 
-func TestHostedRequestsWithoutUsage(t *testing.T) {
+func TestProviderToolRequestsWithoutUsage(t *testing.T) {
 	response := meterResponse(
 		"",
 		`{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"a"}}`,
@@ -174,7 +174,7 @@ func TestHostedRequestsWithoutUsage(t *testing.T) {
 	}
 }
 
-func TestHostedRequestsStreamMatchBlocking(t *testing.T) {
+func TestProviderToolRequestsStreamMatchBlocking(t *testing.T) {
 	wire := meterCodec()
 	requested := llm.ModelRef{Provider: "anthropic", Model: "model"}
 	var live []map[string]int
@@ -272,7 +272,7 @@ func readFixture(t *testing.T, name string) string {
 // A stream cut off before message_delta has no final server_tool_use
 // counters. The visible block is counted, but the counts are not final, so
 // the runner treats the call's hosted billing as possibly incomplete.
-func TestHostedRequestsFromCutStreamAreNotFinal(t *testing.T) {
+func TestProviderToolRequestsFromCutStreamAreNotFinal(t *testing.T) {
 	fixture := readFixture(t, "websearch-max-uses-exceeded-stream.sse")
 	marker := "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
 	end := strings.Index(fixture, marker)

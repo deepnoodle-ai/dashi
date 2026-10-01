@@ -155,18 +155,18 @@ func (r *runtime) refStop(id, reason string) *RunResult {
 // of tool results, hosted results, and hosted uses. They alias c, so the caller passes a
 // clone.
 func contentSources(c llm.Content) []*content.Source {
-	var block, result, hosted []content.Block
+	var block, result, providerTool []content.Block
 	if c.Block != nil {
 		block = []content.Block{*c.Block}
 	}
 	if c.ToolResult != nil {
 		result = c.ToolResult.Output.Content
 	}
-	if c.HostedResult != nil {
-		hosted = c.HostedResult.Output
+	if c.ProviderToolResult != nil {
+		providerTool = c.ProviderToolResult.Output
 	}
-	if c.HostedUse != nil {
-		hosted = append(hosted[:len(hosted):len(hosted)], c.HostedUse.Output...)
+	if c.ProviderToolUse != nil {
+		providerTool = append(providerTool[:len(providerTool):len(providerTool)], c.ProviderToolUse.Output...)
 	}
-	return contentsrc.Blocks(block, result, hosted)
+	return contentsrc.Blocks(block, result, providerTool)
 }

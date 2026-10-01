@@ -165,7 +165,7 @@ func nextRows() []nextRow {
 			covers: []string{"waiting/provider approval pending"},
 			stop:   &Stop{Kind: StopWaiting, Reason: "provider approval pending"},
 			setup: func(s *replayState) {
-				s.hosted["h1"] = llm.HostedApprovalRequest{ID: "h1"}
+				s.providerTool["h1"] = llm.ProviderToolApprovalRequest{ID: "h1"}
 			},
 			want: NextResolvePending,
 		},
@@ -189,9 +189,9 @@ func nextRows() []nextRow {
 			want: NextFix,
 		},
 		{
-			name:  "interrupted, hosted approval pending",
+			name:  "interrupted, provider tool approval pending",
 			stop:  &Stop{Kind: StopInterrupted, Reason: "context canceled"},
-			setup: func(s *replayState) { s.hosted["h1"] = llm.HostedApprovalRequest{ID: "h1"} },
+			setup: func(s *replayState) { s.providerTool["h1"] = llm.ProviderToolApprovalRequest{ID: "h1"} },
 			want:  NextFix,
 		},
 		{
@@ -231,11 +231,11 @@ func nextRows() []nextRow {
 				"failed/empty_response",
 				"failed/tool binding unavailable",
 				"failed/tool binding changed or unavailable",
-				"failed/hosted tool cannot execute locally",
+				"failed/provider tool cannot execute locally",
 				"failed/prepared request changed destination",
 				"failed/prepared request changed original model input",
 				"failed/untrusted stop with client calls",
-				"failed/untrusted stop with hosted approval",
+				"failed/untrusted stop with provider tool approval",
 				"failed/native output_schema is not supported in agent turns",
 				"failed/tool name is reserved for structured output",
 			},
@@ -259,7 +259,7 @@ func nextRows() []nextRow {
 			name: "uncertain model attempt",
 			covers: []string{
 				"result_unknown/model attempt needs reconciliation",
-				"result_unknown/provider-hosted tool may have run",
+				"result_unknown/provider tool may have run",
 			},
 			stop:  &Stop{Kind: StopResultUnknown, Reason: "model attempt needs reconciliation"},
 			setup: func(s *replayState) { s.unresolvedModel = "m1" },
@@ -298,8 +298,8 @@ func pendingCall(status ToolStatus) func(*replayState) {
 // and Terminal come from the same code replay uses.
 func rowView(row nextRow) TurnView {
 	s := &replayState{
-		TurnView: TurnView{Tools: map[string]ToolView{}, Revision: 5},
-		hosted:   map[string]llm.HostedApprovalRequest{},
+		TurnView:     TurnView{Tools: map[string]ToolView{}, Revision: 5},
+		providerTool: map[string]llm.ProviderToolApprovalRequest{},
 	}
 	s.Agent.Limits.Resumes = 2
 	s.attemptCap, s.ModelCalls = 8, 1

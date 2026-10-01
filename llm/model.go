@@ -85,8 +85,8 @@ const (
 
 // HostedToolFeature scopes model evidence to a provider's wire tool type.
 // ModelEvidence already binds that fact to one API and endpoint.
-func HostedToolFeature(toolType string) Feature {
-	return Feature("hosted_tool:" + toolType)
+func ProviderToolFeature(toolType string) Feature {
+	return Feature("provider_tool:" + toolType)
 }
 
 // CapabilityPolicy is shared with media operations so one application setting
@@ -261,8 +261,8 @@ func knownFeature(f Feature) bool {
 		FeatureCitations, FeatureStructuredOutput, FeaturePromptCache:
 		return true
 	}
-	return strings.HasPrefix(string(f), "hosted_tool:") &&
-		strings.TrimPrefix(string(f), "hosted_tool:") != ""
+	return strings.HasPrefix(string(f), "provider_tool:") &&
+		strings.TrimPrefix(string(f), "provider_tool:") != ""
 }
 
 func requestedFeatures(r Input) []Feature {
@@ -294,8 +294,8 @@ func requestedFeatures(r Input) []Feature {
 	if len(r.Tools) > 0 {
 		add(FeatureTools)
 		for _, definition := range r.Tools {
-			if definition.Hosted != nil {
-				add(HostedToolFeature(definition.Hosted.Type))
+			if definition.ProviderTool != nil {
+				add(ProviderToolFeature(definition.ProviderTool.Type))
 			}
 		}
 	}
@@ -334,10 +334,10 @@ func requestedFeatures(r Input) []Feature {
 				data(*part.Block)
 			}
 			if part.ToolCall != nil || part.ToolResult != nil ||
-				part.HostedUse != nil ||
-				part.HostedResult != nil ||
-				part.HostedApprovalRequest != nil ||
-				part.HostedApprovalResponse != nil {
+				part.ProviderToolUse != nil ||
+				part.ProviderToolResult != nil ||
+				part.ProviderToolApprovalRequest != nil ||
+				part.ProviderToolApprovalResponse != nil {
 				add(FeatureTools)
 			}
 			if part.ToolResult != nil {

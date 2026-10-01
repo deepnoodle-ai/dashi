@@ -115,14 +115,14 @@ func (r *runtime) classify(result llm.Result) (RunResult, bool) {
 		return r.stop(StopFailed, err.Error()), false
 	}
 	calls := 0
-	hosted := 0
+	providerTool := 0
 	useful := false
 	for _, p := range result.Message.Content {
 		switch p.Kind {
 		case llm.ContentToolCall:
 			calls++
-		case llm.ContentHostedApprovalRequest:
-			hosted++
+		case llm.ContentProviderToolApprovalRequest:
+			providerTool++
 		case llm.ContentBlock:
 			if p.Block != nil &&
 				(p.Block.Text == nil ||
@@ -141,15 +141,15 @@ func (r *runtime) classify(result llm.Result) (RunResult, bool) {
 		result.Stop.Kind != llm.StopFinished {
 		return r.stop(StopFailed, "untrusted stop with client calls"), false
 	}
-	if hosted > 0 &&
+	if providerTool > 0 &&
 		result.Stop.Kind != llm.StopToolUse &&
 		result.Stop.Kind != llm.StopFinished {
-		return r.stop(StopFailed, "untrusted stop with hosted approval"), false
+		return r.stop(StopFailed, "untrusted stop with provider tool approval"), false
 	}
 	if calls > 0 {
 		return RunResult{}, true
 	}
-	if hosted > 0 {
+	if providerTool > 0 {
 		return r.stop(StopWaiting, "provider approval pending"), false
 	}
 	switch result.Stop.Kind {

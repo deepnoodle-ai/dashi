@@ -118,8 +118,8 @@ func TestRecordersReopenSeparateUsageAndMonetaryOverflow(t *testing.T) {
 					replies[0].Cost = storageCharge(modelCosts[0])
 					tools = tool.List{{Definition: tool.Definition{
 						Name: "search",
-						Kind: tool.KindProviderHosted,
-						Hosted: &tool.HostedSpec{
+						Kind: tool.KindProviderTool,
+						ProviderTool: &tool.ProviderToolSpec{
 							Provider: dashitest.Provider,
 							API:      dashitest.API,
 							Type:     "web_search",

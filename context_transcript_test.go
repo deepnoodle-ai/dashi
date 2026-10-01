@@ -18,8 +18,8 @@ func TestActiveTranscriptDocumentsAndNestedOutputs(t *testing.T) {
 	for _, part := range []llm.Content{
 		llm.Block(document),
 		{Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{Output: tool.Output{Content: []content.Block{document}}}},
-		{Kind: llm.ContentHostedUse, HostedUse: &llm.HostedUse{Output: []content.Block{document}}},
-		{Kind: llm.ContentHostedResult, HostedResult: &llm.HostedResult{Output: []content.Block{document}}},
+		{Kind: llm.ContentProviderToolUse, ProviderToolUse: &llm.ProviderToolUse{Output: []content.Block{document}}},
+		{Kind: llm.ContentProviderToolResult, ProviderToolResult: &llm.ProviderToolResult{Output: []content.Block{document}}},
 	} {
 		t.Run(string(part.Kind), func(t *testing.T) {
 			messages := []llm.Message{llm.UserMessage(part, llm.Document(content.Source{Data: []byte("%PDF-1.4"), MIMEType: "application/pdf"}, "binary.pdf"))}
@@ -77,7 +77,7 @@ func TestActiveTranscriptReferencesRequireVerifiedBytes(t *testing.T) {
 }
 
 func TestActiveTranscriptExplicitResultStatus(t *testing.T) {
-	for _, shape := range []string{"local", "combined hosted", "separate hosted"} {
+	for _, shape := range []string{"local", "combined provider tool", "separate provider tool"} {
 		for _, isError := range []bool{false, true} {
 			for _, empty := range []bool{false, true} {
 				blocks := []content.Block{content.TextBlock("diagnostic mentions failure; the recorded flag governs status")}
@@ -90,10 +90,10 @@ func TestActiveTranscriptExplicitResultStatus(t *testing.T) {
 				case "local":
 					part = llm.Content{Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{CallID: "check", IsError: isError, Output: tool.Output{Content: blocks}}}
 					label = "[tool error id=check]"
-				case "combined hosted":
-					part = llm.Content{Kind: llm.ContentHostedUse, HostedUse: &llm.HostedUse{ID: "check", Name: "check", IsError: isError, Output: blocks}}
-				case "separate hosted":
-					part = llm.Content{Kind: llm.ContentHostedResult, HostedResult: &llm.HostedResult{CallID: "check", IsError: isError, Output: blocks}}
+				case "combined provider tool":
+					part = llm.Content{Kind: llm.ContentProviderToolUse, ProviderToolUse: &llm.ProviderToolUse{ID: "check", Name: "check", IsError: isError, Output: blocks}}
+				case "separate provider tool":
+					part = llm.Content{Kind: llm.ContentProviderToolResult, ProviderToolResult: &llm.ProviderToolResult{CallID: "check", IsError: isError, Output: blocks}}
 				}
 				messages := []llm.Message{llm.AssistantMessage(part)}
 				before, _ := json.Marshal(messages)

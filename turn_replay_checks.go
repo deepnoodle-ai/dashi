@@ -21,8 +21,8 @@ func (s *replayState) pending() []string {
 			out = append(out, id)
 		}
 	}
-	for _, id := range s.hostedOrder {
-		if _, ok := s.hosted[id]; ok {
+	for _, id := range s.providerToolOrder {
+		if _, ok := s.providerTool[id]; ok {
 			out = append(out, id)
 		}
 	}
@@ -57,18 +57,18 @@ func (s *replayState) pendingItems() []Pending {
 			Tool:        &v,
 		})
 	}
-	for _, id := range s.hostedOrder {
-		a, ok := s.hosted[id]
+	for _, id := range s.providerToolOrder {
+		a, ok := s.providerTool[id]
 		if !ok {
 			continue
 		}
 		out = append(out, Pending{
-			Kind:        PendingApproval,
-			ID:          id,
-			ModelCallID: s.hostedAttempts[id],
-			Name:        a.Name,
-			Args:        a.Arguments,
-			Hosted:      &a,
+			Kind:         PendingApproval,
+			ID:           id,
+			ModelCallID:  s.providerToolAttempts[id],
+			Name:         a.Name,
+			Args:         a.Arguments,
+			ProviderTool: &a,
 		})
 	}
 	return out
@@ -123,7 +123,7 @@ func (s *replayState) recordResult(
 	if result.Stop.Kind == llm.StopPause {
 		s.ProviderPauses++
 	}
-	s.pausedHosted = pausedMidHostedCall(*result)
+	s.pausedProviderTool = pausedMidProviderToolCall(*result)
 	if result.Stop.Kind == llm.StopToolUse ||
 		result.Stop.Kind == llm.StopFinished {
 		for _, part := range result.Message.Content {
@@ -146,22 +146,22 @@ func (s *replayState) recordResult(
 	if result.Stop.Kind == llm.StopToolUse ||
 		result.Stop.Kind == llm.StopFinished {
 		for _, part := range result.Message.Content {
-			if part.Kind == llm.ContentHostedApprovalRequest &&
-				part.HostedApprovalRequest != nil {
-				a := part.HostedApprovalRequest.Clone()
-				if _, ok := s.hosted[a.ID]; ok {
-					return errors.New("repeated hosted approval ID")
+			if part.Kind == llm.ContentProviderToolApprovalRequest &&
+				part.ProviderToolApprovalRequest != nil {
+				a := part.ProviderToolApprovalRequest.Clone()
+				if _, ok := s.providerTool[a.ID]; ok {
+					return errors.New("repeated provider tool approval ID")
 				}
 				// A provider may reuse an ID once its earlier request was
 				// answered. The attempt tells the two requests apart, so
 				// each gets its own answer command.
-				s.hosted[a.ID] = a
-				s.hostedAttempts[a.ID] = attempt
-				s.hostedOrder = slices.DeleteFunc(
-					s.hostedOrder,
+				s.providerTool[a.ID] = a
+				s.providerToolAttempts[a.ID] = attempt
+				s.providerToolOrder = slices.DeleteFunc(
+					s.providerToolOrder,
 					func(id string) bool { return id == a.ID },
 				)
-				s.hostedOrder = append(s.hostedOrder, a.ID)
+				s.providerToolOrder = append(s.providerToolOrder, a.ID)
 			}
 		}
 	}
@@ -176,7 +176,7 @@ func (s *replayState) canContinue() bool {
 // and model-attempt cap it carries (nil and zero when it raises nothing).
 func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 	if s.Revision == 0 || s.terminal() || s.unresolvedModel != "" ||
-		len(s.hosted) > 0 {
+		len(s.providerTool) > 0 {
 		return false
 	}
 	budget := s.Budget
@@ -303,7 +303,7 @@ func (s *replayState) acceptsAfterEnd(command Command) error {
 		return nil
 	}
 	if c, ok := command.(Resolve); ok &&
-		c.Approval == nil && c.HostedApproval == nil {
+		c.Approval == nil && c.ProviderToolApproval == nil {
 		if c.ModelResult != nil || c.ModelFailure != nil {
 			if c.CallID != "" &&
 				(c.CallID == s.modelIntent || c.CallID == s.unresolvedModel) {

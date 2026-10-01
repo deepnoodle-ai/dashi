@@ -232,11 +232,11 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	defer cancelCall(nil)
 	never := ""
 	switch {
-	case tooldef.UnsafeHosted(defs):
-		never = "it offers a provider-hosted tool that is not safe to repeat"
-	case s.pausedHosted:
+	case tooldef.UnsafeProviderTool(defs):
+		never = "it offers a provider tool that is not safe to repeat"
+	case s.pausedProviderTool:
 		// The steer could not follow the paused result anyway (FR-6).
-		never = "it finishes a hosted tool call the provider paused"
+		never = "it finishes a provider tool call the provider paused"
 	}
 	call, back := r.registerCall(cancelCall, never)
 	defer r.dropCall(call)
@@ -423,7 +423,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	if r.ctx.Err() != nil && !timeoutWon {
 		settled.Interrupted = InterruptRun
 		settled.Error = context.Cause(r.ctx).Error()
-		settled.ResultUnknown = tooldef.UnsafeHosted(defs)
+		settled.ResultUnknown = tooldef.UnsafeProviderTool(defs)
 		settled.Result = partial(InterruptRun)
 		setSettlementCharge(fact, settled)
 		step := Step{Kind: StepModelCallFinished, Model: settled}
@@ -434,7 +434,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			!errors.Is(context.Cause(r.ctx), errTurnDeadline) {
 			return r.stop(
 				StopResultUnknown,
-				"provider-hosted tool may have run",
+				"provider tool may have run",
 			), false
 		}
 		return r.contextStop(), false

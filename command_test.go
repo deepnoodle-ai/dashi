@@ -117,9 +117,9 @@ func codecCommands() map[string]Command {
 			CallID:    "c1",
 			Approval:  &ApprovalDecision{CallID: "c1", Approve: false, ArgsDigest: ArgsDigest(call.Args), Reason: "no"},
 		},
-		"resolve/hosted": Resolve{
-			CommandID:      "cmd-hosted",
-			HostedApproval: &llm.HostedApprovalResponse{RequestID: "r1", Approve: true, Reason: "fine", Origin: origin},
+		"resolve/provider tool": Resolve{
+			CommandID:            "cmd-provider tool",
+			ProviderToolApproval: &llm.ProviderToolApprovalResponse{RequestID: "r1", Approve: true, Reason: "fine", Origin: origin},
 		},
 		"resolve/result": Resolve{
 			CommandID: "cmd-result",

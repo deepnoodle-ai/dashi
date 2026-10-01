@@ -26,7 +26,7 @@ func NewWebSearchTool(options WebSearchToolOptions) (tool.Tool, error) {
 	if !searchContextSize(options.SearchContextSize) {
 		return tool.Tool{}, errors.New("responses: invalid search context size")
 	}
-	return newHosted("web_search", "web_search", options), nil
+	return newProviderTool("web_search", "web_search", options), nil
 }
 
 // FileSearchToolOptions identifies the vector stores available to OpenAI
@@ -48,7 +48,7 @@ func NewFileSearchTool(options FileSearchToolOptions) (tool.Tool, error) {
 			"responses: file search requires stores and nonnegative limit",
 		)
 	}
-	return newHosted("file_search", "file_search", options), nil
+	return newProviderTool("file_search", "file_search", options), nil
 }
 
 // CodeInterpreterToolOptions supplies files to the provider's code container.
@@ -59,7 +59,7 @@ type CodeInterpreterToolOptions struct {
 
 // NewCodeInterpreterTool declares OpenAI's provider-managed code container.
 func NewCodeInterpreterTool(options CodeInterpreterToolOptions) tool.Tool {
-	return newHosted("code_interpreter", "code_interpreter", options)
+	return newProviderTool("code_interpreter", "code_interpreter", options)
 }
 
 // ImageGenerationToolOptions configures the provider-hosted image generator.
@@ -89,7 +89,7 @@ func NewImageGenerationTool(
 	if err := validateImageGeneration(options); err != nil {
 		return tool.Tool{}, errors.New("responses: " + err.Error())
 	}
-	return newHosted("image_generation", "image_generation", options), nil
+	return newProviderTool("image_generation", "image_generation", options), nil
 }
 
 // MCPToolOptions connects an unauthenticated remote MCP server. Tokens and
@@ -114,20 +114,20 @@ func NewMCPTool(options MCPToolOptions) (tool.Tool, error) {
 	if err := validateMCPOptions(options); err != nil {
 		return tool.Tool{}, err
 	}
-	return newHosted("mcp:"+options.ServerLabel, "mcp", options), nil
+	return newProviderTool("mcp:"+options.ServerLabel, "mcp", options), nil
 }
 
 // newHosted binds options to the "openai" destination. Options are plain
 // structs of strings, numbers, and slices, so encoding cannot fail.
-func newHosted(name, toolType string, options any) tool.Tool {
+func newProviderTool(name, toolType string, options any) tool.Tool {
 	raw, err := json.Marshal(options)
 	if err != nil {
-		panic("responses: encode hosted tool options: " + err.Error())
+		panic("responses: encode provider tool options: " + err.Error())
 	}
 	definition := tool.Definition{
 		Name: name,
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "openai",
 			API:      API,
 			Type:     toolType,
@@ -140,18 +140,18 @@ func newHosted(name, toolType string, options any) tool.Tool {
 	return tool.Tool{Definition: definition}
 }
 
-func (wire codec) hostedTool(
+func (wire codec) providerTool(
 	definition tool.Definition,
 ) (map[string]any, []string, error) {
-	spec := definition.Hosted
+	spec := definition.ProviderTool
 	if spec.Provider != wire.origin.Provider || spec.API != API {
 		return nil, nil, wire.unsupported(
-			"hosted tool %q requires its own destination",
+			"provider tool %q requires its own destination",
 			definition.Name,
 		)
 	}
 	if spec.Provider != "openai" {
-		return wire.destinationHostedTool(definition)
+		return wire.destinationProviderTool(definition)
 	}
 	config := map[string]any{"type": spec.Type}
 	var includes []string
@@ -161,7 +161,7 @@ func (wire codec) hostedTool(
 			return nil, nil, wire.unsupported("web search requires name web_search")
 		}
 		var options WebSearchToolOptions
-		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+		if err := decodeProviderToolOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("web search options: %v", err)
 		}
 		if !searchContextSize(options.SearchContextSize) {
@@ -184,7 +184,7 @@ func (wire codec) hostedTool(
 			return nil, nil, wire.unsupported("file search requires name file_search")
 		}
 		var options FileSearchToolOptions
-		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+		if err := decodeProviderToolOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("file search options: %v", err)
 		}
 		if len(options.VectorStoreIDs) == 0 || options.MaxNumResults < 0 {
@@ -206,7 +206,7 @@ func (wire codec) hostedTool(
 			)
 		}
 		var options CodeInterpreterToolOptions
-		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+		if err := decodeProviderToolOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("code interpreter options: %v", err)
 		}
 		container := map[string]any{"type": "auto"}
@@ -222,7 +222,7 @@ func (wire codec) hostedTool(
 			)
 		}
 		var options ImageGenerationToolOptions
-		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+		if err := decodeProviderToolOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("image generation options: %v", err)
 		}
 		if err := validateImageGeneration(options); err != nil {
@@ -245,7 +245,7 @@ func (wire codec) hostedTool(
 		}
 	case "mcp":
 		var options MCPToolOptions
-		if err := decodeHostedOptions(spec.Options, &options); err != nil {
+		if err := decodeProviderToolOptions(spec.Options, &options); err != nil {
 			return nil, nil, wire.unsupported("mcp options: %w", err)
 		}
 		if definition.Name != "mcp:"+options.ServerLabel {
@@ -268,7 +268,7 @@ func (wire codec) hostedTool(
 			config["require_approval"] = options.RequireApproval
 		}
 	default:
-		return nil, nil, wire.unsupported("hosted tool type %q", spec.Type)
+		return nil, nil, wire.unsupported("provider tool type %q", spec.Type)
 	}
 	return config, includes, nil
 }
@@ -304,7 +304,7 @@ func validateImageGeneration(options ImageGenerationToolOptions) error {
 	return nil
 }
 
-func decodeHostedOptions(raw json.RawMessage, out any) error {
+func decodeProviderToolOptions(raw json.RawMessage, out any) error {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -314,7 +314,7 @@ func decodeHostedOptions(raw json.RawMessage, out any) error {
 		return err
 	}
 	if err := decoder.Decode(new(any)); err != io.EOF {
-		return errors.New("responses: hosted options require one JSON object")
+		return errors.New("responses: provider tool options require one JSON object")
 	}
 	return nil
 }

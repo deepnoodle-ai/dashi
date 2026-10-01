@@ -128,7 +128,7 @@ func (st *steerState) claim(id string) {
 // unfinished, and reach the call after its continuation.
 func (r *runtime) waitingSteers(s *replayState) []ContextItem {
 	source := r.opts.steering
-	if source == nil || s.pausedHosted {
+	if source == nil || s.pausedProviderTool {
 		return nil
 	}
 	unlock := r.lockSource()
@@ -460,18 +460,18 @@ func recordedItems(t Turn) map[string]ContextItem {
 // does. Such a call is like a tool call awaiting its result: a steer may
 // not land between them, and providers reject a request that does not end
 // with the paused result.
-func pausedMidHostedCall(result llm.Result) bool {
+func pausedMidProviderToolCall(result llm.Result) bool {
 	if result.Stop.Kind != llm.StopPause {
 		return false
 	}
 	open := map[string]bool{}
 	for _, part := range result.Message.Content {
 		switch {
-		case part.HostedUse != nil && part.HostedUse.Status != "completed" &&
-			part.HostedUse.Status != "failed":
-			open[part.HostedUse.ID] = true
-		case part.HostedResult != nil:
-			delete(open, part.HostedResult.CallID)
+		case part.ProviderToolUse != nil && part.ProviderToolUse.Status != "completed" &&
+			part.ProviderToolUse.Status != "failed":
+			open[part.ProviderToolUse.ID] = true
+		case part.ProviderToolResult != nil:
+			delete(open, part.ProviderToolResult.CallID)
 		}
 	}
 	return len(open) > 0

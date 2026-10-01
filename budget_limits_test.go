@@ -282,8 +282,8 @@ func TestBudgetIncompleteIntentRecoversBeforeTokenStop(t *testing.T) {
 	intent.Model.EstimatedInputTokens = 1
 	intent.Model.Tools = []tool.Definition{{
 		Name: "search",
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "test", API: "test.chat", Type: "web_search",
 		},
 	}}
@@ -305,6 +305,6 @@ func TestBudgetIncompleteIntentRecoversBeforeTokenStop(t *testing.T) {
 		t.Fatal("unknown dispatched model effect disappeared")
 	}
 	if client.sends != 0 {
-		t.Fatal("recovering unknown hosted work dispatched another call")
+		t.Fatal("recovering unknown provider tool work dispatched another call")
 	}
 }

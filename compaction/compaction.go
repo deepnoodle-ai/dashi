@@ -143,11 +143,11 @@ func estimate(m llm.Message) int {
 		if c.ToolResult != nil {
 			blocks = append(blocks, c.ToolResult.Output.Content...)
 		}
-		if c.HostedUse != nil {
-			blocks = append(blocks, c.HostedUse.Output...)
+		if c.ProviderToolUse != nil {
+			blocks = append(blocks, c.ProviderToolUse.Output...)
 		}
-		if c.HostedResult != nil {
-			blocks = append(blocks, c.HostedResult.Output...)
+		if c.ProviderToolResult != nil {
+			blocks = append(blocks, c.ProviderToolResult.Output...)
 		}
 		for _, src := range contentsrc.Blocks(blocks) {
 			if src.Ref == nil || src.Ref.Size <= 0 {

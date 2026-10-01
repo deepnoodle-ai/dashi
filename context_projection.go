@@ -90,7 +90,7 @@ func contextGroups(t Turn, messages []contextMessage) []contextGroup {
 			groupSeq[step.Seq] = chain
 			safe := f.Result.Stop.Kind == llm.StopFinished || f.Result.Stop.Kind == llm.StopToolUse
 			for _, c := range f.Result.Message.Content {
-				if c.Kind == llm.ContentHostedApprovalRequest {
+				if c.Kind == llm.ContentProviderToolApprovalRequest {
 					safe = false
 				}
 			}
@@ -240,7 +240,7 @@ func validActiveSummary(result *llm.Result) (string, error) {
 		return "", errors.New("summary did not finish")
 	}
 	for _, c := range result.Message.Content {
-		if c.Kind == llm.ContentToolCall || c.Kind == llm.ContentHostedUse || c.Kind == llm.ContentHostedResult || c.Kind == llm.ContentHostedApprovalRequest || c.Kind == llm.ContentHostedApprovalResponse {
+		if c.Kind == llm.ContentToolCall || c.Kind == llm.ContentProviderToolUse || c.Kind == llm.ContentProviderToolResult || c.Kind == llm.ContentProviderToolApprovalRequest || c.Kind == llm.ContentProviderToolApprovalResponse {
 			return "", errors.New("summary requested tool work")
 		}
 	}

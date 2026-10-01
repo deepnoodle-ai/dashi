@@ -156,10 +156,10 @@ func TestBeforeToolCombining(t *testing.T) {
 					return Allow("fine"), nil
 				}),
 				toolHook("gate", func(context.Context, ToolPlan) (ToolDecision, error) {
-					return Defer("needs a person"), nil
+					return NeedsApproval("needs a person"), nil
 				}),
 			},
-			kind: DecisionDefer,
+			kind: DecisionNeedsApproval,
 			hook: "gate",
 		},
 		{
@@ -952,7 +952,7 @@ func TestRequireApprovalNamesAndGates(t *testing.T) {
 		t.Fatalf("name = %q", named.Name)
 	}
 	d, err := named.Func(t.Context(), ToolPlan{Call: tool.Call{Name: "a"}})
-	if err != nil || d.Kind != DecisionDefer || d.Revision != named.Name {
+	if err != nil || d.Kind != DecisionNeedsApproval || d.RulesVersion != named.Name {
 		t.Fatalf("named = %+v, %v", d, err)
 	}
 	d, _ = named.Func(t.Context(), ToolPlan{Call: tool.Call{Name: "c"}})
@@ -961,7 +961,7 @@ func TestRequireApprovalNamesAndGates(t *testing.T) {
 	}
 	all := RequireApproval().BeforeTool[0]
 	d, _ = all.Func(t.Context(), ToolPlan{Call: tool.Call{Name: "c"}})
-	if all.Name != "require_approval:*" || d.Kind != DecisionDefer {
+	if all.Name != "require_approval:*" || d.Kind != DecisionNeedsApproval {
 		t.Fatalf("all = %q %+v", all.Name, d)
 	}
 	joined := JoinHooks(RequireApproval("a"), RequireApproval("b"))
@@ -997,7 +997,7 @@ func TestHookCallOrder(t *testing.T) {
 		) (ToolDecision, error) {
 			note("tool:" + p.Call.ID)
 			if p.Call.ID == "call-2" {
-				return Defer("ask"), nil
+				return NeedsApproval("ask"), nil
 			}
 			return ToolDecision{}, nil
 		}}},
@@ -1085,7 +1085,7 @@ func TestPendingApproveNeedsOnlyCallAndArguments(t *testing.T) {
 	if err != nil || len(out.Pending) != 1 {
 		t.Fatalf("out=%+v err=%v", out.Stop, err)
 	}
-	if out.Tools["call-1"].Verdict.Revision != "require_approval:remote" {
+	if out.Tools["call-1"].Verdict.RulesVersion != "require_approval:remote" {
 		t.Fatalf("verdict = %+v", out.Tools["call-1"].Verdict)
 	}
 	// The answer comes from a handler whose Runner has no hooks, which
@@ -1337,7 +1337,7 @@ func TestReplayRejectsInvalidHookRecords(t *testing.T) {
 		},
 		"verdict from another point": func(turn *Turn) {
 			turn.Steps[1].HookResults = []HookResult{
-				{Point: HookBeforeSend, Name: "x", Verdict: VerdictDefer},
+				{Point: HookBeforeSend, Name: "x", Verdict: VerdictNeedsApproval},
 			}
 		},
 		"pass outside before_tool": func(turn *Turn) {

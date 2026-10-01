@@ -42,19 +42,19 @@ func Adapt(
 		capability = options[0]
 	}
 	remappedIDs := toolIDRemaps(input)
-	var omittableHosted map[hostedPosition]bool
-	if input.ContentPolicy.ForeignHostedActivity == llm.HostedOmit {
-		omittableHosted = completedForeignHosted(input, origin)
+	var omittableProviderTool map[providerToolPosition]bool
+	if input.ContentPolicy.ForeignProviderToolActivity == llm.ProviderToolOmit {
+		omittableProviderTool = completedForeignProviderTool(input, origin)
 	}
 	out := input
 	out.Messages = make([]llm.Message, 0, len(input.Messages))
 	var changes []llm.ContentChange
 	omittedReasoning := false
-	omittedHosted := false
+	omittedProviderTool := false
 	usableHistory := false
 	calls := map[string]bool{}
 	pending := map[string]bool{}
-	hosted := newHostedHistory()
+	providerTool := newProviderToolHistory()
 	for mi, original := range input.Messages {
 		m := original.Clone()
 		kept := make([]llm.Content, 0, len(m.Content))
@@ -108,12 +108,12 @@ func Adapt(
 			if c.ToolResult != nil {
 				remapID(&c.ToolResult.CallID)
 			}
-			if omittableHosted[hostedPosition{mi, ci}] {
+			if omittableProviderTool[providerToolPosition{mi, ci}] {
 				record(
-					llm.ContentChangeOmitHostedActivity,
-					"completed hosted activity belongs to another destination",
+					llm.ContentChangeOmitProviderToolActivity,
+					"completed provider tool activity belongs to another destination",
 				)
-				omittedHosted = true
+				omittedProviderTool = true
 				continue
 			}
 			if err := checkReferences(*c, origin); err != nil {
@@ -122,10 +122,10 @@ func Adapt(
 			if c.Opaque != nil && c.Opaque.Origin != origin {
 				return fail("opaque content requires its original destination")
 			}
-			if c.HostedUse != nil || c.HostedResult != nil ||
-				c.HostedApprovalRequest != nil ||
-				c.HostedApprovalResponse != nil {
-				if err := hosted.check(
+			if c.ProviderToolUse != nil || c.ProviderToolResult != nil ||
+				c.ProviderToolApprovalRequest != nil ||
+				c.ProviderToolApprovalResponse != nil {
+				if err := providerTool.check(
 					*c,
 					m.Role,
 					origin,
@@ -282,7 +282,7 @@ func Adapt(
 			usableHistory = true
 		}
 	}
-	if (omittedReasoning || omittedHosted) && !usableHistory {
+	if (omittedReasoning || omittedProviderTool) && !usableHistory {
 		return llm.Input{}, nil, &llm.Error{
 			Provider: origin.Provider,
 			Category: llm.ErrorUnsupported,
@@ -301,13 +301,13 @@ func Adapt(
 			),
 		}
 	}
-	for _, from := range hosted.pending {
-		if !hostedTail(input.Messages, from) {
+	for _, from := range providerTool.pending {
+		if !providerToolTail(input.Messages, from) {
 			return llm.Input{}, nil, &llm.Error{
 				Provider: origin.Provider,
 				Category: llm.ErrorUnsupported,
 				Cause: errors.New(
-					"providercontent: unfinished hosted call requires a paused or mixed-tool tail",
+					"providercontent: unfinished provider tool call requires a paused or mixed-tool tail",
 				),
 			}
 		}
@@ -315,7 +315,7 @@ func Adapt(
 	return out, changes, nil
 }
 
-type hostedHistory struct {
+type providerToolHistory struct {
 	calls   map[string]bool
 	results map[string]bool
 	pending map[string]int
@@ -323,8 +323,8 @@ type hostedHistory struct {
 	approvals map[string]bool
 }
 
-func newHostedHistory() hostedHistory {
-	return hostedHistory{
+func newProviderToolHistory() providerToolHistory {
+	return providerToolHistory{
 		calls:     map[string]bool{},
 		results:   map[string]bool{},
 		pending:   map[string]int{},
@@ -332,7 +332,7 @@ func newHostedHistory() hostedHistory {
 	}
 }
 
-func (history *hostedHistory) check(
+func (history *providerToolHistory) check(
 	c llm.Content,
 	role llm.Role,
 	origin content.Origin,
@@ -340,67 +340,67 @@ func (history *hostedHistory) check(
 ) error {
 	var artifactOrigin content.Origin
 	switch {
-	case c.HostedUse != nil:
-		artifactOrigin = c.HostedUse.Origin
-	case c.HostedResult != nil:
-		artifactOrigin = c.HostedResult.Origin
-	case c.HostedApprovalRequest != nil:
-		artifactOrigin = c.HostedApprovalRequest.Origin
-	case c.HostedApprovalResponse != nil:
-		artifactOrigin = c.HostedApprovalResponse.Origin
+	case c.ProviderToolUse != nil:
+		artifactOrigin = c.ProviderToolUse.Origin
+	case c.ProviderToolResult != nil:
+		artifactOrigin = c.ProviderToolResult.Origin
+	case c.ProviderToolApprovalRequest != nil:
+		artifactOrigin = c.ProviderToolApprovalRequest.Origin
+	case c.ProviderToolApprovalResponse != nil:
+		artifactOrigin = c.ProviderToolApprovalResponse.Origin
 	}
 	if artifactOrigin != origin {
-		return errors.New("hosted activity requires its original destination")
+		return errors.New("provider tool activity requires its original destination")
 	}
-	if c.HostedApprovalResponse != nil {
-		response := c.HostedApprovalResponse
+	if c.ProviderToolApprovalResponse != nil {
+		response := c.ProviderToolApprovalResponse
 		if role != llm.RoleUser ||
 			!history.approvals[response.RequestID] {
-			return errors.New("hosted approval requires a preceding request")
+			return errors.New("provider tool approval requires a preceding request")
 		}
 		history.approvals[response.RequestID] = false
 		return nil
 	}
 	if role != llm.RoleAssistant || c.Replay == nil ||
 		c.Replay.Origin != origin || c.Replay.Partial {
-		return errors.New("hosted output requires assistant role and original replay data")
+		return errors.New("provider tool output requires assistant role and original replay data")
 	}
 	switch {
-	case c.HostedUse != nil:
-		use := c.HostedUse
+	case c.ProviderToolUse != nil:
+		use := c.ProviderToolUse
 		if history.calls[use.ID] {
-			return errors.New("hosted use ID must be unique")
+			return errors.New("provider tool use ID must be unique")
 		}
 		history.calls[use.ID] = true
 		if use.Status != "completed" && use.Status != "failed" {
 			history.pending[use.ID] = messageIndex
 		}
-	case c.HostedResult != nil:
-		result := c.HostedResult
+	case c.ProviderToolResult != nil:
+		result := c.ProviderToolResult
 		if !history.calls[result.CallID] ||
 			history.results[result.CallID] {
-			return errors.New("hosted result requires an earlier use")
+			return errors.New("provider tool result requires an earlier use")
 		}
 		history.results[result.CallID] = true
 		delete(history.pending, result.CallID)
-	case c.HostedApprovalRequest != nil:
-		request := c.HostedApprovalRequest
+	case c.ProviderToolApprovalRequest != nil:
+		request := c.ProviderToolApprovalRequest
 		if _, seen := history.approvals[request.ID]; seen {
-			return errors.New("hosted approval request ID must be unique")
+			return errors.New("provider tool approval request ID must be unique")
 		}
 		history.approvals[request.ID] = true
 	}
 	return nil
 }
 
-func hostedTail(messages []llm.Message, from int) bool {
+func providerToolTail(messages []llm.Message, from int) bool {
 	for _, message := range messages[from+1:] {
 		if message.Role != llm.RoleUser {
 			return false
 		}
 		for _, part := range message.Content {
 			if part.ToolResult == nil &&
-				part.HostedApprovalResponse == nil {
+				part.ProviderToolApprovalResponse == nil {
 				return false
 			}
 		}
@@ -408,19 +408,19 @@ func hostedTail(messages []llm.Message, from int) bool {
 	return true
 }
 
-type hostedPosition struct {
+type providerToolPosition struct {
 	message int
 	content int
 }
 
-type hostedKey struct {
+type providerToolKey struct {
 	origin content.Origin
 	id     string
 }
 
-type hostedPair struct {
-	use    hostedPosition
-	result hostedPosition
+type providerToolPair struct {
+	use    providerToolPosition
+	result providerToolPosition
 	status string
 	valid  bool
 	paired bool
@@ -428,23 +428,23 @@ type hostedPair struct {
 
 // Omission is decided for complete exchanges before adapting any message.
 // This keeps a foreign use from being dropped ahead of a later pending result.
-func completedForeignHosted(
+func completedForeignProviderTool(
 	input llm.Input,
 	origin content.Origin,
-) map[hostedPosition]bool {
-	pairs := map[hostedKey]hostedPair{}
+) map[providerToolPosition]bool {
+	pairs := map[providerToolKey]providerToolPair{}
 	for mi, message := range input.Messages {
 		for ci, part := range message.Content {
-			position := hostedPosition{mi, ci}
+			position := providerToolPosition{mi, ci}
 			switch {
-			case part.HostedUse != nil:
-				use := part.HostedUse
+			case part.ProviderToolUse != nil:
+				use := part.ProviderToolUse
 				if use.Origin == origin {
 					continue
 				}
-				key := hostedKey{use.Origin, use.ID}
+				key := providerToolKey{use.Origin, use.ID}
 				_, duplicate := pairs[key]
-				pairs[key] = hostedPair{
+				pairs[key] = providerToolPair{
 					use:    position,
 					status: use.Status,
 					valid: !duplicate &&
@@ -454,12 +454,12 @@ func completedForeignHosted(
 							use.Origin,
 						),
 				}
-			case part.HostedResult != nil:
-				result := part.HostedResult
+			case part.ProviderToolResult != nil:
+				result := part.ProviderToolResult
 				if result.Origin == origin {
 					continue
 				}
-				key := hostedKey{result.Origin, result.CallID}
+				key := providerToolKey{result.Origin, result.CallID}
 				pair, found := pairs[key]
 				if !found {
 					continue
@@ -476,7 +476,7 @@ func completedForeignHosted(
 			}
 		}
 	}
-	omittable := map[hostedPosition]bool{}
+	omittable := map[providerToolPosition]bool{}
 	for _, pair := range pairs {
 		complete := pair.paired || pair.status == "completed" ||
 			pair.status == "failed"
@@ -511,15 +511,15 @@ func checkReferences(c llm.Content, origin content.Origin) error {
 			}
 		}
 	}
-	if c.HostedUse != nil {
-		for _, b := range c.HostedUse.Output {
+	if c.ProviderToolUse != nil {
+		for _, b := range c.ProviderToolUse.Output {
 			if err := checkBlock(b, origin); err != nil {
 				return err
 			}
 		}
 	}
-	if c.HostedResult != nil {
-		for _, b := range c.HostedResult.Output {
+	if c.ProviderToolResult != nil {
+		for _, b := range c.ProviderToolResult.Output {
 			if err := checkBlock(b, origin); err != nil {
 				return err
 			}

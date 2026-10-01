@@ -69,7 +69,7 @@ func TestMaxCostAtRiskBoundsInputAndOutput(t *testing.T) {
 	}
 }
 
-func TestMaxCostAtRiskRejectsUnboundedHostedCalls(t *testing.T) {
+func TestMaxCostAtRiskRejectsUnboundedProviderToolCalls(t *testing.T) {
 	p := pricedSheet()
 	p.Requests = map[string]money.Amount{"web_search": amt("0.01")}
 	request := riskRequest(
@@ -78,8 +78,8 @@ func TestMaxCostAtRiskRejectsUnboundedHostedCalls(t *testing.T) {
 		[]tool.Definition{
 			{
 				Name: "web_search",
-				Kind: tool.KindProviderHosted,
-				Hosted: &tool.HostedSpec{
+				Kind: tool.KindProviderTool,
+				ProviderTool: &tool.ProviderToolSpec{
 					Provider: "test",
 					API:      "test.chat",
 					Type:     "web_search",
@@ -88,11 +88,11 @@ func TestMaxCostAtRiskRejectsUnboundedHostedCalls(t *testing.T) {
 		},
 	)
 	if _, ok := WorstCaseCost(request, p); ok {
-		t.Fatal("unbounded hosted calls must not pass a hard cap")
+		t.Fatal("unbounded provider tool calls must not pass a hard cap")
 	}
 }
 
-func TestPricingEstimateIncludesHostedRequests(t *testing.T) {
+func TestPricingEstimateIncludesProviderToolRequests(t *testing.T) {
 	p := pricedSheet()
 	p.Requests = map[string]money.Amount{"web_search": amt("0.01")}
 	cost, ok := p.Estimate(&Usage{
@@ -100,10 +100,10 @@ func TestPricingEstimateIncludesHostedRequests(t *testing.T) {
 		Requests:    map[string]int{"web_search": 2},
 	})
 	if !ok {
-		t.Fatal("hosted request was not priced")
+		t.Fatal("provider tool request was not priced")
 	}
-	if cost.Hosted != amt("0.02") {
-		t.Fatalf("hosted cost=%s", cost.Hosted)
+	if cost.ProviderTools != amt("0.02") {
+		t.Fatalf("provider tool cost=%s", cost.ProviderTools)
 	}
 	if cost.Total != amt("0.0201") {
 		t.Fatalf("total cost=%s", cost.Total)
@@ -128,8 +128,8 @@ func TestPricingEstimateMarksUnpricedRequests(t *testing.T) {
 		!reflect.DeepEqual(cost.UnpricedRequests, map[string]int{"code_execution": 2}) {
 		t.Fatalf("unpriced=%v", cost.UnpricedRequests)
 	}
-	if cost.Hosted != amt("0.01") || cost.Total != amt("0.0101") {
-		t.Fatalf("hosted=%s total=%s", cost.Hosted, cost.Total)
+	if cost.ProviderTools != amt("0.01") || cost.Total != amt("0.0101") {
+		t.Fatalf("provider tool=%s total=%s", cost.ProviderTools, cost.Total)
 	}
 	complete, ok := p.Estimate(&Usage{
 		InputTokens: 100,

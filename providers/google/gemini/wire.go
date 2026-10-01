@@ -177,8 +177,8 @@ func (wire codec) decode(
 			return result, err
 		}
 		result.Message.Content = append(result.Message.Content, part)
-		if part.HostedUse != nil {
-			codeID = part.HostedUse.ID
+		if part.ProviderToolUse != nil {
+			codeID = part.ProviderToolUse.ID
 			meters[llm.MeterCodeExecution]++
 		}
 	}
@@ -242,7 +242,7 @@ func (wire codec) decodePartWithCodeID(
 			id = callID(responseID, "code_execution", index)
 		}
 		input, _ := json.Marshal(part.ExecutableCode)
-		use := llm.HostedUse{
+		use := llm.ProviderToolUse{
 			ID:     id,
 			Name:   "code_execution",
 			Type:   "codeExecution",
@@ -250,9 +250,9 @@ func (wire codec) decodePartWithCodeID(
 			Input:  input,
 		}
 		return llm.Content{
-			Kind:      llm.ContentHostedUse,
-			HostedUse: &use,
-			Replay:    replay,
+			Kind:            llm.ContentProviderToolUse,
+			ProviderToolUse: &use,
+			Replay:          replay,
 		}, nil
 	case "code_execution_result":
 		id := part.CodeExecutionResult.ID
@@ -271,7 +271,7 @@ func (wire codec) decodePartWithCodeID(
 				),
 			)
 		}
-		result := llm.HostedResult{
+		result := llm.ProviderToolResult{
 			CallID:  id,
 			Type:    "codeExecutionResult",
 			Origin:  wire.origin,
@@ -279,9 +279,9 @@ func (wire codec) decodePartWithCodeID(
 			IsError: part.CodeExecutionResult.Outcome != "OUTCOME_OK",
 		}
 		return llm.Content{
-			Kind:         llm.ContentHostedResult,
-			HostedResult: &result,
-			Replay:       replay,
+			Kind:               llm.ContentProviderToolResult,
+			ProviderToolResult: &result,
+			Replay:             replay,
 		}, nil
 	case "text":
 		b := content.TextBlock(part.Text)

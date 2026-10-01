@@ -69,11 +69,11 @@ func checkSendBudget(
 				cap.Amount,
 				cap.Currency,
 			)
-		} else if hasHostedTools(request) {
+		} else if hasProviderTools(request) {
 			reason = fmt.Sprintf(
-				"cost risk unavailable for model %s: provider-hosted tools "+
+				"cost risk unavailable for model %s: provider tools "+
 					"can bill an unbounded number of requests and add "+
-					"unbounded input tokens within one call; remove hosted "+
+					"unbounded input tokens within one call; remove provider "+
 					"tools to enforce the %s %s cost cap, or run the turn "+
 					"without a cost cap",
 				model,
@@ -169,14 +169,14 @@ func uncheckableCostReason(spend Spend) string {
 	var causes []string
 	if len(priceable) > 0 {
 		causes = append(causes, fmt.Sprintf(
-			"a model call billed hosted requests with no price (%s); "+
+			"a model call billed provider tool requests with no price (%s); "+
 				"supply prices for them or remove the tools that cause them",
 			strings.Join(priceable, ", "),
 		))
 	}
 	if len(reserved) > 0 {
 		causes = append(causes, fmt.Sprintf(
-			"a model call ran hosted work whose billing could not be "+
+			"a model call ran provider tool work whose billing could not be "+
 				"attributed (%s)",
 			strings.Join(reserved, ", "),
 		))
@@ -194,9 +194,9 @@ func uncheckableCostReason(spend Spend) string {
 		"turn with this turn's history"
 }
 
-func hasHostedTools(request llm.Request) bool {
+func hasProviderTools(request llm.Request) bool {
 	for _, def := range request.Input().Tools {
-		if def.Kind == tool.KindProviderHosted {
+		if def.Kind == tool.KindProviderTool {
 			return true
 		}
 	}

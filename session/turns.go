@@ -144,18 +144,18 @@ func uncertainCall(t *sessionTurn) string {
 			(p.Tool.Status == dashi.ToolResultUnknown ||
 				p.Tool.Status == dashi.ToolStarted && !tooldef.SafeRepeat(p.Tool.Definition)):
 			return p.ID
-		case p.Kind == dashi.PendingModel && offeredUnsafeHosted(t.turn, p.ID):
+		case p.Kind == dashi.PendingModel && offeredUnsafeProviderTool(t.turn, p.ID):
 			return p.ID
 		}
 	}
 	return ""
 }
 
-func offeredUnsafeHosted(turn dashi.Turn, attemptID string) bool {
+func offeredUnsafeProviderTool(turn dashi.Turn, attemptID string) bool {
 	for _, step := range turn.Steps {
 		if step.Kind == dashi.StepModelCallStarted && step.Model != nil &&
 			step.Model.ModelCallID == attemptID {
-			return tooldef.UnsafeHosted(step.Model.Tools)
+			return tooldef.UnsafeProviderTool(step.Model.Tools)
 		}
 	}
 	return false

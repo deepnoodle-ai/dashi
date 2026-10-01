@@ -101,11 +101,11 @@ func Deny(reason string) ToolDecision {
 	return ToolDecision{Kind: DecisionDeny, Reason: reason}
 }
 
-// Defer makes the call wait for approval: the turn stops waiting, and the
+// NeedsApproval makes the call wait for approval: the turn stops waiting, and the
 // call is listed in RunResult.Pending. The host answers with Pending.Approve or
 // Pending.Deny, then Continue runs or refuses the call.
-func Defer(reason string) ToolDecision {
-	return ToolDecision{Kind: DecisionDefer, Reason: reason}
+func NeedsApproval(reason string) ToolDecision {
+	return ToolDecision{Kind: DecisionNeedsApproval, Reason: reason}
 }
 
 // Rewrite replaces the call's arguments with args encoded as JSON. The new
@@ -144,9 +144,9 @@ func RequireApproval(tools ...string) Hooks {
 				}
 			}
 			return ToolDecision{
-				Kind:     DecisionDefer,
-				Reason:   "requires approval",
-				Revision: id,
+				Kind:         DecisionNeedsApproval,
+				Reason:       "requires approval",
+				RulesVersion: id,
 			}, nil
 		},
 	}.Hooks()

@@ -64,12 +64,12 @@ restart:
 				continue
 			}
 			r.addHookResult(HookResult{
-				Point:    HookBeforeTool,
-				Name:     h.Name,
-				Verdict:  VerdictRewrite,
-				Pass:     pass,
-				Revision: d.Revision,
-				Reason:   d.Reason,
+				Point:        HookBeforeTool,
+				Name:         h.Name,
+				Verdict:      VerdictRewrite,
+				Pass:         pass,
+				RulesVersion: d.RulesVersion,
+				Reason:       d.Reason,
 			})
 			if pass == maxRewrites {
 				r.pendingWarnings = append(r.pendingWarnings, Warning{
@@ -97,23 +97,23 @@ restart:
 			continue
 		}
 		r.addHookResult(HookResult{
-			Point:    HookBeforeTool,
-			Name:     h.Name,
-			Verdict:  HookVerdict(d.Kind),
-			Pass:     pass,
-			Revision: d.Revision,
-			Reason:   d.Reason,
+			Point:        HookBeforeTool,
+			Name:         h.Name,
+			Verdict:      HookVerdict(d.Kind),
+			Pass:         pass,
+			RulesVersion: d.RulesVersion,
+			Reason:       d.Reason,
 		})
 		verdict := ToolVerdict{
-			Kind:     d.Kind,
-			Reason:   d.Reason,
-			Hook:     h.Name,
-			Revision: d.Revision,
+			Kind:         d.Kind,
+			Reason:       d.Reason,
+			Hook:         h.Name,
+			RulesVersion: d.RulesVersion,
 		}
 		switch d.Kind {
 		case DecisionDeny:
 			return call, verdict, nil
-		case DecisionDefer:
+		case DecisionNeedsApproval:
 			if deferred == nil {
 				deferred = &verdict
 			}
@@ -152,7 +152,7 @@ func validToolDecision(
 		return nil
 	}
 	switch d.Kind {
-	case "", DecisionAllow, DecisionDeny, DecisionDefer:
+	case "", DecisionAllow, DecisionDeny, DecisionNeedsApproval:
 		return nil
 	}
 	return fmt.Errorf("invalid decision kind %q", d.Kind)

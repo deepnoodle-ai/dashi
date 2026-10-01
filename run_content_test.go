@@ -838,10 +838,10 @@ func TestRefProviderRejectionReturnsPrepareError(t *testing.T) {
 	}
 }
 
-func hostedUseMessage(ref content.Ref) llm.Message {
+func providerToolUseMessage(ref content.Ref) llm.Message {
 	return llm.UserMessage(llm.Text("read this"), llm.Content{
-		Kind: llm.ContentHostedUse,
-		HostedUse: &llm.HostedUse{
+		Kind: llm.ContentProviderToolUse,
+		ProviderToolUse: &llm.ProviderToolUse{
 			ID:   "h1",
 			Name: "fetch",
 			Type: "tool_use",
@@ -856,7 +856,7 @@ func hostedUseMessage(ref content.Ref) llm.Message {
 	})
 }
 
-func TestRefInHostedUseOutputIsHydrated(t *testing.T) {
+func TestRefInProviderToolUseOutputIsHydrated(t *testing.T) {
 	ref := refFor("upl_1", refBytes)
 	resolver := &countingResolver{files: map[string][]byte{"upl_1": refBytes}}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
@@ -864,7 +864,7 @@ func TestRefInHostedUseOutputIsHydrated(t *testing.T) {
 	out := runWithRef(
 		t,
 		Runner{Client: client, ContentLoader: resolver},
-		hostedUseMessage(ref),
+		providerToolUseMessage(ref),
 	)
 
 	if out.Stop.Kind != StopCompleted {
@@ -882,15 +882,15 @@ func TestRefInHostedUseOutputIsHydrated(t *testing.T) {
 		}
 	}
 	if !found || client.inputs[0].HasRef() {
-		t.Fatal("the hosted use reference was not hydrated")
+		t.Fatal("the provider tool use reference was not hydrated")
 	}
 }
 
-func TestRefInHostedUseOutputStopsWithoutResolver(t *testing.T) {
+func TestRefInProviderToolUseOutputStopsWithoutResolver(t *testing.T) {
 	ref := refFor("upl_1", refBytes)
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 
-	out := runWithRef(t, Runner{Client: client}, hostedUseMessage(ref))
+	out := runWithRef(t, Runner{Client: client}, providerToolUseMessage(ref))
 
 	if out.Stop.Reason != StopReasonContentNoLoader {
 		t.Fatalf("stop = %+v", out.Stop)

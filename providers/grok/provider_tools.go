@@ -29,7 +29,7 @@ func NewWebSearchTool(options WebSearchToolOptions) (tool.Tool, error) {
 			"grok: web search requires at most five allowed or excluded domains",
 		)
 	}
-	return newHosted("web_search", "web_search", options), nil
+	return newProviderTool("web_search", "web_search", options), nil
 }
 
 // XSearchToolOptions controls search over X posts and media.
@@ -74,7 +74,7 @@ func NewXSearchTool(options XSearchToolOptions) (tool.Tool, error) {
 			"grok: X search from date must precede to date",
 		)
 	}
-	return newHosted("x_search", "x_search", options), nil
+	return newProviderTool("x_search", "x_search", options), nil
 }
 
 // CollectionsSearchToolOptions identifies xAI knowledge collections.
@@ -97,7 +97,7 @@ func NewCollectionsSearchTool(
 			"grok: collections search requires IDs and at most fifty results",
 		)
 	}
-	return newHosted("collections_search", "file_search", options), nil
+	return newProviderTool("collections_search", "file_search", options), nil
 }
 
 // CodeExecutionToolOptions controls return of Grok's provider sandbox output.
@@ -108,7 +108,7 @@ type CodeExecutionToolOptions struct {
 
 // NewCodeExecutionTool declares Grok's hosted Python sandbox.
 func NewCodeExecutionTool(options CodeExecutionToolOptions) tool.Tool {
-	return newHosted("code_execution", "code_interpreter", options)
+	return newProviderTool("code_execution", "code_interpreter", options)
 }
 
 // ImageGenerationToolOptions controls whether Grok may generate, edit, or
@@ -127,20 +127,20 @@ func NewImageGenerationTool(
 		options.Action != "generate" && options.Action != "edit" {
 		return tool.Tool{}, errors.New("grok: image action must be auto, generate, or edit")
 	}
-	return newHosted("image_generation", "image_generation", options), nil
+	return newProviderTool("image_generation", "image_generation", options), nil
 }
 
 // newHosted binds options to the "grok" destination. Options are plain
 // structs of strings, numbers, and slices, so encoding cannot fail.
-func newHosted(name, toolType string, options any) tool.Tool {
+func newProviderTool(name, toolType string, options any) tool.Tool {
 	raw, err := json.Marshal(options)
 	if err != nil {
-		panic("grok: encode hosted tool options: " + err.Error())
+		panic("grok: encode provider tool options: " + err.Error())
 	}
 	definition := tool.Definition{
 		Name: name,
-		Kind: tool.KindProviderHosted,
-		Hosted: &tool.HostedSpec{
+		Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "grok",
 			API:      responses.API,
 			Type:     toolType,

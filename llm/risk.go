@@ -134,7 +134,7 @@ func riskBound(request Request, pricing Pricing) (risk, bool) {
 		return risk{}, false
 	}
 	for _, def := range request.Input().Tools {
-		if def.Kind == tool.KindProviderHosted {
+		if def.Kind == tool.KindProviderTool {
 			return risk{}, false
 		}
 	}

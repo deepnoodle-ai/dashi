@@ -18,7 +18,7 @@ import (
 // An Anthropic stream cut off after a server_tool_use block, before the
 // message_delta that carries the final server_tool_use counters, must not
 // look fully priced: the adapter can only infer counts from the blocks it saw.
-func TestCutAnthropicHostedStreamCostIsPartial(t *testing.T) {
+func TestCutAnthropicProviderToolStreamCostIsPartial(t *testing.T) {
 	fixture, err := os.ReadFile(
 		"providers/anthropic/messages/testdata/websearch-max-uses-exceeded-stream.sse",
 	)
@@ -122,7 +122,7 @@ func TestCutAnthropicHostedStreamCostIsPartial(t *testing.T) {
 	}
 	if spend.CostPartial != 1 ||
 		spend.UnpricedRequests[llm.MeterUnreported] != 1 {
-		t.Fatalf("cut-off hosted call looks fully priced: %+v", spend)
+		t.Fatalf("cut-off provider tool call looks fully priced: %+v", spend)
 	}
 	var charge *llm.Cost
 	for _, step := range outcome.Turn.Steps {

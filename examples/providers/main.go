@@ -226,7 +226,7 @@ func formatCost(c llm.Cost) string {
 			))
 		}
 		return fmt.Sprintf(
-			"at least %s %s (%s; unpriced hosted requests: %s)",
+			"at least %s %s (%s; unpriced provider tool requests: %s)",
 			c.Total,
 			c.Currency,
 			c.Source,

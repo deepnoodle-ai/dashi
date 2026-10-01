@@ -69,8 +69,8 @@ func run(ctx context.Context, prompt string) error {
 
 	// The provider may split hosted work across several model calls, so
 	// these read every call in the turn, not only the last message.
-	fmt.Println("\nHosted tool calls:")
-	for _, use := range out.Turn.HostedUses() {
+	fmt.Println("\nprovider tool calls:")
+	for _, use := range out.Turn.ProviderToolUses() {
 		fmt.Printf("  %s %s\n", use.Name, use.Input)
 	}
 	fmt.Println("\nSources:")
@@ -84,7 +84,7 @@ func run(ctx context.Context, prompt string) error {
 
 	spend := out.Spend
 	fmt.Printf(
-		"\nTokens: %d in, %d out; hosted requests: %v\n",
+		"\nTokens: %d in, %d out; provider tool requests: %v\n",
 		spend.Usage.TotalInputTokens(),
 		spend.Usage.OutputTokens,
 		spend.Usage.Requests,
@@ -95,7 +95,7 @@ func run(ctx context.Context, prompt string) error {
 	// printed is then the known part, and the rest is listed.
 	fmt.Printf("Cost: %s\n", spend)
 	if spend.CostPartial > 0 {
-		fmt.Printf("  Unpriced hosted requests: %v\n", spend.UnpricedRequests)
+		fmt.Printf("  Unpriced provider tool requests: %v\n", spend.UnpricedRequests)
 	}
 	return nil
 }

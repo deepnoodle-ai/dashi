@@ -486,7 +486,7 @@ func TestAttemptSpendClassifiesEachAttempt(t *testing.T) {
 			settled: true, basis: UsageSourceNotSent, final: true,
 		},
 		{
-			name: "partial hosted cost",
+			name: "partial provider tool cost",
 			settlement: &ModelFact{Result: usageResult(&llm.Usage{
 				InputTokens: 10, OutputTokens: 5,
 				Requests:         map[string]int{llm.MeterCodeExecution: 2},

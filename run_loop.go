@@ -49,7 +49,7 @@ func (r *runtime) run() RunResult {
 			}
 			continue
 		}
-		if len(s.hosted) > 0 {
+		if len(s.providerTool) > 0 {
 			return r.stop(StopWaiting, "provider approval pending")
 		}
 		if s.Output != nil {
@@ -136,7 +136,7 @@ func (r *runtime) selectTools(s *replayState, tools []tool.Tool) []tool.Tool {
 func (r *runtime) recoverModelIntent(s *replayState) *RunResult {
 	unsafe := false
 	for _, def := range s.modelDefs {
-		if def.Kind == tool.KindProviderHosted && !tooldef.SafeRepeat(def) {
+		if def.Kind == tool.KindProviderTool && !tooldef.SafeRepeat(def) {
 			unsafe = true
 			break
 		}
@@ -153,7 +153,7 @@ func (r *runtime) recoverModelIntent(s *replayState) *RunResult {
 		return o
 	}
 	if unsafe {
-		o := r.stop(StopResultUnknown, "provider-hosted tool may have run")
+		o := r.stop(StopResultUnknown, "provider tool may have run")
 		return &o
 	}
 	return nil

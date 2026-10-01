@@ -434,7 +434,7 @@ func (s *replayState) apply(step Step) error {
 		}
 		if v.Call.Name == SubmitOutputTool &&
 			(v.Verdict.Kind != DecisionAllow ||
-				v.Verdict.Revision != "dashi-output-v1" ||
+				v.Verdict.RulesVersion != "dashi-output-v1" ||
 				len(step.Tool.Call.RequestedArgs) != 0 ||
 				!canonjson.Equal(
 					v.Call.Args,
@@ -446,7 +446,7 @@ func (s *replayState) apply(step Step) error {
 		switch v.Verdict.Kind {
 		case DecisionAllow:
 			v.Status = ToolAllowed
-		case DecisionDefer:
+		case DecisionNeedsApproval:
 			v.Status = ToolApprovalPending
 		case DecisionDeny:
 			v.Status = ToolDenied
@@ -643,14 +643,14 @@ func (s *replayState) apply(step Step) error {
 		s.Tools[v.Call.ID] = v
 	case StepProviderToolApprovalDecided:
 		s.awaitingClassification = false
-		if step.HostedApproval == nil {
-			return errors.New("missing hosted approval")
+		if step.ProviderToolApproval == nil {
+			return errors.New("missing provider tool approval")
 		}
-		a, ok := s.hosted[step.HostedApproval.RequestID]
-		if !ok || a.Origin != step.HostedApproval.Origin {
-			return errors.New("hosted approval without matching request")
+		a, ok := s.providerTool[step.ProviderToolApproval.RequestID]
+		if !ok || a.Origin != step.ProviderToolApproval.Origin {
+			return errors.New("provider tool approval without matching request")
 		}
-		delete(s.hosted, a.ID)
+		delete(s.providerTool, a.ID)
 	case StepOutputRecorded:
 		if len(s.OutputSchema) == 0 ||
 			s.Output != nil ||
@@ -763,7 +763,7 @@ func (s *replayState) apply(step Step) error {
 					s.Tools[id] = v
 				}
 			}
-			clear(s.hosted)
+			clear(s.providerTool)
 		}
 	default:
 		return fmt.Errorf("unknown step kind %q", step.Kind)
