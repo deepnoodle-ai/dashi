@@ -146,7 +146,7 @@ Across parent Turns, add each parent's own spend once and deduplicate children b
 Show parent/children/inclusive model money separately from tool money, preserving currency and completeness.
 Live values are lower bounds. Explore/General attempt limits are not dollar caps.
 Disclose any existing configured parent cap as parent-only. The CLI has no `--budget`; add no flag, child Budget, or family cap.
-Automation reports richer invocation/cumulative scopes from these same verified facts; it needs no Inspection API or ledger expansion.
+Automation formats response content only; spend scopes remain in the existing inspection and task-report surfaces.
 
 ## Alternatives, release, and proof
 
