@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	dashisession "github.com/deepnoodle-ai/dashi/session"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/tui"
 	"golang.org/x/term"
@@ -94,7 +94,7 @@ func TestDialogStatusPTYChild(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		turn, err := rec.Load(t.Context(), dashisession.TurnID(a.eng.Session().ID, n))
+		turn, err := rec.Load(t.Context(), session.TurnID(a.eng.Session().ID, n))
 		if err != nil {
 			t.Fatal(err)
 		}

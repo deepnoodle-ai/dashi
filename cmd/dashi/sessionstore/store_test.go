@@ -1,4 +1,4 @@
-package session_test
+package sessionstore_test
 
 import (
 	"context"
@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
-	dashisession "github.com/deepnoodle-ai/dashi/session"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 // echoClient answers every call with the same text.
@@ -48,16 +48,16 @@ func (echoClient) Send(context.Context, llm.Call) (llm.Result, error) {
 	}, nil
 }
 
-func newStore(t *testing.T) *session.Store {
+func newStore(t *testing.T) *sessionstore.Store {
 	t.Helper()
-	st := session.NewStore(t.TempDir())
+	st := sessionstore.NewStore(t.TempDir())
 	st.DisableSync()
 	return st
 }
 
 // chat returns a session handle on the records of s.
-func chat(st *session.Store, s *session.Session, rec dashi.Recorder) *dashisession.Session {
-	return &dashisession.Session{
+func chat(st *sessionstore.Store, s *sessionstore.Session, rec dashi.Recorder) *session.Session {
+	return &session.Session{
 		ID:     s.ID,
 		New:    !st.HasTurns(s),
 		Runner: dashi.Runner{Client: echoClient{}, Recorder: rec},
@@ -68,8 +68,8 @@ func chat(st *session.Store, s *session.Session, rec dashi.Recorder) *dashisessi
 // addTurn runs one turn of s and saves its metadata.
 func addTurn(
 	t *testing.T,
-	st *session.Store,
-	s *session.Session,
+	st *sessionstore.Store,
+	s *sessionstore.Session,
 	rec dashi.Recorder,
 	text string,
 ) {
@@ -87,11 +87,11 @@ func TestCreateListLatestByDirectory(t *testing.T) {
 	st := newStore(t)
 	base := time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
 	tick := 0
-	st = session.WithClock(st, func() time.Time {
+	st = sessionstore.WithClock(st, func() time.Time {
 		tick++
 		return base.Add(time.Duration(tick) * time.Minute)
 	})
-	create := func(dir string) *session.Session {
+	create := func(dir string) *sessionstore.Session {
 		s, err := st.Create(dir, "m")
 		if err != nil {
 			t.Fatal(err)
@@ -115,10 +115,10 @@ func TestCreateListLatestByDirectory(t *testing.T) {
 	if err != nil || latest.ID != b.ID {
 		t.Fatalf("latest=%v err=%v", latest, err)
 	}
-	if _, err := st.Latest("/repo/none"); !errors.Is(err, session.ErrNotFound) {
+	if _, err := st.Latest("/repo/none"); !errors.Is(err, sessionstore.ErrNotFound) {
 		t.Fatalf("err=%v", err)
 	}
-	if _, err := st.Load("missing"); !errors.Is(err, session.ErrNotFound) {
+	if _, err := st.Load("missing"); !errors.Is(err, sessionstore.ErrNotFound) {
 		t.Fatalf("err=%v", err)
 	}
 }
@@ -142,7 +142,7 @@ func TestReopenedStoreBuildsSameHistory(t *testing.T) {
 		t.Fatalf("history=%v err=%v", want, err)
 	}
 
-	again := session.NewStore(st.Root())
+	again := sessionstore.NewStore(st.Root())
 	again.DisableSync()
 	s2, err := again.Latest("/repo")
 	if err != nil || s2.ID != s.ID {
@@ -185,10 +185,10 @@ func TestDamagedTurnIsSkipped(t *testing.T) {
 	}
 	addTurn(t, st, s, rec, "first")
 	addTurn(t, st, s, rec, "second")
-	if err := os.WriteFile(rec.Path(dashisession.TurnID(s.ID, 1)), []byte("not a log\n"), 0o600); err != nil {
+	if err := os.WriteFile(rec.Path(session.TurnID(s.ID, 1)), []byte("not a log\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	empty := rec.Path(dashisession.TurnID(s.ID, 3))
+	empty := rec.Path(session.TurnID(s.ID, 3))
 	if err := os.MkdirAll(filepath.Dir(empty), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestDamagedTurnIsSkipped(t *testing.T) {
 	}
 	out, err := chat(st, s, rec).Send(t.Context(), "third")
 	if err != nil || !hasWarning(out.SessionWarnings, dashi.WarningTurnUnreadable) ||
-		out.Turn.ID != dashisession.TurnID(s.ID, 3) {
+		out.Turn.ID != session.TurnID(s.ID, 3) {
 		t.Fatalf("turn=%s warnings=%v err=%v", out.Turn.ID, out.SessionWarnings, err)
 	}
 }
@@ -231,7 +231,7 @@ func TestLockExcludesSecondHolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.Lock(s); !errors.Is(err, session.ErrBusy) {
+	if _, err := st.Lock(s); !errors.Is(err, sessionstore.ErrBusy) {
 		t.Fatalf("second lock err=%v", err)
 	}
 	unlock()

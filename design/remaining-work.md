@@ -202,7 +202,7 @@ cancels the turn) and closes other stopped turns, a lost worker's turn
 is taken over with `Continue{}` rather than replaced, sends are idempotent,
 input is steered or queued, compaction is a
 turn, and the agent moves to `Start`. Decisions 35–40. The `dashi` CLI's own
-`cmd/dashi/session` store is the working prototype it replaces. **Size:** L.
+`cmd/dashi/sessionstore` store is the working prototype it replaces. **Size:** L.
 **Difficulty:** High. **Reference:**
 [PRD](roadmap-research/14-session-continuity-prd.md); tech spec
 [sessions.md](sessions.md), [session-engine.md](session-engine.md),

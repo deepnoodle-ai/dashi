@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/tool"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -157,7 +157,7 @@ func TestMCPRealDocumentationWorkflowWithFailureIsolationAndCallApproval(t *test
 	}
 	client := &fakeClient{script: []reply{callTool("search-1", "mcp__docs__search", `{"query":"recovery"}`), callTool("fetch-1", "mcp__docs__fetch", `{"path":"guide.md"}`), say("The recorded guide explains recovery.")}}
 	ui := newRecorderUI()
-	store := session.NewStore(t.TempDir())
+	store := sessionstore.NewStore(t.TempDir())
 	a, e := buildApp(t.Context(), appConfig{Dir: dir, HomeDir: home, InvocationDir: invocation, Model: "fixture", Client: client, Store: store}, ui)
 	if e != nil {
 		t.Fatal(e)

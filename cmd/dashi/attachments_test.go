@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/content/mention"
 )
@@ -189,7 +189,7 @@ func TestAttachmentOwnedPublicationRealisticMedia(t *testing.T) {
 	if attachmentPlatformUnsupported() {
 		t.Skip("secure snapshots require macOS/Linux")
 	}
-	st := session.NewStore(filepath.Join(t.TempDir(), "store"))
+	st := sessionstore.NewStore(filepath.Join(t.TempDir(), "store"))
 	s, err := st.Create(t.TempDir(), "test")
 	if err != nil {
 		t.Fatal(err)

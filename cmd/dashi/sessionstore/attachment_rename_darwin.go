@@ -1,6 +1,6 @@
 //go:build darwin
 
-package session
+package sessionstore
 
 import (
 	"golang.org/x/sys/unix"

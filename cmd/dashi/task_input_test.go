@@ -9,18 +9,18 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/llm"
-	dashisession "github.com/deepnoodle-ai/dashi/session"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func TestTaskCopiesOriginalEvidenceAndResourcesAcrossRetryAndReopen(t *testing.T) {
 	ctx := t.Context()
-	store := session.NewStore(filepath.Join(t.TempDir(), "sessions"))
+	store := sessionstore.NewStore(filepath.Join(t.TempDir(), "sessions"))
 	meta, err := store.Create(t.TempDir(), "parent")
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestTaskCopiesOriginalEvidenceAndResourcesAcrossRetryAndReopen(t *testing.T
 		t.Fatal(err)
 	}
 	defer attachments.Close()
-	id, _ := session.NewAttachmentID()
+	id, _ := sessionstore.NewAttachmentID()
 	ref, err := attachments.Publish(ctx, id, "proof.txt", "text/plain", []byte("original admitted bytes"))
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +71,7 @@ func TestTaskCopiesOriginalEvidenceAndResourcesAcrossRetryAndReopen(t *testing.T
 	runner := dashi.Runner{Client: client, Recorder: recorder, ContentResolver: attachments, Tools: tool.List{taskTool}, Hooks: dashi.ModelHook{Name: "resource-fixture", Func: func(ctx context.Context, plan dashi.ModelPlan) (dashi.ModelDecision, error) {
 		return dashi.SeedContext(resource).Func(ctx, plan)
 	}}.Hooks()}
-	parentID := dashisession.TurnID(meta.ID, 1)
+	parentID := session.TurnID(meta.ID, 1)
 	out, err := runner.Run(ctx, dashi.Turn{ID: parentID}, dashi.Start{Agent: dashi.Agent{Model: dashitest.Model, NoInheritedSettings: true, Settings: llm.Settings{Temperature: new(0.0)}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000}}, Input: []llm.Message{llm.UserMessage(llm.Text("unrelated parent prompt"), llm.Block(content.DocumentBlock(content.Source{MIMEType: "text/plain", Ref: &ref}, "proof.txt")))}})
 	if err != nil || out.Stop.Kind != dashi.StopCompleted || prepared.Parent == nil {
 		t.Fatalf("stop=%+v err=%v prepared=%+v", out.Stop, err, prepared)
@@ -107,7 +107,7 @@ func TestTaskCopiesOriginalEvidenceAndResourcesAcrossRetryAndReopen(t *testing.T
 	if services.Client != client {
 		t.Fatal("recorded client was replaced by foreground service")
 	}
-	childTurn := dashisession.TurnID(delegate.ChildID(refCall.TurnID, refCall.CallID), 1)
+	childTurn := session.TurnID(delegate.ChildID(refCall.TurnID, refCall.CallID), 1)
 	data, err := services.ContentResolver.Resolve(ctx, childTurn, childRef)
 	if err != nil || string(data) != "original admitted bytes" {
 		t.Fatalf("recovery changed evidence: %q %v", data, err)

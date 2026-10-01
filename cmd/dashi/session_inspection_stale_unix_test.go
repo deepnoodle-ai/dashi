@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	dashisession "github.com/deepnoodle-ai/dashi/session"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
@@ -21,7 +21,7 @@ func TestStatusCancelsBlockedStaleSnapshotWithoutLeaseTakeover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	file, err := os.OpenFile(rec.Path(dashisession.TurnID(bSaved.ID, 1)), os.O_RDWR, 0)
+	file, err := os.OpenFile(rec.Path(session.TurnID(bSaved.ID, 1)), os.O_RDWR, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestNativeStatusReplacementCancelsBlockedScan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	file, err := os.OpenFile(rec.Path(dashisession.TurnID(other.ID, 1)), os.O_RDWR, 0)
+	file, err := os.OpenFile(rec.Path(session.TurnID(other.ID, 1)), os.O_RDWR, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

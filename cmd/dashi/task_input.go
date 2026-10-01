@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/content/mention"
 	"github.com/deepnoodle-ai/dashi/delegate"
@@ -20,11 +20,11 @@ import (
 // finish before close releases these pinned descriptors.
 type taskInputs struct {
 	loader     dashi.Loader
-	parent     *session.AttachmentStore
-	parentBind func() (*session.AttachmentStore, error)
+	parent     *sessionstore.AttachmentStore
+	parentBind func() (*sessionstore.AttachmentStore, error)
 	clientFor  func(context.Context, dashi.Agent) (llm.Client, error)
 	mu         sync.Mutex
-	stores     map[string]*session.AttachmentStore
+	stores     map[string]*sessionstore.AttachmentStore
 }
 
 func (h *taskInputs) close() {
@@ -36,7 +36,7 @@ func (h *taskInputs) close() {
 	}
 }
 
-func (h *taskInputs) childStore(ref dashi.CallRef, create bool) (*session.AttachmentStore, error) {
+func (h *taskInputs) childStore(ref dashi.CallRef, create bool) (*sessionstore.AttachmentStore, error) {
 	parent, err := h.parentStore()
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func (h *taskInputs) childStore(ref dashi.CallRef, create bool) (*session.Attach
 		return nil, err
 	}
 	if h.stores == nil {
-		h.stores = map[string]*session.AttachmentStore{}
+		h.stores = map[string]*sessionstore.AttachmentStore{}
 	}
 	h.stores[id] = store
 	return store, nil
@@ -211,7 +211,7 @@ func taskBindingContext(ctx context.Context, ref dashi.CallRef) context.Context 
 	return context.WithValue(ctx, brokerOwnerKey{}, brokerOwner{TaskID: delegate.ChildID(ref.TurnID, ref.CallID), Call: ref})
 }
 
-func (h *taskInputs) parentStore() (*session.AttachmentStore, error) {
+func (h *taskInputs) parentStore() (*sessionstore.AttachmentStore, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.parent != nil {

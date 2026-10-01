@@ -1,4 +1,4 @@
-package session
+package sessionstore
 
 import (
 	"crypto/sha256"

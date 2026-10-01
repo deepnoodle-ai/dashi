@@ -11,7 +11,7 @@ Session-private storage owns immutable bytes. Turn records remain the authority 
 The runner's existing resolver verification and active-context guard own model admission.
 Do not create an upload service, attachment queue, transcript journal, or additional tool permission.
 
-Composer helpers: `cmd/dashi/attachments.go`, `attachment_input.go`; storage: `cmd/dashi/session/attachments.go`.
+Composer helpers: `cmd/dashi/attachments.go`, `attachment_input.go`; storage: `cmd/dashi/sessionstore/attachments.go`.
 Root coordinates shared screen/inline, Controller, Engine, and entry-point integration.
 Keep Wonton input ownership. Reuse the command inventory for `/attach`, `/attachments`, and `/detach`; add repeatable print-only `--attach`.
 No clipboard extraction, thumbnail rendering, remote fetch, media conversion, or automatic retention command enters this slice.

@@ -17,7 +17,7 @@ Add `filerecorder.OpenReader(dir string) (*Reader, error)` and `Reader.Close() e
 
 Share log scanning/decoding/validation and hashed Turn paths with Recorder. Reads take existing shared log locks and honor cancellation while waiting, reading chunks, and decoding steps. Complete acknowledged lines form the snapshot; a torn final line follows existing reader semantics without truncation. `LastTurn` retains existing highest-number discovery and adds context checks. A claim-only, corrupt, or otherwise unreadable indexed Turn counts as omitted, not as an empty session. Closing releases directory handles, with no persistent cache/index writes. Recorder construction and Go consumers retain existing behavior.
 
-In `cmd/dashi/session/inspection.go`, add:
+In `cmd/dashi/sessionstore/inspection.go`, add:
 
 ```go
 func (st *Store) Inspect(ctx context.Context, workspace, id string) (Inspection, error)

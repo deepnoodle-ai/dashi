@@ -16,7 +16,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/llm"
-	dashisession "github.com/deepnoodle-ai/dashi/session"
+	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -961,7 +961,7 @@ func TestTaskDiscoverySkipsUnrelatedParentWithoutClaimingCompleteInventory(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(rec.Path(dashisession.TurnID(h.app.eng.Session().ID, 1)), []byte("damaged\n"), 0600); err != nil {
+	if err = os.WriteFile(rec.Path(session.TurnID(h.app.eng.Session().ID, 1)), []byte("damaged\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	h.app.eng.Close()

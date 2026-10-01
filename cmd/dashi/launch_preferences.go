@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"strings"
 )
 
@@ -112,18 +112,18 @@ func resolveLaunchPreferences(o Options, registry, trusted map[string]configured
 	return launchPreferences{Selection: selection, Controls: controls, SelectionError: selectionError}, nil
 }
 
-func loadReopenedPreferences(store *session.Store, dir string, o Options) (preferenceFile, error) {
+func loadReopenedPreferences(store *sessionstore.Store, dir string, o Options) (preferenceFile, error) {
 	if !o.Resume {
 		return preferenceFile{}, nil
 	}
-	var saved *session.Session
+	var saved *sessionstore.Session
 	var err error
 	if o.ResumeID != "" {
 		saved, err = store.LoadScoped(context.Background(), dir, o.ResumeID)
 	} else {
 		saved, err = store.Latest(dir)
 	}
-	if errors.Is(err, session.ErrNotFound) && o.ResumeID == "" {
+	if errors.Is(err, sessionstore.ErrNotFound) && o.ResumeID == "" {
 		return preferenceFile{}, nil
 	}
 	if err != nil {

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 )
 
 // This keyless CLI example starts a real documentation server, reads its
@@ -35,7 +35,7 @@ func Example_mcpDocumentation() {
 		panic(err)
 	}
 	client := &fakeClient{script: []reply{callTool("read-guide", "mcp__docs__fetch", `{"path":"guide.md"}`), say("Guide fetched.")}}
-	cfg := appConfig{Dir: dir, HomeDir: dir, InvocationDir: dir, MCPFiles: []string{"tools.json"}, Model: "fixture", Client: client, Store: session.NewStore(filepath.Join(dir, "sessions"))}
+	cfg := appConfig{Dir: dir, HomeDir: dir, InvocationDir: dir, MCPFiles: []string{"tools.json"}, Model: "fixture", Client: client, Store: sessionstore.NewStore(filepath.Join(dir, "sessions"))}
 	var stdout, stderr bytes.Buffer
 	code := runPrint(context.Background(), cfg, Options{Print: "Read the recovery guide.", PrintSet: true, Yes: true}, &stdout, &stderr)
 	if code != 0 {

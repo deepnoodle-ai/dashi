@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
@@ -20,7 +20,7 @@ type inspectionOwner struct {
 	Mode  Mode
 }
 
-func (e *Engine) inspectionMetadata() (*session.Session, bool) {
+func (e *Engine) inspectionMetadata() (*sessionstore.Session, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.sess == nil {
@@ -91,7 +91,7 @@ func (c *Controller) inspectSession(id string) {
 	c.notice("Loading recorded status for session %s…", id)
 	c.goWork(func() {
 		defer cancel()
-		var report session.Inspection
+		var report sessionstore.Inspection
 		var err error
 		if current != nil && id == current.ID && !c.store.Saved(current) {
 			report.Metadata = *current
@@ -109,7 +109,7 @@ func (c *Controller) inspectSession(id string) {
 			c.mu.Unlock()
 			return
 		}
-		text := session.FormatInspection(report) + "\n" + c.inspectionDestinations(report)
+		text := sessionstore.FormatInspection(report) + "\n" + c.inspectionDestinations(report)
 		c.mu.Lock()
 		if generation == c.statusGeneration && ctx.Err() == nil {
 			owned, lease := c.eng.inspectionMetadata()
@@ -123,7 +123,7 @@ func (c *Controller) inspectSession(id string) {
 	})
 }
 
-func inspectionGuidance(report session.Inspection, owner inspectionOwner) string {
+func inspectionGuidance(report sessionstore.Inspection, owner inspectionOwner) string {
 	id := report.Metadata.ID
 	prefix := "Session " + id + ": "
 	if !owner.Owned || owner.ID != id {
@@ -172,7 +172,7 @@ func inspectionGuidance(report session.Inspection, owner inspectionOwner) string
 
 // Endpoint identity is displayed only when a current definition proves the
 // recorded fingerprint. This is pure metadata work, never client construction.
-func (c *Controller) inspectionDestinations(report session.Inspection) string {
+func (c *Controller) inspectionDestinations(report sessionstore.Inspection) string {
 	p := c.eng.cfg.Preferences
 	if p == nil {
 		return "Recorded binding endpoint: unavailable (not stored in public identity)."
@@ -183,14 +183,14 @@ func (c *Controller) inspectionDestinations(report session.Inspection) string {
 		if d, ok := p.routes.registry[e.Destination.Provider]; ok {
 			fingerprint, err := d.fingerprint()
 			if err == nil && e.Destination.Revision == cliRouteRevision+fingerprint && e.Destination.API == d.Definition.API {
-				endpoint = session.PrintableEndpoint(d.Definition.Endpoint) + " (matching recorded binding)"
+				endpoint = sessionstore.PrintableEndpoint(d.Definition.Endpoint) + " (matching recorded binding)"
 			}
 		}
 		lines = append(lines, "Recorded binding endpoint: "+endpoint)
 	}
 	if !report.NextDestinationUnavailable {
 		if d, ok := p.routes.registry[report.NextDestination.Provider]; ok {
-			lines = append(lines, fmt.Sprintf("Configured saved next-Turn API: %s; endpoint: %s", d.Definition.API, session.PrintableEndpoint(d.Definition.Endpoint)))
+			lines = append(lines, fmt.Sprintf("Configured saved next-Turn API: %s; endpoint: %s", d.Definition.API, sessionstore.PrintableEndpoint(d.Definition.Endpoint)))
 		}
 	}
 	current, owned := c.eng.inspectionMetadata()
@@ -198,12 +198,12 @@ func (c *Controller) inspectionDestinations(report session.Inspection) string {
 		p.mu.RLock()
 		selected := p.launch.Selection
 		p.mu.RUnlock()
-		lines = append(lines, fmt.Sprintf("This invocation's next-Turn selection: %s; API: %s; model: %s; endpoint: %s", selected.Destination.ID, selected.Destination.Definition.API, selected.Model, session.PrintableEndpoint(selected.Destination.Definition.Endpoint)))
+		lines = append(lines, fmt.Sprintf("This invocation's next-Turn selection: %s; API: %s; model: %s; endpoint: %s", selected.Destination.ID, selected.Destination.Definition.API, selected.Model, sessionstore.PrintableEndpoint(selected.Destination.Definition.Endpoint)))
 	}
 	return workspace.PrintableText(strings.Join(lines, "\n"))
 }
 
-func sessionCard(match session.SearchMatch, owner inspectionOwner) string {
+func sessionCard(match sessionstore.SearchMatch, owner inspectionOwner) string {
 	r := match.Card
 	var text strings.Builder
 	fmt.Fprintf(&text, "Session %s · %s\nUpdated: %s", r.Metadata.ID, orDefault(r.Metadata.Title, "(no title)"), r.Metadata.Updated.Local().Format("2006-01-02 15:04"))
@@ -215,7 +215,7 @@ func sessionCard(match session.SearchMatch, owner inspectionOwner) string {
 	if r.RequestIncomplete {
 		text.WriteString("\nNewer request facts may be missing.")
 	}
-	fmt.Fprintf(&text, "\nStatus: %s", session.RecordedStopSummary(r.Latest))
+	fmt.Fprintf(&text, "\nStatus: %s", sessionstore.RecordedStopSummary(r.Latest))
 	if r.RecordUnavailable || r.OmittedTurns > 0 {
 		text.WriteString("\nRecorded facts incomplete.")
 	}

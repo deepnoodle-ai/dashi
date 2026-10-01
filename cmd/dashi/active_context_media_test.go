@@ -14,7 +14,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
-	dashisession "github.com/deepnoodle-ai/dashi/session"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 // Keep the realistic full prepared-body encoding while answering one native
@@ -111,7 +111,7 @@ func TestCLIActiveMediaPrintAndRecordedReopen(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			turn, err := rec.Load(t.Context(), dashisession.TurnID(a.eng.Session().ID, 1))
+			turn, err := rec.Load(t.Context(), session.TurnID(a.eng.Session().ID, 1))
 			if err != nil {
 				t.Fatal(err)
 			}

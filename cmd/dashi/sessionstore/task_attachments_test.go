@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package session
+package sessionstore
 
 import (
 	"crypto/sha256"
@@ -11,7 +11,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/delegate"
-	dashisession "github.com/deepnoodle-ai/dashi/session"
+	"github.com/deepnoodle-ai/dashi/session"
 )
 
 func TestChildAttachmentsStrictNamespaceConflictAndNoFollow(t *testing.T) {
@@ -19,7 +19,7 @@ func TestChildAttachmentsStrictNamespaceConflictAndNoFollow(t *testing.T) {
 	if !st.TaskStorageAbsent(s) {
 		t.Fatal("fresh session cannot establish absent child storage")
 	}
-	ref := dashi.CallRef{TurnID: dashisession.TurnID(s.ID, 1), CallID: "task:/weird"}
+	ref := dashi.CallRef{TurnID: session.TurnID(s.ID, 1), CallID: "task:/weird"}
 	if _, err := parent.ChildAttachments(ref, false); err == nil {
 		t.Fatal("missing recovery directory created")
 	}
@@ -39,11 +39,11 @@ func TestChildAttachmentsStrictNamespaceConflictAndNoFollow(t *testing.T) {
 	if _, err := child.Publish(t.Context(), id, "proof.txt", "text/plain", []byte("wrong")); err == nil {
 		t.Fatal("conflicting child publication overwritten")
 	}
-	turn := dashisession.TurnID(delegate.ChildID(ref.TurnID, ref.CallID), 1)
+	turn := session.TurnID(delegate.ChildID(ref.TurnID, ref.CallID), 1)
 	if data, err := child.Resolve(t.Context(), turn, snapshot); err != nil || string(data) != "fixed" {
 		t.Fatalf("%q %v", data, err)
 	}
-	for _, wrong := range []string{ref.TurnID, turn + "/../1", turn + "0", dashisession.TurnID(delegate.ChildID(ref.TurnID, "other"), 1)} {
+	for _, wrong := range []string{ref.TurnID, turn + "/../1", turn + "0", session.TurnID(delegate.ChildID(ref.TurnID, "other"), 1)} {
 		// Turn 10 is valid in the same logical child, so use a leading-zero suffix.
 		if wrong == turn+"0" {
 			wrong = delegate.ChildID(ref.TurnID, ref.CallID) + "-01"

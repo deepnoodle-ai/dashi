@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 )
 
 func testConfig(t *testing.T, script ...reply) appConfig {
@@ -19,7 +19,7 @@ func testConfig(t *testing.T, script ...reply) appConfig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := session.NewStore(t.TempDir())
+	store := sessionstore.NewStore(t.TempDir())
 	store.DisableSync()
 	return appConfig{
 		Dir:     dir,
@@ -113,7 +113,7 @@ func TestPrintLocalCommandsIgnoreBusyResumeSession(t *testing.T) {
 			} else if stdout.Len() != 0 {
 				t.Fatalf("quit printed output: %q", stdout.String())
 			}
-			if release, err := cfg.Store.Lock(saved); !errors.Is(err, session.ErrBusy) {
+			if release, err := cfg.Store.Lock(saved); !errors.Is(err, sessionstore.ErrBusy) {
 				if release != nil {
 					release()
 				}
