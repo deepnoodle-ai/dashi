@@ -1,0 +1,146 @@
+package main
+
+import (
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/deepnoodle-ai/wonton/tui"
+)
+
+const dialogStatusInputID = "dialog-status"
+
+// This field temporarily owns input, never the approval or question reply.
+// Keep it open after a report so paging and typing cannot answer the dialog.
+type dialogStatusInput struct {
+	text       string
+	prompt     uint64
+	generation uint64
+}
+
+type dialogStatusKeyEvent struct {
+	input *dialogStatusInput
+	key   tui.KeyEvent
+}
+
+func (dialogStatusKeyEvent) Timestamp() time.Time { return time.Now() }
+
+func (s *screen) beginDialogStatus(text string) {
+	s.dialogStatus = &dialogStatusInput{text: text, prompt: s.promptID, generation: s.generation}
+}
+
+func (s *screen) dialogStatusActive(p *dialogStatusInput) bool {
+	return p != nil && s.dialogStatus == p && s.promptActive && s.promptID == p.prompt && s.generation == p.generation
+}
+
+func (s *screen) endDialogStatus() {
+	if s.dialogStatus != nil {
+		s.ctrl.cancelInspection()
+		s.dialogStatus = nil
+	}
+}
+
+func (s *screen) dialogStatusKey(e tui.KeyEvent) []tui.Cmd {
+	switch e.Key {
+	case tui.KeyEnter:
+		s.dialogStatusSubmit(s.dialogStatus)(s.dialogStatus.text)
+	case tui.KeyBackspace:
+		_, size := utf8.DecodeLastRuneInString(s.dialogStatus.text)
+		if size > 0 {
+			s.dialogStatus.text = s.dialogStatus.text[:len(s.dialogStatus.text)-size]
+		}
+	case tui.KeyEscape:
+		s.endDialogStatus()
+		return []tui.Cmd{tui.Focus(s.focusID())}
+	case tui.KeyPageUp:
+		s.vp.PageUp()
+	case tui.KeyPageDown:
+		s.vp.PageDown()
+	case tui.KeyHome:
+		if e.Ctrl {
+			s.vp.ScrollToTop()
+		}
+	case tui.KeyEnd:
+		if e.Ctrl {
+			s.vp.ScrollToBottom()
+		}
+	default:
+		// Keys can arrive before Wonton renders the newly focused field.
+		// Retain that prefix here. Once rendered, its editor consumes text.
+		if e.Paste != "" {
+			s.dialogStatus.text += e.Paste
+		} else if e.Rune != 0 && !e.Ctrl && !e.Alt {
+			s.dialogStatus.text += string(e.Rune)
+		}
+	}
+	return nil
+}
+
+func (s *screen) dialogStatusKeyHook(p *dialogStatusInput) func(tui.KeyEvent) bool {
+	return func(e tui.KeyEvent) bool {
+		if !s.dialogStatusActive(p) {
+			return true
+		}
+		if isCtrlC(e) {
+			return false // Wonton forwards the single interrupt to HandleEvent.
+		}
+		if e.Key == tui.KeyEscape || e.Key == tui.KeyPageUp || e.Key == tui.KeyPageDown ||
+			(e.Key == tui.KeyHome || e.Key == tui.KeyEnd) && e.Ctrl {
+			s.post(dialogStatusKeyEvent{input: p, key: e})
+			return true
+		}
+		return false
+	}
+}
+
+func (s *screen) dialogStatusSubmit(p *dialogStatusInput) func(string) {
+	return func(value string) {
+		if !s.dialogStatusActive(p) {
+			return
+		}
+		name, _ := splitCommand(strings.TrimSpace(value))
+		if name != "/status" {
+			s.Emit(warnBlock("Use /status [ID] to inspect. Press Escape to return to the pending dialog."))
+			return
+		}
+		p.text = ""
+		s.vp.ScrollToBottom()
+		s.ctrl.Input(value)
+	}
+}
+
+// Free-text answers retain their existing meaning, except the reserved status
+// command. Entering it never closes or sends to the pending reply channel.
+func (s *screen) inspectDialogSubmission(value string) bool {
+	name, _ := splitCommand(strings.TrimSpace(value))
+	if name != "/status" {
+		return false
+	}
+	if s.asking != nil && s.asking.text == value {
+		s.asking.text = ""
+	}
+	if s.approval != nil && s.approval.reason == value {
+		s.approval.reason = ""
+	}
+	s.beginDialogStatus("")
+	s.vp.ScrollToBottom()
+	s.ctrl.Input(value)
+	s.post(focusEvent{id: dialogStatusInputID, prompt: s.promptID})
+	return true
+}
+
+func (s *screen) dialogStatusView() tui.View {
+	p := s.dialogStatus
+	heading := "Question still pending"
+	if s.approval != nil {
+		heading = "Approval still pending · " + s.approval.req.Summary
+	}
+	return tui.Stack(
+		tui.Divider(),
+		tui.MaxHeight(2, tui.Text(" %s", heading).Wrap().Bold()),
+		tui.Text(" /status [ID] · Enter inspects · Page Up/Down scroll · Esc returns").Wrap().Hint(),
+		tui.InputField(&p.text).ID(dialogStatusInputID).Prompt("Inspect:").
+			PromptStyle(tui.NewStyle().WithForeground(tui.ColorBrightBlack)).
+			OnKey(s.dialogStatusKeyHook(p)).OnSubmit(s.dialogStatusSubmit(p)),
+	).Gap(0)
+}

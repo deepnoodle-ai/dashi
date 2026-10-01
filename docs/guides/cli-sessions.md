@@ -30,6 +30,12 @@ requests keep the name. Failed writes retain the previous title.
 session in this workspace without switching. Status works during a Turn and
 never steers, continues, dispatches, acquires a session lock, or grants approval.
 
+During a Wonton approval or question, type `/status [ID]` and press Enter.
+The original dialog stays pending. Page Up/Down scroll the report; Escape
+cancels inspection and returns to that dialog. Its choices and drafts remain.
+An incomplete or unknown slash command cannot answer an approval. Free-text
+answers reserve only `/status`; other answer text keeps its normal meaning.
+
 The report separates recorded stop from this process's live activity. Another
 session always has unknown worker liveness, even with an interrupted record.
 Its guidance names that session and requires reopening it before action.

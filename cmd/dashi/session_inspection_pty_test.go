@@ -133,11 +133,25 @@ func (s *screen) captureSessionEvidence(other, bad string) {
 	current, _ := s.eng.inspectionMetadata()
 	state := struct {
 		Input, Session, Title, Other, Damaged, Picker string
+		Command, SavedDraft, AnswerDraft, Reason      string
+		Approval, Question, Own, Denying, Inspecting  bool
+		Prompt                                        uint64
 		Mode                                          Mode
 		Sends                                         int
 		Blocks                                        []Block
 		Options, Details, Rows                        []string
 	}{Input: s.input, Session: current.ID, Title: current.Title, Other: other, Damaged: bad, Mode: s.ctrl.Mode(), Sends: sends, Blocks: s.tr.Blocks, Rows: attachmentRows(&s.attachments, s.ctrl.attachmentRoot)}
+	state.SavedDraft, state.Prompt = s.savedDraft, s.promptID
+	state.Approval, state.Question, state.Inspecting = s.approval != nil, s.asking != nil, s.dialogStatus != nil
+	if s.dialogStatus != nil {
+		state.Command = s.dialogStatus.text
+	}
+	if s.approval != nil {
+		state.Denying, state.Reason = s.approval.denying, s.approval.reason
+	}
+	if s.asking != nil {
+		state.Own, state.AnswerDraft = s.asking.own, s.asking.text
+	}
 	if s.picker != nil {
 		state.Picker = s.picker.title
 		state.Options = s.picker.options
