@@ -3,182 +3,19 @@
 package dashi
 
 import (
-	"cmp"
+	"bytes"
+	"crypto/rand"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"time"
 
-	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
-	"github.com/deepnoodle-ai/dashi/tool"
 )
-
-// Agent is reusable, serializable behavior: what to ask which model, with
-// which settings, tools, and limits. It goes on Start; clients, credentials,
-// tool implementations, and storage are supplied separately on a Runner. The
-// zero value works: the Runner fills empty fields before pinning the agent at
-// Start, and the turn records the result, which TurnView.Agent shows. Later
-// commands on the turn run with the recorded agent.
-type Agent struct {
-	// ID names the agent for the host, for example in reports. It may be
-	// empty; nothing in Dashi reads it.
-	ID string `json:"id"`
-	// Revision pins behavior so a continued turn cannot silently change it.
-	// When empty, it is derived from the agent's behavior fields as
-	// "auto:" and 16 hex digits, so it changes exactly when they do,
-	// including the tool selection. The derivation leaves out
-	// Limits.Deadline and cannot see tool implementations, which are not
-	// part of the agent; set Revision yourself to version those.
-	Revision     string `json:"revision"`
-	Instructions string `json:"instructions,omitempty"`
-	// Provider and API default to the Runner client's.
-	Provider string `json:"provider"`
-	API      string `json:"api"`
-	// Model defaults to the provider's catalog.Default when the client knows
-	// that model; otherwise it is required.
-	Model    string       `json:"model"`
-	Settings llm.Settings `json:"settings"`
-	// NoInheritedSettings makes Settings a complete set during Session
-	// inheritance. Nil and zero fields do not inherit lower-priority Agent
-	// values. Higher-priority partial settings may still override this set.
-	// Other Agent fields retain their ordinary inheritance rules.
-	NoInheritedSettings bool `json:"no_inherited_settings,omitempty"`
-	// OutputSchema is the default final-result schema for turns using this
-	// agent. Start.OutputSchema may override it for one turn. A JSON null
-	// means none.
-	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
-	// Tools names the tools this agent may call, from those the Runner's
-	// Tools offer. Empty means every tool the runner offers. Order and
-	// duplicates do not matter: the runner records the names sorted. The
-	// runner filters by name before each model call, before BeforeModel
-	// hooks hide tools; a name the runner does not offer records
-	// WarningToolNotOffered once per turn.
-	Tools []string `json:"tools,omitempty"`
-	// NoTools offers no application tools, whatever Tools says.
-	// dashi_submit_output is still offered when the turn has an output
-	// schema.
-	NoTools bool   `json:"no_tools,omitempty"`
-	Limits  Limits `json:"limits"`
-	// ActiveCompaction protects a long single Turn. Nil disables it.
-	ActiveCompaction *ActiveCompactionPolicy `json:"active_compaction,omitempty"`
-}
-
-// Limits bounds model calls, interruptions, pauses, tool concurrency, and time
-// for turns using an agent. The zero value gives the default limits, so
-// set only the fields you want to change. For counts where "none" is a
-// meaningful setting, a negative value means none.
-//
-// Dashi resolves defaults when it accepts an agent and records the
-// resolved values, so a recorded turn keeps its limits even if the library
-// defaults change later.
-type Limits struct {
-	// ModelAttempts counts settled calls; interrupted calls have their own cap.
-	// Zero means 8. It must not be negative.
-	ModelAttempts int `json:"model_attempts"`
-	// Interruptions bounds how many times a stopped or crashed turn may be
-	// resumed. Zero means 10; a negative value allows no resumes.
-	Interruptions int `json:"interruptions"`
-	// ProviderPauses bounds provider-requested continuations. Zero means 3;
-	// a negative value allows none.
-	ProviderPauses int `json:"provider_pauses"`
-	// ToolConcurrency bounds how many tool calls run at once. Zero means 1.
-	// It must not be negative.
-	ToolConcurrency int `json:"tool_concurrency"`
-	// ToolResultBytes limits the text of one tool result in the projected
-	// history. Zero means 64 KiB. A negative value turns the limit off. A
-	// value below 1 KiB is raised to 1 KiB, with a warning at Start. Dashi
-	// keeps the full result in the record; see ToolFact.Shortened.
-	ToolResultBytes int `json:"tool_result_bytes"`
-	// NoReservedFinalAnswer turns off the final-answer reserve. By default,
-	// the last allowed model attempt, after earlier attempts, asks for an
-	// answer without advertising application tools.
-	NoReservedFinalAnswer bool `json:"no_reserved_final_answer,omitempty"`
-	// Deadline stops the turn at a wall-clock time. Zero means no deadline.
-	Deadline time.Time `json:"deadline,omitzero"`
-}
-
-// Default turn limits, applied when a Limits field is zero.
-const (
-	defaultModelAttempts   = 8
-	defaultInterruptions   = 10
-	defaultProviderPauses  = 3
-	defaultToolConcurrency = 1
-)
-
-// Validate checks limits and output settings. Every identity field may be
-// empty, since the Runner fills them; a zero Agent is valid.
-func (a Agent) Validate() error {
-	if err := a.ActiveCompaction.validate(); err != nil {
-		return err
-	}
-	if a.Limits.ModelAttempts < 0 || a.Limits.ToolConcurrency < 0 {
-		return errors.New(
-			"dashi: model attempts and tool concurrency cannot be negative",
-		)
-	}
-	if schema := absentNull(a.OutputSchema); len(schema) > 0 {
-		if _, err := compileOutputSchema(schema); err != nil {
-			return err
-		}
-		if err := validateOutputToolChoice(a.Settings); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// resolved returns a with every zero limit replaced by its default, every
-// negative "none" count normalized to -1, Tools sorted without duplicates,
-// and a JSON null output schema dropped. Dashi records the result, so the
-// same agent always compares equal to its record, whatever order a host
-// built its tool list in. Runtime checks read -1 as zero allowed, through
-// max(count, 0).
-func (a Agent) resolved() Agent {
-	a.OutputSchema = absentNull(a.OutputSchema)
-	a.ActiveCompaction = a.ActiveCompaction.resolved()
-	if len(a.Tools) > 0 {
-		a.Tools = slices.Compact(slices.Sorted(slices.Values(a.Tools)))
-	}
-	l := &a.Limits
-	l.ModelAttempts = cmp.Or(l.ModelAttempts, defaultModelAttempts)
-	l.ToolConcurrency = cmp.Or(l.ToolConcurrency, defaultToolConcurrency)
-	l.Interruptions = resolveCount(l.Interruptions, defaultInterruptions)
-	l.ProviderPauses = resolveCount(l.ProviderPauses, defaultProviderPauses)
-	l.ToolResultBytes = resolveToolResultBytes(l.ToolResultBytes)
-	return a
-}
-
-// ContextItem carries content whose origin and replacement behavior are
-// independent of its message role. All content needed for recovery is recorded.
-type ContextItem struct {
-	// ID identifies one delivery of this item. A turn records an ID at most
-	// once, and a repeat with the same content is skipped, so a source that
-	// retries a delivery cannot deliver it twice. Name, by contrast, names a
-	// slot that a later snapshot replaces. ID is optional for Deliver and
-	// hook items and required for steers.
-	ID string `json:"id,omitempty"`
-	// Name identifies an item that a later snapshot may replace.
-	Name string `json:"name,omitempty"`
-	// Origin records who supplied the item; empty means ContextUser.
-	Origin  ContextOrigin `json:"origin"`
-	Message llm.Message   `json:"message"`
-	// Snapshot supersedes an earlier item with the same name: Turn.Context
-	// returns this one. Model requests keep the earlier item in place and
-	// add this one after it, so the prompt prefix and the provider's cache
-	// survive; the reminder instruction tells the model the latest is
-	// current.
-	Snapshot bool `json:"snapshot,omitempty"`
-	// NextCallOnly keeps this item until a later model call shows evidence
-	// of dispatch (a provider response or rejection), then omits it. A call
-	// with no such evidence, such as one recovered after a crash, is resent
-	// with the item, so the model may see it twice rather than never. A
-	// call an urgent steer cut short does not expire it either: the
-	// replacement call sees it again. For a value that must reflect each
-	// call, such as the current time, use a named Snapshot item instead.
-	NextCallOnly bool `json:"next_call_only,omitempty"`
-}
 
 // Turn carries the identified sequence of acknowledged execution facts.
 type Turn struct {
@@ -361,447 +198,6 @@ type Warning struct {
 	Message string      `json:"message"`
 }
 
-// OutputSource identifies the model evidence for a structured result.
-type OutputSource string
-
-const (
-	// OutputFromTool was submitted through the reserved output tool.
-	OutputFromTool OutputSource = "tool_call"
-	// OutputFromText was extracted from the final assistant text.
-	OutputFromText OutputSource = "text"
-)
-
-// StructuredOutput is a schema-validated final value. ToolCallID or AttemptID
-// ties it to the model evidence from which it was derived.
-type StructuredOutput struct {
-	Value      json.RawMessage `json:"value"`
-	Source     OutputSource    `json:"source"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
-	AttemptID  string          `json:"attempt_id"`
-}
-
-// StartFact pins the agent, inputs, and optional cap for a turn.
-type StartFact struct {
-	Agent                  Agent `json:"agent"`
-	ActiveCompactionWindow int   `json:"active_compaction_window,omitempty"`
-	// Budget pins the caller's cap at the start of the turn.
-	Budget       *Budget         `json:"budget,omitempty"`
-	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
-	Origin       StartOrigin     `json:"origin,omitempty"`
-	// HistoryFingerprint identifies the caller-owned prior conversation at
-	// Start.
-	HistoryFingerprint string        `json:"history_fingerprint,omitempty"`
-	Input              []llm.Message `json:"input"`
-	// Parent is the tool call that caused this turn, when another turn's
-	// tool started it. It never changes after Start.
-	Parent *CallRef `json:"parent,omitempty"`
-	// Compaction is set on a compaction turn, and only there.
-	Compaction *CompactionFact `json:"compaction,omitempty"`
-}
-
-// StartOrigin records who supplied the initial work. The host must authorize
-// operator and scheduled starts; an absent value means a user start.
-type StartOrigin string
-
-const (
-	// StartUser identifies user-supplied initial work.
-	StartUser StartOrigin = "user"
-	// StartScheduled identifies work started by a host schedule.
-	StartScheduled StartOrigin = "scheduled"
-	// StartOperator identifies work started by an authorized operator.
-	StartOperator StartOrigin = "operator"
-	// StartCompaction identifies a compaction turn, which
-	// summarizes the projected history. Its start records a CompactionFact.
-	StartCompaction StartOrigin = "compaction"
-)
-
-// ContextFact records context delivered to an existing turn.
-type ContextFact struct {
-	Items []ContextItem `json:"items"`
-	// Vetoed marks a loop continuation that records a BeforeFinish veto of
-	// the latest answer. Until a new model result arrives, that answer never
-	// reaches the host through TurnView.Answer, whatever the stop.
-	Vetoed bool `json:"vetoed,omitempty"`
-	// Steering marks items that came from a Steering source, recorded on
-	// their own step. Inbox.Leftovers uses it to tell steers from Deliver
-	// and hook items.
-	Steering bool `json:"steering,omitempty"`
-}
-
-// ModelFact records intent without persisting the potentially secret-bearing
-// wire body. An unresolved intent must be reconciled, not reconstructed from
-// this digest and dispatched again.
-type ModelFact struct {
-	Purpose    ModelPurpose           `json:"purpose,omitempty"`
-	Compaction *ContextCompactionPlan `json:"compaction,omitempty"`
-	// AttemptID is stable across the intent and its settlement.
-	AttemptID string `json:"attempt_id"`
-	MessageID string `json:"message_id,omitempty"`
-	// RequestDigest identifies the prepared bytes without recording their body.
-	RequestDigest string `json:"request_digest,omitempty"`
-	// FinalAnswerOnly records that application tools were withheld on this call.
-	FinalAnswerOnly bool `json:"final_answer_only,omitempty"`
-	// Admission carries each BeforeSend hook's reservation terms, keyed by
-	// hook name.
-	Admission map[string]json.RawMessage `json:"admission,omitempty"`
-	// AtRisk is the pre-send worst case; Charge is the settled accounting value.
-	AtRisk *llm.Cost `json:"at_risk,omitempty"`
-	// Charge is the settled amount reconstructed into turn spend.
-	Charge *llm.Cost `json:"charge,omitempty"`
-	// EstimatedInputTokens is the recorded fallback when input usage is absent.
-	EstimatedInputTokens int `json:"estimated_input_tokens,omitempty"`
-	// EstimatedUsage marks settlements with missing or partial token usage.
-	EstimatedUsage   bool                 `json:"estimated_usage,omitempty"`
-	Provider         string               `json:"provider,omitempty"`
-	API              string               `json:"api,omitempty"`
-	Model            string               `json:"model,omitempty"`
-	Effective        llm.Settings         `json:"effective,omitzero"`
-	Origin           content.Origin       `json:"origin,omitzero"`
-	Adjustments      []llm.Adjustment     `json:"adjustments,omitempty"`
-	ContentChanges   []llm.ContentChange  `json:"content_changes,omitempty"`
-	ModelInfo        *llm.ModelInfo       `json:"model_info,omitempty"`
-	CapabilityPolicy llm.CapabilityPolicy `json:"capability_policy"`
-	Unverified       []llm.Feature        `json:"unverified,omitempty"`
-	Tools            []tool.Definition    `json:"tools,omitempty"`
-	// Hidden names the tools BeforeModel hooks removed from this call. A
-	// call to one of them settles as not available, by this record.
-	Hidden []string    `json:"hidden,omitempty"`
-	Result *llm.Result `json:"result,omitempty"`
-	Error  string      `json:"error,omitempty"`
-	// ErrorReason is a stable, optional model failure code. It is absent on
-	// older records and does not replace the human-readable Error.
-	ErrorReason llm.ErrorReason        `json:"error_reason,omitempty"`
-	Failure     llm.FailureDisposition `json:"failure,omitempty"`
-	Evidence    string                 `json:"evidence,omitempty"`
-	// Uncertain means the model effect cannot yet be classified as settled or
-	// safely not dispatched.
-	Uncertain bool `json:"uncertain,omitempty"`
-
-	// Interrupted, when set, names why the call was cut short. The settlement
-	// preserves partial output and usage without making them actionable, and
-	// a later model call may safely replace this one.
-	Interrupted InterruptCause `json:"interrupted,omitempty"`
-	// NoDispatch excludes an intent stopped before the provider call began.
-	NoDispatch bool `json:"no_dispatch,omitempty"`
-}
-
-// InterruptCause records why a model call was cut short before it produced a
-// complete result. The zero value, InterruptNone, means it was not. The cause
-// is recorded rather than a flag so replay, accounting, and live consumers can
-// tell a crash recovery from a stop the run chose.
-type InterruptCause string
-
-const (
-	// InterruptNone means the call was not interrupted.
-	InterruptNone InterruptCause = ""
-	// InterruptWorker settles a call recovered after the worker stopped
-	// before its result was recorded (decision 24).
-	InterruptWorker InterruptCause = "worker"
-	// InterruptRun settles a call the run stopped: its context ended, the
-	// turn deadline passed, or a pause arrived before dispatch.
-	InterruptRun InterruptCause = "run"
-	// InterruptSteering settles a call an urgent steer cut short. Unlike the
-	// other causes it does not stop the run: the next call sees the partial
-	// output and the steer. It does not count toward ModelAttempts, but it
-	// does count toward spend and every Budget cap.
-	InterruptSteering InterruptCause = "steering"
-)
-
-// valid reports whether c is a cause this version records. Replay rejects
-// any other value rather than guessing how to account for it.
-func (c InterruptCause) valid() bool {
-	switch c {
-	case InterruptNone, InterruptWorker, InterruptRun, InterruptSteering:
-		return true
-	}
-	return false
-}
-
-// ModelFailure is host-supplied evidence that a pending model attempt did not
-// produce a result. The host is responsible for verifying this assertion.
-type ModelFailure struct {
-	Disposition llm.FailureDisposition `json:"disposition"`
-	Reason      string                 `json:"reason"`
-	Evidence    string                 `json:"evidence"`
-}
-
-// ToolFact records a call's authorization, execution, or settlement evidence.
-type ToolFact struct {
-	Call       tool.Call       `json:"call"`
-	Definition tool.Definition `json:"definition,omitzero"`
-	Verdict    ToolVerdict     `json:"verdict,omitzero"`
-	// Result is what the model sees instead of Outcome's output. It is set
-	// only when an AfterTool hook or Limits.ToolResultBytes changed it;
-	// Outcome stays the record of what happened.
-	Result *llm.ToolResult `json:"result,omitempty"`
-	// Shortened is set, with Result, when the result limit shortened the
-	// view. Dashi records it so a later change of the limit does not
-	// change an old turn.
-	Shortened *Shortened `json:"shortened,omitempty"`
-	// Vetoed marks a dashi_submit_output call turned down by a BeforeFinish
-	// veto. Until a new model result arrives, the text of the message that
-	// made the call never reaches the host through TurnView.Answer.
-	Vetoed  bool          `json:"vetoed,omitempty"`
-	Outcome *tool.Outcome `json:"outcome,omitempty"`
-	Reason  string        `json:"reason,omitempty"`
-}
-
-// ApprovalFact answers a deferred tool call. Settle accepts it only while
-// the call awaits approval and its arguments are the ones the fact names.
-// Pending.Approve and Pending.Deny build it.
-type ApprovalFact struct {
-	CallID  string `json:"call_id"`
-	Approve bool   `json:"approve"`
-	// ArgsDigest binds the answer to the call's arguments by JSON meaning,
-	// not bytes. Pending.Approve copies it from ToolView.ArgsDigest; a host
-	// can compute it with ArgsDigest from the arguments that were shown.
-	// Bare-hex digests from before canonical hashing are still accepted,
-	// but only while the arguments keep their original bytes.
-	ArgsDigest string `json:"args_digest"`
-	// Reason explains a denial. The next Continue gives it to the model as
-	// the denied call's result.
-	Reason string `json:"reason,omitempty"`
-}
-
-// StopKind classifies why a turn stopped.
-type StopKind string
-
-const (
-	// StopCompleted means the turn produced an accepted final result.
-	StopCompleted StopKind = "completed"
-	// StopWaiting means the turn awaits an external action.
-	StopWaiting StopKind = "waiting"
-	// StopLimited means a turn limit or budget cap stopped execution.
-	StopLimited StopKind = "limited"
-	// StopRefused means a hook refused further execution, or the model
-	// refused to answer.
-	StopRefused StopKind = "refused"
-	// StopCanceled means a caller explicitly ended the turn.
-	StopCanceled StopKind = "canceled"
-	// StopInterrupted leaves the turn available for Continue on any worker.
-	StopInterrupted StopKind = "interrupted"
-	// StopFailed means execution ended after a known failure.
-	StopFailed StopKind = "failed"
-	// StopUncertain means an effect requires host reconciliation.
-	StopUncertain StopKind = "uncertain"
-)
-
-// Stop records a turn's terminal or resumable condition.
-type Stop struct {
-	Kind   StopKind `json:"kind"`
-	Reason string   `json:"reason,omitempty"`
-	// RefID names the content reference that caused a stop with one of the
-	// StopReasonContent... codes. Otherwise it is empty.
-	RefID string `json:"ref_id,omitempty"`
-	// Limit enables callers to handle a limited stop without parsing Reason.
-	Limit *LimitDetail `json:"limit,omitempty"`
-	// Terminal means the turn has ended: no command can run it again,
-	// whatever the host settles or raises. It is true for completed and
-	// canceled turns; for a limited turn stopped by its deadline or its
-	// interruptions limit; and for a turn limited by cost whose spend
-	// includes a cost that cannot be priced; or a token-capped turn whose
-	// usage aggregation is incomplete. A turn stopped at its model
-	// attempt limit is not terminal: Continue.ModelAttempts raises the limit.
-	// The runner sets it when it records the stop.
-	//
-	// After a terminal stop the record accepts only late results of work
-	// that had already started, and other commands give ErrTurnEnded. A
-	// live reader that stops at a terminal stop can miss those results; a
-	// reload shows them. Project ignores them: an ended turn's projection
-	// is fixed at its terminal stop, and so is TurnView.Answer.
-	Terminal bool `json:"terminal,omitempty"`
-	// Projected means the record holds no stop after the latest Start or
-	// Continue: the run ended without recording one, or is still going.
-	// Replay and Outcome then infer Kind from the work in flight, and Kind
-	// is empty when none is. A recorded stop is never projected. A hook's
-	// view of a live run has an empty Stop that is not projected.
-	Projected bool `json:"projected,omitempty"`
-}
-
-// Stop reasons for a StopFailed turn ended by a tool or a hook. The reason
-// is a stable code a host can branch on; the error text stays on the record.
-// The tool reasons leave the failing call settled, so once the host has
-// fixed the cause, Continue resumes the turn and the model sees the failure
-// as the call's result.
-const (
-	// StopReasonToolFatal means an executor returned an error wrapped with
-	// tool.Fatal.
-	StopReasonToolFatal        = "tool_fatal"
-	StopReasonCompactionFailed = "compaction_failed"
-
-	// StopReasonToolOutcomeInvalid means an executor returned an outcome
-	// that fails tool.Outcome.Validate. This is a bug in the executor, not
-	// an uncertain effect: the runner observed the result, and it was
-	// malformed.
-	StopReasonToolOutcomeInvalid = "tool_outcome_invalid"
-
-	// StopReasonHookFailed means a BeforeSend or BeforeFinish hook returned
-	// an error or an invalid answer; the step's HookResults name the hook.
-	// Fix the cause, then Continue: the turn resumes where it stopped. A
-	// failed stop does not count toward Limits.Interruptions.
-	StopReasonHookFailed = "hook_failed"
-
-	// StopReasonOutputRejected means a BeforeFinish hook vetoed the final
-	// answer with a Reason when no further model call could happen, or
-	// vetoed the reserved final answer itself. The
-	// rejection is recorded and no output is accepted; Outcome.Answer is
-	// empty. Continue after raising the limit that stopped it (such as the
-	// Budget) lets the model see the rejection and answer again; with no
-	// model attempts left, Continue ends the turn limited.
-	StopReasonOutputRejected = "output_rejected"
-)
-
-// Stop reasons for a StopFailed turn that a content reference stopped. Stop.RefID
-// names the reference. The stop is not terminal. The runner asks the
-// ContentResolver again on Continue, so a host can fix the cause (restore the
-// bytes, grant access, raise ContentLimits, or set a resolver) and then
-// Continue. The stop never holds bytes or the resolver's error text.
-const (
-	// StopReasonContentNoResolver means the input holds a reference and the
-	// Runner has no ContentResolver.
-	StopReasonContentNoResolver = "content_no_resolver"
-
-	// StopReasonContentUnavailable means the ContentResolver returned an
-	// error for the reference: it is missing, or the turn may not read it.
-	StopReasonContentUnavailable = "content_unavailable"
-
-	// StopReasonContentTooLarge means the declared size of the reference, or
-	// of all references in one request, is over ContentLimits.
-	StopReasonContentTooLarge = "content_too_large"
-
-	// StopReasonContentSizeMismatch means the resolved bytes have a length
-	// other than the declared Size.
-	StopReasonContentSizeMismatch = "content_size_mismatch"
-
-	// StopReasonContentDigestMismatch means the SHA-256 of the resolved
-	// bytes differs from the declared digest.
-	StopReasonContentDigestMismatch = "content_digest_mismatch"
-)
-
-// Persistence classifies a step write the recorder did not acknowledge.
-type Persistence string
-
-const (
-	// PersistenceRejected means the recorder confirmed that it did not commit.
-	PersistenceRejected Persistence = "rejected"
-	// PersistenceUnknown means the caller must load the turn to determine whether
-	// the recorder committed the write.
-	PersistenceUnknown Persistence = "unknown"
-)
-
-// Command carries a CommandID. A repeated ID with identical content
-// acknowledges the first application without advancing again. An empty
-// CommandID gets a generated one (see NewID), recorded on the command's
-// steps. A generated ID cannot recognize a retry, since the retry cannot know
-// it: to make a retry after a crash safe, choose the ID, save it before the
-// call, and reuse it. Without that, a retry from an old turn snapshot is still
-// refused by the recorder, so no model call or tool runs twice. A host that
-// saves whole commands, such as an outbox replayed after a crash, encodes
-// them with MarshalCommand and finds them by CommandIDOf and CommandKindOf.
-type Command interface{ commandID() string }
-
-// Start begins a turn with caller-owned prior history and initial input.
-type Start struct {
-	CommandID string `json:"command_id,omitempty"`
-	// Agent is the behavior this turn runs with. Its zero fields take
-	// defaults (see Agent), and the turn records the resolved agent, so
-	// Continue, Settle, and Cancel need none.
-	Agent  Agent       `json:"agent"`
-	Origin StartOrigin `json:"origin,omitempty"`
-	// Budget applies to this turn, independently of its agent.
-	Budget *Budget `json:"budget,omitempty"`
-	// OutputSchema overrides the agent's default for this turn. The
-	// admitted schema is pinned in the start fact for replay and recovery.
-	// A JSON null means none.
-	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
-	// History is caller-owned prior conversation and is not stored in the turn.
-	History []llm.Message `json:"history,omitempty"`
-	Input   []llm.Message `json:"input,omitempty"`
-	// Parent links this turn to the tool call of another turn that started
-	// it. Dashi records it and shows it in TurnView.Parent; a second Start
-	// with a different Parent is a command conflict. Dashi does not check
-	// that the call exists.
-	Parent *CallRef `json:"parent,omitempty"`
-	// Compaction records what a compaction turn replaces. It is required
-	// with origin StartCompaction and allowed only with it.
-	Compaction *CompactionFact `json:"compaction,omitempty"`
-}
-
-// Deliver adds context to a turn between runs. To reach a turn while it
-// runs, pass a Steering source with WithSteering instead. An item with an ID
-// already recorded with the same content is skipped; with different content,
-// Run returns an error.
-type Deliver struct {
-	CommandID string        `json:"command_id,omitempty"`
-	Items     []ContextItem `json:"items,omitempty"`
-}
-
-// Continue resumes a turn using the prior conversation supplied for this
-// call. Pass no History when Start had no prior history.
-type Continue struct {
-	CommandID string        `json:"command_id,omitempty"`
-	History   []llm.Message `json:"history,omitempty"`
-	// Budget carries the complete raised cap after host authorization.
-	Budget *Budget `json:"budget,omitempty"`
-	// ModelAttempts raises the turn's model-attempt limit to this total. Zero
-	// keeps the current limit. It must exceed the limit now in force, which
-	// is the agent's Limits.ModelAttempts until an earlier Continue raises
-	// it. A turn that stopped at its limit continues only when this raise
-	// leaves room for another call. The raise applies to this turn from then
-	// on, and the recorded agent does not change.
-	ModelAttempts int `json:"model_attempts,omitempty"`
-	// OnHistoryMismatch controls what happens when History differs from the
-	// fingerprint recorded at Start. The default warns and proceeds.
-	//
-	// It is encoded with the command but left out of its digest, because it
-	// says how to handle a mismatch, not what the command asks for. A
-	// rejected Continue commits nothing, and a retry of an applied one
-	// returns the recorded result, so changing it on a retry is not a
-	// conflicting command.
-	OnHistoryMismatch HistoryMismatch `json:"on_history_mismatch,omitempty"`
-}
-
-// Settle records a host-supplied settlement: a final tool outcome, an answer
-// to a tool or provider-hosted approval, or a model result or verified
-// failure. Exactly one fact is set.
-type Settle struct {
-	CommandID      string                      `json:"command_id,omitempty"`
-	CallID         string                      `json:"call_id,omitempty"`
-	Outcome        *tool.Outcome               `json:"outcome,omitempty"`
-	Approval       *ApprovalFact               `json:"approval,omitempty"`
-	HostedApproval *llm.HostedApprovalResponse `json:"hosted_approval,omitempty"`
-	// ModelResult settles a pending model attempt without another dispatch.
-	ModelResult *llm.Result `json:"model_result,omitempty"`
-	// ModelFailure supplies verified evidence that an attempt did not execute.
-	ModelFailure *ModelFailure `json:"model_failure,omitempty"`
-}
-
-// Cancel ends a turn with a caller-supplied reason.
-type Cancel struct {
-	CommandID string `json:"command_id,omitempty"`
-	Reason    string `json:"reason,omitempty"`
-}
-
-func (c Start) commandID() string {
-	return c.CommandID
-}
-
-func (c Deliver) commandID() string {
-	return c.CommandID
-}
-
-func (c Continue) commandID() string {
-	return c.CommandID
-}
-
-func (c Settle) commandID() string {
-	return c.CommandID
-}
-
-func (c Cancel) commandID() string {
-	return c.CommandID
-}
-
 var (
 	// ErrAgentChanged reports a retried Start whose agent differs from the
 	// turn's recorded one, or a turn snapshot whose recorded agent differs
@@ -865,14 +261,52 @@ func cloneTurnSafe(t Turn) Turn {
 	return cloneTurn(t)
 }
 
-// resolveCount applies the default to a zero count and normalizes any
-// negative count to -1, which means none.
-func resolveCount(n, def int) int {
-	switch {
-	case n < 0:
-		return -1
-	case n == 0:
-		return def
+// NewID returns a new random UUIDv7 string, such as
+// "0199a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b". The first 48 bits are the Unix time
+// in milliseconds, so IDs sort by creation time to the millisecond (IDs from
+// the same millisecond are in random order), and the string fits a
+// Postgres uuid column. The runner uses it for an empty turn ID or CommandID.
+// To make retries safe across restarts, call NewID yourself, save the ID
+// before the call, and reuse it on retry.
+func NewID() string {
+	var b [16]byte
+	var ms [8]byte
+	binary.BigEndian.PutUint64(ms[:], uint64(time.Now().UnixMilli()))
+	copy(b[:6], ms[2:])
+	_, _ = rand.Read(b[6:])
+	b[6] = b[6]&0x0f | 0x70 // version 7
+	b[8] = b[8]&0x3f | 0x80 // RFC 9562 variant
+	var s [36]byte
+	hex.Encode(s[0:8], b[0:4])
+	s[8] = '-'
+	hex.Encode(s[9:13], b[4:6])
+	s[13] = '-'
+	hex.Encode(s[14:18], b[6:8])
+	s[18] = '-'
+	hex.Encode(s[19:23], b[8:10])
+	s[23] = '-'
+	hex.Encode(s[24:], b[10:])
+	return string(s[:])
+}
+
+// Equal reports whether s and other have the same JSON meaning, the
+// comparison Dashi uses for every recorded value (decision 27). Key order,
+// whitespace, string escaping, and the spelling of numerically equal numbers
+// do not matter, so a step reloaded from a store such as Postgres jsonb
+// equals the step that was committed. A step that cannot be encoded equals
+// nothing.
+//
+// A recorder uses Equal to decide whether a commit at an occupied sequence
+// is a retry of the recorded step, which succeeds, or a different step from
+// a stale worker, which it rejects.
+func (s Step) Equal(other Step) bool {
+	a, err := canonjson.Marshal(s)
+	if err != nil {
+		return false
 	}
-	return n
+	b, err := canonjson.Marshal(other)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(a, b)
 }

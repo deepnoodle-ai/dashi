@@ -57,5 +57,5 @@ func historyFingerprint(history []llm.Message) (string, error) {
 	hash := sha256.New()
 	_, _ = hash.Write([]byte(historyFingerprintDomain))
 	_, _ = hash.Write(encoded)
-	return digestPrefix + hex.EncodeToString(hash.Sum(nil)), nil
+	return canonjson.DigestPrefix + hex.EncodeToString(hash.Sum(nil)), nil
 }

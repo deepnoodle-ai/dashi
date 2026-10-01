@@ -218,7 +218,7 @@ steps and the gap; `Stop.Terminal` and the terminal-stop tightening.
 
 **PR B**: `StepReader`, `StepWaiter`, `Follow`, `Step.Settles`, the memory
 and file implementations, conformance, the guide's web handler (run by
-`serve_public_test.go`), and `examples/live_follow`.
+`run_follow_public_test.go`), and `examples/live_follow`.
 
 ## What not to build
 

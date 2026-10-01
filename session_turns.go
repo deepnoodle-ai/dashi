@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/deepnoodle-ai/dashi/internal/tooldef"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -139,7 +140,7 @@ func uncertainCall(t *sessionTurn) string {
 		switch {
 		case p.Kind == PendingTool && p.Tool != nil &&
 			(p.Tool.Status == ToolUncertain ||
-				p.Tool.Status == ToolStarted && !safeRepeat(p.Tool.Definition)):
+				p.Tool.Status == ToolStarted && !tooldef.SafeRepeat(p.Tool.Definition)):
 			return p.ID
 		case p.Kind == PendingModel && offeredUnsafeHosted(t.turn, p.ID):
 			return p.ID
@@ -152,7 +153,7 @@ func offeredUnsafeHosted(turn Turn, attemptID string) bool {
 	for _, step := range turn.Steps {
 		if step.Kind == StepModelIntent && step.Model != nil &&
 			step.Model.AttemptID == attemptID {
-			return unsafeHosted(step.Model.Tools)
+			return tooldef.UnsafeHosted(step.Model.Tools)
 		}
 	}
 	return false

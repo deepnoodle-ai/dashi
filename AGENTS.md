@@ -55,6 +55,17 @@ proposals; unresolved choices remain open.
 Keep Markdown documents short and focused: **soft limit two pages; hard limit
 four pages**. Prefer concise explanations of concepts, decisions, and tradeoffs.
 
+## Package layout
+
+- A feature belongs in the root package `dashi` only if the Turn engine itself
+  must know about it. Everything else is a sub-package that imports `dashi`,
+  as `compaction`, `delegate`, `skill`, `filerecorder`, and `mcp` do.
+- Generic helpers that touch no public `dashi` type go in `internal/`.
+- Root files use a prefix by area so related files sort together: `turn_`
+  (Turn, facts, views, replay), `run_` (Runner, model attempt, tool loop),
+  `steer_`, `budget_`, `hooks_`, `context_`, `history_`, and `session_`.
+  Name a test file after the source file it exercises.
+
 ## Modules and releases
 
 Dashi is four Go modules: the root, `mcp`, `providers/google/gemini`, and

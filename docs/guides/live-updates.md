@@ -119,7 +119,7 @@ the tool's next report.
 At a terminal stop the handler sends `end`, so the page calls
 `EventSource.close()`; a browser that reconnects anyway gets `204 No
 Content`, which stops `EventSource` from reconnecting. This handler runs in
-Dashi's tests (`serve_public_test.go`). The hub serves readers in the
+Dashi's tests (`run_follow_public_test.go`). The hub serves readers in the
 runner's process; a multi-process host relays the Observer's events, with
 `Seq` and gaps unchanged, into a hub in each web process.
 

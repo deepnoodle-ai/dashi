@@ -7,7 +7,7 @@ import (
 	"iter"
 	"sync/atomic"
 
-	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
+	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -166,36 +166,6 @@ type Compactor interface {
 	Start(projected []llm.Message) (Start, error)
 }
 
-// CompactionFact is recorded in the start fact of a compaction turn. With
-// the turn's answer it forms the replacement history: Keep[:SummaryAt], a
-// user message of Frame and the summary, then Keep[SummaryAt:]. The
-// summary is the text inside the answer's last <summary> and </summary>
-// tags, or the whole answer when it has none. This is the
-// one place a turn records earlier messages, so a reader with no Compactor
-// builds the same history.
-type CompactionFact struct {
-	// Through is the last turn covered.
-	Through int `json:"through"`
-	// Digest is the history fingerprint of the projected history replaced.
-	Digest string `json:"digest"`
-	// Keep holds the messages the replacement history keeps, which need not
-	// be a contiguous tail.
-	Keep []llm.Message `json:"keep,omitempty"`
-	// SummaryAt is the index in Keep where the summary goes.
-	SummaryAt int `json:"summary_at"`
-	// Frame is the text that introduces the summary.
-	Frame string `json:"frame"`
-}
-
-func (f *CompactionFact) clone() *CompactionFact {
-	if f == nil {
-		return nil
-	}
-	c := *f
-	c.Keep = cloneMessages(f.Keep)
-	return &c
-}
-
 // isCompaction reports whether command c runs a compaction turn.
 func isCompaction(turn Turn, c Command) bool {
 	if start, ok := c.(Start); ok {
@@ -203,41 +173,6 @@ func isCompaction(turn Turn, c Command) bool {
 	}
 	return len(turn.Steps) > 0 && turn.Steps[0].Started != nil &&
 		turn.Steps[0].Started.Origin == StartCompaction
-}
-
-// validateCompaction checks that a compaction fact comes with, and only
-// with, origin StartCompaction, and that it is well formed.
-func validateCompaction(origin StartOrigin, f *CompactionFact) error {
-	switch {
-	case f == nil && origin == StartCompaction:
-		return errors.New("compaction start requires a compaction fact")
-	case f == nil:
-		return nil
-	case origin != StartCompaction:
-		return errors.New("compaction fact requires origin compaction")
-	case f.Through < 0 || f.SummaryAt < 0 || f.SummaryAt > len(f.Keep):
-		return errors.New("compaction fact is out of range")
-	}
-	return validateHistory(f.Keep)
-}
-
-// replacement returns the replacement history of a compaction turn, and
-// false when the turn did not complete with a summary (summaryText), so it
-// replaces nothing.
-func replacement(v TurnView) ([]llm.Message, bool) {
-	f := v.Compaction
-	answer := compactiontext.Summary(v.Answer)
-	if f == nil || v.Stop.Kind != StopCompleted || answer == "" {
-		return nil, false
-	}
-	summary := answer
-	if f.Frame != "" {
-		summary = f.Frame + "\n\n" + answer
-	}
-	out := make([]llm.Message, 0, len(f.Keep)+1)
-	out = append(out, f.Keep[:f.SummaryAt]...)
-	out = append(out, llm.UserMessage(llm.Text(summary)))
-	return append(out, f.Keep[f.SummaryAt:]...), true
 }
 
 // lastUsage returns the usage of the last model call of turn that reported
@@ -290,7 +225,7 @@ func (s *Session) buildCompaction(
 	projected []llm.Message,
 	budget *Budget,
 ) (*startPlan, error) {
-	c, err := s.Compactor.Start(cloneMessages(projected))
+	c, err := s.Compactor.Start(llmclone.Messages(projected))
 	if err == nil && c.Compaction == nil {
 		err = errors.New("the compactor's Start has no Compaction")
 	}

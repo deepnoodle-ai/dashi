@@ -498,3 +498,16 @@ queue; `Recover` reads those IDs before it resumes any turn, then redelivers
 each settled send the recipient lacks. Rationale: no mailbox store beside the
 records; a rerun send is a duplicate, and a restart loses nothing (openclaw
 and Codex lost or raced mail in memory).
+
+## 2026-10-01
+
+**45. The root package holds only what the Turn engine must know.** Decided.
+A feature goes in `dashi` only if the Turn engine itself needs it; anything
+else is a sub-package that imports `dashi`, as `compaction`, `delegate`,
+`skill`, `filerecorder`, and `mcp` do. Helpers that touch no public type live
+in `internal/`. Root files are prefixed by area (`turn_`, `run_`, `steer_`,
+`budget_`, `hooks_`, `context_`, `history_`, `session_`) and tests are named
+after the file they exercise. Rationale: the root had grown to 43 files that
+did not sort by concern; the public vocabulary (Turn, Step, facts, Commands,
+Runner, Hooks, Outcome) stays together, and Session, which the engine does not
+need, moves to its own package next.
