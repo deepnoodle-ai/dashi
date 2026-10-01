@@ -127,7 +127,7 @@ func TestCutAnthropicHostedStreamCostIsPartial(t *testing.T) {
 	var charge *llm.Cost
 	for _, step := range outcome.Turn.Steps {
 		if step.Kind == dashi.StepModelCallFinished && step.Model != nil {
-			charge = step.Model.Charge
+			charge = step.Model.Cost
 		}
 	}
 	if charge == nil || !charge.Partial() {

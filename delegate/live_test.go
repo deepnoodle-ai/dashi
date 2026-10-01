@@ -49,7 +49,7 @@ func TestLiveBackgroundTask(t *testing.T) {
 		Instructions: "Start one explore task for the question, then " +
 			"answer from its result. Do not answer before the message " +
 			"about the task arrives.",
-		Limits: dashi.Limits{ModelAttempts: 16},
+		Limits: dashi.Limits{ModelCalls: 16},
 	}}
 	ended := make(chan delegate.TaskView, 4)
 	tasks := delegate.NewTasks(delegate.Config{OnTask: func(e delegate.TaskEvent) {

@@ -12,7 +12,7 @@ import (
 
 func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 	def := testAgent()
-	def.Limits.Interruptions = 3
+	def.Limits.Resumes = 3
 	partial := callResult("call-1", "lookup")
 	partial.Usage = &llm.Usage{InputTokens: 3, OutputTokens: 2}
 	second := final("partial answer")
@@ -25,7 +25,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
-				AttemptID:   "model-1",
+				ModelCallID: "model-1",
 				MessageID:   "message-1",
 				Result:      &partial,
 				Error:       "lease lost",
@@ -38,7 +38,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
-				AttemptID:   "model-2",
+				ModelCallID: "model-2",
 				MessageID:   "message-2",
 				Result:      &second,
 				Interrupted: InterruptRun,
@@ -50,7 +50,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
-				AttemptID:   "model-3",
+				ModelCallID: "model-3",
 				MessageID:   "message-3",
 				Result:      &third,
 				Interrupted: InterruptRun,
@@ -63,14 +63,14 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.ModelAttempts != 0 {
-		t.Fatalf("interrupted calls consumed %d model attempts", state.ModelAttempts)
+	if state.ModelCalls != 0 {
+		t.Fatalf("interrupted calls consumed %d model attempts", state.ModelCalls)
 	}
 	if state.modelCalls != 3 {
 		t.Fatalf("model call sequence=%d, want 3", state.modelCalls)
 	}
-	if state.Interruptions != 3 {
-		t.Fatalf("resumes=%d, want 3", state.Interruptions)
+	if state.Resumes != 3 {
+		t.Fatalf("resumes=%d, want 3", state.Resumes)
 	}
 	if state.Spend.Usage.InputTokens != 9 ||
 		state.Spend.Usage.OutputTokens != 10 {
@@ -92,7 +92,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 			TurnID:  turn.ID,
 			Seq:     int64(len(turn.Steps) + 1),
 			Kind:    StepTurnStopped,
-			Stop:    testStop(StopLimited, LimitInterruptions),
+			Stop:    testStop(StopLimited, LimitResumes),
 		},
 	)
 	view, err := Replay(turn)
@@ -112,7 +112,7 @@ func TestReplayRejectsUnknownInterruptCause(t *testing.T) {
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
-				AttemptID:   "model-1",
+				ModelCallID: "model-1",
 				MessageID:   "message-1",
 				Result:      &partial,
 				Error:       "cut short",
@@ -127,7 +127,7 @@ func TestReplayRejectsUnknownInterruptCause(t *testing.T) {
 }
 
 func TestInterruptCauseSurvivesJSONRoundTrip(t *testing.T) {
-	fact := ModelFact{AttemptID: "model-1", Interrupted: InterruptWorker}
+	fact := ModelFact{ModelCallID: "model-1", Interrupted: InterruptWorker}
 	data, err := json.Marshal(fact)
 	if err != nil {
 		t.Fatal(err)
@@ -142,7 +142,7 @@ func TestInterruptCauseSurvivesJSONRoundTrip(t *testing.T) {
 	if decoded.Interrupted != InterruptWorker {
 		t.Fatalf("decoded cause = %q, want worker", decoded.Interrupted)
 	}
-	none, err := json.Marshal(ModelFact{AttemptID: "model-2"})
+	none, err := json.Marshal(ModelFact{ModelCallID: "model-2"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,31 +176,31 @@ func TestReplayCrashWithModelIntentCanContinue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Interruptions != 1 {
-		t.Fatalf("crash resume count=%d, want 1", state.Interruptions)
+	if state.Resumes != 1 {
+		t.Fatalf("crash resume count=%d, want 1", state.Resumes)
 	}
 	if state.modelIntent != "model-1" {
 		t.Fatalf("unclosed model intent=%q, want model-1", state.modelIntent)
 	}
-	if state.ModelAttempts != 0 {
-		t.Fatalf("crashed call consumed %d attempts", state.ModelAttempts)
+	if state.ModelCalls != 0 {
+		t.Fatalf("crashed call consumed %d attempts", state.ModelCalls)
 	}
 }
 
 func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
 	def := testAgent()
-	def.Limits.Interruptions = 1
+	def.Limits.Resumes = 1
 	// A model attempt comes first: a pause before any attempt interrupted
 	// no work and does not count.
 	steps := []Step{
 		interruptionStart(def),
 		interruptionModelIntent("model-1"),
 		{Kind: StepModelCallFinished, Model: &ModelFact{
-			AttemptID:   "model-1",
+			ModelCallID: "model-1",
 			MessageID:   "message-1",
 			Error:       "pause requested",
 			Interrupted: InterruptRun,
-			NoDispatch:  true,
+			NotSent:     true,
 		}},
 		{Kind: StepTurnStopped, Stop: &Stop{Kind: StopInterrupted}},
 		{Kind: StepTurnContinued},
@@ -248,10 +248,10 @@ func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Interruptions != 1 {
+	if view.Resumes != 1 {
 		t.Fatalf(
 			"non-interruption continuation counted as resume: %d",
-			view.Interruptions,
+			view.Resumes,
 		)
 	}
 }
@@ -282,9 +282,9 @@ func TestReplayInterruptionPreservesSettledAnswer(t *testing.T) {
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
-				AttemptID: "model-1",
-				MessageID: "message-1",
-				Result:    &answer,
+				ModelCallID: "model-1",
+				MessageID:   "message-1",
+				Result:      &answer,
 			},
 		},
 		Step{Kind: StepTurnStopped, Stop: &Stop{Kind: StopInterrupted}},
@@ -297,8 +297,8 @@ func TestReplayInterruptionPreservesSettledAnswer(t *testing.T) {
 	if !state.awaitingClassification {
 		t.Fatal("completed model result was lost before classification")
 	}
-	if state.ModelAttempts != 1 {
-		t.Fatalf("settled call attempts=%d, want 1", state.ModelAttempts)
+	if state.ModelCalls != 1 {
+		t.Fatalf("settled call attempts=%d, want 1", state.ModelCalls)
 	}
 	if state.latestResult == nil ||
 		state.latestResult.Message.Text() != "finished before pause" {
@@ -313,21 +313,21 @@ func TestReplayReportedModelNonexecutionCanContinue(t *testing.T) {
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
-				AttemptID: "model-1",
-				MessageID: "message-1",
-				Error:     "connection lost",
-				Uncertain: true,
+				ModelCallID:   "model-1",
+				MessageID:     "message-1",
+				Error:         "connection lost",
+				ResultUnknown: true,
 			},
 		},
 		Step{Kind: StepTurnStopped, Stop: &Stop{Kind: StopResultUnknown}},
 		Step{
 			Kind: StepModelCallFinishedByHost,
 			Model: &ModelFact{
-				AttemptID: "model-1",
-				MessageID: "message-1",
-				Error:     "request was not dispatched",
-				Failure:   llm.FailureNotDispatched,
-				Evidence:  "provider request log",
+				ModelCallID: "model-1",
+				MessageID:   "message-1",
+				Error:       "request was not dispatched",
+				SendStatus:  llm.SendStatusNotSent,
+				Evidence:    "provider request log",
 			},
 		},
 	)
@@ -366,11 +366,11 @@ func TestReplayCrashReportedModelNonexecutionCanContinue(t *testing.T) {
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
-				AttemptID: "model-1",
-				MessageID: "message-1",
-				Error:     "request was not dispatched",
-				Failure:   llm.FailureNotDispatched,
-				Evidence:  "provider request log",
+				ModelCallID: "model-1",
+				MessageID:   "message-1",
+				Error:       "request was not dispatched",
+				SendStatus:  llm.SendStatusNotSent,
+				Evidence:    "provider request log",
 			},
 		},
 		Step{Kind: StepTurnContinued},
@@ -388,8 +388,8 @@ func TestReplayCrashReportedModelNonexecutionCanContinue(t *testing.T) {
 	if state.modelIntent != "" {
 		t.Fatalf("reported model call remains open: %q", state.modelIntent)
 	}
-	if state.Interruptions != 1 {
-		t.Fatalf("crash resume count=%d, want 1", state.Interruptions)
+	if state.Resumes != 1 {
+		t.Fatalf("crash resume count=%d, want 1", state.Resumes)
 	}
 }
 
@@ -416,9 +416,9 @@ func TestReplayStartedToolResumptionDependsOnStop(t *testing.T) {
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
-				AttemptID: "model-1",
-				MessageID: "message-1",
-				Result:    &result,
+				ModelCallID: "model-1",
+				MessageID:   "message-1",
+				Result:      &result,
 			},
 		},
 		Step{
@@ -495,7 +495,7 @@ func interruptionModelIntent(id string) Step {
 	return Step{
 		Kind: StepModelCallStarted,
 		Model: &ModelFact{
-			AttemptID:     id,
+			ModelCallID:   id,
 			MessageID:     messageID,
 			RequestDigest: "request-" + id,
 			Provider:      "test",

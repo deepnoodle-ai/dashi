@@ -174,7 +174,7 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 				emit(message)
 			}
 		case StepModelCallFinished, StepModelCallFinishedByHost:
-			if modelPurpose(t, step.Model.AttemptID) == ModelPurposeCompaction {
+			if modelPurpose(t, step.Model.ModelCallID) == ModelPurposeCompaction {
 				continue
 			}
 			if step.Model.Interrupted == InterruptSteering {
@@ -251,7 +251,7 @@ func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *
 			}
 		case StepContextCompacted:
 			if compact {
-				out = replaceContext(out, compactionPlan(t, step.Compacted.AttemptID), *step.Compacted, step.Seq)
+				out = replaceContext(out, compactionPlan(t, step.Compacted.ModelCallID), *step.Compacted, step.Seq)
 			}
 		case StepProviderToolApprovalDecided:
 			response := *step.HostedApproval
@@ -376,9 +376,9 @@ func lastDispatchedIntent(t Turn) int64 {
 	for _, step := range t.Steps {
 		switch step.Kind {
 		case StepModelCallStarted:
-			intents[step.Model.AttemptID] = step.Seq
+			intents[step.Model.ModelCallID] = step.Seq
 		case StepModelCallFinished, StepModelCallFinishedByHost:
-			if seq := intents[step.Model.AttemptID]; modelPurpose(t, step.Model.AttemptID) != ModelPurposeCompaction && modelDispatched(step.Model) &&
+			if seq := intents[step.Model.ModelCallID]; modelPurpose(t, step.Model.ModelCallID) != ModelPurposeCompaction && modelDispatched(step.Model) &&
 				seq > last {
 				last = seq
 			}
@@ -397,11 +397,11 @@ func lastDispatchedIntent(t Turn) int64 {
 // urgent steer cut short does not count either: its replacement is the
 // call the item was meant for.
 func modelDispatched(f *ModelFact) bool {
-	if f == nil || f.NoDispatch || f.Failure == llm.FailureNotDispatched ||
+	if f == nil || f.NotSent || f.SendStatus == llm.SendStatusNotSent ||
 		f.Interrupted == InterruptSteering {
 		return false
 	}
-	if f.Failure == llm.FailureRejected {
+	if f.SendStatus == llm.SendStatusProviderRejected {
 		return true
 	}
 	r := f.Result

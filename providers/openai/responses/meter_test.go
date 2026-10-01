@@ -105,7 +105,7 @@ func TestHostedRequestsFromCapturedResponses(t *testing.T) {
 			if result.Usage == nil {
 				t.Fatal("reported usage was dropped")
 			}
-			if !result.Usage.RequestsFinal {
+			if !result.Usage.RequestsComplete {
 				t.Fatal("a terminal response's counts are not marked final")
 			}
 			if !maps.Equal(result.Usage.Requests, tc.want) {

@@ -32,7 +32,7 @@ func (r *Renderer) isActiveSummary(id string) bool {
 }
 
 func (r *Renderer) isActiveSummaryFact(m *dashi.ModelFact) bool {
-	return m != nil && (m.Purpose == dashi.ModelPurposeCompaction || r.isActiveSummary(m.AttemptID))
+	return m != nil && (m.Purpose == dashi.ModelPurposeCompaction || r.isActiveSummary(m.ModelCallID))
 }
 
 func (r *Renderer) activeContextIntent(s dashi.Step) []Block {
@@ -46,8 +46,8 @@ func (r *Renderer) activeContextIntent(s dashi.Step) []Block {
 	if s.Model.Compaction != nil {
 		a.before = s.Model.Compaction.EstimatedBefore
 	}
-	r.activeContext[s.Model.AttemptID] = a
-	return []Block{activeContextBlock(s.Model.AttemptID, StateRunning, "Compacting this Turn's settled work...", false)}
+	r.activeContext[s.Model.ModelCallID] = a
+	return []Block{activeContextBlock(s.Model.ModelCallID, StateRunning, "Compacting this Turn's settled work...", false)}
 }
 
 func activeContextBlock(id, state, text string, done bool) Block {
@@ -59,25 +59,25 @@ func (r *Renderer) activeContextSettled(s dashi.Step) []Block {
 	if m == nil {
 		return nil
 	}
-	a := r.activeContext[m.AttemptID]
+	a := r.activeContext[m.ModelCallID]
 	if a == nil {
 		// A standalone settlement can still be identified by its purpose.
 		if r.activeContext == nil {
 			r.activeContext = make(map[string]*activeContextAttempt)
 		}
 		a = &activeContextAttempt{}
-		r.activeContext[m.AttemptID] = a
+		r.activeContext[m.ModelCallID] = a
 	}
 	switch {
 	case m.Interrupted != "":
 		a.done = true
 		a.awaitingStop = true
-		return []Block{activeContextBlock(m.AttemptID, "interrupted", "Active-Turn compaction interrupted; no replacement applied.", true)}
+		return []Block{activeContextBlock(m.ModelCallID, "interrupted", "Active-Turn compaction interrupted; no replacement applied.", true)}
 	case m.Error != "":
 		a.done = true
-		return []Block{activeContextBlock(m.AttemptID, StateFailed, "Active-Turn summary failed; previous context kept. "+m.Error, true)}
+		return []Block{activeContextBlock(m.ModelCallID, StateFailed, "Active-Turn summary failed; previous context kept. "+m.Error, true)}
 	default:
-		return []Block{activeContextBlock(m.AttemptID, StateRunning, "Active-Turn summary recorded; applying context...", false)}
+		return []Block{activeContextBlock(m.ModelCallID, StateRunning, "Active-Turn summary recorded; applying context...", false)}
 	}
 }
 
@@ -87,13 +87,13 @@ func (r *Renderer) activeContextApplied(s dashi.Step) []Block {
 	}
 	f := s.Compacted
 	text := "Active-Turn context compacted. Full execution record retained."
-	if a := r.activeContext[f.AttemptID]; a != nil {
+	if a := r.activeContext[f.ModelCallID]; a != nil {
 		a.done = true
 		if a.before > 0 {
 			text = fmt.Sprintf("Active-Turn context compacted: estimated input %s → %s tokens. Full record retained.", groupDigits(a.before), groupDigits(f.EstimatedAfter))
 		}
 	}
-	return []Block{activeContextBlock(f.AttemptID, StateOK, text, true)}
+	return []Block{activeContextBlock(f.ModelCallID, StateOK, text, true)}
 }
 
 func (r *Renderer) activeContextStopped(stop dashi.Stop) []Block {

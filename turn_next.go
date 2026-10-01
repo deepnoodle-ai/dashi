@@ -28,9 +28,9 @@ const (
 	// with a raised Budget; when Stop shows no model attempts left, raise
 	// Continue.ModelAttempts as well.
 	NextRaiseBudget Next = "raise_budget"
-	// NextRaiseAttempts means the model-call limit stopped the turn.
+	// NextRaiseModelCalls means the model-call limit stopped the turn.
 	// Continue with a higher Continue.ModelAttempts.
-	NextRaiseAttempts Next = "raise_attempts"
+	NextRaiseModelCalls Next = "raise_model_calls"
 	// NextFix means a cause outside the turn must be fixed first: a
 	// failure, a refusal, a host limit, an uncertain effect to settle, or
 	// an interruption the turn cannot resume from. Fix it and Continue, or
@@ -86,8 +86,8 @@ func (v TurnView) limitNext() Next {
 		return NextFix
 	}
 	switch v.Stop.Limit.Kind {
-	case LimitModelAttempts:
-		return NextRaiseAttempts
+	case LimitModelCalls:
+		return NextRaiseModelCalls
 	case LimitCost, LimitOutputTokens, LimitTotalTokens:
 		// A cap stop that Continue could run past without a raise was not
 		// caused by the cap: the cost of the next call could not be

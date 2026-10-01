@@ -35,7 +35,7 @@ func (s *replayState) pendingItems() []Pending {
 	var out []Pending
 	for _, id := range []string{s.modelIntent, s.unresolvedModel} {
 		if id != "" {
-			out = append(out, Pending{Kind: PendingModel, ID: id, AttemptID: id})
+			out = append(out, Pending{Kind: PendingModel, ID: id, ModelCallID: id})
 		}
 	}
 	for _, id := range s.callOrder {
@@ -49,12 +49,12 @@ func (s *replayState) pendingItems() []Pending {
 			continue
 		}
 		out = append(out, Pending{
-			Kind:      kind,
-			ID:        id,
-			AttemptID: s.callAttempts[id],
-			Name:      v.Call.Name,
-			Args:      v.Call.Args,
-			Tool:      &v,
+			Kind:        kind,
+			ID:          id,
+			ModelCallID: s.callAttempts[id],
+			Name:        v.Call.Name,
+			Args:        v.Call.Args,
+			Tool:        &v,
 		})
 	}
 	for _, id := range s.hostedOrder {
@@ -63,12 +63,12 @@ func (s *replayState) pendingItems() []Pending {
 			continue
 		}
 		out = append(out, Pending{
-			Kind:      PendingApproval,
-			ID:        id,
-			AttemptID: s.hostedAttempts[id],
-			Name:      a.Name,
-			Args:      a.Arguments,
-			Hosted:    &a,
+			Kind:        PendingApproval,
+			ID:          id,
+			ModelCallID: s.hostedAttempts[id],
+			Name:        a.Name,
+			Args:        a.Arguments,
+			Hosted:      &a,
 		})
 	}
 	return out
@@ -185,7 +185,7 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 	}
 	// Continue can reconcile recorded work or record a terminal stop after
 	// a crash. Dispatch guards prevent fresh work with incomplete usage.
-	if s.Interruptions > max(s.Agent.Limits.Interruptions, 0) {
+	if s.Resumes > max(s.Agent.Limits.Resumes, 0) {
 		return false
 	}
 	if s.interruptionLimitReached() {
@@ -206,7 +206,7 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 	}
 	if s.Stop.Kind == StopLimited && s.Stop.Limit != nil {
 		limit := s.Stop.Limit
-		spent := s.ModelAttempts >= max(s.attemptCap, attempts)
+		spent := s.ModelCalls >= max(s.attemptCap, attempts)
 		switch limit.Kind {
 		case LimitCost, LimitOutputTokens, LimitTotalTokens:
 			// A budget raise alone cannot run pending tools when no model
@@ -216,8 +216,8 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 			}
 		}
 		switch limit.Kind {
-		case LimitModelAttempts:
-			if s.ModelAttempts >= max(s.attemptCap, attempts) {
+		case LimitModelCalls:
+			if s.ModelCalls >= max(s.attemptCap, attempts) {
 				return false
 			}
 		case LimitCost:
@@ -231,10 +231,10 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 				return false
 			}
 			used, known := s.Spend.costIn(budget.MaxCost.Currency)
-			after, ok := used.Add(limit.CostAtRisk)
-			if !known || !ok || limit.CostAtRisk > 0 &&
+			after, ok := used.Add(limit.WorstCaseCost)
+			if !known || !ok || limit.WorstCaseCost > 0 &&
 				after > budget.MaxCost.Amount ||
-				limit.CostAtRisk == 0 && used >= budget.MaxCost.Amount {
+				limit.WorstCaseCost == 0 && used >= budget.MaxCost.Amount {
 				return false
 			}
 		case LimitOutputTokens:
@@ -282,7 +282,7 @@ func (s *replayState) stopTerminal(stop Stop) bool {
 		return false
 	}
 	switch stop.Limit.Kind {
-	case LimitDeadline, LimitInterruptions:
+	case LimitDeadline, LimitResumes:
 		return true
 	case LimitCost:
 		return s.Spend.CostUnknown > 0
@@ -361,7 +361,7 @@ func (s *replayState) checkStillOpen() error {
 
 func (s *replayState) interruptionLimitReached() bool {
 	if s.Revision == 0 ||
-		s.Interruptions < max(s.Agent.Limits.Interruptions, 0) {
+		s.Resumes < max(s.Agent.Limits.Resumes, 0) {
 		return false
 	}
 	return s.resumeCounts()
@@ -386,8 +386,8 @@ func validateModelAccounting(fact *ModelFact) error {
 	if !fact.Interrupted.valid() {
 		return errors.New("unknown model interrupt cause")
 	}
-	if fact.NoDispatch && (fact.Interrupted == InterruptNone ||
-		fact.Result != nil || fact.Charge != nil || fact.Uncertain) {
+	if fact.NotSent && (fact.Interrupted == InterruptNone ||
+		fact.Result != nil || fact.Cost != nil || fact.ResultUnknown) {
 		return errors.New("known nondispatch cannot have a model result or charge")
 	}
 	if fact.Result != nil {
@@ -402,8 +402,8 @@ func validateModelAccounting(fact *ModelFact) error {
 			}
 		}
 	}
-	if fact.Charge != nil {
-		if err := fact.Charge.Validate(); err != nil {
+	if fact.Cost != nil {
+		if err := fact.Cost.Validate(); err != nil {
 			return err
 		}
 	}
@@ -448,15 +448,15 @@ func (s *replayState) trackContext(step Step) {
 		if s.intentSeq == nil {
 			s.intentSeq = map[string]int64{}
 		}
-		s.intentSeq[step.Model.AttemptID] = step.Seq
+		s.intentSeq[step.Model.ModelCallID] = step.Seq
 	case StepModelCallFinished, StepModelCallFinishedByHost:
-		if intent := s.modelIntents[step.Model.AttemptID]; intent != nil && intent.Purpose == ModelPurposeCompaction {
+		if intent := s.modelIntents[step.Model.ModelCallID]; intent != nil && intent.Purpose == ModelPurposeCompaction {
 			return
 		}
 		if !modelDispatched(step.Model) {
 			return
 		}
-		intent := s.intentSeq[step.Model.AttemptID]
+		intent := s.intentSeq[step.Model.ModelCallID]
 		for key, item := range s.live {
 			if item.NextCallOnly && s.liveSeq[key] < intent {
 				delete(s.live, key)
@@ -515,7 +515,7 @@ func (s *replayState) hiddenAt(id, name string) bool {
 // roomForAnyCall reports whether one more model call fits ModelAttempts,
 // the reserved final-answer call included. A call in flight counts as used.
 func (s *replayState) roomForAnyCall() bool {
-	used := s.ModelAttempts
+	used := s.ModelCalls
 	if s.modelIntent != "" {
 		used++
 	}
@@ -527,7 +527,7 @@ func (s *replayState) roomForAnyCall() bool {
 // reserve. A model call in flight, requested but not settled, counts as
 // used, since ModelAttempts counts only settled calls.
 func (s *replayState) roomForNormalCall() bool {
-	used := s.ModelAttempts
+	used := s.ModelCalls
 	if s.modelIntent != "" {
 		used++
 	}

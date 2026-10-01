@@ -48,7 +48,7 @@ func TestMaxCostAtRiskBoundsInputAndOutput(t *testing.T) {
 		CacheWrite: amt("4"),
 	}
 	request := riskRequest(t, 100, nil)
-	cost, ok := MaxCostAtRisk(request, p)
+	cost, ok := WorstCaseCost(request, p)
 	if !ok {
 		t.Fatal("priced request had no cost bound")
 	}
@@ -87,7 +87,7 @@ func TestMaxCostAtRiskRejectsUnboundedHostedCalls(t *testing.T) {
 			},
 		},
 	)
-	if _, ok := MaxCostAtRisk(request, p); ok {
+	if _, ok := WorstCaseCost(request, p); ok {
 		t.Fatal("unbounded hosted calls must not pass a hard cap")
 	}
 }

@@ -99,7 +99,7 @@ func Follow(
 					Step:   &step,
 				}
 				if step.Model != nil {
-					event.AttemptID = step.Model.AttemptID
+					event.ModelCallID = step.Model.ModelCallID
 					event.MessageID = step.Model.MessageID
 				}
 				if !yield(event, nil) {

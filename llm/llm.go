@@ -755,9 +755,9 @@ type Error struct {
 	// provider codes, statuses, and messages are recognized is an
 	// implementation detail that may change as providers change.
 	Reason ErrorReason
-	// Disposition records what is known about this attempt's remote effect.
+	// SendStatus records what is known about this attempt's remote effect.
 	// An absent value is unknown and must not authorize a retry.
-	Disposition FailureDisposition
+	SendStatus SendStatus
 
 	// Status is the HTTP status when a response was received, or zero.
 	Status int
@@ -779,17 +779,17 @@ type Error struct {
 	Cause error
 }
 
-// FailureDisposition is evidence about a failed send, independent of whether
+// SendStatus is evidence about a failed send, independent of whether
 // the error is retryable under a caller's policy.
-type FailureDisposition string
+type SendStatus string
 
 const (
-	// FailureNotDispatched means the request did not leave the client.
-	FailureNotDispatched FailureDisposition = "not_dispatched"
-	// FailureRejected means the provider explicitly rejected the request.
-	FailureRejected FailureDisposition = "rejected"
-	// FailureUnknown means dispatch or acceptance could not be established.
-	FailureUnknown FailureDisposition = "unknown"
+	// SendStatusNotSent means the request did not leave the client.
+	SendStatusNotSent SendStatus = "not_sent"
+	// SendStatusProviderRejected means the provider explicitly rejected the request.
+	SendStatusProviderRejected SendStatus = "provider_rejected"
+	// SendStatusUnknown means dispatch or acceptance could not be established.
+	SendStatusUnknown SendStatus = "unknown"
 )
 
 // Error includes provider identity, category, and any reason while retaining

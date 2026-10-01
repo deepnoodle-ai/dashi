@@ -152,7 +152,7 @@ func inspectionGuidance(report sessionstore.Inspection, owner inspectionOwner) s
 	switch e.Next {
 	case dashi.NextNone:
 		return prefix + "owned and idle. Send a new request using the next-Turn preferences."
-	case dashi.NextRaiseAttempts:
+	case dashi.NextRaiseModelCalls:
 		return prefix + "owned and idle. Use /continue to raise the model-call limit for this target."
 	case dashi.NextContinue:
 		return prefix + "owned and idle. Press Enter to continue this target. Recovery and recorded destination checks still apply."

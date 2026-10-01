@@ -119,7 +119,7 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 	if out.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("capped turn with default settings stopped %+v", out.Stop)
 	}
-	if len(plans.plans) != 1 || plans.plans[0].AtRisk == nil {
+	if len(plans.plans) != 1 || plans.plans[0].WorstCaseCost == nil {
 		t.Fatal("cost risk was not bounded before dispatch")
 	}
 	effective := plans.plans[0].Request.Effective()

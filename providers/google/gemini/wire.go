@@ -145,7 +145,7 @@ func (wire codec) decode(
 	// Grounding metadata is complete only in a finished response; a stream
 	// cut off before its finishReason may lack it.
 	if result.Usage != nil {
-		result.Usage.RequestsFinal = candidate.FinishReason != ""
+		result.Usage.RequestsComplete = candidate.FinishReason != ""
 	}
 	result.Stop.Raw = strings.ToLower(candidate.FinishReason)
 	if result.Stop.Raw == "" {

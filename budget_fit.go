@@ -92,8 +92,8 @@ func spendWithCallInFlight(s *replayState) (*replayState, bool) {
 	}
 	intent := s.modelIntents[s.modelIntent]
 	limit := s.Budget.MaxCost
-	if intent == nil || intent.AtRisk == nil ||
-		intent.AtRisk.Currency != limit.Currency {
+	if intent == nil || intent.WorstCaseCost == nil ||
+		intent.WorstCaseCost.Currency != limit.Currency {
 		return nil, false
 	}
 	counted := money.Amount(0)
@@ -107,7 +107,7 @@ func spendWithCallInFlight(s *replayState) (*replayState, bool) {
 	if !known {
 		return nil, false
 	}
-	total, ok := used.Add(intent.AtRisk.Total - counted)
+	total, ok := used.Add(intent.WorstCaseCost.Total - counted)
 	if !ok {
 		return nil, false
 	}

@@ -514,9 +514,9 @@ func requireEveryIntentSettled(t *testing.T, turn dashi.Turn) {
 	for _, step := range turn.Steps {
 		switch step.Kind {
 		case dashi.StepModelCallStarted:
-			open[step.Model.AttemptID] = true
+			open[step.Model.ModelCallID] = true
 		case dashi.StepModelCallFinished, dashi.StepModelCallFinishedByHost:
-			delete(open, step.Model.AttemptID)
+			delete(open, step.Model.ModelCallID)
 		}
 	}
 	if len(open) > 0 {
@@ -532,7 +532,7 @@ func testAgent() dashi.Agent {
 		API:      "test.chat",
 		Model:    "fixture",
 		Limits: dashi.Limits{
-			ModelAttempts:   4,
+			ModelCalls:      4,
 			ProviderPauses:  1,
 			ToolConcurrency: 1,
 		},

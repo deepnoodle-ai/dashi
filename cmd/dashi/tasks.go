@@ -551,7 +551,7 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 				task.State = delegate.TaskState(state.Stop.Kind)
 				task.Reason = state.Stop.Reason
 				task.Spend = task.Spend.Add(state.Spend)
-				task.ModelCalls += state.ModelAttempts
+				task.ModelCalls += state.ModelCalls
 				task.ToolCalls += len(state.Tools)
 				if state.Stop.Kind == dashi.StopCompleted {
 					task.Reply = state.Reply

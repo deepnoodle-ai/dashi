@@ -160,7 +160,7 @@ func (e *Engine) resumePending(ctx context.Context) (Result, error) {
 	}
 	var cmd dashi.Command = dashi.Continue{}
 	if last.LimitStopped() {
-		cmd = dashi.Continue{ModelAttempts: int(last.View.Stop.Limit.Limit) * 2}
+		cmd = dashi.Continue{ModelCalls: int(last.View.Stop.Limit.Limit) * 2}
 	}
 	chat := e.configureChat()
 	// The Outcome is yielded after Session.finish. Breaking here prevents

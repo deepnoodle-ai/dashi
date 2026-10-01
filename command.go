@@ -65,13 +65,13 @@ type Continue struct {
 	History   []llm.Message `json:"history,omitempty"`
 	// Budget carries the complete raised cap after host authorization.
 	Budget *Budget `json:"budget,omitempty"`
-	// ModelAttempts raises the turn's model-attempt limit to this total. Zero
+	// ModelCalls raises the turn's model-attempt limit to this total. Zero
 	// keeps the current limit. It must exceed the limit now in force, which
-	// is the agent's Limits.ModelAttempts until an earlier Continue raises
+	// is the agent's Limits.ModelCalls until an earlier Continue raises
 	// it. A turn that stopped at its limit continues only when this raise
 	// leaves room for another call. The raise applies to this turn from then
 	// on, and the recorded agent does not change.
-	ModelAttempts int `json:"model_attempts,omitempty"`
+	ModelCalls int `json:"model_calls,omitempty"`
 	// OnHistoryMismatch controls what happens when History differs from the
 	// fingerprint recorded at Start. The default warns and proceeds.
 	//

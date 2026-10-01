@@ -122,7 +122,7 @@ func FormatInspection(report Inspection) string {
 			out.WriteString("\nLatest-Turn accounting:\n" + FormatAccounting(e.Accounting))
 			c := e.Context
 			if c.Available {
-				fmt.Fprintf(&out, "\nLatest model request %s (%s): %d / %d tokens, %.1f%% (%s)", c.AttemptID, known(string(c.Purpose)), c.Tokens, c.Window, 100*float64(c.Tokens)/float64(c.Window), c.WindowSource)
+				fmt.Fprintf(&out, "\nLatest model request %s (%s): %d / %d tokens, %.1f%% (%s)", c.ModelCallID, known(string(c.Purpose)), c.Tokens, c.Window, 100*float64(c.Tokens)/float64(c.Window), c.WindowSource)
 			} else {
 				fmt.Fprintf(&out, "\nLatest model request context unavailable: %s", c.UnavailableReason)
 				if c.Estimated {

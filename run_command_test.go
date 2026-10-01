@@ -284,7 +284,7 @@ func interruptionLimitedHistoryTurn(
 ) (*MemoryRecorder, Turn) {
 	t.Helper()
 	def := testAgent()
-	def.Limits.Interruptions = 1
+	def.Limits.Resumes = 1
 	recorder := NewMemoryRecorder()
 	// The first pause follows a model attempt, so resuming from it counts.
 	paused := make(chan struct{})
@@ -323,7 +323,7 @@ func interruptionLimitedHistoryTurn(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Interruptions != 1 || view.ReadyToContinue {
+	if view.Resumes != 1 || view.ReadyToContinue {
 		t.Fatalf("turn is not at its interruption limit: %+v", view)
 	}
 	return recorder, out.Turn
@@ -820,9 +820,9 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 	}{
 		{"model result", Resolve{ModelResult: new(final("recovered"))}},
 		{"model failure", Resolve{ModelFailure: &ModelFailure{
-			Disposition: llm.FailureNotDispatched,
-			Reason:      "worker did not send",
-			Evidence:    "dispatch log",
+			SendStatus: llm.SendStatusNotSent,
+			Reason:     "worker did not send",
+			Evidence:   "dispatch log",
 		}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -850,7 +850,7 @@ func crashedModelIntent(t *testing.T, rec *MemoryRecorder) Turn {
 			Input: []llm.Message{llm.UserMessage(llm.Text("hello"))},
 		}},
 		{Kind: StepModelCallStarted, Model: &ModelFact{
-			AttemptID:     "t1:model:1",
+			ModelCallID:   "t1:model:1",
 			MessageID:     "t1:model:1:message",
 			RequestDigest: "digest",
 			Provider:      def.Provider,
@@ -899,7 +899,7 @@ func TestAdmitWithoutRunning(t *testing.T) {
 		t.Fatalf("steps=%+v", steps)
 	}
 	if admitted.Next() != NextContinue || !admitted.ReadyToContinue ||
-		admitted.ModelAttempts != 0 || admitted.Interruptions != 0 {
+		admitted.ModelCalls != 0 || admitted.Resumes != 0 {
 		t.Fatalf("view=%+v next=%v", admitted.TurnView, admitted.Next())
 	}
 
@@ -937,8 +937,8 @@ func TestAdmitWithoutRunning(t *testing.T) {
 		t.Fatalf("done=%+v err=%v sends=%d", done.Stop, err, client.sends)
 	}
 	// A pause before the first model attempt interrupted no work.
-	if done.Interruptions != 0 {
-		t.Fatalf("interruptions=%d", done.Interruptions)
+	if done.Resumes != 0 {
+		t.Fatalf("interruptions=%d", done.Resumes)
 	}
 }
 
@@ -947,7 +947,7 @@ func TestAdmittedTurnResumesWithNoInterruptionsAllowed(t *testing.T) {
 	paused := make(chan struct{})
 	close(paused)
 	agent := testAgent()
-	agent.Limits.Interruptions = -1
+	agent.Limits.Resumes = -1
 	admitted, err := (Runner{Client: noModelClient{t}, Recorder: rec}).Run(
 		t.Context(),
 		Turn{ID: "t1"},
@@ -967,8 +967,8 @@ func TestAdmittedTurnResumesWithNoInterruptionsAllowed(t *testing.T) {
 		admitted.Turn,
 		Continue{CommandID: "run"},
 	)
-	if err != nil || done.Stop.Kind != StopCompleted || done.Interruptions != 0 {
-		t.Fatalf("done=%+v interruptions=%d err=%v", done.Stop, done.Interruptions, err)
+	if err != nil || done.Stop.Kind != StopCompleted || done.Resumes != 0 {
+		t.Fatalf("done=%+v interruptions=%d err=%v", done.Stop, done.Resumes, err)
 	}
 }
 
@@ -1010,7 +1010,7 @@ func TestPauseAfterModelAttemptCountsAsInterruption(t *testing.T) {
 		t.Fatalf("stopped=%+v err=%v sends=%d", stopped.Stop, err, client.sends)
 	}
 	done, err := runner.Run(t.Context(), stopped.Turn, Continue{CommandID: "run"})
-	if err != nil || done.Stop.Kind != StopCompleted || done.Interruptions != 1 {
-		t.Fatalf("done=%+v interruptions=%d err=%v", done.Stop, done.Interruptions, err)
+	if err != nil || done.Stop.Kind != StopCompleted || done.Resumes != 1 {
+		t.Fatalf("done=%+v interruptions=%d err=%v", done.Stop, done.Resumes, err)
 	}
 }

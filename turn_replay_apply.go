@@ -35,8 +35,8 @@ func (s *replayState) apply(step Step) error {
 		case step.Kind == StepTurnStopped && step.Stop != nil &&
 			step.Stop.Kind == StopLimited && step.Stop.Limit != nil &&
 			(step.Stop.Limit.Kind == LimitDeadline ||
-				step.Stop.Limit.Kind == LimitInterruptions ||
-				step.Stop.Limit.Kind == LimitModelAttempts && s.finalAnswerOnly ||
+				step.Stop.Limit.Kind == LimitResumes ||
+				step.Stop.Limit.Kind == LimitModelCalls && s.finalAnswerOnly ||
 				step.Stop.Limit.Kind == LimitOutputTokens ||
 				step.Stop.Limit.Kind == LimitTotalTokens ||
 				step.Stop.Limit.Kind == LimitCost):
@@ -117,7 +117,7 @@ func (s *replayState) apply(step Step) error {
 		if s.ActiveCompactionWindow < 0 || s.ActiveCompactionWindow > 0 && (s.ActiveCompactionWindow < 1024 || s.Agent.ActiveCompaction == nil || s.Agent.ActiveCompaction.Disabled || origin == StartCompaction) {
 			return errors.New("invalid active compaction window")
 		}
-		s.attemptCap = s.Agent.Limits.ModelAttempts
+		s.attemptCap = s.Agent.Limits.ModelCalls
 		if step.Started.Budget != nil {
 			if err := step.Started.Budget.Validate(); err != nil {
 				return err
@@ -142,14 +142,14 @@ func (s *replayState) apply(step Step) error {
 		if err := s.calculateSpend(); err != nil {
 			return err
 		}
-		if !s.canContinueWith(step.Budget, step.ModelAttempts) {
+		if !s.canContinueWith(step.Budget, step.ModelCalls) {
 			return errors.New("turn cannot continue")
 		}
-		if step.ModelAttempts != 0 {
-			if step.ModelAttempts <= s.attemptCap {
+		if step.ModelCalls != 0 {
+			if step.ModelCalls <= s.attemptCap {
 				return errors.New("model-attempt raise must exceed the cap")
 			}
-			s.attemptCap = step.ModelAttempts
+			s.attemptCap = step.ModelCalls
 		}
 		if step.Budget != nil {
 			if step.At.IsZero() {
@@ -170,7 +170,7 @@ func (s *replayState) apply(step Step) error {
 			)
 		}
 		if s.resumeCounts() {
-			s.Interruptions++
+			s.Resumes++
 		}
 		if s.Stop.Kind == StopFailed {
 			s.failedModel = ""
@@ -196,7 +196,7 @@ func (s *replayState) apply(step Step) error {
 		}
 	case StepModelCallStarted:
 		if step.Model == nil ||
-			step.Model.AttemptID == "" ||
+			step.Model.ModelCallID == "" ||
 			step.Model.MessageID == "" ||
 			step.Model.RequestDigest == "" ||
 			s.modelIntent != "" ||
@@ -207,7 +207,7 @@ func (s *replayState) apply(step Step) error {
 		if err := s.validateCompactionIntent(step); err != nil {
 			return err
 		}
-		if err := validateAdmission(step.Model.Admission); err != nil {
+		if err := validateAdmission(step.Model.Reservation); err != nil {
 			return err
 		}
 		if err := validateHidden(step.Model); err != nil {
@@ -221,27 +221,27 @@ func (s *replayState) apply(step Step) error {
 		if step.Model.EstimatedInputTokens < 0 {
 			return errors.New("negative estimated input")
 		}
-		if step.Model.AtRisk != nil {
-			if err := step.Model.AtRisk.Validate(); err != nil {
+		if step.Model.WorstCaseCost != nil {
+			if err := step.Model.WorstCaseCost.Validate(); err != nil {
 				return err
 			}
 		}
 		if step.Model.FinalReplyOnly &&
 			(s.Agent.Limits.NoReservedFinalReply ||
-				s.ModelAttempts == 0 ||
-				s.ModelAttempts+1 != s.attemptCap) {
+				s.ModelCalls == 0 ||
+				s.ModelCalls+1 != s.attemptCap) {
 			return errors.New("final-answer intent is not the last model attempt")
 		}
-		s.modelIntent = step.Model.AttemptID
-		s.modelIntents[step.Model.AttemptID] = step.Model
-		s.modelOrder = append(s.modelOrder, step.Model.AttemptID)
+		s.modelIntent = step.Model.ModelCallID
+		s.modelIntents[step.Model.ModelCallID] = step.Model
+		s.modelOrder = append(s.modelOrder, step.Model.ModelCallID)
 		s.modelCalls++
 		s.finalAnswerOnly = step.Model.FinalReplyOnly
 		s.unresolvedPartial = false
-		if _, exists := s.modelMessages[step.Model.AttemptID]; exists {
+		if _, exists := s.modelMessages[step.Model.ModelCallID]; exists {
 			return errors.New("repeated model attempt ID")
 		}
-		s.modelMessages[step.Model.AttemptID] = step.Model.MessageID
+		s.modelMessages[step.Model.ModelCallID] = step.Model.MessageID
 		s.awaitingClassification = false
 		s.modelDefs = map[string]tool.Definition{}
 		outputTool := false
@@ -270,8 +270,8 @@ func (s *replayState) apply(step Step) error {
 		}
 	case StepModelCallFinished:
 		if step.Model == nil ||
-			step.Model.AttemptID == "" ||
-			step.Model.AttemptID != s.modelIntent ||
+			step.Model.ModelCallID == "" ||
+			step.Model.ModelCallID != s.modelIntent ||
 			step.Model.MessageID != s.modelMessages[s.modelIntent] {
 			return errors.New("model settlement without intent")
 		}
@@ -284,24 +284,24 @@ func (s *replayState) apply(step Step) error {
 		if err := validateModelAccounting(step.Model); err != nil {
 			return err
 		}
-		if step.Model.Failure != "" &&
-			step.Model.Failure != llm.FailureUnknown &&
-			step.Model.Failure != llm.FailureRejected &&
-			step.Model.Failure != llm.FailureNotDispatched {
+		if step.Model.SendStatus != "" &&
+			step.Model.SendStatus != llm.SendStatusUnknown &&
+			step.Model.SendStatus != llm.SendStatusProviderRejected &&
+			step.Model.SendStatus != llm.SendStatusNotSent {
 			return errors.New("invalid model failure disposition")
 		}
-		if step.Model.Uncertain &&
-			(step.Model.Failure == llm.FailureRejected ||
-				step.Model.Failure == llm.FailureNotDispatched) {
+		if step.Model.ResultUnknown &&
+			(step.Model.SendStatus == llm.SendStatusProviderRejected ||
+				step.Model.SendStatus == llm.SendStatusNotSent) {
 			return errors.New("known model failure marked uncertain")
 		}
 		if step.Model.Interrupted != InterruptNone &&
-			(step.Model.Failure == llm.FailureRejected ||
-				step.Model.Failure == llm.FailureNotDispatched) {
+			(step.Model.SendStatus == llm.SendStatusProviderRejected ||
+				step.Model.SendStatus == llm.SendStatusNotSent) {
 			return errors.New("interrupted model call cannot have known nonexecution")
 		}
-		if step.Model.Failure == llm.FailureRejected ||
-			step.Model.Failure == llm.FailureNotDispatched {
+		if step.Model.SendStatus == llm.SendStatusProviderRejected ||
+			step.Model.SendStatus == llm.SendStatusNotSent {
 			if step.Model.Error == "" ||
 				step.Model.Evidence == "" ||
 				(step.Model.Result != nil &&
@@ -315,26 +315,26 @@ func (s *replayState) apply(step Step) error {
 			return err
 		}
 		s.modelIntent = ""
-		s.modelSettlements[step.Model.AttemptID] = step.Model
+		s.modelSettlements[step.Model.ModelCallID] = step.Model
 		if step.Model.Interrupted == InterruptNone {
-			s.ModelAttempts++
+			s.ModelCalls++
 		}
-		if step.Model.Uncertain {
-			s.unresolvedModel = step.Model.AttemptID
+		if step.Model.ResultUnknown {
+			s.unresolvedModel = step.Model.ModelCallID
 			s.unresolvedInterrupted = step.Model.Interrupted != InterruptNone
 			s.unresolvedPartial = step.Model.Result != nil && (step.Model.Result.ID != "" || len(step.Model.Result.Message.Content) > 0 || step.Model.Result.Usage != nil)
 		} else if step.Model.Error != "" &&
 			step.Model.Interrupted == InterruptNone &&
-			step.Model.Failure != llm.FailureRejected &&
-			step.Model.Failure != llm.FailureNotDispatched {
+			step.Model.SendStatus != llm.SendStatusProviderRejected &&
+			step.Model.SendStatus != llm.SendStatusNotSent {
 			s.failedModel = step.Model.Error
 		}
-		if step.Model.Result != nil && s.modelIntents[step.Model.AttemptID].Purpose != ModelPurposeCompaction {
+		if step.Model.Result != nil && s.modelIntents[step.Model.ModelCallID].Purpose != ModelPurposeCompaction {
 			actionable := step.Model.Error == "" &&
 				step.Model.Interrupted == InterruptNone &&
 				!s.Stop.Terminal
 			if err := s.recordResult(
-				step.Model.AttemptID,
+				step.Model.ModelCallID,
 				step.Model.Result,
 				actionable,
 			); err != nil {
@@ -343,8 +343,8 @@ func (s *replayState) apply(step Step) error {
 		}
 		if step.Model.Error == "" &&
 			step.Model.Interrupted == InterruptNone {
-			if s.modelIntents[step.Model.AttemptID].Purpose == ModelPurposeCompaction {
-				s.pendingCompaction = step.Model.AttemptID
+			if s.modelIntents[step.Model.ModelCallID].Purpose == ModelPurposeCompaction {
+				s.pendingCompaction = step.Model.ModelCallID
 			} else {
 				s.compactionUsed = false
 				s.awaitingClassification = true
@@ -355,7 +355,7 @@ func (s *replayState) apply(step Step) error {
 		}
 	case StepModelCallFinishedByHost:
 		if step.Model == nil ||
-			step.Model.AttemptID != s.unresolvedModel ||
+			step.Model.ModelCallID != s.unresolvedModel ||
 			step.Model.MessageID != s.modelMessages[s.unresolvedModel] ||
 			(step.Model.Result == nil &&
 				step.Model.Error == "") {
@@ -368,19 +368,19 @@ func (s *replayState) apply(step Step) error {
 			return err
 		}
 		s.unresolvedModel = ""
-		s.modelSettlements[step.Model.AttemptID] = step.Model
+		s.modelSettlements[step.Model.ModelCallID] = step.Model
 		// Verified nonexecution clears uncertainty; Continue may retry.
 		if step.Model.Error != "" &&
 			(step.Model.Result != nil || s.unresolvedPartial ||
-				(step.Model.Failure != llm.FailureRejected &&
-					step.Model.Failure != llm.FailureNotDispatched) ||
+				(step.Model.SendStatus != llm.SendStatusProviderRejected &&
+					step.Model.SendStatus != llm.SendStatusNotSent) ||
 				step.Model.Evidence == "") {
 			return errors.New("model failure reconciliation lacks evidence")
 		}
 		if step.Model.Error == "" {
-			if s.modelIntents[step.Model.AttemptID].Purpose != ModelPurposeCompaction {
+			if s.modelIntents[step.Model.ModelCallID].Purpose != ModelPurposeCompaction {
 				if err := s.recordResult(
-					step.Model.AttemptID,
+					step.Model.ModelCallID,
 					step.Model.Result,
 					!s.Stop.Terminal,
 				); err != nil {
@@ -388,10 +388,10 @@ func (s *replayState) apply(step Step) error {
 				}
 			}
 			if s.unresolvedInterrupted {
-				s.ModelAttempts++
+				s.ModelCalls++
 			}
-			if s.modelIntents[step.Model.AttemptID].Purpose == ModelPurposeCompaction {
-				s.pendingCompaction = step.Model.AttemptID
+			if s.modelIntents[step.Model.ModelCallID].Purpose == ModelPurposeCompaction {
+				s.pendingCompaction = step.Model.ModelCallID
 			} else {
 				s.compactionUsed = false
 				s.awaitingClassification = true
@@ -673,7 +673,7 @@ func (s *replayState) apply(step Step) error {
 				v.Status != ToolFinished ||
 				v.Outcome == nil ||
 				v.Outcome.State != tool.StateSucceeded ||
-				s.callAttempts[v.Call.ID] != step.Output.AttemptID ||
+				s.callAttempts[v.Call.ID] != step.Output.ModelCallID ||
 				!canonjson.Equal(
 					v.Call.Args,
 					step.Output.Value,
@@ -682,8 +682,8 @@ func (s *replayState) apply(step Step) error {
 			}
 		case OutputFromText:
 			if step.Output.ToolCallID != "" ||
-				step.Output.AttemptID == "" ||
-				step.Output.AttemptID != s.latestAttempt ||
+				step.Output.ModelCallID == "" ||
+				step.Output.ModelCallID != s.latestAttempt ||
 				!s.awaitingClassification ||
 				s.latestResult == nil ||
 				s.latestResult.Stop.Kind != llm.StopFinished {

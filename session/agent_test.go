@@ -39,7 +39,7 @@ func TestCompleteSettingsPriorityAndDispatchedIntent(t *testing.T) {
 			s.New = true
 			s.Agent.Settings = old
 			s.Agent.Instructions = "keep instructions"
-			s.Agent.Limits.ModelAttempts = 3
+			s.Agent.Limits.ModelCalls = 3
 			first, err := s.Send(t.Context(), "old controls")
 			if err != nil {
 				t.Fatal(err)
@@ -61,7 +61,7 @@ func TestCompleteSettingsPriorityAndDispatchedIntent(t *testing.T) {
 			if !reflect.DeepEqual(out.Agent.Settings, tc.want) || !reflect.DeepEqual(client.Inputs()[1].Settings, tc.want) || out.Agent.NoInheritedSettings != tc.marked {
 				t.Fatalf("agent=%+v dispatch=%+v want=%+v", out.Agent, client.Inputs()[1].Settings, tc.want)
 			}
-			if out.Agent.Instructions != "keep instructions" || out.Agent.Limits.ModelAttempts != 3 {
+			if out.Agent.Instructions != "keep instructions" || out.Agent.Limits.ModelCalls != 3 {
 				t.Fatalf("non-settings inheritance changed: %+v", out.Agent)
 			}
 			original := loadTurn(t, rec, first.Turn.ID)

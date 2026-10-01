@@ -194,11 +194,11 @@ const (
 	// settings or delivered context, or a stop.
 	VerdictChange HookVerdict = "change"
 	VerdictStop   HookVerdict = "stop"
-	// VerdictAdmit and VerdictLimit are BeforeSend answers: admission terms,
+	// VerdictReserve and VerdictLimit are BeforeSend answers: admission terms,
 	// or a denial with a limit. VerdictDeny is also a BeforeTool answer.
-	VerdictAdmit HookVerdict = "admit"
-	VerdictLimit HookVerdict = "limit"
-	VerdictDeny  HookVerdict = "deny"
+	VerdictReserve HookVerdict = "reserve"
+	VerdictLimit   HookVerdict = "limit"
+	VerdictDeny    HookVerdict = "deny"
 	// VerdictAllow, VerdictDefer and VerdictRewrite are BeforeTool answers.
 	VerdictAllow   HookVerdict = "allow"
 	VerdictDefer   HookVerdict = "defer"
@@ -293,8 +293,8 @@ type SendPlan struct {
 	Request llm.Request
 	// Turn is a snapshot of committed spend and state before admission.
 	Turn TurnView
-	// AtRisk is nil when the call cannot be bounded by available prices.
-	AtRisk *llm.Cost
+	// WorstCaseCost is nil when the call cannot be bounded by available prices.
+	WorstCaseCost *llm.Cost
 	// Remaining is nil when the turn has no cost cap.
 	Remaining *Money
 }
@@ -308,12 +308,12 @@ type SendDecision struct {
 	// can resume after funding. It implies Deny, and its kind must be host,
 	// cost, or a token cap.
 	Limit *LimitDetail
-	// Admission is host-owned, non-secret JSON recorded with the model intent
+	// Reservation is host-owned, non-secret JSON recorded with the model intent
 	// under this hook's name, so a recorder can atomically reserve spending
 	// against these exact terms. All hooks' admissions share a 16 KiB limit.
 	// BeforeSend may be asked again for the same reply, so reserve in the
 	// recorder with the intent, not in the hook.
-	Admission json.RawMessage
+	Reservation json.RawMessage
 }
 
 // ToolPlan gives BeforeTool a call whose arguments already match the tool's
@@ -391,8 +391,8 @@ type ResultDecision struct {
 // FinishPlan gives BeforeFinish a candidate final answer: model text that
 // would end the turn, or a schema-valid dashi_submit_output call.
 type FinishPlan struct {
-	Turn      TurnView
-	AttemptID string
+	Turn        TurnView
+	ModelCallID string
 	// CallID is the dashi_submit_output call for a submitted output, and
 	// empty for a final text answer.
 	CallID string

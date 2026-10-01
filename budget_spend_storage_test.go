@@ -40,7 +40,7 @@ func storageAgent() dashi.Agent {
 		Provider: dashitest.Provider,
 		API:      dashitest.API,
 		Model:    dashitest.Model,
-		Limits:   dashi.Limits{ModelAttempts: 4},
+		Limits:   dashi.Limits{ModelCalls: 4},
 	}
 }
 
@@ -65,7 +65,7 @@ func TestRecordersReopenSeparateUsageAndMonetaryOverflow(t *testing.T) {
 					dashitest.Reply("done"),
 				}
 				for i := range replies {
-					replies[i].Usage = &llm.Usage{RequestsFinal: true}
+					replies[i].Usage = &llm.Usage{RequestsComplete: true}
 				}
 				modelCosts := []money.Amount{
 					money.MustParseAmount("0.5"), money.MustParseAmount("0.25"), 0,
@@ -230,7 +230,7 @@ func TestLateToolOverflowCannotPoisonOpenCostStop(t *testing.T) {
 			reply := dashitest.CallTool("call-1", "lookup", `{}`)
 			reply.Message.Content = append(reply.Message.Content,
 				dashitest.CallTool("call-2", "lookup", `{}`).Message.Content...)
-			reply.Usage = &llm.Usage{RequestsFinal: true}
+			reply.Usage = &llm.Usage{RequestsComplete: true}
 			reply.Cost = storageCharge(money.MustParseAmount("1"))
 			lookup, err := tool.Func[struct{}]("lookup", "Fixture",
 				func(_ context.Context, call tool.Call, _ struct{}) (tool.Outcome, error) {

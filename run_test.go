@@ -91,7 +91,7 @@ func testAgent() Agent {
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",
-		Limits:   Limits{ModelAttempts: 3, ProviderPauses: 1, ToolConcurrency: 2},
+		Limits:   Limits{ModelCalls: 3, ProviderPauses: 1, ToolConcurrency: 2},
 	}
 }
 
@@ -153,7 +153,7 @@ func TestSimpleTurnAndDuplicateStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.ModelAttempts != 1 || len(view.Pending) != 0 {
+	if view.ModelCalls != 1 || len(view.Pending) != 0 {
 		t.Fatalf("view=%+v", view)
 	}
 	again, err := (Runner{
@@ -554,7 +554,7 @@ func TestSettledModelResultDoesNotSendAgain(t *testing.T) {
 	commit(Step{
 		Kind: StepModelCallStarted,
 		Model: &ModelFact{
-			AttemptID:     "t1:model:1",
+			ModelCallID:   "t1:model:1",
 			MessageID:     "t1:model:1:message",
 			RequestDigest: "digest",
 			Provider:      def.Provider,
@@ -620,7 +620,7 @@ func TestCommittedFinalResultRecoversWithoutNewModelCall(t *testing.T) {
 	commit(Step{
 		Kind: StepModelCallStarted,
 		Model: &ModelFact{
-			AttemptID:     "t1:model:1",
+			ModelCallID:   "t1:model:1",
 			MessageID:     "t1:model:1:message",
 			RequestDigest: "digest",
 			Provider:      def.Provider,
@@ -632,9 +632,9 @@ func TestCommittedFinalResultRecoversWithoutNewModelCall(t *testing.T) {
 	commit(Step{
 		Kind: StepModelCallFinished,
 		Model: &ModelFact{
-			AttemptID: "t1:model:1",
-			MessageID: "t1:model:1:message",
-			Result:    &answer,
+			ModelCallID: "t1:model:1",
+			MessageID:   "t1:model:1:message",
+			Result:      &answer,
 		},
 	})
 	got, err := (Runner{Client: client, Recorder: rec}).Run(
@@ -726,7 +726,7 @@ func TestProviderPauseUsesBoundedNextAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.ProviderPauses != 1 || view.ModelAttempts != 2 {
+	if view.ProviderPauses != 1 || view.ModelCalls != 2 {
 		t.Fatalf("view=%+v", view)
 	}
 }
@@ -897,7 +897,7 @@ func TestRunWithoutObserverDoesNotStream(t *testing.T) {
 func requireAttemptIdentity(t *testing.T, event Event) {
 	t.Helper()
 	if event.TurnID != "t1" ||
-		event.AttemptID != "t1:model:1" ||
+		event.ModelCallID != "t1:model:1" ||
 		event.MessageID != "t1:model:1:message" {
 		t.Fatalf("event=%+v", event)
 	}
@@ -1106,7 +1106,7 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 	commit(Step{
 		Kind: StepModelCallStarted,
 		Model: &ModelFact{
-			AttemptID:     "t1:model:1",
+			ModelCallID:   "t1:model:1",
 			MessageID:     "t1:model:1:message",
 			RequestDigest: "digest",
 			Provider:      def.Provider,
@@ -1126,9 +1126,9 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 	commit(Step{
 		Kind: StepModelCallFinished,
 		Model: &ModelFact{
-			AttemptID: "t1:model:1",
-			MessageID: "t1:model:1:message",
-			Result:    &requested,
+			ModelCallID: "t1:model:1",
+			MessageID:   "t1:model:1:message",
+			Result:      &requested,
 		},
 	})
 	commit(Step{

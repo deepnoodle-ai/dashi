@@ -50,7 +50,7 @@ type inspectedControls struct {
 	MaxTokens        int      `json:"max_tokens"`
 }
 type recordedSettings struct {
-	AttemptID   string            `json:"attempt_id"`
+	ModelCallID string            `json:"model_call_id"`
 	Destination string            `json:"destination"`
 	Model       string            `json:"model"`
 	Effective   inspectedControls `json:"effective"`
@@ -147,9 +147,9 @@ func (e *Engine) inspectSettings(ctx context.Context) settingsInspection {
 				if step.Kind == dashi.StepModelCallStarted && step.Model != nil {
 					fact := step.Model
 					show := last.View.Agent.Settings.ReasoningSummary != nil && *last.View.Agent.Settings.ReasoningSummary
-					view.Recorded = &recordedSettings{AttemptID: fact.AttemptID, Destination: fact.Provider, Model: fact.Model, Effective: inspectControls(fact.Effective, show), Summary: "no settled summary"}
+					view.Recorded = &recordedSettings{ModelCallID: fact.ModelCallID, Destination: fact.Provider, Model: fact.Model, Effective: inspectControls(fact.Effective, show), Summary: "no settled summary"}
 				}
-				if view.Recorded != nil && step.Model != nil && step.Model.AttemptID == view.Recorded.AttemptID && step.Model.Result != nil {
+				if view.Recorded != nil && step.Model != nil && step.Model.ModelCallID == view.Recorded.ModelCallID && step.Model.Result != nil {
 					view.Recorded.Summary = "no summary returned"
 					for _, part := range step.Model.Result.Message.Content {
 						if part.Kind == llm.ContentReasoning && part.Reasoning != nil && part.Reasoning.Text != "" {
@@ -224,7 +224,7 @@ func (c *Controller) settings(ctx context.Context, arg string) {
 		fmt.Fprintf(&text, "\nActive-Turn protection (text-only): %s-token recorded window. Request sizes are estimates, not provider-tokenizer guarantees.", groupDigits(view.ActiveTurnWindow))
 	}
 	if view.Recorded != nil {
-		fmt.Fprintf(&text, "\nRecorded attempt %s: %s %s; %s", view.Recorded.AttemptID, view.Recorded.Destination, view.Recorded.Model, view.Recorded.Summary)
+		fmt.Fprintf(&text, "\nRecorded attempt %s: %s %s; %s", view.Recorded.ModelCallID, view.Recorded.Destination, view.Recorded.Model, view.Recorded.Summary)
 		for _, field := range []string{"thinking_effort", "show_thinking", "temperature", "max_tokens"} {
 			label, value := inspectedControlValue(field, view.Recorded.Effective)
 			fmt.Fprintf(&text, "\nRecorded %s: %s", label, value)

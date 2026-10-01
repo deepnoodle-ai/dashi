@@ -63,7 +63,7 @@ func settledResults(steps []Step) []*llm.Result {
 	var out []*llm.Result
 	turn := Turn{Steps: steps}
 	for _, step := range steps {
-		if step.Model != nil && modelPurpose(turn, step.Model.AttemptID) == ModelPurposeCompaction {
+		if step.Model != nil && modelPurpose(turn, step.Model.ModelCallID) == ModelPurposeCompaction {
 			continue
 		}
 		if result := actionableResult(step); result != nil {
@@ -97,7 +97,7 @@ func answerText(steps []Step) string {
 	var chain []*llm.Result
 	turn := Turn{Steps: steps}
 	for _, step := range steps {
-		if step.Model != nil && modelPurpose(turn, step.Model.AttemptID) == ModelPurposeCompaction {
+		if step.Model != nil && modelPurpose(turn, step.Model.ModelCallID) == ModelPurposeCompaction {
 			continue
 		}
 		if step.Kind == StepModelCallFinished && step.Model != nil &&

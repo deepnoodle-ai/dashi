@@ -901,7 +901,7 @@ func (wire codec) decodeWithPartial(raw []byte, requested llm.ModelRef, partial 
 		// Usage arrives only in a terminal response object (the stream's
 		// response.completed or response.incomplete event), whose counters
 		// and output items are complete.
-		r.Usage.RequestsFinal = true
+		r.Usage.RequestsComplete = true
 		r.Cost = reportedCost(fields.Usage)
 	}
 	switch v.Status {

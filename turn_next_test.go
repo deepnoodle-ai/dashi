@@ -35,7 +35,7 @@ func nextRows() []nextRow {
 		return &Stop{Kind: StopLimited, Reason: string(kind), Limit: &LimitDetail{Kind: kind}}
 	}
 	usd := func(amount money.Amount) *Money { return &Money{Amount: amount, Currency: "USD"} }
-	attemptsSpent := func(s *replayState) { s.ModelAttempts = s.attemptCap }
+	attemptsSpent := func(s *replayState) { s.ModelCalls = s.attemptCap }
 	costSpent := func(s *replayState) {
 		s.Budget = &Budget{MaxCost: usd(100)}
 		s.Spend.Cost = map[string]money.Amount{"USD": 100}
@@ -58,9 +58,9 @@ func nextRows() []nextRow {
 			want:   NextNone,
 		},
 		{
-			name:   "interruptions",
-			covers: []string{"limited/interruptions"},
-			stop:   limited(LimitInterruptions),
+			name:   "resumes",
+			covers: []string{"limited/resumes"},
+			stop:   limited(LimitResumes),
 			want:   NextNone,
 		},
 		{
@@ -71,10 +71,10 @@ func nextRows() []nextRow {
 		},
 		{
 			name:   "model attempts",
-			covers: []string{"limited/model_attempts"},
-			stop:   limited(LimitModelAttempts),
+			covers: []string{"limited/model_calls"},
+			stop:   limited(LimitModelCalls),
 			setup:  attemptsSpent,
-			want:   NextRaiseAttempts,
+			want:   NextRaiseModelCalls,
 		},
 		{
 			name:   "cost",
@@ -137,10 +137,9 @@ func nextRows() []nextRow {
 		{name: "active context window", covers: []string{"limited/context_window"}, stop: limited(LimitContextWindow), want: NextFix},
 		{name: "compaction failed", covers: []string{"failed/compaction_failed"}, stop: &Stop{Kind: StopFailed, Reason: StopReasonCompactionFailed}, want: NextFix},
 		{
-			name:   "one call hit its output or context window",
-			covers: []string{"limited/output", "limited/context"},
-			stop:   &Stop{Kind: StopLimited, Reason: "output"},
-			want:   NextFix,
+			name: "one call hit its output or context window",
+			stop: &Stop{Kind: StopLimited, Reason: string(LimitOutputTokens)},
+			want: NextFix,
 		},
 		{
 			name:   "waiting, every answer recorded",
@@ -185,7 +184,7 @@ func nextRows() []nextRow {
 			stop: &Stop{Kind: StopInterrupted, Reason: "context canceled"},
 			setup: func(s *replayState) {
 				s.modelCalls = 1
-				s.Interruptions = s.Agent.Limits.Interruptions
+				s.Resumes = s.Agent.Limits.Resumes
 			},
 			want: NextFix,
 		},
@@ -276,13 +275,13 @@ func nextRows() []nextRow {
 			// The reserved final answer ends at the model-call limit; a
 			// raise, not a bare Continue, completes it.
 			name: "output recorded at the model-call limit",
-			stop: limited(LimitModelAttempts),
+			stop: limited(LimitModelCalls),
 			setup: func(s *replayState) {
 				attemptsSpent(s)
 				s.finalAnswerOnly = true
 				s.Output = &StructuredOutput{}
 			},
-			want: NextRaiseAttempts,
+			want: NextRaiseModelCalls,
 		},
 	}
 }
@@ -302,8 +301,8 @@ func rowView(row nextRow) TurnView {
 		TurnView: TurnView{Tools: map[string]ToolView{}, Revision: 5},
 		hosted:   map[string]llm.HostedApprovalRequest{},
 	}
-	s.Agent.Limits.Interruptions = 2
-	s.attemptCap, s.ModelAttempts = 8, 1
+	s.Agent.Limits.Resumes = 2
+	s.attemptCap, s.ModelCalls = 8, 1
 	if row.stop != nil {
 		s.Stop = *row.stop
 	}

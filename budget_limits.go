@@ -22,7 +22,7 @@ func checkSendBudget(
 	snapshot := request.Snapshot()
 	var atRisk *llm.Cost
 	if snapshot.ModelInfo != nil && snapshot.ModelInfo.Pricing != nil {
-		if value, ok := llm.MaxCostAtRisk(request, *snapshot.ModelInfo.Pricing); ok {
+		if value, ok := llm.WorstCaseCost(request, *snapshot.ModelInfo.Pricing); ok {
 			atRisk = &value
 		}
 	}
@@ -108,12 +108,12 @@ func checkSendBudget(
 				cap.Currency,
 			),
 			Limit: &LimitDetail{
-				Kind:       LimitCost,
-				CostLimit:  cap.Amount,
-				Currency:   cap.Currency,
-				CostUsed:   used,
-				CostAtRisk: atRisk.Total,
-				FitTokens:  fit,
+				Kind:                     LimitCost,
+				CostLimit:                cap.Amount,
+				Currency:                 cap.Currency,
+				CostUsed:                 used,
+				WorstCaseCost:            atRisk.Total,
+				SuggestedMaxOutputTokens: fit,
 			},
 		}
 	}
@@ -225,7 +225,7 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 			!overOnly && output == b.MaxOutputTokens) {
 		return &Stop{
 			Kind:   StopLimited,
-			Reason: "output_tokens",
+			Reason: string(LimitOutputTokens),
 			Limit: &LimitDetail{
 				Kind:  LimitOutputTokens,
 				Limit: int64(b.MaxOutputTokens),
@@ -238,7 +238,7 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 		!overOnly && total == b.MaxTotalTokens) {
 		return &Stop{
 			Kind:   StopLimited,
-			Reason: "total_tokens",
+			Reason: string(LimitTotalTokens),
 			Limit: &LimitDetail{
 				Kind:  LimitTotalTokens,
 				Limit: int64(b.MaxTotalTokens),
@@ -266,7 +266,7 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 		!overOnly && used == b.MaxCost.Amount {
 		return &Stop{
 			Kind:   StopLimited,
-			Reason: "cost",
+			Reason: string(LimitCost),
 			Limit: &LimitDetail{
 				Kind:      LimitCost,
 				CostLimit: b.MaxCost.Amount,

@@ -962,7 +962,7 @@ func (ts *Tasks) viewLocked(t *task, c *childTurn) TaskView {
 	}
 	for _, c := range t.turns {
 		tv := c.view()
-		v.ModelCalls += tv.ModelAttempts
+		v.ModelCalls += tv.ModelCalls
 		v.ToolCalls += len(tv.Tools)
 		v.Spend = v.Spend.Add(tv.Spend)
 	}

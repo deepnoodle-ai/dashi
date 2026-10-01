@@ -154,7 +154,7 @@ func TestNewDestinationCompletesRecordedOutputBeforeQueuedWork(t *testing.T) {
 	e.mu.Lock()
 	start.Agent = e.agent()
 	e.mu.Unlock()
-	start.Agent.Limits = dashi.Limits{ModelAttempts: 1}
+	start.Agent.Limits = dashi.Limits{ModelCalls: 1}
 	start.OutputSchema = json.RawMessage(`{"type":"object"}`)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -217,7 +217,7 @@ func TestReopenedTurnKeepsRouteBeforeFirstModelAttempt(t *testing.T) {
 	}
 	_, _ = e.Prompt(ctx, "recorded before attempt")
 	last := e.Last(t.Context())
-	if last == nil || calls != 0 || last.View.ModelAttempts != 0 {
+	if last == nil || calls != 0 || last.View.ModelCalls != 0 {
 		t.Fatalf("last=%+v calls=%d", last, calls)
 	}
 	p.mu.Lock()

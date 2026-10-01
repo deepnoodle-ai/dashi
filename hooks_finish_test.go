@@ -59,7 +59,7 @@ func TestFinishRejectsSubmissionWithReason(t *testing.T) {
 		string(out.Output.Value) != `{"answer":2}` || out.Output.ToolCallID != "out-2" {
 		t.Fatalf("stop=%+v output=%+v err=%v", out.Stop, out.Output, err)
 	}
-	if len(plans) != 2 || plans[0].CallID != "out-1" || plans[0].AttemptID == "" {
+	if len(plans) != 2 || plans[0].CallID != "out-1" || plans[0].ModelCallID == "" {
 		t.Fatalf("plans = %+v", plans)
 	}
 	if seen := toolResultText(t, out.Turn, "out-1"); seen != "Not accepted: the answer must be 2" {
@@ -144,7 +144,7 @@ func TestFinishNudgeIsDroppedWhenNoNormalCallRemains(t *testing.T) {
 		}}}, nil
 	}}
 	agent := structuredAgent()
-	agent.Limits.ModelAttempts = 2
+	agent.Limits.ModelCalls = 2
 	client := &scriptedClient{results: []llm.Result{submitResult("out-1", `{"answer":1}`)}}
 	_, out, err := runStructured(t, agent, client, nudge.Hooks())
 	if err != nil || out.Stop.Kind != StopCompleted || out.Output == nil ||
@@ -159,7 +159,7 @@ func TestFinishVetoUsesTheReservedCallThenStops(t *testing.T) {
 	}}
 	t.Run("submission", func(t *testing.T) {
 		agent := structuredAgent()
-		agent.Limits.ModelAttempts = 2
+		agent.Limits.ModelCalls = 2
 		client := &scriptedClient{results: []llm.Result{
 			submitResult("out-1", `{"answer":1}`),
 			submitResult("out-2", `{"answer":2}`),
@@ -184,7 +184,7 @@ func TestFinishVetoUsesTheReservedCallThenStops(t *testing.T) {
 	})
 	t.Run("text", func(t *testing.T) {
 		agent := testAgent()
-		agent.Limits.ModelAttempts = 2
+		agent.Limits.ModelCalls = 2
 		client := &scriptedClient{results: []llm.Result{final("ssn 123"), final("ssn 456")}}
 		runner := Runner{Client: client, Hooks: veto.Hooks()}
 		out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
@@ -211,7 +211,7 @@ func TestFinishVetoBeforeTheReserveContinuesIntoIt(t *testing.T) {
 		return FinishDecision{}, nil
 	}}
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 3
+	agent.Limits.ModelCalls = 3
 	remote := &valueTool{}
 	client := &scriptedClient{results: []llm.Result{
 		callResult("call-1", "remote"),
@@ -481,7 +481,7 @@ func TestFinishTextRejectedOnCallBeforeReserveIsDropped(t *testing.T) {
 		}}}, nil
 	}}
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 3
+	agent.Limits.ModelCalls = 3
 	remote := &valueTool{}
 	client := &scriptedClient{results: []llm.Result{
 		callResult("call-1", "remote"),
@@ -613,7 +613,7 @@ func TestVetoedSubmissionHidesItsMessageText(t *testing.T) {
 	}}
 	t.Run("output_rejected", func(t *testing.T) {
 		agent := structuredAgent()
-		agent.Limits.ModelAttempts = 1
+		agent.Limits.ModelCalls = 1
 		client := &scriptedClient{results: []llm.Result{
 			textAndSubmission("out-1", "ssn 123", `{"answer":1}`),
 		}}

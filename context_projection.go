@@ -28,7 +28,7 @@ const activeSummaryFrame = "Summary of earlier settled work in this request (con
 
 func modelPurpose(t Turn, attempt string) ModelPurpose {
 	for _, step := range t.Steps {
-		if step.Kind == StepModelCallStarted && step.Model.AttemptID == attempt {
+		if step.Kind == StepModelCallStarted && step.Model.ModelCallID == attempt {
 			return step.Model.Purpose
 		}
 	}
@@ -36,7 +36,7 @@ func modelPurpose(t Turn, attempt string) ModelPurpose {
 }
 func compactionPlan(t Turn, attempt string) *ContextCompactionPlan {
 	for _, step := range t.Steps {
-		if step.Kind == StepModelCallStarted && step.Model.AttemptID == attempt {
+		if step.Kind == StepModelCallStarted && step.Model.ModelCallID == attempt {
 			return step.Model.Compaction
 		}
 	}
@@ -81,7 +81,7 @@ func contextGroups(t Turn, messages []contextMessage) []contextGroup {
 			eligible[step.Seq] = true
 		case StepModelCallFinished, StepModelCallFinishedByHost:
 			f := step.Model
-			if modelPurpose(t, f.AttemptID) == ModelPurposeCompaction || f.Result == nil || f.Error != "" || f.Interrupted != "" {
+			if modelPurpose(t, f.ModelCallID) == ModelPurposeCompaction || f.Result == nil || f.Error != "" || f.Interrupted != "" {
 				continue
 			}
 			if chain == 0 {
@@ -205,14 +205,14 @@ func (s *replayState) validateCompactionIntent(step Step) error {
 		}
 		return nil
 	}
-	if f.Purpose != ModelPurposeCompaction || f.Compaction == nil || f.Compaction.Through >= step.Seq || f.Compaction.Window != s.ActiveCompactionWindow || s.Agent.ActiveCompaction == nil || s.Agent.ActiveCompaction.Disabled || s.Origin == StartCompaction || len(f.Tools) > 0 || f.FinalReplyOnly || s.attemptCap-s.ModelAttempts < 2 || s.pendingCompaction != "" {
+	if f.Purpose != ModelPurposeCompaction || f.Compaction == nil || f.Compaction.Through >= step.Seq || f.Compaction.Window != s.ActiveCompactionWindow || s.Agent.ActiveCompaction == nil || s.Agent.ActiveCompaction.Disabled || s.Origin == StartCompaction || len(f.Tools) > 0 || f.FinalReplyOnly || s.attemptCap-s.ModelCalls < 2 || s.pendingCompaction != "" {
 		return errors.New("invalid summary intent")
 	}
 	_, err := coveredMessagesCached(s.source, f.Compaction, s.contextCache)
 	return err
 }
 func (s *replayState) validateCompactionSettlement(f *ModelFact) error {
-	intent := s.modelIntents[f.AttemptID]
+	intent := s.modelIntents[f.ModelCallID]
 	if intent == nil {
 		return errors.New("missing model intent")
 	}
@@ -252,11 +252,11 @@ func validActiveSummary(result *llm.Result) (string, error) {
 }
 func (s *replayState) applyContextCompaction(step Step) error {
 	f := step.Compacted
-	if f == nil || f.AttemptID != s.pendingCompaction || s.Stop.Terminal {
+	if f == nil || f.ModelCallID != s.pendingCompaction || s.Stop.Terminal {
 		return errors.New("context replacement has no unapplied summary")
 	}
-	intent := s.modelIntents[f.AttemptID]
-	settled := s.modelSettlements[f.AttemptID]
+	intent := s.modelIntents[f.ModelCallID]
+	settled := s.modelSettlements[f.ModelCallID]
 	if intent == nil || settled == nil || settled.Error != "" || settled.Interrupted != "" {
 		return errors.New("context replacement has no completed summary")
 	}

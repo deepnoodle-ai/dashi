@@ -46,7 +46,7 @@ func activeFixture() (*activeClient, Agent) {
 		results[i].Usage = &llm.Usage{InputTokens: 100, OutputTokens: 2}
 	}
 	a := testAgent()
-	a.Limits.ModelAttempts = 12
+	a.Limits.ModelCalls = 12
 	a.Settings.MaxTokens = 256
 	a.ActiveCompaction = &ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}
 	return &activeClient{scriptedClient: scriptedClient{results: results}, window: 16000}, a
@@ -80,8 +80,8 @@ func TestActiveCompactionLongRequestAndViews(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != StopCompleted || calls != 4 || len(out.ContextCompactions) != 2 || out.ModelAttempts != 7 || finish != 1 {
-		t.Fatalf("stop=%+v calls=%d applications=%d attempts=%d finish=%d", out.Stop, calls, len(out.ContextCompactions), out.ModelAttempts, finish)
+	if out.Stop.Kind != StopCompleted || calls != 4 || len(out.ContextCompactions) != 2 || out.ModelCalls != 7 || finish != 1 {
+		t.Fatalf("stop=%+v calls=%d applications=%d attempts=%d finish=%d", out.Stop, calls, len(out.ContextCompactions), out.ModelCalls, finish)
 	}
 	if out.Reply != "Fixed and verified." || out.Spend.Usage.InputTokens != 700 || out.Spend.Usage.OutputTokens != 14 {
 		t.Fatalf("answer/accounting=%+v", out.TurnView)
@@ -269,8 +269,8 @@ func TestActiveCompactionRejectsSummaryWorkAndNoSavings(t *testing.T) {
 			calls := 0
 			r := Runner{Client: c, Tools: activeTools(&calls)}
 			out, err := r.Run(t.Context(), Turn{ID: "reject"}, activeStart(a))
-			if err != nil || out.Stop.Kind != StopFailed || out.Stop.Reason != StopReasonCompactionFailed || len(out.ContextCompactions) != 0 || calls != 2 || out.ModelAttempts != 3 || out.Spend.Usage.InputTokens != 300 {
-				t.Fatalf("stop=%+v calls=%d attempts=%d applied=%d spend=%+v err=%v", out.Stop, calls, out.ModelAttempts, len(out.ContextCompactions), out.Spend, err)
+			if err != nil || out.Stop.Kind != StopFailed || out.Stop.Reason != StopReasonCompactionFailed || len(out.ContextCompactions) != 0 || calls != 2 || out.ModelCalls != 3 || out.Spend.Usage.InputTokens != 300 {
+				t.Fatalf("stop=%+v calls=%d attempts=%d applied=%d spend=%+v err=%v", out.Stop, calls, out.ModelCalls, len(out.ContextCompactions), out.Spend, err)
 			}
 			if out.Reply != "" {
 				t.Fatalf("summary became answer: %q", out.Reply)
@@ -289,10 +289,10 @@ func TestActiveCompactionRejectsSummaryWorkAndNoSavings(t *testing.T) {
 func TestActiveCompactionAttemptAndOutputBudget(t *testing.T) {
 	t.Run("reserve response", func(t *testing.T) {
 		c, a := activeFixture()
-		a.Limits.ModelAttempts = 3
+		a.Limits.ModelCalls = 3
 		calls := 0
 		out, err := (Runner{Client: c, Tools: activeTools(&calls)}).Run(t.Context(), Turn{}, activeStart(a))
-		if err != nil || out.Stop.Kind != StopLimited || out.Stop.Reason != "model_attempts" || c.sends != 2 || calls != 2 {
+		if err != nil || out.Stop.Kind != StopLimited || out.Stop.Reason != "model_calls" || c.sends != 2 || calls != 2 {
 			t.Fatalf("stop=%+v sends=%d calls=%d err=%v", out.Stop, c.sends, calls, err)
 		}
 	})
@@ -493,7 +493,7 @@ func TestActiveCompactionProtectedHooksCannotBuyRoom(t *testing.T) {
 	c, a := activeFixture()
 	calls := 0
 	hook := ModelHook{Name: "large-runtime", Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
-		if p.Turn.ModelAttempts < 2 {
+		if p.Turn.ModelCalls < 2 {
 			return ModelDecision{}, nil
 		}
 		return ModelDecision{AddMessages: []ContextItem{{ID: "large", Origin: ContextRuntime, Name: "fixed", Message: llm.UserMessage(llm.Text(strings.Repeat("protected", 4000)))}}}, nil
@@ -508,7 +508,7 @@ func activeManyCompactionsFixture(tb testing.TB) (*activeClient, Agent, tool.Too
 	tb.Helper()
 	c, a := activeFixture()
 	c.results = nil
-	a.Limits.ModelAttempts = 32
+	a.Limits.ModelCalls = 32
 	calls := new(int)
 	for i := 1; i <= 12; i++ {
 		reply := callResult(fmt.Sprintf("c%d", i), "read")
@@ -640,7 +640,7 @@ func TestActiveCompactionSummaryUsesLiveProjectedContext(t *testing.T) {
 	operatorMessage := llm.UserMessage(llm.Text(operatorNote))
 	operatorMessage.Role = llm.RoleDeveloper
 	hooks := Hooks{BeforeModel: []ModelHook{{Name: "context", Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
-		if p.Turn.ModelAttempts != 0 {
+		if p.Turn.ModelCalls != 0 {
 			return ModelDecision{}, nil
 		}
 		return ModelDecision{AddMessages: []ContextItem{

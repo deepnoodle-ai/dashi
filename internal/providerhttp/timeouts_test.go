@@ -54,7 +54,7 @@ func requireTimeoutReason(t *testing.T, err error, want llm.ErrorReason) {
 	t.Helper()
 	failure, ok := errors.AsType[*llm.Error](err)
 	if !ok || failure.Category != llm.ErrorTransport || failure.Reason != want ||
-		failure.Disposition != "" || !errors.Is(err, context.DeadlineExceeded) {
+		failure.SendStatus != "" || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("failure=%+v err=%v, want reason %s", failure, err, want)
 	}
 }

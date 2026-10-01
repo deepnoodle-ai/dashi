@@ -288,8 +288,8 @@ func TestInterruptedAfterModelIntentDoesNotSend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.ModelAttempts != 0 {
-		t.Fatalf("model attempts=%d, want 0", view.ModelAttempts)
+	if view.ModelCalls != 0 {
+		t.Fatalf("model attempts=%d, want 0", view.ModelCalls)
 	}
 }
 
@@ -354,7 +354,7 @@ func budgetHooks() Hooks {
 				Units:        3,
 				RequestProof: canonjson.Digest(plan.Request.Body()),
 			})
-			return SendDecision{Admission: admission}, err
+			return SendDecision{Reservation: admission}, err
 		},
 	}.Hooks()
 }
@@ -397,7 +397,7 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	var admission testAdmission
 	if step.Kind == StepModelCallStarted {
 		if err := json.Unmarshal(
-			step.Model.Admission["budget"],
+			step.Model.Reservation["budget"],
 			&admission,
 		); err != nil || admission.Units <= 0 || admission.RequestProof != step.Model.RequestDigest {
 			return &CommitError{
@@ -416,19 +416,19 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 		return err
 	}
 	if step.Kind == StepModelCallStarted {
-		if _, exists := r.reservations[step.Model.AttemptID]; !exists {
+		if _, exists := r.reservations[step.Model.ModelCallID]; !exists {
 			r.balance -= admission.Units
-			r.reservations[step.Model.AttemptID] = admission.Units
+			r.reservations[step.Model.ModelCallID] = admission.Units
 		}
 		if r.loseIntent {
 			r.loseIntent = false
 			return errors.New("admission acknowledgment lost after commit")
 		}
 	}
-	if (step.Kind == StepModelCallFinished || step.Kind == StepModelCallFinishedByHost) && !r.charged[step.Model.AttemptID] {
-		reserved := r.reservations[step.Model.AttemptID]
+	if (step.Kind == StepModelCallFinished || step.Kind == StepModelCallFinishedByHost) && !r.charged[step.Model.ModelCallID] {
+		reserved := r.reservations[step.Model.ModelCallID]
 		charged := reserved
-		if step.Model.Failure == llm.FailureNotDispatched || step.Model.Failure == llm.FailureRejected {
+		if step.Model.SendStatus == llm.SendStatusNotSent || step.Model.SendStatus == llm.SendStatusProviderRejected {
 			charged = 0
 		} else if step.Model.Result != nil && step.Model.Result.Usage != nil {
 			charged = step.Model.Result.Usage.InputTokens
@@ -436,7 +436,7 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 		if charged < reserved {
 			r.balance += reserved - charged
 		}
-		r.charged[step.Model.AttemptID] = true
+		r.charged[step.Model.ModelCallID] = true
 	}
 	return nil
 }
@@ -491,7 +491,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		)
 	}
 	saved, err := rec.Load(t.Context(), "t1")
-	if err != nil || len(saved.Steps) != 2 || saved.Steps[1].Model.RequestDigest == "" || len(saved.Steps[1].Model.Admission) == 0 {
+	if err != nil || len(saved.Steps) != 2 || saved.Steps[1].Model.RequestDigest == "" || len(saved.Steps[1].Model.Reservation) == 0 {
 		t.Fatalf("saved=%+v err=%v", saved, err)
 	}
 	view, err := Replay(saved)
@@ -509,9 +509,9 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		CommandID: "no-dispatch",
 		CallID:    "t1:model:1",
 		ModelFailure: &ModelFailure{
-			Disposition: llm.FailureNotDispatched,
-			Reason:      "worker did not send",
-			Evidence:    "dispatch log cursor 1",
+			SendStatus: llm.SendStatusNotSent,
+			Reason:     "worker did not send",
+			Evidence:   "dispatch log cursor 1",
 		},
 	}
 	stale, err := runner.Run(

@@ -287,17 +287,17 @@ func TestContinueKeepsTheRecordedViewAndDoesNotRunTheToolAgain(t *testing.T) {
 	text := "HEAD" + strings.Repeat("a", 5000) + "TAIL"
 	agent := testAgent()
 	agent.Limits.ToolResultBytes = 2048
-	agent.Limits.ModelAttempts = 5
+	agent.Limits.ModelCalls = 5
 	runs := 0
 	first := &scriptedClient{
 		results: []llm.Result{callResult("call-1", "remote"), {}},
 		errors: []error{
 			nil,
 			&llm.Error{
-				Provider:    "test",
-				Category:    llm.ErrorRateLimited,
-				Status:      429,
-				Disposition: llm.FailureRejected,
+				Provider:   "test",
+				Category:   llm.ErrorRateLimited,
+				Status:     429,
+				SendStatus: llm.SendStatusProviderRejected,
 			},
 		},
 	}

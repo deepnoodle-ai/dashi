@@ -187,7 +187,7 @@ func TestMissingSelectedToolWarnsOnceAcrossContinue(t *testing.T) {
 	agent := testAgent()
 	agent.Tools = []string{"a", "missing"}
 	// The interrupted attempt counts toward the limit.
-	agent.Limits.ModelAttempts = 5
+	agent.Limits.ModelCalls = 5
 	out, err := runner.Run(ctx, Turn{ID: "t1"}, Start{
 		CommandID: "start",
 		Agent:     agent,

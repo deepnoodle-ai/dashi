@@ -121,7 +121,7 @@ func pendingApproval(
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",
-		Limits:   dashi.Limits{ModelAttempts: 3, ToolConcurrency: 1},
+		Limits:   dashi.Limits{ModelCalls: 3, ToolConcurrency: 1},
 	}
 	runs := new(int)
 	write := tool.Tool{

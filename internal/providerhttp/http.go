@@ -340,9 +340,9 @@ func (c Client) Post(
 	case pe.statusCode >= 500:
 		category = llm.ErrorOverloaded
 	}
-	disposition := llm.FailureUnknown
+	disposition := llm.SendStatusUnknown
 	if KnownRejection(pe.statusCode) {
-		disposition = llm.FailureRejected
+		disposition = llm.SendStatusProviderRejected
 	}
 	rejection := ParseRejection(pe.statusCode, body)
 	rejection.HasMedia = HasMedia(request)
@@ -353,13 +353,13 @@ func (c Client) Post(
 			c.Classify,
 			rejection,
 		),
-		Disposition: disposition,
-		Status:      pe.statusCode,
-		Code:        pe.code,
-		Body:        body,
-		RetryAfter:  pe.retryAfter,
-		Retryable:   shouldRetry(pe.statusCode, pe.code),
-		Cause:       pe,
+		SendStatus: disposition,
+		Status:     pe.statusCode,
+		Code:       pe.code,
+		Body:       body,
+		RetryAfter: pe.retryAfter,
+		Retryable:  shouldRetry(pe.statusCode, pe.code),
+		Cause:      pe,
 	}
 }
 
@@ -373,9 +373,9 @@ func NoAPIKey(provider, key string, public bool, env string) error {
 		return nil
 	}
 	return &llm.Error{
-		Provider:    provider,
-		Category:    llm.ErrorAuthentication,
-		Disposition: llm.FailureNotDispatched,
+		Provider:   provider,
+		Category:   llm.ErrorAuthentication,
+		SendStatus: llm.SendStatusNotSent,
 		Cause: fmt.Errorf(
 			"%w: set %s or Config.APIKey",
 			llm.ErrNoAPIKey,
@@ -402,7 +402,7 @@ func NotDispatched(
 	args ...any,
 ) error {
 	err := Failure(provider, category, format, args...)
-	err.(*llm.Error).Disposition = llm.FailureNotDispatched
+	err.(*llm.Error).SendStatus = llm.SendStatusNotSent
 	return err
 }
 

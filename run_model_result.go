@@ -94,17 +94,17 @@ func markIncomplete(result *llm.Result) {
 	}
 }
 
-func failureDisposition(err error, result llm.Result) llm.FailureDisposition {
+func failureDisposition(err error, result llm.Result) llm.SendStatus {
 	failure, ok := errors.AsType[*llm.Error](err)
 	if !ok || result.ID != "" || len(result.Message.Content) > 0 ||
 		result.Usage != nil {
-		return llm.FailureUnknown
+		return llm.SendStatusUnknown
 	}
-	if failure.Disposition == llm.FailureNotDispatched ||
-		failure.Disposition == llm.FailureRejected {
-		return failure.Disposition
+	if failure.SendStatus == llm.SendStatusNotSent ||
+		failure.SendStatus == llm.SendStatusProviderRejected {
+		return failure.SendStatus
 	}
-	return llm.FailureUnknown
+	return llm.SendStatusUnknown
 }
 
 func (r *runtime) classify(result llm.Result) (Outcome, bool) {
@@ -156,7 +156,7 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 	case llm.StopPause:
 		state, _ := replay(r.turn)
 		if state.ProviderPauses > max(r.agent.Limits.ProviderPauses, 0) {
-			return r.stop(StopLimited, "provider_pauses"), false
+			return r.stop(StopLimited, string(LimitProviderPauses)), false
 		}
 		if o := r.commit(Step{Kind: StepLoopContinued}); o != nil {
 			return *o, false
@@ -165,13 +165,13 @@ func (r *runtime) classify(result llm.Result) (Outcome, bool) {
 	case llm.StopRefusal:
 		return r.stop(StopRefused, result.Stop.Raw), false
 	case llm.StopOutputLimit:
-		return r.stop(StopLimited, "output"), false
+		return r.stop(StopLimited, string(LimitOutputTokens)), false
 	case llm.StopContextLimit:
-		return r.stop(StopLimited, "context"), false
+		return r.stop(StopLimited, string(LimitContextWindow)), false
 	case llm.StopFinished, llm.StopOther:
 		return r.finishText(result, useful)
 	default:
-		return r.stop(StopFailed, "incomplete_model_result"), false
+		return r.stop(StopFailed, StopReasonIncompleteModelResult), false
 	}
 }
 
@@ -186,9 +186,9 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 	}
 	structured := len(state.OutputSchema) > 0
 	plan := FinishPlan{
-		Turn:      snapshotView(state.TurnView),
-		AttemptID: state.latestAttempt,
-		Reply:     result.Message.Text(),
+		Turn:        snapshotView(state.TurnView),
+		ModelCallID: state.latestAttempt,
+		Reply:       result.Message.Text(),
 	}
 	if structured {
 		if result.Stop.Kind != llm.StopFinished {
@@ -255,7 +255,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 	}
 	if !structured {
 		if !useful && !finish.acceptEmpty {
-			return r.stop(StopFailed, "empty_response"), false
+			return r.stop(StopFailed, StopReasonEmptyResponse), false
 		}
 		return r.stopAfterAnswer(state), false
 	}
@@ -266,9 +266,9 @@ func (r *runtime) finishText(result llm.Result, useful bool) (Outcome, bool) {
 		), false
 	}
 	fact := &StructuredOutput{
-		Value:     plan.Output,
-		Source:    OutputFromText,
-		AttemptID: state.latestAttempt,
+		Value:       plan.Output,
+		Source:      OutputFromText,
+		ModelCallID: state.latestAttempt,
 	}
 	if o := r.commit(Step{Kind: StepOutputRecorded, Output: fact}); o != nil {
 		return *o, false
@@ -287,10 +287,10 @@ func submittedOutput(s *replayState) *StructuredOutput {
 			v.Outcome != nil &&
 			v.Outcome.State == tool.StateSucceeded {
 			return &StructuredOutput{
-				Value:      slices.Clone(v.Call.Args),
-				Source:     OutputFromTool,
-				ToolCallID: id,
-				AttemptID:  s.callAttempts[id],
+				Value:       slices.Clone(v.Call.Args),
+				Source:      OutputFromTool,
+				ToolCallID:  id,
+				ModelCallID: s.callAttempts[id],
 			}
 		}
 	}

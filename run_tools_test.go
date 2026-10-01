@@ -785,7 +785,7 @@ func startedLocalToolTurn(
 	commit(Step{
 		Kind: StepModelCallStarted,
 		Model: &ModelFact{
-			AttemptID:     "t1:model:1",
+			ModelCallID:   "t1:model:1",
 			MessageID:     "t1:model:1:message",
 			RequestDigest: "digest",
 			Provider:      def.Provider,
@@ -805,9 +805,9 @@ func startedLocalToolTurn(
 	commit(Step{
 		Kind: StepModelCallFinished,
 		Model: &ModelFact{
-			AttemptID: "t1:model:1",
-			MessageID: "t1:model:1:message",
-			Result:    &requested,
+			ModelCallID: "t1:model:1",
+			MessageID:   "t1:model:1:message",
+			Result:      &requested,
 		},
 	})
 	commit(Step{

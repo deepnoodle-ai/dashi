@@ -86,7 +86,7 @@ func Explore() Subagent {
 				"and read to answer the request. Do not change anything. " +
 				"Your final message is the only thing the parent agent " +
 				"sees. Make it short. Name the files and lines that matter.",
-			Limits: dashi.Limits{ModelAttempts: 24, ToolConcurrency: 4},
+			Limits: dashi.Limits{ModelCalls: 24, ToolConcurrency: 4},
 		},
 		ReadOnly: true,
 	}
@@ -103,7 +103,7 @@ func General() Subagent {
 			Instructions: "You are a subagent. Complete the task in the " +
 				"request. Your final message is the only thing the parent " +
 				"agent sees. State the result and each change you made.",
-			Limits: dashi.Limits{ModelAttempts: 32},
+			Limits: dashi.Limits{ModelCalls: 32},
 		},
 	}
 }

@@ -202,7 +202,7 @@ func taskDetails(snapshot taskSnapshot) string {
 	if snapshot.Prompt != nil {
 		fmt.Fprintf(&b, "Live approval/answer pending · Turn %s · original call %s. Inspection does not answer it.\n", snapshot.Prompt.TurnID, snapshot.Prompt.CallID)
 	}
-	fmt.Fprintf(&b, "Child spend: %s\nModel attempts: %d · tool calls: %d\nEstimated usage calls: %d · usage incomplete %t\nAttempt cap: %d; no child monetary cap. Parent caps exclude children.\n", snapshot.Task.Spend.String(), snapshot.Task.ModelCalls, snapshot.Task.ToolCalls, snapshot.Task.Spend.Estimated, snapshot.Task.Spend.UsageIncomplete, v.Agent.Limits.ModelAttempts)
+	fmt.Fprintf(&b, "Child spend: %s\nModel attempts: %d · tool calls: %d\nEstimated usage calls: %d · usage incomplete %t\nAttempt cap: %d; no child monetary cap. Parent caps exclude children.\n", snapshot.Task.Spend.String(), snapshot.Task.ModelCalls, snapshot.Task.ToolCalls, snapshot.Task.Spend.Estimated, snapshot.Task.Spend.UsageIncomplete, v.Agent.Limits.ModelCalls)
 	calls, unresolved := taskDispatchCounts(snapshot.Turn)
 	fmt.Fprintf(&b, "This Turn: %d confirmed model dispatches · %d unresolved intents. Attempts and estimates do not prove Send.\nTokens: input %d · output %d · cache writes %d · cache reads %d; cache-write reporting unavailable %t · total mismatch %t.\n", calls, unresolved, v.Spend.Usage.InputTokens, v.Spend.Usage.OutputTokens, v.Spend.Usage.CacheCreationInputTokens, v.Spend.Usage.CacheReadInputTokens, v.Spend.Usage.CacheCreationInputTokensUnavailable, v.Spend.Usage.TotalTokenCountMismatch)
 	if len(snapshot.Turn.Steps) > 0 && snapshot.Turn.Steps[0].Started != nil {
@@ -269,19 +269,19 @@ func taskDispatchCounts(turn dashi.Turn) (int, int) {
 			continue
 		}
 		if step.Kind == dashi.StepModelCallStarted {
-			intents[f.AttemptID] = true
+			intents[f.ModelCallID] = true
 			continue
 		}
 		if step.Kind != dashi.StepModelCallFinished && step.Kind != dashi.StepModelCallFinishedByHost {
 			continue
 		}
-		settled[f.AttemptID] = !f.Uncertain && f.Failure != llm.FailureUnknown
-		if f.NoDispatch || f.Failure == llm.FailureNotDispatched {
+		settled[f.ModelCallID] = !f.ResultUnknown && f.SendStatus != llm.SendStatusUnknown
+		if f.NotSent || f.SendStatus == llm.SendStatusNotSent {
 			continue
 		}
 		r := f.Result
-		if f.Failure == llm.FailureRejected || r != nil && (r.ID != "" || len(r.Message.Content) > 0 || r.Usage != nil || r.Stop.Kind != "") {
-			dispatched[f.AttemptID] = true
+		if f.SendStatus == llm.SendStatusProviderRejected || r != nil && (r.ID != "" || len(r.Message.Content) > 0 || r.Usage != nil || r.Stop.Kind != "") {
+			dispatched[f.ModelCallID] = true
 		}
 	}
 	unresolved := 0

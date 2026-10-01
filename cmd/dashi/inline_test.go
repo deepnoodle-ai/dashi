@@ -209,10 +209,10 @@ func TestInlineMediaWarningReachesScrollbackOnce(t *testing.T) {
 	}
 	// The intent records the warning before the answer streams. A
 	// re-delivered warning updates the same row.
-	warn := dashi.Step{Kind: dashi.StepModelCallStarted, TurnID: "turn", Model: &dashi.ModelFact{AttemptID: "answer"}, Warnings: []dashi.Warning{{Code: dashi.WarningActiveCompactionMediaEstimateUnavailable}}}
+	warn := dashi.Step{Kind: dashi.StepModelCallStarted, TurnID: "turn", Model: &dashi.ModelFact{ModelCallID: "answer"}, Warnings: []dashi.Warning{{Code: dashi.WarningActiveCompactionMediaEstimateUnavailable}}}
 	emit(warn)
 	emit(warn)
-	for _, block := range r.Event(dashi.Event{AttemptID: "answer", Delta: &llm.Delta{Kind: llm.DeltaText, Text: "unfinished answer"}}) {
+	for _, block := range r.Event(dashi.Event{ModelCallID: "answer", Delta: &llm.Delta{Kind: llm.DeltaText, Text: "unfinished answer"}}) {
 		i.Emit(block)
 	}
 	i.HandleEvent(flushEvent{})

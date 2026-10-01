@@ -9,9 +9,9 @@ import (
 // Event carries one committed step, provisional model delta, tool progress
 // snapshot, or gap marker, from Runner.Stream or to an Observer.
 type Event struct {
-	TurnID    string
-	AttemptID string
-	MessageID string
+	TurnID      string
+	ModelCallID string
+	MessageID   string
 	// Seq places the event in the turn's record. On a step event it equals
 	// Step.Seq. On a preview or gap it is the Seq of the last step committed
 	// before it: the preview belongs after that step and is superseded by a
@@ -25,7 +25,7 @@ type Event struct {
 	// is a preview, like Delta: never recorded and never replayed.
 	Progress *ToolProgress
 	// Gap marks model deltas the Observer dropped because it fell behind.
-	// AttemptID and MessageID name the message that lost them. Its preview
+	// ModelCallID and MessageID name the message that lost them. Its preview
 	// now has a hole: discard it, and ignore further deltas for that
 	// MessageID until the step that settles it (model_call_finished) arrives. A
 	// gap with no such step after it means the run ended early, as after a
@@ -123,11 +123,11 @@ func (e *emitter) send(event Event) {
 		if e.progress == 0 {
 			if e.gap == nil {
 				e.gap = &Event{
-					TurnID:    event.TurnID,
-					AttemptID: event.AttemptID,
-					MessageID: event.MessageID,
-					Seq:       event.Seq,
-					Gap:       true,
+					TurnID:      event.TurnID,
+					ModelCallID: event.ModelCallID,
+					MessageID:   event.MessageID,
+					Seq:         event.Seq,
+					Gap:         true,
 				}
 			}
 			return

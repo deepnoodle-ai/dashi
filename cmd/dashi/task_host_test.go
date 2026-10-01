@@ -392,11 +392,11 @@ func TestTaskPrintQuietAndPipeAttentionHaveCleanExit(t *testing.T) {
 }
 func TestTaskCommandIDUsesFullCanonicalPayload(t *testing.T) {
 	target := delegate.TaskTarget{ID: "t_fixture", TurnID: "child/1", Revision: 7}
-	a, err := taskCommandID(target, "continue", "", dashi.Continue{ModelAttempts: 64})
+	a, err := taskCommandID(target, "continue", "", dashi.Continue{ModelCalls: 64})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := taskCommandID(target, "continue", "", dashi.Continue{ModelAttempts: 65})
+	b, _ := taskCommandID(target, "continue", "", dashi.Continue{ModelCalls: 65})
 	if a == b {
 		t.Fatal("distinct limit changes shared command identity")
 	}
@@ -407,7 +407,7 @@ func TestTaskCommandIDUsesFullCanonicalPayload(t *testing.T) {
 	}
 	changed := target
 	changed.Revision++
-	e, _ := taskCommandID(changed, "continue", "", dashi.Continue{ModelAttempts: 64})
+	e, _ := taskCommandID(changed, "continue", "", dashi.Continue{ModelCalls: 64})
 	if e == a {
 		t.Fatal("revision excluded")
 	}
@@ -533,12 +533,12 @@ func TestTaskNoticeUnknownAdmissionPausesUntilExactReconciliation(t *testing.T) 
 }
 func TestTaskDetailsSeparateAttemptEstimateFromDispatchAndHidePrivateContent(t *testing.T) {
 	turn := dashi.Turn{ID: "child", Steps: []dashi.Step{
-		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{AttemptID: "not-sent", EstimatedInputTokens: 1234}},
-		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{AttemptID: "not-sent", NoDispatch: true, EstimatedUsage: true}},
-		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{AttemptID: "unknown"}},
-		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{AttemptID: "unknown", Failure: llm.FailureUnknown, Uncertain: true}},
-		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{AttemptID: "sent"}},
-		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{AttemptID: "sent", Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("public answer"))}}},
+		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{ModelCallID: "not-sent", EstimatedInputTokens: 1234}},
+		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "not-sent", NotSent: true, EstimatedUsage: true}},
+		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{ModelCallID: "unknown"}},
+		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "unknown", SendStatus: llm.SendStatusUnknown, ResultUnknown: true}},
+		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{ModelCallID: "sent"}},
+		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "sent", Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("public answer"))}}},
 		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{Purpose: dashi.ModelPurposeCompaction, Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("private summary"))}}},
 	}}
 	calls, unresolved := taskDispatchCounts(turn)
@@ -620,7 +620,7 @@ func TestTaskAttemptLimitRequiresExactConfirmedRaise(t *testing.T) {
 	}
 	task := waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopLimited) })
 	snapshot, err := a.eng.inspectTask(t.Context(), task.ID)
-	if err != nil || snapshot.View.Next() != dashi.NextRaiseAttempts {
+	if err != nil || snapshot.View.Next() != dashi.NextRaiseModelCalls {
 		t.Fatalf("limit=%+v err=%v", snapshot.View.Stop, err)
 	}
 	oldTurn := snapshot.View.ID

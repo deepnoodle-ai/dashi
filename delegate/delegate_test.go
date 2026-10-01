@@ -976,9 +976,9 @@ func TestCloseInterruptsAndRecoverResumesTheSameChild(t *testing.T) {
 		t.Fatalf("reopen started %d new children, want 0", n)
 	}
 	child := h.view(t, childTurnID())
-	if child.ModelAttempts != 1 || child.Interruptions != 1 {
+	if child.ModelCalls != 1 || child.Resumes != 1 {
 		t.Fatalf("child attempts=%d interruptions=%d",
-			child.ModelAttempts, child.Interruptions)
+			child.ModelCalls, child.Resumes)
 	}
 }
 

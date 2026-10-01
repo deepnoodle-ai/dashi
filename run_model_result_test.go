@@ -12,10 +12,10 @@ func TestKnownProviderRejectionCanContinueWithNewAttempt(t *testing.T) {
 		results: []llm.Result{{}, final("done")},
 		errors: []error{
 			&llm.Error{
-				Provider:    "test",
-				Category:    llm.ErrorRateLimited,
-				Status:      429,
-				Disposition: llm.FailureRejected,
+				Provider:   "test",
+				Category:   llm.ErrorRateLimited,
+				Status:     429,
+				SendStatus: llm.SendStatusProviderRejected,
 			},
 		},
 	}
@@ -25,7 +25,7 @@ func TestKnownProviderRejectionCanContinueWithNewAttempt(t *testing.T) {
 		t.Fatalf("first=%+v err=%v sends=%d", first, err, client.sends)
 	}
 	settled := first.Turn.Steps[len(first.Turn.Steps)-2]
-	if settled.Kind != StepModelCallFinished || settled.Model.Failure != llm.FailureRejected || settled.Model.Uncertain {
+	if settled.Kind != StepModelCallFinished || settled.Model.SendStatus != llm.SendStatusProviderRejected || settled.Model.ResultUnknown {
 		t.Fatalf("settlement=%+v", settled)
 	}
 	second, err := (Runner{
@@ -67,9 +67,9 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 			CommandID: "proof",
 			CallID:    "t1:model:1",
 			ModelFailure: &ModelFailure{
-				Disposition: llm.FailureNotDispatched,
-				Reason:      "no dispatch",
-				Evidence:    "host dispatch log 42",
+				SendStatus: llm.SendStatusNotSent,
+				Reason:     "no dispatch",
+				Evidence:   "host dispatch log 42",
 			},
 		},
 	)
@@ -98,10 +98,10 @@ func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(
 		},
 		errors: []error{
 			&llm.Error{
-				Provider:    "test",
-				Category:    llm.ErrorInvalidRequest,
-				Status:      400,
-				Disposition: llm.FailureRejected,
+				Provider:   "test",
+				Category:   llm.ErrorInvalidRequest,
+				Status:     400,
+				SendStatus: llm.SendStatusProviderRejected,
 			},
 		},
 	}
@@ -124,9 +124,9 @@ func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(
 			CommandID: "false-proof",
 			CallID:    "t1:model:1",
 			ModelFailure: &ModelFailure{
-				Disposition: llm.FailureNotDispatched,
-				Reason:      "not sent",
-				Evidence:    "claim",
+				SendStatus: llm.SendStatusNotSent,
+				Reason:     "not sent",
+				Evidence:   "claim",
 			},
 		},
 	)

@@ -218,7 +218,7 @@ func TestAgentRevisionTracksBehaviorFields(t *testing.T) {
 		"model":        func(a *Agent) { a.Model = "other" },
 		"settings":     func(a *Agent) { a.Settings.MaxTokens = 10 },
 		"schema":       func(a *Agent) { a.OutputSchema = json.RawMessage(`{"type":"object"}`) },
-		"limits":       func(a *Agent) { a.Limits.ModelAttempts = 2 },
+		"limits":       func(a *Agent) { a.Limits.ModelCalls = 2 },
 		"final answer": func(a *Agent) { a.Limits.NoReservedFinalReply = true },
 	}
 	for name, change := range changes {
@@ -495,7 +495,7 @@ func TestAgentRevisionIsPinned(t *testing.T) {
 		Model:        "claude-sonnet-5",
 		Instructions: "Be brief.",
 	}.resolved()
-	if got := agentRevision(agent); got != "auto:9abf96dec04e55a6" {
+	if got := agentRevision(agent); got != "auto:e4c9958dcd090433" {
 		t.Fatalf("agentRevision = %q", got)
 	}
 }
@@ -531,8 +531,8 @@ func TestLimitsZeroValueResolvesToDefaults(t *testing.T) {
 	def := testAgent()
 	def.Limits = Limits{}
 	want := Limits{
-		ModelAttempts:   8,
-		Interruptions:   10,
+		ModelCalls:      8,
+		Resumes:         10,
 		ProviderPauses:  3,
 		ToolConcurrency: 1,
 		ToolResultBytes: 64 << 10,
@@ -548,8 +548,8 @@ func TestLimitsZeroValueResolvesToDefaults(t *testing.T) {
 func TestLimitsResolveKeepsExplicitValues(t *testing.T) {
 	def := testAgent()
 	def.Limits = Limits{
-		ModelAttempts:        2,
-		Interruptions:        4,
+		ModelCalls:           2,
+		Resumes:              4,
 		ProviderPauses:       5,
 		ToolConcurrency:      6,
 		ToolResultBytes:      2048,
@@ -562,13 +562,13 @@ func TestLimitsResolveKeepsExplicitValues(t *testing.T) {
 
 func TestLimitsNegativeCountResolvesToNone(t *testing.T) {
 	def := testAgent()
-	def.Limits = Limits{Interruptions: -5, ProviderPauses: -2}
+	def.Limits = Limits{Resumes: -5, ProviderPauses: -2}
 	if err := def.Validate(); err != nil {
 		t.Fatalf("negative none counts were rejected: %v", err)
 	}
 	got := def.resolved().Limits
-	if got.Interruptions != -1 {
-		t.Fatalf("interruptions resolved to %d, want -1", got.Interruptions)
+	if got.Resumes != -1 {
+		t.Fatalf("interruptions resolved to %d, want -1", got.Resumes)
 	}
 	if got.ProviderPauses != -1 {
 		t.Fatalf("provider pauses resolved to %d, want -1", got.ProviderPauses)
@@ -580,7 +580,7 @@ func TestLimitsRejectNegativeAttemptsAndConcurrency(t *testing.T) {
 		name   string
 		limits Limits
 	}{
-		{name: "model attempts", limits: Limits{ModelAttempts: -1}},
+		{name: "model attempts", limits: Limits{ModelCalls: -1}},
 		{name: "tool concurrency", limits: Limits{ToolConcurrency: -1}},
 	}
 	for _, tt := range tests {
@@ -623,14 +623,14 @@ func TestNegativeProviderPausesAllowsNone(t *testing.T) {
 
 func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
 	def := testAgent()
-	def.Limits.Interruptions = -1
+	def.Limits.Resumes = -1
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
 	rec := NewMemoryRecorder()
 	pause := make(chan struct{})
 	tools := tool.List{pausingTool(pause)}
 	first, err := (Runner{Client: client, Tools: tools, Recorder: rec}).Run(
 		t.Context(),
-		Turn{ID: "interruptions"},
+		Turn{ID: "resumes"},
 		limitsStart(def),
 		WithPause(pause),
 	)
@@ -649,7 +649,7 @@ func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Stop.Kind != StopLimited || out.Stop.Reason != "interruptions" {
+	if out.Stop.Kind != StopLimited || out.Stop.Reason != "resumes" {
 		t.Fatalf("resume stopped with %+v, want interruptions", out.Stop)
 	}
 	if out.Stop.Limit == nil || out.Stop.Limit.Limit != 0 {
@@ -662,7 +662,7 @@ func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
 
 func TestNoReservedFinalAnswerAdvertisesToolsOnLastAttempt(t *testing.T) {
 	def := testAgent()
-	def.Limits = Limits{ModelAttempts: 2, NoReservedFinalReply: true}
+	def.Limits = Limits{ModelCalls: 2, NoReservedFinalReply: true}
 	client := &scriptedClient{
 		results: []llm.Result{callResult("lookup-1", "lookup"), final("42")},
 	}
@@ -713,8 +713,8 @@ func TestRecordedAgentKeepsResolvedLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	for field, want := range map[string]float64{
-		"model_attempts":   8,
-		"interruptions":    10,
+		"model_calls":      8,
+		"resumes":          10,
 		"provider_pauses":  3,
 		"tool_concurrency": 1,
 	} {
@@ -730,16 +730,16 @@ func TestRecordedAgentKeepsResolvedLimits(t *testing.T) {
 	old := first.Turn
 	old.Steps = cloneTurn(first.Turn).Steps
 	older := *old.Steps[0].Started
-	older.Agent.Limits.Interruptions = 7
+	older.Agent.Limits.Resumes = 7
 	old.Steps[0].Started = &older
 	view, err := Replay(old)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Agent.Limits.Interruptions != 7 {
+	if view.Agent.Limits.Resumes != 7 {
 		t.Fatalf(
 			"replayed interruptions=%d, want recorded 7",
-			view.Agent.Limits.Interruptions,
+			view.Agent.Limits.Resumes,
 		)
 	}
 	runner := Runner{Client: client}

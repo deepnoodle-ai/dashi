@@ -49,7 +49,7 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 		Model:    modelName,
 		Settings: llm.Settings{MaxTokens: 256},
 		Limits: dashi.Limits{
-			ModelAttempts:  1,
+			ModelCalls:     1,
 			ProviderPauses: 1,
 		},
 	}
@@ -187,7 +187,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 		t.Fatal(err)
 	}
 	counted := &countingClient{Client: client}
-	limits := dashi.Limits{ModelAttempts: 2}
+	limits := dashi.Limits{ModelCalls: 2}
 	def := dashi.Agent{
 		ID:           "limit-live",
 		Revision:     "1",
@@ -216,7 +216,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 			},
 		},
 	)
-	if err != nil || out.Stop.Kind != dashi.StopLimited || out.Stop.Reason != "model_attempts" ||
+	if err != nil || out.Stop.Kind != dashi.StopLimited || out.Stop.Reason != "model_calls" ||
 		!strings.Contains(
 			out.Reply,
 			"56",
@@ -230,7 +230,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 		)
 	}
 	view, err := dashi.Replay(out.Turn)
-	if err != nil || view.ModelAttempts != 2 {
+	if err != nil || view.ModelCalls != 2 {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
 	for _, step := range out.Turn.Steps {
@@ -241,7 +241,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 			t.Logf(
 				"model=%s attempts=%d answer=%q",
 				modelName,
-				view.ModelAttempts,
+				view.ModelCalls,
 				out.Reply,
 			)
 			return
@@ -263,7 +263,7 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 		API:      client.API(),
 		Model:    modelName,
 		Settings: llm.Settings{MaxTokens: 512},
-		Limits:   dashi.Limits{ModelAttempts: 1},
+		Limits:   dashi.Limits{ModelCalls: 1},
 	}
 	start := dashi.Start{
 		CommandID:    "start",
@@ -288,7 +288,7 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 		)
 	}
 	view, err := dashi.Replay(out.Turn)
-	if err != nil || view.Output == nil || view.ModelAttempts != 1 {
+	if err != nil || view.Output == nil || view.ModelCalls != 1 {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
 	t.Logf(
@@ -348,7 +348,7 @@ func AgentTurn(
 			)
 		}
 		view, err := dashi.Replay(out.Turn)
-		if err != nil || view.ModelAttempts != 1 || len(view.Pending) != 0 {
+		if err != nil || view.ModelCalls != 1 || len(view.Pending) != 0 {
 			t.Fatalf("streamed record: view=%+v err=%v", view, err)
 		}
 		if out.Turn.Steps[2].Model.Result.Message.Source == nil ||
@@ -357,7 +357,7 @@ func AgentTurn(
 		}
 		t.Logf(
 			"streamed turn: attempts=%d steps=%d answer=%q",
-			view.ModelAttempts,
+			view.ModelCalls,
 			len(out.Turn.Steps),
 			out.Reply,
 		)
@@ -430,7 +430,7 @@ func AgentTurn(
 				)
 			}
 			view, err := dashi.Replay(out.Turn)
-			if err != nil || view.ModelAttempts != 2 || len(view.Tools) != 1 || len(view.Pending) != 0 {
+			if err != nil || view.ModelCalls != 2 || len(view.Tools) != 1 || len(view.Pending) != 0 {
 				t.Fatalf("tool record: view=%+v err=%v", view, err)
 			}
 			for _, observed := range view.Tools {
@@ -485,7 +485,7 @@ func AgentTurn(
 			}
 			t.Logf(
 				"tool turn: attempts=%d steps=%d tool_runs=%d answer=%q",
-				view.ModelAttempts,
+				view.ModelCalls,
 				len(out.Turn.Steps),
 				runs,
 				out.Reply,
@@ -572,7 +572,7 @@ func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
 				Model:        modelName,
 				Instructions: "Use multiply_numbers to calculate products.",
 				Settings:     llm.Settings{MaxTokens: 1024},
-				Limits:       dashi.Limits{ModelAttempts: 4},
+				Limits:       dashi.Limits{ModelCalls: 4},
 			},
 			Input: []llm.Message{llm.UserMessage(llm.Text(
 				"Use multiply_numbers to calculate 7 times 8.",
@@ -618,7 +618,7 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 				API:      client.API(),
 				Model:    modelName,
 				Settings: llm.Settings{MaxTokens: 2048},
-				Limits:   dashi.Limits{ModelAttempts: 3},
+				Limits:   dashi.Limits{ModelCalls: 3},
 			},
 			Input: []llm.Message{llm.UserMessage(llm.Text(
 				"Write a 600-word essay on the history of bridges.",
@@ -698,7 +698,7 @@ func UrgentSteerPartialEndsInWhitespace(
 				API:      client.API(),
 				Model:    modelName,
 				Settings: llm.Settings{MaxTokens: 8192},
-				Limits:   dashi.Limits{ModelAttempts: 3},
+				Limits:   dashi.Limits{ModelCalls: 3},
 			},
 			Input: []llm.Message{llm.UserMessage(llm.Text(
 				"Write the numbers from one to two hundred in English words, " +
@@ -829,7 +829,7 @@ func UrgentSteerAfterPause(
 				Model:    modelName,
 				Settings: llm.Settings{MaxTokens: 4096},
 				Limits: dashi.Limits{
-					ModelAttempts:  4,
+					ModelCalls:     4,
 					ProviderPauses: 2,
 				},
 			},
@@ -852,10 +852,10 @@ func UrgentSteerAfterPause(
 		if step := event.Step; paused == "" && step != nil &&
 			step.Kind == dashi.StepModelCallFinished && step.Model.Result != nil &&
 			step.Model.Result.Stop.Kind == llm.StopPause {
-			paused = step.Model.AttemptID
+			paused = step.Model.ModelCallID
 		}
 		if paused == "" || sent || event.Delta == nil ||
-			event.AttemptID == paused {
+			event.ModelCallID == paused {
 			continue
 		}
 		sent = true
@@ -907,7 +907,7 @@ func UrgentSteerAfterPause(
 func unfinishedHosted(turn dashi.Turn, attempt string) bool {
 	for _, step := range turn.Steps {
 		if step.Kind != dashi.StepModelCallFinished ||
-			step.Model.AttemptID != attempt || step.Model.Result == nil {
+			step.Model.ModelCallID != attempt || step.Model.Result == nil {
 			continue
 		}
 		open := map[string]bool{}

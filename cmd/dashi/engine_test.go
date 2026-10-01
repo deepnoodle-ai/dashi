@@ -496,10 +496,10 @@ func TestDiffIsCappedAt40Lines(t *testing.T) {
 func rejectWith(status int, category llm.ErrorCategory) reply {
 	return func(context.Context, llm.Call) (llm.Result, error) {
 		return llm.Result{}, &llm.Error{
-			Provider:    "test",
-			Category:    category,
-			Disposition: llm.FailureRejected,
-			Status:      status,
+			Provider:   "test",
+			Category:   category,
+			SendStatus: llm.SendStatusProviderRejected,
+			Status:     status,
 		}
 	}
 }

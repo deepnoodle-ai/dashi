@@ -55,7 +55,7 @@ var errTurnDeadline = errors.New("dashi: turn deadline reached")
 func (r *runtime) contextStop() Outcome {
 	cause := context.Cause(r.ctx)
 	if errors.Is(cause, errTurnDeadline) {
-		return r.stop(StopLimited, "deadline")
+		return r.stop(StopLimited, string(LimitDeadline))
 	}
 	if cause == nil {
 		cause = r.ctx.Err()
@@ -100,7 +100,7 @@ func (r *runtime) commit(step Step) *Outcome {
 		}
 	}
 	if step.Model != nil && (step.Kind == StepModelCallFinished || step.Kind == StepModelCallFinishedByHost) {
-		step.Model.Purpose = modelPurpose(r.turn, step.Model.AttemptID)
+		step.Model.Purpose = modelPurpose(r.turn, step.Model.ModelCallID)
 	}
 	if recordsActiveHooks(step) {
 		step.ActiveHooks = r.activeHooks
@@ -177,7 +177,7 @@ func (r *runtime) commit(step Step) *Outcome {
 	if r.emitter.active() || r.opts.streamSink != nil {
 		event := Event{TurnID: step.TurnID, Step: &step}
 		if step.Model != nil {
-			event.AttemptID = step.Model.AttemptID
+			event.ModelCallID = step.Model.ModelCallID
 			event.MessageID = step.Model.MessageID
 		}
 		r.emit(event)
@@ -266,26 +266,26 @@ func (r *runtime) stop(kind StopKind, reason string) Outcome {
 		if err != nil {
 			state = &replayState{}
 		}
-		switch reason {
-		case "model_attempts":
+		switch LimitKind(reason) {
+		case LimitModelCalls:
 			stop.Limit = &LimitDetail{
-				Kind:  LimitModelAttempts,
+				Kind:  LimitModelCalls,
 				Limit: int64(state.attemptCap),
-				Used:  int64(state.ModelAttempts),
+				Used:  int64(state.ModelCalls),
 			}
-		case "interruptions":
+		case LimitResumes:
 			stop.Limit = &LimitDetail{
-				Kind:  LimitInterruptions,
-				Limit: int64(max(r.agent.Limits.Interruptions, 0)),
-				Used:  int64(state.Interruptions),
+				Kind:  LimitResumes,
+				Limit: int64(max(r.agent.Limits.Resumes, 0)),
+				Used:  int64(state.Resumes),
 			}
-		case "provider_pauses":
+		case LimitProviderPauses:
 			stop.Limit = &LimitDetail{
 				Kind:  LimitProviderPauses,
 				Limit: int64(max(r.agent.Limits.ProviderPauses, 0)),
 				Used:  int64(state.ProviderPauses),
 			}
-		case "deadline":
+		case LimitDeadline:
 			stop.Limit = &LimitDetail{
 				Kind:  LimitDeadline,
 				Limit: r.agent.Limits.Deadline.Unix(),
@@ -310,8 +310,8 @@ func (r *runtime) stopAfterAnswer(s *replayState) Outcome {
 	}
 	// The reserved final call ends at the model-call limit. After Continue
 	// raises the limit, a recorded answer completes the turn.
-	if s.finalAnswerOnly && s.attemptCap <= s.ModelAttempts {
-		return r.stop(StopLimited, "model_attempts")
+	if s.finalAnswerOnly && s.attemptCap <= s.ModelCalls {
+		return r.stop(StopLimited, string(LimitModelCalls))
 	}
 	return r.stop(StopCompleted, "")
 }

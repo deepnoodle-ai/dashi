@@ -46,7 +46,7 @@ func TestModelInfoCanBoundCost(t *testing.T) {
 				t.Fatal(err)
 			}
 			request := riskRequest(t, fitted.Settings.MaxTokens, nil)
-			if _, ok := MaxCostAtRisk(request, *test.pricing); ok != got {
+			if _, ok := WorstCaseCost(request, *test.pricing); ok != got {
 				t.Fatalf("MaxCostAtRisk ok=%v, CanBoundCost=%v", ok, got)
 			}
 		})

@@ -139,7 +139,7 @@ func (r *Renderer) Event(ev dashi.Event) []Block {
 }
 
 func (r *Renderer) delta(ev dashi.Event) []Block {
-	if r.Origin == dashi.StartCompaction || r.isActiveSummary(ev.AttemptID) {
+	if r.Origin == dashi.StartCompaction || r.isActiveSummary(ev.ModelCallID) {
 		return nil
 	}
 	if ev.Delta.Kind == llm.DeltaReasoning && r.showReasoning {
@@ -148,7 +148,7 @@ func (r *Renderer) delta(ev dashi.Event) []Block {
 	if ev.Delta.Kind != llm.DeltaText || ev.Delta.Text == "" {
 		return nil
 	}
-	id := messageKey(ev.MessageID, ev.AttemptID)
+	id := messageKey(ev.MessageID, ev.ModelCallID)
 	r.text[id] += ev.Delta.Text
 	return []Block{{ID: id, Kind: KindAssistant, Text: r.text[id]}}
 }
@@ -273,7 +273,7 @@ func (r *Renderer) modelSettled(s dashi.Step) []Block {
 		r.summary = text
 		return nil
 	}
-	id := messageKey(m.MessageID, m.AttemptID)
+	id := messageKey(m.MessageID, m.ModelCallID)
 	if text == "" {
 		// A tool-only message has no text. If text streamed before it
 		// settled, an empty settled block replaces that provisional text.
@@ -417,7 +417,7 @@ func limitText(st *dashi.Stop) string {
 	if st.Limit != nil && st.Limit.Kind == dashi.LimitContextWindow {
 		return "The next request cannot fit its recorded context window. Full work is retained. Use a larger-window model or smaller input for a new Turn; compact earlier session history when needed."
 	}
-	if st.Limit != nil && st.Limit.Kind == dashi.LimitModelAttempts {
+	if st.Limit != nil && st.Limit.Kind == dashi.LimitModelCalls {
 		return fmt.Sprintf(
 			"Stopped after %d model calls. Press Enter or type /continue to go on.",
 			st.Limit.Used,
@@ -443,7 +443,7 @@ func FooterText(turn int, model string, v dashi.TurnView) string {
 	if model != "" {
 		parts = append(parts, model)
 	}
-	calls := v.ModelAttempts
+	calls := v.ModelCalls
 	parts = append(parts, fmt.Sprintf("%d model %s", calls, plural(calls, "call")))
 	if v.Spend.UsageIncomplete {
 		parts = append(parts, "usage incomplete")

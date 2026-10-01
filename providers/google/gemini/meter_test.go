@@ -326,7 +326,7 @@ func TestStreamCountsHostedMeters(t *testing.T) {
 				!maps.Equal(result.Usage.Requests, tc.want) {
 				t.Fatalf("result requests = %+v, want %v", result.Usage, tc.want)
 			}
-			if !result.Usage.RequestsFinal {
+			if !result.Usage.RequestsComplete {
 				t.Fatal("a finished stream's counts are not marked final")
 			}
 			if !maps.Equal(live.Requests, tc.want) {
@@ -381,7 +381,7 @@ func TestStreamWithoutFinishReasonIsNotFinal(t *testing.T) {
 	if result.Usage == nil {
 		t.Fatal("usage was lost")
 	}
-	if result.Usage.RequestsFinal {
+	if result.Usage.RequestsComplete {
 		t.Fatal("counts from an unfinished stream are marked final")
 	}
 }

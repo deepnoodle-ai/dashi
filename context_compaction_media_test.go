@@ -76,7 +76,7 @@ func TestActiveCompactionMediaHistoryToolHookReload(t *testing.T) {
 			a := testAgent()
 			a.ActiveCompaction = &ActiveCompactionPolicy{}
 			a.Settings.MaxTokens = 256
-			a.Limits.ModelAttempts = 1
+			a.Limits.ModelCalls = 1
 			start := activeStart(a)
 			switch source {
 			case "input":
@@ -111,7 +111,7 @@ func TestActiveCompactionMediaHistoryToolHookReload(t *testing.T) {
 			if err = json.Unmarshal(encoded, &loaded); err != nil {
 				t.Fatal(err)
 			}
-			out, err := r.Run(t.Context(), loaded, Continue{CommandID: "resume", ModelAttempts: 4, History: start.History})
+			out, err := r.Run(t.Context(), loaded, Continue{CommandID: "resume", ModelCalls: 4, History: start.History})
 			if err != nil || out.Stop.Kind != StopCompleted || c.sends != 3 || calls != 2 || activeMediaWarnings(out.Warnings) != 1 || len(out.ContextCompactions) != 0 {
 				t.Fatalf("stop=%+v sends=%d calls=%d warnings=%+v err=%v", out.Stop, c.sends, calls, out.Warnings, err)
 			}
@@ -170,9 +170,9 @@ func TestActiveCompactionMediaFinancialAdmissionUnchanged(t *testing.T) {
 			observed := false
 			hooks := Hooks{BeforeSend: []SendHook{{Name: "risk", Func: func(_ context.Context, p SendPlan) (SendDecision, error) {
 				observed = true
-				expected, ok := llm.MaxCostAtRisk(p.Request, *p.Request.Snapshot().ModelInfo.Pricing)
-				if !ok || p.AtRisk == nil || p.AtRisk.Total != expected.Total {
-					t.Fatalf("risk changed: plan=%+v expected=%+v priced=%v", p.AtRisk, expected, ok)
+				expected, ok := llm.WorstCaseCost(p.Request, *p.Request.Snapshot().ModelInfo.Pricing)
+				if !ok || p.WorstCaseCost == nil || p.WorstCaseCost.Total != expected.Total {
+					t.Fatalf("risk changed: plan=%+v expected=%+v priced=%v", p.WorstCaseCost, expected, ok)
 				}
 				return SendDecision{}, nil
 			}}}}
@@ -200,7 +200,7 @@ func TestActiveCompactionMediaDoesNotDisableLaterTextChecks(t *testing.T) {
 	c, a := activeFixture()
 	calls := 0
 	hooks := Hooks{BeforeModel: []ModelHook{{Name: "first-image", Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
-		if p.Turn.ModelAttempts != 0 {
+		if p.Turn.ModelCalls != 0 {
 			return ModelDecision{}, nil
 		}
 		return ModelDecision{AddMessages: []ContextItem{{ID: "first-image", Name: "image", Origin: ContextRuntime, NextCallOnly: true, Message: llm.UserMessage(llm.Image(content.Source{Data: []byte{1, 2, 3}, MIMEType: "image/png"}))}}}, nil
@@ -214,7 +214,7 @@ func TestActiveCompactionMediaDoesNotDisableLaterTextChecks(t *testing.T) {
 	}
 }
 func TestActiveCompactionMediaProviderRejectionDoesNotRetry(t *testing.T) {
-	c := &activeClient{window: 128000, scriptedClient: scriptedClient{results: []llm.Result{{}}, errors: []error{&llm.Error{Provider: "test", Category: llm.ErrorInvalidRequest, Reason: llm.ReasonContextWindowExceeded, Disposition: llm.FailureRejected, Status: 400}}}}
+	c := &activeClient{window: 128000, scriptedClient: scriptedClient{results: []llm.Result{{}}, errors: []error{&llm.Error{Provider: "test", Category: llm.ErrorInvalidRequest, Reason: llm.ReasonContextWindowExceeded, SendStatus: llm.SendStatusProviderRejected, Status: 400}}}}
 	a := testAgent()
 	a.ActiveCompaction = &ActiveCompactionPolicy{}
 	a.Settings.MaxTokens = 256

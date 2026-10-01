@@ -197,7 +197,7 @@ func TestInspectionOwnerGuidanceUsesExactPendingCallAndNoFalseRecovery(t *testin
 	}
 	base.Latest.Readable = true
 	base.Latest.Pending = nil
-	base.Latest.Next = dashi.NextRaiseAttempts
+	base.Latest.Next = dashi.NextRaiseModelCalls
 	if !strings.Contains(inspectionGuidance(base, own), "/continue") {
 		t.Fatal("missing limit route")
 	}

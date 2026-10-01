@@ -12,13 +12,13 @@ import (
 )
 
 func limitedForAttempts(stop Stop) bool {
-	return stop.Kind == StopLimited && stop.Reason == "model_attempts" &&
-		stop.Limit != nil && stop.Limit.Kind == LimitModelAttempts
+	return stop.Kind == StopLimited && stop.Reason == "model_calls" &&
+		stop.Limit != nil && stop.Limit.Kind == LimitModelCalls
 }
 
 func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 	def := testAgent()
-	def.Limits = Limits{ModelAttempts: 2}
+	def.Limits = Limits{ModelCalls: 2}
 	def.Settings.ToolChoice = &llm.ToolChoice{Mode: llm.ToolChoiceAny}
 	client := &scriptedClient{
 		results: []llm.Result{
@@ -77,7 +77,7 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 		}
 	}
 	view, err := Replay(out.Turn)
-	if err != nil || view.ModelAttempts != 2 || view.Stop.Kind != StopLimited {
+	if err != nil || view.ModelCalls != 2 || view.Stop.Kind != StopLimited {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
 	again, err := (Runner{
@@ -113,7 +113,7 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 
 func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 	def := structuredAgent()
-	def.Limits.ModelAttempts = 2
+	def.Limits.ModelCalls = 2
 	client := &scriptedClient{
 		results: []llm.Result{
 			callResult("lookup-1", "lookup"),
@@ -176,7 +176,7 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 	}{
 		{
 			name: "model attempts without final attempt",
-			stop: *testStop(StopLimited, LimitModelAttempts),
+			stop: *testStop(StopLimited, LimitModelCalls),
 		},
 		{
 			name:    "deadline",
@@ -206,7 +206,7 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 	}
 
 	def := structuredAgent()
-	def.Limits.ModelAttempts = 2
+	def.Limits.ModelCalls = 2
 	final := &scriptedClient{
 		results: []llm.Result{
 			callResult("lookup-1", "lookup"),
@@ -242,7 +242,7 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 
 func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
 	def := testAgent()
-	def.Limits.ModelAttempts = 2
+	def.Limits.ModelCalls = 2
 	client := &scriptedClient{
 		results: []llm.Result{
 			callResult("first", "lookup"),
@@ -289,7 +289,7 @@ func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
 
 func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 	def := testAgent()
-	def.Limits.ModelAttempts = 2
+	def.Limits.ModelCalls = 2
 	client := &scriptedClient{
 		results: []llm.Result{callResult("first", "lookup"), final("42")},
 	}
@@ -355,7 +355,7 @@ func answerLookup() tool.Tool {
 
 func TestContinueRaisesModelAttemptLimit(t *testing.T) {
 	def := testAgent()
-	def.Limits = Limits{ModelAttempts: 2, NoReservedFinalReply: true}
+	def.Limits = Limits{ModelCalls: 2, NoReservedFinalReply: true}
 	client := &scriptedClient{
 		results: []llm.Result{
 			callResult("c1", "lookup"),
@@ -396,16 +396,16 @@ func TestContinueRaisesModelAttemptLimit(t *testing.T) {
 		t.Fatal("continue without a raise ran a spent turn")
 	}
 	if _, err := runner.Run(t.Context(), out.Turn, Continue{
-		CommandID:     "same",
-		ModelAttempts: 2,
+		CommandID:  "same",
+		ModelCalls: 2,
 	}); err == nil {
 		t.Fatal("a raise equal to the limit was accepted")
 	}
 
 	// The raise keeps the same turn and its record.
 	out, err = runner.Run(t.Context(), out.Turn, Continue{
-		CommandID:     "raise-1",
-		ModelAttempts: 3,
+		CommandID:  "raise-1",
+		ModelCalls: 3,
 	})
 	if err != nil || !limitedForAttempts(out.Stop) || out.Turn.ID != "limit" {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -416,14 +416,14 @@ func TestContinueRaisesModelAttemptLimit(t *testing.T) {
 
 	// A second raise builds on the first, and the record replays.
 	if _, err := runner.Run(t.Context(), out.Turn, Continue{
-		CommandID:     "lower",
-		ModelAttempts: 3,
+		CommandID:  "lower",
+		ModelCalls: 3,
 	}); err == nil {
 		t.Fatal("a raise equal to the raised limit was accepted")
 	}
 	out, err = runner.Run(t.Context(), out.Turn, Continue{
-		CommandID:     "raise-2",
-		ModelAttempts: 10,
+		CommandID:  "raise-2",
+		ModelCalls: 10,
 	})
 	if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "done" {
 		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
@@ -435,7 +435,7 @@ func TestContinueRaisesModelAttemptLimit(t *testing.T) {
 
 func TestBudgetRaiseAloneCannotRunToolsWithoutModelCalls(t *testing.T) {
 	s := &replayState{}
-	s.Revision, s.ModelAttempts, s.attemptCap = 2, 3, 3
+	s.Revision, s.ModelCalls, s.attemptCap = 2, 3, 3
 	s.Stop = Stop{
 		Kind:  StopLimited,
 		Limit: &LimitDetail{Kind: LimitTotalTokens},
@@ -453,7 +453,7 @@ func TestBudgetRaiseAloneCannotRunToolsWithoutModelCalls(t *testing.T) {
 
 func TestStructuredAnswerOnFinalCallCompletesAfterContinue(t *testing.T) {
 	def := structuredAgent()
-	def.Limits.ModelAttempts = 2
+	def.Limits.ModelCalls = 2
 	client := &scriptedClient{
 		results: []llm.Result{
 			callResult("lookup-1", "lookup"),
@@ -474,8 +474,8 @@ func TestStructuredAnswerOnFinalCallCompletesAfterContinue(t *testing.T) {
 		t.Fatalf("out=%+v err=%v", out.Stop, err)
 	}
 	out, err = runner.Run(t.Context(), out.Turn, Continue{
-		CommandID:     "more",
-		ModelAttempts: 3,
+		CommandID:  "more",
+		ModelCalls: 3,
 	})
 	if err != nil || out.Stop.Kind != StopCompleted || out.Output == nil ||
 		client.sends != 2 {
@@ -516,7 +516,7 @@ func TestRunnerTimeoutRetainsOrderedMixedPartialData(t *testing.T) {
 		}
 	}
 	if settled == nil || settled.ErrorReason != llm.ReasonStreamIdleTimeout ||
-		settled.Failure != llm.FailureUnknown || !settled.Uncertain ||
+		settled.SendStatus != llm.SendStatusUnknown || !settled.ResultUnknown ||
 		!settled.EstimatedUsage || settled.Result == nil ||
 		settled.Result.Stop.Kind != llm.StopIncomplete {
 		t.Fatalf("settlement=%+v", settled)
@@ -589,20 +589,20 @@ func TestRunnerKeepsProviderTimeoutWhenHostCancelsLater(t *testing.T) {
 // attemptClient records the attempt identity each Send receives.
 type attemptClient struct {
 	*scriptedClient
-	sent   []llm.Attempt
-	onSend func(llm.Attempt)
+	sent   []llm.CallIdentity
+	onSend func(llm.CallIdentity)
 }
 
 func (c *attemptClient) Send(
 	ctx context.Context,
 	call llm.Call,
 ) (llm.Result, error) {
-	if call.Attempt.IsZero() {
+	if call.Identity.IsZero() {
 		return llm.Result{}, errors.New("send without attempt identity")
 	}
-	c.sent = append(c.sent, call.Attempt)
+	c.sent = append(c.sent, call.Identity)
 	if c.onSend != nil {
-		c.onSend(call.Attempt)
+		c.onSend(call.Identity)
 	}
 	return c.scriptedClient.Send(ctx, call)
 }
@@ -611,20 +611,20 @@ func stepAttempts(turn Turn, kind StepKind) []string {
 	var ids []string
 	for _, step := range turn.Steps {
 		if step.Kind == kind {
-			ids = append(ids, step.Model.AttemptID)
+			ids = append(ids, step.Model.ModelCallID)
 		}
 	}
 	return ids
 }
 
-func attemptIDs(t *testing.T, attempts []llm.Attempt) []string {
+func attemptIDs(t *testing.T, attempts []llm.CallIdentity) []string {
 	t.Helper()
 	ids := make([]string, len(attempts))
 	for i, a := range attempts {
 		if a.TurnID != "t1" {
 			t.Fatalf("attempt %d turn=%q, want t1", i, a.TurnID)
 		}
-		ids[i] = a.AttemptID
+		ids[i] = a.ModelCallID
 	}
 	return ids
 }
@@ -634,17 +634,17 @@ func TestClientReceivesRecordedAttemptIdentity(t *testing.T) {
 	client := &attemptClient{
 		scriptedClient: &scriptedClient{results: []llm.Result{final("done")}},
 	}
-	client.onSend = func(a llm.Attempt) {
+	client.onSend = func(a llm.CallIdentity) {
 		// The intent carrying this ID is durable before Send is called.
 		saved, err := rec.Load(t.Context(), "t1")
 		if err != nil {
 			t.Fatal(err)
 		}
 		last := saved.Steps[len(saved.Steps)-1]
-		if last.Kind != StepModelCallStarted || last.Model.AttemptID != a.AttemptID {
+		if last.Kind != StepModelCallStarted || last.Model.ModelCallID != a.ModelCallID {
 			t.Fatalf(
 				"send %q before its intent was recorded: last step %s",
-				a.AttemptID,
+				a.ModelCallID,
 				last.Kind,
 			)
 		}
@@ -677,7 +677,7 @@ func TestInterruptedAttemptIsResentUnderNewID(t *testing.T) {
 	client := &attemptClient{
 		scriptedClient: &scriptedClient{results: []llm.Result{{}, final("done")}},
 	}
-	client.onSend = func(llm.Attempt) {
+	client.onSend = func(llm.CallIdentity) {
 		if len(client.sent) == 1 {
 			cancel(errors.New("deploying"))
 		}
@@ -710,7 +710,7 @@ func TestInterruptedAttemptIsResentUnderNewID(t *testing.T) {
 	}
 	for _, step := range out.Turn.Steps {
 		if step.Kind == StepModelCallFinished &&
-			step.Model.AttemptID == "t1:model:1" &&
+			step.Model.ModelCallID == "t1:model:1" &&
 			step.Model.Interrupted == InterruptNone {
 			t.Fatalf("first attempt settled without interruption: %+v", step.Model)
 		}

@@ -55,10 +55,10 @@ func parkedEmitter(t *testing.T) (*emitter, func() []Event) {
 
 func delta(i int) Event {
 	return Event{
-		TurnID:    "t1",
-		AttemptID: "t1:model:1",
-		MessageID: "t1:model:1:message",
-		Delta:     &llm.Delta{Kind: llm.DeltaText, Text: string(rune('a' + i%26))},
+		TurnID:      "t1",
+		ModelCallID: "t1:model:1",
+		MessageID:   "t1:model:1:message",
+		Delta:       &llm.Delta{Kind: llm.DeltaText, Text: string(rune('a' + i%26))},
 	}
 }
 
@@ -154,7 +154,7 @@ func TestObserverGapNamesMessage(t *testing.T) {
 		t.Fatalf("events=%v\nwant %v", got, want)
 	}
 	gap := events[observerQueue]
-	if gap.TurnID != "t1" || gap.AttemptID != "t1:model:1" ||
+	if gap.TurnID != "t1" || gap.ModelCallID != "t1:model:1" ||
 		gap.MessageID != "t1:model:1:message" || gap.Delta != nil {
 		t.Fatalf("gap=%+v", gap)
 	}

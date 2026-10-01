@@ -210,7 +210,7 @@ func TestUrgentSteerDuringBeforeSendGoesBackForTheSteer(t *testing.T) {
 				inbox.sendUrgent(t, "use staging")
 			}
 			admission := json.RawMessage(fmt.Sprintf(`{"pass":%d}`, asked))
-			return SendDecision{Admission: admission}, nil
+			return SendDecision{Reservation: admission}, nil
 		},
 	}
 	out := runUrgent(t, client, inbox, func(r *Runner) {
@@ -228,7 +228,7 @@ func TestUrgentSteerDuringBeforeSendGoesBackForTheSteer(t *testing.T) {
 		)
 	}
 	for _, fact := range settlements(out.Turn) {
-		if fact.NoDispatch {
+		if fact.NotSent {
 			t.Fatalf("a call cut during BeforeSend was settled: %+v", fact)
 		}
 	}
@@ -244,7 +244,7 @@ func TestUrgentSteerDuringBeforeSendGoesBackForTheSteer(t *testing.T) {
 			n,
 		)
 	}
-	admission := string(intents[0].Model.Admission["reserve"])
+	admission := string(intents[0].Model.Reservation["reserve"])
 	if admission != `{"pass":2}` {
 		t.Fatalf(
 			"admission = %s; the request must carry the second pass's",
@@ -342,7 +342,7 @@ func TestUnsafeHostedToolCallIsCutBeforeHandOff(t *testing.T) {
 		t.Fatalf("stop=%+v sends=%d", out.Stop, client.sends)
 	}
 	cut := settlements(out.Turn)[0]
-	if cut.Interrupted != InterruptSteering || !cut.NoDispatch {
+	if cut.Interrupted != InterruptSteering || !cut.NotSent {
 		t.Fatalf(
 			"a call not yet handed off must be cut, whatever it offers: %+v",
 			cut,
@@ -403,8 +403,8 @@ func TestSteeredCallNotDispatchedSettlesWithoutResult(t *testing.T) {
 			during: func(context.Context) { inbox.sendUrgent(t, "stop") },
 			block:  true,
 			err: &llm.Error{
-				Category:    llm.ErrorTransport,
-				Disposition: llm.FailureNotDispatched,
+				Category:   llm.ErrorTransport,
+				SendStatus: llm.SendStatusNotSent,
 			},
 		},
 		urgentCall{result: final("ok")},
@@ -417,14 +417,14 @@ func TestSteeredCallNotDispatchedSettlesWithoutResult(t *testing.T) {
 	if cut.Interrupted != InterruptSteering {
 		t.Fatalf("cause = %q", cut.Interrupted)
 	}
-	if !cut.NoDispatch {
+	if !cut.NotSent {
 		t.Fatal("a call the client never dispatched was counted as sent")
 	}
-	if cut.Result != nil || cut.Charge != nil {
+	if cut.Result != nil || cut.Cost != nil {
 		t.Fatalf(
 			"a call never dispatched carries result=%+v charge=%+v",
 			cut.Result,
-			cut.Charge,
+			cut.Cost,
 		)
 	}
 }
@@ -616,7 +616,7 @@ func TestSteerWaitsForAPausedHostedCall(t *testing.T) {
 		urgentCall{result: final("Found it on staging")},
 	)}
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 4
+	agent.Limits.ModelCalls = 4
 	out := runUrgentAgent(t, client, inbox, agent, func(r *Runner) {
 		r.Tools = tool.List{searchTool()}
 	})
@@ -649,7 +649,7 @@ func TestUrgentSteerDoesNotCutAPausedHostedCall(t *testing.T) {
 		urgentCall{result: final("Found it on staging")},
 	)}
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 4
+	agent.Limits.ModelCalls = 4
 	out := runUrgentAgent(t, client, source, agent, func(r *Runner) {
 		r.Tools = tool.List{searchTool()}
 	})
@@ -726,7 +726,7 @@ func TestSteerIsDeliveredAfterAPauseWithFinishedSearch(t *testing.T) {
 		urgentCall{result: final("Found it on staging")},
 	)}
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 4
+	agent.Limits.ModelCalls = 4
 	out := runUrgentAgent(t, client, inbox, agent, func(r *Runner) {
 		r.Tools = tool.List{searchTool()}
 	})

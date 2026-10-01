@@ -14,7 +14,7 @@ func TestReasoningPreviewReconcilesWithoutPrivateText(t *testing.T) {
 	r.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepTurnStarted, Started: &dashi.StartFact{Agent: dashi.Agent{Settings: llm.Settings{ReasoningSummary: new(true)}}}}})
 	var last Block
 	for _, delta := range []llm.Delta{{Kind: llm.DeltaReasoning, Index: 2, ContentIndex: 1, Text: "second"}, {Kind: llm.DeltaReasoning, Index: 2, ContentIndex: 0, Text: "first"}} {
-		blocks := r.Event(dashi.Event{AttemptID: "attempt", MessageID: "message", Delta: &delta})
+		blocks := r.Event(dashi.Event{ModelCallID: "attempt", MessageID: "message", Delta: &delta})
 		if len(blocks) != 1 || blocks[0].Kind != KindReasoning {
 			t.Fatalf("preview = %+v", blocks)
 		}
@@ -28,7 +28,7 @@ func TestReasoningPreviewReconcilesWithoutPrivateText(t *testing.T) {
 		{Kind: llm.ContentReasoning, Reasoning: &llm.Reasoning{Text: "settled summary"}, Replay: &llm.Opaque{Raw: []byte(`{"private":"NEVER_DISPLAY"}`)}},
 		llm.Text("answer"),
 	}}}
-	blocks := r.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{AttemptID: "attempt", MessageID: "message", Result: result}}})
+	blocks := r.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "attempt", MessageID: "message", Result: result}}})
 	if len(blocks) != 2 || blocks[0].ID != last.ID || blocks[0].Text != "settled summary" || !blocks[0].Done || blocks[1].Kind != KindAssistant || blocks[1].Text != "answer" {
 		t.Fatalf("reconciliation = %+v", blocks)
 	}
@@ -40,7 +40,7 @@ func TestReasoningPreviewReconcilesWithoutPrivateText(t *testing.T) {
 	// Reopening rebuilds the same settled blocks without provisional duplicates.
 	reopened := NewRenderer(1, "fixture", t.TempDir())
 	reopened.showReasoning = true
-	settled := reopened.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{AttemptID: "attempt", MessageID: "message", Result: result}}})
+	settled := reopened.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "attempt", MessageID: "message", Result: result}}})
 	if len(settled) != 2 || !reflect.DeepEqual(settled[0], blocks[0]) {
 		t.Fatalf("reopen = %+v", settled)
 	}
@@ -48,12 +48,12 @@ func TestReasoningPreviewReconcilesWithoutPrivateText(t *testing.T) {
 
 func TestThinkingOffAndAbsentSummaryClearDisplay(t *testing.T) {
 	r := NewRenderer(1, "fixture", t.TempDir())
-	if blocks := r.Event(dashi.Event{AttemptID: "a", Delta: &llm.Delta{Kind: llm.DeltaReasoning, Text: "unsolicited"}}); len(blocks) != 0 {
+	if blocks := r.Event(dashi.Event{ModelCallID: "a", Delta: &llm.Delta{Kind: llm.DeltaReasoning, Text: "unsolicited"}}); len(blocks) != 0 {
 		t.Fatal("unset thinking displayed")
 	}
 	r.showReasoning = true
-	preview := r.Event(dashi.Event{AttemptID: "a", Delta: &llm.Delta{Kind: llm.DeltaReasoning, Text: "preview"}})
-	settled := r.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{AttemptID: "a", Result: &llm.Result{Message: llm.Message{Content: []llm.Content{llm.Text("answer")}}}}}})
+	preview := r.Event(dashi.Event{ModelCallID: "a", Delta: &llm.Delta{Kind: llm.DeltaReasoning, Text: "preview"}})
+	settled := r.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "a", Result: &llm.Result{Message: llm.Message{Content: []llm.Content{llm.Text("answer")}}}}}})
 	if len(settled) != 2 || settled[0].ID != preview[0].ID || settled[0].Text != "" || !settled[0].Done {
 		t.Fatalf("absent final = %+v", settled)
 	}

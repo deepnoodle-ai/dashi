@@ -344,13 +344,13 @@ func TestOneHourCacheBudgetUsesTheOneHourRate(t *testing.T) {
 		}
 	}
 	if out.Stop.Kind != dashi.StopCompleted || intent == nil ||
-		intent.AtRisk == nil || intent.EstimatedInputTokens == 0 {
+		intent.WorstCaseCost == nil || intent.EstimatedInputTokens == 0 {
 		t.Fatalf("capped one-hour turn: %+v", out.Stop)
 	}
 	// The input bound is priced at the $6 one-hour rate, the highest.
 	want := money.AmountFromNanos(int64(intent.EstimatedInputTokens) * 6000)
-	if intent.AtRisk.Input != want {
-		t.Fatalf("reserved input %s, want %s at the one-hour rate", intent.AtRisk.Input, want)
+	if intent.WorstCaseCost.Input != want {
+		t.Fatalf("reserved input %s, want %s at the one-hour rate", intent.WorstCaseCost.Input, want)
 	}
 	out = run(nil)
 	if out.Stop.Kind != dashi.StopLimited || out.Stop.Limit == nil ||

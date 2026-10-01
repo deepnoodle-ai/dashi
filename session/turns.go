@@ -154,7 +154,7 @@ func uncertainCall(t *sessionTurn) string {
 func offeredUnsafeHosted(turn dashi.Turn, attemptID string) bool {
 	for _, step := range turn.Steps {
 		if step.Kind == dashi.StepModelCallStarted && step.Model != nil &&
-			step.Model.AttemptID == attemptID {
+			step.Model.ModelCallID == attemptID {
 			return tooldef.UnsafeHosted(step.Model.Tools)
 		}
 	}

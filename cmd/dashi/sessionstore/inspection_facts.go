@@ -23,7 +23,7 @@ func ordinaryText(turn dashi.Turn) []recordedText {
 	delivered := map[string]bool{}
 	for _, step := range turn.Steps {
 		if step.Model != nil && step.Kind == dashi.StepModelCallStarted {
-			purposes[step.Model.AttemptID] = step.Model.Purpose
+			purposes[step.Model.ModelCallID] = step.Model.Purpose
 		}
 		if step.Started != nil {
 			for _, message := range step.Started.Input {
@@ -50,7 +50,7 @@ func ordinaryText(turn dashi.Turn) []recordedText {
 			}
 		}
 		if step.Model != nil && (step.Kind == dashi.StepModelCallFinished || step.Kind == dashi.StepModelCallFinishedByHost) && step.Model.Result != nil {
-			if purposes[step.Model.AttemptID] == dashi.ModelPurposeCompaction || step.Model.Purpose == dashi.ModelPurposeCompaction {
+			if purposes[step.Model.ModelCallID] == dashi.ModelPurposeCompaction || step.Model.Purpose == dashi.ModelPurposeCompaction {
 				continue
 			}
 			if step.Model.Result.Message.Role == llm.RoleAssistant {
@@ -113,19 +113,19 @@ func turnAccounting(turn dashi.Turn, view dashi.TurnView) Accounting {
 			continue
 		}
 		if step.Kind == dashi.StepModelCallStarted {
-			intents[f.AttemptID] = true
+			intents[f.ModelCallID] = true
 			continue
 		}
 		if step.Kind != dashi.StepModelCallFinished && step.Kind != dashi.StepModelCallFinishedByHost {
 			continue
 		}
-		settled[f.AttemptID] = !f.Uncertain && f.Failure != llm.FailureUnknown
-		if f.NoDispatch || f.Failure == llm.FailureNotDispatched {
+		settled[f.ModelCallID] = !f.ResultUnknown && f.SendStatus != llm.SendStatusUnknown
+		if f.NotSent || f.SendStatus == llm.SendStatusNotSent {
 			continue
 		}
 		r := f.Result
-		if f.Failure == llm.FailureRejected || r != nil && (r.ID != "" || len(r.Message.Content) > 0 || r.Usage != nil || r.Stop.Kind != "") {
-			dispatched[f.AttemptID] = true
+		if f.SendStatus == llm.SendStatusProviderRejected || r != nil && (r.ID != "" || len(r.Message.Content) > 0 || r.Usage != nil || r.Stop.Kind != "") {
+			dispatched[f.ModelCallID] = true
 		}
 	}
 	a.ModelCalls = len(dispatched)
@@ -157,7 +157,7 @@ func executionSnapshot(turn dashi.Turn, view dashi.TurnView, accounting Accounti
 // ContextOccupancy is one recorded model request, not summed session usage.
 // Available applies to measured complete usage. Estimated data has no percentage.
 type ContextOccupancy struct {
-	TurnID, AttemptID    string
+	TurnID, ModelCallID  string
 	Purpose              dashi.ModelPurpose
 	Tokens, Window       int
 	WindowSource         string
@@ -175,14 +175,14 @@ func contextOccupancy(turn dashi.Turn, view dashi.TurnView) ContextOccupancy {
 		if step.Kind == dashi.StepModelCallStarted {
 			intent = step.Model
 			settled = nil
-		} else if intent != nil && step.Model.AttemptID == intent.AttemptID && (step.Kind == dashi.StepModelCallFinished || step.Kind == dashi.StepModelCallFinishedByHost) {
+		} else if intent != nil && step.Model.ModelCallID == intent.ModelCallID && (step.Kind == dashi.StepModelCallFinished || step.Kind == dashi.StepModelCallFinishedByHost) {
 			settled = step.Model
 		}
 	}
 	if intent == nil {
 		return out
 	}
-	out.AttemptID = intent.AttemptID
+	out.ModelCallID = intent.ModelCallID
 	out.Purpose = intent.Purpose
 	if view.Origin == dashi.StartCompaction {
 		out.Purpose = dashi.ModelPurposeCompaction
@@ -200,7 +200,7 @@ func contextOccupancy(turn dashi.Turn, view dashi.TurnView) ContextOccupancy {
 		return out
 	}
 	out.Estimated = settled.EstimatedUsage
-	if settled.NoDispatch || settled.Failure == llm.FailureNotDispatched {
+	if settled.NotSent || settled.SendStatus == llm.SendStatusNotSent {
 		out.UnavailableReason = "model call not dispatched"
 		return out
 	}

@@ -9,22 +9,22 @@ package llm
 type Call struct {
 	// Request is the prepared request to send.
 	Request Request
-	// Attempt is the caller's identity for this dispatch. It is zero when the
+	// Identity is the caller's identity for this dispatch. It is zero when the
 	// caller records no attempts, as for a direct Send or Generate.
-	Attempt Attempt
+	Identity CallIdentity
 	// Sink observes provisional deltas. It may be nil.
 	Sink Sink
 }
 
-// Attempt is the caller's identity for one model dispatch. A caller that
+// CallIdentity is the caller's identity for one model dispatch. A caller that
 // records model calls, such as Dashi's runner, sets it on Call so a
 // client can tie the dispatch to its own durable work: a queued job, an
 // idempotency key, or a credit hold. A client must still work when it is
 // zero.
 //
-// Dashi's runner sets AttemptID to the ModelFact.AttemptID it records in the
+// Dashi's runner sets ModelCallID to the ModelFact.ModelCallID it records in the
 // turn's StepModelCallStarted step and repeats in StepModelCallFinished or
-// StepModelCallFinishedByHost, and to Event.AttemptID on live updates, so clients,
+// StepModelCallFinishedByHost, and to Event.ModelCallID on live updates, so clients,
 // recorders, and observers can correlate by it. Under Dashi:
 //
 //   - Send receives an ID only after its intent is durably recorded, and
@@ -41,14 +41,14 @@ type Call struct {
 //     Resolve{CallID: id, ModelResult: ...} before Continue, and Dashi will
 //     not send again. The same Resolve settles an attempt left uncertain, for
 //     example by a provider-hosted tool.
-type Attempt struct {
+type CallIdentity struct {
 	// TurnID identifies the caller's unit of work, such as a Dashi turn.
 	TurnID string
-	// AttemptID identifies this dispatch. It is unique within the turn.
-	AttemptID string
+	// ModelCallID identifies this dispatch. It is unique within the turn.
+	ModelCallID string
 }
 
 // IsZero reports whether the caller supplied no attempt identity.
-func (a Attempt) IsZero() bool {
-	return a == Attempt{}
+func (a CallIdentity) IsZero() bool {
+	return a == CallIdentity{}
 }

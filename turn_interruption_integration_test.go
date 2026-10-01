@@ -30,7 +30,7 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 ) {
 	rec := NewMemoryRecorder()
 	def := testAgent()
-	def.Limits.Interruptions = 2
+	def.Limits.Resumes = 2
 	var cancel context.CancelCauseFunc
 	client := &interruptionClient{
 		scriptedClient: &scriptedClient{},
@@ -76,12 +76,12 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 		if err != nil {
 			t.Fatal(err)
 		}
-		if view.ModelAttempts != 0 || view.Interruptions != i ||
+		if view.ModelCalls != 0 || view.Resumes != i ||
 			view.Spend.Usage.InputTokens != 2*(i+1) ||
 			view.Spend.Usage.OutputTokens != 2*(i+1) {
 			t.Fatalf("interruption %d: view=%+v", i, view)
 		}
-		if out.ReadyToContinue != (i < def.Limits.Interruptions) ||
+		if out.ReadyToContinue != (i < def.Limits.Resumes) ||
 			view.ReadyToContinue != out.ReadyToContinue ||
 			answerText(turn.Steps) != "" {
 			t.Fatalf("interruption %d: outcome=%+v view=%+v", i, out, view)
@@ -93,11 +93,11 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 		Continue{CommandID: "over-limit"},
 	)
 	if err != nil || limited.Stop.Kind != StopLimited ||
-		limited.Stop.Reason != "interruptions" || client.sends != 3 {
+		limited.Stop.Reason != "resumes" || client.sends != 3 {
 		t.Fatalf("limit=%+v err=%v sends=%d", limited.Stop, err, client.sends)
 	}
 	view, err := Replay(limited.Turn)
-	if err != nil || view.ModelAttempts != 0 || view.Interruptions != 2 ||
+	if err != nil || view.ModelCalls != 0 || view.Resumes != 2 ||
 		view.Spend.Usage.InputTokens != 6 ||
 		view.ReadyToContinue || limited.ReadyToContinue {
 		t.Fatalf("limited view=%+v err=%v", view, err)
@@ -180,7 +180,7 @@ func TestContinueRecoversCrashedModelIntent(t *testing.T) {
 		t.Fatalf("recovery=%+v err=%v sends=%d", out.Stop, err, client.sends)
 	}
 	view, err := Replay(out.Turn)
-	if err != nil || view.Interruptions != 1 || view.ModelAttempts != 1 {
+	if err != nil || view.Resumes != 1 || view.ModelCalls != 1 {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}
 	var causes []InterruptCause
@@ -296,7 +296,7 @@ func TestTurnDeadlineLimitsRunningModelCall(t *testing.T) {
 				t.Fatalf("stop=%+v err=%v", out.Stop, err)
 			}
 			view, err := Replay(out.Turn)
-			if err != nil || view.ModelAttempts != 0 ||
+			if err != nil || view.ModelCalls != 0 ||
 				view.Spend.Usage.InputTokens != 4 {
 				t.Fatalf("view=%+v err=%v", view, err)
 			}
@@ -452,7 +452,7 @@ func seedOpenModelIntent(
 		{
 			Kind: StepModelCallStarted,
 			Model: &ModelFact{
-				AttemptID:     "t1:model:1",
+				ModelCallID:   "t1:model:1",
 				MessageID:     "t1:model:1:message",
 				RequestDigest: "request-digest",
 				Provider:      def.Provider,

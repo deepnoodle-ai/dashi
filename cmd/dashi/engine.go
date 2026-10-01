@@ -34,8 +34,8 @@ type EngineConfig struct {
 	Preferences *cliPreferences
 	Resources   *resourceManager
 	MCP         *mcpRuntime
-	// ModelAttempts is the per-turn model-call limit; zero means 40.
-	ModelAttempts int
+	// ModelCalls is the per-turn model-call limit; zero means 40.
+	ModelCalls int
 	// Emit receives every block the engine produces. It may run on any
 	// goroutine.
 	Emit    func(Block)
@@ -83,8 +83,8 @@ type Engine struct {
 
 // NewEngine returns an engine with no session. Call Open before any turn.
 func NewEngine(cfg EngineConfig) *Engine {
-	if cfg.ModelAttempts == 0 {
-		cfg.ModelAttempts = defaultModelAttempts
+	if cfg.ModelCalls == 0 {
+		cfg.ModelCalls = defaultModelAttempts
 	}
 	if cfg.Emit == nil {
 		cfg.Emit = func(Block) {}
@@ -301,7 +301,7 @@ func (l *LastTurn) StopText() string {
 
 // LimitStopped reports whether the turn stopped at its model-call limit.
 func (l *LastTurn) LimitStopped() bool {
-	return l != nil && l.Next == dashi.NextRaiseAttempts
+	return l != nil && l.Next == dashi.NextRaiseModelCalls
 }
 
 // OpenCall returns a command the turn started and never finished, which
@@ -462,7 +462,7 @@ func (e *Engine) ContinueLimit(ctx context.Context) (Result, error) {
 		return e.resumePending(ctx)
 	}
 	raised := int(last.View.Stop.Limit.Limit) * 2
-	return e.continueLast(ctx, dashi.Continue{ModelAttempts: raised}, last)
+	return e.continueLast(ctx, dashi.Continue{ModelCalls: raised}, last)
 }
 
 // Continuing a summary authorizes only that summary. Stop at its Outcome
@@ -585,14 +585,14 @@ func (e *Engine) agent() dashi.Agent {
 			guidance = p.guidance
 		}
 		agent.Instructions = composedSystemPrompt(e.cfg.Dir, e.cfg.Wiring.Instructions, guidance, p.guidanceSet)
-		agent.Limits = dashi.Limits{ModelAttempts: e.cfg.ModelAttempts}
+		agent.Limits = dashi.Limits{ModelCalls: e.cfg.ModelCalls}
 		return agent
 	}
 	return dashi.Agent{
 		ID:               "dashi-cli",
 		Model:            e.model,
 		Instructions:     systemPrompt(e.cfg.Dir, e.cfg.Wiring.Instructions),
-		Limits:           dashi.Limits{ModelAttempts: e.cfg.ModelAttempts},
+		Limits:           dashi.Limits{ModelCalls: e.cfg.ModelCalls},
 		ActiveCompaction: &dashi.ActiveCompactionPolicy{},
 	}
 }
@@ -797,7 +797,7 @@ func (e *Engine) settled(r *Renderer, out dashi.Outcome) {
 	switch out.Next() {
 	case dashi.NextNone:
 		return
-	case dashi.NextRaiseAttempts:
+	case dashi.NextRaiseModelCalls:
 		// The turn can go on, so the steers that missed it stay for its
 		// continuation.
 		if n := e.queuedSteers(out.Turn.ID); n > 0 {

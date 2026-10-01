@@ -225,14 +225,14 @@ func (s *replayState) calculateSpend() error {
 		Cost:     map[string]money.Amount{},
 		ToolCost: map[string]money.Amount{},
 	}
-	s.Attempts = nil
+	s.ModelCallCosts = nil
 	for _, id := range s.modelOrder {
 		attempt, incomplete := attemptSpendOf(
 			s.modelIntents[id],
 			s.modelSettlements[id],
 		)
-		s.Attempts = append(s.Attempts, attempt)
-		if attempt.Basis == SpendNotExecuted {
+		s.ModelCallCosts = append(s.ModelCallCosts, attempt)
+		if attempt.UsageSource == UsageSourceNotSent {
 			continue
 		}
 		s.Spend.UsageIncomplete = s.Spend.UsageIncomplete || incomplete
@@ -242,10 +242,10 @@ func (s *replayState) calculateSpend() error {
 			}
 			s.Spend.addUsage(usage)
 		}
-		if attempt.Basis == SpendEstimated {
+		if attempt.UsageSource == UsageSourceEstimated {
 			s.Spend.Estimated = cappedCount(s.Spend.Estimated, 1)
 		}
-		charge := attempt.Charge
+		charge := attempt.Cost
 		if charge == nil {
 			s.Spend.CostUnknown = cappedCount(s.Spend.CostUnknown, 1)
 			continue

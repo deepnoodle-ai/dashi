@@ -348,9 +348,9 @@ func TestLaterChildTurnsAcrossRecover(t *testing.T) {
 	}
 	h.none(t, delegate.TaskEnded)
 	if v := h.view(t, turn2); v.Stop.Kind != dashi.StopCompleted ||
-		v.Interruptions != 1 || v.Parent == nil || *v.Parent != sender {
+		v.Resumes != 1 || v.Parent == nil || *v.Parent != sender {
 		t.Fatalf("turn 2 stop=%+v interruptions=%d parent=%+v",
-			v.Stop, v.Interruptions, v.Parent)
+			v.Stop, v.Resumes, v.Parent)
 	}
 	if _, err := h.rec.Load(t.Context(), session.TurnID(childID(), 3)); err == nil {
 		t.Fatal("Recover started a third turn")

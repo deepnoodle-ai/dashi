@@ -50,8 +50,8 @@ func (e *Engine) bindCommand(ctx context.Context, command dashi.Command) error {
 			var closing dashi.Command = dashi.Cancel{CommandID: "close:" + last.View.ID, Reason: session.CloseReason}
 			if last.View.Output != nil {
 				cont := dashi.Continue{CommandID: "close:" + last.View.ID}
-				if limit := last.View.Stop.Limit; limit != nil && limit.Kind == dashi.LimitModelAttempts {
-					cont.ModelAttempts = int(limit.Limit) + 1
+				if limit := last.View.Stop.Limit; limit != nil && limit.Kind == dashi.LimitModelCalls {
+					cont.ModelCalls = int(limit.Limit) + 1
 				}
 				closing = cont
 			}

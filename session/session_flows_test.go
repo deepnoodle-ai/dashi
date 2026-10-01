@@ -480,8 +480,8 @@ func TestSessionCarryForward(t *testing.T) {
 		Instructions: "Be brief.",
 		Tools:        []string{"lookup"},
 		Limits: dashi.Limits{
-			ModelAttempts: 3,
-			Deadline:      time.Now().Add(time.Hour),
+			ModelCalls: 3,
+			Deadline:   time.Now().Add(time.Hour),
 		},
 	}
 	first, err := s.Send(t.Context(), "one")
@@ -500,7 +500,7 @@ func TestSessionCarryForward(t *testing.T) {
 	case got.Instructions != "Be brief.",
 		got.Model != dashitest.Model,
 		got.Settings.MaxTokens != 100,
-		got.Limits.ModelAttempts != 3,
+		got.Limits.ModelCalls != 3,
 		len(got.Tools) != 1:
 		t.Fatalf("carried agent = %+v", got)
 	case !got.Limits.Deadline.IsZero():

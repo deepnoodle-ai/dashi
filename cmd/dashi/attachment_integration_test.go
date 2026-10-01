@@ -742,9 +742,9 @@ func TestAttachmentRealisticMediaCostAdmissionUnchanged(t *testing.T) {
 				observed := false
 				runner.Hooks.BeforeSend = append(runner.Hooks.BeforeSend, dashi.SendHook{Name: "verify unchanged risk", Func: func(_ context.Context, p dashi.SendPlan) (dashi.SendDecision, error) {
 					observed = true
-					expected, ok := llm.MaxCostAtRisk(p.Request, *p.Request.Snapshot().ModelInfo.Pricing)
-					if !ok || p.AtRisk == nil || p.AtRisk.Total != expected.Total {
-						t.Fatalf("risk changed: plan=%+v expected=%+v", p.AtRisk, expected)
+					expected, ok := llm.WorstCaseCost(p.Request, *p.Request.Snapshot().ModelInfo.Pricing)
+					if !ok || p.WorstCaseCost == nil || p.WorstCaseCost.Total != expected.Total {
+						t.Fatalf("risk changed: plan=%+v expected=%+v", p.WorstCaseCost, expected)
 					}
 					return dashi.SendDecision{}, nil
 				}})
@@ -765,7 +765,7 @@ func TestAttachmentRealisticMediaCostAdmissionUnchanged(t *testing.T) {
 				if dir := os.Getenv("DASHI_ATTACHMENT_TRANSCRIPTS"); dir != "" {
 					proof := fmt.Sprintf("kind=%s bytes=%d cap=%sUSD affordable=%v Send=%d stop=%s BeforeSend=%v\n", kind, len(data), cap, affordable, c.sends, out.Stop.Kind, observed)
 					if out.Stop.Limit != nil {
-						proof += fmt.Sprintf("limit=%s cost_at_risk=%sUSD\n", out.Stop.Limit.Kind, out.Stop.Limit.CostAtRisk)
+						proof += fmt.Sprintf("limit=%s cost_at_risk=%sUSD\n", out.Stop.Limit.Kind, out.Stop.Limit.WorstCaseCost)
 					}
 					if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("cost-%s-affordable-%v.txt", kind, affordable)), []byte(proof), 0600); err != nil {
 						t.Fatal(err)

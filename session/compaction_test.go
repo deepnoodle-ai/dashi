@@ -320,7 +320,7 @@ func TestSessionCompactionSkipped(t *testing.T) {
 		s := handle(rec, client)
 		s.New = true
 		s.Runner.Tools = (&chargeTool{}).tools()
-		s.Agent.Limits = dashi.Limits{ModelAttempts: 2}
+		s.Agent.Limits = dashi.Limits{ModelCalls: 2}
 		start := dashi.Say("first")
 		start.OutputSchema = json.RawMessage(`{"type":"object"}`)
 		if out, err := s.Run(t.Context(), start); err != nil || out.Output == nil {

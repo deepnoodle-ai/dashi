@@ -69,7 +69,7 @@ func run(ctx context.Context) error {
 			"follow the latest one.",
 		// Steering can cost extra model calls, so allow more than the
 		// default.
-		Limits: dashi.Limits{ModelAttempts: 12},
+		Limits: dashi.Limits{ModelCalls: 12},
 	}
 	runner := dashi.Runner{Client: client, Tools: tool.List{search}}
 

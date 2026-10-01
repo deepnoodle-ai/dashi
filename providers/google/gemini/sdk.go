@@ -316,9 +316,9 @@ func sdkError(provider string, err error, body []byte, hasMedia bool) error {
 		case api.Code >= 500:
 			category = llm.ErrorOverloaded
 		}
-		disposition := llm.FailureUnknown
+		disposition := llm.SendStatusUnknown
 		if providerhttp.KnownRejection(api.Code) {
-			disposition = llm.FailureRejected
+			disposition = llm.SendStatusProviderRejected
 		}
 		rejection := providerhttp.Rejection{
 			Status:   api.Code,
@@ -327,14 +327,14 @@ func sdkError(provider string, err error, body []byte, hasMedia bool) error {
 			HasMedia: hasMedia,
 		}
 		return &llm.Error{
-			Provider:    provider,
-			Category:    category,
-			Reason:      providerhttp.Reason(errorReason, rejection),
-			Disposition: disposition,
-			Status:      api.Code,
-			Body:        bytes.Clone(body),
-			Retryable:   api.Code == 408 || api.Code == 429 || api.Code >= 500,
-			Cause:       err,
+			Provider:   provider,
+			Category:   category,
+			Reason:     providerhttp.Reason(errorReason, rejection),
+			SendStatus: disposition,
+			Status:     api.Code,
+			Body:       bytes.Clone(body),
+			Retryable:  api.Code == 408 || api.Code == 429 || api.Code >= 500,
+			Cause:      err,
 		}
 	}
 	return providerhttp.Failure(provider, llm.ErrorTransport, "SDK call: %w", err)

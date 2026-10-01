@@ -19,7 +19,7 @@ func TestCompactBusyRecoveryInstructions(t *testing.T) {
 	}{
 		{dashi.NextContinue, "Press Enter to continue"},
 		{dashi.NextResume, "Press Enter to continue"},
-		{dashi.NextRaiseAttempts, "Type /continue"},
+		{dashi.NextRaiseModelCalls, "Type /continue"},
 	} {
 		got := busyText(&session.TurnBusyError{TurnID: "session-2", Next: tc.next})
 		compactionMustHave(t, got, tc.want, "/discard")

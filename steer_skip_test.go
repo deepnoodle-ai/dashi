@@ -231,8 +231,8 @@ func TestUrgentSteerSkipsLaterCallsInSequentialBatch(t *testing.T) {
 	if len(out.Warnings) != 0 {
 		t.Fatalf("warnings: %+v", out.Warnings)
 	}
-	if out.ModelAttempts != 2 {
-		t.Fatalf("attempts = %d", out.ModelAttempts)
+	if out.ModelCalls != 2 {
+		t.Fatalf("attempts = %d", out.ModelCalls)
 	}
 	requireResultsThenSteer(
 		t,
@@ -624,7 +624,7 @@ func TestUrgentSteerNeverSkipsSubmission(t *testing.T) {
 	inbox := newWatchedInbox()
 	agent := testAgent()
 	agent.OutputSchema = json.RawMessage(`{"type":"object"}`)
-	agent.Limits.ModelAttempts = 1
+	agent.Limits.ModelCalls = 1
 	agent.Limits.NoReservedFinalReply = true
 	submit := func(string) string { return SubmitOutputTool }
 	client := newUrgentClient(urgentCall{
@@ -652,7 +652,7 @@ func TestUrgentSteerSkipsNothingWithoutANextCall(t *testing.T) {
 	inbox := newWatchedInbox()
 	bench := newSkipBench()
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 1
+	agent.Limits.ModelCalls = 1
 	agent.Limits.NoReservedFinalReply = true
 	client := newUrgentClient(urgentCall{
 		during: func(ctx context.Context) {
@@ -686,7 +686,7 @@ func TestUrgentSteerOnLastAttemptReachesFinalAnswerCall(t *testing.T) {
 	inbox := newWatchedInbox()
 	bench := newSkipBench()
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 2
+	agent.Limits.ModelCalls = 2
 	client := newUrgentClient(
 		urgentCall{
 			during: func(ctx context.Context) {

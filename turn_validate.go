@@ -22,7 +22,7 @@ func recordsActiveHooks(step Step) bool {
 // hookVerdicts lists the verdicts each hook point can record.
 var hookVerdicts = map[HookPoint][]HookVerdict{
 	HookBeforeModel: {VerdictChange, VerdictStop, VerdictFailed},
-	HookBeforeSend:  {VerdictAdmit, VerdictDeny, VerdictLimit, VerdictFailed},
+	HookBeforeSend:  {VerdictReserve, VerdictDeny, VerdictLimit, VerdictFailed},
 	HookBeforeTool: {
 		VerdictAllow,
 		VerdictDeny,
@@ -115,7 +115,7 @@ func validateStepPayload(step Step) error {
 	if step.Budget != nil && step.Kind != StepTurnContinued {
 		return errors.New("budget raise requires a continuation step")
 	}
-	if step.ModelAttempts != 0 && step.Kind != StepTurnContinued {
+	if step.ModelCalls != 0 && step.Kind != StepTurnContinued {
 		return errors.New("model-attempt raise requires a continuation step")
 	}
 	// Warnings ride on whatever step comes next, except the two that

@@ -53,10 +53,10 @@ func TestDecodeOutput(t *testing.T) {
 		t.Fatalf("person=%+v err=%v", person, err)
 	}
 
-	limited := *testStop(StopLimited, LimitModelAttempts)
+	limited := *testStop(StopLimited, LimitModelCalls)
 	_, err = DecodeOutput[testPerson](outcomeOf(limited, nil))
 	if !errors.Is(err, ErrNoOutput) ||
-		!strings.Contains(err.Error(), "limited: model_attempts") {
+		!strings.Contains(err.Error(), "limited: model_calls") {
 		t.Fatalf("limited err = %v", err)
 	}
 	_, err = DecodeOutput[testPerson](outcomeOf(completed, nil))

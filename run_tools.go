@@ -587,10 +587,10 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *Outcome {
 		r.deliveryDropped()
 	}
 	plan := FinishPlan{
-		Turn:      snapshotView(state.TurnView),
-		AttemptID: state.callAttempts[call.ID],
-		CallID:    call.ID,
-		Output:    slices.Clone(call.Args),
+		Turn:        snapshotView(state.TurnView),
+		ModelCallID: state.callAttempts[call.ID],
+		CallID:      call.ID,
+		Output:      slices.Clone(call.Args),
 	}
 	if state.latestResult != nil {
 		plan.Reply = state.latestResult.Message.Text()
@@ -644,7 +644,7 @@ func deliveredSinceCandidate(t Turn, attemptID string) []ContextItem {
 	var items []ContextItem
 	for _, step := range t.Steps {
 		if (step.Kind == StepModelCallFinished || step.Kind == StepModelCallFinishedByHost) &&
-			step.Model != nil && step.Model.AttemptID == attemptID {
+			step.Model != nil && step.Model.ModelCallID == attemptID {
 			settled = true
 			continue
 		}

@@ -12,8 +12,8 @@ func attemptSpend(
 	intent *ModelFact,
 	settlement *ModelFact,
 ) (*llm.Usage, *llm.Cost, bool, bool, bool) {
-	if settlement != nil && (settlement.Failure == llm.FailureRejected ||
-		settlement.Failure == llm.FailureNotDispatched || settlement.NoDispatch) {
+	if settlement != nil && (settlement.SendStatus == llm.SendStatusProviderRejected ||
+		settlement.SendStatus == llm.SendStatusNotSent || settlement.NotSent) {
 		return nil, nil, false, false, false
 	}
 	var usage *llm.Usage
@@ -49,7 +49,7 @@ func attemptSpend(
 		}
 	}
 	incomplete := false
-	if settlement != nil && !next.RequestsFinal {
+	if settlement != nil && !next.RequestsComplete {
 		incomplete = !addUnreportedRequests(next, intent, settlement.Result)
 	}
 	if err := next.Validate(); err != nil {
@@ -62,8 +62,8 @@ func attemptSpend(
 	} else if !hasReportedUsage {
 		usage = nil
 	}
-	if settlement != nil && settlement.Charge != nil {
-		return usage, settlement.Charge, estimated, true, incomplete
+	if settlement != nil && settlement.Cost != nil {
+		return usage, settlement.Cost, estimated, true, incomplete
 	}
 	if reported != nil {
 		return usage, reported, estimated, true, incomplete
@@ -80,7 +80,7 @@ func modelUsageMayBePartial(settlement *ModelFact) bool {
 	if settlement == nil {
 		return false
 	}
-	if settlement.Interrupted != InterruptNone || settlement.Uncertain {
+	if settlement.Interrupted != InterruptNone || settlement.ResultUnknown {
 		return true
 	}
 	if settlement.Result == nil {
@@ -184,7 +184,7 @@ func setSettlementCharge(intent *ModelFact, settlement *ModelFact) {
 	}
 	_, charge, estimated, counted, _ := attemptSpend(intent, settlement)
 	if counted {
-		settlement.Charge = charge
+		settlement.Cost = charge
 		settlement.EstimatedUsage = estimated
 	}
 }

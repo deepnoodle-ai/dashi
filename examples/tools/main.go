@@ -69,7 +69,7 @@ func run(ctx context.Context) error {
 	// Spend totals every model call in the turn.
 	fmt.Printf(
 		"Model calls: %d; tokens: %d in, %d out\n",
-		out.ModelAttempts,
+		out.ModelCalls,
 		out.Spend.Usage.TotalInputTokens(),
 		out.Spend.Usage.OutputTokens,
 	)

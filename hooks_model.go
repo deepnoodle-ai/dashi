@@ -265,7 +265,7 @@ func (r *runtime) beforeSend(
 	for _, h := range r.hooks.BeforeSend {
 		plan := SendPlan{Purpose: purpose, Request: req, Turn: snapshotView(s.TurnView)}
 		if atRisk != nil {
-			plan.AtRisk = new(*atRisk)
+			plan.WorstCaseCost = new(*atRisk)
 		}
 		if remaining != nil {
 			plan.Remaining = new(*remaining)
@@ -299,16 +299,16 @@ func (r *runtime) beforeSend(
 			r.addHookResult(result)
 			return nil, stop, nil
 		}
-		if len(d.Admission) > 0 {
+		if len(d.Reservation) > 0 {
 			if admission == nil {
 				admission = map[string]json.RawMessage{}
 			}
-			admission[h.Name] = slices.Clone(d.Admission)
-			total += len(d.Admission)
+			admission[h.Name] = slices.Clone(d.Reservation)
+			total += len(d.Reservation)
 			r.addHookResult(HookResult{
 				Point:   HookBeforeSend,
 				Name:    h.Name,
-				Verdict: VerdictAdmit,
+				Verdict: VerdictReserve,
 			})
 		}
 	}
@@ -321,10 +321,10 @@ func validSendDecision(d SendDecision, used int) error {
 			"invalid limit: a hook may report a host, cost, or token limit",
 		)
 	}
-	if len(d.Admission) > 0 && !json.Valid(d.Admission) {
+	if len(d.Reservation) > 0 && !json.Valid(d.Reservation) {
 		return errors.New("admission is not valid JSON")
 	}
-	if used+len(d.Admission) > maxAdmission {
+	if used+len(d.Reservation) > maxAdmission {
 		return errors.New("admissions exceed 16 KiB")
 	}
 	return nil

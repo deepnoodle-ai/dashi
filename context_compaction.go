@@ -33,7 +33,7 @@ func (r *runtime) contextLimit(s *replayState, req llm.Request, reason string) O
 		used += reserve
 	}
 	r.pendingWarnings = append(r.pendingWarnings, Warning{Code: WarningActiveCompactionBlocked, Message: "Active context cannot fit: " + reason + ". Preserve the work and start a new Turn with a larger window or smaller fixed input."})
-	return r.stopWith(&Stop{Kind: StopLimited, Reason: "context_window", Limit: &LimitDetail{Kind: LimitContextWindow, Limit: int64(s.ActiveCompactionWindow), Used: int64(used)}})
+	return r.stopWith(&Stop{Kind: StopLimited, Reason: string(LimitContextWindow), Limit: &LimitDetail{Kind: LimitContextWindow, Limit: int64(s.ActiveCompactionWindow), Used: int64(used)}})
 }
 func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Request) (Outcome, bool, bool) {
 	window := s.ActiveCompactionWindow
@@ -51,8 +51,8 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 			return r.stop(StopFailed, err.Error()), false, true
 		}
 		if plan != nil {
-			if s.attemptCap-s.ModelAttempts < 2 {
-				return r.stop(StopLimited, "model_attempts"), false, true
+			if s.attemptCap-s.ModelCalls < 2 {
+				return r.stop(StopLimited, string(LimitModelCalls)), false, true
 			}
 			copy := llmclone.Input(input)
 			r.compactionCandidate = &copy
@@ -267,7 +267,7 @@ func (r *runtime) applyActiveCompaction(s *replayState) *Outcome {
 	}
 	summary, _ := validActiveSummary(result)
 	r.compactionUsed = true
-	return r.commit(Step{Kind: StepContextCompacted, Compacted: &ContextCompactionFact{AttemptID: attempt, Summary: summary, EstimatedAfter: after}})
+	return r.commit(Step{Kind: StepContextCompacted, Compacted: &ContextCompactionFact{ModelCallID: attempt, Summary: summary, EstimatedAfter: after}})
 }
 
 // activeMediaEstimateUnavailable inspects the prepared, hydrated candidate,

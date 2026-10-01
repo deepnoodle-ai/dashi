@@ -19,8 +19,8 @@ func (r *runtime) run() Outcome {
 			return r.current()
 		}
 		r.startSteering(s)
-		if s.Interruptions > max(r.agent.Limits.Interruptions, 0) {
-			return r.stop(StopLimited, "interruptions")
+		if s.Resumes > max(r.agent.Limits.Resumes, 0) {
+			return r.stop(StopLimited, string(LimitResumes))
 		}
 		if r.ctx.Err() != nil {
 			return r.contextStop()
@@ -80,12 +80,12 @@ func (r *runtime) run() Outcome {
 		if stop := budgetSpentStop(s); stop != nil {
 			return r.stopWith(stop)
 		}
-		if s.attemptCap <= s.ModelAttempts {
-			return r.stop(StopLimited, "model_attempts")
+		if s.attemptCap <= s.ModelCalls {
+			return r.stop(StopLimited, string(LimitModelCalls))
 		}
 		if !r.agent.Limits.Deadline.IsZero() &&
 			!time.Now().Before(r.agent.Limits.Deadline) {
-			return r.stop(StopLimited, "deadline")
+			return r.stop(StopLimited, string(LimitDeadline))
 		}
 		if r.pauseRequested() {
 			return r.pauseStop()
@@ -142,11 +142,11 @@ func (r *runtime) recoverModelIntent(s *replayState) *Outcome {
 		}
 	}
 	fact := &ModelFact{
-		AttemptID:   s.modelIntent,
-		MessageID:   s.modelMessages[s.modelIntent],
-		Error:       "worker stopped before model result",
-		Interrupted: InterruptWorker,
-		Uncertain:   unsafe,
+		ModelCallID:   s.modelIntent,
+		MessageID:     s.modelMessages[s.modelIntent],
+		Error:         "worker stopped before model result",
+		Interrupted:   InterruptWorker,
+		ResultUnknown: unsafe,
 	}
 	setSettlementCharge(s.modelIntents[s.modelIntent], fact)
 	if o := r.commit(Step{Kind: StepModelCallFinished, Model: fact}); o != nil {

@@ -21,7 +21,7 @@ func EstimatedInputTokens(request Request) int {
 	return size + 1024
 }
 
-// MaxCostAtRisk estimates input at the highest input-side rate and the full
+// WorstCaseCost estimates input at the highest input-side rate and the full
 // effective output allowance. It returns false when the call is unpriced or
 // its output allowance is unknown. A priced hosted operation without a known
 // call count also cannot be bounded before dispatch. It also returns false
@@ -35,7 +35,7 @@ func EstimatedInputTokens(request Request) int {
 // A risk bound rounds up to the nano: Input and Output each round up, and
 // Total rounds up the exact sum of both products once, so Total never exceeds
 // Input+Output and rounding can never let a cap be breached.
-func MaxCostAtRisk(request Request, pricing Pricing) (Cost, bool) {
+func WorstCaseCost(request Request, pricing Pricing) (Cost, bool) {
 	bound, ok := riskBound(request, pricing)
 	if !ok {
 		return Cost{}, false

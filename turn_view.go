@@ -96,11 +96,11 @@ type TurnView struct {
 	Compaction *CompactionFact
 	// Revision is the latest acknowledged step sequence number.
 	Revision int64
-	// ModelAttempts counts settled calls that were not interrupted.
-	ModelAttempts int
-	// Interruptions counts resumes after a context stop or worker crash,
+	// ModelCalls counts settled calls that were not interrupted.
+	ModelCalls int
+	// Resumes counts resumes after a context stop or worker crash,
 	// except an interrupted stop before the first model attempt.
-	Interruptions  int
+	Resumes        int
 	ProviderPauses int
 	// Budget is the current cap, including any recorded raises.
 	Budget *Budget
@@ -109,9 +109,9 @@ type TurnView struct {
 	// Spend is rebuilt from committed model and tool facts. Its model usage
 	// and cost are the sum of Attempts.
 	Spend Spend
-	// Attempts lists every model attempt in record order, including one
+	// ModelCallCosts lists every model attempt in record order, including one
 	// still pending, with what it counts toward Spend.
-	Attempts []AttemptSpend
+	ModelCallCosts []ModelCallCost
 	// Stop is why the last run ended. Replay and Outcome project a missing
 	// stop as Run does, and mark it Projected: uncertain for an unsettled
 	// model attempt, interrupted for work in flight, waiting for pending

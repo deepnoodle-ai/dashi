@@ -87,8 +87,8 @@ type Step struct {
 	Started       *StartFact `json:"started,omitempty"`
 	// Budget on a continuation records the entire raised budget for audit.
 	Budget *Budget `json:"budget,omitempty"`
-	// ModelAttempts on a continuation records the raised model-attempt cap.
-	ModelAttempts  int                         `json:"model_attempts,omitempty"`
+	// ModelCalls on a continuation records the raised model-attempt cap.
+	ModelCalls     int                         `json:"model_calls,omitempty"`
 	Compacted      *ContextCompactionFact      `json:"compacted,omitempty"`
 	Context        *ContextFact                `json:"context,omitempty"`
 	Model          *ModelFact                  `json:"model,omitempty"`

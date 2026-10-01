@@ -55,7 +55,7 @@ func TestTaskCopiesOriginalEvidenceAndResourcesAcrossRetryAndReopen(t *testing.T
 		original = dashi.Start{CommandID: delegate.ChildID(refCall.TurnID, refCall.CallID) + "/start", Parent: &refCall, Agent: parent.Agent, Input: []llm.Message{llm.UserMessage(llm.Text(args.Prompt))}}
 		original.Agent.ID = "general"
 		original.Agent.Instructions = "child instructions"
-		original.Agent.Limits.ModelAttempts = 32
+		original.Agent.Limits.ModelCalls = 32
 		var err error
 		prepared, err = host.prepareStart(ctx, refCall, original)
 		if err != nil {
@@ -79,7 +79,7 @@ func TestTaskCopiesOriginalEvidenceAndResourcesAcrossRetryAndReopen(t *testing.T
 	if len(prepared.Input) != 3 || prepared.Input[1].Text() != "" || prepared.Input[2].Context == nil || prepared.Input[2].Context.Name != resource.Name || prepared.Input[2].Content[0].Reminder == nil || prepared.Input[2].Content[0].Reminder.Content != "old instructions" {
 		t.Fatalf("unrelated text or missing resource identity: %+v", prepared.Input)
 	}
-	if prepared.Input[0].Text() != "inspect @literal-path" || prepared.Agent.Instructions != "child instructions" || prepared.Agent.Limits.ModelAttempts != 32 || prepared.Agent.Settings.Temperature == nil || *prepared.Agent.Settings.Temperature != 0 || prepared.Agent.ActiveCompaction.Window != 16000 {
+	if prepared.Input[0].Text() != "inspect @literal-path" || prepared.Agent.Instructions != "child instructions" || prepared.Agent.Limits.ModelCalls != 32 || prepared.Agent.Settings.Temperature == nil || *prepared.Agent.Settings.Temperature != 0 || prepared.Agent.ActiveCompaction.Window != 16000 {
 		t.Fatal("admitted behavior changed")
 	}
 	retried, err := host.prepareStart(ctx, refCall, original)

@@ -238,8 +238,8 @@ func TestBudgetStopsWhenInputAloneExceedsCostCap(t *testing.T) {
 		Hooks{},
 	)
 	limit := requireBudgetLimit(t, out, LimitCost)
-	if limit.FitTokens != 0 {
-		t.Fatalf("fit tokens=%d", limit.FitTokens)
+	if limit.SuggestedMaxOutputTokens != 0 {
+		t.Fatalf("fit tokens=%d", limit.SuggestedMaxOutputTokens)
 	}
 	if client.sends != 0 {
 		t.Fatalf("unaffordable input sent %d calls", client.sends)
@@ -295,8 +295,8 @@ func TestBudgetCostShortfallDoesNotShrinkRequest(t *testing.T) {
 		Hooks{},
 	)
 	limit := requireBudgetLimit(t, out, LimitCost)
-	if limit.FitTokens <= 0 || limit.FitTokens >= 1000 {
-		t.Fatalf("fit tokens=%d", limit.FitTokens)
+	if limit.SuggestedMaxOutputTokens <= 0 || limit.SuggestedMaxOutputTokens >= 1000 {
+		t.Fatalf("fit tokens=%d", limit.SuggestedMaxOutputTokens)
 	}
 	if client.sends != 0 {
 		t.Fatalf("shortfall sent %d calls", client.sends)
@@ -345,11 +345,11 @@ func TestBudgetClampsOutputAndRecordsCharge(t *testing.T) {
 	}
 	intent := out.Turn.Steps[1].Model
 	settled := out.Turn.Steps[2].Model
-	if intent.AtRisk == nil || settled.Charge == nil {
+	if intent.WorstCaseCost == nil || settled.Cost == nil {
 		t.Fatalf("missing risk or charge: intent=%+v settled=%+v", intent, settled)
 	}
-	if intent.AtRisk.Total <= settled.Charge.Total {
-		t.Fatalf("risk=%s charge=%s", intent.AtRisk.Total, settled.Charge.Total)
+	if intent.WorstCaseCost.Total <= settled.Cost.Total {
+		t.Fatalf("risk=%s charge=%s", intent.WorstCaseCost.Total, settled.Cost.Total)
 	}
 	if settled.EstimatedUsage {
 		t.Fatal("reported usage marked estimated")
@@ -382,8 +382,8 @@ func TestValidationFailureKeepsFinishedProviderUsage(t *testing.T) {
 		t.Fatalf("spend=%+v", view.Spend)
 	}
 	wantCharge, ok := client.pricing.Estimate(answer.Usage)
-	if !ok || !reflect.DeepEqual(settled.Charge, &wantCharge) {
-		t.Fatalf("charge=%+v, want %+v", settled.Charge, wantCharge)
+	if !ok || !reflect.DeepEqual(settled.Cost, &wantCharge) {
+		t.Fatalf("charge=%+v, want %+v", settled.Cost, wantCharge)
 	}
 }
 
@@ -522,11 +522,11 @@ func TestBudgetMissingUsageUsesRecordedBestGuess(t *testing.T) {
 	if view.Spend.Usage.OutputTokens != 3 {
 		t.Fatalf("estimated output=%d", view.Spend.Usage.OutputTokens)
 	}
-	if settled.Charge == nil || intent.AtRisk == nil {
+	if settled.Cost == nil || intent.WorstCaseCost == nil {
 		t.Fatalf("missing charge or risk: intent=%+v settled=%+v", intent, settled)
 	}
-	if settled.Charge.Total >= intent.AtRisk.Total {
-		t.Fatalf("charge=%s risk=%s", settled.Charge.Total, intent.AtRisk.Total)
+	if settled.Cost.Total >= intent.WorstCaseCost.Total {
+		t.Fatalf("charge=%s risk=%s", settled.Cost.Total, intent.WorstCaseCost.Total)
 	}
 }
 
@@ -536,7 +536,7 @@ func hostBudgetHooks() Hooks {
 	return SendHook{
 		Name: "host-budget",
 		Func: func(_ context.Context, plan SendPlan) (SendDecision, error) {
-			if plan.AtRisk == nil || plan.Remaining == nil {
+			if plan.WorstCaseCost == nil || plan.Remaining == nil {
 				return SendDecision{Deny: true, Reason: "missing estimate"}, nil
 			}
 			return SendDecision{
@@ -723,7 +723,7 @@ func TestBudgetHostedRequestsUseAdapterCounts(t *testing.T) {
 		OutputTokens: 10,
 		Requests:     map[string]int{llm.MeterWebSearch: 1},
 		// A complete adapter response carries final counts.
-		RequestsFinal: true,
+		RequestsComplete: true,
 	}
 	result.Message.Content = append(
 		[]llm.Content{hostedUse("search-1"), hostedUse("search-2")},
@@ -760,7 +760,7 @@ func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
 			llm.MeterWebSearch:     1,
 			llm.MeterCodeExecution: 2,
 		},
-		RequestsFinal: true,
+		RequestsComplete: true,
 	}
 	client.results = []llm.Result{result}
 	out := runBudgetTurn(t, client, nil, llm.Settings{MaxTokens: 100}, nil, Hooks{})
@@ -780,7 +780,7 @@ func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
 	var charge *llm.Cost
 	for _, step := range out.Turn.Steps {
 		if step.Kind == StepModelCallFinished && step.Model != nil {
-			charge = step.Model.Charge
+			charge = step.Model.Cost
 		}
 	}
 	if charge == nil || !charge.Partial() {
@@ -796,10 +796,10 @@ func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
 func TestBudgetUnforeseenHostedRequestStopsCappedTurn(t *testing.T) {
 	first := callResult("lookup-1", "lookup")
 	first.Usage = &llm.Usage{
-		InputTokens:   10,
-		OutputTokens:  10,
-		Requests:      map[string]int{llm.UnrecognizedMeter("mystery_call"): 1},
-		RequestsFinal: true,
+		InputTokens:      10,
+		OutputTokens:     10,
+		Requests:         map[string]int{llm.UnrecognizedMeter("mystery_call"): 1},
+		RequestsComplete: true,
 	}
 	client := newPricedClient(first, final("done"))
 	def := testAgent()
@@ -922,7 +922,7 @@ func TestBudgetInterruptedCallCountsPartialBestGuess(t *testing.T) {
 	if view.Spend.Cost["USD"] <= 0 {
 		t.Fatalf("cost=%s", view.Spend.Cost["USD"])
 	}
-	if out.Turn.Steps[2].Model.Charge == nil ||
+	if out.Turn.Steps[2].Model.Cost == nil ||
 		!out.Turn.Steps[2].Model.EstimatedUsage {
 		t.Fatalf("settlement=%+v", out.Turn.Steps[2].Model)
 	}
@@ -969,11 +969,11 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 			if !settled.EstimatedUsage {
 				t.Fatal("partial usage was not marked estimated")
 			}
-			if settled.Charge == nil {
+			if settled.Cost == nil {
 				t.Fatal("partial usage has no estimated charge")
 			}
-			if settled.Charge.Total != amount("0.000102") {
-				t.Fatalf("estimated charge=%s", settled.Charge.Total)
+			if settled.Cost.Total != amount("0.000102") {
+				t.Fatalf("estimated charge=%s", settled.Cost.Total)
 			}
 			client := newPricedClient(final("unused"))
 			continued, err := (Runner{Client: client}).Run(

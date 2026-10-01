@@ -61,8 +61,8 @@ type Pending struct {
 	Kind PendingKind `json:"kind"`
 	// ID is the tool call, hosted request, or model attempt ID.
 	ID string `json:"id"`
-	// AttemptID is the model attempt that produced the item.
-	AttemptID string `json:"attempt_id,omitempty"`
+	// ModelCallID is the model attempt that produced the item.
+	ModelCallID string `json:"model_call_id,omitempty"`
 	// Name and Args describe what a person approves: the tool name and
 	// arguments of a local call or a hosted request.
 	Name string          `json:"name,omitempty"`
@@ -103,7 +103,7 @@ func (p Pending) answer(approve bool, reason string) Resolve {
 		// A provider may reuse a request ID after the earlier request was
 		// answered, so the attempt scopes the command ID to this request.
 		return Resolve{
-			CommandID: "hosted-approval:" + p.AttemptID + ":" + p.ID,
+			CommandID: "hosted-approval:" + p.ModelCallID + ":" + p.ID,
 			CallID:    p.ID,
 			HostedApproval: &llm.HostedApprovalResponse{
 				RequestID: p.ID,

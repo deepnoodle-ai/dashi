@@ -490,7 +490,7 @@ func TestInspectionActiveSummariesToolOutputsAndPinnedContext(t *testing.T) {
 		return outcome, nil
 	})}
 	client := &inspectionClient{results: results, window: 16000}
-	start := dashi.Start{Agent: dashi.Agent{ID: "fixture", Revision: "recorded-route", Provider: "test", API: "test.chat", Model: "recorded-model", Settings: llm.Settings{MaxTokens: 256}, Tools: []string{"read"}, Limits: dashi.Limits{ModelAttempts: 16, ToolResultBytes: 12000}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}}, Input: dashi.Say("Original objective: investigate evidence").Input}
+	start := dashi.Start{Agent: dashi.Agent{ID: "fixture", Revision: "recorded-route", Provider: "test", API: "test.chat", Model: "recorded-model", Settings: llm.Settings{MaxTokens: 256}, Tools: []string{"read"}, Limits: dashi.Limits{ModelCalls: 16, ToolResultBytes: 12000}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}}, Input: dashi.Say("Original objective: investigate evidence").Input}
 	out := runInspectionTurn(t, rec, session.TurnID(s.ID, 1), client, start, tools)
 	applied := 0
 	for _, step := range out.Turn.Steps {
@@ -590,10 +590,10 @@ func TestInspectionIncompleteAndUnresolvedContextNeverUsesOlderCall(t *testing.T
 			break
 		}
 	}
-	intent.AttemptID = "new-unresolved"
+	intent.ModelCallID = "new-unresolved"
 	turn.Steps = []dashi.Step{{Kind: dashi.StepModelCallStarted, Model: &intent}}
 	c := contextOccupancy(turn, out.TurnView)
-	if c.Available || c.AttemptID != "new-unresolved" || c.UnavailableReason != "model intent unresolved" {
+	if c.Available || c.ModelCallID != "new-unresolved" || c.UnavailableReason != "model intent unresolved" {
 		t.Fatalf("unresolved context=%+v", c)
 	}
 	unresolved := turnAccounting(turn, dashi.TurnView{})

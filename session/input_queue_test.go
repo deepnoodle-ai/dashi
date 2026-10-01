@@ -270,7 +270,7 @@ func TestSessionMissedSteers(t *testing.T) {
 		s.New = true
 		// One model call: a steer that arrives during it cannot supersede
 		// the answer.
-		s.Agent.Limits.ModelAttempts = 1
+		s.Agent.Limits.ModelCalls = 1
 		done := sendAsync(t.Context(), s, "start")
 		entered(t, client)
 		q, err := s.Steer(t.Context(), "also this")

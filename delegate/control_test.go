@@ -100,7 +100,7 @@ func TestTaskRunSettlesExactWaitingChildWithoutRepeatingEffect(t *testing.T) {
 	default:
 	}
 	child := h.view(t, childTurnID())
-	if h.tasks.List()[0].ModelCalls != child.ModelAttempts {
+	if h.tasks.List()[0].ModelCalls != child.ModelCalls {
 		t.Fatal("same Turn spend/count duplicated after control")
 	}
 }
@@ -108,7 +108,7 @@ func ptrOutcome(v tool.Outcome) *tool.Outcome { return &v }
 
 func TestTaskRunLimitedChildRaiseAndDiscard(t *testing.T) {
 	sub := scout()
-	sub.Agent.Limits.ModelAttempts = 1
+	sub.Agent.Limits.ModelCalls = 1
 	h := newHarness(t, scripted(childCallsProbe), delegate.Config{Subagents: []delegate.Subagent{sub}, NoticeReady: finalNotice}, nil)
 	if _, err := h.start(t.Context()); err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestTaskRunLimitedChildRaiseAndDiscard(t *testing.T) {
 		t.Fatalf("state=%s", e.Tasks[0].State)
 	}
 	before := target(h, t)
-	out, err := h.tasks.Run(t.Context(), before, dashi.Continue{CommandID: "raise", ModelAttempts: 3})
+	out, err := h.tasks.Run(t.Context(), before, dashi.Continue{CommandID: "raise", ModelCalls: 3})
 	if err != nil || out.Reply != "child finished" {
 		t.Fatalf("out=%+v err=%v", out.Stop, err)
 	}
@@ -190,7 +190,7 @@ func TestTaskRunOwnsWorkerCancellationAndBusyFence(t *testing.T) {
 			g := newGate()
 			var calls atomic.Int32
 			sub := scout()
-			sub.Agent.Limits.ModelAttempts = 1
+			sub.Agent.Limits.ModelCalls = 1
 			child := func(ctx context.Context, in llm.Input) (llm.Result, error) {
 				if calls.Add(1) == 1 {
 					return toolCall("c1", "write", `{}`), nil
@@ -208,7 +208,7 @@ func TestTaskRunOwnsWorkerCancellationAndBusyFence(t *testing.T) {
 			before := target(h, t)
 			done := make(chan error, 1)
 			go func() {
-				_, err := h.tasks.Run(t.Context(), before, dashi.Continue{CommandID: "raise", ModelAttempts: 3})
+				_, err := h.tasks.Run(t.Context(), before, dashi.Continue{CommandID: "raise", ModelCalls: 3})
 				done <- err
 			}()
 			g.waitStarted(t)
@@ -293,7 +293,7 @@ func TestTaskPreparationRejectsProtectedFieldsAndBindingFailure(t *testing.T) {
 				case "tools":
 					s.Agent.NoTools = true
 				case "limits":
-					s.Agent.Limits.ModelAttempts = 99
+					s.Agent.Limits.ModelCalls = 99
 				case "parent":
 					s.Parent.CallID = "different"
 				case "budget":

@@ -317,7 +317,7 @@ func TestSystemPromptStableAcrossReminders(t *testing.T) {
 		},
 	}}}
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 5
+	agent.Limits.ModelCalls = 5
 	got, err := (Runner{
 		Client:   client,
 		Recorder: NewMemoryRecorder(),
@@ -410,9 +410,9 @@ func unsettledCallsTurn() Turn {
 		interruptionStart(testAgent()),
 		intent,
 		{Kind: StepModelCallFinished, Model: &ModelFact{
-			AttemptID: "model-1",
-			MessageID: "message-1",
-			Result:    &result,
+			ModelCallID: "model-1",
+			MessageID:   "message-1",
+			Result:      &result,
 		}},
 	}
 	for _, call := range calls {

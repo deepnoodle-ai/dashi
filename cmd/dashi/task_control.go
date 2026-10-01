@@ -262,13 +262,13 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 			if !snapshot.View.ReadyToContinue {
 				return fmt.Errorf("recorded recovery is not ready")
 			}
-		case dashi.NextRaiseAttempts:
+		case dashi.NextRaiseModelCalls:
 			limit := snapshot.View.Stop.Limit
 			if limit == nil || limit.Limit <= 0 || limit.Limit > int64(math.MaxInt/2) {
 				return fmt.Errorf("recorded attempt cap cannot be safely doubled")
 			}
-			cmd.ModelAttempts = int(limit.Limit) * 2
-			if err := c.confirmTask(ctx, snapshot, "", fmt.Sprintf("Raise the exact task %s Turn %s attempt cap from %d to %d? This is not a dollar cap.", id, snapshot.View.ID, limit.Limit, cmd.ModelAttempts)); err != nil {
+			cmd.ModelCalls = int(limit.Limit) * 2
+			if err := c.confirmTask(ctx, snapshot, "", fmt.Sprintf("Raise the exact task %s Turn %s attempt cap from %d to %d? This is not a dollar cap.", id, snapshot.View.ID, limit.Limit, cmd.ModelCalls)); err != nil {
 				return err
 			}
 		case dashi.NextFix:

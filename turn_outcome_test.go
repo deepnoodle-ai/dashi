@@ -395,7 +395,7 @@ func TestHookViewStopIsEmptyMidRun(t *testing.T) {
 	var stops []Stop
 	runs, authorized := 0, 0
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 4
+	agent.Limits.ModelCalls = 4
 	runner := Runner{
 		Client: client,
 		Tools:  tool.List{countingTool("work", &runs)},
@@ -907,7 +907,7 @@ func TestReusedHostedApprovalIDGetsItsOwnAnswer(t *testing.T) {
 		final("done"),
 	}}
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 4
+	agent.Limits.ModelCalls = 4
 	runner := Runner{Client: client}
 	out, err := runner.Run(
 		t.Context(),
@@ -929,7 +929,7 @@ func TestReusedHostedApprovalIDGetsItsOwnAnswer(t *testing.T) {
 		t.Fatalf("second request pending=%v stop=%+v", out.Pending, out.Stop)
 	}
 	second := out.Pending[0]
-	if second.AttemptID == first.AttemptID ||
+	if second.ModelCallID == first.ModelCallID ||
 		second.Deny("no").CommandID == first.Deny("no").CommandID {
 		t.Fatalf("requests share an identity: %+v %+v", first, second)
 	}

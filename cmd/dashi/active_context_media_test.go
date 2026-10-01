@@ -217,7 +217,7 @@ func TestActiveMediaRendererMarksUnavailableMedia(t *testing.T) {
 	if len(mediaMarkers(live.Blocks)) != 1 {
 		t.Fatal("per-Turn display marker duplicated")
 	}
-	if got := r.Event(dashi.Event{AttemptID: "answer", Delta: &llm.Delta{Kind: llm.DeltaText, Text: "Visible answer."}}); len(got) != 1 || got[0].Kind != KindAssistant {
+	if got := r.Event(dashi.Event{ModelCallID: "answer", Delta: &llm.Delta{Kind: llm.DeltaText, Text: "Visible answer."}}); len(got) != 1 || got[0].Kind != KindAssistant {
 		t.Fatal("unavailable estimate suppressed ordinary answer")
 	}
 }

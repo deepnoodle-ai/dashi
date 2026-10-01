@@ -190,7 +190,7 @@ func (t *turnState) streaming(e dashi.Event) {
 		return
 	}
 	t.open = &openMessage{
-		attemptID: e.AttemptID,
+		attemptID: e.ModelCallID,
 		messageID: e.MessageID,
 		seq:       e.Seq,
 		last:      time.Now(),
@@ -293,11 +293,11 @@ func (h *Hub) subscribe(turnID string) *reader {
 	t.readers[r] = struct{}{}
 	if o := t.open; o != nil {
 		r.gap(dashi.Event{
-			TurnID:    turnID,
-			AttemptID: o.attemptID,
-			MessageID: o.messageID,
-			Seq:       o.seq,
-			Gap:       true,
+			TurnID:      turnID,
+			ModelCallID: o.attemptID,
+			MessageID:   o.messageID,
+			Seq:         o.seq,
+			Gap:         true,
 		})
 	}
 	return r
@@ -379,11 +379,11 @@ func (r *reader) gap(e dashi.Event) {
 	}
 	r.lost[e.MessageID] = true
 	r.push(dashi.Event{
-		TurnID:    e.TurnID,
-		AttemptID: e.AttemptID,
-		MessageID: e.MessageID,
-		Seq:       e.Seq,
-		Gap:       true,
+		TurnID:      e.TurnID,
+		ModelCallID: e.ModelCallID,
+		MessageID:   e.MessageID,
+		Seq:         e.Seq,
+		Gap:         true,
 	}, false)
 }
 

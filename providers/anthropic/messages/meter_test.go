@@ -197,7 +197,7 @@ func TestHostedRequestsStreamMatchBlocking(t *testing.T) {
 		!maps.Equal(streaming.Usage.Requests, want) {
 		t.Fatalf("streamed usage = %+v, want requests %v", streaming.Usage, want)
 	}
-	if !streaming.Usage.RequestsFinal {
+	if !streaming.Usage.RequestsComplete {
 		t.Fatal("a complete stream's counts are not marked final")
 	}
 	if streaming.Usage.InputTokens != 10982 ||
@@ -289,7 +289,7 @@ func TestHostedRequestsFromCutStreamAreNotFinal(t *testing.T) {
 		result.Usage.Requests[llm.MeterWebSearch] != 1 {
 		t.Fatalf("usage = %+v, want one inferred search", result.Usage)
 	}
-	if result.Usage.RequestsFinal {
+	if result.Usage.RequestsComplete {
 		t.Fatal("counts inferred from a cut stream are marked final")
 	}
 }

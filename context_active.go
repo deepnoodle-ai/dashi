@@ -61,7 +61,7 @@ type ContextCompactionPlan struct {
 
 // ContextCompactionFact records the successfully applied summary and estimate.
 type ContextCompactionFact struct {
-	AttemptID      string `json:"attempt_id"`
+	ModelCallID    string `json:"model_call_id"`
 	Summary        string `json:"summary"`
 	EstimatedAfter int    `json:"estimated_after"`
 }

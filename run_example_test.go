@@ -47,7 +47,7 @@ func plan(turn dashi.Turn, view dashi.TurnView, history []llm.Message) dashi.Com
 		// The host settles each pending item when its answer arrives; here a
 		// person approves the call.
 		return view.Pending[0].Approve()
-	case dashi.NextRaiseBudget, dashi.NextRaiseAttempts:
+	case dashi.NextRaiseBudget, dashi.NextRaiseModelCalls:
 		// Or Continue with a raised Budget or ModelAttempts.
 		return dashi.Cancel{CommandID: id, Reason: "limit reached"}
 	case dashi.NextFix:

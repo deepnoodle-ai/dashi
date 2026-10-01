@@ -13,27 +13,27 @@ import (
 func TestPostReportsOnlyProvenNoEffect(t *testing.T) {
 	for _, tc := range []struct {
 		status      int
-		disposition llm.FailureDisposition
+		disposition llm.SendStatus
 	}{
 		{
 			400,
-			llm.FailureRejected,
+			llm.SendStatusProviderRejected,
 		},
 		{
 			429,
-			llm.FailureRejected,
+			llm.SendStatusProviderRejected,
 		},
 		{
 			408,
-			llm.FailureUnknown,
+			llm.SendStatusUnknown,
 		},
 		{
 			409,
-			llm.FailureUnknown,
+			llm.SendStatusUnknown,
 		},
 		{
 			503,
-			llm.FailureUnknown,
+			llm.SendStatusUnknown,
 		},
 	} {
 		t.Run(http.StatusText(tc.status), func(t *testing.T) {
@@ -80,7 +80,7 @@ func TestPostReportsOnlyProvenNoEffect(t *testing.T) {
 				request,
 			)
 			failure, ok := errors.AsType[*llm.Error](err)
-			if !ok || failure.Disposition != tc.disposition {
+			if !ok || failure.SendStatus != tc.disposition {
 				t.Fatalf(
 					"failure=%+v err=%v",
 					failure,
@@ -133,7 +133,7 @@ func TestCanceledPostIsKnownNotDispatched(t *testing.T) {
 	if !errors.Is(
 		err,
 		context.Canceled,
-	) || !ok || failure.Disposition != llm.FailureNotDispatched {
+	) || !ok || failure.SendStatus != llm.SendStatusNotSent {
 		t.Fatalf("failure=%+v err=%v", failure, err)
 	}
 }

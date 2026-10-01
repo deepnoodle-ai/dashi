@@ -102,7 +102,7 @@ func TestSessionLastTurnRules(t *testing.T) {
 		{
 			name:  "model-call limit",
 			build: buildAttemptLimit,
-			next:  dashi.NextRaiseAttempts,
+			next:  dashi.NextRaiseModelCalls,
 			want:  closes,
 		},
 		{
@@ -120,7 +120,7 @@ func TestSessionLastTurnRules(t *testing.T) {
 		{
 			name:  "structured output at the model-call limit",
 			build: buildOutputAtLimit,
-			next:  dashi.NextRaiseAttempts,
+			next:  dashi.NextRaiseModelCalls,
 			want:  closes,
 		},
 	}
@@ -561,7 +561,7 @@ func buildAttemptLimit(t *testing.T, rec *liveRecorder) {
 	client := dashitest.NewClient(dashitest.CallTool("call-1", "lookup", `{}`))
 	sendFirst(t, rec, client, func(s *session.Session) {
 		s.Runner.Tools = (&chargeTool{}).tools()
-		s.Agent.Limits = dashi.Limits{ModelAttempts: 1, NoReservedFinalReply: true}
+		s.Agent.Limits = dashi.Limits{ModelCalls: 1, NoReservedFinalReply: true}
 	})
 }
 
@@ -594,7 +594,7 @@ func buildOutputAtLimit(t *testing.T, rec *liveRecorder) {
 	)
 	s := handle(rec, client)
 	s.Runner.Tools = (&chargeTool{}).tools()
-	s.Agent.Limits = dashi.Limits{ModelAttempts: 2}
+	s.Agent.Limits = dashi.Limits{ModelCalls: 2}
 	s.New = true
 	start := dashi.Say("hello")
 	start.OutputSchema = json.RawMessage(`{"type":"object"}`)

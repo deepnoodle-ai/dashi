@@ -150,7 +150,7 @@ func TestRenderStopKinds(t *testing.T) {
 			"limit",
 			dashi.Stop{
 				Kind:  dashi.StopLimited,
-				Limit: &dashi.LimitDetail{Kind: dashi.LimitModelAttempts, Used: 40},
+				Limit: &dashi.LimitDetail{Kind: dashi.LimitModelCalls, Used: 40},
 			},
 			"Stopped after 40 model calls. Press Enter or type /continue to go on.",
 		},
@@ -232,7 +232,7 @@ func TestRenderSteerAndWarning(t *testing.T) {
 
 func TestFooterUsageAndCost(t *testing.T) {
 	var view dashi.TurnView
-	view.ModelAttempts = 4
+	view.ModelCalls = 4
 	view.Spend.Usage = llm.Usage{InputTokens: 3000, OutputTokens: 210}
 	view.Spend.Cost = map[string]money.Amount{"USD": money.MustParseAmount("0.012")}
 	got := FooterText(1, "gpt-6-luna", view)

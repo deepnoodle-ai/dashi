@@ -273,7 +273,7 @@ func TestHideWithDeliverAppliesBoth(t *testing.T) {
 
 func TestHideHasNoEffectOnTheReservedFinalAnswer(t *testing.T) {
 	agent := structuredAgent()
-	agent.Limits.ModelAttempts = 2
+	agent.Limits.ModelCalls = 2
 	remote := &valueTool{}
 	client := &scriptedClient{results: []llm.Result{
 		callResult("call-1", "remote"),

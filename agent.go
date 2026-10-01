@@ -75,12 +75,12 @@ type Agent struct {
 // resolved values, so a recorded turn keeps its limits even if the library
 // defaults change later.
 type Limits struct {
-	// ModelAttempts counts settled calls; interrupted calls have their own cap.
+	// ModelCalls counts settled calls; interrupted calls have their own cap.
 	// Zero means 8. It must not be negative.
-	ModelAttempts int `json:"model_attempts"`
-	// Interruptions bounds how many times a stopped or crashed turn may be
+	ModelCalls int `json:"model_calls"`
+	// Resumes bounds how many times a stopped or crashed turn may be
 	// resumed. Zero means 10; a negative value allows no resumes.
-	Interruptions int `json:"interruptions"`
+	Resumes int `json:"resumes"`
 	// ProviderPauses bounds provider-requested continuations. Zero means 3;
 	// a negative value allows none.
 	ProviderPauses int `json:"provider_pauses"`
@@ -114,7 +114,7 @@ func (a Agent) Validate() error {
 	if err := a.ActiveCompaction.validate(); err != nil {
 		return err
 	}
-	if a.Limits.ModelAttempts < 0 || a.Limits.ToolConcurrency < 0 {
+	if a.Limits.ModelCalls < 0 || a.Limits.ToolConcurrency < 0 {
 		return errors.New(
 			"dashi: model attempts and tool concurrency cannot be negative",
 		)
@@ -143,9 +143,9 @@ func (a Agent) resolved() Agent {
 		a.Tools = slices.Compact(slices.Sorted(slices.Values(a.Tools)))
 	}
 	l := &a.Limits
-	l.ModelAttempts = cmp.Or(l.ModelAttempts, defaultModelAttempts)
+	l.ModelCalls = cmp.Or(l.ModelCalls, defaultModelAttempts)
 	l.ToolConcurrency = cmp.Or(l.ToolConcurrency, defaultToolConcurrency)
-	l.Interruptions = resolveCount(l.Interruptions, defaultInterruptions)
+	l.Resumes = resolveCount(l.Resumes, defaultInterruptions)
 	l.ProviderPauses = resolveCount(l.ProviderPauses, defaultProviderPauses)
 	l.ToolResultBytes = resolveToolResultBytes(l.ToolResultBytes)
 	return a

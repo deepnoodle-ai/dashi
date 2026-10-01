@@ -242,7 +242,7 @@ func TestSteerSupersedesSubmission(t *testing.T) {
 		},
 	}
 	agent := structuredAgent()
-	agent.Limits.ModelAttempts = 4
+	agent.Limits.ModelCalls = 4
 	out, err := (Runner{Client: client}).Run(
 		t.Context(), Turn{ID: "t1"}, startAgent(agent), WithSteering(inbox),
 	)
@@ -679,7 +679,7 @@ func TestRunReleasesUnrecordedClaims(t *testing.T) {
 	}
 	// The steer arrives during the only call allowed, so it waits.
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 1
+	agent.Limits.ModelCalls = 1
 	out, err := (Runner{Client: client}).Run(
 		t.Context(), Turn{ID: "t1"}, startAgent(agent), WithSteering(inbox),
 	)
@@ -745,7 +745,7 @@ func TestInboxConcurrentSends(t *testing.T) {
 	// Four attempts with the last reserved: the third call's answer cannot
 	// be superseded, so the script's three results suffice.
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 4
+	agent.Limits.ModelCalls = 4
 	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
 		t.Context(), Turn{ID: "t1"}, startAgent(agent), WithSteering(inbox),
 	)
@@ -795,7 +795,7 @@ func TestDeliverBeforeSubmissionStartReachesModel(t *testing.T) {
 	}}
 	rec := &failOnceKind{base: NewMemoryRecorder(), kind: StepToolStarted}
 	agent := structuredAgent()
-	agent.Limits.ModelAttempts = 4
+	agent.Limits.ModelCalls = 4
 	runner := Runner{Client: client, Recorder: rec}
 	if _, err := runner.Run(t.Context(), Turn{ID: "t1"}, startAgent(agent)); err == nil {
 		t.Fatal("the fault was not reported")
@@ -830,7 +830,7 @@ func TestNudgeOfRecordedItemsCostsNoCall(t *testing.T) {
 	}}
 	client := &scriptedClient{results: []llm.Result{final("one"), final("two")}}
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 5
+	agent.Limits.ModelCalls = 5
 	out, err := (Runner{Client: client, Hooks: nudge.Hooks()}).Run(
 		t.Context(), Turn{ID: "t1"}, startAgent(agent),
 	)
@@ -911,7 +911,7 @@ func TestDeliverAfterInterruptedCandidateReachesModel(t *testing.T) {
 			}}
 			client := &scriptedClient{results: []llm.Result{final("first"), final("second")}}
 			agent := testAgent()
-			agent.Limits.ModelAttempts = tc.attempts
+			agent.Limits.ModelCalls = tc.attempts
 			runner := Runner{Client: client, Hooks: interrupt.Hooks()}
 			out, err := runner.Run(ctx, Turn{ID: "t1"}, startAgent(agent))
 			if err != nil || out.Stop.Kind != StopInterrupted {
@@ -983,7 +983,7 @@ func TestSupersededSubmissionSurvivesCommitFaults(t *testing.T) {
 			}
 			rec := &steerFaultRecorder{MemoryRecorder: NewMemoryRecorder(), mode: mode}
 			agent := structuredAgent()
-			agent.Limits.ModelAttempts = 4
+			agent.Limits.ModelCalls = 4
 			runner := Runner{Client: client, Recorder: rec}
 			if _, err := runner.Run(
 				t.Context(), Turn{ID: "t1"}, startAgent(agent), WithSteering(inbox),

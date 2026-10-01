@@ -648,8 +648,8 @@ func (s *Session) closeLast(
 		// Continue completes the turn without a model call, raising a spent
 		// model-attempt limit so that it can.
 		cont := dashi.Continue{CommandID: "close:" + id}
-		if l := t.view.Stop.Limit; l != nil && l.Kind == dashi.LimitModelAttempts {
-			cont.ModelAttempts = int(l.Limit) + 1
+		if l := t.view.Stop.Limit; l != nil && l.Kind == dashi.LimitModelCalls {
+			cont.ModelCalls = int(l.Limit) + 1
 		}
 		cont.History, _ = s.historyFor(ctx, last, t)
 		closing = cont

@@ -23,10 +23,10 @@ func usageOverflowReplies() []llm.Result {
 			count = math.MaxInt
 		}
 		replies[i].Usage = &llm.Usage{
-			InputTokens:   1,
-			OutputTokens:  1,
-			Requests:      map[string]int{llm.MeterWebSearch: count},
-			RequestsFinal: true,
+			InputTokens:      1,
+			OutputTokens:     1,
+			Requests:         map[string]int{llm.MeterWebSearch: count},
+			RequestsComplete: true,
 		}
 		replies[i].Cost = &llm.Cost{
 			Total:    amount("0.25"),
@@ -101,7 +101,7 @@ func TestBudgetIncompleteUsagePreservesExactCostAdmission(t *testing.T) {
 	} {
 		client := newPricedClient(usageOverflowReplies()...)
 		def := testAgent()
-		def.Limits.ModelAttempts = 4
+		def.Limits.ModelCalls = 4
 		def.Settings.MaxTokens = 10
 		out, err := (Runner{
 			Client: client,
@@ -131,7 +131,7 @@ func usageReconciliationRecord() Turn {
 	turn := accountingRecord(llm.Usage{OutputTokens: 2})
 	turn.Steps[0].Started.Budget = &Budget{MaxOutputTokens: 10}
 	turn.Steps[1].Model.EstimatedInputTokens = math.MaxInt
-	turn.Steps[2].Model.Uncertain = true
+	turn.Steps[2].Model.ResultUnknown = true
 	turn.Steps[2].Model.Error = "connection lost"
 	return turn
 }

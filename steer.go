@@ -364,14 +364,14 @@ func noCallCause(s *replayState) string {
 	if s.Agent.Limits.NoReservedFinalReply {
 		return fmt.Sprintf(
 			"the model attempt limit (%d of %d used)",
-			s.ModelAttempts,
+			s.ModelCalls,
 			s.attemptCap,
 		)
 	}
 	return fmt.Sprintf(
 		"the model attempt limit (%d of %d used, with the last reserved "+
 			"for a final answer)",
-		s.ModelAttempts,
+		s.ModelCalls,
 		s.attemptCap,
 	)
 }

@@ -40,8 +40,8 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		}
 	}
 	finalAnswerOnly := purpose == "" && !r.agent.Limits.NoReservedFinalReply &&
-		s.ModelAttempts > 0 &&
-		s.ModelAttempts+1 == s.attemptCap
+		s.ModelCalls > 0 &&
+		s.ModelCalls+1 == s.attemptCap
 	messages, err := projectWithHistory(r.turn, r.history)
 	if err != nil {
 		return r.stop(StopFailed, err.Error()), false
@@ -271,12 +271,12 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	fact := &ModelFact{
 		Purpose:              purpose,
 		Compaction:           plan.clone(),
-		AttemptID:            attempt,
+		ModelCallID:          attempt,
 		MessageID:            messageID,
 		RequestDigest:        canonjson.Digest(req.Body()),
 		FinalReplyOnly:       finalAnswerOnly,
-		Admission:            admission,
-		AtRisk:               atRisk,
+		Reservation:          admission,
+		WorstCaseCost:        atRisk,
 		EstimatedInputTokens: llm.EstimatedInputTokens(req),
 		Provider:             r.runner.Client.Provider(),
 		API:                  r.runner.Client.API(),
@@ -304,11 +304,11 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			reason = context.Cause(r.ctx).Error()
 		}
 		settled := &ModelFact{
-			AttemptID:   attempt,
+			ModelCallID: attempt,
 			MessageID:   messageID,
 			Error:       reason,
 			Interrupted: InterruptRun,
-			NoDispatch:  true,
+			NotSent:     true,
 		}
 		if o := r.commit(Step{Kind: StepModelCallFinished, Model: settled}); o != nil {
 			return *o, false
@@ -333,7 +333,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		llm.Call{
 			Request: req,
 			// The client may key durable work by this ID; see llm.Attempt.
-			Attempt: llm.Attempt{TurnID: r.turn.ID, AttemptID: attempt},
+			Identity: llm.CallIdentity{TurnID: r.turn.ID, ModelCallID: attempt},
 		},
 	) {
 		if item.Delta != nil {
@@ -370,10 +370,10 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			}
 			if live {
 				r.emit(Event{
-					TurnID:    r.turn.ID,
-					AttemptID: attempt,
-					MessageID: messageID,
-					Delta:     item.Delta,
+					TurnID:      r.turn.ID,
+					ModelCallID: attempt,
+					MessageID:   messageID,
+					Delta:       item.Delta,
 				})
 			}
 		}
@@ -403,7 +403,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	timeoutWon := sendReason == llm.ReasonResponseStartTimeout ||
 		sendReason == llm.ReasonStreamIdleTimeout ||
 		sendReason == llm.ReasonCallTimeout
-	settled := &ModelFact{AttemptID: attempt, MessageID: messageID}
+	settled := &ModelFact{ModelCallID: attempt, MessageID: messageID}
 	// A Dashi timeout reason proves its own timer fired before the cut, so
 	// the timeout wins and the steer stays undelivered. A result that
 	// completed as the cancel arrived also stands, and the steer waits for
@@ -423,14 +423,14 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	if r.ctx.Err() != nil && !timeoutWon {
 		settled.Interrupted = InterruptRun
 		settled.Error = context.Cause(r.ctx).Error()
-		settled.Uncertain = tooldef.UnsafeHosted(defs)
+		settled.ResultUnknown = tooldef.UnsafeHosted(defs)
 		settled.Result = partial(InterruptRun)
 		setSettlementCharge(fact, settled)
 		step := Step{Kind: StepModelCallFinished, Model: settled}
 		if o := r.commit(step); o != nil {
 			return *o, false
 		}
-		if settled.Uncertain && r.runner.OnContextDone != ContextCancel &&
+		if settled.ResultUnknown && r.runner.OnContextDone != ContextCancel &&
 			!errors.Is(context.Cause(r.ctx), errTurnDeadline) {
 			return r.stop(
 				StopResultUnknown,
@@ -446,13 +446,13 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		markIncomplete(&result)
 		settled.Error = sendErr.Error()
 		settled.ErrorReason = sendReason
-		settled.Failure = failureDisposition(sendErr, result)
-		settled.Uncertain = settled.Failure == llm.FailureUnknown
-		if !settled.Uncertain {
+		settled.SendStatus = failureDisposition(sendErr, result)
+		settled.ResultUnknown = settled.SendStatus == llm.SendStatusUnknown
+		if !settled.ResultUnknown {
 			if failure, ok := errors.AsType[*llm.Error](sendErr); ok {
 				settled.Evidence = fmt.Sprintf(
 					"client disposition %s; HTTP %d",
-					failure.Disposition,
+					failure.SendStatus,
 					failure.Status,
 				)
 			}
@@ -488,7 +488,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		return r.contextStop(), false
 	}
 	if sendErr != nil {
-		if settled.Uncertain {
+		if settled.ResultUnknown {
 			return r.stop(StopResultUnknown, sendErr.Error()), false
 		}
 		return r.stop(StopFailed, sendErr.Error()), false
@@ -555,11 +555,11 @@ func (r *runtime) handOff(
 	}
 	r.unregisterCall(call)
 	settled := &ModelFact{
-		AttemptID:   attempt,
+		ModelCallID: attempt,
 		MessageID:   messageID,
 		Error:       errSteered.Error(),
 		Interrupted: InterruptSteering,
-		NoDispatch:  true,
+		NotSent:     true,
 	}
 	if o := r.commit(Step{Kind: StepModelCallFinished, Model: settled}); o != nil {
 		return handOffResult{done: true, outcome: *o}
@@ -587,12 +587,12 @@ func (r *runtime) settleSteered(
 	// and under a cap is charged the worst case. That over-charges a call
 	// the provider refused, which is harmless and keeps the rule simple.
 	switch {
-	case failureDisposition(sendErr, result) == llm.FailureNotDispatched:
-		settled.NoDispatch = true
-	case s.Budget != nil && s.Budget.MaxCost != nil && intent.AtRisk != nil:
+	case failureDisposition(sendErr, result) == llm.SendStatusNotSent:
+		settled.NotSent = true
+	case s.Budget != nil && s.Budget.MaxCost != nil && intent.WorstCaseCost != nil:
 		settled.Result = partial
-		charge := intent.AtRisk.Clone()
-		settled.Charge = &charge
+		charge := intent.WorstCaseCost.Clone()
+		settled.Cost = &charge
 		settled.EstimatedUsage = true
 	default:
 		settled.Result = partial

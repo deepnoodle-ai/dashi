@@ -76,13 +76,13 @@ const (
 	OutputFromText OutputSource = "text"
 )
 
-// StructuredOutput is a schema-validated final value. ToolCallID or AttemptID
+// StructuredOutput is a schema-validated final value. ToolCallID or ModelCallID
 // ties it to the model evidence from which it was derived.
 type StructuredOutput struct {
-	Value      json.RawMessage `json:"value"`
-	Source     OutputSource    `json:"source"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
-	AttemptID  string          `json:"attempt_id"`
+	Value       json.RawMessage `json:"value"`
+	Source      OutputSource    `json:"source"`
+	ToolCallID  string          `json:"tool_call_id,omitempty"`
+	ModelCallID string          `json:"model_call_id"`
 }
 
 // StartFact pins the agent, inputs, and optional cap for a turn.
@@ -139,20 +139,20 @@ type ContextFact struct {
 type ModelFact struct {
 	Purpose    ModelPurpose           `json:"purpose,omitempty"`
 	Compaction *ContextCompactionPlan `json:"compaction,omitempty"`
-	// AttemptID is stable across the intent and its settlement.
-	AttemptID string `json:"attempt_id"`
-	MessageID string `json:"message_id,omitempty"`
+	// ModelCallID is stable across the intent and its settlement.
+	ModelCallID string `json:"model_call_id"`
+	MessageID   string `json:"message_id,omitempty"`
 	// RequestDigest identifies the prepared bytes without recording their body.
 	RequestDigest string `json:"request_digest,omitempty"`
 	// FinalReplyOnly records that application tools were withheld on this call.
 	FinalReplyOnly bool `json:"final_reply_only,omitempty"`
-	// Admission carries each BeforeSend hook's reservation terms, keyed by
+	// Reservation carries each BeforeSend hook's reservation terms, keyed by
 	// hook name.
-	Admission map[string]json.RawMessage `json:"admission,omitempty"`
-	// AtRisk is the pre-send worst case; Charge is the settled accounting value.
-	AtRisk *llm.Cost `json:"at_risk,omitempty"`
-	// Charge is the settled amount reconstructed into turn spend.
-	Charge *llm.Cost `json:"charge,omitempty"`
+	Reservation map[string]json.RawMessage `json:"reservation,omitempty"`
+	// WorstCaseCost is the pre-send worst case; Charge is the settled accounting value.
+	WorstCaseCost *llm.Cost `json:"worst_case_cost,omitempty"`
+	// Cost is the settled amount reconstructed into turn spend.
+	Cost *llm.Cost `json:"cost,omitempty"`
 	// EstimatedInputTokens is the recorded fallback when input usage is absent.
 	EstimatedInputTokens int `json:"estimated_input_tokens,omitempty"`
 	// EstimatedUsage marks settlements with missing or partial token usage.
@@ -175,19 +175,19 @@ type ModelFact struct {
 	Error  string      `json:"error,omitempty"`
 	// ErrorReason is a stable, optional model failure code. It is absent on
 	// older records and does not replace the human-readable Error.
-	ErrorReason llm.ErrorReason        `json:"error_reason,omitempty"`
-	Failure     llm.FailureDisposition `json:"failure,omitempty"`
-	Evidence    string                 `json:"evidence,omitempty"`
-	// Uncertain means the model effect cannot yet be classified as settled or
+	ErrorReason llm.ErrorReason `json:"error_reason,omitempty"`
+	SendStatus  llm.SendStatus  `json:"send_status,omitempty"`
+	Evidence    string          `json:"evidence,omitempty"`
+	// ResultUnknown means the model effect cannot yet be classified as settled or
 	// safely not dispatched.
-	Uncertain bool `json:"uncertain,omitempty"`
+	ResultUnknown bool `json:"result_unknown,omitempty"`
 
 	// Interrupted, when set, names why the call was cut short. The settlement
 	// preserves partial output and usage without making them actionable, and
 	// a later model call may safely replace this one.
 	Interrupted InterruptCause `json:"interrupted,omitempty"`
-	// NoDispatch excludes an intent stopped before the provider call began.
-	NoDispatch bool `json:"no_dispatch,omitempty"`
+	// NotSent excludes an intent stopped before the provider call began.
+	NotSent bool `json:"not_sent,omitempty"`
 }
 
 // InterruptCause records why a model call was cut short before it produced a
@@ -225,9 +225,9 @@ func (c InterruptCause) valid() bool {
 // ModelFailure is host-supplied evidence that a pending model attempt did not
 // produce a result. The host is responsible for verifying this assertion.
 type ModelFailure struct {
-	Disposition llm.FailureDisposition `json:"disposition"`
-	Reason      string                 `json:"reason"`
-	Evidence    string                 `json:"evidence"`
+	SendStatus llm.SendStatus `json:"send_status"`
+	Reason     string         `json:"reason"`
+	Evidence   string         `json:"evidence"`
 }
 
 // ToolFact records a call's authorization, execution, or settlement evidence.
@@ -354,6 +354,14 @@ const (
 	// Budget) lets the model see the rejection and answer again; with no
 	// model attempts left, Continue ends the turn limited.
 	StopReasonOutputRejected = "output_rejected"
+
+	// StopReasonEmptyResponse means the model's final reply had no text and
+	// no BeforeFinish hook accepted an empty reply.
+	StopReasonEmptyResponse = "empty_response"
+
+	// StopReasonIncompleteModelResult means the provider reported a stop
+	// that Dashi does not recognize, so the result may be cut short.
+	StopReasonIncompleteModelResult = "incomplete_model_result"
 )
 
 // Stop reasons for a StopFailed turn that a content reference stopped. Stop.RefID

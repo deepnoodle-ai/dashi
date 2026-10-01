@@ -157,9 +157,9 @@ func TestSpendStringToolOverflow(t *testing.T) {
 func TestSpendStringUsageOverflow(t *testing.T) {
 	initial := Spend{
 		Usage: llm.Usage{
-			InputTokens:   math.MaxInt,
-			Requests:      map[string]int{llm.MeterWebSearch: 1},
-			RequestsFinal: true,
+			InputTokens:      math.MaxInt,
+			Requests:         map[string]int{llm.MeterWebSearch: 1},
+			RequestsComplete: true,
 		},
 		Cost:     map[string]money.Amount{"USD": amount("0.5")},
 		ToolCost: map[string]money.Amount{"USD": amount("2")},
@@ -237,7 +237,7 @@ func TestBudgetCostCapBoundaryIsExact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	risk, ok := llm.MaxCostAtRisk(request, client.pricing)
+	risk, ok := llm.WorstCaseCost(request, client.pricing)
 	if !ok {
 		t.Fatal("priced request had no cost bound")
 	}
@@ -262,7 +262,7 @@ func TestBudgetCostCapBoundaryIsExact(t *testing.T) {
 	if stop == nil || stop.Limit == nil || stop.Limit.Kind != LimitCost {
 		t.Fatalf("a call one nano over the cap was admitted: %+v", stop)
 	}
-	if stop.Limit.CostAtRisk != risk.Total || stop.Limit.CostUsed != used ||
+	if stop.Limit.WorstCaseCost != risk.Total || stop.Limit.CostUsed != used ||
 		stop.Limit.Currency != "USD" {
 		t.Fatalf("limit detail=%+v", stop.Limit)
 	}
@@ -325,12 +325,12 @@ func TestBudgetJSONUsesDecimalStrings(t *testing.T) {
 
 func TestLimitDetailJSON(t *testing.T) {
 	detail := LimitDetail{
-		Kind:       LimitCost,
-		CostLimit:  amount("0.01"),
-		CostUsed:   amount("0.0042"),
-		CostAtRisk: amount("0.006"),
-		Currency:   "USD",
-		FitTokens:  12,
+		Kind:                     LimitCost,
+		CostLimit:                amount("0.01"),
+		CostUsed:                 amount("0.0042"),
+		WorstCaseCost:            amount("0.006"),
+		Currency:                 "USD",
+		SuggestedMaxOutputTokens: 12,
 	}
 	raw, err := json.Marshal(detail)
 	if err != nil {
@@ -366,11 +366,11 @@ func creditDenialHooks(currency string) Hooks {
 			return SendDecision{
 				Reason: "insufficient credits",
 				Limit: &LimitDetail{
-					Kind:       LimitHost,
-					Code:       "insufficient_credits",
-					CostLimit:  amount("0.002"),
-					CostAtRisk: plan.AtRisk.Total,
-					Currency:   currency,
+					Kind:          LimitHost,
+					Code:          "insufficient_credits",
+					CostLimit:     amount("0.002"),
+					WorstCaseCost: plan.WorstCaseCost.Total,
+					Currency:      currency,
 				},
 			}, nil
 		},
@@ -388,7 +388,7 @@ func TestHostDenialCarriesMoneyWithCurrency(t *testing.T) {
 	)
 	limit := requireBudgetLimit(t, out, LimitHost)
 	if limit.Currency != "CREDIT" || limit.CostLimit != amount("0.002") ||
-		limit.CostAtRisk <= 0 || limit.Limit != 0 || limit.Used != 0 {
+		limit.WorstCaseCost <= 0 || limit.Limit != 0 || limit.Used != 0 {
 		t.Fatalf("host limit=%+v", limit)
 	}
 
@@ -407,11 +407,11 @@ func TestHostDenialCarriesMoneyWithCurrency(t *testing.T) {
 
 func attemptSpendIntent(priced bool) *ModelFact {
 	intent := &ModelFact{
-		AttemptID:            "model-1",
+		ModelCallID:          "model-1",
 		Provider:             "test",
 		Model:                "fixture",
 		EstimatedInputTokens: 100,
-		AtRisk:               &llm.Cost{Total: amount("0.5"), Currency: "USD"},
+		WorstCaseCost:        &llm.Cost{Total: amount("0.5"), Currency: "USD"},
 	}
 	if priced {
 		intent.ModelInfo = &llm.ModelInfo{Pricing: &newPricedClient().pricing}
@@ -434,7 +434,7 @@ func TestAttemptSpendClassifiesEachAttempt(t *testing.T) {
 		unpriced   bool
 		settlement *ModelFact
 		settled    bool
-		basis      SpendBasis
+		basis      UsageSource
 		charged    bool
 		partial    bool
 		final      bool
@@ -443,12 +443,12 @@ func TestAttemptSpendClassifiesEachAttempt(t *testing.T) {
 			// No recorded Charge: Dashi prices the reported usage.
 			name:       "measured",
 			settlement: &ModelFact{Result: usageResult(measured.Copy())},
-			settled:    true, basis: SpendMeasured, charged: true, final: true,
+			settled:    true, basis: UsageSourceReported, charged: true, final: true,
 		},
 		{
 			name:       "missing usage",
 			settlement: &ModelFact{Result: usageResult(nil)},
-			settled:    true, basis: SpendEstimated, charged: true,
+			settled:    true, basis: UsageSourceEstimated, charged: true,
 		},
 		{
 			name: "interrupted stream",
@@ -456,77 +456,77 @@ func TestAttemptSpendClassifiesEachAttempt(t *testing.T) {
 				Result:      usageResult(measured.Copy()),
 				Interrupted: InterruptRun,
 			},
-			settled: true, basis: SpendEstimated, charged: true,
+			settled: true, basis: UsageSourceEstimated, charged: true,
 		},
 		{
 			// Usage without a terminal stop may describe an earlier frame.
 			name:       "no terminal stop",
 			settlement: &ModelFact{Result: cutStop},
-			settled:    true, basis: SpendEstimated, charged: true,
+			settled:    true, basis: UsageSourceEstimated, charged: true,
 		},
 		{
 			name:       "uncertain",
-			settlement: &ModelFact{Error: "timeout", Uncertain: true},
-			settled:    true, basis: SpendEstimated, charged: true,
+			settlement: &ModelFact{Error: "timeout", ResultUnknown: true},
+			settled:    true, basis: UsageSourceEstimated, charged: true,
 		},
 		{
 			name: "not dispatched",
 			settlement: &ModelFact{
-				Error: "offline", Failure: llm.FailureNotDispatched,
+				Error: "offline", SendStatus: llm.SendStatusNotSent,
 				Evidence: "dial failed",
 			},
-			settled: true, basis: SpendNotExecuted, final: true,
+			settled: true, basis: UsageSourceNotSent, final: true,
 		},
 		{
 			name: "rejected",
 			settlement: &ModelFact{
-				Error: "bad request", Failure: llm.FailureRejected,
+				Error: "bad request", SendStatus: llm.SendStatusProviderRejected,
 				Evidence: "400",
 			},
-			settled: true, basis: SpendNotExecuted, final: true,
+			settled: true, basis: UsageSourceNotSent, final: true,
 		},
 		{
 			name: "partial hosted cost",
 			settlement: &ModelFact{Result: usageResult(&llm.Usage{
 				InputTokens: 10, OutputTokens: 5,
-				Requests:      map[string]int{llm.MeterCodeExecution: 2},
-				RequestsFinal: true,
+				Requests:         map[string]int{llm.MeterCodeExecution: 2},
+				RequestsComplete: true,
 			})},
-			settled: true, basis: SpendMeasured, charged: true, partial: true,
+			settled: true, basis: UsageSourceReported, charged: true, partial: true,
 		},
 		{
 			name:       "unpriced model",
 			unpriced:   true,
 			settlement: &ModelFact{Result: usageResult(measured.Copy())},
-			settled:    true, basis: SpendMeasured,
+			settled:    true, basis: UsageSourceReported,
 		},
 		{
 			name:  "pending",
-			basis: SpendEstimated, charged: true,
+			basis: UsageSourceEstimated, charged: true,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			intent := attemptSpendIntent(!tc.unpriced)
 			if tc.settlement != nil {
-				tc.settlement.AttemptID = intent.AttemptID
+				tc.settlement.ModelCallID = intent.ModelCallID
 			}
-			got := AttemptSpendOf(intent, tc.settlement)
-			if got.AttemptID != "model-1" || got.Provider != "test" ||
+			got := ModelCallCostOf(intent, tc.settlement)
+			if got.ModelCallID != "model-1" || got.Provider != "test" ||
 				got.Model != "fixture" {
 				t.Fatalf("identity=%+v", got)
 			}
-			if got.Settled != tc.settled || got.Basis != tc.basis ||
-				(got.Charge != nil) != tc.charged || got.Final != tc.final {
+			if got.Finished != tc.settled || got.UsageSource != tc.basis ||
+				(got.Cost != nil) != tc.charged || got.Exact != tc.final {
 				t.Fatalf("got %+v", got)
 			}
-			if tc.charged && got.Charge.Partial() != tc.partial {
-				t.Fatalf("partial=%t", got.Charge.Partial())
+			if tc.charged && got.Cost.Partial() != tc.partial {
+				t.Fatalf("partial=%t", got.Cost.Partial())
 			}
-			if got.AtRisk == nil || got.AtRisk.Total != amount("0.5") {
-				t.Fatalf("at risk=%+v", got.AtRisk)
+			if got.WorstCaseCost == nil || got.WorstCaseCost.Total != amount("0.5") {
+				t.Fatalf("at risk=%+v", got.WorstCaseCost)
 			}
-			if tc.basis == SpendNotExecuted && got.Usage != nil {
+			if tc.basis == UsageSourceNotSent && got.Usage != nil {
 				t.Fatalf("not-executed usage=%+v", got.Usage)
 			}
 		})
@@ -545,34 +545,34 @@ func TestAttemptsSumToSpend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(view.Attempts) != 2 {
-		t.Fatalf("attempts=%+v", view.Attempts)
+	if len(view.ModelCallCosts) != 2 {
+		t.Fatalf("attempts=%+v", view.ModelCallCosts)
 	}
 	var ids []string
 	for _, step := range out.Turn.Steps {
 		if step.Kind == StepModelCallStarted {
-			ids = append(ids, step.Model.AttemptID)
+			ids = append(ids, step.Model.ModelCallID)
 		}
 	}
-	for i, a := range view.Attempts {
-		if a.AttemptID != ids[i] || !a.Settled {
+	for i, a := range view.ModelCallCosts {
+		if a.ModelCallID != ids[i] || !a.Finished {
 			t.Fatalf("attempt %d=%+v, want %s", i, a, ids[i])
 		}
 	}
-	if !view.Attempts[0].Final || view.Attempts[1].Basis != SpendEstimated ||
-		view.Attempts[1].Final {
-		t.Fatalf("attempts=%+v", view.Attempts)
+	if !view.ModelCallCosts[0].Exact || view.ModelCallCosts[1].UsageSource != UsageSourceEstimated ||
+		view.ModelCallCosts[1].Exact {
+		t.Fatalf("attempts=%+v", view.ModelCallCosts)
 	}
 	intents := map[string]*ModelFact{}
 	for _, step := range out.Turn.Steps {
 		switch step.Kind {
 		case StepModelCallStarted:
-			intents[step.Model.AttemptID] = step.Model
+			intents[step.Model.ModelCallID] = step.Model
 		case StepModelCallFinished:
-			got := AttemptSpendOf(intents[step.Model.AttemptID], step.Model)
-			var want AttemptSpend
-			for _, a := range view.Attempts {
-				if a.AttemptID == step.Model.AttemptID {
+			got := ModelCallCostOf(intents[step.Model.ModelCallID], step.Model)
+			var want ModelCallCost
+			for _, a := range view.ModelCallCosts {
+				if a.ModelCallID == step.Model.ModelCallID {
 					want = a
 				}
 			}
@@ -581,13 +581,13 @@ func TestAttemptsSumToSpend(t *testing.T) {
 			}
 		}
 	}
-	if (AttemptSpendOf(nil, nil) != AttemptSpend{}) {
+	if (ModelCallCostOf(nil, nil) != ModelCallCost{}) {
 		t.Fatal("nil intent is not the zero value")
 	}
 	sum := map[string]money.Amount{}
 	var usage llm.Usage
-	for _, a := range view.Attempts {
-		sum[a.Charge.Currency] += a.Charge.Total
+	for _, a := range view.ModelCallCosts {
+		sum[a.Cost.Currency] += a.Cost.Total
 		if err := usage.Add(a.Usage); err != nil {
 			t.Fatal(err)
 		}
@@ -606,9 +606,9 @@ func TestAttemptsSumToSpend(t *testing.T) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(decoded.Attempts, view.Attempts) {
+	if !reflect.DeepEqual(decoded.ModelCallCosts, view.ModelCallCosts) {
 		t.Fatalf("attempts changed through JSON:\n%+v\n%+v",
-			decoded.Attempts, view.Attempts)
+			decoded.ModelCallCosts, view.ModelCallCosts)
 	}
 }
 
@@ -620,12 +620,12 @@ func TestAttemptsIncludePendingAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(view.Attempts) != 1 {
-		t.Fatalf("attempts=%+v", view.Attempts)
+	if len(view.ModelCallCosts) != 1 {
+		t.Fatalf("attempts=%+v", view.ModelCallCosts)
 	}
-	a := view.Attempts[0]
-	if a.AttemptID != "model-1" || a.Settled || a.Final ||
-		a.Basis != SpendEstimated {
+	a := view.ModelCallCosts[0]
+	if a.ModelCallID != "model-1" || a.Finished || a.Exact ||
+		a.UsageSource != UsageSourceEstimated {
 		t.Fatalf("pending attempt=%+v", a)
 	}
 	if view.Spend.Estimated != 1 || view.Spend.CostUnknown != 1 {

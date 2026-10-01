@@ -300,11 +300,11 @@ func (r Runner) apply(
 				CommandDigest: d,
 				Stop: &Stop{
 					Kind:   StopLimited,
-					Reason: "interruptions",
+					Reason: string(LimitResumes),
 					Limit: &LimitDetail{
-						Kind:  LimitInterruptions,
-						Limit: int64(max(agent.Limits.Interruptions, 0)),
-						Used:  int64(state.Interruptions),
+						Kind:  LimitResumes,
+						Limit: int64(max(agent.Limits.Resumes, 0)),
+						Used:  int64(state.Resumes),
 					},
 				},
 			}
@@ -313,14 +313,14 @@ func (r Runner) apply(
 			}
 			return rt.result(rt.current())
 		}
-		if c.ModelAttempts < 0 ||
-			c.ModelAttempts != 0 && c.ModelAttempts <= state.attemptCap {
+		if c.ModelCalls < 0 ||
+			c.ModelCalls != 0 && c.ModelCalls <= state.attemptCap {
 			return Outcome{}, fmt.Errorf(
 				"dashi: model-attempt raise must exceed the current limit of %d",
 				state.attemptCap,
 			)
 		}
-		if !state.canContinueWith(c.Budget, c.ModelAttempts) {
+		if !state.canContinueWith(c.Budget, c.ModelCalls) {
 			return Outcome{}, notReady(state)
 		}
 		if err := r.checkModelClient(opts, state); err != nil {
@@ -332,7 +332,7 @@ func (r Runner) apply(
 			CommandID:     c.CommandID,
 			CommandDigest: d,
 			Budget:        cloneBudget(c.Budget),
-			ModelAttempts: c.ModelAttempts,
+			ModelCalls:    c.ModelCalls,
 		}
 		if mismatch {
 			step.Warnings = []Warning{
@@ -366,8 +366,8 @@ func (r Runner) apply(
 			n++
 		}
 		if c.ModelFailure != nil {
-			if (c.ModelFailure.Disposition != llm.FailureNotDispatched &&
-				c.ModelFailure.Disposition != llm.FailureRejected) ||
+			if (c.ModelFailure.SendStatus != llm.SendStatusNotSent &&
+				c.ModelFailure.SendStatus != llm.SendStatusProviderRejected) ||
 				c.ModelFailure.Reason == "" ||
 				c.ModelFailure.Evidence == "" {
 				return Outcome{}, errors.New("dashi: model failure requires verified nonexecution evidence")
@@ -388,13 +388,13 @@ func (r Runner) apply(
 				kind = StepModelCallFinishedByHost
 			}
 			fact := &ModelFact{
-				AttemptID: c.CallID,
-				MessageID: c.CallID + ":message",
-				Result:    c.ModelResult,
+				ModelCallID: c.CallID,
+				MessageID:   c.CallID + ":message",
+				Result:      c.ModelResult,
 			}
 			if c.ModelFailure != nil {
 				fact.Error = c.ModelFailure.Reason
-				fact.Failure = c.ModelFailure.Disposition
+				fact.SendStatus = c.ModelFailure.SendStatus
 				fact.Evidence = c.ModelFailure.Evidence
 			}
 			setSettlementCharge(state.modelIntents[c.CallID], fact)

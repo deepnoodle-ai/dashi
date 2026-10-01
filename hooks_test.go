@@ -502,7 +502,7 @@ func TestContextViewTracksLiveNamedItems(t *testing.T) {
 func TestBeforeSendAdmissionDenyAndFailure(t *testing.T) {
 	admit := func(name, terms string) SendHook {
 		return SendHook{Name: name, Func: func(context.Context, SendPlan) (SendDecision, error) {
-			return SendDecision{Admission: json.RawMessage(terms)}, nil
+			return SendDecision{Reservation: json.RawMessage(terms)}, nil
 		}}
 	}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
@@ -513,7 +513,7 @@ func TestBeforeSendAdmissionDenyAndFailure(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	admission := out.Turn.Steps[1].Model.Admission
+	admission := out.Turn.Steps[1].Model.Reservation
 	if len(admission) != 2 || string(admission["quota"]) != `{"slot":"a"}` {
 		t.Fatalf("admission = %v", admission)
 	}
@@ -532,7 +532,7 @@ func TestBeforeSendAdmissionDenyAndFailure(t *testing.T) {
 	}
 
 	terminal := SendHook{Name: "clock", Func: func(context.Context, SendPlan) (SendDecision, error) {
-		return SendDecision{Limit: &LimitDetail{Kind: LimitModelAttempts, Limit: 1, Used: 1}}, nil
+		return SendDecision{Limit: &LimitDetail{Kind: LimitModelCalls, Limit: 1, Used: 1}}, nil
 	}}
 	client = &scriptedClient{}
 	out, err = runHooked(t, client, nil, terminal.Hooks())
@@ -566,8 +566,8 @@ func TestHookFailedStopResumesWithoutCountingInterruption(t *testing.T) {
 	}
 	fail = false
 	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "retry"})
-	if err != nil || out.Stop.Kind != StopCompleted || out.Interruptions != 0 {
-		t.Fatalf("resumed stop=%+v interruptions=%d err=%v", out.Stop, out.Interruptions, err)
+	if err != nil || out.Stop.Kind != StopCompleted || out.Resumes != 0 {
+		t.Fatalf("resumed stop=%+v interruptions=%d err=%v", out.Stop, out.Resumes, err)
 	}
 }
 
@@ -682,7 +682,7 @@ func TestBeforeFinishDeliveryDroppedOnReservedFinalAnswer(t *testing.T) {
 		}}}, nil
 	}}
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 2
+	agent.Limits.ModelCalls = 2
 	remote := &valueTool{}
 	client := &scriptedClient{results: []llm.Result{
 		callResult("call-1", "remote"),
@@ -710,7 +710,7 @@ func TestBeforeFinishDeliveryDroppedWithoutReserveAtLastAttempt(t *testing.T) {
 		}}}, nil
 	}}
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 1
+	agent.Limits.ModelCalls = 1
 	agent.Limits.NoReservedFinalReply = true
 	client := &scriptedClient{results: []llm.Result{final("only")}}
 	out, err := (Runner{Client: client, Hooks: more.Hooks()}).Run(
@@ -762,7 +762,7 @@ func TestBeforeFinishDeliveryCannotSpendTheReservedCall(t *testing.T) {
 		}}}, nil
 	}}
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 2
+	agent.Limits.ModelCalls = 2
 	client := &scriptedClient{results: []llm.Result{final("first"), final("unused")}}
 	out, err := (Runner{Client: client, Hooks: more.Hooks()}).Run(
 		t.Context(),
@@ -794,7 +794,7 @@ func TestRoomForNormalCallCountsACallInFlight(t *testing.T) {
 		{settled: 7, reserve: false, want: true},
 		{settled: 7, inFlight: true, reserve: false, want: false},
 	} {
-		s.ModelAttempts = tc.settled
+		s.ModelCalls = tc.settled
 		s.modelIntent = ""
 		if tc.inFlight {
 			s.modelIntent = "t1:model:x"
@@ -1011,7 +1011,7 @@ func TestHookCallOrder(t *testing.T) {
 			order = nil
 			remote := &valueTool{}
 			agent := testAgent()
-			agent.Limits.ModelAttempts = 3
+			agent.Limits.ModelCalls = 3
 			client := &scriptedClient{results: []llm.Result{
 				callResult("call-1", "remote"),
 				callResult("call-2", "remote"),
@@ -1137,7 +1137,7 @@ func TestHookErrorAfterContextEndsAtEveryPoint(t *testing.T) {
 		"before_send": func(cancel context.CancelFunc) Hooks {
 			return Hooks{BeforeSend: []SendHook{
 				{Name: "a", Func: func(context.Context, SendPlan) (SendDecision, error) {
-					return SendDecision{Admission: json.RawMessage(`{}`)}, nil
+					return SendDecision{Reservation: json.RawMessage(`{}`)}, nil
 				}},
 				{Name: "b", Func: func(ctx context.Context, _ SendPlan) (SendDecision, error) {
 					return SendDecision{}, ended(ctx, cancel)
@@ -1240,7 +1240,7 @@ func TestDeliveryAfterFinishFailureWithNoCallLeftIsDropped(t *testing.T) {
 		return FinishDecision{}, nil
 	}}
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 3
+	agent.Limits.ModelCalls = 3
 	remote := &valueTool{}
 	client := &scriptedClient{results: []llm.Result{
 		callResult("call-1", "remote"),
@@ -1285,7 +1285,7 @@ func TestFinishFailureOnReservedFinalAnswerResumesWithoutACall(t *testing.T) {
 		return FinishDecision{}, nil
 	}}
 	agent := testAgent()
-	agent.Limits.ModelAttempts = 2
+	agent.Limits.ModelCalls = 2
 	remote := &valueTool{}
 	client := &scriptedClient{results: []llm.Result{
 		callResult("call-1", "remote"),
@@ -1342,12 +1342,12 @@ func TestReplayRejectsInvalidHookRecords(t *testing.T) {
 		},
 		"pass outside before_tool": func(turn *Turn) {
 			turn.Steps[1].HookResults = []HookResult{
-				{Point: HookBeforeSend, Name: "x", Verdict: VerdictAdmit, Pass: 2},
+				{Point: HookBeforeSend, Name: "x", Verdict: VerdictReserve, Pass: 2},
 			}
 		},
 		"error without failure": func(turn *Turn) {
 			turn.Steps[1].HookResults = []HookResult{
-				{Point: HookBeforeSend, Name: "x", Verdict: VerdictAdmit, Error: "e"},
+				{Point: HookBeforeSend, Name: "x", Verdict: VerdictReserve, Error: "e"},
 			}
 		},
 		"failure without error": func(turn *Turn) {
