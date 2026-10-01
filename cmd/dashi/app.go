@@ -15,12 +15,14 @@ import (
 
 // appConfig holds what buildApp needs.
 type appConfig struct {
-	Dir         string
-	HomeDir     string
-	Model       string
-	Client      llm.Client
-	Store       *session.Store
-	Preferences *cliPreferences
+	Dir           string
+	HomeDir       string
+	Model         string
+	Client        llm.Client
+	Store         *session.Store
+	Preferences   *cliPreferences
+	InvocationDir string
+	MCPFiles      []string
 	// ModelAttempts overrides the per-turn model-call limit; zero means 40.
 	ModelAttempts int
 
@@ -47,9 +49,15 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		}
 	}
 	resources := newResourceManager(cfg.Dir, home)
+	invocation := cfg.InvocationDir
+	if invocation == "" {
+		invocation, _ = os.Getwd()
+	}
+	mcp := newMCPRuntime(cfg.Dir, selectMCP(home, cfg.Dir, invocation, cfg.MCPFiles, os.ReadFile, os.LookupEnv))
 	w, err := buildWiring(Env{
 		Dir:       cfg.Dir,
 		Resources: resources,
+		MCP:       mcp,
 		Approve: func(ctx context.Context, r ApprovalRequest) (Approval, error) {
 			answer, err := ctrl.Approve(ctx, resources.approvalRequest(ctx, r))
 			if err == nil {
@@ -71,6 +79,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		Store:         cfg.Store,
 		Wiring:        w,
 		Resources:     resources,
+		MCP:           mcp,
 		ModelAttempts: cfg.ModelAttempts,
 		Emit:          func(b Block) { emitToUI(ui, b) },
 		recorder:      cfg.recorder,
@@ -82,6 +91,13 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		cfg.Preferences.ask = ctrl.Ask
 	}
 	return &app{eng: eng, ctrl: ctrl, wiring: w}, nil
+}
+
+func (a *app) modelLabel() string {
+	if a.eng.cfg.Preferences.selectionReady() != nil {
+		return "destination required"
+	}
+	return a.eng.Model()
 }
 
 // openSession opens the session the flags name, or a new one. Resuming a

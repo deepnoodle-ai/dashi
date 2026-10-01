@@ -22,10 +22,11 @@ import (
 // goroutines call Emit, Approve, and the rest, which queue an event and, when
 // they must wait for the user, block on a reply channel.
 type screen struct {
-	ctrl  *Controller
-	eng   *Engine
-	model func() string
-	dir   string
+	startMCP func()
+	ctrl     *Controller
+	eng      *Engine
+	model    func() string
+	dir      string
 
 	// send delivers an event to the loop. SetRuntime sets it; tests set it
 	// to call HandleEvent directly.
@@ -91,11 +92,13 @@ type askPrompt struct {
 }
 
 type pickerState struct {
-	title   string
-	options []string
-	details []string
-	index   int
-	reply   chan int
+	startupReview detailLines
+	startupVP     tui.ViewportState
+	title         string
+	options       []string
+	details       []string
+	index         int
+	reply         chan int
 }
 
 // Events posted to the loop.
@@ -130,6 +133,7 @@ func newScreen(dir string) *screen {
 // bind connects the screen to the app built around it.
 func (s *screen) bind(a *app) {
 	s.ctrl, s.eng, s.model = a.ctrl, a.eng, a.eng.Model
+	s.startMCP = func() { a.startMCP(true) }
 }
 
 func isCtrlC(e tui.KeyEvent) bool {
@@ -149,6 +153,9 @@ func (s *screen) SetRuntime(rt *tui.Runtime) {
 // runtime started, such as the scrollback of a reopened session.
 func (s *screen) Init() error {
 	s.drain()
+	if s.startMCP != nil {
+		s.startMCP()
+	}
 	return nil
 }
 
@@ -423,6 +430,9 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 // interrupt handles Ctrl-C by mode.
 func (s *screen) interrupt() []tui.Cmd {
 	if s.picker != nil {
+		if s.picker.startupReview != nil {
+			s.ctrl.Interrupt()
+		}
 		s.picker.reply <- -1
 		s.clearPrompts()
 		return []tui.Cmd{tui.Focus(inputID)}
@@ -457,6 +467,22 @@ func (s *screen) requestQuit() []tui.Cmd {
 
 func (s *screen) pickerKey(e tui.KeyEvent) []tui.Cmd {
 	p := s.picker
+	if p.startupReview != nil {
+		switch e.Key {
+		case tui.KeyPageUp:
+			p.startupVP.PageUp()
+			return nil
+		case tui.KeyPageDown:
+			p.startupVP.PageDown()
+			return nil
+		case tui.KeyHome:
+			p.startupVP.ScrollToTop()
+			return nil
+		case tui.KeyEnd:
+			p.startupVP.ScrollToBottom()
+			return nil
+		}
+	}
 	switch e.Key {
 	case tui.KeyArrowUp:
 		p.index = max(p.index-1, 0)
@@ -483,9 +509,16 @@ func (s *screen) pickerKey(e tui.KeyEvent) []tui.Cmd {
 }
 
 func (s *screen) submit(value string) {
-	s.input = ""
 	raw := value
 	value = strings.TrimSpace(value)
+	if s.asking == nil && !s.eng.cfg.MCP.Ready() {
+		name, _ := splitCommand(value)
+		if name != "/mcp" && name != "/quit" && name != "/exit" && name != "/q" {
+			s.ctrl.mcpInput(value)
+			return
+		}
+	}
+	s.input = ""
 	if s.asking != nil {
 		p := s.asking
 		a, err := parseQuestionAnswer(p.q, value)
@@ -567,6 +600,8 @@ func (s *screen) inputHint(mode Mode) string {
 	switch {
 	case s.asking != nil:
 		return "Type your answer."
+	case mode == ModeCommand && !s.eng.cfg.MCP.Ready():
+		return "Starting MCP servers. Submit input after startup finishes; Ctrl-C cancels startup."
 	case mode == ModeRunning:
 		for i := len(s.tr.Blocks) - 1; i >= 0; i-- {
 			b := s.tr.Blocks[i]
@@ -612,6 +647,9 @@ func shortDir(dir string) string {
 }
 
 func pickerView(p *pickerState) tui.View {
+	if p.startupReview != nil {
+		return mcpStartupView(p)
+	}
 	views := []tui.View{tui.Divider(), tui.Text(" %s", p.title).Bold()}
 	// Keep room for the selected model's facts on an 80×24 terminal.
 	window := 10

@@ -1,7 +1,7 @@
 # Use and inspect MCP tools safely in the terminal
 
 Status: Approved\
-PRD PR: [#132](https://github.com/deepnoodle-ai/dashi/pull/132) · Implementation PR: Not opened · Updated: 2026-09-30
+PRD PR: [#132](https://github.com/deepnoodle-ai/dashi/pull/132) · Implementation PR: [#143](https://github.com/deepnoodle-ai/dashi/pull/143) · Updated: 2026-09-30
 
 ## Problem and context
 

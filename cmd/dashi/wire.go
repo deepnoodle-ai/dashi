@@ -29,6 +29,7 @@ type Env struct {
 	// Dir is the workspace directory.
 	Dir       string
 	Resources *resourceManager
+	MCP       *mcpRuntime
 	// Approve asks the user about a tool call.
 	Approve ApprovalFunc
 	// Ask asks the user a question in the model's name.
@@ -40,6 +41,7 @@ type Env struct {
 var adapters = []func(Env) (wiring, error){
 	resourceWiring,
 	workspaceWiring,
+	mcpWiring,
 }
 
 // The approval and question types come from the coding tools package, so a
@@ -102,9 +104,17 @@ func buildWiring(env Env) (wiring, error) {
 		out     wiring
 		closers []func() error
 	)
+	closeAll := func() error {
+		var errs []error
+		for i := len(closers) - 1; i >= 0; i-- {
+			errs = append(errs, closers[i]())
+		}
+		return errors.Join(errs...)
+	}
 	for _, build := range adapters {
 		w, err := build(env)
 		if err != nil {
+			_ = closeAll()
 			return wiring{}, err
 		}
 		if w.Tools != nil {
@@ -129,16 +139,11 @@ func buildWiring(env Env) (wiring, error) {
 	}
 	out.Tools = tool.Join(sets...)
 	if _, err := out.Tools.Tools(context.Background()); err != nil {
+		_ = closeAll()
 		return wiring{}, err
 	}
 	out.Hooks = dashi.JoinHooks(hooks...)
-	out.Close = func() error {
-		var errs []error
-		for i := len(closers) - 1; i >= 0; i-- {
-			errs = append(errs, closers[i]())
-		}
-		return errors.Join(errs...)
-	}
+	out.Close = closeAll
 	return out, nil
 }
 
@@ -160,4 +165,11 @@ func resourcePolicyOptions(resources *resourceManager) []workspace.PolicyOption 
 		return nil
 	}
 	return []workspace.PolicyOption{workspace.TrustTools("load_skill")}
+}
+
+func mcpWiring(env Env) (wiring, error) {
+	if env.MCP == nil {
+		return wiring{}, nil
+	}
+	return wiring{Tools: env.MCP, Close: env.MCP.Close}, nil
 }

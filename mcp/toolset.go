@@ -40,6 +40,10 @@ const (
 
 // Options configures Open.
 type Options struct {
+	// Dir is the working directory of every stdio child. Empty inherits
+	// the host process working directory. It does not affect HTTP servers.
+	Dir string
+
 	// Approve runs once for each Untrusted server, in sorted name order, one
 	// at a time, before any server starts. It gets the raw entry and its
 	// fingerprint. A false result or an error declines the server. Nil
@@ -366,6 +370,7 @@ func (t *Toolset) connect(
 	var transport mcp.Transport
 	if typ == TypeStdio {
 		cmd := exec.Command(s.Command, s.Args...)
+		cmd.Dir = t.opts.Dir
 		errTail = &tail{}
 		cmd.Stderr = errTail
 		cmd.Env = os.Environ()

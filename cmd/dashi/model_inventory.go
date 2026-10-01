@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
 // modelInventory is an offline projection. It constructs no provider client
@@ -74,12 +76,29 @@ func knownSupport(value llm.Support) string {
 	return string(value)
 }
 
+func readStartupPreferences(path string, project bool) (preferenceFile, error) {
+	p, err := readPreferenceFile(path, project)
+	var failed *preferenceSourceError
+	if errors.As(err, &failed) {
+		// Discard partial decoded selectors/definitions. Nothing from this source
+		// may influence a route or restore a lower-tier automatic selection.
+		return preferenceFile{Source: path, Project: project, LoadError: failed.Error()}, nil
+	}
+	return p, err
+}
+func warnPreferenceSources(out io.Writer, sources ...preferenceFile) {
+	for _, source := range sources {
+		if source.LoadError != "" {
+			fmt.Fprintf(out, "dashi: %s; source ignored. Select an explicit destination before work.\n", workspace.PrintableText(source.LoadError))
+		}
+	}
+}
 func loadDestinationFiles(home, workspace string) (preferenceFile, preferenceFile, map[string]configuredDestination, map[string]configuredDestination, error) {
-	user, err := readPreferenceFile(filepath.Join(home, ".dashi", "settings.json"), false)
+	user, err := readStartupPreferences(filepath.Join(home, ".dashi", "settings.json"), false)
 	if err != nil {
 		return user, preferenceFile{}, nil, nil, err
 	}
-	project, err := readPreferenceFile(filepath.Join(workspace, ".dashi", "settings.json"), true)
+	project, err := readStartupPreferences(filepath.Join(workspace, ".dashi", "settings.json"), true)
 	if err != nil {
 		return user, project, nil, nil, err
 	}
@@ -100,9 +119,10 @@ func runModels(o Options, home, invocation string, out, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
-	_, _, registry, user, err := loadDestinationFiles(home, workspace)
+	user, project, registry, trusted, err := loadDestinationFiles(home, workspace)
+	warnPreferenceSources(stderr, user, project)
 	if err == nil {
-		err = modelInventory(registry, user, os.LookupEnv, o.Available, out)
+		err = modelInventory(registry, trusted, os.LookupEnv, o.Available, out)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "dashi: %v\n", err)

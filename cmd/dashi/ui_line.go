@@ -224,6 +224,12 @@ func (u *lineUI) serveLines(in io.Reader, sequential bool) error {
 				u.ctrl.Wait()
 				return <-errc
 			}
+			select {
+			case <-u.quit:
+				u.ctrl.Wait()
+				return nil
+			default:
+			}
 			u.ctrl.Input(line)
 			if sequential {
 				// A run that waits for approval needs the next line.

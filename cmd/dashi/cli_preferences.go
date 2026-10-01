@@ -74,7 +74,22 @@ func (p *cliPreferences) clientFor(ctx context.Context, agent dashi.Agent) (llm.
 	}
 	return client, nil
 }
+func (p *cliPreferences) selectionReady() error {
+	if p == nil {
+		return nil
+	}
+	p.mu.RLock()
+	message := p.launch.SelectionError
+	p.mu.RUnlock()
+	if message != "" {
+		return errors.New(message)
+	}
+	return nil
+}
 func (p *cliPreferences) bind(ctx context.Context, agent dashi.Agent) error {
+	if err := p.selectionReady(); err != nil {
+		return err
+	}
 	client, err := p.clientFor(ctx, agent)
 	if err != nil {
 		return err

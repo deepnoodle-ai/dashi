@@ -106,7 +106,11 @@ type runtimeFixture struct {
 
 func newTranscriptRuntime(t *testing.T, script ...reply) *runtimeFixture {
 	t.Helper()
-	cfg := testConfig(t, script...)
+	return newTranscriptRuntimeConfig(t, testConfig(t, script...))
+}
+
+func newTranscriptRuntimeConfig(t *testing.T, cfg appConfig) *runtimeFixture {
+	t.Helper()
 	s := &transcriptRuntime{screen: newScreen(cfg.Dir), ready: make(chan struct{})}
 	a, err := buildApp(t.Context(), cfg, s)
 	if err != nil {
@@ -135,6 +139,9 @@ func newTranscriptRuntime(t *testing.T, script ...reply) *runtimeFixture {
 			t.Error("runtime did not stop")
 		}
 		a.eng.Close()
+		if a.wiring.Close != nil {
+			_ = a.wiring.Close()
+		}
 	})
 	select {
 	case <-s.ready:
