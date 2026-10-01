@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// Process adapters own duplicate pipe descriptors only. The controller must
+// Process adapters own duplicate pipe or terminal descriptors. The controller must
 // use the adapted stream exclusively, then close it after its worker joins.
 // Originals stay open. Regular files retain checked synchronous operations.
-type automationProcessPipeIO interface {
+type automationProcessDescriptorIO interface {
 	io.ReadWriteCloser
 	SetWriteDeadline(time.Time) error
 }
@@ -36,7 +36,7 @@ func prepareAutomationProcessInput(in *os.File) (io.Reader, io.Closer, error) {
 	if info.Mode()&os.ModeNamedPipe == 0 {
 		return nil, nil, errors.New("unsupported stdin descriptor")
 	}
-	pipe, err := openAutomationProcessPipe(in, false)
+	pipe, err := openAutomationProcessDescriptor(in, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -57,14 +57,18 @@ func prepareAutomationProcessOutput(out *os.File) (io.Writer, io.Closer, error) 
 	if automationProcessNull(info) {
 		return automationNullOutput{out}, nil, nil
 	}
-	if info.Mode()&os.ModeNamedPipe == 0 {
-		return nil, nil, errors.New("unsupported stdout descriptor")
-	}
-	pipe, err := openAutomationProcessPipe(out, true)
+	terminal, err := automationProcessTerminal(out)
 	if err != nil {
 		return nil, nil, err
 	}
-	return pipe, pipe, nil
+	if info.Mode()&os.ModeNamedPipe == 0 && !terminal {
+		return nil, nil, errors.New("unsupported stdout descriptor")
+	}
+	stream, err := openAutomationProcessDescriptor(out, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stream, stream, nil
 }
 
 func automationProcessNull(info os.FileInfo) bool {

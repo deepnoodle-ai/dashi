@@ -34,8 +34,10 @@ func automationProcessTerminal(file *os.File) (bool, error) {
 // dup shares open-description flags. Change O_NONBLOCK only for one syscall,
 // then restore the exact flags before returning or waiting. Poll has a short
 // upper bound, so Close and deadline changes require no blocked goroutine.
-// Neither File.Fd nor Go's runtime FIFO poller enters this path.
-type automationProcessPipe struct {
+// Pipes and terminal output use the same bounded path. Terminal attributes
+// stay unchanged, including input modes. Neither File.Fd nor Go's runtime
+// FIFO poller enters this path.
+type automationProcessDescriptor struct {
 	mu       sync.Mutex
 	fd       int
 	write    bool
@@ -44,10 +46,10 @@ type automationProcessPipe struct {
 	deadline time.Time
 }
 
-func openAutomationProcessPipe(file *os.File, write bool) (automationProcessPipeIO, error) {
+func openAutomationProcessDescriptor(file *os.File, write bool) (automationProcessDescriptorIO, error) {
 	conn, err := file.SyscallConn()
 	if err != nil {
-		return nil, errors.New("cannot inspect process pipe")
+		return nil, errors.New("cannot inspect process descriptor")
 	}
 	fd := -1
 	var setupErr error
@@ -61,7 +63,7 @@ func openAutomationProcessPipe(file *os.File, write bool) (automationProcessPipe
 		}
 		access := flags & unix.O_ACCMODE
 		if write && access == unix.O_RDONLY || !write && access == unix.O_WRONLY {
-			setupErr = errors.New("pipe direction is invalid")
+			setupErr = errors.New("descriptor direction is invalid")
 			return
 		}
 		fd, setupErr = unix.FcntlInt(source, unix.F_DUPFD_CLOEXEC, 3)
@@ -78,7 +80,7 @@ func openAutomationProcessPipe(file *os.File, write bool) (automationProcessPipe
 			ready := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLOUT}}
 			_, setupErr = unix.Poll(ready, 0)
 			if setupErr == nil && ready[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
-				setupErr = errors.New("stdout pipe has no reader")
+				setupErr = errors.New("stdout descriptor is disconnected")
 			}
 		}
 	})
@@ -86,26 +88,26 @@ func openAutomationProcessPipe(file *os.File, write bool) (automationProcessPipe
 		if fd >= 0 {
 			_ = unix.Close(fd)
 		}
-		return nil, errors.New("cannot qualify process pipe")
+		return nil, errors.New("cannot qualify process descriptor")
 	}
-	return &automationProcessPipe{fd: fd, write: write}, nil
+	return &automationProcessDescriptor{fd: fd, write: write}, nil
 }
 
-func (p *automationProcessPipe) Read(data []byte) (int, error) {
+func (p *automationProcessDescriptor) Read(data []byte) (int, error) {
 	if p.write {
-		return 0, errors.New("output pipe cannot read")
+		return 0, errors.New("output descriptor cannot read")
 	}
 	return p.transfer(data)
 }
 
-func (p *automationProcessPipe) Write(data []byte) (int, error) {
+func (p *automationProcessDescriptor) Write(data []byte) (int, error) {
 	if !p.write {
-		return 0, errors.New("input pipe cannot write")
+		return 0, errors.New("input descriptor cannot write")
 	}
 	return p.transfer(data)
 }
 
-func (p *automationProcessPipe) transfer(data []byte) (int, error) {
+func (p *automationProcessDescriptor) transfer(data []byte) (int, error) {
 	if len(data) == 0 {
 		return 0, nil
 	}
@@ -154,7 +156,7 @@ func (p *automationProcessPipe) transfer(data []byte) (int, error) {
 	}
 }
 
-func (p *automationProcessPipe) attemptLocked(data []byte) (int, error) {
+func (p *automationProcessDescriptor) attemptLocked(data []byte) (int, error) {
 	automationProcessFlagsMu.Lock()
 	defer automationProcessFlagsMu.Unlock()
 	flags, err := unix.FcntlInt(uintptr(p.fd), unix.F_GETFL, 0)
@@ -175,13 +177,13 @@ func (p *automationProcessPipe) attemptLocked(data []byte) (int, error) {
 	}
 	if changed {
 		if _, restoreErr := unix.FcntlInt(uintptr(p.fd), unix.F_SETFL, flags); restoreErr != nil {
-			return max(n, 0), errors.New("cannot restore process pipe flags")
+			return max(n, 0), errors.New("cannot restore process descriptor flags")
 		}
 	}
 	return max(n, 0), err
 }
 
-func (p *automationProcessPipe) SetWriteDeadline(deadline time.Time) error {
+func (p *automationProcessDescriptor) SetWriteDeadline(deadline time.Time) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {
@@ -191,7 +193,7 @@ func (p *automationProcessPipe) SetWriteDeadline(deadline time.Time) error {
 	return nil
 }
 
-func (p *automationProcessPipe) Close() error {
+func (p *automationProcessDescriptor) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {

@@ -14,7 +14,8 @@ func automationProcessTerminal(file *os.File) (bool, error) {
 }
 
 // Other platforms retain finite files and terminal-input skipping. Pipe
-// execution refuses before dispatch until that platform has qualified proof.
-func openAutomationProcessPipe(*os.File, bool) (automationProcessPipeIO, error) {
-	return nil, errors.New("process pipes are unsupported on this platform")
+// and terminal-output execution refuse before dispatch until that platform
+// has qualified proof.
+func openAutomationProcessDescriptor(*os.File, bool) (automationProcessDescriptorIO, error) {
+	return nil, errors.New("process pipe/terminal output is unsupported on this platform")
 }
