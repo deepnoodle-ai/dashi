@@ -47,7 +47,7 @@ func TestHelpGroupsCommandsAndListsSkillsSeparately(t *testing.T) {
 	for _, line := range []string{
 		"  • /status [ID]                  inspect recorded status and own-session spend",
 		"    /deploy <env>                 Fixture skill",
-		"  • also works while a turn runs",
+		"mention tokens\n\n  • also works while a turn runs",
 		"    Ctrl+C        interrupt; press twice to exit when idle",
 	} {
 		if !strings.Contains(text, line+"\n") {
@@ -71,21 +71,21 @@ func TestHelpOmitsSkillsSectionWithoutSkills(t *testing.T) {
 }
 
 func TestHelpBlockRendersStyledWithPlainSource(t *testing.T) {
-	h := helpDoc{Sections: []helpSection{{Title: "Session", Rows: []helpRow{{Name: "/status", Usage: "[ID]", Text: "inspect", During: true}}}}}
+	h := helpDoc{Sections: []helpSection{{Title: "Session", Rows: []helpRow{{Name: "/status", Usage: "[ID]", Text: "inspect", During: true}}, Note: "  • legend"}}}
 	b := Block{Kind: KindHelp, Text: h.String(), Help: &h, Done: true}
-	if FormatBlock(b) != "Session\n  • /status [ID]  inspect" {
+	if FormatBlock(b) != "Session\n  • /status [ID]  inspect\n\n  • legend" {
 		t.Fatalf("plain = %q", FormatBlock(b))
 	}
 	styled, ok := nativeBlockText(b, 80)
 	if !ok {
 		t.Fatal("no native text")
 	}
-	for _, want := range []string{"\x1b[0;1;36mSession", "\x1b[0;1m/status", "\x1b[0;38;5;248m [ID]"} {
+	for _, want := range []string{"\x1b[0;1;36mSession", "\x1b[0;1m/status", "\x1b[0;38;5;248m [ID]", "\n \n\x1b[0m\x1b[0;3;38;5;248m  • legend"} {
 		if !strings.Contains(styled, want) {
 			t.Fatalf("missing %q in %q", want, styled)
 		}
 	}
-	if got := tui.SprintScreen(blockView(b), tui.WithWidth(40)).Text(); !strings.Contains(got, "  • /status [ID]  inspect") {
+	if got := tui.SprintScreen(blockView(b), tui.WithWidth(40)).Text(); !strings.Contains(got, "  • /status [ID]  inspect\n\n  • legend") {
 		t.Fatalf("screen = %q", got)
 	}
 }

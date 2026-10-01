@@ -106,7 +106,8 @@ func (h helpDoc) lines() [][]helpSpan {
 			out = append(out, line)
 		}
 		if s.Note != "" {
-			out = append(out, []helpSpan{{s.Note, roleNote}})
+			// A blank line sets the note apart as a footnote to the rows.
+			out = append(out, nil, []helpSpan{{s.Note, roleNote}})
 		}
 	}
 	return out
