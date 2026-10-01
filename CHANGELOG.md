@@ -13,6 +13,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   a `Client` when its agent names its provider, API, and model. A run that
   would call the model without one fails with "client is required to call the
   model" before recording anything.
+- **The CLI shows delegated tasks on their tool lines.** The `task` tool line
+  reads `task  explore · find the parser · t_k3f2`. One status line under it
+  follows the task, such as `⎿ completed · 1 model call · $0.0069 · /task
+  t_k3f2 to inspect`, in the tool line colors. It replaces the separate block
+  that repeated the task ID, description, counts, and raw spend. `/tasks`
+  prints one line per task in the same words, and counts are pluralized.
+
+### Fixed
+
+- **A task result no longer shows an empty user line in the CLI.** The turn
+  that a finished task's result starts now opens with `↳ task t_k3f2
+  (explore) completed · result delivered`, live, after a reopen, inline, and
+  in plain output.
 
 ## [0.2.0] - 2026-10-01
 

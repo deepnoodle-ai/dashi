@@ -355,7 +355,8 @@ func TestTaskPrintQuietAndPipeAttentionHaveCleanExit(t *testing.T) {
 	if out.String() != "Task result received.\n" {
 		t.Fatalf("stdout=%q", out.String())
 	}
-	mustHave(t, notice.String(), "Task ")
+	mustHave(t, notice.String(), "(general) completed · 1 model call · /task t_")
+	mustHave(t, notice.String(), "(general) completed · result delivered")
 	var runs atomic.Int32
 	installTaskEffect(t, &runs, true)
 	cfg = testConfig(t)
@@ -549,8 +550,8 @@ func TestTaskDetailsSeparateAttemptEstimateFromDispatchAndHidePrivateContent(t *
 	if strings.Contains(details, "private summary") || !strings.Contains(details, "public answer") || !strings.Contains(details, "2 confirmed model dispatches") {
 		t.Fatal(details)
 	}
-	row := taskRow(delegate.TaskView{TurnID: "child", ModelCalls: 3})
-	if !strings.Contains(row.Text, "3 model attempts") {
+	row := taskStatusBlock(delegate.TaskView{TurnID: "child", ModelCalls: 3})
+	if !strings.Contains(row.Text, "3 model calls") {
 		t.Fatal(row.Text)
 	}
 }

@@ -281,7 +281,7 @@ func (s *screen) Item(i int) tui.View {
 			b.Expanded = true
 		} else {
 			return tui.Stack(blockView(b), tui.PaddingLTRB(6, 0, 0, 0,
-				tui.Text("%d output lines · click to expand", strings.Count(b.Detail, "\n")+1).Style(hintStyle))).Gap(0)
+				tui.Text("%s · click to expand", outputLinesText(b.Detail)).Style(hintStyle))).Gap(0)
 		}
 	}
 	return blockView(b)
@@ -803,7 +803,9 @@ func blockView(b Block) tui.View {
 		}
 		return tui.Stack(tui.Text("  Reasoning").Fg(tui.ColorCyan), tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(b.Text, nil).SourceOffset(0))).Gap(0)
 	case KindTool:
-		return toolView(b)
+		return withTaskLine(toolView(b), b)
+	case KindTaskStatus, KindTaskResult:
+		return taskLineView(b)
 	case KindDiff:
 		views := make([]tui.View, 0, len(b.Lines))
 		offset := 0
