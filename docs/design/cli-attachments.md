@@ -74,6 +74,7 @@ Edited spans are resolved by the latest lexical scan, never by stale offsets or 
 Recognize a drop only from a main-composer insertion/paste event whose entire inserted segment parses as existing supported paths.
 Stage that selection and substitute removable labels for the segment. Mixed prose remains untouched.
 If a runtime cannot identify an insertion segment, offer explicit `/attach` or `@file`; never infer a drop from the whole ordinary draft.
+Current Wonton input exposes no identifiable insertion segment, so both terminal modes use that explicit selection fallback.
 Completion, recall, editor return, dialogs, model/tool output, and rendering never read file contents.
 Both Wonton modes show loading/ready/error numbers and removal instructions; plain input provides the same commands and two-step mention review.
 Recall stores raw user text only, without snapshot authority.

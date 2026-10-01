@@ -58,7 +58,7 @@ Inspect `/attachments`, remove a mistaken selection with `/detach 2`, and send �
 
 ### UC-2: Mention or drop a file while composing
 
-Write “Use @src/theme.go and @spec.pdf”, or drop a screenshot path into the composer.
+Write “Use @src/theme.go and @spec.pdf”, or select a screenshot with `/attach PATH`.
 Review the selected evidence before submitting the request.
 
 - [ ] A fresh `@file` submission first stages its snapshot, displays the attachment preview, and preserves the request without starting work.
@@ -67,8 +67,10 @@ Review the selected evidence before submitting the request.
 - [ ] A failed mention creates a numbered error entry linked to its source span in the draft.
   Detaching it removes its associated failed mention spans, including path/line suffix, while preserving all other request text and successful entries.
   The next Enter sends the remaining request without reselecting the removed mention; only newly entered mentions can select it again.
-- [ ] Recognize a terminal drop only when the inserted segment consists entirely of existing, supported file paths.
+- [ ] Recognize a terminal drop only when the input runtime exposes an identifiable inserted segment and that segment consists entirely of existing, supported file paths.
   Accept quoted/escaped path runs and local file URLs.
+  Current Wonton input exposes no such segment; support explicit `/attach` or `@file` as the selection fallback.
+  Never infer a drop from the whole ordinary draft.
   Mixed prose, logs, stack traces, and ordinary path references remain text and cause no automatic file reads.
 - [ ] Path completion inserts text only. History browsing and external-editor return perform no file reads.
   Recalled mentions require fresh staging. Recalled labels never recreate a previous attachment or imply its bytes remain selected.
