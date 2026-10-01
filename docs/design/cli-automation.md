@@ -110,7 +110,8 @@ Register SIGINT/SIGTERM before reading. Remember the first signal and cancel exe
 Close the task host through its accepted bounded shutdown path, settle/interrupt owned work where possible, then reload the latest facts.
 Retain unknown shutdown/persistence state explicitly. Emit a final snapshot only if stdout remains usable; release the session lease after shutdown.
 Code priority: first signal (130/143), output/persistence failure (1), then preflight error (2) or ranked affected work.
-Recorded rank: failed (1), waiting/uncertain/interrupted needing action (3), limited (4), refused (4), canceled (4).
+Recorded ranks (highest first): 1 failed, 2 waiting/uncertain/interrupted needing action, 3 limited, 4 refused, 5 canceled.
+Ranks select the primary target. The respective exit codes remain 1, 3, 4, 4, and 4.
 Equal rank prefers original parent, then lexical notice/child Turn/task/call IDs. Historical unrelated session stops are not invocation exit candidates.
 Code 0 requires completed invocation work, quiet tasks/notices, and successful final delivery. Preserve all stops even when one rank wins.
 
@@ -126,6 +127,7 @@ Without payload, recover only permitted ready/interrupted child work; first scan
 Explicit --yes retains existing original-call approval policy. No stdin line or report remedy becomes an approval/settlement.
 
 Keyless acceptance covers exact multiline/slash/mention input, no-admission failures, offline completed reports with invalid live bindings/storage, framing/gaps/slow and broken readers, every exit/tie, and parent-completed failed/waiting children.
+Pin mixed limited/refused/canceled targets against opposing parent/ID order: limit wins, then refusal, with code 4 and all stops/actions retained.
 Interrupt/reopen fixtures count one write and notice, stable targets/routes, no implicit raises, and one authoritative spend contribution.
 Include incomplete usage/exact money, missing cache reporting, multicurrency, unreadable records, active/between-Turn compaction, and child notice costs.
 Run affected formatting/vet/build/race gates after code; independent implementation/acceptance, security, and taste reviews remain required.

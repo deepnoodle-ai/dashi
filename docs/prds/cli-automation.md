@@ -130,6 +130,8 @@ Completed work with a recorded denied call retains its completed stop. The repor
 Fixtures pin every code, empty input, no stdout contamination, and interrupted reading.
 A completed parent with failed and waiting children selects the failed child and code 1 while reporting both children.
 A waiting parent with a failed child also selects the failed child. Equal-rank parent/notice/child stops follow the stable target order.
+Mixed fixture: a canceled original parent and children `a-canceled`, `b-refused`, and `z-limited` select `z-limited`, despite target ordering.
+Without `z-limited`, `b-refused` wins. Both results keep code 4 and every affected stop/action.
 Repeated record-only reports select the same primary target and preserve all stops without starting work.
 
 ## Decisions, limits, and success
