@@ -184,6 +184,9 @@ type replayState struct {
 	contextCache      *contextValidationCache
 	source            Turn
 	pendingCompaction string
+	// compactionUsed holds an applied summary's guard until ordinary work
+	// succeeds. Replay preserves the guard across interruption and reload.
+	compactionUsed bool
 	TurnView
 	// modelCalls counts every requested call so retried calls get distinct IDs.
 	modelCalls             int
@@ -786,6 +789,7 @@ func (s *replayState) apply(step Step) error {
 			if s.modelIntents[step.Model.AttemptID].Purpose == ModelPurposeCompaction {
 				s.pendingCompaction = step.Model.AttemptID
 			} else {
+				s.compactionUsed = false
 				s.awaitingClassification = true
 			}
 		}
@@ -832,6 +836,7 @@ func (s *replayState) apply(step Step) error {
 			if s.modelIntents[step.Model.AttemptID].Purpose == ModelPurposeCompaction {
 				s.pendingCompaction = step.Model.AttemptID
 			} else {
+				s.compactionUsed = false
 				s.awaitingClassification = true
 			}
 		}

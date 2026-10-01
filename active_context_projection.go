@@ -271,6 +271,7 @@ func (s *replayState) applyContextCompaction(step Step) error {
 	}
 	s.ContextCompactions = append(s.ContextCompactions, *f)
 	s.pendingCompaction = ""
+	s.compactionUsed = true
 	return nil
 }
 

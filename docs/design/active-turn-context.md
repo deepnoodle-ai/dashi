@@ -125,6 +125,7 @@ The shared sender owns stream collection, intent/settlement, admission, and acco
 After application, rebuild the ordinary candidate from recorded context and re-run normal preparation/hooks.
 Hooks already permit repeated preparation passes; durable delivery IDs and `HookActed` retain their existing meaning.
 A second sizing pass cannot start another summary in that cycle, even when hooks add context.
+Replay retains that guard after recorded application until ordinary work succeeds, including across interruption, lost acknowledgement, and explicit continuation.
 Reapply media detection after preparation; if unavailable, dispatch subject to ordinary admission. Otherwise enforce text-only fit.
 New ordinary model/tool work permits the next compaction cycle; explicit continuation permits a new attempt after failure.
 

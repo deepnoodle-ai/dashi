@@ -43,7 +43,7 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 	if float64(estimate) < r.agent.ActiveCompaction.Fraction*float64(allowance) {
 		return Outcome{}, false, false
 	}
-	if !r.compactionUsed {
+	if !r.compactionUsed && !s.compactionUsed {
 		plan, err := r.activePlan(s, estimate, allowance)
 		if err != nil {
 			return r.stop(StopFailed, err.Error()), false, true
