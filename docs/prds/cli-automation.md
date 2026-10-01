@@ -181,5 +181,5 @@ RPC, daemons, remote submission, new grant flags, automatic retry, and family bu
 
 Keyless fixtures prove framing, literal input, Dashi stops/exits, accounting, child quiet/notices, and interrupt/reopen without repeated effects.
 The CI fixture retains the test command's failed status when Dashi successfully diagnoses it.
-[Technical spec](../design/cli-automation.md) fixes reporting and integration. CI clarity review returned ready. Root accepted it. Spend-scope clarification awaits named review.
-Base: attachment PRD #145, including merged inspection/task PRDs #146/#148. Accepted checkpoint retains prerequisite API, writer qualification, and implementation authorization gates.
+[Technical spec](../design/cli-automation.md) fixes reporting and integration. Named CI/spend clarity review returned ready. Root accepted it and the technical checkpoint.
+Base: attachment PRD #145, including merged inspection/task PRDs #146/#148. Rebase onto the reviewed task feature before shared CLI integration and final gates. Prerequisite API, writer qualification, and implementation authorization remain gates.

@@ -1,7 +1,7 @@
 # One-shot input and recorded automation results
 
 Status: Accepted · Author: Codex · Date: 2026-09-30\
-Workflow: Spec, root checkpoint, then build. CI clarity review returned ready. Root accepted it. Spend-scope clarification awaits named review.\
+Workflow: Spec, root checkpoint, then build. Named CI/spend clarity review returned ready. Root accepted it.\
 Requirements: [Run one coding request from a script](../prds/cli-automation.md)
 
 ## Shape and ownership
@@ -144,5 +144,5 @@ Run affected formatting/vet/build/race gates after code; independent implementat
 Internal events expose hidden requests. Blocks lose record identity/completeness. Offline projection avoids current tools/credentials.
 Bounded progress can drop previews. Final snapshots load full covered records. Explicit --plain preserves scripted line workflows without a record migration.
 No RPC, daemon, transcript repair, credential ingestion, new grant flags, automatic remedy, or family budget is introduced.
-The base is attachment PRD #145 at `9a80ac04ac8586913458de353f981d58de36e3ff`, including merged inspection/task PRDs #146/#148. Root schedules integration through their settled private seams.
-Root's accepted technical checkpoint retains prerequisite integration, writer qualification, and implementation authorization gates.
+Base: attachment PRD #145 at `f2256f9ac2c8b522958b3669f8130307456efcce`, including merged inspection/task PRDs #146/#148. Rebase onto the reviewed task feature before shared CLI integration and final gates. Root schedules their settled private seams.
+The accepted technical checkpoint retains prerequisite integration, writer qualification, and implementation authorization gates.
