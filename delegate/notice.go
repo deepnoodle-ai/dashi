@@ -13,14 +13,17 @@ import (
 
 // A notice tells the agent that a turn of a task ended. Delivery has one
 // rule: the notice is delivered when the record of the conversation shows
-// that the agent received it for that child turn. Either a turn recorded a
+// that the agent received that child turn's result. Either a turn recorded a
 // context item with the ID NoticeID(turn); or a session's queue turn started
 // with it: its command ID is "queue:" and the JSON list of the item IDs it
 // carried (see session.Session.RunQueue); or a recorded task_status call
-// gave the agent the turn's final result in place of the notice, which its
-// outcome's Data names (see statusData). A task_status read that shows a
-// running task, or the list of tasks, delivers nothing. Recover and the live
-// path use this same check.
+// returned the turn's final result, which its outcome's Data names by turn
+// ID (see statusData). A task_status read that shows a running task, or the
+// list of tasks, delivers nothing. Notices are sent as before; the check
+// runs just before one is delivered: on Recover, before a queue turn (see
+// session.Session.Delivered), and in a host that holds notices until the
+// turn ends. A notice that reaches a running turn is not checked, so the
+// model may see a result twice within one turn, but never in another turn.
 const (
 	noticePrefix = "task-done:"
 	queuePrefix  = "queue:"
@@ -109,9 +112,10 @@ func taskSender(id, subagent string) string {
 }
 
 // DeliveredNotices returns the IDs, as NoticeID gives them, of the notices
-// that turns record as delivered, by the rule above. A host that holds
-// notices until a turn ends checks it before it sends one, so a result the
-// agent already read with task_status does not start another turn.
+// that turns record as delivered, by the rule above. A host that routes
+// notices from Config.OnTask checks it just before it sends one, so a
+// result the agent already read with task_status starts no other turn. It
+// fits session.Session.Delivered.
 func DeliveredNotices(turns []dashi.Turn) map[string]bool {
 	out := map[string]bool{}
 	for _, turn := range turns {
@@ -140,9 +144,9 @@ func DeliveredNotices(turns []dashi.Turn) map[string]bool {
 	return out
 }
 
-// statusData is the tool.Outcome.Data of a task_status call that gave the
-// agent a turn's final result in place of its notice. The record keeps it,
-// so delivery never depends on the text the model saw.
+// statusData is the tool.Outcome.Data of a task_status call that returned
+// a turn's final result. The record keeps it, so delivery never depends on
+// the text the model saw.
 type statusData struct {
 	// DeliveredTurnID is the child turn whose result the call delivered.
 	DeliveredTurnID string `json:"delivered_turn_id"`

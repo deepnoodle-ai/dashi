@@ -237,14 +237,14 @@ func (ts *Tasks) execStatus(
 	}
 	wait := time.Duration(args.WaitSeconds) * time.Second
 	if args.TaskID != "" {
-		v, delivered, err := ts.awaitOne(ctx, args.TaskID, wait)
+		v, final, err := ts.awaitOne(ctx, args.TaskID, wait)
 		if err != nil {
 			return tool.Outcome{}, err
 		}
 		out := tool.Succeeded(describe(v, true))
-		if delivered {
-			// The record shows which result this call delivered, by turn ID
-			// and not by text (see DeliveredNotices).
+		if final {
+			// The record names the child turn whose result the model saw,
+			// so a host can skip its notice (see DeliveredNotices).
 			out.Data, err = json.Marshal(statusData{DeliveredTurnID: v.TurnID})
 			if err != nil {
 				return tool.Outcome{}, err
@@ -310,10 +310,8 @@ func (ts *Tasks) unknown(id string) error {
 }
 
 // awaitOne returns the view of one task, after it ends or the wait is over,
-// and whether the call delivers the final result the view holds (see
-// readLocked). While the call waits, the end of the last turn is left to it
-// (see notifyEnded); it reports that end on return, so an end that it does
-// not deliver still gets its notice.
+// and whether the view holds the final result that the turn's notice
+// carries (see finalLocked).
 func (ts *Tasks) awaitOne(
 	ctx context.Context,
 	id string,
@@ -321,245 +319,36 @@ func (ts *Tasks) awaitOne(
 ) (TaskView, bool, error) {
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
-	claim := readClaimFrom(ctx)
-	ts.mu.Lock()
-	t, ok := ts.tasks[id]
-	if !ok {
-		ts.mu.Unlock()
-		return TaskView{}, false, ts.unknown(id)
-	}
-	t.waiting++
-	over := wait == 0
 	for {
-		v, ch := ts.viewLocked(t, nil), ts.changed
-		if v.Running() && !over {
+		ts.mu.Lock()
+		t, ok := ts.tasks[id]
+		if !ok {
 			ts.mu.Unlock()
-			select {
-			case <-ch:
-			case <-timer.C:
-				over = true
-			case <-ctx.Done():
-				over = true
-			}
-			ts.mu.Lock()
-			continue
+			return TaskView{}, false, ts.unknown(id)
 		}
-		c, r := t.last(), readNone
-		if !v.Running() && ctx.Err() == nil {
-			r = ts.readLocked(ctx, c, claim)
-		}
-		t.waiting--
-		if r == readClaimed || r == readWithdraw {
-			ts.wg.Add(1)
-		}
+		v, ch := ts.viewLocked(t, nil), ts.changed
+		final := finalLocked(t)
 		ts.mu.Unlock()
-		switch r {
-		case readClaimed:
-			go ts.confirmRead(t, c, *claim, false)
-		case readWithdraw:
-			if ts.cfg.Session.Withdraw(NoticeID(c.id)) {
-				ts.mu.Lock()
-				c.read, c.readCall = true, claim.call
-				ts.mu.Unlock()
-				go ts.confirmRead(t, c, *claim, true)
-			} else {
-				r = readNone
-				ts.wg.Done()
-			}
+		if !v.Running() || wait == 0 {
+			return v, final, nil
 		}
-		ts.notifyEnded(t, nil)
-		return v, r != readNone, nil
-	}
-}
-
-// maxReadConfirm is how long confirmRead waits for the parent's record to
-// settle a task_status call. A runner saves a call's result as soon as it
-// returns, so only a failed save waits this long.
-const maxReadConfirm = 30 * time.Second
-
-// readResult is what a task_status read of a turn's final result does.
-type readResult int
-
-const (
-	// readNone delivers nothing: the notice carries the result.
-	readNone readResult = iota
-	// readClaimed takes the place of a notice that has not gone out.
-	readClaimed
-	// readHeld delivers a result whose notice the host holds; the host
-	// finds the read in the record with DeliveredNotices.
-	readHeld
-	// readWithdraw delivers if the caller can withdraw the notice that
-	// went to Config.Session.
-	readWithdraw
-)
-
-// readLocked decides whether a task_status call that gives the agent the
-// final result of turn c, the task's last, delivers it. When the turn's
-// notice has not gone out, the read claims its place: the turn is marked
-// read under the lock that notifyEnded takes too, so the notice and the read
-// never both carry the result. When the host holds the notice (no
-// Config.Session), the read delivers, and the host checks the record before
-// it sends the notice. When the notice has gone to Config.Session, the
-// caller withdraws it, since no turn takes a steer while a tool runs. A
-// claim or a withdrawal needs a claim, so that confirmRead can tell whether
-// the parent recorded the read. A turn whose notice is deferred, or that
-// another call claimed, is left alone; the same call run again after its
-// turn was continued delivers again. The caller holds ts.mu; readLocked may
-// release it while a notice goes out.
-func (ts *Tasks) readLocked(
-	ctx context.Context,
-	c *childTurn,
-	claim *readClaim,
-) readResult {
-	switch {
-	case c == nil || c.deferred || ts.closed:
-		return readNone
-	case c.read:
-		if claim != nil && claim.call == c.readCall {
-			return readHeld
-		}
-		return readNone
-	case !c.notified:
-		if claim == nil {
-			return readNone
-		}
-		c.read, c.readCall = true, claim.call
-		return readClaimed
-	case ts.cfg.Session == nil:
-		return readHeld
-	case claim == nil:
-		return readNone
-	}
-	// Let a notice that is going out arrive first, so it can be withdrawn.
-	for !c.reported && ctx.Err() == nil {
-		ch := ts.changed
-		ts.mu.Unlock()
 		select {
 		case <-ch:
+		case <-timer.C:
+			return v, final, nil
 		case <-ctx.Done():
+			return v, final, nil
 		}
-		ts.mu.Lock()
-	}
-	if ctx.Err() != nil || c.suppressed {
-		return readNone
-	}
-	return readWithdraw
-}
-
-// readClaim names the task_status call that claimed a result, and the
-// parent recorder that will hold it.
-type readClaim struct {
-	call   dashi.CallRef
-	loader dashi.Loader
-}
-
-// readClaimFrom returns the claim of the task_status call running under
-// ctx. Without a runner whose recorder can load turns, a read cannot be
-// confirmed, so it returns nil and the read claims nothing.
-func readClaimFrom(ctx context.Context) *readClaim {
-	call, ok := dashi.CurrentCall(ctx)
-	if !ok {
-		return nil
-	}
-	parent, ok := dashi.CurrentRunner(ctx)
-	if !ok {
-		return nil
-	}
-	loader, ok := parent.Recorder.(dashi.Loader)
-	if !ok {
-		return nil
-	}
-	return &readClaim{call: call, loader: loader}
-}
-
-// confirmRead waits until the parent's record settles the task_status call
-// that claimed turn c: the call finished, or its turn stopped without it.
-// A recorded call that names c delivered the result: a claim made before
-// the notice went out now reports the turn with AlreadyDelivered. Anything
-// else, such as a turn canceled before the result was saved, gives the
-// result back to the notice, so it reaches the agent in this session. So
-// does a record that does not settle within maxReadConfirm, as when the
-// save failed: a repeated result beats a lost one. Close ends the wait, and
-// then the record decides on the next Recover. The caller has added to
-// ts.wg.
-func (ts *Tasks) confirmRead(t *task, c *childTurn, claim readClaim, notified bool) {
-	defer ts.wg.Done()
-	delivered, ok := ts.awaitRecord(claim, c.id)
-	if !ok {
-		return
-	}
-	ts.mu.Lock()
-	if delivered {
-		if notified {
-			ts.mu.Unlock()
-			return
-		}
-		c.notified = true
-		v := ts.viewLocked(t, c)
-		ts.mu.Unlock()
-		if ts.cfg.OnTask != nil {
-			ts.cfg.OnTask(TaskEvent{Kind: TaskEnded, Task: v, AlreadyDelivered: true})
-		}
-		ts.mu.Lock()
-		ts.reportedLocked(c, true)
-		ts.mu.Unlock()
-		return
-	}
-	c.read = false
-	v := ts.viewLocked(t, c)
-	ts.mu.Unlock()
-	if notified {
-		// The notice went out once and was withdrawn: send it again.
-		ts.toParent(v.Notice().Steer())
-		return
-	}
-	ts.notifyEnded(t, nil)
-}
-
-// awaitRecord polls the parent turn of a claim until it settles, and
-// reports whether the recorded call delivered child turn id. ok is false
-// when Close ends the wait first.
-func (ts *Tasks) awaitRecord(claim readClaim, id string) (delivered, ok bool) {
-	pause := time.Millisecond
-	deadline := time.After(maxReadConfirm)
-	for {
-		delivered, settled := readSettled(claim, id)
-		if settled {
-			return delivered, true
-		}
-		select {
-		case <-ts.quit:
-			return false, false
-		case <-deadline:
-			return false, true
-		case <-time.After(pause):
-		}
-		pause = min(2*pause, 100*time.Millisecond)
 	}
 }
 
-// readSettled loads the parent turn of a claim and reports whether the
-// record settles the call: it finished, delivering id or not, or the turn
-// recorded a stop after the call started and before it finished.
-func readSettled(claim readClaim, id string) (delivered, settled bool) {
-	turn, err := claim.loader.Load(context.Background(), claim.call.TurnID)
-	if err != nil {
-		return false, false
-	}
-	started := false
-	for _, step := range turn.Steps {
-		switch {
-		case step.Tool != nil && step.Tool.Call.ID == claim.call.CallID &&
-			step.Kind == dashi.StepToolStarted:
-			started = true
-		case step.Tool != nil && step.Tool.Call.ID == claim.call.CallID &&
-			step.Kind == dashi.StepToolFinished:
-			return statusDelivery(step) == id, true
-		case started && step.Kind == dashi.StepTurnStopped:
-			return false, true
-		}
-	}
-	return false, false
+// finalLocked reports whether the last turn of t ended with the result its
+// notice carries. A deferred notice waits for the host, and a turn that
+// Close interrupted resumes later, so neither is final yet. The caller holds
+// ts.mu.
+func finalLocked(t *task) bool {
+	c := t.last()
+	return c != nil && c.state != TaskRunning && !c.deferred && !c.suppressed
 }
 
 // awaitAny returns every task after the running turn of a task ends, or

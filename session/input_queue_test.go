@@ -349,43 +349,45 @@ func TestSessionMissedSteers(t *testing.T) {
 	})
 }
 
-// Queued input under a durable recorder warns memory_only; the in-memory
-// recorder's queue lives as long as its record, so it does not.
-// Withdraw takes back a steer no model call has taken, or a queued item,
-// and reports false once a turn holds it or it is gone.
-func TestSessionWithdraw(t *testing.T) {
-	rec := dashi.NewMemoryRecorder()
-	client := held(1,
-		dashitest.CallTool("c1", "lookup", `{}`),
-		dashitest.Reply("done"),
-	)
-	s := handle(rec, client)
+// Delivered drops the queued items it names just before a queue turn:
+// alone, they start no turn; beside others, the turn carries only those.
+func TestSessionDeliveredDropsQueuedItems(t *testing.T) {
+	client := dashitest.NewClient(dashitest.Reply("hi"), dashitest.Reply("read it"))
+	s := handle(dashi.NewMemoryRecorder(), client)
 	s.New = true
-	s.Runner.Tools = (&chargeTool{}).tools()
-	done := sendAsync(t.Context(), s, "start")
-	entered(t, client)
-	q, err := s.Steer(t.Context(), "never mind")
-	if err != nil || q.TurnID != "s-1" {
-		t.Fatalf("queued=%+v err=%v", q, err)
+	seen := 0
+	s.Delivered = func(turns []dashi.Turn) map[string]bool {
+		seen = len(turns)
+		return map[string]bool{"read": true}
 	}
-	if !s.Withdraw(q.ID) || s.Withdraw(q.ID) {
-		t.Fatal("the unclaimed steer was not withdrawn exactly once")
+	if _, err := s.Send(t.Context(), "hi"); err != nil {
+		t.Fatal(err)
 	}
-	close(client.gate.release)
-	out := awaitSend(t, done)
-	if recordsSteer(out.Turn, q.ID) ||
-		strings.Contains(texts(client.Inputs()[1].Messages), "never mind") {
-		t.Fatal("a withdrawn steer reached the turn")
+	item := func(id string) dashi.ContextItem {
+		return dashi.ContextItem{ID: id, Message: llm.UserMessage(llm.Text("result " + id))}
 	}
-	q, err = s.Enqueue(t.Context(), "later")
-	if err != nil || !s.Withdraw(q.ID) {
-		t.Fatalf("queued item not withdrawn: %+v %v", q, err)
+	if _, err := s.EnqueueItem(t.Context(), item("read")); err != nil {
+		t.Fatal(err)
 	}
-	if st, err := s.Open(t.Context()); err != nil || st.Queued != 0 {
+	if _, ran, err := s.RunQueue(t.Context()); err != nil || ran || seen != 1 {
+		t.Fatalf("ran=%v err=%v turns seen=%d", ran, err, seen)
+	}
+	if st, err := s.Open(t.Context()); err != nil || st.Turns != 1 || st.Queued != 0 {
 		t.Fatalf("state=%+v err=%v", st, err)
+	}
+	for _, id := range []string{"read", "new"} {
+		if _, err := s.EnqueueItem(t.Context(), item(id)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, ran, err := s.RunQueue(t.Context())
+	if err != nil || !ran || out.Turn.Steps[0].CommandID != `queue:["new"]` {
+		t.Fatalf("ran=%v err=%v turn=%+v", ran, err, out.Turn.Steps[0])
 	}
 }
 
+// Queued input under a durable recorder warns memory_only; the in-memory
+// recorder's queue lives as long as its record, so it does not.
 func TestSessionQueueMemoryOnly(t *testing.T) {
 	durable := handle(newLiveRecorder(), dashitest.NewClient())
 	durable.New = true

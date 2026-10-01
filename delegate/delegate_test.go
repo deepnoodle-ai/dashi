@@ -592,29 +592,34 @@ func (h *harness) call(t *testing.T, name, args string) (string, error) {
 }
 
 func (h *harness) callCtx(ctx context.Context, name, args string) (string, error) {
-	list, err := h.tasks.Tools().Tools(ctx)
+	out, err := h.exec(ctx, name, args)
 	if err != nil {
 		return "", err
 	}
-	for _, tl := range list {
-		if tl.Definition.Name != name {
-			continue
+	var sb strings.Builder
+	for _, b := range out.Output.Content {
+		if b.Text != nil {
+			sb.WriteString(b.Text.Text)
 		}
-		out, err := tl.Executor.Execute(ctx, tool.Call{
-			ID: "direct", Name: name, Args: json.RawMessage(args),
-		})
-		if err != nil {
-			return "", err
-		}
-		var sb strings.Builder
-		for _, b := range out.Output.Content {
-			if b.Text != nil {
-				sb.WriteString(b.Text.Text)
-			}
-		}
-		return sb.String(), nil
 	}
-	return "", errors.New("no tool " + name)
+	return sb.String(), nil
+}
+
+// exec runs one task tool directly, outside a runner, and returns its
+// outcome.
+func (h *harness) exec(ctx context.Context, name, args string) (tool.Outcome, error) {
+	list, err := h.tasks.Tools().Tools(ctx)
+	if err != nil {
+		return tool.Outcome{}, err
+	}
+	for _, tl := range list {
+		if tl.Definition.Name == name {
+			return tl.Executor.Execute(ctx, tool.Call{
+				ID: "direct", Name: name, Args: json.RawMessage(args),
+			})
+		}
+	}
+	return tool.Outcome{}, errors.New("no tool " + name)
 }
 
 func childID() string {

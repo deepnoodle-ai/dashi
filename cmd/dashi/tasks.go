@@ -29,7 +29,7 @@ type taskHost struct {
 	recoveryErr  error
 	inventoryErr error
 	deliveryErr  error
-	notices      map[string]delegate.Notice
+	notices      map[string]dashi.ContextItem
 	queued       map[string]bool
 	rescan       bool
 	recorded     map[string]taskSnapshot
@@ -40,7 +40,7 @@ type taskHost struct {
 
 func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentResolver) *taskHost {
 	loader, _ := chat.Runner.Recorder.(dashi.Loader)
-	host := &taskHost{notices: map[string]delegate.Notice{}, queued: map[string]bool{}, observedSeq: map[string]int64{}}
+	host := &taskHost{notices: map[string]dashi.ContextItem{}, queued: map[string]bool{}, observedSeq: map[string]int64{}}
 	host.inputs = &taskInputs{loader: loader, parentBind: resolver.bind, clientFor: func(ctx context.Context, agent dashi.Agent) (llm.Client, error) {
 		if p := e.cfg.Preferences; p != nil {
 			return p.clientFor(ctx, agent)
@@ -86,13 +86,11 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 		},
 		OnTask: func(event delegate.TaskEvent) {
 			e.cfg.Emit(taskStatusBlock(event.Task))
-			// A result the parent read with task_status is delivered already.
-			if event.Kind == delegate.TaskEnded && !event.AlreadyDelivered {
-				notice := event.Task.Notice()
-				id := delegate.NoticeID(event.Task.TurnID)
+			if event.Kind == delegate.TaskEnded {
+				item := event.Task.Notice().Item()
 				host.mu.Lock()
 				if len(host.notices) < 128 {
-					host.notices[id] = notice
+					host.notices[item.ID] = item
 				} else {
 					host.rescan = true
 				}
@@ -278,16 +276,8 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 	host.mu.Lock()
 	defer host.mu.Unlock()
 	for id := range delivered {
-		if _, pending := host.notices[id]; !pending {
-			continue
-		}
-		if host.queued[id] {
-			// The record shows the delivery, by a queue turn or by a
-			// task_status read. After a read, take back the queued notice so
-			// no queue turn carries it again; one that already holds it is
-			// a harmless repeat.
-			chat.Withdraw(id)
-		}
+		// The record shows the delivery, by a queue turn or by a
+		// task_status read, so the held notice is not sent.
 		delete(host.notices, id)
 		delete(host.queued, id)
 	}
@@ -307,10 +297,11 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 			if !taskNoticeReady(state) {
 				continue
 			}
+			item := view.Notice().Item()
 			if len(host.notices) >= 128 {
 				break
 			}
-			host.notices[delegate.NoticeID(view.TurnID)] = view.Notice()
+			host.notices[item.ID] = item
 		}
 		host.rescan = len(host.notices) >= 128
 	}
@@ -323,7 +314,7 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 		if host.queued[id] {
 			continue
 		}
-		if _, err := chat.EnqueueItem(ctx, host.notices[id].Item()); err != nil {
+		if _, err := chat.EnqueueItem(ctx, host.notices[id]); err != nil {
 			return err
 		}
 		host.queued[id] = true // Submission is provisional; records alone remove it.

@@ -57,11 +57,6 @@ const (
 type TaskEvent struct {
 	Kind TaskEventKind
 	Task TaskView
-	// AlreadyDelivered is set on a TaskEnded event when a task_status call
-	// already gave the agent this turn's final result and the parent's
-	// record holds that call. Tasks sends no notice for it, and a host that
-	// routes notices from OnTask must not send one either.
-	AlreadyDelivered bool
 }
 
 // TaskView is a copy of the state of one task. A task runs in a child
@@ -135,9 +130,6 @@ type Tasks struct {
 	reports int           // reports finished
 	waited  int           // reports that Wait has returned for
 	wg      sync.WaitGroup
-	// quit closes when Close starts, to end the goroutines that confirm a
-	// task_status read.
-	quit chan struct{}
 }
 
 // task is the mutable record of one child session. Tasks.mu guards every
@@ -162,9 +154,6 @@ type task struct {
 	// pending fences an unacknowledged explicit command until record reload.
 	pending     *pendingTaskCommand
 	controlling bool
-	// waiting counts the task_status calls that wait for this task. While
-	// one waits, the end of the last turn is left for it to read or report.
-	waiting int
 }
 
 // childTurn is one turn of a child session.
@@ -179,12 +168,6 @@ type childTurn struct {
 	// ended turn counts as pending until reported.
 	notified, reported bool
 	deferred           bool
-	// read is set when a task_status call claimed the turn's final result
-	// in place of its notice. The claim holds until the parent's record
-	// settles the call (see confirmRead): recorded, the result is delivered;
-	// not recorded, the notice goes out after all. readCall is that call.
-	read     bool
-	readCall dashi.CallRef
 	// suppressed distinguishes Close interruption from acknowledged notices.
 	suppressed bool
 }
@@ -203,7 +186,9 @@ func (c *childTurn) view() dashi.TurnView {
 }
 
 // NewTasks returns an empty Tasks. A Recorder in cfg.Runner that does not
-// implement dashi.Loader logs one warning.
+// implement dashi.Loader logs one warning. When cfg.Session has no
+// Delivered function, NewTasks sets it to DeliveredNotices, so a queue turn
+// never carries a result that the agent already read.
 func NewTasks(cfg Config) *Tasks {
 	catalog := cfg.Subagents
 	if len(catalog) == 0 {
@@ -214,10 +199,12 @@ func NewTasks(cfg Config) *Tasks {
 		catalog: slices.Clone(catalog),
 		tasks:   map[string]*task{},
 		changed: make(chan struct{}),
-		quit:    make(chan struct{}),
 	}
 	if cfg.Runner.Recorder != nil && !loads(cfg.Runner.Recorder) {
 		t.warnNoLoader()
+	}
+	if s := cfg.Session; s != nil && s.Delivered == nil {
+		s.Delivered = DeliveredNotices
 	}
 	return t
 }
@@ -361,9 +348,6 @@ func (ts *Tasks) changedLocked() {
 // children keep stopping.
 func (ts *Tasks) Close(ctx context.Context) error {
 	ts.mu.Lock()
-	if !ts.closed {
-		close(ts.quit)
-	}
 	ts.closed = true
 	for _, t := range ts.tasks {
 		if t.cancel != nil {
@@ -897,17 +881,13 @@ func endState(
 
 // notifyEnded reports each ended turn of the task that nobody was told of:
 // it delivers the turn's notice to Config.Session and calls OnTask, once
-// per turn, in order. A turn that delivered holds counts as reported. A turn
-// that a task_status call claimed is left to confirmRead, which reports it.
-// While a task_status call waits for the task, the last turn is left to
-// that call, which reports it when it returns. A turn stays pending until
-// OnTask has returned.
+// per turn, in order. A turn whose notice delivered holds counts as
+// reported. A turn stays pending until OnTask has returned.
 func (ts *Tasks) notifyEnded(t *task, delivered map[string]bool) {
 	for {
 		ts.mu.Lock()
 		i := slices.IndexFunc(t.turns, func(c *childTurn) bool {
-			return !c.notified && !c.deferred && !c.read &&
-				c.state != TaskRunning && (t.waiting == 0 || c != t.last())
+			return !c.notified && !c.deferred && c.state != TaskRunning
 		})
 		if i < 0 {
 			ts.mu.Unlock()

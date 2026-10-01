@@ -235,9 +235,10 @@ func TestTaskHostQuietDeliversOneRecordedNoticeAndKeepsChildTextSeparate(t *test
 	}
 	beforeParent, beforeChild := client.counts()
 	// A callback duplicate and a fresh reload cannot deliver again.
+	item := task.Notice().Item()
 	host := a.eng.taskHost()
 	host.mu.Lock()
-	host.notices[delegate.NoticeID(task.TurnID)] = task.Notice()
+	host.notices[item.ID] = item
 	host.mu.Unlock()
 	if _, err = a.eng.DriveTaskNotices(t.Context()); err != nil {
 		t.Fatal(err)
