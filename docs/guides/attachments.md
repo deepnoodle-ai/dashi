@@ -19,14 +19,16 @@ blocks submission until you correct or remove it. Detach removes the matching
 as `@main.go:12` selects the whole file and keeps the suffix in the prompt.
 
 Plain line mode uses the same preview: repeat the prompt, or enter a blank
-line, to confirm. Print mode needs no second Enter:
+line, to confirm. Removing the last selection keeps the request text; a blank
+line still sends that retained request. Print mode needs no second Enter:
 
 ```sh
 dashi -p 'Compare @notes.txt with the screenshot' --attach screen.png
 ```
 
 Repeat `--attach` for more files; flags precede prompt mentions in selection
-order. All selections must succeed before print mode starts work. Diagnostics
+order. The shell handles flag-path quotes and escapes; Dashi uses each flag
+argument literally. All selections must succeed before print mode starts work. Diagnostics
 go to stderr; the answer goes to stdout. For terminal drops or pasted paths,
 use `/attach PATH` or an explicit `@path`; the editor does not infer attachment
 authority from arbitrary pasted text.

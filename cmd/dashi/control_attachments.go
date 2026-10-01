@@ -60,12 +60,20 @@ func printAttachmentInput(ctx context.Context, dir, text string, flags []string)
 }
 func selectedArgument(arg string) string {
 	arg = strings.TrimSpace(arg)
-	// The command has one path argument. Only decode a wholly quoted path,
-	// never split a literal filename containing spaces.
+	// Like mention paths, wholly quoted paths preserve their contents and
+	// unquoted paths decode backslash escapes. The command has one path
+	// argument, so literal spaces do not split it into multiple selections.
 	if len(arg) > 1 && (arg[0] == '\'' || arg[0] == '"') && arg[len(arg)-1] == arg[0] {
 		return arg[1 : len(arg)-1]
 	}
-	return arg
+	var path strings.Builder
+	for i := 0; i < len(arg); i++ {
+		if arg[i] == '\\' && i+1 < len(arg) {
+			i++
+		}
+		path.WriteByte(arg[i])
+	}
+	return path.String()
 }
 func attachmentWorkspace(dir string) string {
 	canonical, err := filepath.EvalSymlinks(dir)
@@ -407,7 +415,7 @@ func (u *lineUI) AttachmentInput(raw string) bool {
 	u.attachmentMu.Lock()
 	defer u.attachmentMu.Unlock()
 	u.drainAttachmentReceiptsLocked()
-	if len(u.attachments.entries) == 0 && len(mention.Scan(raw)) == 0 {
+	if len(u.attachments.entries) == 0 && len(mention.Scan(raw)) == 0 && !(raw == "" && u.attachments.text != "") && u.attachments.frozenBy == "" {
 		return false
 	}
 	if u.attachments.frozenBy != "" {

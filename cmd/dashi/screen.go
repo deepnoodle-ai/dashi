@@ -536,15 +536,18 @@ func (s *screen) submit(value string) {
 	if s.asking == nil && !strings.HasPrefix(value, "/") && s.AttachmentInput(raw) {
 		return
 	}
-	if s.asking == nil && strings.HasPrefix(value, "/") && len(s.attachments.entries) > 0 {
+	if s.asking == nil && strings.HasPrefix(value, "/") {
 		name, arg := splitCommand(value)
 		if name == "/attach" || name == "/detach" || name == "/attachments" {
 			s.attachmentCommand(name, arg)
-		} else {
-			s.ctrl.Input(value)
+			s.input = s.attachments.text
+			return
 		}
-		s.input = s.attachments.text
-		return
+		if len(s.attachments.entries) > 0 {
+			s.ctrl.Input(value)
+			s.input = s.attachments.text
+			return
+		}
 	}
 	s.input = ""
 	if s.asking != nil {
