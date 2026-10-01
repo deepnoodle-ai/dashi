@@ -266,6 +266,20 @@ func TestUnmarshalCommandRejectsBadInput(t *testing.T) {
 	}
 }
 
+func TestCommandIdentityOfPointers(t *testing.T) {
+	for _, c := range []Command{
+		(*Start)(nil), (*Deliver)(nil), (*Continue)(nil), (*Settle)(nil), (*Cancel)(nil),
+		&Start{CommandID: "s"}, &Cancel{CommandID: "c"},
+	} {
+		if id, kind := CommandIDOf(c), CommandKindOf(c); id != "" || kind != "" {
+			t.Errorf("%T: identity = %q %q, want none", c, id, kind)
+		}
+		if _, err := MarshalCommand(c); err == nil {
+			t.Errorf("MarshalCommand(%T) succeeded", c)
+		}
+	}
+}
+
 func TestNormalizeCommandDropsNullSchemas(t *testing.T) {
 	c := normalizeCommand(Start{
 		CommandID:    "s",

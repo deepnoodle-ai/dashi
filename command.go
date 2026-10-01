@@ -18,7 +18,7 @@ const (
 )
 
 // CommandKindOf returns the kind of c, or "" when c is not one of Dashi's
-// command values.
+// command values. A pointer to a command, including a nil one, gives "".
 func CommandKindOf(c Command) CommandKind {
 	switch c.(type) {
 	case Start:
@@ -35,12 +35,22 @@ func CommandKindOf(c Command) CommandKind {
 	return ""
 }
 
-// CommandIDOf returns c's CommandID, or "" for a nil command.
+// CommandIDOf returns c's CommandID, or "" when c is not one of Dashi's
+// command values. A pointer to a command, including a nil one, gives "".
 func CommandIDOf(c Command) string {
-	if c == nil {
-		return ""
+	switch v := c.(type) {
+	case Start:
+		return v.CommandID
+	case Deliver:
+		return v.CommandID
+	case Continue:
+		return v.CommandID
+	case Settle:
+		return v.CommandID
+	case Cancel:
+		return v.CommandID
 	}
-	return c.commandID()
+	return ""
 }
 
 // commandEnvelope is MarshalCommand's encoding.
