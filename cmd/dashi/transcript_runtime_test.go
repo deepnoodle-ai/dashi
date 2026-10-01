@@ -459,6 +459,9 @@ type synchronizedBuffer struct {
 	buffer bytes.Buffer
 }
 
+// This fixture is finite memory; it cannot block on external output.
+func (b *synchronizedBuffer) SetWriteDeadline(time.Time) error { return nil }
+
 func (b *synchronizedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

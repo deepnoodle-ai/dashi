@@ -39,6 +39,8 @@ type EngineConfig struct {
 	// goroutine.
 	Emit    func(Block)
 	Receipt func(*submittedInput, inputReceipt)
+	// ParentStopped is a nonblocking notification of acknowledged parent stops.
+	ParentStopped func(int)
 
 	// recorder wraps the session's recorder; tests use it to fail commits.
 	recorder func(*filerecorder.Recorder) dashi.Recorder
@@ -62,10 +64,11 @@ type Engine struct {
 	attachmentResolver *engineAttachmentResolver
 	// model is the model the next Start uses. Changing it does not touch
 	// turns already started.
-	model        string
-	windowWarned map[string]bool
-	tasks        *taskHost
-	taskWake     func()
+	model             string
+	windowWarned      map[string]bool
+	tasks             *taskHost
+	taskWake          func()
+	persistenceFailed bool
 
 	// inputMu orders later submissions behind a not-yet-recorded prompt.
 	driverMu sync.Mutex
@@ -120,6 +123,10 @@ func (e *Engine) SetModel(name string) {
 // another process holds s. Opening the session that is already open does
 // nothing. The previous session, if any, is released first.
 func (e *Engine) Open(s *session.Session) error {
+	return e.openOwned(s, nil)
+}
+
+func (e *Engine) openOwned(s *session.Session, ownedUnlock func()) error {
 	e.mu.Lock()
 	same := e.sess != nil && e.sess.ID == s.ID
 	e.mu.Unlock()
@@ -128,7 +135,11 @@ func (e *Engine) Open(s *session.Session) error {
 		// current, so there is nothing to reload.
 		return nil
 	}
-	unlock, err := e.cfg.Store.Lock(s)
+	unlock := ownedUnlock
+	var err error
+	if unlock == nil {
+		unlock, err = e.cfg.Store.Lock(s)
+	}
 	if err != nil {
 		return err
 	}
@@ -154,6 +165,17 @@ func (e *Engine) Open(s *session.Session) error {
 		},
 		Steering:  inbox,
 		Exclusive: true,
+	}
+	if stopped := e.cfg.ParentStopped; stopped != nil {
+		chat.Runner.Observer = func(ev dashi.Event) {
+			if ev.Step != nil && ev.Step.Kind == dashi.StepStopped && strings.HasPrefix(ev.TurnID, s.ID+"-") {
+				// Child IDs are hashes. Only exact numbered parent identities qualify.
+				n := turnNumber(ev.TurnID)
+				if n > 0 && ev.TurnID == dashi.TurnID(s.ID, n) {
+					stopped(n)
+				}
+			}
+		}
 	}
 	// A session with no turn yet is created by its first prompt.
 	_, openErr := chat.Open(context.Background())
@@ -633,6 +655,9 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 				}
 			}
 			res.Outcome, have = *ev.Outcome, true
+			if e.cfg.ParentStopped != nil && ev.Outcome.Origin != dashi.StartCompaction {
+				e.cfg.ParentStopped(turnNumber(ev.TurnID))
+			}
 			e.settled(renderer(ev.TurnID), *ev.Outcome)
 			if stopOutcome {
 				break
@@ -822,7 +847,11 @@ func (e *Engine) record(s *dashi.Step) error {
 	if e.cfg.Preferences != nil {
 		e.sess.NextTurn = e.cfg.Preferences.metadata()
 	}
-	return e.cfg.Store.Save(e.sess)
+	err := e.cfg.Store.Save(e.sess)
+	if err != nil {
+		e.persistenceFailed = true
+	}
+	return err
 }
 
 func (e *Engine) warn(format string, args ...any) {

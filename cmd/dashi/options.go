@@ -15,6 +15,8 @@ type Options struct {
 	// Print is the prompt of -p; PrintSet tells an empty prompt from none.
 	Print           string
 	PrintSet        bool
+	OutputFormat    string
+	OutputFormatSet bool
 	Model           string
 	Provider        string
 	APIEndpoint     string
@@ -71,6 +73,15 @@ func parseArgs(args []string) (Options, error) {
 				return o, err
 			}
 			o.Print, o.PrintSet = v, true
+		case "--output-format":
+			v, err := value()
+			if err != nil {
+				return o, err
+			}
+			if v != "text" && v != "json" && v != "jsonl" {
+				return o, fmt.Errorf("--output-format needs text, json, or jsonl")
+			}
+			o.OutputFormat, o.OutputFormatSet = v, true
 		case "--attach":
 			v, err := value()
 			if err != nil {
@@ -166,7 +177,10 @@ func parseArgs(args []string) (Options, error) {
 			return o, fmt.Errorf("unknown flag %s", a)
 		}
 	}
-	if len(o.AttachFiles) > 0 && !o.PrintSet {
+	if o.OutputFormatSet && (o.Plain || o.Inline || o.Models) {
+		return o, fmt.Errorf("--output-format cannot be combined with --plain, --inline, or models")
+	}
+	if len(o.AttachFiles) > 0 && !o.PrintSet && !o.OutputFormatSet {
 		return o, fmt.Errorf("--attach requires -p; use /attach or @file interactively")
 	}
 	if o.Plain && o.Inline {
@@ -188,6 +202,7 @@ A terminal coding agent.
 
 Flags:
   -p, --print PROMPT   run one turn without a screen and print the answer
+      --output-format text|json|jsonl  run one request with response-only output
   -c, --resume [ID]    reopen the last session of this directory, or session ID
       --provider ID    choose a configured destination
       --model NAME     choose an exact registered model ID

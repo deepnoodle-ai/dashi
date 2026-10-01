@@ -7,53 +7,40 @@ import (
 	"errors"
 	"io"
 	"os"
-	"slices"
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi"
-	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
 const (
-	automationProgressEntries = 64
-	automationProgressBytes   = 256 << 10
 	automationTextChunk       = 4 << 10
 	automationWriteInactivity = 10 * time.Second
 )
 
-type automationProgress struct {
-	Version int    `json:"version"`
-	Type    string `json:"type"`
-	Order   uint64 `json:"order"`
-	automationTarget
-	Anchor      int64  `json:"anchor"`
-	Kind        string `json:"kind"`
-	Provisional bool   `json:"provisional"`
-	Text        string `json:"text,omitempty"`
+type responseMessage struct {
+	Content string `json:"content"`
 }
-
-type automationGap struct {
-	Version        int                `json:"version"`
-	Type           string             `json:"type"`
-	Order          uint64             `json:"order"`
-	Targets        []automationTarget `json:"targets"`
-	Dropped        uint64             `json:"dropped"`
-	TargetsOmitted uint64             `json:"targets_omitted,omitempty"`
+type responseMessages struct {
+	Messages []responseMessage `json:"messages"`
 }
 
 // Only finite in-memory writers, regular files, or deadline-capable writers
 // qualify. There is no goroutine fallback for an uninterruptible Write.
 type automationWriter struct {
 	out      io.Writer
+	terminal bool
 	deadline func(time.Time) error
 	flush    func() error
 }
 
 func qualifyAutomationWriter(out io.Writer) (automationWriter, error) {
 	w := automationWriter{out: out}
+	if out == io.Discard {
+		return w, nil
+	}
 	if f, ok := out.(*os.File); ok {
 		info, err := f.Stat()
 		if err != nil {
@@ -138,13 +125,9 @@ func (w automationWriter) write(ctx context.Context, data []byte, inactivity tim
 	return nil
 }
 
-type automationQueuedProgress struct {
-	value automationProgress
-	bytes int
-}
-
-// One worker owns stdout. Producers only copy an allowlisted observation into
-// a bounded queue. Finish reserves final delivery outside that queue.
+// The sole writer reloads one acknowledged parent response at a time. A
+// monotone numbered boundary coalesces scheduling hints without a copied
+// answer queue. Slow stdout never blocks source recording or drops responses.
 type automationOutput struct {
 	format      string
 	writer      automationWriter
@@ -152,19 +135,18 @@ type automationOutput struct {
 	cancel      context.CancelFunc
 	inactivity  time.Duration
 	mu          sync.Mutex
-	queue       []automationQueuedProgress
-	queuedBytes int
-	gap         automationGap
-	final       []byte
+	load        func(context.Context, int) (dashi.TurnView, error)
+	first, last int
 	finished    bool
 	err         error
+	failed      func()
 	wake        chan struct{}
 	done        chan struct{}
 }
 
 func newAutomationOutput(ctx context.Context, format string, out io.Writer) (*automationOutput, error) {
-	if format != "json" && format != "jsonl" {
-		return nil, errors.New("unsupported machine output format")
+	if format != "text" && format != "json" && format != "jsonl" {
+		return nil, errors.New("unsupported output format")
 	}
 	writer, err := qualifyAutomationWriter(out)
 	if err != nil {
@@ -173,171 +155,55 @@ func newAutomationOutput(ctx context.Context, format string, out io.Writer) (*au
 	return startAutomationOutput(ctx, format, writer, automationWriteInactivity), nil
 }
 
-// Tests supply a shorter inactivity duration without changing production's
-// ten-second contract or sleeping through that full interval.
 func startAutomationOutput(ctx context.Context, format string, writer automationWriter, inactivity time.Duration) *automationOutput {
 	ctx, cancel := context.WithCancel(ctx)
-	o := &automationOutput{format: format, writer: writer, ctx: ctx, cancel: cancel, inactivity: inactivity,
-		wake: make(chan struct{}, 1), done: make(chan struct{})}
+	o := &automationOutput{format: format, writer: writer, ctx: ctx, cancel: cancel, inactivity: inactivity, wake: make(chan struct{}, 1), done: make(chan struct{})}
 	go o.run()
 	return o
 }
 
-func (o *automationOutput) notify() {
+func (o *automationOutput) source(load func(context.Context, int) (dashi.TurnView, error), failed func()) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.load, o.failed = load, failed
+}
+
+func (o *automationOutput) selectTurn(n int) {
+	if n <= 0 {
+		return
+	}
+	o.mu.Lock()
+	if !o.finished && o.err == nil {
+		if o.first == 0 {
+			o.first = n
+		}
+		o.last = max(o.last, n)
+	}
+	o.mu.Unlock()
 	select {
 	case o.wake <- struct{}{}:
 	default:
 	}
 }
 
-// Observe excludes reasoning, arguments, content snapshots, raw outcomes,
-// prepared requests, and tool-output/progress payloads synchronously.
-func (o *automationOutput) Observe(event dashi.Event, taskID, callID string) {
-	if o.format != "jsonl" {
-		return
-	}
-	p := automationProgress{Version: 1, Type: "progress", automationTarget: automationTarget{event.TurnID, taskID, callID}, Anchor: event.Seq}
-	switch {
-	case event.Gap:
-		o.mu.Lock()
-		if !o.finished && o.err == nil {
-			o.dropLocked(p.automationTarget)
-		}
-		o.mu.Unlock()
-		o.notify()
-		return
-	case event.Delta != nil && event.Delta.Kind == llm.DeltaText:
-		p.Kind, p.Provisional = "text", true
-		text := event.Delta.Text
-		if !utf8.ValidString(text) {
-			o.drop(p.automationTarget)
-			return
-		}
-		for len(text) > 0 {
-			n := min(len(text), automationTextChunk)
-			for n > 0 && !utf8.RuneStart(text[n-1]) && n < len(text) {
-				n--
-			}
-			// Find the largest complete UTF-8 prefix, including an ASCII end.
-			for n > 0 && !utf8.ValidString(text[:n]) {
-				n--
-			}
-			p.Text = strings.Clone(text[:n])
-			if !o.enqueue(p) {
-				return
-			}
-			text = text[n:]
-		}
-		return
-	case event.Step != nil:
-		// Step kind and target identity are safe lifecycle data. No step
-		// body or model/tool fact crosses the projection boundary.
-		switch event.Step.Kind {
-		case dashi.StepStarted, dashi.StepDelivered, dashi.StepContinued, dashi.StepLoopContinued,
-			dashi.StepModelIntent, dashi.StepContextCompacted, dashi.StepModelSettled, dashi.StepModelReconciled,
-			dashi.StepToolDecision, dashi.StepToolStarted, dashi.StepToolWaiting, dashi.StepToolSettled,
-			dashi.StepApprovalSettled, dashi.StepHostedApprovalSettled, dashi.StepOutputRecorded, dashi.StepStopped:
-			p.Kind = string(event.Step.Kind)
-		default:
-			return
-		}
-	default:
-		return
-	}
-	o.enqueue(p)
-}
-
-func (o *automationOutput) drop(target automationTarget) {
-	o.mu.Lock()
-	if !o.finished && o.err == nil {
-		o.dropLocked(target)
-	}
-	o.mu.Unlock()
-	o.notify()
-}
-
-func (o *automationOutput) dropLocked(target automationTarget) {
-	o.gap.Dropped++
-	if len(target.TurnID)+len(target.TaskID)+len(target.CallID) > automationTextChunk {
-		o.gap.TargetsOmitted++
-		return
-	}
-	if slices.Contains(o.gap.Targets, target) {
-		return
-	}
-	if len(o.gap.Targets) < automationProgressEntries {
-		o.gap.Targets = append(o.gap.Targets, target)
-	} else {
-		o.gap.TargetsOmitted++
-	}
-}
-
-func (o *automationOutput) enqueue(value automationProgress) bool {
-	if len(value.TurnID)+len(value.TaskID)+len(value.CallID) > automationTextChunk {
-		o.drop(value.automationTarget)
-		return false
-	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		o.drop(value.automationTarget)
-		return false
-	}
-	size := len(encoded) + 32 // Room for the writer-assigned order and LF.
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.finished || o.err != nil {
-		return false
-	}
-	if len(o.queue) >= automationProgressEntries || o.queuedBytes+size > automationProgressBytes {
-		o.dropLocked(value.automationTarget)
-		o.notify()
-		return false
-	}
-	o.queue = append(o.queue, automationQueuedProgress{value, size})
-	o.queuedBytes += size
-	o.notify()
-	return true
-}
-
-// Finish serializes a detached result before handing it to the sole writer.
-// There is exactly one attempt, including after an encoding or write failure.
-func (o *automationOutput) Finish(result automationResult) error {
+func (o *automationOutput) Finish() error {
 	o.mu.Lock()
 	if o.finished {
 		o.mu.Unlock()
-		return errors.New("result was already submitted")
+		return errors.New("responses were already submitted")
 	}
 	o.finished = true
-	result.Version, result.Type = 1, "result"
-	if result.Turns == nil {
-		result.Turns = []automationTurn{}
-	}
-	if result.Tasks == nil {
-		result.Tasks = []automationTask{}
-	}
-	if result.Affected == nil {
-		result.Affected = []automationAffected{}
-	}
-	if result.Warnings == nil {
-		result.Warnings = []string{}
-	}
-	data, err := json.Marshal(result)
-	if err != nil {
-		o.err = errors.New("cannot encode result")
-		o.cancel()
-	} else {
-		o.final = append(data, '\n')
-	}
 	o.mu.Unlock()
-	o.notify()
+	select {
+	case o.wake <- struct{}{}:
+	default:
+	}
 	<-o.done
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.err
 }
 
-// Abort cancels a stalled output writer and joins it. It does not retry a
-// result or modify persistence. The controller settles owned work separately.
 func (o *automationOutput) Abort() error {
 	o.cancel()
 	<-o.done
@@ -349,56 +215,97 @@ func (o *automationOutput) Abort() error {
 func (o *automationOutput) run() {
 	defer close(o.done)
 	defer o.cancel()
-	var order uint64
+	fail := func(err error) {
+		o.mu.Lock()
+		o.err = err
+		failed := o.failed
+		o.mu.Unlock()
+		if failed != nil {
+			failed()
+		}
+	}
+	write := func(data []byte) error { return o.writer.write(o.ctx, data, o.inactivity) }
+	cursor, count := 0, 0
+	var lastAnswer string
 	for {
 		o.mu.Lock()
-		var data []byte
-		var err error
-		last := false
-		switch {
-		case len(o.queue) > 0:
-			entry := o.queue[0]
-			o.queue[0] = automationQueuedProgress{}
-			o.queue = o.queue[1:]
-			o.queuedBytes -= entry.bytes
-			order++
-			entry.value.Order = order
-			data, err = json.Marshal(entry.value)
-		case o.gap.Dropped > 0:
-			order++
-			o.gap.Version, o.gap.Type, o.gap.Order = 1, "gap", order
-			data, err = json.Marshal(o.gap)
-			o.gap = automationGap{}
-		case o.finished:
-			data, last = o.final, true
-			err = o.err
-		}
+		first, last, finished, load := o.first, o.last, o.finished, o.load
 		o.mu.Unlock()
-		if len(data) == 0 && err == nil && !last {
-			select {
-			case <-o.wake:
+		if o.format != "jsonl" && !finished {
+			last = 0
+		}
+		if finished && o.format == "json" && cursor == 0 {
+			if err := write([]byte(`{"messages":[`)); err != nil {
+				fail(err)
+				return
+			}
+		}
+		if cursor == 0 && first > 0 && (o.format == "jsonl" || finished) {
+			cursor = first
+		}
+		for cursor > 0 && cursor <= last {
+			loadCtx, loadCancel := context.WithTimeout(o.ctx, automationWriteInactivity)
+			view, err := load(loadCtx, cursor)
+			loadCancel()
+			if err != nil {
+				fail(errors.New("cannot reload selected response"))
+				return
+			}
+			cursor++
+			if view.Origin == dashi.StartCompaction || view.Parent != nil {
 				continue
-			case <-o.ctx.Done():
-				err = o.ctx.Err()
 			}
-		}
-		if err == nil && len(data) > 0 {
-			if !last {
+			lastAnswer = view.Answer // An empty last answer must stay empty.
+			if view.Answer == "" {
+				continue
+			}
+			if o.format == "text" {
+				continue
+			}
+			data, err := json.Marshal(responseMessage{Content: view.Answer})
+			if err != nil {
+				fail(errors.New("cannot encode response"))
+				return
+			}
+			if o.format == "jsonl" {
 				data = append(data, '\n')
+			} else if count > 0 {
+				data = append([]byte(","), data...)
 			}
-			err = o.writer.write(o.ctx, data, o.inactivity)
+			if err := write(data); err != nil {
+				fail(err)
+				return
+			}
+			count++
 		}
-		if err != nil {
-			o.mu.Lock()
-			if o.err == nil {
-				o.err = err
+		if finished {
+			var data []byte
+			switch o.format {
+			case "json":
+				data = []byte("]}\n")
+			case "text":
+				if lastAnswer != "" {
+					if o.writer.terminal {
+						lastAnswer = workspace.PrintableText(lastAnswer)
+					}
+					if f, ok := o.writer.out.(*os.File); ok && isTerminal(f) {
+						lastAnswer = workspace.PrintableText(lastAnswer)
+					}
+					data = []byte(lastAnswer + "\n")
+				}
 			}
-			o.queue, o.final = nil, nil
-			o.queuedBytes = 0
-			o.mu.Unlock()
+			if len(data) > 0 {
+				if err := write(data); err != nil {
+					fail(err)
+					return
+				}
+			}
 			return
 		}
-		if last {
+		select {
+		case <-o.wake:
+		case <-o.ctx.Done():
+			fail(o.ctx.Err())
 			return
 		}
 	}

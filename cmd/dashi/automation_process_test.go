@@ -68,7 +68,7 @@ func TestAutomationProcessChild(t *testing.T) {
 			if e != nil {
 				fail(e)
 			}
-			if e = o.Finish(automationResult{Mode: "command"}); e == nil {
+			if e = finishAutomationContent(o, ""); e == nil {
 				fail(errors.New("broken pipe succeeded"))
 			}
 		}
@@ -96,13 +96,13 @@ func TestAutomationProcessChild(t *testing.T) {
 		fail(err)
 	}
 	fmt.Fprintln(os.Stderr, "ready")
-	result := automationResult{Mode: "command", Quiet: true}
+	var answer string
 	switch mode {
 	case "terminal":
 		if in != nil || closeIn != nil {
 			fail(errors.New("terminal stdin was selected for reading"))
 		}
-		result.Answer = "terminal unread"
+		answer = "terminal unread"
 	case "read", "input-cancel":
 		ctx := context.Background()
 		cancel := func() {}
@@ -115,14 +115,14 @@ func TestAutomationProcessChild(t *testing.T) {
 			if !errors.Is(readErr, context.DeadlineExceeded) || data != "" {
 				fail(errors.New("stdin cancellation failed"))
 			}
-			result.ExitCode = 130
+			// Cancellation admits no input.
 		} else if readErr != nil {
 			fail(readErr)
 		} else {
-			result.Answer = data
+			answer = data
 		}
 	case "output-cancel", "output-stall", "slow":
-		result.Answer = strings.Repeat("日本\n", modeSize(mode))
+		answer = strings.Repeat("日本\n", modeSize(mode))
 	default:
 		fail(errors.New("unknown fixture"))
 	}
@@ -132,7 +132,7 @@ func TestAutomationProcessChild(t *testing.T) {
 		ctx, cancel = context.WithTimeout(ctx, 80*time.Millisecond)
 	}
 	o := startAutomationOutput(ctx, "json", writer, 100*time.Millisecond)
-	writeErr := o.Finish(result)
+	writeErr := finishAutomationContent(o, answer)
 	cancel()
 	if mode == "output-cancel" || mode == "output-stall" {
 		if writeErr == nil {
@@ -208,17 +208,17 @@ func TestAutomationInheritedInputAndOneFinal(t *testing.T) {
 			if bytes.Count(stdout.Bytes(), []byte("\n")) != 1 {
 				t.Fatalf("framing=%q", stdout.String())
 			}
-			var result automationResult
+			var result responseMessages
 			if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 				t.Fatal(err)
 			}
-			if result.Version != 1 || result.Type != "result" || result.RequestTurnID != "" {
+			if len(result.Messages) > 1 {
 				t.Fatalf("result=%+v", result)
 			}
-			if mode == "read" && result.Answer != literal {
-				t.Fatalf("literal=%q", result.Answer)
+			if mode == "read" && responseContent(result) != literal {
+				t.Fatalf("literal=%q", responseContent(result))
 			}
-			if mode == "input-cancel" && (result.ExitCode != 130 || result.Answer != "") {
+			if mode == "input-cancel" && (responseContent(result) != "") {
 				t.Fatalf("canceled=%+v", result)
 			}
 		})
@@ -287,11 +287,11 @@ func TestAutomationInheritedHealthySlowOutput(t *testing.T) {
 	if bytes.Count(data.Bytes(), []byte("\n")) != 1 {
 		t.Fatal("more than one final envelope")
 	}
-	var result automationResult
+	var result responseMessages
 	if err := json.Unmarshal(data.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Answer) != len("日本\n")*modeSize("slow") {
+	if len(responseContent(result)) != len("日本\n")*modeSize("slow") {
 		t.Fatal("short final output")
 	}
 }
@@ -310,7 +310,7 @@ func TestAutomationProcessRegularFilesAndRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := o.Finish(automationResult{Mode: "report", Answer: "saved"}); err != nil {
+	if err := finishAutomationContent(o, "saved"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := file.Stat(); err != nil {
@@ -355,11 +355,11 @@ os.close(master)
 	if err != nil {
 		t.Fatalf("PTY fixture: %v: %s", err, data)
 	}
-	var result automationResult
+	var result responseMessages
 	if err := json.Unmarshal(data, &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Answer != "terminal unread" {
+	if responseContent(result) != "terminal unread" {
 		t.Fatalf("result=%+v", result)
 	}
 }

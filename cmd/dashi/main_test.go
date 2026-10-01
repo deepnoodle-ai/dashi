@@ -78,7 +78,7 @@ func TestPrintModeExitsNonzeroOnLimit(t *testing.T) {
 	cfg.ModelAttempts = 2
 	var stdout, stderr bytes.Buffer
 	code := runPrint(t.Context(), cfg, Options{Print: "go", PrintSet: true}, &stdout, &stderr)
-	if code != 1 || !strings.Contains(stderr.String(), "limited") {
+	if code != 4 || !strings.Contains(stderr.String(), "limited") {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }

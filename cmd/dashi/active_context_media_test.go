@@ -81,8 +81,12 @@ func TestCLIActiveMediaPrintAndRecordedReopen(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if code := printAnswer(res.Outcome, &stdout, &stderr); code != 0 {
-				t.Fatalf("code=%d stderr=%s", code, stderr.String())
+			writer, err := newAutomationOutput(t.Context(), "text", &stdout)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := finishAutomationContent(writer, res.Outcome.Answer); err != nil {
+				t.Fatal(err)
 			}
 			if stdout.String() != "Image inspected.\n" || c.sends != 1 || res.Outcome.Stop.Kind != dashi.StopCompleted || len(res.Outcome.ContextCompactions) != 0 {
 				t.Fatalf("stdout=%q sends=%d outcome=%+v", stdout.String(), c.sends, res.Outcome.Stop)

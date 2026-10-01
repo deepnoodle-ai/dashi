@@ -139,10 +139,11 @@ work; ordinary session lists still require a Turn.
   finished, or `/discard` to discard the turn; the record keeps the cancel.
 - A second `dashi` cannot open a session that is open in another terminal.
 
-`dashi -p "prompt"` runs one turn without a screen and prints only the answer
-to stdout. Steps go to stderr. The session is saved. Use `dashi -c -p "..."`
-to add a turn to the last session, for example
-`dashi -c -p "what did you change?"`.
+`dashi -p "prompt"` runs one request and prints its last parent answer.
+Redirected stdin supplies one literal payload. Explicit `--output-format
+text|json|jsonl` selects response-only output. See [script input, response formats,
+resuming, and exit codes](cli-automation.md), including a CI example that keeps
+the build's exit status.
 
 ## Read and copy output
 
@@ -206,8 +207,9 @@ can restore.
 
 ## Line mode
 
-Line mode runs when stdin or stdout is not a terminal, or with `--plain`. It
-prints plain text and reads approval answers as lines.
+Use `--plain` for the line/command/approval stream when stdin is redirected.
+Redirected stdin without `--plain` selects one-shot text. With terminal stdin,
+nonterminal stdout retains the line fallback. Line mode reads approval answers as lines.
 
 For multiple-choice questions, line mode accepts `1,2` or `other: YOUR ANSWER`
 and reprompts on invalid input. `n REASON` supplies an approval denial reason.
