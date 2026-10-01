@@ -111,8 +111,12 @@ type TurnView struct {
 	Budget *Budget
 	// Raises preserves the authorized cap changes in order.
 	Raises []BudgetRaise
-	// Spend is rebuilt from committed model and tool facts.
+	// Spend is rebuilt from committed model and tool facts. Its model usage
+	// and cost are the sum of Attempts.
 	Spend Spend
+	// Attempts lists every model attempt in record order, including one
+	// still pending, with what it counts toward Spend.
+	Attempts []AttemptSpend
 	// Stop is why the last run ended. Replay and Outcome project a missing
 	// stop as Run does, and mark it Projected: uncertain for an unsettled
 	// model attempt, interrupted for work in flight, waiting for pending
@@ -189,12 +193,14 @@ type replayState struct {
 	compactionUsed bool
 	TurnView
 	// modelCalls counts every requested call so retried calls get distinct IDs.
-	modelCalls             int
-	modelIntent            string
-	unresolvedModel        string
-	unresolvedPartial      bool
-	unresolvedInterrupted  bool
-	modelIntents           map[string]*ModelFact
+	modelCalls            int
+	modelIntent           string
+	unresolvedModel       string
+	unresolvedPartial     bool
+	unresolvedInterrupted bool
+	modelIntents          map[string]*ModelFact
+	// modelOrder holds attempt IDs in record order.
+	modelOrder             []string
 	modelSettlements       map[string]*ModelFact
 	modelMessages          map[string]string
 	callAttempts           map[string]string
@@ -391,24 +397,27 @@ func (s *replayState) calculateSpend() error {
 		Cost:     map[string]money.Amount{},
 		ToolCost: map[string]money.Amount{},
 	}
-	for _, id := range slices.Sorted(maps.Keys(s.modelIntents)) {
-		usage, charge, estimated, counted, incomplete := attemptSpend(
+	s.Attempts = nil
+	for _, id := range s.modelOrder {
+		attempt, incomplete := attemptSpendOf(
 			s.modelIntents[id],
 			s.modelSettlements[id],
 		)
-		if !counted {
+		s.Attempts = append(s.Attempts, attempt)
+		if attempt.Basis == SpendNotExecuted {
 			continue
 		}
 		s.Spend.UsageIncomplete = s.Spend.UsageIncomplete || incomplete
-		if usage != nil {
+		if usage := attempt.Usage; usage != nil {
 			if err := usage.Validate(); err != nil {
 				return err
 			}
 			s.Spend.addUsage(usage)
 		}
-		if estimated {
+		if attempt.Basis == SpendEstimated {
 			s.Spend.Estimated = cappedCount(s.Spend.Estimated, 1)
 		}
+		charge := attempt.Charge
 		if charge == nil {
 			s.Spend.CostUnknown = cappedCount(s.Spend.CostUnknown, 1)
 			continue
@@ -678,6 +687,7 @@ func (s *replayState) apply(step Step) error {
 		}
 		s.modelIntent = step.Model.AttemptID
 		s.modelIntents[step.Model.AttemptID] = step.Model
+		s.modelOrder = append(s.modelOrder, step.Model.AttemptID)
 		s.modelCalls++
 		s.finalAnswerOnly = step.Model.FinalAnswerOnly
 		s.unresolvedPartial = false

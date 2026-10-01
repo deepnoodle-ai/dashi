@@ -237,6 +237,86 @@ func addCosts(
 	return into
 }
 
+// SpendBasis says where an attempt's counted usage came from.
+type SpendBasis string
+
+const (
+	// SpendMeasured means the provider reported complete, final usage for
+	// a call that finished.
+	SpendMeasured SpendBasis = "measured"
+	// SpendEstimated means Dashi filled in some usage: the call is still
+	// running, was cut short, is uncertain, or its final usage never
+	// arrived. A later reconciliation can replace the estimate.
+	SpendEstimated SpendBasis = "estimated"
+	// SpendNotExecuted means the provider verifiably never ran the request
+	// (not dispatched, or rejected before execution), so it costs nothing.
+	SpendNotExecuted SpendBasis = "not_executed"
+)
+
+// AttemptSpend is what one model attempt counts toward Spend. Spend is the
+// sum of a turn's attempts plus local tool charges, so a host that charges
+// each attempt (rounding each, or settling a hold by attempt ID) reads these
+// rather than re-deriving them from model facts.
+type AttemptSpend struct {
+	AttemptID string       `json:"attempt_id"`
+	Purpose   ModelPurpose `json:"purpose,omitempty"`
+	Provider  string       `json:"provider,omitempty"`
+	Model     string       `json:"model,omitempty"`
+	// Settled means a result or failure is recorded. An unsettled attempt
+	// is still running or was lost with its worker; it counts its
+	// estimated input until it settles.
+	Settled bool       `json:"settled,omitempty"`
+	Basis   SpendBasis `json:"basis"`
+	// Usage is the usage counted into Spend.Usage, nil when not executed or
+	// when it could not be derived.
+	Usage *llm.Usage `json:"usage,omitempty"`
+	// Charge is the amount counted into Spend.Cost. Nil means zero for a
+	// not-executed attempt, and otherwise an unknown charge (an unpriced
+	// model, for example), counted in Spend.CostUnknown. A partial charge
+	// (Charge.Partial) is a lower bound.
+	Charge *llm.Cost `json:"charge,omitempty"`
+	// AtRisk is the worst case computed before the call was sent, nil when
+	// the call had no cost bound.
+	AtRisk *llm.Cost `json:"at_risk,omitempty"`
+	// Final means the charge is complete and nothing recorded later can
+	// change it: a measured charge that is known and not partial, or a
+	// not-executed attempt. A host may hold the reservation for an attempt
+	// that is not final until it learns the real bill.
+	Final bool `json:"final,omitempty"`
+}
+
+// attemptSpendOf derives one attempt's spend from its intent and, once
+// recorded, its settlement. It also reports whether usage derivation was
+// incomplete, which sets Spend.UsageIncomplete.
+func attemptSpendOf(intent, settlement *ModelFact) (AttemptSpend, bool) {
+	a := AttemptSpend{
+		AttemptID: intent.AttemptID,
+		Purpose:   intent.Purpose,
+		Provider:  intent.Provider,
+		Model:     intent.Model,
+		Settled:   settlement != nil,
+		Basis:     SpendMeasured,
+	}
+	if intent.AtRisk != nil {
+		a.AtRisk = new(intent.AtRisk.Clone())
+	}
+	usage, charge, estimated, counted, incomplete := attemptSpend(intent, settlement)
+	if !counted {
+		a.Basis = SpendNotExecuted
+		a.Final = true
+		return a, false
+	}
+	if estimated {
+		a.Basis = SpendEstimated
+	}
+	a.Usage = usage
+	if charge != nil {
+		a.Charge = new(charge.Clone())
+	}
+	a.Final = a.Basis == SpendMeasured && a.Charge != nil && !a.Charge.Partial()
+	return a, incomplete
+}
+
 func (s *Spend) addUsage(usage *llm.Usage) {
 	if err := s.Usage.Add(usage); err != nil {
 		s.UsageIncomplete = true
