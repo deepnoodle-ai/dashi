@@ -1,6 +1,7 @@
 package dashi
 
 import (
+	"bytes"
 	"cmp"
 	"crypto/rand"
 	"encoding/binary"
@@ -44,31 +45,44 @@ func NewID() string {
 	return string(s[:])
 }
 
-// withCommandID returns c with an empty CommandID replaced by a new ID. The
-// ID is part of the command digest, so it is filled before the digest is
-// computed.
-func withCommandID(c Command) Command {
-	if c.commandID() != "" {
-		return c
+// normalizeCommand returns c with an empty CommandID replaced by a new ID,
+// and a JSON null output schema treated as absent, so a command decoded from
+// JSON runs exactly like the original. The ID is part of the command digest,
+// so it is filled before the digest is computed.
+func normalizeCommand(c Command) Command {
+	id := c.commandID()
+	if id == "" {
+		id = NewID()
 	}
 	switch v := c.(type) {
 	case Start:
-		v.CommandID = NewID()
+		v.CommandID = id
+		v.OutputSchema = absentNull(v.OutputSchema)
+		v.Agent.OutputSchema = absentNull(v.Agent.OutputSchema)
 		return v
 	case Deliver:
-		v.CommandID = NewID()
+		v.CommandID = id
 		return v
 	case Continue:
-		v.CommandID = NewID()
+		v.CommandID = id
 		return v
 	case Settle:
-		v.CommandID = NewID()
+		v.CommandID = id
 		return v
 	case Cancel:
-		v.CommandID = NewID()
+		v.CommandID = id
 		return v
 	}
 	return c
+}
+
+// absentNull returns nil for a JSON null, which encoding/json leaves in a
+// json.RawMessage field rather than clearing it.
+func absentNull(raw json.RawMessage) json.RawMessage {
+	if string(bytes.TrimSpace(raw)) == "null" {
+		return nil
+	}
+	return raw
 }
 
 // revisionPrefix marks a revision the runner derived from the agent.

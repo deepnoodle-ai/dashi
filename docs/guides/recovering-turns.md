@@ -18,6 +18,14 @@ the recorder, because its step numbers are taken, so no model call or tool
 runs twice. What can happen is a second turn from a `Start` retried with no
 turn ID, or a `Deliver` recorded twice when its items carry no IDs.
 
+A host that saves whole commands before running them, such as an outbox that
+replays the same command after a crash, encodes them with
+`dashi.MarshalCommand` and decodes them with `dashi.UnmarshalCommand`. The
+decoded command equals the original and has the same digest, so replaying it
+is a retry, not a conflict. `dashi.CommandIDOf` and `dashi.CommandKindOf` give
+the identity to index saved commands by. Commands also encode with plain
+`encoding/json`; a JSON `null` output schema reads as none.
+
 Values a turn records travel on its commands: `Start.Agent` carries the agent,
 and the turn records it. `Continue`, `Settle`, and `Cancel` take no agent;
 they run with the one recorded in the turn you pass in, so load that turn

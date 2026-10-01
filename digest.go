@@ -41,8 +41,12 @@ func ArgsDigest(args json.RawMessage) string {
 }
 
 // commandDigest is digest for a command, reporting values that cannot be
-// encoded.
+// encoded. Continue.OnHistoryMismatch is left out (see its doc).
 func commandDigest(c Command) (string, error) {
+	if v, ok := c.(Continue); ok {
+		v.OnHistoryMismatch = ""
+		c = v
+	}
 	if _, err := json.Marshal(c); err != nil {
 		return "", err
 	}

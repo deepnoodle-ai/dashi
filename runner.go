@@ -233,7 +233,7 @@ func (r Runner) apply(
 		}
 		turn.ID = NewID()
 	}
-	command = withCommandID(command)
+	command = normalizeCommand(command)
 	hooks := JoinHooks(r.Hooks, opts.hooks)
 	if err := hooks.validate(); err != nil {
 		return Outcome{}, err
