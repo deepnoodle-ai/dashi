@@ -105,7 +105,14 @@ func (e *Engine) runPending(ctx context.Context) (Result, error) {
 	// Ordinary refusals still require the user to resubmit after recovery.
 	// Retain only a summary interruption or an uncertain admission.
 	e.inputMu.Lock()
-	if e.pending == p && p.uncertain == "" && !p.attempted && !p.summary &&
+	// A rejected ordinary attachment Start has no recorded owner. Release it
+	// together with the editable draft, so corrections cannot retry old bytes.
+	var ce *dashi.CommitError
+	rejectedInput := p.input != nil && !p.summary && errors.As(err, &ce) &&
+		ce.Persistence == dashi.PersistenceRejected && ce.Step != nil &&
+		ce.Step.Kind == dashi.StepStarted && ce.Step.Started != nil &&
+		ce.Step.Started.Origin != dashi.StartCompaction && ce.Step.CommandID == p.start.CommandID
+	if e.pending == p && p.uncertain == "" && (!p.attempted || rejectedInput) && !p.summary &&
 		res.Outcome.Origin != dashi.StartCompaction {
 		e.pending = nil
 		e.inputReceipt(p, inputPreRecordFailure)
