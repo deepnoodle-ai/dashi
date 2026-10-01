@@ -19,6 +19,7 @@ const cliRouteRevision = "dashi-cli:route-v1:"
 // routeClients owns immutable destination definitions for this invocation.
 // The grant map contains whole-binding fingerprints, never credential values.
 type routeClients struct {
+	grantMu        sync.RWMutex
 	registry, user map[string]configuredDestination
 	grants         map[string]bool
 	lookup         func(string) (string, bool)
@@ -61,7 +62,7 @@ func (r *routeClients) clientFor(agent dashi.Agent) (llm.Client, error) {
 			return nil, errors.New("recorded turn has unknown destination provenance; its route cannot be reconstructed")
 		}
 	}
-	return r.factory(d, r.lookup, d.trustedBy(r.user) || r.grants[fingerprint])
+	return r.factory(d, r.lookup, d.trustedBy(r.user) || r.granted(fingerprint))
 }
 func selectionAgent(selection resolvedSelection, controls llm.Settings) (dashi.Agent, error) {
 	fingerprint, err := selection.Destination.fingerprint()
@@ -154,4 +155,15 @@ func (c *turnClient) Send(ctx context.Context, call llm.Call) (llm.Result, error
 func requestKey(request llm.Request) ([sha256.Size]byte, error) {
 	raw, err := json.Marshal(request.Snapshot())
 	return sha256.Sum256(raw), err
+}
+
+func (r *routeClients) granted(key string) bool {
+	r.grantMu.RLock()
+	defer r.grantMu.RUnlock()
+	return r.grants[key]
+}
+func (r *routeClients) grant(key string) {
+	r.grantMu.Lock()
+	defer r.grantMu.Unlock()
+	r.grants[key] = true
 }
