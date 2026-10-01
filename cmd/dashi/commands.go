@@ -43,6 +43,7 @@ func (c *Controller) commands() []commandEntry {
 		}},
 		{name: "/quit", aliases: []string{"/q", "/exit"}, description: "save and exit", run: func(string) {
 			if !c.keepQueued("/quit") {
+				c.cancelInspection()
 				c.ui.Quit()
 			}
 		}, during: func(string) { c.QuitDuringRun("/quit") }},

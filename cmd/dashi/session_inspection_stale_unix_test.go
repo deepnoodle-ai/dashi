@@ -47,4 +47,16 @@ func TestStatusCancelsBlockedStaleSnapshotWithoutLeaseTakeover(t *testing.T) {
 	if a.eng.Session().ID != aSaved.ID || cfg.Client.(*fakeClient).sends != 0 {
 		t.Fatal("status switched or dispatched")
 	}
+	// Quit must cancel inspection without waiting for the other process's log lock.
+	a.ctrl.Input("/status " + bSaved.ID)
+	time.Sleep(30 * time.Millisecond)
+	a.ctrl.Input("/quit")
+	finished := make(chan struct{})
+	go func() { a.ctrl.Wait(); close(finished) }()
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("quit left a blocked inspection running")
+	}
+
 }

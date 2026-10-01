@@ -272,6 +272,10 @@ func (c *Controller) Interrupt() bool {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.statusCancel != nil {
+		c.statusCancel()
+		c.statusGeneration++
+	}
 	switch c.mode {
 	case ModeRunning, ModeCommand:
 		if c.cancel != nil {
@@ -295,6 +299,10 @@ func (c *Controller) Interrupt() bool {
 func (c *Controller) CancelWork() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.statusCancel != nil {
+		c.statusCancel()
+		c.statusGeneration++
+	}
 	if c.cancel != nil {
 		c.cancel()
 	}
@@ -382,6 +390,10 @@ func (c *Controller) steer(line string) {
 func (c *Controller) QuitDuringRun(action string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.statusCancel != nil {
+		c.statusCancel()
+		c.statusGeneration++
+	}
 	c.quit, c.quitAction = true, action
 	if c.cancel != nil {
 		c.cancel()
