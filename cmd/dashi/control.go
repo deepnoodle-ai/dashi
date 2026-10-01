@@ -315,14 +315,11 @@ func (c *Controller) Interrupt() bool {
 		}
 		return false
 	case ModeApproval:
-		c.broker.cancelActive()
 		// Quitting during a prompt cancels the run. Dashi records the turn
 		// as interrupted, and the call had not started. As with
 		// QuitDuringRun, queued prompts get a warning once the run settles.
 		c.quit, c.quitAction = true, "Ctrl-C"
-		if c.cancel != nil {
-			c.cancel()
-		}
+		c.cancelExitDialogLocked()
 		return false
 	}
 	return true
@@ -330,7 +327,6 @@ func (c *Controller) Interrupt() bool {
 
 // CancelWork interrupts a turn or dialog without requesting process exit.
 func (c *Controller) CancelWork() {
-	c.broker.cancelActive()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.statusCancel != nil {
@@ -340,6 +336,7 @@ func (c *Controller) CancelWork() {
 	if c.cancel != nil {
 		c.cancel()
 	}
+	c.broker.cancelActive()
 }
 
 // Input handles one submitted line.
@@ -432,9 +429,7 @@ func (c *Controller) QuitDuringRun(action string) {
 		c.statusGeneration++
 	}
 	c.quit, c.quitAction = true, action
-	if c.cancel != nil {
-		c.cancel()
-	}
+	c.cancelExitDialogLocked()
 }
 
 // queue holds text as the next prompt.
@@ -752,4 +747,31 @@ func emitToUI(ui UI, b Block) {
 		b = printable(b)
 	}
 	ui.Emit(b)
+}
+
+// Cancel the execution owner before its dialog. A local dialog cancellation
+// must not race a live hook into recording an ordinary hook failure. Exiting
+// from a child approval closes the child host too: child contexts intentionally
+// do not inherit foreground interruption, so canceling only the parent hangs.
+// Caller holds c.mu; the child shutdown waits in counted background work.
+func (c *Controller) cancelExitDialogLocked() {
+	if c.cancel != nil {
+		c.cancel()
+	}
+	owner, active := c.broker.activeOwner()
+	if active && owner.TaskID != "" && c.eng != nil {
+		host := c.eng.taskHost()
+		if host != nil {
+			c.goWork(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := host.tasks.Close(ctx); err != nil {
+					c.notice("Task shutdown unresolved; records and ownership are retained: %v", err)
+					c.broker.cancelActive()
+				}
+			})
+			return
+		}
+	}
+	c.broker.cancelActive()
 }

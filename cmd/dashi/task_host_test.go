@@ -688,3 +688,69 @@ func TestTaskCorruptChildStaysVisibleAndNeverRecreatesCompletedWork(t *testing.T
 		t.Fatalf("damaged child retried: %d/%d", parent, child)
 	}
 }
+
+func TestTaskQuitDuringChildApprovalInterruptsBeforeDialogDismissal(t *testing.T) {
+	for _, action := range []string{"quit", "interrupt"} {
+		t.Run(action, func(t *testing.T) {
+			var runs atomic.Int32
+			installTaskEffect(t, &runs, true)
+			client := &taskFixtureClient{effect: true}
+			ui := newRecorderUI()
+			asked := make(chan struct{})
+			ui.answer = func(ctx context.Context, r ApprovalRequest) (Approval, error) {
+				if r.Tool != "external_effect" {
+					return Approval{Allow: true}, nil
+				}
+				close(asked)
+				<-ctx.Done()
+				return Approval{}, ctx.Err()
+			}
+			a, cfg := taskTestApp(t, client, ui)
+			a.ctrl.Input("delegate")
+			select {
+			case <-asked:
+			case <-time.After(5 * time.Second):
+				t.Fatal("child approval missing")
+			}
+			task := a.eng.taskHost().tasks.List()[0]
+			meta := a.eng.Session()
+			if action == "quit" {
+				a.ctrl.QuitDuringRun("/quit")
+			} else if a.ctrl.Interrupt() {
+				t.Fatal("approval interrupt exited before settling")
+			}
+			done := make(chan struct{})
+			go func() { a.ctrl.Wait(); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("exit hung behind child approval")
+			}
+			snapshot, err := a.eng.inspectTask(t.Context(), task.ID)
+			if err != nil || snapshot.View.Stop.Kind != dashi.StopInterrupted || runs.Load() != 0 {
+				t.Fatalf("child stop=%+v effects=%d err=%v", snapshot.View.Stop, runs.Load(), err)
+			}
+			a.eng.Close()
+			nextUI := newRecorderUI()
+			b, err := buildApp(t.Context(), cfg, nextUI)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = b.openSession(cfg.Store, cfg.Dir, Options{Resume: true, ResumeID: meta.ID}); err != nil {
+				t.Fatal(err)
+			}
+			defer b.eng.Close()
+			b.ctrl.mu.Lock()
+			b.ctrl.autoTaskDelivery = false
+			b.ctrl.mu.Unlock()
+			if err = b.eng.recoverTasks(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			recovered := waitTask(t, b, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopWaiting) })
+			b.ctrl.Wait()
+			if recovered.ID != task.ID || runs.Load() != 1 || len(nextUI.approvals) != 1 || !strings.Contains(nextUI.approvals[0].Summary, "call effect-call") {
+				t.Fatalf("approval lost/duplicated task=%+v effects=%d prompts=%+v", recovered, runs.Load(), nextUI.approvals)
+			}
+		})
+	}
+}

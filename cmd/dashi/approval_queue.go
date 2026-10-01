@@ -186,3 +186,12 @@ func (b *approvalBroker) presentOnly(ctx context.Context, fn func()) error {
 	fn()
 	return ctx.Err()
 }
+
+func (b *approvalBroker) activeOwner() (brokerOwner, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.active == nil {
+		return brokerOwner{}, false
+	}
+	return b.active.Owner, true
+}
