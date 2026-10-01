@@ -583,21 +583,21 @@ func TestInspectionIncompleteAndUnresolvedContextNeverUsesOlderCall(t *testing.T
 		}
 	}
 	turn := dashi.NewTurn("fixture")
-	var intent dashi.ModelFact
+	var callStart dashi.ModelFact
 	for _, step := range out.Turn.Steps {
 		if step.Kind == dashi.StepModelCallStarted {
-			intent = *step.Model
+			callStart = *step.Model
 			break
 		}
 	}
-	intent.ModelCallID = "new-unresolved"
-	turn.Steps = []dashi.Step{{Kind: dashi.StepModelCallStarted, Model: &intent}}
+	callStart.ModelCallID = "new-unresolved"
+	turn.Steps = []dashi.Step{{Kind: dashi.StepModelCallStarted, Model: &callStart}}
 	c := contextOccupancy(turn, out.TurnView)
 	if c.Available || c.ModelCallID != "new-unresolved" || c.UnavailableReason != "model intent unresolved" {
 		t.Fatalf("unresolved context=%+v", c)
 	}
 	unresolved := turnAccounting(turn, dashi.TurnView{})
-	if unresolved.ModelCalls != 0 || unresolved.UnresolvedModelIntents != 1 {
+	if unresolved.ModelCalls != 0 || unresolved.UnresolvedStartedModelCalls != 1 {
 		t.Fatalf("unresolved calls=%+v", unresolved)
 	}
 }

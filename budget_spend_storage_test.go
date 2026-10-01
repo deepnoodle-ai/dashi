@@ -179,7 +179,7 @@ func TestRecordersReopenSeparateUsageAndMonetaryOverflow(t *testing.T) {
 	}
 }
 
-func TestRecordersRejectUnsafeTokenIntentBeforeStorage(t *testing.T) {
+func TestRecordersRejectUnsafeTokenCallStartBeforeStorage(t *testing.T) {
 	for _, file := range []bool{false, true} {
 		recorder, reopen := accountingStorage(t, file)
 		first := dashitest.CallTool("call-1", "lookup", `{}`)

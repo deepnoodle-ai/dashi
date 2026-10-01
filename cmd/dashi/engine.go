@@ -21,7 +21,7 @@ import (
 
 // defaultModelAttempts is the model-call limit of one turn. Coding reads many
 // files, and Dashi's own default of 8 stops too early.
-const defaultModelAttempts = 40
+const defaultModelCalls = 40
 
 // EngineConfig holds what an Engine needs.
 type EngineConfig struct {
@@ -84,7 +84,7 @@ type Engine struct {
 // NewEngine returns an engine with no session. Call Open before any turn.
 func NewEngine(cfg EngineConfig) *Engine {
 	if cfg.ModelCalls == 0 {
-		cfg.ModelCalls = defaultModelAttempts
+		cfg.ModelCalls = defaultModelCalls
 	}
 	if cfg.Emit == nil {
 		cfg.Emit = func(Block) {}
@@ -667,7 +667,7 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 			if e.cfg.ParentStopped != nil && ev.Result.Origin != dashi.StartCompaction {
 				e.cfg.ParentStopped(turnNumber(ev.TurnID))
 			}
-			e.settled(renderer(ev.TurnID), *ev.Result)
+			e.finished(renderer(ev.TurnID), *ev.Result)
 			if stopOutcome {
 				break
 			}
@@ -768,7 +768,7 @@ func (e *Engine) Queued() int {
 
 // settled shows the end of one turn: its footer, how to go on, the session's
 // warnings, and the steers that wait for a later turn.
-func (e *Engine) settled(r *Renderer, out dashi.RunResult) {
+func (e *Engine) finished(r *Renderer, out dashi.RunResult) {
 	for _, w := range out.SessionWarnings {
 		if w.Code == dashi.WarningTurnUnreadable ||
 			w.Code == session.WarningCompactionFailed ||

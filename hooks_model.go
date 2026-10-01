@@ -21,7 +21,7 @@ import (
 func (r *runtime) beforeModel(
 	s *replayState,
 	input *llm.Input,
-	finalAnswerOnly bool,
+	finalReplyOnly bool,
 	purpose ModelPurpose,
 ) ([]ContextItem, []string, *Stop, *RunResult) {
 	var deliver []ContextItem
@@ -49,7 +49,7 @@ func (r *runtime) beforeModel(
 			if d.Settings != nil {
 				candidate.Settings = *d.Settings
 			}
-			if !finalAnswerOnly {
+			if !finalReplyOnly {
 				candidateHidden = hideTools(
 					&candidate,
 					hidden,
@@ -324,7 +324,7 @@ func validSendDecision(d SendDecision, used int) error {
 	if len(d.Reservation) > 0 && !json.Valid(d.Reservation) {
 		return errors.New("admission is not valid JSON")
 	}
-	if used+len(d.Reservation) > maxAdmission {
+	if used+len(d.Reservation) > maxReservation {
 		return errors.New("admissions exceed 16 KiB")
 	}
 	return nil

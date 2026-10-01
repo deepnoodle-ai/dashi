@@ -330,7 +330,7 @@ func TestCommitErrorWrapsRecorderConflict(t *testing.T) {
 	}
 }
 
-func TestFailedModelSettlementKeepsUsageOnStep(t *testing.T) {
+func TestFailedModelFinishKeepsUsageOnStep(t *testing.T) {
 	result := final("answer")
 	result.Usage = &llm.Usage{InputTokens: 3, OutputTokens: 5}
 	client := &scriptedClient{results: []llm.Result{result}}
@@ -534,7 +534,7 @@ func TestJoinTextKeepsSentencesIntact(t *testing.T) {
 	}
 }
 
-func settledStep(result llm.Result) Step {
+func finishedStep(result llm.Result) Step {
 	return Step{
 		Kind:  StepModelCallFinished,
 		Model: &ModelFact{Result: &result},
@@ -552,12 +552,12 @@ func TestTurnCitationsAndProviderToolUsesSpanCalls(t *testing.T) {
 			IsError: true,
 		},
 	}
-	interrupted := settledStep(llm.Result{
+	interrupted := finishedStep(llm.Result{
 		Message: llm.AssistantMessage(providerToolUsePart("lost")),
 	})
 	interrupted.Model.Interrupted = InterruptRun
 	turn := Turn{ID: "t1", Steps: []Step{
-		settledStep(llm.Result{
+		finishedStep(llm.Result{
 			Message: llm.AssistantMessage(
 				providerToolUsePart("u1"),
 				result,
@@ -566,7 +566,7 @@ func TestTurnCitationsAndProviderToolUsesSpanCalls(t *testing.T) {
 			Stop: llm.Stop{Kind: llm.StopPause},
 		}),
 		interrupted,
-		settledStep(llm.Result{
+		finishedStep(llm.Result{
 			Message: llm.AssistantMessage(
 				providerToolUsePart("u2"),
 				textPart("B", content.Citation{URL: "https://b"}),
@@ -619,7 +619,7 @@ func TestPendingItemsListOnlyHostWork(t *testing.T) {
 		s.providerTool[id] = llm.ProviderToolApprovalRequest{ID: id, Name: "remote"}
 		s.providerToolOrder = append(s.providerToolOrder, id)
 	}
-	s.modelIntent = "attempt-1"
+	s.modelCallStart = "attempt-1"
 	got := strings.Join(pendingIDs(s.pendingItems()), ",")
 	want := "attempt-1,started,waiting,result_unknown,approval_pending,h9,h1,h5"
 	if got != want {

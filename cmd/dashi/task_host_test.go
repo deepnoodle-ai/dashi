@@ -31,7 +31,7 @@ type taskFixtureClient struct {
 	startOnce               sync.Once
 	effect                  bool
 	secondTask              bool
-	childAttempts           map[string]int
+	childModelCalls         map[string]int
 	loopUntil               int
 }
 
@@ -49,8 +49,8 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 		n = c.childCalls
 		c.childCalls++
 		if c.secondTask {
-			if c.childAttempts == nil {
-				c.childAttempts = map[string]int{}
+			if c.childModelCalls == nil {
+				c.childModelCalls = map[string]int{}
 			}
 			key := "first"
 			for _, m := range in.Messages {
@@ -58,8 +58,8 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 					key = "second"
 				}
 			}
-			n = c.childAttempts[key]
-			c.childAttempts[key]++
+			n = c.childModelCalls[key]
+			c.childModelCalls[key]++
 		}
 	} else {
 		c.parentCalls++
@@ -451,7 +451,7 @@ func (r *taskQueueCrashRecorder) Load(ctx context.Context, id string) (dashi.Tur
 	}
 	return r.Recorder.Load(ctx, id)
 }
-func TestTaskNoticeUnknownAdmissionPausesUntilExactReconciliation(t *testing.T) {
+func TestTaskNoticeUnknownStartPausesUntilExactResolution(t *testing.T) {
 	for _, mode := range []string{"absent", "committed"} {
 		t.Run(mode, func(t *testing.T) {
 			client := &taskFixtureClient{}
@@ -531,7 +531,7 @@ func TestTaskNoticeUnknownAdmissionPausesUntilExactReconciliation(t *testing.T) 
 		})
 	}
 }
-func TestTaskDetailsSeparateAttemptEstimateFromDispatchAndHidePrivateContent(t *testing.T) {
+func TestTaskDetailsSeparateModelCallEstimateFromDispatchAndHidePrivateContent(t *testing.T) {
 	turn := dashi.Turn{ID: "child", Steps: []dashi.Step{
 		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{ModelCallID: "not-sent", EstimatedInputTokens: 1234}},
 		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "not-sent", NotSent: true, EstimatedUsage: true}},
@@ -604,7 +604,7 @@ func TestTaskReopenInspectRecordedChildWithoutAvailableBinding(t *testing.T) {
 	}
 }
 
-func TestTaskAttemptLimitRequiresExactConfirmedRaise(t *testing.T) {
+func TestTaskModelCallLimitRequiresExactConfirmedRaise(t *testing.T) {
 	client := &taskFixtureClient{loopUntil: 32}
 	questions := 0
 	ui := &questionFixtureUI{recorderUI: newRecorderUI(), ask: func(_ context.Context, q Question) (questionAnswer, error) {

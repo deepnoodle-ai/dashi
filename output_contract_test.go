@@ -365,7 +365,7 @@ func TestStructuredOutputSubmissionEvidenceCannotBeRewritten(t *testing.T) {
 	}
 }
 
-func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
+func TestStructuredOutputCannotBeResolvedByHost(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
 	}

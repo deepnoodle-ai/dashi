@@ -87,17 +87,17 @@ func (r *runtime) callBlocked(s *replayState, extraInputTokens int) string {
 // only, and the next call must fit beside everything the running one could
 // still cost. It fails when that worst case is unknown.
 func spendWithCallInFlight(s *replayState) (*replayState, bool) {
-	if s.modelIntent == "" {
+	if s.modelCallStart == "" {
 		return s, true
 	}
-	intent := s.modelIntents[s.modelIntent]
+	callStart := s.startedModelCalls[s.modelCallStart]
 	limit := s.Budget.MaxCost
-	if intent == nil || intent.WorstCaseCost == nil ||
-		intent.WorstCaseCost.Currency != limit.Currency {
+	if callStart == nil || callStart.WorstCaseCost == nil ||
+		callStart.WorstCaseCost.Currency != limit.Currency {
 		return nil, false
 	}
 	counted := money.Amount(0)
-	if _, cost, _, _, _ := attemptSpend(intent, nil); cost != nil {
+	if _, cost, _, _, _ := modelCallCost(callStart, nil); cost != nil {
 		if cost.Currency != limit.Currency {
 			return nil, false
 		}
@@ -107,7 +107,7 @@ func spendWithCallInFlight(s *replayState) (*replayState, bool) {
 	if !known {
 		return nil, false
 	}
-	total, ok := used.Add(intent.WorstCaseCost.Total - counted)
+	total, ok := used.Add(callStart.WorstCaseCost.Total - counted)
 	if !ok {
 		return nil, false
 	}
@@ -130,21 +130,21 @@ func spendWithCallInFlight(s *replayState) (*replayState, bool) {
 // as a JSON string, so the estimate stays an upper bound; the base is exact.
 func estimatedNextRequest(s *replayState, extraInputTokens int) (llm.Request, bool) {
 	grown := max(extraInputTokens, 0)
-	var intent *ModelFact
-	if s.modelIntent != "" {
-		intent = s.modelIntents[s.modelIntent]
-		if intent != nil {
-			grown += max(intent.Effective.MaxTokens, 0)
+	var callStart *ModelFact
+	if s.modelCallStart != "" {
+		callStart = s.startedModelCalls[s.modelCallStart]
+		if callStart != nil {
+			grown += max(callStart.Effective.MaxTokens, 0)
 		}
 	} else {
-		intent = s.modelIntents[s.latestAttempt]
+		callStart = s.startedModelCalls[s.latestModelCall]
 		if s.latestResult != nil {
 			if b, err := json.Marshal(s.latestResult.Message); err == nil {
 				grown += len(b)
 			}
 		}
 		for _, id := range s.callOrder {
-			if s.callAttempts[id] != s.latestAttempt {
+			if s.modelCallOfTool[id] != s.latestModelCall {
 				continue
 			}
 			if o := s.Tools[id].Outcome; o != nil {
@@ -154,10 +154,10 @@ func estimatedNextRequest(s *replayState, extraInputTokens int) (llm.Request, bo
 			}
 		}
 	}
-	if intent == nil {
+	if callStart == nil {
 		return llm.Request{}, false
 	}
-	size := intent.EstimatedInputTokens + 2*grown
+	size := callStart.EstimatedInputTokens + 2*grown
 	// EstimatedInputTokens is the body size plus 1024, so the body carries
 	// the rest; a JSON string keeps it valid.
 	bodySize := max(size-1024, 2)
@@ -168,16 +168,16 @@ func estimatedNextRequest(s *replayState, extraInputTokens int) (llm.Request, bo
 	}
 	body[bodySize-1] = '"'
 	req, err := llm.NewRequest(llm.RequestSnapshot{
-		Origin: intent.Endpoint,
+		Origin: callStart.Endpoint,
 		Input: llm.Input{
-			Model:    intent.Model,
+			Model:    callStart.Model,
 			Messages: []llm.Message{llm.UserMessage(llm.Text("estimate"))},
-			Tools:    intent.Tools,
-			Settings: intent.Effective,
+			Tools:    callStart.Tools,
+			Settings: callStart.Effective,
 		},
-		Effective: intent.Effective,
+		Effective: callStart.Effective,
 		Body:      body,
-		ModelInfo: intent.ModelInfo,
+		ModelInfo: callStart.ModelInfo,
 	})
 	return req, err == nil
 }

@@ -18,7 +18,7 @@ func priorGenerationSettings() llm.Settings {
 	return llm.Settings{MaxTokens: 1234, Temperature: new(0.7), Reasoning: &llm.ReasoningSettings{Effort: "high"}, ReasoningSummary: new(true), ParallelTools: new(true), Citations: true, PromptCache: llm.PromptCache{TTL: time.Hour, Key: "old-key"}}
 }
 
-func TestCompleteSettingsPriorityAndDispatchedIntent(t *testing.T) {
+func TestCompleteSettingsPriorityAndDispatchedCallStart(t *testing.T) {
 	old := priorGenerationSettings()
 	for _, tc := range []struct {
 		name           string

@@ -165,7 +165,7 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 
 // ReservedFinalAnswer makes exactly two paid calls. The second call must see
 // the recorded tool result while no longer advertising application tools.
-func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
+func ReservedFinalReply(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()

@@ -77,10 +77,10 @@ func appendText(out []recordedText, message llm.Message, initial bool) []recorde
 // Accounting preserves Spend facts and separately describes omitted records.
 // Incomplete never fabricates unknown-charge or estimated-usage counters.
 type Accounting struct {
-	Spend                              dashi.Spend
-	ModelCalls, UnresolvedModelIntents int
-	CountsIncomplete, Incomplete       bool
-	OmittedTurns                       int
+	Spend                                   dashi.Spend
+	ModelCalls, UnresolvedStartedModelCalls int
+	CountsIncomplete, Incomplete            bool
+	OmittedTurns                            int
 }
 
 func (a Accounting) add(b Accounting) Accounting {
@@ -93,19 +93,19 @@ func (a Accounting) add(b Accounting) Accounting {
 	} else {
 		a.ModelCalls += b.ModelCalls
 	}
-	if b.UnresolvedModelIntents > math.MaxInt-a.UnresolvedModelIntents {
-		a.UnresolvedModelIntents = math.MaxInt
+	if b.UnresolvedStartedModelCalls > math.MaxInt-a.UnresolvedStartedModelCalls {
+		a.UnresolvedStartedModelCalls = math.MaxInt
 		a.CountsIncomplete = true
 	} else {
-		a.UnresolvedModelIntents += b.UnresolvedModelIntents
+		a.UnresolvedStartedModelCalls += b.UnresolvedStartedModelCalls
 	}
 	return a
 }
 
 func turnAccounting(turn dashi.Turn, view dashi.TurnView) Accounting {
 	a := Accounting{Spend: view.Spend.Clone()}
-	intents := map[string]bool{}
-	settled := map[string]bool{}
+	callStarts := map[string]bool{}
+	finished := map[string]bool{}
 	dispatched := map[string]bool{}
 	for _, step := range turn.Steps {
 		f := step.Model
@@ -113,13 +113,13 @@ func turnAccounting(turn dashi.Turn, view dashi.TurnView) Accounting {
 			continue
 		}
 		if step.Kind == dashi.StepModelCallStarted {
-			intents[f.ModelCallID] = true
+			callStarts[f.ModelCallID] = true
 			continue
 		}
 		if step.Kind != dashi.StepModelCallFinished && step.Kind != dashi.StepModelCallFinishedByHost {
 			continue
 		}
-		settled[f.ModelCallID] = !f.ResultUnknown && f.SendStatus != llm.SendStatusUnknown
+		finished[f.ModelCallID] = !f.ResultUnknown && f.SendStatus != llm.SendStatusUnknown
 		if f.NotSent || f.SendStatus == llm.SendStatusNotSent {
 			continue
 		}
@@ -129,9 +129,9 @@ func turnAccounting(turn dashi.Turn, view dashi.TurnView) Accounting {
 		}
 	}
 	a.ModelCalls = len(dispatched)
-	for id := range intents {
-		if !settled[id] {
-			a.UnresolvedModelIntents++
+	for id := range callStarts {
+		if !finished[id] {
+			a.UnresolvedStartedModelCalls++
 		}
 	}
 	return a
@@ -167,48 +167,48 @@ type ContextOccupancy struct {
 
 func contextOccupancy(turn dashi.Turn, view dashi.TurnView) ContextOccupancy {
 	out := ContextOccupancy{TurnID: turn.ID, UnavailableReason: "no model request recorded"}
-	var intent, settled *dashi.ModelFact
+	var callStart, finished *dashi.ModelFact
 	for _, step := range turn.Steps {
 		if step.Model == nil {
 			continue
 		}
 		if step.Kind == dashi.StepModelCallStarted {
-			intent = step.Model
-			settled = nil
-		} else if intent != nil && step.Model.ModelCallID == intent.ModelCallID && (step.Kind == dashi.StepModelCallFinished || step.Kind == dashi.StepModelCallFinishedByHost) {
-			settled = step.Model
+			callStart = step.Model
+			finished = nil
+		} else if callStart != nil && step.Model.ModelCallID == callStart.ModelCallID && (step.Kind == dashi.StepModelCallFinished || step.Kind == dashi.StepModelCallFinishedByHost) {
+			finished = step.Model
 		}
 	}
-	if intent == nil {
+	if callStart == nil {
 		return out
 	}
-	out.ModelCallID = intent.ModelCallID
-	out.Purpose = intent.Purpose
+	out.ModelCallID = callStart.ModelCallID
+	out.Purpose = callStart.Purpose
 	if view.Origin == dashi.StartCompaction {
 		out.Purpose = dashi.ModelPurposeCompaction
 	}
-	if intent.ModelInfo != nil && intent.ModelInfo.Capabilities.ContextWindow > 0 {
-		out.Window = intent.ModelInfo.Capabilities.ContextWindow
+	if callStart.ModelInfo != nil && callStart.ModelInfo.Capabilities.ContextWindow > 0 {
+		out.Window = callStart.ModelInfo.Capabilities.ContextWindow
 		out.WindowSource = "recorded model window"
 	}
 	if view.ActiveCompactionWindow > 0 && (out.Window == 0 || view.ActiveCompactionWindow < out.Window) {
 		out.Window = view.ActiveCompactionWindow
 		out.WindowSource = "recorded active-protection window"
 	}
-	if settled == nil {
+	if finished == nil {
 		out.UnavailableReason = "model intent unresolved"
 		return out
 	}
-	out.Estimated = settled.EstimatedUsage
-	if settled.NotSent || settled.SendStatus == llm.SendStatusNotSent {
+	out.Estimated = finished.EstimatedUsage
+	if finished.NotSent || finished.SendStatus == llm.SendStatusNotSent {
 		out.UnavailableReason = "model call not dispatched"
 		return out
 	}
-	if settled.Result == nil || settled.Result.Usage == nil {
+	if finished.Result == nil || finished.Result.Usage == nil {
 		out.UnavailableReason = "usage unavailable"
 		return out
 	}
-	usage := settled.Result.Usage
+	usage := finished.Result.Usage
 	if usage.Validate() != nil || usage.TotalTokenCountMismatch {
 		out.UnavailableReason = "usage invalid or mismatched"
 		return out

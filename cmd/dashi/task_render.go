@@ -262,20 +262,20 @@ func taskDetails(snapshot taskSnapshot) string {
 // A model intent establishes an attempt; only settlement evidence establishes
 // a confirmed dispatch. Unsettled/unknown outcomes keep separate uncertainty.
 func taskDispatchCounts(turn dashi.Turn) (int, int) {
-	intents, settled, dispatched := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	callStarts, finished, dispatched := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, step := range turn.Steps {
 		f := step.Model
 		if f == nil {
 			continue
 		}
 		if step.Kind == dashi.StepModelCallStarted {
-			intents[f.ModelCallID] = true
+			callStarts[f.ModelCallID] = true
 			continue
 		}
 		if step.Kind != dashi.StepModelCallFinished && step.Kind != dashi.StepModelCallFinishedByHost {
 			continue
 		}
-		settled[f.ModelCallID] = !f.ResultUnknown && f.SendStatus != llm.SendStatusUnknown
+		finished[f.ModelCallID] = !f.ResultUnknown && f.SendStatus != llm.SendStatusUnknown
 		if f.NotSent || f.SendStatus == llm.SendStatusNotSent {
 			continue
 		}
@@ -285,8 +285,8 @@ func taskDispatchCounts(turn dashi.Turn) (int, int) {
 		}
 	}
 	unresolved := 0
-	for id := range intents {
-		if !settled[id] {
+	for id := range callStarts {
+		if !finished[id] {
 			unresolved++
 		}
 	}

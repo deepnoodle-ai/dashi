@@ -365,14 +365,14 @@ func noCallCause(s *replayState) string {
 		return fmt.Sprintf(
 			"the model attempt limit (%d of %d used)",
 			s.ModelCalls,
-			s.attemptCap,
+			s.modelCallCap,
 		)
 	}
 	return fmt.Sprintf(
 		"the model attempt limit (%d of %d used, with the last reserved "+
 			"for a final answer)",
 		s.ModelCalls,
-		s.attemptCap,
+		s.modelCallCap,
 	)
 }
 
@@ -413,7 +413,7 @@ func (r *runtime) skipRecordedItems(items []ContextItem) []ContextItem {
 // newDeliveries validates a AddMessages command's items and drops those the
 // turn already records with the same content. An ID repeated with different
 // content is an error, since an ID names one delivery.
-func newDeliveries(s *replayState, items []ContextItem) ([]ContextItem, error) {
+func newMessageItems(s *replayState, items []ContextItem) ([]ContextItem, error) {
 	out := make([]ContextItem, 0, len(items))
 	batch := map[string]bool{}
 	for i, item := range items {

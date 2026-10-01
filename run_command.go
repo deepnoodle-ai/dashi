@@ -243,7 +243,7 @@ func (r Runner) apply(
 			len(c.Items) == 0 {
 			return RunResult{}, errors.New("dashi: turn cannot receive context")
 		}
-		items, err := newDeliveries(state, c.Items)
+		items, err := newMessageItems(state, c.Items)
 		if err != nil {
 			return RunResult{}, err
 		}
@@ -293,7 +293,7 @@ func (r Runner) apply(
 		if mismatch && c.OnHistoryMismatch == HistoryMismatchReject {
 			return RunResult{}, ErrHistoryMismatch
 		}
-		if state.interruptionLimitReached() {
+		if state.resumeLimitReached() {
 			step := Step{
 				Kind:        StepTurnStopped,
 				CommandID:   c.CommandID,
@@ -314,10 +314,10 @@ func (r Runner) apply(
 			return rt.result(rt.current())
 		}
 		if c.ModelCalls < 0 ||
-			c.ModelCalls != 0 && c.ModelCalls <= state.attemptCap {
+			c.ModelCalls != 0 && c.ModelCalls <= state.modelCallCap {
 			return RunResult{}, fmt.Errorf(
 				"dashi: model-attempt raise must exceed the current limit of %d",
-				state.attemptCap,
+				state.modelCallCap,
 			)
 		}
 		if !state.canContinueWith(c.Budget, c.ModelCalls) {
@@ -379,7 +379,7 @@ func (r Runner) apply(
 		}
 		if c.ModelResult != nil || c.ModelFailure != nil {
 			if c.CallID == "" ||
-				(c.CallID != state.modelIntent &&
+				(c.CallID != state.modelCallStart &&
 					c.CallID != state.unresolvedModel) {
 				return RunResult{}, errors.New("dashi: model attempt is not pending")
 			}
@@ -397,7 +397,7 @@ func (r Runner) apply(
 				fact.SendStatus = c.ModelFailure.SendStatus
 				fact.Evidence = c.ModelFailure.Evidence
 			}
-			setSettlementCharge(state.modelIntents[c.CallID], fact)
+			setFinishCharge(state.startedModelCalls[c.CallID], fact)
 			step := Step{
 				Kind:        kind,
 				CommandID:   c.CommandID,

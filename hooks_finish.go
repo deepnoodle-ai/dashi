@@ -169,7 +169,7 @@ const sourceSteering = "steering"
 
 // deliveryDropped warns that context delivered while an answer was kept
 // cannot reach the model, because no further model call can happen.
-func (r *runtime) deliveryDropped() {
+func (r *runtime) messagesDropped() {
 	r.pendingWarnings = append(r.pendingWarnings, Warning{
 		Code: WarningMessagesDropped,
 		Message: "context delivered after the answer was kept cannot " +

@@ -37,14 +37,14 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 	// fatal holds the stop reason of the first result that ends the turn.
 	// Once set, no further call starts; running calls still settle.
 	fatal := ""
-	settle := func(v toolResult) *RunResult {
+	record := func(v toolResult) *RunResult {
 		if ctx.Err() != nil {
 			o := r.contextStop()
 			return &o
 		}
 		// The call's slot is closed, so this last snapshot is final.
 		r.emitToolProgress(progress.take(v.call.ID, true))
-		step, stop := toolSettlement(v)
+		step, stop := toolFinish(v)
 		if step.Kind == StepToolFinished {
 			r.afterTool(ctx, step.Tool)
 		}
@@ -65,7 +65,7 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 			select {
 			case v := <-results:
 				running--
-				return settle(v)
+				return record(v)
 			case <-progress.readyChan():
 				r.emitProgress(progress, s.callOrder)
 			case <-ctx.Done():
@@ -115,7 +115,7 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 		}
 		if v.Status == ToolStarted {
 			if v.Call.Name == SubmitOutputTool {
-				if o := r.settleOutputSubmission(v.Call); o != nil {
+				if o := r.finishOutputSubmission(v.Call); o != nil {
 					return *o, true
 				}
 				continue
@@ -224,7 +224,7 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 			if v.Call.Name == SubmitOutputTool {
 				batchCalls := 0
 				for _, callID := range state.callOrder {
-					if state.callAttempts[callID] == state.callAttempts[id] {
+					if state.modelCallOfTool[callID] == state.modelCallOfTool[id] {
 						batchCalls++
 					}
 				}
@@ -316,7 +316,7 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 			}); o != nil {
 				return *o, true
 			}
-			if o := r.settleOutputSubmission(v.Call); o != nil {
+			if o := r.finishOutputSubmission(v.Call); o != nil {
 				return *o, true
 			}
 			continue
@@ -491,7 +491,7 @@ func execute(
 // sees, tool.ErrFatal also stops the turn, and uncertainty is reserved for a
 // result the runner did not observe. An invalid outcome was observed, so it is
 // a fatal executor bug, not uncertainty.
-func toolSettlement(v toolResult) (Step, string) {
+func toolFinish(v toolResult) (Step, string) {
 	fact := &ToolFact{Call: v.call}
 	if v.panicked != "" {
 		// No outcome records the call as uncertain.
@@ -542,7 +542,7 @@ func panicReason(v any) string {
 	return strings.ToValidUTF8(reason, "\uFFFD")
 }
 
-func (r *runtime) settleOutputSubmission(call tool.Call) *RunResult {
+func (r *runtime) finishOutputSubmission(call tool.Call) *RunResult {
 	state, replayErr := replay(r.turn)
 	if replayErr != nil {
 		out := r.stop(StopFailed, replayErr.Error())
@@ -573,7 +573,7 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *RunResult {
 	}
 	// Context delivered while a stop kept this submission, after the model
 	// made it, supersedes it when the model can still be asked again.
-	since := deliveredSinceCandidate(r.turn, state.callAttempts[call.ID])
+	since := addedSinceCandidate(r.turn, state.modelCallOfTool[call.ID])
 	if len(since) > 0 {
 		if r.nextCallFits(state, estimatedItemTokens(since)) {
 			return r.rejectSubmission(
@@ -584,11 +584,11 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *RunResult {
 				false,
 			)
 		}
-		r.deliveryDropped()
+		r.messagesDropped()
 	}
 	plan := FinishPlan{
 		Turn:        snapshotView(state.TurnView),
-		ModelCallID: state.callAttempts[call.ID],
+		ModelCallID: state.modelCallOfTool[call.ID],
 		CallID:      call.ID,
 		Output:      slices.Clone(call.Args),
 	}
@@ -639,16 +639,16 @@ func (r *runtime) settleOutputSubmission(call tool.Call) *RunResult {
 // deliveredSinceCandidate returns the context delivered after the model
 // attempt that made a candidate answer settled: the same rule the text path
 // applies, so a AddMessages made before the submission call started counts too.
-func deliveredSinceCandidate(t Turn, attemptID string) []ContextItem {
-	settled := false
+func addedSinceCandidate(t Turn, modelCallID string) []ContextItem {
+	finished := false
 	var items []ContextItem
 	for _, step := range t.Steps {
 		if (step.Kind == StepModelCallFinished || step.Kind == StepModelCallFinishedByHost) &&
-			step.Model != nil && step.Model.ModelCallID == attemptID {
-			settled = true
+			step.Model != nil && step.Model.ModelCallID == modelCallID {
+			finished = true
 			continue
 		}
-		if settled && step.Kind == StepMessagesAdded && step.Context != nil {
+		if finished && step.Kind == StepMessagesAdded && step.Context != nil {
 			items = append(items, step.Context.Items...)
 		}
 	}

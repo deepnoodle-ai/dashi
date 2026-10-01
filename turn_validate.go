@@ -97,7 +97,7 @@ func validateHidden(fact *ModelFact) error {
 }
 
 // validateAdmission checks the BeforeSend admissions recorded on an intent.
-func validateAdmission(admission map[string]json.RawMessage) error {
+func validateReservation(admission map[string]json.RawMessage) error {
 	total := 0
 	for name, raw := range admission {
 		if name == "" || len(raw) == 0 || !json.Valid(raw) {
@@ -105,7 +105,7 @@ func validateAdmission(admission map[string]json.RawMessage) error {
 		}
 		total += len(raw)
 	}
-	if total > maxAdmission {
+	if total > maxReservation {
 		return errors.New("model admission metadata exceeds 16 KiB")
 	}
 	return nil

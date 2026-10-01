@@ -220,10 +220,10 @@ func TestZeroAgentShortensLargeResult(t *testing.T) {
 
 func TestSmallResultIsUnchanged(t *testing.T) {
 	_, out := runBig(t, testAgent(), "small", tool.StateSucceeded, Hooks{})
-	settled := settlementOf(t, out.Turn, "call-1")
-	if settled.Tool.Result != nil || settled.Tool.Shortened != nil ||
+	finished := finishOf(t, out.Turn, "call-1")
+	if finished.Tool.Result != nil || finished.Tool.Shortened != nil ||
 		out.Tools["call-1"].Shortened() != nil {
-		t.Fatalf("recorded a view for a small result: %+v", settled.Tool)
+		t.Fatalf("recorded a view for a small result: %+v", finished.Tool)
 	}
 }
 
@@ -477,7 +477,7 @@ func TestReplayRejectsBadShortenedRecords(t *testing.T) {
 	}
 }
 
-func TestSettledHostResultIsShortened(t *testing.T) {
+func TestFinishedHostResultIsShortened(t *testing.T) {
 	external := tool.Tool{Definition: tool.Definition{
 		Name:   "lookup",
 		Schema: []byte(`{"type":"object"}`),
@@ -610,7 +610,7 @@ func runBlocks(t *testing.T, blocks []content.Block) RunResult {
 	return out
 }
 
-func TestSeparatorOnlyShorteningSettlesAndReplays(t *testing.T) {
+func TestSeparatorOnlyShorteningFinishesAndReplays(t *testing.T) {
 	for name, text := range map[string]string{"empty": "", "tiny": "x"} {
 		var blocks []content.Block
 		for range 5000 {

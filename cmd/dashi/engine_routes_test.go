@@ -198,7 +198,7 @@ func (r *cancelRouteAfterStart) Commit(ctx context.Context, req dashi.CommitRequ
 	}
 	return nil
 }
-func TestReopenedTurnKeepsRouteBeforeFirstModelAttempt(t *testing.T) {
+func TestReopenedTurnKeepsRouteBeforeFirstModelCall(t *testing.T) {
 	calls := 0
 	e, p := routedTestEngine(t, func(string) (int, string) { calls++; return 200, "continued answer" })
 	p.guidance, p.guidanceSet = "Recorded custom guidance", true

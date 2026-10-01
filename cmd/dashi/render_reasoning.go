@@ -38,7 +38,7 @@ func (r *Renderer) reasoningDelta(event dashi.Event) []Block {
 	}
 	return []Block{{ID: id, Kind: KindReasoning, Text: strings.Join(text, "\n\n")}}
 }
-func (r *Renderer) reasoningSettled(step dashi.Step) []Block {
+func (r *Renderer) reasoningFinished(step dashi.Step) []Block {
 	if !r.showReasoning || r.Origin == dashi.StartCompaction || step.Model == nil {
 		return nil
 	}

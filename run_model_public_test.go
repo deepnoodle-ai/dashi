@@ -337,20 +337,20 @@ func TestOneHourCacheBudgetUsesTheOneHourRate(t *testing.T) {
 	}
 	rate := money.MustParseAmount("6")
 	out := run(&rate)
-	var intent *dashi.ModelFact
+	var callStart *dashi.ModelFact
 	for _, step := range out.Turn.Steps {
 		if step.Kind == dashi.StepModelCallStarted {
-			intent = step.Model
+			callStart = step.Model
 		}
 	}
-	if out.Stop.Kind != dashi.StopCompleted || intent == nil ||
-		intent.WorstCaseCost == nil || intent.EstimatedInputTokens == 0 {
+	if out.Stop.Kind != dashi.StopCompleted || callStart == nil ||
+		callStart.WorstCaseCost == nil || callStart.EstimatedInputTokens == 0 {
 		t.Fatalf("capped one-hour turn: %+v", out.Stop)
 	}
 	// The input bound is priced at the $6 one-hour rate, the highest.
-	want := money.AmountFromNanos(int64(intent.EstimatedInputTokens) * 6000)
-	if intent.WorstCaseCost.Input != want {
-		t.Fatalf("reserved input %s, want %s at the one-hour rate", intent.WorstCaseCost.Input, want)
+	want := money.AmountFromNanos(int64(callStart.EstimatedInputTokens) * 6000)
+	if callStart.WorstCaseCost.Input != want {
+		t.Fatalf("reserved input %s, want %s at the one-hour rate", callStart.WorstCaseCost.Input, want)
 	}
 	out = run(nil)
 	if out.Stop.Kind != dashi.StopLimited || out.Stop.Limit == nil ||

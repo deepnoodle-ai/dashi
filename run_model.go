@@ -39,15 +39,15 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			return r.stop(StopFailed, err.Error()), false
 		}
 	}
-	finalAnswerOnly := purpose == "" && !r.agent.Limits.NoReservedFinalReply &&
+	finalReplyOnly := purpose == "" && !r.agent.Limits.NoReservedFinalReply &&
 		s.ModelCalls > 0 &&
-		s.ModelCalls+1 == s.attemptCap
+		s.ModelCalls+1 == s.modelCallCap
 	messages, err := turnMessagesWithHistory(r.turn, r.history)
 	if err != nil {
 		return r.stop(StopFailed, err.Error()), false
 	}
 	defs := []tool.Definition{}
-	if purpose == "" && !finalAnswerOnly && !r.agent.NoTools {
+	if purpose == "" && !finalReplyOnly && !r.agent.NoTools {
 		// Without a toolset the selection still runs, so a named tool
 		// warns that it is not offered.
 		var tools []tool.Tool
@@ -85,7 +85,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			},
 		)
 	}
-	system := modelSystem(r.agent.Instructions, structured, finalAnswerOnly)
+	system := modelSystem(r.agent.Instructions, structured, finalReplyOnly)
 	input := llm.Input{
 		Model:    r.agent.Model,
 		System:   system,
@@ -111,14 +111,14 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			input.Settings.PromptCache.Key = key
 		}
 	}
-	if finalAnswerOnly {
+	if finalReplyOnly {
 		input.Settings.ToolChoice = nil
 		input.Settings.ParallelTools = nil
 	}
 	// A request abandoned for an urgent steer before dispatch drops the
 	// hook answers of this pass; the next pass asks the hooks again.
 	mark := r.hookMark()
-	deliver, hidden, hookStop, ctxStop := r.beforeModel(s, &input, finalAnswerOnly, purpose)
+	deliver, hidden, hookStop, ctxStop := r.beforeModel(s, &input, finalReplyOnly, purpose)
 	// The intent records the tools offered, after any hides, and the names
 	// hidden, so a call to a hidden tool resolves from the record.
 	defs = input.Tools
@@ -152,7 +152,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		input.Tools = nil
 		defs = nil
 	}
-	if finalAnswerOnly {
+	if finalReplyOnly {
 		// The turn-wide call limit wins over a forced application-tool choice.
 		// BeforeSend still authorizes the actual prepared request.
 		input.Settings.ToolChoice = nil
@@ -266,15 +266,15 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		r.dropHooks(mark)
 		return RunResult{}, true
 	}
-	attempt := fmt.Sprintf("%s:model:%d", r.turn.ID, s.modelCalls+1)
-	messageID := attempt + ":message"
+	modelCall := fmt.Sprintf("%s:model:%d", r.turn.ID, s.modelCalls+1)
+	messageID := modelCall + ":message"
 	fact := &ModelFact{
 		Purpose:              purpose,
 		Compaction:           plan.clone(),
-		ModelCallID:          attempt,
+		ModelCallID:          modelCall,
 		MessageID:            messageID,
 		RequestHash:          canonjson.Hash(req.Body()),
-		FinalReplyOnly:       finalAnswerOnly,
+		FinalReplyOnly:       finalReplyOnly,
 		Reservation:          admission,
 		WorstCaseCost:        atRisk,
 		EstimatedInputTokens: llm.EstimatedInputTokens(req),
@@ -303,14 +303,14 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		if err != nil {
 			reason = context.Cause(r.ctx).Error()
 		}
-		settled := &ModelFact{
-			ModelCallID: attempt,
+		finished := &ModelFact{
+			ModelCallID: modelCall,
 			MessageID:   messageID,
 			Error:       reason,
 			Interrupted: InterruptRun,
 			NotSent:     true,
 		}
-		if o := r.commit(Step{Kind: StepModelCallFinished, Model: settled}); o != nil {
+		if o := r.commit(Step{Kind: StepModelCallFinished, Model: finished}); o != nil {
 			return *o, false
 		}
 		if err != nil {
@@ -318,7 +318,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		}
 		return r.pauseStop(), false
 	}
-	if h := r.handOff(call, attempt, messageID); h.done {
+	if h := r.handOff(call, modelCall, messageID); h.done {
 		return h.outcome, h.again
 	}
 	var result llm.Result
@@ -333,7 +333,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		llm.Call{
 			Request: req,
 			// The client may key durable work by this ID; see llm.CallIdentity.
-			Identity: llm.CallIdentity{TurnID: r.turn.ID, ModelCallID: attempt},
+			Identity: llm.CallIdentity{TurnID: r.turn.ID, ModelCallID: modelCall},
 		},
 	) {
 		if item.Delta != nil {
@@ -371,7 +371,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			if live {
 				r.emit(Event{
 					TurnID:      r.turn.ID,
-					ModelCallID: attempt,
+					ModelCallID: modelCall,
 					MessageID:   messageID,
 					Delta:       item.Delta,
 				})
@@ -403,7 +403,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	timeoutWon := sendReason == llm.ReasonResponseStartTimeout ||
 		sendReason == llm.ReasonStreamIdleTimeout ||
 		sendReason == llm.ReasonCallTimeout
-	settled := &ModelFact{ModelCallID: attempt, MessageID: messageID}
+	finished := &ModelFact{ModelCallID: modelCall, MessageID: messageID}
 	// A Dashi timeout reason proves its own timer fired before the cut, so
 	// the timeout wins and the steer stays undelivered. A result that
 	// completed as the cancel arrived also stands, and the steer waits for
@@ -411,26 +411,26 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	if !timeoutWon && r.ctx.Err() == nil &&
 		errors.Is(context.Cause(callCtx), errSteered) &&
 		!completeResult(result, sendErr, r.agent) {
-		return r.settleSteered(
+		return r.finishSteered(
 			s,
 			fact,
-			settled,
+			finished,
 			partial(InterruptSteering),
 			sendErr,
 			result,
 		)
 	}
 	if r.ctx.Err() != nil && !timeoutWon {
-		settled.Interrupted = InterruptRun
-		settled.Error = context.Cause(r.ctx).Error()
-		settled.ResultUnknown = tooldef.UnsafeProviderTool(defs)
-		settled.Result = partial(InterruptRun)
-		setSettlementCharge(fact, settled)
-		step := Step{Kind: StepModelCallFinished, Model: settled}
+		finished.Interrupted = InterruptRun
+		finished.Error = context.Cause(r.ctx).Error()
+		finished.ResultUnknown = tooldef.UnsafeProviderTool(defs)
+		finished.Result = partial(InterruptRun)
+		setFinishCharge(fact, finished)
+		step := Step{Kind: StepModelCallFinished, Model: finished}
 		if o := r.commit(step); o != nil {
 			return *o, false
 		}
-		if settled.ResultUnknown && r.runner.OnContextDone != ContextCancel &&
+		if finished.ResultUnknown && r.runner.OnContextDone != ContextCancel &&
 			!errors.Is(context.Cause(r.ctx), errTurnDeadline) {
 			return r.stop(
 				StopResultUnknown,
@@ -444,13 +444,13 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		// A failed call keeps what it streamed, with its reported usage.
 		result = mergeObserved(result, observedContent, observedUsage)
 		markIncomplete(&result)
-		settled.Error = sendErr.Error()
-		settled.ErrorReason = sendReason
-		settled.SendStatus = failureDisposition(sendErr, result)
-		settled.ResultUnknown = settled.SendStatus == llm.SendStatusUnknown
-		if !settled.ResultUnknown {
+		finished.Error = sendErr.Error()
+		finished.ErrorReason = sendReason
+		finished.SendStatus = sendStatusOf(sendErr, result)
+		finished.ResultUnknown = finished.SendStatus == llm.SendStatusUnknown
+		if !finished.ResultUnknown {
 			if failure, ok := errors.AsType[*llm.Error](sendErr); ok {
-				settled.Evidence = fmt.Sprintf(
+				finished.Evidence = fmt.Sprintf(
 					"client disposition %s; HTTP %d",
 					failure.SendStatus,
 					failure.Status,
@@ -470,7 +470,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			validationErr = validateModelResult(result, r.agent)
 		}
 		if validationErr != nil {
-			settled.Error = validationErr.Error()
+			finished.Error = validationErr.Error()
 		}
 	}
 	if sendErr == nil ||
@@ -478,17 +478,17 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		result.ID != "" ||
 		len(result.Message.Content) > 0 ||
 		result.Usage != nil {
-		settled.Result = &result
+		finished.Result = &result
 	}
-	setSettlementCharge(fact, settled)
-	if o := r.commit(Step{Kind: StepModelCallFinished, Model: settled}); o != nil {
+	setFinishCharge(fact, finished)
+	if o := r.commit(Step{Kind: StepModelCallFinished, Model: finished}); o != nil {
 		return *o, false
 	}
 	if r.ctx.Err() != nil && !timeoutWon {
 		return r.contextStop(), false
 	}
 	if sendErr != nil {
-		if settled.ResultUnknown {
+		if finished.ResultUnknown {
 			return r.stop(StopResultUnknown, sendErr.Error()), false
 		}
 		return r.stop(StopFailed, sendErr.Error()), false
@@ -528,7 +528,7 @@ type handOffResult struct {
 // as not dispatched, so the run goes back for the steer.
 func (r *runtime) handOff(
 	call *steerableCall,
-	attempt string,
+	modelCall string,
 	messageID string,
 ) handOffResult {
 	if call == nil {
@@ -554,14 +554,14 @@ func (r *runtime) handOff(
 		return handOffResult{}
 	}
 	r.unregisterCall(call)
-	settled := &ModelFact{
-		ModelCallID: attempt,
+	finished := &ModelFact{
+		ModelCallID: modelCall,
 		MessageID:   messageID,
 		Error:       errSteered.Error(),
 		Interrupted: InterruptSteering,
 		NotSent:     true,
 	}
-	if o := r.commit(Step{Kind: StepModelCallFinished, Model: settled}); o != nil {
+	if o := r.commit(Step{Kind: StepModelCallFinished, Model: finished}); o != nil {
 		return handOffResult{done: true, outcome: *o}
 	}
 	return handOffResult{done: true, again: true}
@@ -573,32 +573,32 @@ func (r *runtime) handOff(
 // does not count toward ModelCalls (U-8). Under a cost cap it is charged
 // the worst case reserved at admission, since a client may keep generating
 // after the cancel and the usage it reports so far is not final (U-9).
-func (r *runtime) settleSteered(
+func (r *runtime) finishSteered(
 	s *replayState,
-	intent *ModelFact,
-	settled *ModelFact,
+	callStart *ModelFact,
+	finished *ModelFact,
 	partial *llm.Result,
 	sendErr error,
 	result llm.Result,
 ) (RunResult, bool) {
-	settled.Interrupted = InterruptSteering
-	settled.Error = errSteered.Error()
+	finished.Interrupted = InterruptSteering
+	finished.Error = errSteered.Error()
 	// A SendStatusProviderRejected error that coincides with the cut settles as sent,
 	// and under a cap is charged the worst case. That over-charges a call
 	// the provider refused, which is harmless and keeps the rule simple.
 	switch {
-	case failureDisposition(sendErr, result) == llm.SendStatusNotSent:
-		settled.NotSent = true
-	case s.Budget != nil && s.Budget.MaxCost != nil && intent.WorstCaseCost != nil:
-		settled.Result = partial
-		charge := intent.WorstCaseCost.Clone()
-		settled.Cost = &charge
-		settled.EstimatedUsage = true
+	case sendStatusOf(sendErr, result) == llm.SendStatusNotSent:
+		finished.NotSent = true
+	case s.Budget != nil && s.Budget.MaxCost != nil && callStart.WorstCaseCost != nil:
+		finished.Result = partial
+		charge := callStart.WorstCaseCost.Clone()
+		finished.Cost = &charge
+		finished.EstimatedUsage = true
 	default:
-		settled.Result = partial
-		setSettlementCharge(intent, settled)
+		finished.Result = partial
+		setFinishCharge(callStart, finished)
 	}
-	if o := r.commit(Step{Kind: StepModelCallFinished, Model: settled}); o != nil {
+	if o := r.commit(Step{Kind: StepModelCallFinished, Model: finished}); o != nil {
 		return *o, false
 	}
 	return RunResult{}, true

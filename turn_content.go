@@ -13,7 +13,7 @@ import (
 // may be cited twice with different excerpts.
 func (t Turn) Citations() []content.Citation {
 	var out []content.Citation
-	for _, result := range settledResults(t.Steps) {
+	for _, result := range finishedResults(t.Steps) {
 		for _, part := range result.Message.Content {
 			if part.Kind != llm.ContentBlock ||
 				part.Block == nil ||
@@ -36,7 +36,7 @@ func (t Turn) Citations() []content.Citation {
 func (t Turn) ProviderToolUses() []llm.ProviderToolUse {
 	var out []llm.ProviderToolUse
 	index := map[string]int{}
-	for _, result := range settledResults(t.Steps) {
+	for _, result := range finishedResults(t.Steps) {
 		for _, part := range result.Message.Content {
 			switch {
 			case part.Kind == llm.ContentProviderToolUse && part.ProviderToolUse != nil:
@@ -59,7 +59,7 @@ func (t Turn) ProviderToolUses() []llm.ProviderToolUse {
 
 // settledResults returns the actionable assistant results in step order:
 // settled or reconciled calls that neither failed nor were interrupted.
-func settledResults(steps []Step) []*llm.Result {
+func finishedResults(steps []Step) []*llm.Result {
 	var out []*llm.Result
 	turn := Turn{Steps: steps}
 	for _, step := range steps {

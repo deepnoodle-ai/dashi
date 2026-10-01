@@ -207,7 +207,7 @@ func TestManualCompactionEnterLeavesQueuedPromptPending(t *testing.T) {
 	}
 }
 
-type lostAdmission struct {
+type lostStartRecord struct {
 	*filerecorder.Recorder
 	mu         sync.Mutex
 	lost       bool
@@ -215,7 +215,7 @@ type lostAdmission struct {
 	target     string
 }
 
-func (r *lostAdmission) Commit(ctx context.Context, req dashi.CommitRequest) error {
+func (r *lostStartRecord) Commit(ctx context.Context, req dashi.CommitRequest) error {
 	r.mu.Lock()
 	lose := !r.lost && req.Step.Kind == dashi.StepTurnStarted && req.Step.Started.Origin != dashi.StartCompaction
 	if lose {
@@ -231,7 +231,7 @@ func (r *lostAdmission) Commit(ctx context.Context, req dashi.CommitRequest) err
 	}
 	return nil
 }
-func (r *lostAdmission) Load(ctx context.Context, id string) (dashi.Turn, error) {
+func (r *lostStartRecord) Load(ctx context.Context, id string) (dashi.Turn, error) {
 	r.mu.Lock()
 	fail := r.unreadable && id == r.target
 	r.mu.Unlock()
@@ -246,9 +246,9 @@ func TestPendingStartUnknownAcknowledgment(t *testing.T) {
 		t.Run(map[bool]string{false: "readable", true: "unreadable"}[blocked], func(t *testing.T) {
 			h := newHarness(t, say("Delivered once."), say("Later."))
 			h.app.eng.Close()
-			var rec *lostAdmission
+			var rec *lostStartRecord
 			h.recorder = func(r *filerecorder.Recorder) dashi.Recorder {
-				rec = &lostAdmission{Recorder: r, unreadable: blocked}
+				rec = &lostStartRecord{Recorder: r, unreadable: blocked}
 				return rec
 			}
 			h.build(Options{Resume: true})

@@ -146,7 +146,7 @@ func TestFollowerLeavingDoesNotCancel(t *testing.T) {
 
 // Follow ends at a terminal stop; a late result recorded after it is read
 // with StepsAfter from the stop's Seq, as an accounting reader would.
-func TestLateResultAfterTerminalStopIsReadable(t *testing.T) {
+func TestLateResultAfterEndedStopIsReadable(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote")}}
 	rec := NewMemoryRecorder()
 	panics := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
@@ -317,7 +317,7 @@ func TestFollowPollsSlowlyWhileResting(t *testing.T) {
 
 // Settles names what a step supersedes in a real run: model_call_started
 // carries the deltas' MessageID but settles nothing.
-func TestStepSettles(t *testing.T) {
+func TestStepFinishes(t *testing.T) {
 	ok := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 		return tool.Succeeded("done"), nil
 	})
@@ -339,9 +339,9 @@ func TestStepSettles(t *testing.T) {
 			steps = append(steps, *event.Step)
 		}
 	}
-	settled := map[string]bool{}
+	finished := map[string]bool{}
 	for _, step := range steps {
-		id := step.Settles()
+		id := step.Finishes()
 		switch step.Kind {
 		case StepModelCallStarted:
 			if !deltaMessages[step.Model.MessageID] {
@@ -364,16 +364,16 @@ func TestStepSettles(t *testing.T) {
 			}
 		}
 		if id != "" {
-			settled[id] = true
+			finished[id] = true
 		}
 	}
-	if len(settled) != len(deltaMessages)+1 {
-		t.Fatalf("settled=%v deltas=%v", settled, deltaMessages)
+	if len(finished) != len(deltaMessages)+1 {
+		t.Fatalf("settled=%v deltas=%v", finished, deltaMessages)
 	}
 }
 
 // A reader whose cursor is already the terminal stop ends at once.
-func TestFollowFromTerminalCursorEndsAtOnce(t *testing.T) {
+func TestFollowFromEndedCursorEndsAtOnce(t *testing.T) {
 	setFollowIntervals(t, time.Hour, time.Hour, time.Hour)
 	rec := NewMemoryRecorder()
 	first, runner := pausedTurn(t, rec)

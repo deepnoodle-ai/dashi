@@ -25,8 +25,8 @@ func (r *runtime) run() RunResult {
 		if r.ctx.Err() != nil {
 			return r.contextStop()
 		}
-		if s.modelIntent != "" {
-			if o := r.recoverModelIntent(s); o != nil {
+		if s.modelCallStart != "" {
+			if o := r.recoverModelCallStart(s); o != nil {
 				return *o
 			}
 			continue
@@ -80,7 +80,7 @@ func (r *runtime) run() RunResult {
 		if stop := budgetSpentStop(s); stop != nil {
 			return r.stopWith(stop)
 		}
-		if s.attemptCap <= s.ModelCalls {
+		if s.modelCallCap <= s.ModelCalls {
 			return r.stop(StopLimited, string(LimitModelCalls))
 		}
 		if !r.agent.Limits.Deadline.IsZero() &&
@@ -133,7 +133,7 @@ func (r *runtime) selectTools(s *replayState, tools []tool.Tool) []tool.Tool {
 	return selected
 }
 
-func (r *runtime) recoverModelIntent(s *replayState) *RunResult {
+func (r *runtime) recoverModelCallStart(s *replayState) *RunResult {
 	unsafe := false
 	for _, def := range s.modelDefs {
 		if def.Kind == tool.KindProviderTool && !tooldef.SafeRepeat(def) {
@@ -142,13 +142,13 @@ func (r *runtime) recoverModelIntent(s *replayState) *RunResult {
 		}
 	}
 	fact := &ModelFact{
-		ModelCallID:   s.modelIntent,
-		MessageID:     s.modelMessages[s.modelIntent],
+		ModelCallID:   s.modelCallStart,
+		MessageID:     s.modelMessages[s.modelCallStart],
 		Error:         "worker stopped before model result",
 		Interrupted:   InterruptWorker,
 		ResultUnknown: unsafe,
 	}
-	setSettlementCharge(s.modelIntents[s.modelIntent], fact)
+	setFinishCharge(s.startedModelCalls[s.modelCallStart], fact)
 	if o := r.commit(Step{Kind: StepModelCallFinished, Model: fact}); o != nil {
 		return o
 	}

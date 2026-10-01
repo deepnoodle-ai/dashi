@@ -21,7 +21,7 @@ func TestNamedFinishContextSurvivesFreshRunnerResume(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	firstClient := dashitest.NewClient(dashitest.Reply("draft"))
-	firstDeliveries := 0
+	firstMessageItems := 0
 	firstRunner := dashi.Runner{
 		Client:   firstClient,
 		Recorder: recorder,
@@ -32,7 +32,7 @@ func TestNamedFinishContextSurvivesFreshRunnerResume(t *testing.T) {
 					if _, ok := plan.Turn.Context(item.Origin, item.Name); ok {
 						t.Fatal("first finish already contains the named context")
 					}
-					firstDeliveries++
+					firstMessageItems++
 					return dashi.FinishDecision{AddMessages: []dashi.ContextItem{item}}, nil
 				},
 			}},
@@ -58,8 +58,8 @@ func TestNamedFinishContextSurvivesFreshRunnerResume(t *testing.T) {
 	if err != nil || first.Stop.Kind != dashi.StopInterrupted {
 		t.Fatalf("first stop=%+v err=%v", first.Stop, err)
 	}
-	if firstDeliveries != 1 || len(firstClient.Inputs()) != 1 {
-		t.Fatalf("first deliveries=%d model calls=%d", firstDeliveries, len(firstClient.Inputs()))
+	if firstMessageItems != 1 || len(firstClient.Inputs()) != 1 {
+		t.Fatalf("first deliveries=%d model calls=%d", firstMessageItems, len(firstClient.Inputs()))
 	}
 
 	// Load the durable record. The new runner, client, and hook do not use

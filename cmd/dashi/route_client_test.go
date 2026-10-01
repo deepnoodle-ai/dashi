@@ -63,7 +63,7 @@ func TestTurnClientSendsFrozenRequestOnOriginalDestination(t *testing.T) {
 	}
 }
 
-func TestRecordedRouteHashPrecedesFirstAttempt(t *testing.T) {
+func TestRecordedRouteHashPrecedesFirstModelCall(t *testing.T) {
 	d := configuredDestination{ID: "team", Definition: destinationDefinition{API: "openai.responses", Endpoint: "https://team.test/responses", Models: []string{"same/model"}, DefaultModel: "same/model", CredentialEnv: "TEAM_KEY"}}
 	agent, err := selectionAgent(resolvedSelection{Destination: d, Model: "same/model"}, llm.Settings{Temperature: new(0.0)})
 	if err != nil {

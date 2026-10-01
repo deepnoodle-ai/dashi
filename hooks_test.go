@@ -423,13 +423,13 @@ func TestBeforeModelChainsSettingsAndSkipsFailures(t *testing.T) {
 	if failed != 2 {
 		t.Fatalf("warnings = %+v", out.Warnings)
 	}
-	intent := out.Turn.Steps[1]
-	if intent.Kind != StepModelCallStarted || len(intent.HookResults) != 3 {
-		t.Fatalf("intent = %+v", intent)
+	callStart := out.Turn.Steps[1]
+	if callStart.Kind != StepModelCallStarted || len(callStart.HookResults) != 3 {
+		t.Fatalf("intent = %+v", callStart)
 	}
 }
 
-func TestBeforeModelStopDiscardsDeliveries(t *testing.T) {
+func TestBeforeModelStopDiscardsAddedMessages(t *testing.T) {
 	item := ContextItem{
 		Origin:  ContextRuntime,
 		Name:    "note",
@@ -499,7 +499,7 @@ func TestContextViewTracksLiveNamedItems(t *testing.T) {
 	}
 }
 
-func TestBeforeSendAdmissionDenyAndFailure(t *testing.T) {
+func TestBeforeSendReservationDenyAndFailure(t *testing.T) {
 	admit := func(name, terms string) SendHook {
 		return SendHook{Name: name, Func: func(context.Context, SendPlan) (SendDecision, error) {
 			return SendDecision{Reservation: json.RawMessage(terms)}, nil
@@ -541,7 +541,7 @@ func TestBeforeSendAdmissionDenyAndFailure(t *testing.T) {
 	}
 }
 
-func TestHookFailedStopResumesWithoutCountingInterruption(t *testing.T) {
+func TestHookFailedStopResumesWithoutCountingResume(t *testing.T) {
 	fail := true
 	flaky := SendHook{Name: "flaky", Func: func(context.Context, SendPlan) (SendDecision, error) {
 		if fail {
@@ -571,7 +571,7 @@ func TestHookFailedStopResumesWithoutCountingInterruption(t *testing.T) {
 	}
 }
 
-func TestBeforeFinishDeliversAcceptsEmptyAndRetries(t *testing.T) {
+func TestBeforeFinishAddsMessagesAcceptsEmptyAndRetries(t *testing.T) {
 	t.Run("deliver continues", func(t *testing.T) {
 		asked := 0
 		green := FinishHook{Name: "tests", Func: func(
@@ -674,7 +674,7 @@ func TestBeforeFinishSeesStructuredOutputOrItsError(t *testing.T) {
 	}
 }
 
-func TestBeforeFinishDeliveryDroppedOnReservedFinalAnswer(t *testing.T) {
+func TestBeforeFinishMessagesDroppedOnReservedFinalReply(t *testing.T) {
 	always := FinishHook{Name: "more", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
 		return FinishDecision{AddMessages: []ContextItem{{
 			Origin:  ContextRuntime,
@@ -703,7 +703,7 @@ func TestBeforeFinishDeliveryDroppedOnReservedFinalAnswer(t *testing.T) {
 	}
 }
 
-func TestBeforeFinishDeliveryDroppedWithoutReserveAtLastAttempt(t *testing.T) {
+func TestBeforeFinishMessagesDroppedWithoutReserveAtLastModelCall(t *testing.T) {
 	more := FinishHook{Name: "more", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
 		return FinishDecision{AddMessages: []ContextItem{{
 			Message: llm.UserMessage(llm.Text("keep going")),
@@ -755,7 +755,7 @@ func TestBeforeModelInvalidSettingsAreSkipped(t *testing.T) {
 	}
 }
 
-func TestBeforeFinishDeliveryCannotSpendTheReservedCall(t *testing.T) {
+func TestBeforeFinishMessagesCannotSpendTheReservedCall(t *testing.T) {
 	more := FinishHook{Name: "more", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
 		return FinishDecision{AddMessages: []ContextItem{{
 			Message: llm.UserMessage(llm.Text("keep going")),
@@ -781,23 +781,23 @@ func TestBeforeFinishDeliveryCannotSpendTheReservedCall(t *testing.T) {
 
 func TestRoomForNormalCallCountsACallInFlight(t *testing.T) {
 	s := &replayState{}
-	s.attemptCap = 8
+	s.modelCallCap = 8
 	for _, tc := range []struct {
-		settled  int
+		finished int
 		inFlight bool
 		reserve  bool
 		want     bool
 	}{
-		{settled: 6, reserve: true, want: true},
-		{settled: 7, reserve: true, want: false},
-		{settled: 6, inFlight: true, reserve: true, want: false},
-		{settled: 7, reserve: false, want: true},
-		{settled: 7, inFlight: true, reserve: false, want: false},
+		{finished: 6, reserve: true, want: true},
+		{finished: 7, reserve: true, want: false},
+		{finished: 6, inFlight: true, reserve: true, want: false},
+		{finished: 7, reserve: false, want: true},
+		{finished: 7, inFlight: true, reserve: false, want: false},
 	} {
-		s.ModelCalls = tc.settled
-		s.modelIntent = ""
+		s.ModelCalls = tc.finished
+		s.modelCallStart = ""
 		if tc.inFlight {
-			s.modelIntent = "t1:model:x"
+			s.modelCallStart = "t1:model:x"
 		}
 		s.Agent.Limits.NoReservedFinalReply = !tc.reserve
 		if got := s.roomForNormalCall(); got != tc.want {
@@ -806,7 +806,7 @@ func TestRoomForNormalCallCountsACallInFlight(t *testing.T) {
 	}
 }
 
-func TestFinishDeliveryChecksTheCostCap(t *testing.T) {
+func TestFinishAddedMessagesCheckTheCostCap(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		cap   string
@@ -1090,10 +1090,10 @@ func TestPendingApproveNeedsOnlyCallAndArguments(t *testing.T) {
 	}
 	// The answer comes from a handler whose Runner has no hooks, which
 	// Resolve does not need; that is not a change of hooks.
-	settler := runner
-	settler.Hooks = Hooks{}
+	finishr := runner
+	finishr.Hooks = Hooks{}
 	answer := out.Pending[0].Approve()
-	if out, err = settler.Run(t.Context(), out.Turn, answer); err != nil {
+	if out, err = finishr.Run(t.Context(), out.Turn, answer); err != nil {
 		t.Fatal(err)
 	}
 	stale := answer
@@ -1192,7 +1192,7 @@ func TestHookErrorAfterContextEndsAtEveryPoint(t *testing.T) {
 	}
 }
 
-func TestDeliveryAfterFinishFailureAsksTheModelAgain(t *testing.T) {
+func TestAddedMessagesAfterFinishFailureAsksTheModelAgain(t *testing.T) {
 	fail := true
 	guard := FinishHook{Name: "guard", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
 		if fail {
@@ -1231,7 +1231,7 @@ func TestDeliveryAfterFinishFailureAsksTheModelAgain(t *testing.T) {
 	}
 }
 
-func TestDeliveryAfterFinishFailureWithNoCallLeftIsDropped(t *testing.T) {
+func TestAddedMessagesAfterFinishFailureWithNoCallLeftIsDropped(t *testing.T) {
 	fail := true
 	guard := FinishHook{Name: "guard", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
 		if fail {
@@ -1276,7 +1276,7 @@ func TestDeliveryAfterFinishFailureWithNoCallLeftIsDropped(t *testing.T) {
 	}
 }
 
-func TestFinishFailureOnReservedFinalAnswerResumesWithoutACall(t *testing.T) {
+func TestFinishFailureOnReservedFinalReplyResumesWithoutACall(t *testing.T) {
 	fail := true
 	guard := FinishHook{Name: "guard", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
 		if fail {

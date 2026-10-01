@@ -120,7 +120,7 @@ func (r *runtime) commit(step Step) *RunResult {
 	step.At = time.Now().UTC()
 	if step.Kind == StepTurnStopped && step.Stop != nil {
 		stop := *step.Stop
-		stop.Ended = r.terminalAfter(stop)
+		stop.Ended = r.endsTurnAfter(stop)
 		step.Stop = &stop
 	}
 	if step.Kind == StepModelCallStarted {
@@ -187,13 +187,13 @@ func (r *runtime) commit(step Step) *RunResult {
 
 // terminalAfter reports whether recording stop would end the turn. A stop
 // changes none of the state terminal reads except the stop itself.
-func (r *runtime) terminalAfter(stop Stop) bool {
+func (r *runtime) endsTurnAfter(stop Stop) bool {
 	state, err := replay(r.turn)
 	if err != nil {
 		// The commit's own replay check reports the broken record.
 		return false
 	}
-	return state.stopTerminal(stop)
+	return state.stopEnds(stop)
 }
 
 // emit stamps event.Seq with the number of recorded steps, so a step event
@@ -270,7 +270,7 @@ func (r *runtime) stop(kind StopKind, reason string) RunResult {
 		case LimitModelCalls:
 			stop.Limit = &LimitDetail{
 				Kind:  LimitModelCalls,
-				Limit: int64(state.attemptCap),
+				Limit: int64(state.modelCallCap),
 				Used:  int64(state.ModelCalls),
 			}
 		case LimitResumes:
@@ -310,7 +310,7 @@ func (r *runtime) stopAfterAnswer(s *replayState) RunResult {
 	}
 	// The reserved final call ends at the model-call limit. After Continue
 	// raises the limit, a recorded answer completes the turn.
-	if s.finalAnswerOnly && s.attemptCap <= s.ModelCalls {
+	if s.finalReplyOnly && s.modelCallCap <= s.ModelCalls {
 		return r.stop(StopLimited, string(LimitModelCalls))
 	}
 	return r.stop(StopCompleted, "")

@@ -120,7 +120,7 @@ func runWithRef(
 	return out
 }
 
-func requireNoModelIntent(t *testing.T, out RunResult, client *scriptedClient) {
+func requireNoModelCallStart(t *testing.T, out RunResult, client *scriptedClient) {
 	t.Helper()
 	for _, step := range out.Turn.Steps {
 		if step.Kind == StepModelCallStarted {
@@ -370,7 +370,7 @@ func TestRefFromHookIsHydrated(t *testing.T) {
 	}
 }
 
-func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
+func TestRefFailuresStopBeforeModelCallStart(t *testing.T) {
 	good := refFor("upl_1", refBytes)
 	wrongSize := good
 	wrongSize.Size++
@@ -462,7 +462,7 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 				out.Stop.RefID != "upl_1" || out.Stop.Ended {
 				t.Fatalf("stop = %+v, want %q", out.Stop, tt.want)
 			}
-			requireNoModelIntent(t, out, client)
+			requireNoModelCallStart(t, out, client)
 			if r, ok := tt.resolver.(*countingResolver); ok {
 				if r.count() != tt.resolved {
 					t.Fatalf("resolves = %d, want %d", r.count(), tt.resolved)
@@ -895,7 +895,7 @@ func TestRefInProviderToolUseOutputStopsWithoutResolver(t *testing.T) {
 	if out.Stop.Reason != StopReasonContentNoLoader {
 		t.Fatalf("stop = %+v", out.Stop)
 	}
-	requireNoModelIntent(t, out, client)
+	requireNoModelCallStart(t, out, client)
 }
 
 // reusedBuffer returns one scratch slice for every reference.

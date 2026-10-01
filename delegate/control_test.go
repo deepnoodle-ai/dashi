@@ -51,7 +51,7 @@ func waitingChild(t *testing.T, store func(*dashi.MemoryRecorder) dashi.Recorder
 	return h
 }
 
-func TestTaskRunSettlesExactWaitingChildWithoutRepeatingEffect(t *testing.T) {
+func TestTaskRunFinishesExactWaitingChildWithoutRepeatingEffect(t *testing.T) {
 	h := waitingChild(t, nil)
 	original := target(h, t)
 	if h.ran.Load() != 1 {
@@ -61,18 +61,18 @@ func TestTaskRunSettlesExactWaitingChildWithoutRepeatingEffect(t *testing.T) {
 		t.Fatalf("wrong call accepted: %+v", out)
 	}
 	attention(h, t)
-	settlement := dashi.Resolve{CommandID: "verify-write", CallID: "c1", Outcome: ptrOutcome(tool.Succeeded("Operator verified this exact call completed; its output was not captured."))}
-	settled, err := h.tasks.Run(t.Context(), original, settlement)
+	finish := dashi.Resolve{CommandID: "verify-write", CallID: "c1", Outcome: ptrOutcome(tool.Succeeded("Operator verified this exact call completed; its output was not captured."))}
+	finished, err := h.tasks.Run(t.Context(), original, finish)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if h.ran.Load() != 1 || len(h.tasks.List()) != 1 || h.tasks.List()[0].Turns != 1 {
 		t.Fatal("settlement dispatched or created another child")
 	}
-	if _, err = h.tasks.Run(t.Context(), original, settlement); err != nil {
+	if _, err = h.tasks.Run(t.Context(), original, finish); err != nil {
 		t.Fatalf("identical stale receipt: %v", err)
 	}
-	changed := settlement
+	changed := finish
 	changed.Outcome = ptrOutcome(tool.Succeeded("different captured output"))
 	if _, err = h.tasks.Run(t.Context(), original, changed); !errors.Is(err, dashi.ErrCommandIDReused) {
 		t.Fatalf("payload conflict: %v", err)
@@ -80,7 +80,7 @@ func TestTaskRunSettlesExactWaitingChildWithoutRepeatingEffect(t *testing.T) {
 	if _, err = h.tasks.Run(t.Context(), original, dashi.Continue{CommandID: "stale"}); !errors.Is(err, dashi.ErrStaleTurn) {
 		t.Fatalf("stale action: %v", err)
 	}
-	out, err := h.tasks.Run(t.Context(), delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), LastSeq: settled.LastSeq}, dashi.Continue{CommandID: "finish"})
+	out, err := h.tasks.Run(t.Context(), delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), LastSeq: finished.LastSeq}, dashi.Continue{CommandID: "finish"})
 	if err != nil || out.Reply != "child finished" {
 		t.Fatalf("answer=%q err=%v", out.Reply, err)
 	}
@@ -89,7 +89,7 @@ func TestTaskRunSettlesExactWaitingChildWithoutRepeatingEffect(t *testing.T) {
 		t.Fatalf("event=%+v writes=%d", event, h.ran.Load())
 	}
 
-	if _, err = h.tasks.Run(t.Context(), original, settlement); err != nil {
+	if _, err = h.tasks.Run(t.Context(), original, finish); err != nil {
 		t.Fatalf("receipt after later work: %v", err)
 	}
 	select {
@@ -149,7 +149,7 @@ func (r *commandAckRecorder) Commit(ctx context.Context, req dashi.CommitRequest
 	}
 	return r.MemoryRecorder.Commit(ctx, req)
 }
-func TestTaskRunUnknownCommandReconciliation(t *testing.T) {
+func TestTaskRunUnknownCommandResolution(t *testing.T) {
 	for _, mode := range []int32{1, 2} {
 		t.Run(map[int32]string{1: "absent", 2: "committed"}[mode], func(t *testing.T) {
 			var recorder *commandAckRecorder

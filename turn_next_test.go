@@ -35,7 +35,7 @@ func nextRows() []nextRow {
 		return &Stop{Kind: StopLimited, Reason: string(kind), Limit: &LimitDetail{Kind: kind}}
 	}
 	usd := func(amount money.Amount) *Money { return &Money{Amount: amount, Currency: "USD"} }
-	attemptsSpent := func(s *replayState) { s.ModelCalls = s.attemptCap }
+	modelCallsSpent := func(s *replayState) { s.ModelCalls = s.modelCallCap }
 	costSpent := func(s *replayState) {
 		s.Budget = &Budget{MaxCost: usd(100)}
 		s.Spend.Cost = map[string]money.Amount{"USD": 100}
@@ -46,7 +46,7 @@ func nextRows() []nextRow {
 		{name: "no stop", want: NextRecover},
 		{
 			name:  "no stop, model attempt in flight",
-			setup: func(s *replayState) { s.modelIntent = "m1" },
+			setup: func(s *replayState) { s.modelCallStart = "m1" },
 			want:  NextRecover,
 		},
 		{name: "completed", covers: []string{"completed/"}, stop: &Stop{Kind: StopCompleted}, want: NextNone},
@@ -73,7 +73,7 @@ func nextRows() []nextRow {
 			name:   "model attempts",
 			covers: []string{"limited/model_calls"},
 			stop:   limited(LimitModelCalls),
-			setup:  attemptsSpent,
+			setup:  modelCallsSpent,
 			want:   NextRaiseModelCalls,
 		},
 		{
@@ -86,7 +86,7 @@ func nextRows() []nextRow {
 		{
 			name:  "cost after the last attempt",
 			stop:  limited(LimitCost),
-			setup: func(s *replayState) { costSpent(s); attemptsSpent(s) },
+			setup: func(s *replayState) { costSpent(s); modelCallsSpent(s) },
 			want:  NextRaiseBudget,
 		},
 		{
@@ -277,8 +277,8 @@ func nextRows() []nextRow {
 			name: "output recorded at the model-call limit",
 			stop: limited(LimitModelCalls),
 			setup: func(s *replayState) {
-				attemptsSpent(s)
-				s.finalAnswerOnly = true
+				modelCallsSpent(s)
+				s.finalReplyOnly = true
 				s.Output = &StructuredOutput{}
 			},
 			want: NextRaiseModelCalls,
@@ -302,7 +302,7 @@ func rowView(row nextRow) TurnView {
 		providerTool: map[string]llm.ProviderToolApprovalRequest{},
 	}
 	s.Agent.Limits.Resumes = 2
-	s.attemptCap, s.ModelCalls = 8, 1
+	s.modelCallCap, s.ModelCalls = 8, 1
 	if row.stop != nil {
 		s.Stop = *row.stop
 	}
@@ -495,7 +495,7 @@ func limitKind(e ast.Expr) ast.Expr {
 func TestNextReadsRecordedStop(t *testing.T) {
 	crashed := interruptionRecord(
 		interruptionStart(testAgent()),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 	)
 	view, err := crashed.View()
 	if err != nil {
@@ -555,7 +555,7 @@ func TestNextIsRunningInHookView(t *testing.T) {
 func TestNextSurvivesJSON(t *testing.T) {
 	crashed := interruptionRecord(
 		interruptionStart(testAgent()),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 	)
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	done, err := (Runner{Client: client}).Run(

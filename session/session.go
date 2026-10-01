@@ -327,7 +327,7 @@ func (s *Session) Open(ctx context.Context) (State, error) {
 		return State{Next: dashi.NextNone, Queued: queued}, nil
 	}
 	// A reservation that cannot be settled holds only the queue back.
-	_ = s.settleReserved(ctx)
+	_ = s.finishReserved(ctx)
 	last, err := s.findLast(ctx)
 	if err != nil {
 		return State{}, err
@@ -369,7 +369,7 @@ func (s *Session) planCommand(
 		return commandPlan{}, ErrNotFound
 	}
 	// A reservation that cannot be settled holds only the queue back.
-	_ = s.settleReserved(ctx)
+	_ = s.finishReserved(ctx)
 	last, err := s.findLast(ctx)
 	if err != nil {
 		return commandPlan{}, err
@@ -457,7 +457,7 @@ func (s *Session) planStart(
 	}
 	// A reservation that cannot be settled holds only the queue back; its
 	// items are not free, so this Start does not take them.
-	_ = s.settleReserved(ctx)
+	_ = s.finishReserved(ctx)
 	last, err := s.findLast(ctx)
 	if err != nil {
 		return startPlan{}, err
@@ -706,7 +706,7 @@ func (s *Session) finish(
 		s.compacting = ""
 	}
 	if reserved != nil {
-		err = s.settle(ctx, reserved, started, err)
+		err = s.decideReserved(ctx, reserved, started, err)
 	}
 	if out.Turn.ID == id && len(out.Turn.Steps) > 0 {
 		s.store(n, out.Turn)

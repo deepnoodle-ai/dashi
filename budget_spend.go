@@ -190,29 +190,29 @@ type ModelCallCost struct {
 // StepModelCallStarted step can call it in the commit of the StepModelCallFinished or
 // StepModelCallFinishedByHost step, with the intent it stored at reservation, to
 // settle the hold in the same transaction. A nil intent gives the zero value.
-func ModelCallCostOf(intent, settlement *ModelFact) ModelCallCost {
-	if intent == nil {
+func ModelCallCostOf(callStart, finish *ModelFact) ModelCallCost {
+	if callStart == nil {
 		return ModelCallCost{}
 	}
-	a, _ := attemptSpendOf(intent, settlement)
+	a, _ := modelCallCostOf(callStart, finish)
 	return a
 }
 
 // attemptSpendOf is ModelCallCostOf that also reports whether usage
 // derivation was incomplete, which sets Spend.UsageIncomplete.
-func attemptSpendOf(intent, settlement *ModelFact) (ModelCallCost, bool) {
+func modelCallCostOf(callStart, finish *ModelFact) (ModelCallCost, bool) {
 	a := ModelCallCost{
-		ModelCallID: intent.ModelCallID,
-		Purpose:     intent.Purpose,
-		Provider:    intent.Provider,
-		Model:       intent.Model,
-		Finished:    settlement != nil,
+		ModelCallID: callStart.ModelCallID,
+		Purpose:     callStart.Purpose,
+		Provider:    callStart.Provider,
+		Model:       callStart.Model,
+		Finished:    finish != nil,
 		UsageSource: UsageSourceReported,
 	}
-	if intent.WorstCaseCost != nil {
-		a.WorstCaseCost = new(intent.WorstCaseCost.Clone())
+	if callStart.WorstCaseCost != nil {
+		a.WorstCaseCost = new(callStart.WorstCaseCost.Clone())
 	}
-	usage, charge, estimated, counted, incomplete := attemptSpend(intent, settlement)
+	usage, charge, estimated, counted, incomplete := modelCallCost(callStart, finish)
 	if !counted {
 		a.UsageSource = UsageSourceNotSent
 		a.Exact = true

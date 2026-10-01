@@ -12,11 +12,11 @@ import (
 func TestActiveContextRendererKeepsSummaryOutOfAnswers(t *testing.T) {
 	r := NewRenderer(1, "fixture", "")
 	r.showReasoning = true
-	intent := dashi.Step{Kind: dashi.StepModelCallStarted, TurnID: "turn", Model: &dashi.ModelFact{
+	callStart := dashi.Step{Kind: dashi.StepModelCallStarted, TurnID: "turn", Model: &dashi.ModelFact{
 		ModelCallID: "summary", Purpose: dashi.ModelPurposeCompaction,
 		Compaction: &dashi.ContextCompactionPlan{EstimatedBefore: 12000},
 	}}
-	start := onlyBlock(t, r.Event(stepEvent(intent)))
+	start := onlyBlock(t, r.Event(stepEvent(callStart)))
 	if start.Kind != KindCompaction || start.Done {
 		t.Fatalf("summary was not presented as running compaction: %+v", start)
 	}
@@ -25,11 +25,11 @@ func TestActiveContextRendererKeepsSummaryOutOfAnswers(t *testing.T) {
 			t.Fatalf("summary preview leaked: %+v", got)
 		}
 	}
-	settlement := dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{
+	finish := dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{
 		ModelCallID: "summary", Result: &llm.Result{Message: llm.AssistantMessage(llm.Text("PRIVATE SUMMARY"))},
 	}}
 	// Purpose is inherited from the intent even if a settlement omits it.
-	for _, b := range r.Event(stepEvent(settlement)) {
+	for _, b := range r.Event(stepEvent(finish)) {
 		if b.Kind != KindCompaction || strings.Contains(b.Text, "PRIVATE SUMMARY") {
 			t.Fatalf("settled summary leaked: %+v", b)
 		}
@@ -83,7 +83,7 @@ func TestActiveContextRendererFailureUnavailableAndStops(t *testing.T) {
 	}
 }
 
-func TestCLIActiveContextWindowPinnedPerAdmission(t *testing.T) {
+func TestCLIActiveContextWindowPinnedPerRecordedStart(t *testing.T) {
 	h := newHarness(t, say("First."), say("Second."))
 	h.client.mu.Lock()
 	h.client.window = 20000

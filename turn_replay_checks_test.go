@@ -33,14 +33,14 @@ func testStop(kind StopKind, limit LimitKind) *Stop {
 	return stop
 }
 
-func TestTerminalStops(t *testing.T) {
+func TestEndedStops(t *testing.T) {
 	limited := func(kind LimitKind) Stop {
 		return Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: kind}}
 	}
 	tests := []struct {
 		name        string
 		stop        Stop
-		attempts    int
+		modelCalls  int
 		costUnknown int
 		want        bool
 	}{
@@ -54,13 +54,13 @@ func TestTerminalStops(t *testing.T) {
 		{name: "uncertain", stop: Stop{Kind: StopResultUnknown}},
 		{name: "deadline", stop: limited(LimitDeadline), want: true},
 		{name: "resumes", stop: limited(LimitResumes), want: true},
-		{name: "model attempts", stop: limited(LimitModelCalls), attempts: 8},
-		{name: "cost after last attempt", stop: limited(LimitCost), attempts: 8},
-		{name: "host after last attempt", stop: limited(LimitHost), attempts: 9},
+		{name: "model attempts", stop: limited(LimitModelCalls), modelCalls: 8},
+		{name: "cost after last attempt", stop: limited(LimitCost), modelCalls: 8},
+		{name: "host after last attempt", stop: limited(LimitHost), modelCalls: 9},
 		{name: "cost", stop: limited(LimitCost)},
 		{name: "cost with unknown spend", stop: limited(LimitCost), costUnknown: 1, want: true},
 		{name: "unpriced model", stop: Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: LimitCost, UnpricedModel: "m"}}},
-		{name: "output tokens", stop: limited(LimitOutputTokens), attempts: 7},
+		{name: "output tokens", stop: limited(LimitOutputTokens), modelCalls: 7},
 		{name: "total tokens", stop: limited(LimitTotalTokens)},
 		{name: "provider pauses", stop: limited(LimitProviderPauses)},
 		{name: "host", stop: limited(LimitHost)},
@@ -69,8 +69,8 @@ func TestTerminalStops(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &replayState{}
-			s.Stop, s.ModelCalls = tt.stop, tt.attempts
-			s.attemptCap = 8
+			s.Stop, s.ModelCalls = tt.stop, tt.modelCalls
+			s.modelCallCap = 8
 			s.LastSeq = 2
 			s.Spend.CostUnknown = tt.costUnknown
 			if got := s.terminal(); got != tt.want {
@@ -92,7 +92,7 @@ func TestTerminalStops(t *testing.T) {
 	}
 }
 
-func TestRecordedStopsCarryTerminal(t *testing.T) {
+func TestRecordedStopsCarryEnded(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	out, err := start(t, client, nil, NewMemoryRecorder(), Hooks{})
 	if err != nil || !out.Stop.Ended || !out.TurnView.Stop.Ended {
@@ -124,7 +124,7 @@ func TestRecordedStopsCarryTerminal(t *testing.T) {
 	}
 }
 
-func TestReplayRejectsMisstatedTerminal(t *testing.T) {
+func TestReplayRejectsMisstatedEnded(t *testing.T) {
 	for _, stop := range []*Stop{
 		{Kind: StopCompleted},
 		{Kind: StopWaiting, Ended: true},
@@ -206,7 +206,7 @@ func TestCancelOnEndedTurn(t *testing.T) {
 
 // Every terminal stop applies the cancel rules: an approval pending when the
 // deadline stopped the turn is settled as not executed and cannot be given.
-func TestDeadlineStopSettlesPendingApproval(t *testing.T) {
+func TestDeadlineStopFinishesPendingApproval(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
 	first, err := start(t, client, writeTool(), NewMemoryRecorder(), deferredHooks())
 	if err != nil || first.Stop.Kind != StopWaiting {
@@ -358,7 +358,7 @@ func TestDeadlineStopRecordsLateToolResult(t *testing.T) {
 // A budget stop after the last model attempt is not terminal: a raise of the
 // budget and of the model-attempt cap together resumes it, and replay agrees
 // with the recorded flag.
-func TestBudgetStopAfterLastAttemptContinuesWithBothRaises(t *testing.T) {
+func TestBudgetStopAfterLastModelCallContinuesWithBothRaises(t *testing.T) {
 	def := testAgent()
 	def.Limits.ModelCalls = 1
 	call := callResult("call-1", "remote")
@@ -400,7 +400,7 @@ func TestBudgetStopAfterLastAttemptContinuesWithBothRaises(t *testing.T) {
 // model_call_finished and model_call_finished_by_host consult.
 func TestLateResultCannotEndTurnSilently(t *testing.T) {
 	s := &replayState{}
-	s.attemptCap = 2
+	s.modelCallCap = 2
 	s.Stop = Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: LimitHost, Code: "plan"}}
 	s.ModelCalls = 1
 	if err := s.checkStillOpen(); err != nil {

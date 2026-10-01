@@ -36,7 +36,7 @@ func (p *sendPlans) hooks() dashi.Hooks {
 // A cost cap used to stop every turn whose settings left MaxTokens unset on a
 // provider that does not require it, because the worst case was unbounded.
 // The shared default output limit now bounds it.
-func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
+func TestCostCapAllowsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 	var sent []byte
 	server := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {

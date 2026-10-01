@@ -118,7 +118,7 @@ func (r refined) busy(t *sessionTurn, exclusive bool) *TurnBusyError {
 	}
 	// A stopped worker is not a stopped effect, so an uncertain call keeps
 	// the turn busy whatever its liveness, even under Exclusive.
-	if e.CallID = uncertainCall(t); e.CallID != "" {
+	if e.CallID = resultUnknownCall(t); e.CallID != "" {
 		return e
 	}
 	switch r.next {
@@ -137,7 +137,7 @@ func (r refined) busy(t *sessionTurn, exclusive bool) *TurnBusyError {
 // happen or may have happened: a started local call that is neither
 // read-only nor idempotent, one already marked uncertain, or a model
 // attempt that offered a provider-hosted tool unsafe to repeat.
-func uncertainCall(t *sessionTurn) string {
+func resultUnknownCall(t *sessionTurn) string {
 	for _, p := range t.view.Pending {
 		switch {
 		case p.Kind == dashi.PendingTool && p.Tool != nil &&
@@ -151,10 +151,10 @@ func uncertainCall(t *sessionTurn) string {
 	return ""
 }
 
-func offeredUnsafeProviderTool(turn dashi.Turn, attemptID string) bool {
+func offeredUnsafeProviderTool(turn dashi.Turn, modelCallID string) bool {
 	for _, step := range turn.Steps {
 		if step.Kind == dashi.StepModelCallStarted && step.Model != nil &&
-			step.Model.ModelCallID == attemptID {
+			step.Model.ModelCallID == modelCallID {
 			return tooldef.UnsafeProviderTool(step.Model.Tools)
 		}
 	}

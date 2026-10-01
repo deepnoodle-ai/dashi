@@ -152,7 +152,7 @@ func (c activePricedClient) Prepare(ctx context.Context, in llm.Input) (llm.Requ
 	snap.ModelInfo.Pricing = &llm.Pricing{Currency: "USD", UpdatedAt: "2026-09-30", Base: llm.Rates{Input: amount("1"), Output: amount("1")}}
 	return llm.NewRequest(snap)
 }
-func TestActiveCompactionMediaFinancialAdmissionUnchanged(t *testing.T) {
+func TestActiveCompactionMediaCostCheckUnchanged(t *testing.T) {
 	data := activePNG(t)
 	for _, affordable := range []bool{false, true} {
 		t.Run(map[bool]string{false: "refused", true: "admitted"}[affordable], func(t *testing.T) {

@@ -93,25 +93,25 @@ func TestOperatorStartCanCarryTrustedRole(t *testing.T) {
 	}
 }
 
-func TestModelIntentRecordsResolvedCapabilityPolicy(t *testing.T) {
+func TestModelCallStartRecordsResolvedCapabilityPolicy(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	out, err := start(t, client, nil, NewMemoryRecorder(), Hooks{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var intent *ModelFact
+	var callStart *ModelFact
 	for _, step := range out.Turn.Steps {
 		if step.Kind == StepModelCallStarted {
-			intent = step.Model
+			callStart = step.Model
 		}
 	}
-	if intent == nil {
+	if callStart == nil {
 		t.Fatal("turn recorded no model intent")
 	}
-	if intent.CapabilityPolicy != llm.CapabilityAdjust {
-		t.Fatalf("intent recorded policy %q", intent.CapabilityPolicy)
+	if callStart.CapabilityPolicy != llm.CapabilityAdjust {
+		t.Fatalf("intent recorded policy %q", callStart.CapabilityPolicy)
 	}
-	raw, err := json.Marshal(intent)
+	raw, err := json.Marshal(callStart)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -312,7 +312,7 @@ func itemMessages(items []*queuedItem) []llm.Message {
 	return out
 }
 
-// settle decides the fate of reserved items from the result of the Start
+// decideReserved decides the fate of reserved items from the result of the Start
 // that carried them. Success consumes them, and so does a turn_started
 // event the run already reported (started): the engine emits a step only
 // once it committed. Proof that the Start's turn_started step was not
@@ -320,7 +320,7 @@ func itemMessages(items []*queuedItem) []llm.Message {
 // session loads the turn: a turn_started step with the Start's command ID
 // consumes them, a missing one restores them, and a failed load keeps them
 // reserved and adds its error. The caller holds mu.
-func (s *Session) settle(
+func (s *Session) decideReserved(
 	ctx context.Context,
 	r *reservation,
 	started bool,
@@ -335,7 +335,7 @@ func (s *Session) settle(
 		s.release(r, false)
 		return err
 	}
-	if lerr := s.settleByLoad(ctx, r); lerr != nil {
+	if lerr := s.finishByLoad(ctx, r); lerr != nil {
 		return errors.Join(err, lerr)
 	}
 	return err
@@ -349,7 +349,7 @@ var errReserved = errors.New("session: queued items stay reserved")
 // settleReserved settles the reservations of Starts that ended with an
 // unknown result. It returns an error matching errReserved when one cannot
 // be settled; only the queue waits on it. The caller holds mu.
-func (s *Session) settleReserved(ctx context.Context) error {
+func (s *Session) finishReserved(ctx context.Context) error {
 	var pending []*reservation
 	for _, q := range s.queue {
 		if r := q.reserved; r != nil && !r.open && !slices.Contains(pending, r) {
@@ -357,14 +357,14 @@ func (s *Session) settleReserved(ctx context.Context) error {
 		}
 	}
 	for _, r := range pending {
-		if err := s.settleByLoad(ctx, r); err != nil {
+		if err := s.finishByLoad(ctx, r); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Session) settleByLoad(ctx context.Context, r *reservation) error {
+func (s *Session) finishByLoad(ctx context.Context, r *reservation) error {
 	id := TurnID(s.ID, r.n)
 	loader, ok := s.recorder().(dashi.Loader)
 	if !ok {
@@ -465,7 +465,7 @@ func (s *Session) planQueue(
 	compacted bool,
 ) (startPlan, bool, error) {
 	s.ready()
-	if err := s.settleReserved(ctx); err != nil {
+	if err := s.finishReserved(ctx); err != nil {
 		return startPlan{}, false, err
 	}
 	items := s.free(nil)

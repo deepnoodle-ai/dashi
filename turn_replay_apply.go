@@ -36,7 +36,7 @@ func (s *replayState) apply(step Step) error {
 			step.Stop.Kind == StopLimited && step.Stop.Limit != nil &&
 			(step.Stop.Limit.Kind == LimitDeadline ||
 				step.Stop.Limit.Kind == LimitResumes ||
-				step.Stop.Limit.Kind == LimitModelCalls && s.finalAnswerOnly ||
+				step.Stop.Limit.Kind == LimitModelCalls && s.finalReplyOnly ||
 				step.Stop.Limit.Kind == LimitOutputTokens ||
 				step.Stop.Limit.Kind == LimitTotalTokens ||
 				step.Stop.Limit.Kind == LimitCost):
@@ -117,7 +117,7 @@ func (s *replayState) apply(step Step) error {
 		if s.ActiveCompactionWindow < 0 || s.ActiveCompactionWindow > 0 && (s.ActiveCompactionWindow < 1024 || s.Agent.ActiveCompaction == nil || s.Agent.ActiveCompaction.Disabled || origin == StartCompaction) {
 			return errors.New("invalid active compaction window")
 		}
-		s.attemptCap = s.Agent.Limits.ModelCalls
+		s.modelCallCap = s.Agent.Limits.ModelCalls
 		if step.Started.Budget != nil {
 			if err := step.Started.Budget.Validate(); err != nil {
 				return err
@@ -146,10 +146,10 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("turn cannot continue")
 		}
 		if step.ModelCalls != 0 {
-			if step.ModelCalls <= s.attemptCap {
+			if step.ModelCalls <= s.modelCallCap {
 				return errors.New("model-attempt raise must exceed the cap")
 			}
-			s.attemptCap = step.ModelCalls
+			s.modelCallCap = step.ModelCalls
 		}
 		if step.Budget != nil {
 			if step.At.IsZero() {
@@ -199,15 +199,15 @@ func (s *replayState) apply(step Step) error {
 			step.Model.ModelCallID == "" ||
 			step.Model.MessageID == "" ||
 			step.Model.RequestHash == "" ||
-			s.modelIntent != "" ||
+			s.modelCallStart != "" ||
 			s.Output != nil ||
 			len(s.pending()) > 0 {
 			return errors.New("invalid model intent")
 		}
-		if err := s.validateCompactionIntent(step); err != nil {
+		if err := s.validateCompactionCallStart(step); err != nil {
 			return err
 		}
-		if err := validateAdmission(step.Model.Reservation); err != nil {
+		if err := validateReservation(step.Model.Reservation); err != nil {
 			return err
 		}
 		if err := validateHidden(step.Model); err != nil {
@@ -229,14 +229,14 @@ func (s *replayState) apply(step Step) error {
 		if step.Model.FinalReplyOnly &&
 			(s.Agent.Limits.NoReservedFinalReply ||
 				s.ModelCalls == 0 ||
-				s.ModelCalls+1 != s.attemptCap) {
+				s.ModelCalls+1 != s.modelCallCap) {
 			return errors.New("final-answer intent is not the last model attempt")
 		}
-		s.modelIntent = step.Model.ModelCallID
-		s.modelIntents[step.Model.ModelCallID] = step.Model
+		s.modelCallStart = step.Model.ModelCallID
+		s.startedModelCalls[step.Model.ModelCallID] = step.Model
 		s.modelOrder = append(s.modelOrder, step.Model.ModelCallID)
 		s.modelCalls++
-		s.finalAnswerOnly = step.Model.FinalReplyOnly
+		s.finalReplyOnly = step.Model.FinalReplyOnly
 		s.unresolvedPartial = false
 		if _, exists := s.modelMessages[step.Model.ModelCallID]; exists {
 			return errors.New("repeated model attempt ID")
@@ -271,8 +271,8 @@ func (s *replayState) apply(step Step) error {
 	case StepModelCallFinished:
 		if step.Model == nil ||
 			step.Model.ModelCallID == "" ||
-			step.Model.ModelCallID != s.modelIntent ||
-			step.Model.MessageID != s.modelMessages[s.modelIntent] {
+			step.Model.ModelCallID != s.modelCallStart ||
+			step.Model.MessageID != s.modelMessages[s.modelCallStart] {
 			return errors.New("model settlement without intent")
 		}
 		if step.Model.Result == nil && step.Model.Error == "" {
@@ -311,11 +311,11 @@ func (s *replayState) apply(step Step) error {
 				return errors.New("known model failure lacks evidence or has partial result")
 			}
 		}
-		if err := s.validateCompactionSettlement(step.Model); err != nil {
+		if err := s.validateCompactionFinish(step.Model); err != nil {
 			return err
 		}
-		s.modelIntent = ""
-		s.modelSettlements[step.Model.ModelCallID] = step.Model
+		s.modelCallStart = ""
+		s.modelFinishes[step.Model.ModelCallID] = step.Model
 		if step.Model.Interrupted == InterruptNone {
 			s.ModelCalls++
 		}
@@ -329,7 +329,7 @@ func (s *replayState) apply(step Step) error {
 			step.Model.SendStatus != llm.SendStatusNotSent {
 			s.failedModel = step.Model.Error
 		}
-		if step.Model.Result != nil && s.modelIntents[step.Model.ModelCallID].Purpose != ModelPurposeCompaction {
+		if step.Model.Result != nil && s.startedModelCalls[step.Model.ModelCallID].Purpose != ModelPurposeCompaction {
 			actionable := step.Model.Error == "" &&
 				step.Model.Interrupted == InterruptNone &&
 				!s.Stop.Ended
@@ -343,7 +343,7 @@ func (s *replayState) apply(step Step) error {
 		}
 		if step.Model.Error == "" &&
 			step.Model.Interrupted == InterruptNone {
-			if s.modelIntents[step.Model.ModelCallID].Purpose == ModelPurposeCompaction {
+			if s.startedModelCalls[step.Model.ModelCallID].Purpose == ModelPurposeCompaction {
 				s.pendingCompaction = step.Model.ModelCallID
 			} else {
 				s.compactionUsed = false
@@ -364,11 +364,11 @@ func (s *replayState) apply(step Step) error {
 		if err := validateModelAccounting(step.Model); err != nil {
 			return err
 		}
-		if err := s.validateCompactionSettlement(step.Model); err != nil {
+		if err := s.validateCompactionFinish(step.Model); err != nil {
 			return err
 		}
 		s.unresolvedModel = ""
-		s.modelSettlements[step.Model.ModelCallID] = step.Model
+		s.modelFinishes[step.Model.ModelCallID] = step.Model
 		// Verified nonexecution clears uncertainty; Continue may retry.
 		if step.Model.Error != "" &&
 			(step.Model.Result != nil || s.unresolvedPartial ||
@@ -378,7 +378,7 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("model failure reconciliation lacks evidence")
 		}
 		if step.Model.Error == "" {
-			if s.modelIntents[step.Model.ModelCallID].Purpose != ModelPurposeCompaction {
+			if s.startedModelCalls[step.Model.ModelCallID].Purpose != ModelPurposeCompaction {
 				if err := s.recordResult(
 					step.Model.ModelCallID,
 					step.Model.Result,
@@ -390,7 +390,7 @@ func (s *replayState) apply(step Step) error {
 			if s.unresolvedInterrupted {
 				s.ModelCalls++
 			}
-			if s.modelIntents[step.Model.ModelCallID].Purpose == ModelPurposeCompaction {
+			if s.startedModelCalls[step.Model.ModelCallID].Purpose == ModelPurposeCompaction {
 				s.pendingCompaction = step.Model.ModelCallID
 			} else {
 				s.compactionUsed = false
@@ -673,7 +673,7 @@ func (s *replayState) apply(step Step) error {
 				v.Status != ToolFinished ||
 				v.Outcome == nil ||
 				v.Outcome.State != tool.StateSucceeded ||
-				s.callAttempts[v.Call.ID] != step.Output.ModelCallID ||
+				s.modelCallOfTool[v.Call.ID] != step.Output.ModelCallID ||
 				!canonjson.Equal(
 					v.Call.Args,
 					step.Output.Value,
@@ -683,7 +683,7 @@ func (s *replayState) apply(step Step) error {
 		case OutputFromText:
 			if step.Output.ToolCallID != "" ||
 				step.Output.ModelCallID == "" ||
-				step.Output.ModelCallID != s.latestAttempt ||
+				step.Output.ModelCallID != s.latestModelCall ||
 				!s.awaitingClassification ||
 				s.latestResult == nil ||
 				s.latestResult.Stop.Kind != llm.StopFinished {
@@ -744,11 +744,11 @@ func (s *replayState) apply(step Step) error {
 				return err
 			}
 		}
-		if s.stopTerminal(*step.Stop) != step.Stop.Ended {
+		if s.stopEnds(*step.Stop) != step.Stop.Ended {
 			return fmt.Errorf(
 				"stop terminal=%t, but the turn's state gives %t",
 				step.Stop.Ended,
-				s.stopTerminal(*step.Stop),
+				s.stopEnds(*step.Stop),
 			)
 		}
 		if step.Stop.Ended {

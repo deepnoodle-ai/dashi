@@ -97,14 +97,14 @@ func TestFailedPreferenceSaveKeepsActiveSelection(t *testing.T) {
 func TestCancelSettingsDialogEndsCommand(t *testing.T) {
 	e, _ := routedTestEngine(t, func(string) (int, string) { t.Fatal("dialog dispatched"); return 0, "" })
 	ctrl := NewController(t.Context(), e, newRecorderUI(), e.cfg.Store, e.cfg.Dir)
-	started, settled := make(chan struct{}), make(chan struct{})
-	ctrl.async(func(ctx context.Context) { close(started); <-ctx.Done(); close(settled) })
+	started, finished := make(chan struct{}), make(chan struct{})
+	ctrl.async(func(ctx context.Context) { close(started); <-ctx.Done(); close(finished) })
 	<-started
 	if ctrl.Interrupt() {
 		t.Fatal("dialog interrupt requested process exit")
 	}
 	select {
-	case <-settled:
+	case <-finished:
 	case <-time.After(time.Second):
 		t.Fatal("dialog context was not cancelled")
 	}

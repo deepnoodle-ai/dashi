@@ -332,12 +332,12 @@ func TestSlowObserverGetsEveryStepAcrossInvocations(t *testing.T) {
 
 // loseSettle fails the n-th model_call_finished commit as a lost write, so the
 // record ends at its model_call_started step, as after a crash.
-type loseSettle struct {
+type loseFinish struct {
 	*MemoryRecorder
 	n, seen int
 }
 
-func (r *loseSettle) Commit(ctx context.Context, req CommitRequest) error {
+func (r *loseFinish) Commit(ctx context.Context, req CommitRequest) error {
 	if req.Step.Kind == StepModelCallFinished {
 		r.seen++
 		if r.seen == r.n {
@@ -373,7 +373,7 @@ func TestEventSeqPlacesPreviews(t *testing.T) {
 	runner := Runner{
 		Client:   client,
 		Tools:    tool.List{work},
-		Recorder: &loseSettle{MemoryRecorder: mem, n: 2},
+		Recorder: &loseFinish{MemoryRecorder: mem, n: 2},
 	}
 	var events []Event
 	for e, err := range runner.Stream(t.Context(), Turn{ID: "t1"}, limitsStart(agent)) {
@@ -402,7 +402,7 @@ func TestEventSeqPlacesPreviews(t *testing.T) {
 	}
 	requested := map[string]int64{}
 	started := map[string]int64{}
-	settled := map[string]int64{}
+	finished := map[string]int64{}
 	for _, step := range final.Steps {
 		switch step.Kind {
 		case StepModelCallStarted:
@@ -410,7 +410,7 @@ func TestEventSeqPlacesPreviews(t *testing.T) {
 		case StepToolStarted:
 			started[step.Tool.Call.ID] = step.Seq
 		case StepToolFinished:
-			settled[step.Tool.Call.ID] = step.Seq
+			finished[step.Tool.Call.ID] = step.Seq
 		}
 	}
 	var deltas, progress int
@@ -428,8 +428,8 @@ func TestEventSeqPlacesPreviews(t *testing.T) {
 		case e.Progress != nil:
 			progress++
 			id := e.Progress.CallID
-			if e.Seq < started[id] || e.Seq >= settled[id] {
-				t.Fatalf("progress of %s at Seq %d; want [%d, %d)", id, e.Seq, started[id], settled[id])
+			if e.Seq < started[id] || e.Seq >= finished[id] {
+				t.Fatalf("progress of %s at Seq %d; want [%d, %d)", id, e.Seq, started[id], finished[id])
 			}
 		}
 	}

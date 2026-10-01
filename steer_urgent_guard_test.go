@@ -142,7 +142,7 @@ func hookResultsOf(turn Turn, point HookPoint) []HookResult {
 
 func steeringInterrupts(turn Turn) int {
 	n := 0
-	for _, fact := range settlements(turn) {
+	for _, fact := range finishes(turn) {
 		if fact.Interrupted == InterruptSteering {
 			n++
 		}
@@ -219,15 +219,15 @@ func TestUrgentSteerDuringBeforeSendGoesBackForTheSteer(t *testing.T) {
 	if out.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("stop=%+v sends=%d", out.Stop, client.sends)
 	}
-	intents := stepsOf(out.Turn, StepModelCallStarted)
-	if len(intents) != 1 {
+	callStarts := stepsOf(out.Turn, StepModelCallStarted)
+	if len(callStarts) != 1 {
 		t.Fatalf(
 			"%d model requests recorded; a call cut during BeforeSend "+
 				"records none",
-			len(intents),
+			len(callStarts),
 		)
 	}
-	for _, fact := range settlements(out.Turn) {
+	for _, fact := range finishes(out.Turn) {
 		if fact.NotSent {
 			t.Fatalf("a call cut during BeforeSend was settled: %+v", fact)
 		}
@@ -244,7 +244,7 @@ func TestUrgentSteerDuringBeforeSendGoesBackForTheSteer(t *testing.T) {
 			n,
 		)
 	}
-	admission := string(intents[0].Model.Reservation["reserve"])
+	admission := string(callStarts[0].Model.Reservation["reserve"])
 	if admission != `{"pass":2}` {
 		t.Fatalf(
 			"admission = %s; the request must carry the second pass's",
@@ -329,8 +329,8 @@ func TestUnsafeProviderToolCallIsNeverCutAfterHandOff(t *testing.T) {
 func TestUnsafeProviderToolCallIsCutBeforeHandOff(t *testing.T) {
 	source := newSignalingSource()
 	client := newUrgentClient(urgentCall{result: final("ok")})
-	rec := &intentHook{MemoryRecorder: NewMemoryRecorder()}
-	rec.onIntent = func() {
+	rec := &callStartHook{MemoryRecorder: NewMemoryRecorder()}
+	rec.onCallStart = func() {
 		source.set(nil, urgentSteer("s1", "use staging"))
 		source.signal(t)
 	}
@@ -341,7 +341,7 @@ func TestUnsafeProviderToolCallIsCutBeforeHandOff(t *testing.T) {
 	if out.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("stop=%+v sends=%d", out.Stop, client.sends)
 	}
-	cut := settlements(out.Turn)[0]
+	cut := finishes(out.Turn)[0]
 	if cut.Interrupted != InterruptSteering || !cut.NotSent {
 		t.Fatalf(
 			"a call not yet handed off must be cut, whatever it offers: %+v",
@@ -396,7 +396,7 @@ func TestPauseDeclinesUrgentCut(t *testing.T) {
 	}
 }
 
-func TestSteeredCallNotDispatchedSettlesWithoutResult(t *testing.T) {
+func TestSteeredCallNotDispatchedFinishesWithoutResult(t *testing.T) {
 	inbox := newWatchedInbox()
 	client := newUrgentClient(
 		urgentCall{
@@ -413,7 +413,7 @@ func TestSteeredCallNotDispatchedSettlesWithoutResult(t *testing.T) {
 	if out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
-	cut := settlements(out.Turn)[0]
+	cut := finishes(out.Turn)[0]
 	if cut.Interrupted != InterruptSteering {
 		t.Fatalf("cause = %q", cut.Interrupted)
 	}

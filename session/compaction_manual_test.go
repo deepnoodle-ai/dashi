@@ -229,7 +229,7 @@ func TestSessionManualCompactionRecorderFailures(t *testing.T) {
 	}
 }
 
-func TestSessionStreamManualCompactionAdmissionFailure(t *testing.T) {
+func TestSessionStreamManualCompactionStartFailure(t *testing.T) {
 	for _, fault := range []dashitest.Fault{dashitest.Reject, dashitest.LoseWrite, dashitest.LoseAck} {
 		t.Run(string(fault), func(t *testing.T) {
 			rec := dashi.NewMemoryRecorder()
@@ -253,7 +253,7 @@ func TestSessionStreamManualCompactionAdmissionFailure(t *testing.T) {
 	}
 }
 
-func TestSessionStreamAutomaticCompactionRejectedAdmission(t *testing.T) {
+func TestSessionStreamAutomaticCompactionRejectedStart(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := dashitest.NewClient(used("answer", 100), dashitest.Reply("next answer"))
 	s := handle(rec, client)

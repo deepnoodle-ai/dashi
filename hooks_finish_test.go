@@ -27,7 +27,7 @@ func runStructured(
 	return runner, out, err
 }
 
-func settlementOf(t *testing.T, turn Turn, callID string) Step {
+func finishOf(t *testing.T, turn Turn, callID string) Step {
 	t.Helper()
 	for _, step := range turn.Steps {
 		if step.Kind == StepToolFinished && step.Tool.Call.ID == callID {
@@ -65,7 +65,7 @@ func TestFinishRejectsSubmissionWithReason(t *testing.T) {
 	if seen := toolResultText(t, out.Turn, "out-1"); seen != "Not accepted: the answer must be 2" {
 		t.Fatalf("model saw %q", seen)
 	}
-	rejected := settlementOf(t, out.Turn, "out-1")
+	rejected := finishOf(t, out.Turn, "out-1")
 	if rejected.Tool.Outcome.State != tool.StateFailed ||
 		rejected.Tool.Reason != "not accepted: hook guard" ||
 		len(rejected.HookResults) != 1 ||
@@ -97,7 +97,7 @@ func TestFinishRejectsSubmissionWithItemsOnTheSameStep(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	rejected := settlementOf(t, out.Turn, "out-1")
+	rejected := finishOf(t, out.Turn, "out-1")
 	if rejected.Context == nil || len(rejected.Context.Items) != 1 {
 		t.Fatalf("items not on the settlement: %+v", rejected)
 	}
@@ -530,7 +530,7 @@ func TestFinishFailureOnSubmissionRetriesWithoutACall(t *testing.T) {
 	}
 }
 
-func TestDeliveryAfterSubmissionFailureAsksTheModelAgain(t *testing.T) {
+func TestAddedMessagesAfterSubmissionFailureAsksTheModelAgain(t *testing.T) {
 	fail := true
 	guard := FinishHook{Name: "guard", Func: func(context.Context, FinishPlan) (FinishDecision, error) {
 		if fail {

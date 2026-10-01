@@ -250,7 +250,7 @@ func TestSteerSupersedesSubmission(t *testing.T) {
 		string(out.Output.Value) != `{"answer":2}` {
 		t.Fatalf("stop=%+v output=%+v err=%v", out.Stop, out.Output, err)
 	}
-	rejected := settlementOf(t, out.Turn, "out-1")
+	rejected := finishOf(t, out.Turn, "out-1")
 	if rejected.Tool.Outcome.State != tool.StateFailed ||
 		rejected.Tool.Reason != "not accepted: steering" ||
 		len(rejected.Items()) != 1 || rejected.Items()[0].ID != id {
@@ -416,7 +416,7 @@ func TestSteerWithRecordedIDButOtherContentIsSkipped(t *testing.T) {
 	}
 }
 
-func TestDeliverSkipsRepeatedIDs(t *testing.T) {
+func TestAddMessagesSkipsRepeatedIDs(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("c1", "wait")}}
 	external := tool.Tool{Definition: tool.Definition{
 		Name:   "wait",
@@ -482,12 +482,12 @@ func TestReplayRejectsRepeatedContextID(t *testing.T) {
 
 // pauseOnIntent closes pause when the runner records a model request, so
 // the call is recorded but never dispatched.
-type pauseOnIntent struct {
+type pauseOnCallStart struct {
 	*MemoryRecorder
 	pause chan struct{}
 }
 
-func (p pauseOnIntent) Commit(ctx context.Context, req CommitRequest) error {
+func (p pauseOnCallStart) Commit(ctx context.Context, req CommitRequest) error {
 	if req.Step.Kind == StepModelCallStarted {
 		close(p.pause)
 	}
@@ -519,7 +519,7 @@ func TestRecordedSteerReachesNextTurnThroughHistory(t *testing.T) {
 			client := &scriptedClient{results: []llm.Result{final("done")}}
 			runner := Runner{
 				Client:   client,
-				Recorder: pauseOnIntent{NewMemoryRecorder(), pause},
+				Recorder: pauseOnCallStart{NewMemoryRecorder(), pause},
 			}
 			out, err := runner.Run(
 				t.Context(), Turn{ID: "t1"}, startInput(),
@@ -788,7 +788,7 @@ func TestInboxConcurrentSends(t *testing.T) {
 // TestDeliverBeforeSubmissionStartReachesModel stops a run after the model
 // submitted output but before the submission call started. A AddMessages made
 // then supersedes the kept submission on Continue.
-func TestDeliverBeforeSubmissionStartReachesModel(t *testing.T) {
+func TestAddMessagesBeforeSubmissionStartReachesModel(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{
 		submitResult("out-1", `{"answer":1}`),
 		submitResult("out-2", `{"answer":2}`),
@@ -863,7 +863,7 @@ func TestLeftoversIgnoresOtherIdentifiedItems(t *testing.T) {
 		t.Fatalf("leftovers = %+v err=%v", left, err)
 	}
 }
-func TestHookCannotDeliverToolResult(t *testing.T) {
+func TestHookCannotAddToolResult(t *testing.T) {
 	bad := ModelHook{Name: "bad", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
 		return ModelDecision{AddMessages: []ContextItem{{Message: llm.Message{
 			Role: llm.RoleUser,
@@ -887,15 +887,15 @@ func TestHookCannotDeliverToolResult(t *testing.T) {
 // TestDeliverAfterInterruptedCandidateReachesModel covers a AddMessages sent
 // after a run was interrupted at a final text answer: Continue asks the
 // model again with it, instead of accepting the kept answer.
-func TestDeliverAfterInterruptedCandidateReachesModel(t *testing.T) {
+func TestAddMessagesAfterInterruptedCandidateReachesModel(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		attempts int
-		answer   string
-		dropped  bool
+		name       string
+		modelCalls int
+		answer     string
+		dropped    bool
 	}{
-		{name: "call left", attempts: 3, answer: "second"},
-		{name: "no call left", attempts: 2, answer: "first", dropped: true},
+		{name: "call left", modelCalls: 3, answer: "second"},
+		{name: "no call left", modelCalls: 2, answer: "first", dropped: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
@@ -911,7 +911,7 @@ func TestDeliverAfterInterruptedCandidateReachesModel(t *testing.T) {
 			}}
 			client := &scriptedClient{results: []llm.Result{final("first"), final("second")}}
 			agent := testAgent()
-			agent.Limits.ModelCalls = tc.attempts
+			agent.Limits.ModelCalls = tc.modelCalls
 			runner := Runner{Client: client, Hooks: interrupt.Hooks()}
 			out, err := runner.Run(ctx, Turn{ID: "t1"}, startAgent(agent))
 			if err != nil || out.Stop.Kind != StopInterrupted {
@@ -1083,12 +1083,12 @@ func TestReplayRejectsForgedSteeringSteps(t *testing.T) {
 // loseIntentAck records the first model request and then reports its write
 // as unknown, so the worker stops before the client is called, as a crash
 // between the request and dispatch would.
-type loseIntentAck struct {
+type loseCallStartAck struct {
 	*MemoryRecorder
 	fired bool
 }
 
-func (l *loseIntentAck) Commit(ctx context.Context, req CommitRequest) error {
+func (l *loseCallStartAck) Commit(ctx context.Context, req CommitRequest) error {
 	if err := l.MemoryRecorder.Commit(ctx, req); err != nil {
 		return err
 	}
@@ -1112,7 +1112,7 @@ func TestNextCallOnlySteerSurvivesCrashBeforeDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	rec := &loseIntentAck{MemoryRecorder: NewMemoryRecorder()}
+	rec := &loseCallStartAck{MemoryRecorder: NewMemoryRecorder()}
 	runner := Runner{Client: client, Recorder: rec}
 	if _, err := runner.Run(
 		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),

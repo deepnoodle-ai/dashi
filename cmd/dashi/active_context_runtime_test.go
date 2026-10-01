@@ -72,7 +72,7 @@ func TestRuntimeActiveContextInterruptReopenContinue(t *testing.T) {
 	}
 	exportActiveRuntime(t, h, "interrupt-reopen-continue")
 }
-func TestRuntimeActiveContextDiscardKeepsSettledEffects(t *testing.T) {
+func TestRuntimeActiveContextDiscardKeepsFinishedEffects(t *testing.T) {
 	cfg, c := activeFixtureConfig(t, true)
 	h := newTranscriptRuntimeConfig(t, cfg)
 	h.typeText(activeObjective)

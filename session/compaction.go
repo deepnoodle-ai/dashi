@@ -114,7 +114,7 @@ func (s *Session) planManualCompaction(
 			TurnID: t.turn.ID,
 			Origin: t.view.Origin,
 			Next:   r.next,
-			CallID: uncertainCall(t),
+			CallID: resultUnknownCall(t),
 		}
 	}
 	projected, warnings := s.history(ctx, last)

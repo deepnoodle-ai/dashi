@@ -9,7 +9,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-func TestReasoningPreviewReconcilesWithoutPrivateText(t *testing.T) {
+func TestReasoningPreviewResolvesWithoutPrivateText(t *testing.T) {
 	r := NewRenderer(1, "fixture", t.TempDir())
 	r.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepTurnStarted, Started: &dashi.StartFact{Agent: dashi.Agent{Settings: llm.Settings{ReasoningSummary: new(true)}}}}})
 	var last Block
@@ -40,9 +40,9 @@ func TestReasoningPreviewReconcilesWithoutPrivateText(t *testing.T) {
 	// Reopening rebuilds the same settled blocks without provisional duplicates.
 	reopened := NewRenderer(1, "fixture", t.TempDir())
 	reopened.showReasoning = true
-	settled := reopened.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "attempt", MessageID: "message", Result: result}}})
-	if len(settled) != 2 || !reflect.DeepEqual(settled[0], blocks[0]) {
-		t.Fatalf("reopen = %+v", settled)
+	finished := reopened.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "attempt", MessageID: "message", Result: result}}})
+	if len(finished) != 2 || !reflect.DeepEqual(finished[0], blocks[0]) {
+		t.Fatalf("reopen = %+v", finished)
 	}
 }
 
@@ -53,8 +53,8 @@ func TestThinkingOffAndAbsentSummaryClearDisplay(t *testing.T) {
 	}
 	r.showReasoning = true
 	preview := r.Event(dashi.Event{ModelCallID: "a", Delta: &llm.Delta{Kind: llm.DeltaReasoning, Text: "preview"}})
-	settled := r.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "a", Result: &llm.Result{Message: llm.Message{Content: []llm.Content{llm.Text("answer")}}}}}})
-	if len(settled) != 2 || settled[0].ID != preview[0].ID || settled[0].Text != "" || !settled[0].Done {
-		t.Fatalf("absent final = %+v", settled)
+	finished := r.Event(dashi.Event{Step: &dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "a", Result: &llm.Result{Message: llm.Message{Content: []llm.Content{llm.Text("answer")}}}}}})
+	if len(finished) != 2 || finished[0].ID != preview[0].ID || finished[0].Text != "" || !finished[0].Done {
+		t.Fatalf("absent final = %+v", finished)
 	}
 }

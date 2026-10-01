@@ -59,7 +59,7 @@ func requireTimeoutReason(t *testing.T, err error, want llm.ErrorReason) {
 	}
 }
 
-func TestResponseStartTimeoutKeepsDispatchUncertain(t *testing.T) {
+func TestResponseStartTimeoutKeepsDispatchResultUnknown(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():

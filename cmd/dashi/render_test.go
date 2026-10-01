@@ -272,7 +272,7 @@ func TestTranscriptReplacesByID(t *testing.T) {
 	}
 }
 
-func TestSettledToolOnlyMessageClearsStreamedText(t *testing.T) {
+func TestFinishedToolOnlyMessageClearsStreamedText(t *testing.T) {
 	r := NewRenderer(1, "m", "/repo")
 	live := onlyBlock(t, r.Event(dashi.Event{
 		MessageID: "m1",
@@ -307,7 +307,7 @@ func TestSettledToolOnlyMessageClearsStreamedText(t *testing.T) {
 	}
 }
 
-func TestLineModeMarksEmptySettledCorrection(t *testing.T) {
+func TestLineModeMarksEmptyFinishedCorrection(t *testing.T) {
 	var out strings.Builder
 	ui := newLineUI(&out)
 	ui.Emit(Block{ID: "a", Kind: KindAssistant, Text: "Let me look."})

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestAttemptIsZero(t *testing.T) {
+func TestCallIdentityIsZero(t *testing.T) {
 	if !(CallIdentity{}).IsZero() {
 		t.Fatal("empty attempt is not zero")
 	}
@@ -45,7 +45,7 @@ func TestStreamPassesCallThrough(t *testing.T) {
 	}
 }
 
-func TestDirectCallsHaveNoAttempt(t *testing.T) {
+func TestDirectCallsHaveNoCallIdentity(t *testing.T) {
 	client := &iteratorClient{
 		send: func(context.Context, Sink) (Result, error) {
 			return Result{Stop: Stop{Kind: StopFinished}}, nil

@@ -10,8 +10,8 @@ import (
 
 func (s *replayState) pending() []string {
 	var out []string
-	if s.modelIntent != "" {
-		out = append(out, s.modelIntent)
+	if s.modelCallStart != "" {
+		out = append(out, s.modelCallStart)
 	}
 	if s.unresolvedModel != "" {
 		out = append(out, s.unresolvedModel)
@@ -33,7 +33,7 @@ func (s *replayState) pending() []string {
 // requested, allowed, or denied are left out: Continue alone runs them.
 func (s *replayState) pendingItems() []Pending {
 	var out []Pending
-	for _, id := range []string{s.modelIntent, s.unresolvedModel} {
+	for _, id := range []string{s.modelCallStart, s.unresolvedModel} {
 		if id != "" {
 			out = append(out, Pending{Kind: PendingModel, ID: id, ModelCallID: id})
 		}
@@ -51,7 +51,7 @@ func (s *replayState) pendingItems() []Pending {
 		out = append(out, Pending{
 			Kind:        kind,
 			ID:          id,
-			ModelCallID: s.callAttempts[id],
+			ModelCallID: s.modelCallOfTool[id],
 			Name:        v.Call.Name,
 			Args:        v.Call.Args,
 			Tool:        &v,
@@ -65,7 +65,7 @@ func (s *replayState) pendingItems() []Pending {
 		out = append(out, Pending{
 			Kind:         PendingApproval,
 			ID:           id,
-			ModelCallID:  s.providerToolAttempts[id],
+			ModelCallID:  s.providerToolModelCalls[id],
 			Name:         a.Name,
 			Args:         a.Arguments,
 			ProviderTool: &a,
@@ -87,7 +87,7 @@ func (s *replayState) inferredStop() Stop {
 			Reason:   "model attempt needs reconciliation",
 			Inferred: true,
 		}
-	case s.modelIntent != "" || hasStartedTool(s):
+	case s.modelCallStart != "" || hasStartedTool(s):
 		return Stop{
 			Kind:     StopInterrupted,
 			Reason:   "worker stopped before result",
@@ -107,12 +107,12 @@ func (s *replayState) inferredStop() Stop {
 }
 
 func (s *replayState) recordResult(
-	attempt string,
+	modelCall string,
 	result *llm.Result,
 	actionable bool,
 ) error {
 	s.latestResult = result
-	s.latestAttempt = attempt
+	s.latestModelCall = modelCall
 	if !actionable {
 		return nil
 	}
@@ -139,7 +139,7 @@ func (s *replayState) recordResult(
 				Definition: s.modelDefs[c.Name],
 				Status:     ToolRequested,
 			}
-			s.callAttempts[c.ID] = attempt
+			s.modelCallOfTool[c.ID] = modelCall
 			s.callOrder = append(s.callOrder, c.ID)
 		}
 	}
@@ -156,7 +156,7 @@ func (s *replayState) recordResult(
 				// answered. The attempt tells the two requests apart, so
 				// each gets its own answer command.
 				s.providerTool[a.ID] = a
-				s.providerToolAttempts[a.ID] = attempt
+				s.providerToolModelCalls[a.ID] = modelCall
 				s.providerToolOrder = slices.DeleteFunc(
 					s.providerToolOrder,
 					func(id string) bool { return id == a.ID },
@@ -174,7 +174,7 @@ func (s *replayState) canContinue() bool {
 
 // canContinueWith reports whether Continue can run, given the raised budget
 // and model-attempt cap it carries (nil and zero when it raises nothing).
-func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
+func (s *replayState) canContinueWith(raise *Budget, raisedCap int) bool {
 	if s.LastSeq == 0 || s.terminal() || s.unresolvedModel != "" ||
 		len(s.providerTool) > 0 {
 		return false
@@ -188,14 +188,14 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 	if s.Resumes > max(s.Agent.Limits.Resumes, 0) {
 		return false
 	}
-	if s.interruptionLimitReached() {
+	if s.resumeLimitReached() {
 		return false
 	}
 	if s.Stop.Kind == StopResultUnknown {
 		// An explicit uncertain stop is evidence that the host must report
 		// the outcome. A missing stop means the worker may have crashed and
 		// Continue may first establish which work can safely be repeated.
-		if s.modelIntent != "" {
+		if s.modelCallStart != "" {
 			return false
 		}
 		for _, id := range s.callOrder {
@@ -206,7 +206,7 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 	}
 	if s.Stop.Kind == StopLimited && s.Stop.Limit != nil {
 		limit := s.Stop.Limit
-		spent := s.ModelCalls >= max(s.attemptCap, attempts)
+		spent := s.ModelCalls >= max(s.modelCallCap, raisedCap)
 		switch limit.Kind {
 		case LimitCost, LimitOutputTokens, LimitTotalTokens:
 			// A budget raise alone cannot run pending tools when no model
@@ -217,7 +217,7 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 		}
 		switch limit.Kind {
 		case LimitModelCalls:
-			if s.ModelCalls >= max(s.attemptCap, attempts) {
+			if s.ModelCalls >= max(s.modelCallCap, raisedCap) {
 				return false
 			}
 		case LimitCost:
@@ -265,12 +265,12 @@ func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
 // terminal preserves an accepted ended stop even when late reconciliation
 // corrects its accounting. New stops validate their flag with stopTerminal.
 func (s *replayState) terminal() bool {
-	return s.Stop.Ended || s.stopTerminal(s.Stop)
+	return s.Stop.Ended || s.stopEnds(s.Stop)
 }
 
 // stopTerminal derives terminality from the facts at the proposed stop's
 // prefix. It deliberately ignores the supplied Terminal flag.
-func (s *replayState) stopTerminal(stop Stop) bool {
+func (s *replayState) stopEnds(stop Stop) bool {
 	switch stop.Kind {
 	case StopCompleted, StopCanceled:
 		return true
@@ -306,7 +306,7 @@ func (s *replayState) acceptsAfterEnd(command Command) error {
 		c.Approval == nil && c.ProviderToolApproval == nil {
 		if c.ModelResult != nil || c.ModelFailure != nil {
 			if c.CallID != "" &&
-				(c.CallID == s.modelIntent || c.CallID == s.unresolvedModel) {
+				(c.CallID == s.modelCallStart || c.CallID == s.unresolvedModel) {
 				return nil
 			}
 		} else if v, ok := s.Tools[c.CallID]; ok &&
@@ -359,7 +359,7 @@ func (s *replayState) checkStillOpen() error {
 	return nil
 }
 
-func (s *replayState) interruptionLimitReached() bool {
+func (s *replayState) resumeLimitReached() bool {
 	if s.LastSeq == 0 ||
 		s.Resumes < max(s.Agent.Limits.Resumes, 0) {
 		return false
@@ -445,20 +445,20 @@ func (s *replayState) trackContext(step Step) {
 			s.liveSeq[key] = step.Seq
 		}
 	case StepModelCallStarted:
-		if s.intentSeq == nil {
-			s.intentSeq = map[string]int64{}
+		if s.callStartSeq == nil {
+			s.callStartSeq = map[string]int64{}
 		}
-		s.intentSeq[step.Model.ModelCallID] = step.Seq
+		s.callStartSeq[step.Model.ModelCallID] = step.Seq
 	case StepModelCallFinished, StepModelCallFinishedByHost:
-		if intent := s.modelIntents[step.Model.ModelCallID]; intent != nil && intent.Purpose == ModelPurposeCompaction {
+		if callStart := s.startedModelCalls[step.Model.ModelCallID]; callStart != nil && callStart.Purpose == ModelPurposeCompaction {
 			return
 		}
 		if !modelDispatched(step.Model) {
 			return
 		}
-		intent := s.intentSeq[step.Model.ModelCallID]
+		callStart := s.callStartSeq[step.Model.ModelCallID]
 		for key, item := range s.live {
-			if item.NextCallOnly && s.liveSeq[key] < intent {
+			if item.NextCallOnly && s.liveSeq[key] < callStart {
 				delete(s.live, key)
 			}
 		}
@@ -508,18 +508,18 @@ func (s *replayState) trackIDs(step Step) error {
 // hiddenAt reports whether a BeforeModel hook hid the named tool from the
 // model call that made the call id, according to its recorded intent.
 func (s *replayState) hiddenAt(id, name string) bool {
-	intent := s.modelIntents[s.callAttempts[id]]
-	return intent != nil && slices.Contains(intent.Hidden, name)
+	callStart := s.startedModelCalls[s.modelCallOfTool[id]]
+	return callStart != nil && slices.Contains(callStart.Hidden, name)
 }
 
 // roomForAnyCall reports whether one more model call fits ModelCalls,
 // the reserved final-answer call included. A call in flight counts as used.
 func (s *replayState) roomForAnyCall() bool {
 	used := s.ModelCalls
-	if s.modelIntent != "" {
+	if s.modelCallStart != "" {
 		used++
 	}
-	return used < s.attemptCap
+	return used < s.modelCallCap
 }
 
 // roomForNormalCall reports whether one more model call fits before the
@@ -528,10 +528,10 @@ func (s *replayState) roomForAnyCall() bool {
 // used, since ModelCalls counts only settled calls.
 func (s *replayState) roomForNormalCall() bool {
 	used := s.ModelCalls
-	if s.modelIntent != "" {
+	if s.modelCallStart != "" {
 		used++
 	}
-	limit := s.attemptCap
+	limit := s.modelCallCap
 	if s.Agent.Limits.NoReservedFinalReply {
 		return used < limit
 	}

@@ -8,49 +8,49 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-func attemptSpend(
-	intent *ModelFact,
-	settlement *ModelFact,
+func modelCallCost(
+	callStart *ModelFact,
+	finish *ModelFact,
 ) (*llm.Usage, *llm.Cost, bool, bool, bool) {
-	if settlement != nil && (settlement.SendStatus == llm.SendStatusProviderRejected ||
-		settlement.SendStatus == llm.SendStatusNotSent || settlement.NotSent) {
+	if finish != nil && (finish.SendStatus == llm.SendStatusProviderRejected ||
+		finish.SendStatus == llm.SendStatusNotSent || finish.NotSent) {
 		return nil, nil, false, false, false
 	}
 	var usage *llm.Usage
 	var reported *llm.Cost
-	if settlement != nil && settlement.Result != nil {
-		usage = settlement.Result.Usage
-		reported = settlement.Result.Cost
+	if finish != nil && finish.Result != nil {
+		usage = finish.Result.Usage
+		reported = finish.Result.Cost
 	}
 	hasReportedUsage := usage != nil
 	estimated := !hasReportedUsage
 	if estimated {
-		usage = &llm.Usage{InputTokens: intent.EstimatedInputTokens}
+		usage = &llm.Usage{InputTokens: callStart.EstimatedInputTokens}
 	} else {
 		usage = usage.Copy()
 	}
 	next := usage.Copy()
-	if estimated && settlement != nil && settlement.Result != nil {
-		next.OutputTokens = cappedOutputEstimate(intent, settlement.Result)
+	if estimated && finish != nil && finish.Result != nil {
+		next.OutputTokens = cappedOutputEstimate(callStart, finish.Result)
 	}
-	if modelUsageMayBePartial(settlement) {
+	if modelUsageMayBePartial(finish) {
 		// Streamed usage may describe only the input or an earlier output
 		// frame. Keep reported counts and include later visible output only
 		// when the model result is incomplete or uncertain.
 		estimated = true
 		if next.TotalInputTokens() == 0 {
-			next.InputTokens = intent.EstimatedInputTokens
+			next.InputTokens = callStart.EstimatedInputTokens
 		}
-		if settlement.Result != nil {
+		if finish.Result != nil {
 			next.OutputTokens = max(
 				next.OutputTokens,
-				cappedOutputEstimate(intent, settlement.Result),
+				cappedOutputEstimate(callStart, finish.Result),
 			)
 		}
 	}
 	incomplete := false
-	if settlement != nil && !next.RequestsComplete {
-		incomplete = !addUnreportedRequests(next, intent, settlement.Result)
+	if finish != nil && !next.RequestsComplete {
+		incomplete = !addUnreportedRequests(next, callStart, finish.Result)
 	}
 	if err := next.Validate(); err != nil {
 		incomplete = true
@@ -62,33 +62,33 @@ func attemptSpend(
 	} else if !hasReportedUsage {
 		usage = nil
 	}
-	if settlement != nil && settlement.Cost != nil {
-		return usage, settlement.Cost, estimated, true, incomplete
+	if finish != nil && finish.Cost != nil {
+		return usage, finish.Cost, estimated, true, incomplete
 	}
 	if reported != nil {
 		return usage, reported, estimated, true, incomplete
 	}
-	if !incomplete && intent.ModelInfo != nil && intent.ModelInfo.Pricing != nil {
-		if charge, ok := intent.ModelInfo.Pricing.Estimate(usage); ok {
+	if !incomplete && callStart.ModelInfo != nil && callStart.ModelInfo.Pricing != nil {
+		if charge, ok := callStart.ModelInfo.Pricing.Estimate(usage); ok {
 			return usage, &charge, estimated, true, false
 		}
 	}
 	return usage, nil, estimated, true, incomplete
 }
 
-func modelUsageMayBePartial(settlement *ModelFact) bool {
-	if settlement == nil {
+func modelUsageMayBePartial(finish *ModelFact) bool {
+	if finish == nil {
 		return false
 	}
-	if settlement.Interrupted != InterruptNone || settlement.ResultUnknown {
+	if finish.Interrupted != InterruptNone || finish.ResultUnknown {
 		return true
 	}
-	if settlement.Result == nil {
+	if finish.Result == nil {
 		return false
 	}
 	// A validation error can follow a finished response with final usage.
 	// Missing or invalid stops, though, provide no terminal evidence.
-	switch settlement.Result.Stop.Kind {
+	switch finish.Result.Stop.Kind {
 	case llm.StopFinished, llm.StopToolUse, llm.StopOutputLimit,
 		llm.StopContextLimit, llm.StopRefusal, llm.StopPause, llm.StopOther:
 		return false
@@ -111,7 +111,7 @@ func modelUsageMayBePartial(settlement *ModelFact) bool {
 // hosted tool counts as hosted activity even with no visible use.
 func addUnreportedRequests(
 	usage *llm.Usage,
-	intent *ModelFact,
+	callStart *ModelFact,
 	result *llm.Result,
 ) bool {
 	uses := 0
@@ -134,7 +134,7 @@ func addUnreportedRequests(
 	for _, count := range usage.Requests {
 		counted = cappedCount(counted, max(count, 0))
 	}
-	if uses == 0 && counted == 0 && !declaresProviderTool(intent) {
+	if uses == 0 && counted == 0 && !declaresProviderTool(callStart) {
 		return true
 	}
 	count, ok := sumCounts(usage.Requests[llm.MeterUnreported],
@@ -149,11 +149,11 @@ func addUnreportedRequests(
 	return true
 }
 
-func declaresProviderTool(intent *ModelFact) bool {
-	if intent == nil {
+func declaresProviderTool(callStart *ModelFact) bool {
+	if callStart == nil {
 		return false
 	}
-	for _, def := range intent.Tools {
+	for _, def := range callStart.Tools {
 		if def.Kind == tool.KindProviderTool {
 			return true
 		}
@@ -170,22 +170,22 @@ func estimatedOutputTokens(result *llm.Result) int {
 // capped at the intent's effective max_tokens as the live settlement's
 // estimate is, since a provider bills no more output than the call allowed.
 // Replay then never counts more than the run did.
-func cappedOutputEstimate(intent *ModelFact, result *llm.Result) int {
+func cappedOutputEstimate(callStart *ModelFact, result *llm.Result) int {
 	estimate := estimatedOutputTokens(result)
-	if limit := intent.Effective.MaxTokens; limit > 0 {
+	if limit := callStart.Effective.MaxTokens; limit > 0 {
 		estimate = min(estimate, limit)
 	}
 	return estimate
 }
 
-func setSettlementCharge(intent *ModelFact, settlement *ModelFact) {
-	if intent == nil || settlement == nil {
+func setFinishCharge(callStart *ModelFact, finish *ModelFact) {
+	if callStart == nil || finish == nil {
 		return
 	}
-	_, charge, estimated, counted, _ := attemptSpend(intent, settlement)
+	_, charge, estimated, counted, _ := modelCallCost(callStart, finish)
 	if counted {
-		settlement.Cost = charge
-		settlement.EstimatedUsage = estimated
+		finish.Cost = charge
+		finish.EstimatedUsage = estimated
 	}
 }
 

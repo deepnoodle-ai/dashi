@@ -104,11 +104,11 @@ func TestLiveIteratorAgentTurns(t *testing.T) {
 
 // Each subtest makes exactly two paid calls. The second call must see the
 // recorded tool result while no longer advertising application tools.
-func TestLiveReservedFinalAnswer(t *testing.T) {
+func TestLiveReservedFinalReply(t *testing.T) {
 	for _, p := range liveProviders {
 		t.Run(p.name, func(t *testing.T) {
 			client, modelName := liveClient(t, p.name)
-			providertest.ReservedFinalAnswer(t, client, modelName)
+			providertest.ReservedFinalReply(t, client, modelName)
 		})
 	}
 }

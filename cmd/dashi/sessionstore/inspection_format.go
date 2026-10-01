@@ -51,7 +51,7 @@ func FormatAccounting(a Accounting) string {
 	if a.Incomplete || a.CountsIncomplete {
 		countLabel = "at least "
 	}
-	fmt.Fprintf(&out, "\nModel calls with recorded dispatch evidence: %s%d; unresolved model intents: %s%d", countLabel, a.ModelCalls, countLabel, a.UnresolvedModelIntents)
+	fmt.Fprintf(&out, "\nModel calls with recorded dispatch evidence: %s%d; unresolved model intents: %s%d", countLabel, a.ModelCalls, countLabel, a.UnresolvedStartedModelCalls)
 	fmt.Fprintf(&out, "\nTokens: uncached input %d; cache reads %d; cache writes %d; output %d", spend.Usage.InputTokens, spend.Usage.CacheReadInputTokens, spend.Usage.CacheCreationInputTokens, spend.Usage.OutputTokens)
 	if a.Incomplete || spend.UsageIncomplete {
 		out.WriteString("\nUsage incomplete; retained token counts are not complete totals.")

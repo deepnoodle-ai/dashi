@@ -386,14 +386,14 @@ func reminderBefore(messages []llm.Message, first, second string) bool {
 
 // unsettledCallsTurn records one model result with three calls that end
 // started, waiting, and uncertain, and an uncertain stop.
-func unsettledCallsTurn() Turn {
+func unfinishedCallsTurn() Turn {
 	def := tool.Definition{
 		Name:   "work",
 		Kind:   tool.KindLocal,
 		Schema: []byte(`{"type":"object"}`),
 	}
-	intent := interruptionModelIntent("model-1")
-	intent.Model.Tools = []tool.Definition{def}
+	callStart := interruptionModelCallStart("model-1")
+	callStart.Model.Tools = []tool.Definition{def}
 	var parts []llm.Content
 	var calls []tool.Call
 	for _, id := range []string{"started", "waiting", "uncertain"} {
@@ -408,7 +408,7 @@ func unsettledCallsTurn() Turn {
 	}
 	steps := []Step{
 		interruptionStart(testAgent()),
-		intent,
+		callStart,
 		{Kind: StepModelCallFinished, Model: &ModelFact{
 			ModelCallID: "model-1",
 			MessageID:   "message-1",
@@ -434,7 +434,7 @@ func unsettledCallsTurn() Turn {
 }
 
 func TestCanceledTurnShowsUnfinishedCallsAndFreezes(t *testing.T) {
-	turn := unsettledCallsTurn()
+	turn := unfinishedCallsTurn()
 	if _, err := TurnMessagesFull(turn); err == nil {
 		t.Fatal("an open turn with unsettled calls projected")
 	}
@@ -479,10 +479,10 @@ func TestCanceledTurnShowsUnfinishedCallsAndFreezes(t *testing.T) {
 }
 
 // A canceled turn with a model attempt in flight projects its input only.
-func TestCanceledTurnDropsPendingModelAttempt(t *testing.T) {
+func TestCanceledTurnDropsPendingModelCall(t *testing.T) {
 	turn := interruptionRecord(
 		interruptionStart(testAgent()),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 	)
 	canceled, err := (Runner{Client: &scriptedClient{}}).Run(
 		t.Context(), turn, Cancel{CommandID: "close"},
@@ -501,7 +501,7 @@ func TestCanceledTurnDropsPendingModelAttempt(t *testing.T) {
 func TestCrashResumeCarriesReminder(t *testing.T) {
 	crashed := interruptionRecord(
 		interruptionStart(testAgent()),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 	)
 	client := &scriptedClient{results: []llm.Result{
 		callResult("call-1", "lookup"),
@@ -611,7 +611,7 @@ func TestLateModelResultKeepsEndedAnswer(t *testing.T) {
 func TestRepeatedCrashResumeCarriesOneReminder(t *testing.T) {
 	crashed := interruptionRecord(
 		interruptionStart(testAgent()),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 	)
 	// The first resume records its Continue, then its worker crashes
 	// before the model call: keep the record only up to that Continue.

@@ -286,7 +286,7 @@ func TestActiveCompactionRejectsSummaryWorkAndNoSavings(t *testing.T) {
 		})
 	}
 }
-func TestActiveCompactionAttemptAndOutputBudget(t *testing.T) {
+func TestActiveCompactionModelCallAndOutputBudget(t *testing.T) {
 	t.Run("reserve response", func(t *testing.T) {
 		c, a := activeFixture()
 		a.Limits.ModelCalls = 3
@@ -310,7 +310,7 @@ func TestActiveCompactionAttemptAndOutputBudget(t *testing.T) {
 		}
 	})
 }
-func TestActiveCompactionHookDeliveryReachesOrdinaryRequest(t *testing.T) {
+func TestActiveCompactionHookMessagesReachOrdinaryRequest(t *testing.T) {
 	c, a := activeFixture()
 	calls := 0
 	var sends []ModelPurpose

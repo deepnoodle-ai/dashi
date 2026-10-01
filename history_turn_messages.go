@@ -99,7 +99,7 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 			return nil, err
 		}
 	} else {
-		if state.modelIntent != "" || state.unresolvedModel != "" {
+		if state.modelCallStart != "" || state.unresolvedModel != "" {
 			return nil, errors.New("dashi: model intent needs reconciliation")
 		}
 		for _, id := range state.callOrder {
@@ -123,16 +123,16 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 	for _, m := range history {
 		emit(m.Clone())
 	}
-	settledProviderTool := map[string]bool{}
+	finishedProviderTool := map[string]bool{}
 	for _, step := range t.Steps {
 		if step.Kind == StepProviderToolApprovalDecided && step.ProviderToolApproval != nil {
-			settledProviderTool[step.ProviderToolApproval.RequestID] = true
+			finishedProviderTool[step.ProviderToolApproval.RequestID] = true
 		}
 	}
 	// A NextCallOnly item expires once a model call that was dispatched
 	// follows it. A request settled without dispatch, or not settled at all,
 	// showed the model nothing.
-	lastDispatched := lastDispatchedIntent(t)
+	lastDispatched := lastDispatchedCallStart(t)
 	resumed := lastCrashResume(t.Steps)
 	for _, step := range t.Steps {
 		seq, index = step.Seq, 0
@@ -197,7 +197,7 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 						continue
 					}
 					if part.ProviderToolApprovalRequest == nil ||
-						!settledProviderTool[part.ProviderToolApprovalRequest.ID] {
+						!finishedProviderTool[part.ProviderToolApprovalRequest.ID] {
 						continue
 					}
 				}
@@ -370,15 +370,15 @@ func steeringReminder() llm.Message {
 
 // lastDispatchedIntent returns the sequence number of the latest model
 // request whose call was dispatched, or zero.
-func lastDispatchedIntent(t Turn) int64 {
-	intents := map[string]int64{}
+func lastDispatchedCallStart(t Turn) int64 {
+	callStarts := map[string]int64{}
 	var last int64
 	for _, step := range t.Steps {
 		switch step.Kind {
 		case StepModelCallStarted:
-			intents[step.Model.ModelCallID] = step.Seq
+			callStarts[step.Model.ModelCallID] = step.Seq
 		case StepModelCallFinished, StepModelCallFinishedByHost:
-			if seq := intents[step.Model.ModelCallID]; modelPurpose(t, step.Model.ModelCallID) != ModelPurposeCompaction && modelDispatched(step.Model) &&
+			if seq := callStarts[step.Model.ModelCallID]; modelPurpose(t, step.Model.ModelCallID) != ModelPurposeCompaction && modelDispatched(step.Model) &&
 				seq > last {
 				last = seq
 			}

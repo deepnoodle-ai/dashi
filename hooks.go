@@ -570,4 +570,4 @@ func reservedStopReason(reason string) bool {
 }
 
 // maxAdmission bounds all hooks' admission JSON on one model intent.
-const maxAdmission = 16 << 10
+const maxReservation = 16 << 10

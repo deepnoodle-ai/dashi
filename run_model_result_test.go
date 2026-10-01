@@ -7,7 +7,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-func TestKnownProviderRejectionCanContinueWithNewAttempt(t *testing.T) {
+func TestKnownProviderRejectionCanContinueWithNewModelCall(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{{}, final("done")},
 		errors: []error{
@@ -24,9 +24,9 @@ func TestKnownProviderRejectionCanContinueWithNewAttempt(t *testing.T) {
 	if err != nil || first.Stop.Kind != StopFailed || len(first.Pending) != 0 || client.sends != 1 {
 		t.Fatalf("first=%+v err=%v sends=%d", first, err, client.sends)
 	}
-	settled := first.Turn.Steps[len(first.Turn.Steps)-2]
-	if settled.Kind != StepModelCallFinished || settled.Model.SendStatus != llm.SendStatusProviderRejected || settled.Model.ResultUnknown {
-		t.Fatalf("settlement=%+v", settled)
+	finished := first.Turn.Steps[len(first.Turn.Steps)-2]
+	if finished.Kind != StepModelCallFinished || finished.Model.SendStatus != llm.SendStatusProviderRejected || finished.Model.ResultUnknown {
+		t.Fatalf("settlement=%+v", finished)
 	}
 	second, err := (Runner{
 		Client:   client,
@@ -86,7 +86,7 @@ func TestUnknownProviderFailureRequiresEvidenceBeforeRetry(t *testing.T) {
 	}
 }
 
-func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(
+func TestPartialProviderFailureStaysResultUnknownDespiteRejectionLabel(
 	t *testing.T,
 ) {
 	client := &scriptedClient{

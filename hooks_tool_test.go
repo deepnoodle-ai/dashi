@@ -89,10 +89,10 @@ func TestAfterToolChainsReplacements(t *testing.T) {
 	if !strings.Contains(sent[len(sent)-1].Content[0].ToolResult.Output.Content[0].Text.Text, "REDACTED") {
 		t.Fatalf("the model saw the raw result")
 	}
-	settled := settlementOf(t, out.Turn, "call-1")
-	if settled.Tool.Result == nil || len(settled.HookResults) != 2 ||
-		settled.HookResults[0].Verdict != VerdictReplace {
-		t.Fatalf("settled = %+v", settled)
+	finished := finishOf(t, out.Turn, "call-1")
+	if finished.Tool.Result == nil || len(finished.HookResults) != 2 ||
+		finished.HookResults[0].Verdict != VerdictReplace {
+		t.Fatalf("settled = %+v", finished)
 	}
 	if _, err := out.Turn.View(); err != nil {
 		t.Fatal(err)
@@ -109,9 +109,9 @@ func TestAfterToolEqualReplacementIsNoOpinion(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	settled := settlementOf(t, out.Turn, "call-1")
-	if settled.Tool.Result != nil || len(settled.HookResults) != 0 {
-		t.Fatalf("recorded a no-op replacement: %+v", settled)
+	finished := finishOf(t, out.Turn, "call-1")
+	if finished.Tool.Result != nil || len(finished.HookResults) != 0 {
+		t.Fatalf("recorded a no-op replacement: %+v", finished)
 	}
 }
 
@@ -320,7 +320,7 @@ func TestAfterToolRunsOnlyForToolAndHostContent(t *testing.T) {
 	}
 }
 
-func TestAfterToolRunsOnSettledHostResults(t *testing.T) {
+func TestAfterToolRunsOnFinishedHostResults(t *testing.T) {
 	redact := replaceText("redact", func(s string) string {
 		return strings.ReplaceAll(s, "sk-123", "[redacted]")
 	})
@@ -347,10 +347,10 @@ func TestAfterToolRunsOnSettledHostResults(t *testing.T) {
 		if err != nil || modelText(out.Tools["call-1"].Result()) != "key=[redacted]" {
 			t.Fatalf("result=%+v err=%v", out.Tools["call-1"].Result(), err)
 		}
-		settled := settlementOf(t, out.Turn, "call-1")
-		if settled.ActiveHooks == nil || len(settled.ActiveHooks.AfterTool) != 1 ||
+		finished := finishOf(t, out.Turn, "call-1")
+		if finished.ActiveHooks == nil || len(finished.ActiveHooks.AfterTool) != 1 ||
 			hasWarning(out, WarningHooksChanged) {
-			t.Fatalf("settled=%+v warnings=%+v", settled, out.Warnings)
+			t.Fatalf("settled=%+v warnings=%+v", finished, out.Warnings)
 		}
 		// A Resolve from a handler without the hooks is recorded as a change.
 		bare := runner
@@ -540,7 +540,7 @@ func TestAfterToolFailOpenKeepsTheResultWhenTheRunEnds(t *testing.T) {
 	}
 }
 
-func TestAfterToolOnSettleIgnoresTheTurnDeadline(t *testing.T) {
+func TestAfterToolOnResolveIgnoresTheTurnDeadline(t *testing.T) {
 	strictRedact := ResultHook{Name: "redact", Func: func(
 		ctx context.Context,
 		p ResultPlan,
@@ -579,7 +579,7 @@ func TestAfterToolOnSettleIgnoresTheTurnDeadline(t *testing.T) {
 	}
 }
 
-func TestAfterToolRunsOnFatalAndUncertainResults(t *testing.T) {
+func TestAfterToolRunsOnFatalAndResultUnknownResults(t *testing.T) {
 	calls := 0
 	watch := ResultHook{Name: "watch", Func: func(context.Context, ResultPlan) (ResultDecision, error) {
 		calls++
@@ -633,7 +633,7 @@ func TestAfterToolRunsOnFatalAndUncertainResults(t *testing.T) {
 	})
 }
 
-func TestReplayRejectsAResultOffASettlement(t *testing.T) {
+func TestReplayRejectsAResultOffAFinish(t *testing.T) {
 	runs := 0
 	client := &scriptedClient{
 		results: []llm.Result{callResult("call-1", "remote"), final("done")},

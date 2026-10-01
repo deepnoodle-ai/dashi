@@ -66,7 +66,7 @@ type StepWaiter interface {
 //
 // A handler that merges previews with Follow's steps drops a preview whose
 // MessageID (for a delta) or CallID (for progress) a sent step settled.
-func (s Step) Settles() string {
+func (s Step) Finishes() string {
 	switch {
 	case (s.Kind == StepModelCallFinished || s.Kind == StepModelCallFinishedByHost) &&
 		s.Model != nil:

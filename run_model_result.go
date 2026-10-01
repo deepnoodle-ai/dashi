@@ -94,7 +94,7 @@ func markIncomplete(result *llm.Result) {
 	}
 }
 
-func failureDisposition(err error, result llm.Result) llm.SendStatus {
+func sendStatusOf(err error, result llm.Result) llm.SendStatus {
 	failure, ok := errors.AsType[*llm.Error](err)
 	if !ok || result.ID != "" || len(result.Message.Content) > 0 ||
 		result.Usage != nil {
@@ -187,7 +187,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (RunResult, bool) {
 	structured := len(state.OutputSchema) > 0
 	plan := FinishPlan{
 		Turn:        snapshotView(state.TurnView),
-		ModelCallID: state.latestAttempt,
+		ModelCallID: state.latestModelCall,
 		Reply:       result.Message.Text(),
 	}
 	if structured {
@@ -210,7 +210,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (RunResult, bool) {
 			}
 			return RunResult{}, true
 		}
-		r.deliveryDropped()
+		r.messagesDropped()
 	}
 	finish, o := r.finishPoint(state, plan)
 	if o != nil {
@@ -268,7 +268,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (RunResult, bool) {
 	fact := &StructuredOutput{
 		Value:       plan.Output,
 		Source:      OutputFromText,
-		ModelCallID: state.latestAttempt,
+		ModelCallID: state.latestModelCall,
 	}
 	if o := r.commit(Step{Kind: StepOutputRecorded, Output: fact}); o != nil {
 		return *o, false
@@ -290,7 +290,7 @@ func submittedOutput(s *replayState) *StructuredOutput {
 				Value:       slices.Clone(v.Call.Args),
 				Source:      OutputFromTool,
 				ToolCallID:  id,
-				ModelCallID: s.callAttempts[id],
+				ModelCallID: s.modelCallOfTool[id],
 			}
 		}
 	}
@@ -333,7 +333,7 @@ func validateModelResult(result llm.Result, agent Agent) error {
 // <system-reminder> messages. It is always sent, so the system prompt stays
 // the same while reminders come and go and the provider's prompt cache
 // survives; only the reserved final-answer call adds its own text.
-func modelSystem(instructions string, structured, finalAnswer bool) string {
+func modelSystem(instructions string, structured, finalReply bool) string {
 	parts := []string{}
 	if instructions != "" {
 		parts = append(parts, instructions)
@@ -348,7 +348,7 @@ func modelSystem(instructions string, structured, finalAnswer bool) string {
 			"When your work is finished, call dashi_submit_output with the final object. You may use other tools first. A valid JSON object in your final text is also accepted.",
 		)
 	}
-	if finalAnswer {
+	if finalReply {
 		parts = append(
 			parts,
 			"This is the last model call allowed for this turn. Use the information already available to give the best final answer. State any unfinished work or uncertainty. Do not request further work or application tools.",

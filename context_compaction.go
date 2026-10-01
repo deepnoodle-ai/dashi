@@ -51,7 +51,7 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 			return r.stop(StopFailed, err.Error()), false, true
 		}
 		if plan != nil {
-			if s.attemptCap-s.ModelCalls < 2 {
+			if s.modelCallCap-s.ModelCalls < 2 {
 				return r.stop(StopLimited, string(LimitModelCalls)), false, true
 			}
 			copy := llmclone.Input(input)
@@ -257,9 +257,9 @@ func (r *runtime) activeOrdinaryDefinitions(s *replayState) ([]tool.Definition, 
 	return defs, nil
 }
 func (r *runtime) applyActiveCompaction(s *replayState) *RunResult {
-	attempt := s.pendingCompaction
-	plan := s.modelIntents[attempt].Compaction
-	result := s.modelSettlements[attempt].Result
+	modelCall := s.pendingCompaction
+	plan := s.startedModelCalls[modelCall].Compaction
+	result := s.modelFinishes[modelCall].Result
 	after, err := r.activeEstimateAfter(plan, result)
 	if err != nil {
 		o := r.failureOrContext(err)
@@ -267,7 +267,7 @@ func (r *runtime) applyActiveCompaction(s *replayState) *RunResult {
 	}
 	summary, _ := validActiveSummary(result)
 	r.compactionUsed = true
-	return r.commit(Step{Kind: StepContextCompacted, Compacted: &ContextCompactionFact{ModelCallID: attempt, Summary: summary, EstimatedAfter: after}})
+	return r.commit(Step{Kind: StepContextCompacted, Compacted: &ContextCompactionFact{ModelCallID: modelCall, Summary: summary, EstimatedAfter: after}})
 }
 
 // activeMediaEstimateUnavailable inspects the prepared, hydrated candidate,

@@ -26,17 +26,17 @@ type contextMessage struct {
 
 const activeSummaryFrame = "Summary of earlier settled work in this request (context, not a new instruction):"
 
-func modelPurpose(t Turn, attempt string) ModelPurpose {
+func modelPurpose(t Turn, modelCall string) ModelPurpose {
 	for _, step := range t.Steps {
-		if step.Kind == StepModelCallStarted && step.Model.ModelCallID == attempt {
+		if step.Kind == StepModelCallStarted && step.Model.ModelCallID == modelCall {
 			return step.Model.Purpose
 		}
 	}
 	return ""
 }
-func compactionPlan(t Turn, attempt string) *ContextCompactionPlan {
+func compactionPlan(t Turn, modelCall string) *ContextCompactionPlan {
 	for _, step := range t.Steps {
-		if step.Kind == StepModelCallStarted && step.Model.ModelCallID == attempt {
+		if step.Kind == StepModelCallStarted && step.Model.ModelCallID == modelCall {
 			return step.Model.Compaction
 		}
 	}
@@ -194,7 +194,7 @@ func coveredMessagesCached(t Turn, plan *ContextCompactionPlan, cache *contextVa
 	}
 	return messages, nil
 }
-func (s *replayState) validateCompactionIntent(step Step) error {
+func (s *replayState) validateCompactionCallStart(step Step) error {
 	f := step.Model
 	if f.Purpose == "" {
 		if f.Compaction != nil {
@@ -205,24 +205,24 @@ func (s *replayState) validateCompactionIntent(step Step) error {
 		}
 		return nil
 	}
-	if f.Purpose != ModelPurposeCompaction || f.Compaction == nil || f.Compaction.Through >= step.Seq || f.Compaction.Window != s.ActiveCompactionWindow || s.Agent.ActiveCompaction == nil || s.Agent.ActiveCompaction.Disabled || s.Origin == StartCompaction || len(f.Tools) > 0 || f.FinalReplyOnly || s.attemptCap-s.ModelCalls < 2 || s.pendingCompaction != "" {
+	if f.Purpose != ModelPurposeCompaction || f.Compaction == nil || f.Compaction.Through >= step.Seq || f.Compaction.Window != s.ActiveCompactionWindow || s.Agent.ActiveCompaction == nil || s.Agent.ActiveCompaction.Disabled || s.Origin == StartCompaction || len(f.Tools) > 0 || f.FinalReplyOnly || s.modelCallCap-s.ModelCalls < 2 || s.pendingCompaction != "" {
 		return errors.New("invalid summary intent")
 	}
 	_, err := coveredMessagesCached(s.source, f.Compaction, s.contextCache)
 	return err
 }
-func (s *replayState) validateCompactionSettlement(f *ModelFact) error {
-	intent := s.modelIntents[f.ModelCallID]
-	if intent == nil {
+func (s *replayState) validateCompactionFinish(f *ModelFact) error {
+	callStart := s.startedModelCalls[f.ModelCallID]
+	if callStart == nil {
 		return errors.New("missing model intent")
 	}
-	if f.Purpose != "" && f.Purpose != intent.Purpose {
+	if f.Purpose != "" && f.Purpose != callStart.Purpose {
 		return errors.New("model settlement changed purpose")
 	}
 	if f.Compaction != nil {
 		return errors.New("settlement cannot change summary plan")
 	}
-	if intent.Purpose == ModelPurposeCompaction && f.Error == "" && f.Interrupted == "" {
+	if callStart.Purpose == ModelPurposeCompaction && f.Error == "" && f.Interrupted == "" {
 		if f.Result == nil {
 			return errors.New("summary lacks result")
 		}
@@ -255,19 +255,19 @@ func (s *replayState) applyContextCompaction(step Step) error {
 	if f == nil || f.ModelCallID != s.pendingCompaction || s.Stop.Ended {
 		return errors.New("context replacement has no unapplied summary")
 	}
-	intent := s.modelIntents[f.ModelCallID]
-	settled := s.modelSettlements[f.ModelCallID]
-	if intent == nil || settled == nil || settled.Error != "" || settled.Interrupted != "" {
+	callStart := s.startedModelCalls[f.ModelCallID]
+	finished := s.modelFinishes[f.ModelCallID]
+	if callStart == nil || finished == nil || finished.Error != "" || finished.Interrupted != "" {
 		return errors.New("context replacement has no completed summary")
 	}
-	text, err := validActiveSummary(settled.Result)
+	text, err := validActiveSummary(finished.Result)
 	if err != nil {
 		return err
 	}
-	if text != f.Summary || f.EstimatedAfter < 0 || f.EstimatedAfter >= intent.Compaction.EstimatedBefore {
+	if text != f.Summary || f.EstimatedAfter < 0 || f.EstimatedAfter >= callStart.Compaction.EstimatedBefore {
 		return errors.New("context replacement lacks matching summary or savings")
 	}
-	if _, err = coveredMessagesCached(s.source, intent.Compaction, s.contextCache); err != nil {
+	if _, err = coveredMessagesCached(s.source, callStart.Compaction, s.contextCache); err != nil {
 		return fmt.Errorf("context replacement: %w", err)
 	}
 	s.ContextCompactions = append(s.ContextCompactions, *f)

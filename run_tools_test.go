@@ -104,7 +104,7 @@ func TestToolFailureRecordShapes(t *testing.T) {
 			if view.Tools["call-1"].Status != test.status {
 				t.Fatalf("status=%s", view.Tools["call-1"].Status)
 			}
-			fact := settledFact(t, got.Turn, "call-1")
+			fact := finishedFact(t, got.Turn, "call-1")
 			if !strings.HasPrefix(fact.Reason, test.reasonPrefix) {
 				t.Fatalf("recorded reason=%q", fact.Reason)
 			}
@@ -203,7 +203,7 @@ func TestFatalToolErrorStopsLaterCallsUntilContinue(t *testing.T) {
 	}
 }
 
-func TestToolPanicIsRecordedAsUncertain(t *testing.T) {
+func TestToolPanicIsRecordedAsResultUnknown(t *testing.T) {
 	tests := []struct {
 		name        string
 		concurrency int
@@ -244,7 +244,7 @@ func TestToolPanicIsRecordedAsUncertain(t *testing.T) {
 			if view.Tools["b"].Status != ToolFinished {
 				t.Fatalf("sibling call status=%s", view.Tools["b"].Status)
 			}
-			reason := settledFact(t, first.Turn, "a").Reason
+			reason := finishedFact(t, first.Turn, "a").Reason
 			if !strings.HasPrefix(reason, "panic: boom\n") {
 				t.Fatalf("panic reason=%q", reason)
 			}
@@ -253,8 +253,8 @@ func TestToolPanicIsRecordedAsUncertain(t *testing.T) {
 				t.Fatal("continued past an unreconciled panic")
 			}
 			out := succeeded("verified")
-			settle := Resolve{CommandID: "reconcile", CallID: "a", Outcome: &out}
-			accepted, err := apply(first.Turn, settle, runner)
+			finish := Resolve{CommandID: "reconcile", CallID: "a", Outcome: &out}
+			accepted, err := apply(first.Turn, finish, runner)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -272,7 +272,7 @@ func TestToolPanicIsRecordedAsUncertain(t *testing.T) {
 	}
 }
 
-func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
+func TestReplayKeepsRecordedToolUnknownResult(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{callResult("call-1", "remote")},
 	}
@@ -326,8 +326,8 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 		State:  tool.StateFailed,
 		Output: new(tool.TextOutput("connection lost")),
 	}
-	settle := Resolve{CommandID: "reconcile", CallID: "call-1", Outcome: &out}
-	accepted, err := apply(forged, settle, runner)
+	finish := Resolve{CommandID: "reconcile", CallID: "call-1", Outcome: &out}
+	accepted, err := apply(forged, finish, runner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +431,7 @@ func callsResult(ids ...string) llm.Result {
 }
 
 // settledFact returns the recorded settlement for callID.
-func settledFact(t *testing.T, turn Turn, callID string) *ToolFact {
+func finishedFact(t *testing.T, turn Turn, callID string) *ToolFact {
 	t.Helper()
 	for _, step := range turn.Steps {
 		if step.Kind == StepToolFinished && step.Tool.Call.ID == callID {
@@ -578,7 +578,7 @@ func TestContinueRepeatsOnlySafeStartedLocalTools(t *testing.T) {
 	}
 }
 
-func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
+func TestPauseDuringToolLoopFinishesRunningCallBeforeStopping(t *testing.T) {
 	firstCall := tool.Call{ID: "first", Name: "first", Args: []byte(`{}`)}
 	secondCall := tool.Call{ID: "second", Name: "second", Args: []byte(`{}`)}
 	client := &scriptedClient{

@@ -41,7 +41,7 @@ const openTimeout = 10 * time.Minute
 
 // settledLimit bounds the settled messages a turn remembers. A delayed
 // delta comes from a recent message, so the latest few suffice.
-const settledLimit = 64
+const finishedLimit = 64
 
 // Hub fans a Runner's previews out to the readers following its turns in
 // this process. Set Runner.Observer to hub.Observe and pass the hub to
@@ -76,17 +76,17 @@ type turnState struct {
 	// settled holds messages whose settling step was observed, oldest
 	// first in settledOrder, so a delayed delta or gap from an overlapping
 	// run cannot reopen one.
-	settled      map[string]bool
-	settledOrder []string
+	finished      map[string]bool
+	finishedOrder []string
 	// last is when the turn last had an event, for the sweep.
 	last time.Time
 }
 
 type openMessage struct {
-	attemptID string
-	messageID string
-	seq       int64
-	last      time.Time
+	modelCallID string
+	messageID   string
+	seq         int64
+	last        time.Time
 }
 
 // reader is one Follow's queue of previews and gaps, in arrival order.
@@ -113,7 +113,7 @@ func (h *Hub) Observe(e dashi.Event) {
 	case e.Delta != nil:
 		t := h.lock(e.TurnID, true)
 		t.last = time.Now()
-		if t.settled[e.MessageID] {
+		if t.finished[e.MessageID] {
 			t.mu.Unlock()
 			return
 		}
@@ -127,7 +127,7 @@ func (h *Hub) Observe(e dashi.Event) {
 		// before its next delta starts with a gap for it.
 		t := h.lock(e.TurnID, true)
 		t.last = time.Now()
-		if t.settled[e.MessageID] {
+		if t.finished[e.MessageID] {
 			t.mu.Unlock()
 			return
 		}
@@ -149,11 +149,11 @@ func (h *Hub) Observe(e dashi.Event) {
 func (h *Hub) observeStep(e dashi.Event) {
 	// A settled model message is remembered even for a turn nobody follows
 	// yet, so a delayed delta cannot reopen it.
-	settles := ""
+	finishes := ""
 	if e.Step.Model != nil {
-		settles = e.Step.Settles()
+		finishes = e.Step.Finishes()
 	}
-	t := h.lock(e.TurnID, settles != "")
+	t := h.lock(e.TurnID, finishes != "")
 	if t == nil {
 		return
 	}
@@ -163,17 +163,17 @@ func (h *Hub) observeStep(e dashi.Event) {
 		close(t.wake)
 		t.wake = make(chan struct{})
 	}
-	if settles != "" {
-		t.markSettled(settles)
-		if t.open != nil && t.open.messageID == settles {
+	if finishes != "" {
+		t.markFinished(finishes)
+		if t.open != nil && t.open.messageID == finishes {
 			t.open = nil
 		}
 	}
 	if e.Step.Stop != nil && e.Step.Stop.Ended {
 		// Nothing streams after the end; forget the turn's messages.
 		t.open = nil
-		clear(t.settled)
-		t.settledOrder = nil
+		clear(t.finished)
+		t.finishedOrder = nil
 	}
 	idle := t.idle()
 	t.mu.Unlock()
@@ -190,10 +190,10 @@ func (t *turnState) streaming(e dashi.Event) {
 		return
 	}
 	t.open = &openMessage{
-		attemptID: e.ModelCallID,
-		messageID: e.MessageID,
-		seq:       e.Seq,
-		last:      time.Now(),
+		modelCallID: e.ModelCallID,
+		messageID:   e.MessageID,
+		seq:         e.Seq,
+		last:        time.Now(),
 	}
 }
 
@@ -208,10 +208,10 @@ func (h *Hub) lock(turnID string, create bool) *turnState {
 		t := h.turns[turnID]
 		if t == nil && create {
 			t = &turnState{
-				readers: map[*reader]struct{}{},
-				wake:    make(chan struct{}),
-				settled: map[string]bool{},
-				last:    time.Now(),
+				readers:  map[*reader]struct{}{},
+				wake:     make(chan struct{}),
+				finished: map[string]bool{},
+				last:     time.Now(),
 			}
 			h.turns[turnID] = t
 			h.sweep()
@@ -230,22 +230,22 @@ func (h *Hub) lock(turnID string, create bool) *turnState {
 
 // markSettled remembers a settled message, forgetting the oldest past
 // settledLimit. The caller holds t.mu.
-func (t *turnState) markSettled(id string) {
-	if t.settled[id] {
+func (t *turnState) markFinished(id string) {
+	if t.finished[id] {
 		return
 	}
-	t.settled[id] = true
-	t.settledOrder = append(t.settledOrder, id)
-	if len(t.settledOrder) > settledLimit {
-		delete(t.settled, t.settledOrder[0])
-		t.settledOrder = t.settledOrder[1:]
+	t.finished[id] = true
+	t.finishedOrder = append(t.finishedOrder, id)
+	if len(t.finishedOrder) > finishedLimit {
+		delete(t.finished, t.finishedOrder[0])
+		t.finishedOrder = t.finishedOrder[1:]
 	}
 }
 
 // idle reports whether the entry holds nothing worth keeping. The caller
 // holds t.mu.
 func (t *turnState) idle() bool {
-	return len(t.readers) == 0 && t.open == nil && len(t.settled) == 0
+	return len(t.readers) == 0 && t.open == nil && len(t.finished) == 0
 }
 
 // forget removes an idle turn's entry.
@@ -294,7 +294,7 @@ func (h *Hub) subscribe(turnID string) *reader {
 	if o := t.open; o != nil {
 		r.gap(dashi.Event{
 			TurnID:      turnID,
-			ModelCallID: o.attemptID,
+			ModelCallID: o.modelCallID,
 			MessageID:   o.messageID,
 			Seq:         o.seq,
 			Gap:         true,

@@ -17,9 +17,9 @@ type pendingPrompt struct {
 	input *submittedInput
 	// uncertain names an ordinary Start whose recording acknowledgment was
 	// lost. No later caller Start can evict its idempotency window.
-	uncertain string
-	attempted bool
-	summary   bool
+	resultUnknown string
+	attempted     bool
+	summary       bool
 }
 
 type pendingLine struct {
@@ -101,7 +101,7 @@ func (e *Engine) runPending(ctx context.Context) (Result, error) {
 	if p == nil {
 		return Result{}, errors.New("there is no pending prompt")
 	}
-	if err := e.reconcilePrompt(ctx, p); err != nil {
+	if err := e.resolvePrompt(ctx, p); err != nil {
 		return Result{}, err
 	}
 	res, err := e.run(ctx, p.start)
@@ -115,14 +115,14 @@ func (e *Engine) runPending(ctx context.Context) (Result, error) {
 		ce.NothingWritten && ce.Step != nil &&
 		ce.Step.Kind == dashi.StepTurnStarted && ce.Step.Started != nil &&
 		ce.Step.Started.Origin != dashi.StartCompaction && ce.Step.CommandID == p.start.CommandID
-	if e.pending == p && p.uncertain == "" && (!p.attempted || rejectedInput) && !p.summary &&
+	if e.pending == p && p.resultUnknown == "" && (!p.attempted || rejectedInput) && !p.summary &&
 		res.Outcome.Origin != dashi.StartCompaction {
 		e.pending = nil
 		e.inputReceipt(p, inputPreRecordFailure)
 		e.cfg.Emit(Block{ID: "pending:" + p.start.CommandID, Kind: KindPending, Done: true})
 	}
 	if e.pending == p && p.input != nil {
-		if p.uncertain != "" {
+		if p.resultUnknown != "" {
 			e.inputReceipt(p, inputPendingUnknown)
 		} else if !p.summary && res.Outcome.Origin != dashi.StartCompaction {
 			e.inputReceipt(p, inputPreRecordFailure)
@@ -139,7 +139,7 @@ func (e *Engine) resumePending(ctx context.Context) (Result, error) {
 	if p == nil {
 		return Result{}, errors.New("there is no pending prompt")
 	}
-	if err := e.reconcilePrompt(ctx, p); err != nil {
+	if err := e.resolvePrompt(ctx, p); err != nil {
 		return Result{}, err
 	}
 	last := e.Last(ctx)
@@ -191,14 +191,14 @@ func (e *Engine) rememberPromptError(err error) {
 		e.pending.start.CommandID = ce.Step.CommandID
 		e.pending.attempted = true
 		if !ce.NothingWritten {
-			e.pending.uncertain = ce.Step.TurnID
+			e.pending.resultUnknown = ce.Step.TurnID
 		}
 	}
 }
 
-func (e *Engine) reconcilePrompt(ctx context.Context, p *pendingPrompt) error {
+func (e *Engine) resolvePrompt(ctx context.Context, p *pendingPrompt) error {
 	e.inputMu.Lock()
-	id := p.uncertain
+	id := p.resultUnknown
 	e.inputMu.Unlock()
 	if id == "" {
 		return nil
@@ -210,7 +210,7 @@ func (e *Engine) reconcilePrompt(ctx context.Context, p *pendingPrompt) error {
 	turn, err := loader.Load(ctx, id)
 	if errors.Is(err, dashi.ErrTurnNotFound) || err == nil && len(turn.Steps) == 0 {
 		e.inputMu.Lock()
-		p.uncertain = ""
+		p.resultUnknown = ""
 		e.inputReceipt(p, inputConfirmedAbsent)
 		e.inputMu.Unlock()
 		return nil

@@ -61,7 +61,7 @@ func TestSessionLastTurnRules(t *testing.T) {
 		},
 		{
 			name:  "uncertain call, stopped",
-			build: buildUncertainStop,
+			build: buildResultUnknownStop,
 			next:  dashi.NextFix,
 			want: func(session.WorkerStatus, bool) expect {
 				return expect{busy: dashi.NextFix, callID: true}
@@ -101,7 +101,7 @@ func TestSessionLastTurnRules(t *testing.T) {
 		},
 		{
 			name:  "model-call limit",
-			build: buildAttemptLimit,
+			build: buildModelCallLimit,
 			next:  dashi.NextRaiseModelCalls,
 			want:  closes,
 		},
@@ -247,7 +247,7 @@ func TestSessionBusyMessages(t *testing.T) {
 // its tool may still act, so a new Exclusive handle refuses a new message
 // and names the call. Cancel{} records that the host accepts the risk, and
 // the next message starts.
-func TestSessionUncertainCallCancel(t *testing.T) {
+func TestSessionResultUnknownCallCancel(t *testing.T) {
 	rec := newLiveRecorder()
 	buildCrashInTool("charge")(t, rec)
 	s := handle(rec.MemoryRecorder, dashitest.NewClient(dashitest.Reply("ok")))
@@ -348,8 +348,8 @@ func TestSessionLostWorker(t *testing.T) {
 		}
 		requireTurns(t, rec, 1)
 		// The host checked the charge and settles the call under its lease.
-		settle := out.Pending[0].Result(tool.Succeeded("charged once"))
-		if _, err := b.Run(t.Context(), settle, dashi.WithOwner("b")); err != nil {
+		finish := out.Pending[0].Result(tool.Succeeded("charged once"))
+		if _, err := b.Run(t.Context(), finish, dashi.WithOwner("b")); err != nil {
 			t.Fatal(err)
 		}
 		out, err = b.Run(t.Context(), dashi.Continue{}, dashi.WithOwner("b"))
@@ -511,7 +511,7 @@ func buildCrashInTool(name string) func(*testing.T, *liveRecorder) {
 
 // buildUncertainStop resumes a crash in a tool that is not idempotent, so
 // the call is recorded uncertain.
-func buildUncertainStop(t *testing.T, rec *liveRecorder) {
+func buildResultUnknownStop(t *testing.T, rec *liveRecorder) {
 	t.Helper()
 	buildCrashInTool("charge")(t, rec)
 	s := handle(rec.MemoryRecorder, dashitest.NewClient())
@@ -556,7 +556,7 @@ func buildPaused(t *testing.T, rec *liveRecorder) {
 	}
 }
 
-func buildAttemptLimit(t *testing.T, rec *liveRecorder) {
+func buildModelCallLimit(t *testing.T, rec *liveRecorder) {
 	t.Helper()
 	client := dashitest.NewClient(dashitest.CallTool("call-1", "lookup", `{}`))
 	sendFirst(t, rec, client, func(s *session.Session) {

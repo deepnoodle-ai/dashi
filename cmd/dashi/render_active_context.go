@@ -9,7 +9,7 @@ import (
 
 // Purpose belongs to the recorded attempt, not to its preview text. Keep the
 // map for late previews as well as live rendering and recorded replay.
-type activeContextAttempt struct {
+type activeContextModelCall struct {
 	before       int
 	done         bool
 	awaitingStop bool
@@ -35,14 +35,14 @@ func (r *Renderer) isActiveSummaryFact(m *dashi.ModelFact) bool {
 	return m != nil && (m.Purpose == dashi.ModelPurposeCompaction || r.isActiveSummary(m.ModelCallID))
 }
 
-func (r *Renderer) activeContextIntent(s dashi.Step) []Block {
+func (r *Renderer) activeContextCallStart(s dashi.Step) []Block {
 	if s.Model == nil || s.Model.Purpose != dashi.ModelPurposeCompaction {
 		return nil
 	}
 	if r.activeContext == nil {
-		r.activeContext = make(map[string]*activeContextAttempt)
+		r.activeContext = make(map[string]*activeContextModelCall)
 	}
-	a := &activeContextAttempt{}
+	a := &activeContextModelCall{}
 	if s.Model.Compaction != nil {
 		a.before = s.Model.Compaction.EstimatedBefore
 	}
@@ -54,7 +54,7 @@ func activeContextBlock(id, state, text string, done bool) Block {
 	return Block{ID: "active-compaction:" + id, Kind: KindCompaction, State: state, Text: text, Done: done}
 }
 
-func (r *Renderer) activeContextSettled(s dashi.Step) []Block {
+func (r *Renderer) activeContextFinished(s dashi.Step) []Block {
 	m := s.Model
 	if m == nil {
 		return nil
@@ -63,9 +63,9 @@ func (r *Renderer) activeContextSettled(s dashi.Step) []Block {
 	if a == nil {
 		// A standalone settlement can still be identified by its purpose.
 		if r.activeContext == nil {
-			r.activeContext = make(map[string]*activeContextAttempt)
+			r.activeContext = make(map[string]*activeContextModelCall)
 		}
-		a = &activeContextAttempt{}
+		a = &activeContextModelCall{}
 		r.activeContext[m.ModelCallID] = a
 	}
 	switch {

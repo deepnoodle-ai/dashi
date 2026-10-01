@@ -142,7 +142,7 @@ func testRecovery(
 	// Nothing may depend on a step before it is acknowledged.
 	switch kind {
 	case dashi.StepModelCallStarted:
-		want := countIntents(saved, fired.Seq)
+		want := countCallStarts(saved, fired.Seq)
 		if model.calls() != want {
 			t.Fatalf(
 				"model called %d times before intent %d was acknowledged; want %d",
@@ -158,7 +158,7 @@ func testRecovery(
 	}
 
 	out := resume(t, saved, begin, runner, dashi.WithOwner("worker-2"))
-	if uncertainTool(kind, committed) {
+	if resultUnknownTool(kind, committed) {
 		// The record cannot show whether the tool took effect, so the
 		// runner must stop and ask rather than run it again or assume.
 		if out.Stop.Kind != dashi.StopResultUnknown {
@@ -219,7 +219,7 @@ func testRecovery(
 	if work.calls() != wantRuns {
 		t.Fatalf("tool ran %d times; want %d", work.calls(), wantRuns)
 	}
-	requireEveryIntentSettled(t, final)
+	requireEveryCallStartFinished(t, final)
 }
 
 // TestStaleRetryAfterFailedLoadRepeatsNothing retries a command with an old
@@ -424,7 +424,7 @@ func run(
 
 // uncertainTool reports whether the reloaded record shows a started tool
 // with no result. Only the host can reconcile that call.
-func uncertainTool(kind dashi.StepKind, committed bool) bool {
+func resultUnknownTool(kind dashi.StepKind, committed bool) bool {
 	return kind == dashi.StepToolStarted && committed ||
 		kind == dashi.StepToolFinished && !committed
 }
@@ -493,7 +493,7 @@ func requireRecordAt(
 }
 
 // countIntents counts the model intents recorded before seq.
-func countIntents(turn dashi.Turn, seq int64) int {
+func countCallStarts(turn dashi.Turn, seq int64) int {
 	n := 0
 	for _, step := range turn.Steps {
 		if step.Seq < seq && step.Kind == dashi.StepModelCallStarted {
@@ -505,7 +505,7 @@ func countIntents(turn dashi.Turn, seq int64) int {
 
 // requireEveryIntentSettled checks that the record explains every model call
 // it began, including calls interrupted by the fault.
-func requireEveryIntentSettled(t *testing.T, turn dashi.Turn) {
+func requireEveryCallStartFinished(t *testing.T, turn dashi.Turn) {
 	t.Helper()
 	open := map[string]bool{}
 	for _, step := range turn.Steps {

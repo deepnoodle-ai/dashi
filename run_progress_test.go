@@ -77,16 +77,16 @@ func progressStart(limit int) Start {
 type progressOrder struct {
 	t        *testing.T
 	started  map[string]bool
-	settled  map[string]bool
+	finished map[string]bool
 	progress []ToolProgress
 	outcome  *RunResult
 }
 
 func newProgressOrder(t *testing.T) *progressOrder {
 	return &progressOrder{
-		t:       t,
-		started: map[string]bool{},
-		settled: map[string]bool{},
+		t:        t,
+		started:  map[string]bool{},
+		finished: map[string]bool{},
 	}
 }
 
@@ -99,19 +99,19 @@ func (o *progressOrder) add(event Event) {
 		case StepToolStarted:
 			o.started[id] = true
 		case StepToolFinished, StepToolWaiting:
-			o.settled[id] = true
+			o.finished[id] = true
 		}
 	case event.Progress != nil:
 		p := event.Progress
 		if event.TurnID != "t1" {
 			o.t.Fatalf("progress turn=%q", event.TurnID)
 		}
-		if !o.started[p.CallID] || o.settled[p.CallID] {
+		if !o.started[p.CallID] || o.finished[p.CallID] {
 			o.t.Fatalf(
 				"progress for %s outside its run: started=%v settled=%v",
 				p.CallID,
 				o.started[p.CallID],
-				o.settled[p.CallID],
+				o.finished[p.CallID],
 			)
 		}
 		o.progress = append(o.progress, *p)
@@ -266,8 +266,8 @@ func TestParallelToolProgressUnderRace(t *testing.T) {
 			if order.outcome == nil || order.outcome.Stop.Kind != StopCompleted {
 				t.Fatalf("outcome=%+v", order.outcome)
 			}
-			if len(order.settled) != len(names) {
-				t.Fatalf("settled=%v", order.settled)
+			if len(order.finished) != len(names) {
+				t.Fatalf("settled=%v", order.finished)
 			}
 		})
 	}

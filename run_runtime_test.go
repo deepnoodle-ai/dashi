@@ -111,7 +111,7 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 		State:  tool.StateSucceeded,
 		Output: new(tool.TextOutput("late")),
 	}
-	settled, err := (Runner{Client: client, Recorder: rec}).Run(
+	resolved, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		out.Turn,
 		Resolve{CommandID: "late", CallID: "a", Outcome: &late},
@@ -119,9 +119,9 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settled.Stop.Kind != StopInterrupted || len(settled.Pending) != 0 ||
-		!settled.ReadyToContinue {
-		t.Fatalf("late=%+v err=%v", settled, err)
+	if resolved.Stop.Kind != StopInterrupted || len(resolved.Pending) != 0 ||
+		!resolved.ReadyToContinue {
+		t.Fatalf("late=%+v err=%v", resolved, err)
 	}
 }
 
@@ -219,7 +219,7 @@ func TestInterruptedParallelBatchDoesNotStartLaterSibling(t *testing.T) {
 	}
 }
 
-func TestExplicitCancelSettlesUnstartedApproval(t *testing.T) {
+func TestExplicitCancelFinishesUnstartedApproval(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{callResult("call-1", "write")},
 	}
@@ -255,7 +255,7 @@ func TestExplicitCancelSettlesUnstartedApproval(t *testing.T) {
 	}
 }
 
-func TestInterruptedAfterModelIntentDoesNotSend(t *testing.T) {
+func TestInterruptedAfterModelCallStartDoesNotSend(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	client := &scriptedClient{results: []llm.Result{final("must not send")}}
@@ -279,10 +279,10 @@ func TestInterruptedAfterModelIntentDoesNotSend(t *testing.T) {
 		client.sends != 0 || len(out.Pending) != 0 {
 		t.Fatalf("out=%+v err=%v sends=%d", out, err, client.sends)
 	}
-	settled := out.Turn.Steps[len(out.Turn.Steps)-2]
-	if settled.Kind != StepModelCallFinished ||
-		settled.Model.Interrupted != InterruptRun {
-		t.Fatalf("settlement=%+v", settled)
+	callFinished := out.Turn.Steps[len(out.Turn.Steps)-2]
+	if callFinished.Kind != StepModelCallFinished ||
+		callFinished.Model.Interrupted != InterruptRun {
+		t.Fatalf("settlement=%+v", callFinished)
 	}
 	view, err := out.Turn.View()
 	if err != nil {
@@ -339,7 +339,7 @@ func TestInterruptedAfterModelResultDoesNotStartPendingTool(t *testing.T) {
 	}
 }
 
-type testAdmission struct {
+type testReservation struct {
 	Units        int    `json:"units"`
 	RequestProof string `json:"request_proof"`
 }
@@ -350,7 +350,7 @@ func budgetHooks() Hooks {
 	return SendHook{
 		Name: "budget",
 		Func: func(_ context.Context, plan SendPlan) (SendDecision, error) {
-			admission, err := json.Marshal(testAdmission{
+			admission, err := json.Marshal(testReservation{
 				Units:        3,
 				RequestProof: canonjson.Hash(plan.Request.Body()),
 			})
@@ -362,21 +362,21 @@ func budgetHooks() Hooks {
 // This fixture makes record, reservation, usage, and ownership updates one
 // serialized operation. A real host must provide the same atomicity in storage.
 type budgetRecorder struct {
-	mu           sync.Mutex
-	base         *MemoryRecorder
-	balance      int
-	reservations map[string]int
-	charged      map[string]bool
-	loseIntent   bool
+	mu            sync.Mutex
+	base          *MemoryRecorder
+	balance       int
+	reservations  map[string]int
+	charged       map[string]bool
+	loseCallStart bool
 }
 
 func newBudgetRecorder() *budgetRecorder {
 	return &budgetRecorder{
-		base:         NewMemoryRecorder(),
-		balance:      10,
-		reservations: map[string]int{},
-		charged:      map[string]bool{},
-		loseIntent:   true,
+		base:          NewMemoryRecorder(),
+		balance:       10,
+		reservations:  map[string]int{},
+		charged:       map[string]bool{},
+		loseCallStart: true,
 	}
 }
 
@@ -394,7 +394,7 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	step := req.Step
-	var admission testAdmission
+	var admission testReservation
 	if step.Kind == StepModelCallStarted {
 		if err := json.Unmarshal(
 			step.Model.Reservation["budget"],
@@ -420,8 +420,8 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 			r.balance -= admission.Units
 			r.reservations[step.Model.ModelCallID] = admission.Units
 		}
-		if r.loseIntent {
-			r.loseIntent = false
+		if r.loseCallStart {
+			r.loseCallStart = false
 			return errors.New("admission acknowledgment lost after commit")
 		}
 	}
@@ -441,7 +441,7 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	return nil
 }
 
-func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
+func TestHostReservationTakeoverAndExternalToolRecovery(t *testing.T) {
 	// The third and last attempt must complete the turn normally.
 	def := testAgent()
 	def.Limits.NoReservedFinalReply = true
@@ -559,11 +559,11 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		State:  tool.StateSucceeded,
 		Output: new(tool.TextOutput("completed in host worker")),
 	}
-	settle := Resolve{CommandID: "external-result", CallID: "job", Outcome: &result}
+	finish := Resolve{CommandID: "external-result", CallID: "job", Outcome: &result}
 	stale, err = runner.Run(
 		t.Context(),
 		waiting.Turn,
-		settle,
+		finish,
 		WithOwner("owner-b"),
 	)
 	if !nothingWritten(err) || client.sends != 1 {
@@ -577,7 +577,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	accepted, err := runner.Run(
 		t.Context(),
 		waiting.Turn,
-		settle,
+		finish,
 		WithOwner("owner-c"),
 	)
 	if err != nil || !accepted.ReadyToContinue || client.sends != 1 ||
@@ -608,7 +608,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 	duplicate, err := runner.Run(
 		t.Context(),
 		waiting.Turn,
-		settle,
+		finish,
 		WithOwner("owner-c"),
 	)
 	if err != nil || duplicate.Stop.Kind != StopCompleted || rec.balance != 7 || client.sends != 2 {

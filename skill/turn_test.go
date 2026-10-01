@@ -17,7 +17,7 @@ import (
 // one model response is authorized before the first load is settled, even with
 // serial execution. Mobius's focus checkpoint and ordering cannot be replaced
 // by looking only for settled load calls in BeforeTool.
-func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
+func TestSameBatchAuthorizationPrecedesLoadFinish(t *testing.T) {
 	bundle, err := skill.New(
 		[]skill.Definition{{
 			Name:         "Incident Review",
@@ -43,7 +43,7 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 		t.Fatal(err)
 	}
 	sawAction := false
-	loadSettledAtAuthorization := false
+	loadFinishedAtAuthorization := false
 	hook := dashi.ToolHook{
 		Name: "observe-same-batch",
 		Func: func(
@@ -57,7 +57,7 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 			for _, call := range plan.Turn.Tools {
 				if call.Call.Name == "invoke_skill" &&
 					call.Status == dashi.ToolFinished {
-					loadSettledAtAuthorization = true
+					loadFinishedAtAuthorization = true
 				}
 			}
 			return dashi.ToolDecision{}, nil
@@ -83,10 +83,10 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 	if err != nil || outcome.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("run: stop=%+v err=%v", outcome.Stop, err)
 	}
-	if !sawAction || loadSettledAtAuthorization {
+	if !sawAction || loadFinishedAtAuthorization {
 		t.Fatalf(
 			"action hook saw load settled=%v, saw action=%v",
-			loadSettledAtAuthorization,
+			loadFinishedAtAuthorization,
 			sawAction,
 		)
 	}

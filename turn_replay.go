@@ -22,24 +22,24 @@ type replayState struct {
 	TurnView
 	// modelCalls counts every requested call so retried calls get distinct IDs.
 	modelCalls            int
-	modelIntent           string
+	modelCallStart        string
 	unresolvedModel       string
 	unresolvedPartial     bool
 	unresolvedInterrupted bool
-	modelIntents          map[string]*ModelFact
+	startedModelCalls     map[string]*ModelFact
 	// modelOrder holds attempt IDs in record order.
 	modelOrder             []string
-	modelSettlements       map[string]*ModelFact
+	modelFinishes          map[string]*ModelFact
 	modelMessages          map[string]string
-	callAttempts           map[string]string
-	latestAttempt          string
-	finalAnswerOnly        bool
-	attemptCap             int
+	modelCallOfTool        map[string]string
+	latestModelCall        string
+	finalReplyOnly         bool
+	modelCallCap           int
 	modelDefs              map[string]tool.Definition
 	callOrder              []string
 	providerTool           map[string]llm.ProviderToolApprovalRequest
 	providerToolOrder      []string
-	providerToolAttempts   map[string]string
+	providerToolModelCalls map[string]string
 	commandHashes          map[string]string
 	latestResult           *llm.Result
 	awaitingClassification bool
@@ -63,8 +63,8 @@ type replayState struct {
 	// liveSeq holds the step that recorded each live item, and intentSeq
 	// the step that recorded each model request, so a NextCallOnly item
 	// expires only after a later dispatched call.
-	liveSeq   map[string]int64
-	intentSeq map[string]int64
+	liveSeq      map[string]int64
+	callStartSeq map[string]int64
 }
 
 // View checks the turn record and rebuilds what it means now: its stop,
@@ -122,17 +122,17 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 		}
 	}
 	s := &replayState{
-		TurnView:             TurnView{ID: t.ID, Tools: map[string]ToolView{}},
-		source:               t,
-		contextCache:         cache,
-		modelDefs:            map[string]tool.Definition{},
-		providerTool:         map[string]llm.ProviderToolApprovalRequest{},
-		providerToolAttempts: map[string]string{},
-		commandHashes:        map[string]string{},
-		modelIntents:         map[string]*ModelFact{},
-		modelSettlements:     map[string]*ModelFact{},
-		modelMessages:        map[string]string{},
-		callAttempts:         map[string]string{},
+		TurnView:               TurnView{ID: t.ID, Tools: map[string]ToolView{}},
+		source:                 t,
+		contextCache:           cache,
+		modelDefs:              map[string]tool.Definition{},
+		providerTool:           map[string]llm.ProviderToolApprovalRequest{},
+		providerToolModelCalls: map[string]string{},
+		commandHashes:          map[string]string{},
+		startedModelCalls:      map[string]*ModelFact{},
+		modelFinishes:          map[string]*ModelFact{},
+		modelMessages:          map[string]string{},
+		modelCallOfTool:        map[string]string{},
 	}
 	if t.ID == "" {
 		return nil, fmt.Errorf("%w: empty ID", ErrInvalidTurn)
@@ -228,25 +228,25 @@ func (s *replayState) calculateSpend() error {
 	}
 	s.ModelCallCosts = nil
 	for _, id := range s.modelOrder {
-		attempt, incomplete := attemptSpendOf(
-			s.modelIntents[id],
-			s.modelSettlements[id],
+		modelCall, incomplete := modelCallCostOf(
+			s.startedModelCalls[id],
+			s.modelFinishes[id],
 		)
-		s.ModelCallCosts = append(s.ModelCallCosts, attempt)
-		if attempt.UsageSource == UsageSourceNotSent {
+		s.ModelCallCosts = append(s.ModelCallCosts, modelCall)
+		if modelCall.UsageSource == UsageSourceNotSent {
 			continue
 		}
 		s.Spend.UsageIncomplete = s.Spend.UsageIncomplete || incomplete
-		if usage := attempt.Usage; usage != nil {
+		if usage := modelCall.Usage; usage != nil {
 			if err := usage.Validate(); err != nil {
 				return err
 			}
 			s.Spend.addUsage(usage)
 		}
-		if attempt.UsageSource == UsageSourceEstimated {
+		if modelCall.UsageSource == UsageSourceEstimated {
 			s.Spend.Estimated = cappedCount(s.Spend.Estimated, 1)
 		}
-		charge := attempt.Cost
+		charge := modelCall.Cost
 		if charge == nil {
 			s.Spend.CostUnknown = cappedCount(s.Spend.CostUnknown, 1)
 			continue
@@ -297,5 +297,5 @@ func (s *replayState) calculateSpend() error {
 // projectionSnapshot captures only immutable facts needed by the pure projector.
 // It does not calculate accounting or recursively validate a prefix.
 func (s *replayState) viewSnapshot() *replayState {
-	return &replayState{TurnView: TurnView{Stop: s.Stop, Tools: maps.Clone(s.Tools)}, modelIntent: s.modelIntent, unresolvedModel: s.unresolvedModel, callOrder: slices.Clone(s.callOrder), providerTool: maps.Clone(s.providerTool)}
+	return &replayState{TurnView: TurnView{Stop: s.Stop, Tools: maps.Clone(s.Tools)}, modelCallStart: s.modelCallStart, unresolvedModel: s.unresolvedModel, callOrder: slices.Clone(s.callOrder), providerTool: maps.Clone(s.providerTool)}
 }

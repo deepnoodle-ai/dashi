@@ -405,8 +405,8 @@ func TestHostDenialCarriesMoneyWithCurrency(t *testing.T) {
 	}
 }
 
-func attemptSpendIntent(priced bool) *ModelFact {
-	intent := &ModelFact{
+func modelCallCostStart(priced bool) *ModelFact {
+	callStart := &ModelFact{
 		ModelCallID:          "model-1",
 		Provider:             "test",
 		Model:                "fixture",
@@ -414,9 +414,9 @@ func attemptSpendIntent(priced bool) *ModelFact {
 		WorstCaseCost:        &llm.Cost{Total: amount("0.5"), Currency: "USD"},
 	}
 	if priced {
-		intent.ModelInfo = &llm.ModelInfo{Pricing: &newPricedClient().pricing}
+		callStart.ModelInfo = &llm.ModelInfo{Pricing: &newPricedClient().pricing}
 	}
-	return intent
+	return callStart
 }
 
 func usageResult(usage *llm.Usage) *llm.Result {
@@ -425,80 +425,80 @@ func usageResult(usage *llm.Usage) *llm.Result {
 	return &r
 }
 
-func TestAttemptSpendClassifiesEachAttempt(t *testing.T) {
+func TestModelCallCostClassifiesEachModelCall(t *testing.T) {
 	measured := &llm.Usage{InputTokens: 10, OutputTokens: 5}
 	cutStop := usageResult(measured.Copy())
 	cutStop.Stop = llm.Stop{}
 	tests := []struct {
-		name       string
-		unpriced   bool
-		settlement *ModelFact
-		settled    bool
-		basis      UsageSource
-		charged    bool
-		partial    bool
-		final      bool
+		name     string
+		unpriced bool
+		finish   *ModelFact
+		finished bool
+		basis    UsageSource
+		charged  bool
+		partial  bool
+		final    bool
 	}{
 		{
 			// No recorded Charge: Dashi prices the reported usage.
-			name:       "measured",
-			settlement: &ModelFact{Result: usageResult(measured.Copy())},
-			settled:    true, basis: UsageSourceReported, charged: true, final: true,
+			name:     "measured",
+			finish:   &ModelFact{Result: usageResult(measured.Copy())},
+			finished: true, basis: UsageSourceReported, charged: true, final: true,
 		},
 		{
-			name:       "missing usage",
-			settlement: &ModelFact{Result: usageResult(nil)},
-			settled:    true, basis: UsageSourceEstimated, charged: true,
+			name:     "missing usage",
+			finish:   &ModelFact{Result: usageResult(nil)},
+			finished: true, basis: UsageSourceEstimated, charged: true,
 		},
 		{
 			name: "interrupted stream",
-			settlement: &ModelFact{
+			finish: &ModelFact{
 				Result:      usageResult(measured.Copy()),
 				Interrupted: InterruptRun,
 			},
-			settled: true, basis: UsageSourceEstimated, charged: true,
+			finished: true, basis: UsageSourceEstimated, charged: true,
 		},
 		{
 			// Usage without a terminal stop may describe an earlier frame.
-			name:       "no terminal stop",
-			settlement: &ModelFact{Result: cutStop},
-			settled:    true, basis: UsageSourceEstimated, charged: true,
+			name:     "no terminal stop",
+			finish:   &ModelFact{Result: cutStop},
+			finished: true, basis: UsageSourceEstimated, charged: true,
 		},
 		{
-			name:       "uncertain",
-			settlement: &ModelFact{Error: "timeout", ResultUnknown: true},
-			settled:    true, basis: UsageSourceEstimated, charged: true,
+			name:     "uncertain",
+			finish:   &ModelFact{Error: "timeout", ResultUnknown: true},
+			finished: true, basis: UsageSourceEstimated, charged: true,
 		},
 		{
 			name: "not dispatched",
-			settlement: &ModelFact{
+			finish: &ModelFact{
 				Error: "offline", SendStatus: llm.SendStatusNotSent,
 				Evidence: "dial failed",
 			},
-			settled: true, basis: UsageSourceNotSent, final: true,
+			finished: true, basis: UsageSourceNotSent, final: true,
 		},
 		{
 			name: "rejected",
-			settlement: &ModelFact{
+			finish: &ModelFact{
 				Error: "bad request", SendStatus: llm.SendStatusProviderRejected,
 				Evidence: "400",
 			},
-			settled: true, basis: UsageSourceNotSent, final: true,
+			finished: true, basis: UsageSourceNotSent, final: true,
 		},
 		{
 			name: "partial provider tool cost",
-			settlement: &ModelFact{Result: usageResult(&llm.Usage{
+			finish: &ModelFact{Result: usageResult(&llm.Usage{
 				InputTokens: 10, OutputTokens: 5,
 				Requests:         map[string]int{llm.MeterCodeExecution: 2},
 				RequestsComplete: true,
 			})},
-			settled: true, basis: UsageSourceReported, charged: true, partial: true,
+			finished: true, basis: UsageSourceReported, charged: true, partial: true,
 		},
 		{
-			name:       "unpriced model",
-			unpriced:   true,
-			settlement: &ModelFact{Result: usageResult(measured.Copy())},
-			settled:    true, basis: UsageSourceReported,
+			name:     "unpriced model",
+			unpriced: true,
+			finish:   &ModelFact{Result: usageResult(measured.Copy())},
+			finished: true, basis: UsageSourceReported,
 		},
 		{
 			name:  "pending",
@@ -507,16 +507,16 @@ func TestAttemptSpendClassifiesEachAttempt(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			intent := attemptSpendIntent(!tc.unpriced)
-			if tc.settlement != nil {
-				tc.settlement.ModelCallID = intent.ModelCallID
+			callStart := modelCallCostStart(!tc.unpriced)
+			if tc.finish != nil {
+				tc.finish.ModelCallID = callStart.ModelCallID
 			}
-			got := ModelCallCostOf(intent, tc.settlement)
+			got := ModelCallCostOf(callStart, tc.finish)
 			if got.ModelCallID != "model-1" || got.Provider != "test" ||
 				got.Model != "fixture" {
 				t.Fatalf("identity=%+v", got)
 			}
-			if got.Finished != tc.settled || got.UsageSource != tc.basis ||
+			if got.Finished != tc.finished || got.UsageSource != tc.basis ||
 				(got.Cost != nil) != tc.charged || got.Exact != tc.final {
 				t.Fatalf("got %+v", got)
 			}
@@ -533,7 +533,7 @@ func TestAttemptSpendClassifiesEachAttempt(t *testing.T) {
 	}
 }
 
-func TestAttemptsSumToSpend(t *testing.T) {
+func TestModelCallCostsSumToSpend(t *testing.T) {
 	first := callResult("lookup-1", "lookup")
 	first.Usage = &llm.Usage{InputTokens: 10, OutputTokens: 10}
 	client := newPricedClient(first, final("done"))
@@ -563,13 +563,13 @@ func TestAttemptsSumToSpend(t *testing.T) {
 		view.ModelCallCosts[1].Exact {
 		t.Fatalf("attempts=%+v", view.ModelCallCosts)
 	}
-	intents := map[string]*ModelFact{}
+	callStarts := map[string]*ModelFact{}
 	for _, step := range out.Turn.Steps {
 		switch step.Kind {
 		case StepModelCallStarted:
-			intents[step.Model.ModelCallID] = step.Model
+			callStarts[step.Model.ModelCallID] = step.Model
 		case StepModelCallFinished:
-			got := ModelCallCostOf(intents[step.Model.ModelCallID], step.Model)
+			got := ModelCallCostOf(callStarts[step.Model.ModelCallID], step.Model)
 			var want ModelCallCost
 			for _, a := range view.ModelCallCosts {
 				if a.ModelCallID == step.Model.ModelCallID {
@@ -612,10 +612,10 @@ func TestAttemptsSumToSpend(t *testing.T) {
 	}
 }
 
-func TestAttemptsIncludePendingAttempt(t *testing.T) {
+func TestModelCallCostsIncludePendingModelCall(t *testing.T) {
 	view, err := interruptionRecord(
 		interruptionStart(testAgent()),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 	).View()
 	if err != nil {
 		t.Fatal(err)

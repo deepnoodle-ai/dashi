@@ -102,8 +102,8 @@ type Limits struct {
 
 // Default turn limits, applied when a Limits field is zero.
 const (
-	defaultModelAttempts   = 8
-	defaultInterruptions   = 10
+	defaultModelCalls      = 8
+	defaultResumes         = 10
 	defaultProviderPauses  = 3
 	defaultToolConcurrency = 1
 )
@@ -143,9 +143,9 @@ func (a Agent) resolved() Agent {
 		a.Tools = slices.Compact(slices.Sorted(slices.Values(a.Tools)))
 	}
 	l := &a.Limits
-	l.ModelCalls = cmp.Or(l.ModelCalls, defaultModelAttempts)
+	l.ModelCalls = cmp.Or(l.ModelCalls, defaultModelCalls)
 	l.ToolConcurrency = cmp.Or(l.ToolConcurrency, defaultToolConcurrency)
-	l.Resumes = resolveCount(l.Resumes, defaultInterruptions)
+	l.Resumes = resolveCount(l.Resumes, defaultResumes)
 	l.ProviderPauses = resolveCount(l.ProviderPauses, defaultProviderPauses)
 	l.ToolResultBytes = resolveToolResultBytes(l.ToolResultBytes)
 	return a

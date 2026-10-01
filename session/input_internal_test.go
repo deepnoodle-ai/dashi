@@ -13,8 +13,8 @@ import (
 // ErrRecordInvalid follows recorded steps, so it proves nothing about the
 // start: the session loads the turn, and items its turn_started step holds
 // are consumed, never delivered again. The engine returns it only for a
-// runner or recorder bug, so the test drives the settle rule directly.
-func TestSessionSettleAfterRecordInvalid(t *testing.T) {
+// runner or recorder bug, so the test drives the decideReserved rule directly.
+func TestSessionResolveAfterRecordInvalid(t *testing.T) {
 	for _, started := range []bool{true, false} {
 		t.Run(fmt.Sprintf("started=%v", started), func(t *testing.T) {
 			ctx := t.Context()
@@ -54,11 +54,11 @@ func TestSessionSettleAfterRecordInvalid(t *testing.T) {
 			// The failed run returned the recorded steps, so the handle
 			// made the session.
 			s.created = started
-			err := s.settle(ctx, res, false, invalid)
+			err := s.decideReserved(ctx, res, false, invalid)
 			n := len(s.queue)
 			s.mu.Unlock()
 			if err != invalid {
-				t.Fatalf("settle returned %v", err)
+				t.Fatalf("decideReserved returned %v", err)
 			}
 			want := 1
 			if started {

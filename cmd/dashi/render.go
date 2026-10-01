@@ -94,7 +94,7 @@ type Renderer struct {
 	summary       string
 	showReasoning bool
 	reasoning     map[string]map[summaryPart]string
-	activeContext map[string]*activeContextAttempt
+	activeContext map[string]*activeContextModelCall
 }
 
 type callState struct {
@@ -153,11 +153,11 @@ func (r *Renderer) delta(ev dashi.Event) []Block {
 	return []Block{{ID: id, Kind: KindAssistant, Text: r.text[id]}}
 }
 
-func messageKey(messageID, attemptID string) string {
+func messageKey(messageID, modelCallID string) string {
 	if messageID != "" {
 		return "a:" + messageID
 	}
-	return "a:" + attemptID
+	return "a:" + modelCallID
 }
 
 func (r *Renderer) progress(p *dashi.ToolProgress) []Block {
@@ -208,21 +208,21 @@ func (r *Renderer) step(s dashi.Step) []Block {
 			Done: true,
 		})
 	case dashi.StepModelCallStarted:
-		out = append(out, r.activeContextIntent(s)...)
+		out = append(out, r.activeContextCallStart(s)...)
 		out = append(out, modelPreparationBlocks(s)...)
 	case dashi.StepModelCallFinished, dashi.StepModelCallFinishedByHost:
 		if r.isActiveSummaryFact(s.Model) {
-			out = append(out, r.activeContextSettled(s)...)
+			out = append(out, r.activeContextFinished(s)...)
 			break
 		}
-		out = append(out, r.reasoningSettled(s)...)
-		out = append(out, r.modelSettled(s)...)
+		out = append(out, r.reasoningFinished(s)...)
+		out = append(out, r.modelFinished(s)...)
 	case dashi.StepToolDecision:
 		out = append(out, r.toolDecision(s)...)
 	case dashi.StepToolStarted:
 		out = append(out, r.toolStarted(s)...)
 	case dashi.StepToolFinished:
-		out = append(out, r.toolSettled(s)...)
+		out = append(out, r.toolFinished(s)...)
 	case dashi.StepToolWaiting:
 		if c := r.calls[s.Tool.Call.ID]; c != nil {
 			out = append(out, r.toolBlock(s.Tool.Call.ID, c, StateWaiting))
@@ -263,7 +263,7 @@ func (r *Renderer) step(s dashi.Step) []Block {
 	return out
 }
 
-func (r *Renderer) modelSettled(s dashi.Step) []Block {
+func (r *Renderer) modelFinished(s dashi.Step) []Block {
 	m := s.Model
 	if m == nil || m.Result == nil || m.Interrupted != "" {
 		return nil
@@ -350,7 +350,7 @@ func (r *Renderer) toolStarted(s dashi.Step) []Block {
 	return []Block{r.toolBlock(s.Tool.Call.ID, c, StateRunning)}
 }
 
-func (r *Renderer) toolSettled(s dashi.Step) []Block {
+func (r *Renderer) toolFinished(s dashi.Step) []Block {
 	id := s.Tool.Call.ID
 	c := r.toolCall(s)
 	state := StateOK

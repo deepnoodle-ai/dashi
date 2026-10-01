@@ -222,7 +222,7 @@ func TestRunnerStrictContinueRejectsInStreamErrorSlot(t *testing.T) {
 	}
 }
 
-func TestRunnerStrictContinueRejectsAtInterruptionLimit(t *testing.T) {
+func TestRunnerStrictContinueRejectsAtResumeLimit(t *testing.T) {
 	history := []llm.Message{llm.UserMessage(llm.Text("original history"))}
 	changed := []llm.Message{llm.UserMessage(llm.Text("changed history"))}
 	recorder, limited := interruptionLimitedHistoryTurn(t, history)
@@ -260,7 +260,7 @@ func TestRunnerStrictContinueRejectsAtInterruptionLimit(t *testing.T) {
 	}
 }
 
-func TestRunnerInvalidHistoryAtInterruptionLimitCommitsNothing(t *testing.T) {
+func TestRunnerInvalidHistoryAtResumeLimitCommitsNothing(t *testing.T) {
 	recorder, limited := interruptionLimitedHistoryTurn(t, nil)
 	_, err := (Runner{
 		Client:   &scriptedClient{},
@@ -370,7 +370,7 @@ func TestRunnerCrashThenContinueUsesSuppliedHistory(t *testing.T) {
 	recorder := NewMemoryRecorder()
 	first, err := (Runner{
 		Client:   client,
-		Recorder: failIntentRecorder{base: recorder},
+		Recorder: failCallStartRecorder{base: recorder},
 	}).Run(
 		t.Context(),
 		Turn{ID: "history-recovery"},
@@ -568,7 +568,7 @@ func (c noModelClient) Send(context.Context, llm.Call) (llm.Result, error) {
 	return llm.Result{}, nil
 }
 
-func TestAdmitWithoutClient(t *testing.T) {
+func TestRecordWithoutClient(t *testing.T) {
 	rec := NewMemoryRecorder()
 	paused := make(chan struct{})
 	close(paused)
@@ -750,7 +750,7 @@ func TestCancelRefusesTurnThatHasNotStarted(t *testing.T) {
 	}
 }
 
-func TestSettleAndDeliverWithoutClient(t *testing.T) {
+func TestResolveAndAddMessagesWithoutClient(t *testing.T) {
 	external := tool.Tool{Definition: tool.Definition{
 		Name:   "lookup",
 		Schema: []byte(`{"type":"object"}`),
@@ -778,13 +778,13 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 			t.Fatal(err)
 		}
 		result := tool.Succeeded("found")
-		settled, err := clientless(rec).Run(
+		finished, err := clientless(rec).Run(
 			t.Context(),
 			delivered.Turn,
 			Resolve{CommandID: "result", CallID: "call-1", Outcome: &result},
 		)
-		if err != nil || !settled.ReadyToContinue || client.sends != 1 {
-			t.Fatalf("settled=%+v err=%v sends=%d", settled.Stop, err, client.sends)
+		if err != nil || !finished.ReadyToContinue || client.sends != 1 {
+			t.Fatalf("settled=%+v err=%v sends=%d", finished.Stop, err, client.sends)
 		}
 	})
 
@@ -816,7 +816,7 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
-		settle Resolve
+		finish Resolve
 	}{
 		{"model result", Resolve{ModelResult: new(final("recovered"))}},
 		{"model failure", Resolve{ModelFailure: &ModelFailure{
@@ -827,10 +827,10 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := NewMemoryRecorder()
-			turn := crashedModelIntent(t, rec)
-			tc.settle.CommandID = "reconcile"
-			tc.settle.CallID = "t1:model:1"
-			out, err := (Runner{Recorder: rec}).Run(t.Context(), turn, tc.settle)
+			turn := crashedModelCallStart(t, rec)
+			tc.finish.CommandID = "reconcile"
+			tc.finish.CallID = "t1:model:1"
+			out, err := (Runner{Recorder: rec}).Run(t.Context(), turn, tc.finish)
 			if err != nil || !out.ReadyToContinue {
 				t.Fatalf("out=%+v err=%v", out.Stop, err)
 			}
@@ -840,7 +840,7 @@ func TestSettleAndDeliverWithoutClient(t *testing.T) {
 
 // crashedModelIntent records a turn whose model attempt has an intent and
 // an uncertain stop, so a Resolve must reconcile it.
-func crashedModelIntent(t *testing.T, rec *MemoryRecorder) Turn {
+func crashedModelCallStart(t *testing.T, rec *MemoryRecorder) Turn {
 	t.Helper()
 	def := testAgent()
 	turn := Turn{ID: "t1"}
@@ -873,7 +873,7 @@ func crashedModelIntent(t *testing.T, rec *MemoryRecorder) Turn {
 	return turn
 }
 
-func TestAdmitWithoutRunning(t *testing.T) {
+func TestRecordWithoutRunning(t *testing.T) {
 	rec := NewMemoryRecorder()
 	paused := make(chan struct{})
 	close(paused)
@@ -942,7 +942,7 @@ func TestAdmitWithoutRunning(t *testing.T) {
 	}
 }
 
-func TestAdmittedTurnResumesWithNoInterruptionsAllowed(t *testing.T) {
+func TestRecordedTurnResumesWithNoResumesAllowed(t *testing.T) {
 	rec := NewMemoryRecorder()
 	paused := make(chan struct{})
 	close(paused)
@@ -987,7 +987,7 @@ func pausingTool(paused chan struct{}) tool.Tool {
 	}
 }
 
-func TestPauseAfterModelAttemptCountsAsInterruption(t *testing.T) {
+func TestPauseAfterModelCallCountsAsResume(t *testing.T) {
 	rec := NewMemoryRecorder()
 	paused := make(chan struct{})
 	local := pausingTool(paused)

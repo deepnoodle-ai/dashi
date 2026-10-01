@@ -25,7 +25,7 @@ func (c *interruptionClient) Send(
 	return c.onSend(ctx, call.Sink, index)
 }
 
-func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
+func TestRepeatedModelInterruptionsKeepUsageAndModelCallAllowance(
 	t *testing.T,
 ) {
 	rec := NewMemoryRecorder()
@@ -166,10 +166,10 @@ func TestInterruptedModelKeepsDeltaOnlyPartialOutputAndUsage(t *testing.T) {
 	}
 }
 
-func TestContinueRecoversCrashedModelIntent(t *testing.T) {
+func TestContinueRecoversCrashedModelCallStart(t *testing.T) {
 	def := testAgent()
 	rec := NewMemoryRecorder()
-	turn := seedOpenModelIntent(t, rec, def, nil)
+	turn := seedOpenModelCallStart(t, rec, def, nil)
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	out, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
@@ -207,7 +207,7 @@ func TestCrashedModelWithUnsafeProviderToolRequiresReport(t *testing.T) {
 			Type:     "remote",
 		},
 	}
-	turn := seedOpenModelIntent(t, rec, def, []tool.Definition{providerTool})
+	turn := seedOpenModelCallStart(t, rec, def, []tool.Definition{providerTool})
 	client := &scriptedClient{results: []llm.Result{final("must not send")}}
 	out, err := (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
@@ -379,7 +379,7 @@ func TestPauseDuringModelCallStopsBeforeTool(t *testing.T) {
 	}
 }
 
-func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
+func TestLeaseLossRejectsLateModelFinish(t *testing.T) {
 	rec := NewMemoryRecorder()
 	rec.Claim(t.Context(), "t1", "worker-a")
 	ctx, cancel := context.WithCancelCause(t.Context())
@@ -433,7 +433,7 @@ func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
 	}
 }
 
-func seedOpenModelIntent(
+func seedOpenModelCallStart(
 	t *testing.T,
 	rec *MemoryRecorder,
 	def Agent,

@@ -12,8 +12,8 @@ import (
 
 func TestPostReportsOnlyProvenNoEffect(t *testing.T) {
 	for _, tc := range []struct {
-		status      int
-		disposition llm.SendStatus
+		status     int
+		sendStatus llm.SendStatus
 	}{
 		{
 			400,
@@ -80,7 +80,7 @@ func TestPostReportsOnlyProvenNoEffect(t *testing.T) {
 				request,
 			)
 			failure, ok := errors.AsType[*llm.Error](err)
-			if !ok || failure.SendStatus != tc.disposition {
+			if !ok || failure.SendStatus != tc.sendStatus {
 				t.Fatalf(
 					"failure=%+v err=%v",
 					failure,

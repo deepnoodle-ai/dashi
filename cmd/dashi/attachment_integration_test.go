@@ -206,12 +206,12 @@ func TestAttachmentReopenAfterSourceDeletion(t *testing.T) {
 	}
 }
 
-func TestAttachmentUnknownStartRetainsAndReconcilesFullInput(t *testing.T) {
+func TestAttachmentUnknownStartRetainsAndResolvesFullInput(t *testing.T) {
 	cfg := testConfig(t, say("delivered once"))
 	fixtureSelectedText(t, cfg.Dir, "notes.txt", "frozen")
-	var lost *lostAdmission
+	var lost *lostStartRecord
 	cfg.recorder = func(r *filerecorder.Recorder) dashi.Recorder {
-		lost = &lostAdmission{Recorder: r, unreadable: true}
+		lost = &lostStartRecord{Recorder: r, unreadable: true}
 		return lost
 	}
 	u := newLineUI(&bytes.Buffer{})
@@ -302,7 +302,7 @@ func realisticAttachmentPNG(t *testing.T) []byte {
 }
 
 // Full prepared bodies exercise the accepted parent media-admission policy.
-func TestAttachmentRealisticMediaKnownWindowAdmission(t *testing.T) {
+func TestAttachmentRealisticMediaKnownWindowCheck(t *testing.T) {
 	for _, kind := range []string{"png", "pdf"} {
 		for _, window := range []int{128000, 200000} {
 			t.Run(fmt.Sprintf("%s/%d", kind, window), func(t *testing.T) {
@@ -346,14 +346,14 @@ func TestAttachmentRealisticMediaKnownWindowAdmission(t *testing.T) {
 	}
 }
 
-type attachmentAdmissionFault struct {
+type attachmentAcceptFault struct {
 	*filerecorder.Recorder
 	mode   string
 	failed bool
 	target string
 }
 
-func (r *attachmentAdmissionFault) Commit(ctx context.Context, req dashi.CommitRequest) error {
+func (r *attachmentAcceptFault) Commit(ctx context.Context, req dashi.CommitRequest) error {
 	if !r.failed && req.Step.Kind == dashi.StepTurnStarted && req.Step.Started.Origin != dashi.StartCompaction {
 		r.failed = true
 		r.target = req.Step.TurnID
@@ -366,20 +366,20 @@ func (r *attachmentAdmissionFault) Commit(ctx context.Context, req dashi.CommitR
 	}
 	return r.Recorder.Commit(ctx, req)
 }
-func (r *attachmentAdmissionFault) Load(ctx context.Context, id string) (dashi.Turn, error) {
+func (r *attachmentAcceptFault) Load(ctx context.Context, id string) (dashi.Turn, error) {
 	turn, err := r.Recorder.Load(ctx, id)
 	if err == nil && r.mode == "conflict" && id == r.target && len(turn.Steps) > 0 {
 		turn.Steps[0].Started.Input = []llm.Message{llm.UserMessage(llm.Text("conflicting recorded input"))}
 	}
 	return turn, err
 }
-func TestAttachmentRejectedAbsentAndConflictingAdmission(t *testing.T) {
+func TestAttachmentRejectedAbsentAndConflictingAcceptance(t *testing.T) {
 	for _, mode := range []string{"rejected", "absent", "conflict"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := testConfig(t, say("delivered once"))
 			fixtureSelectedText(t, cfg.Dir, "notes.txt", "frozen")
 			cfg.recorder = func(r *filerecorder.Recorder) dashi.Recorder {
-				return &attachmentAdmissionFault{Recorder: r, mode: mode}
+				return &attachmentAcceptFault{Recorder: r, mode: mode}
 			}
 			u := newLineUI(&bytes.Buffer{})
 			a, err := buildApp(t.Context(), cfg, u)
@@ -689,7 +689,7 @@ func (c *attachmentPricedClient) Prepare(ctx context.Context, in llm.Input) (llm
 	snap.ModelInfo.Pricing = &llm.Pricing{Currency: "USD", UpdatedAt: "2026-09-30", Base: llm.Rates{Input: money.MustParseAmount("1"), Output: money.MustParseAmount("1")}}
 	return llm.NewRequest(snap)
 }
-func TestAttachmentRealisticMediaCostAdmissionUnchanged(t *testing.T) {
+func TestAttachmentRealisticMediaCostCheckUnchanged(t *testing.T) {
 	for _, kind := range []string{"png", "pdf"} {
 		for _, affordable := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/affordable=%v", kind, affordable), func(t *testing.T) {

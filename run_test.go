@@ -208,7 +208,7 @@ func TestEmptyTextIsNotCompletion(t *testing.T) {
 	}
 }
 
-func TestExternalToolSettlement(t *testing.T) {
+func TestExternalToolResolve(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{callResult("call-1", "lookup"), final("found")},
 	}
@@ -278,9 +278,9 @@ func TestExternalToolSettlement(t *testing.T) {
 	}
 }
 
-type failIntentRecorder struct{ base *MemoryRecorder }
+type failCallStartRecorder struct{ base *MemoryRecorder }
 
-func (f failIntentRecorder) Commit(
+func (f failCallStartRecorder) Commit(
 	ctx context.Context,
 	req CommitRequest,
 ) error {
@@ -526,7 +526,7 @@ func TestApprovalBoundToCallAndArguments(t *testing.T) {
 	}
 }
 
-func TestSettledModelResultDoesNotSendAgain(t *testing.T) {
+func TestFinishedModelResultDoesNotSendAgain(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("unneeded")}}
 	rec := NewMemoryRecorder()
 	def := testAgent()
@@ -650,7 +650,7 @@ func TestCommittedFinalResultRecoversWithoutNewModelCall(t *testing.T) {
 	}
 }
 
-func TestUncertainModelNeedsReconciliation(t *testing.T) {
+func TestResultUnknownModelNeedsResolution(t *testing.T) {
 	partial := llm.Result{Usage: &llm.Usage{InputTokens: 3}}
 	client := &scriptedClient{
 		results: []llm.Result{partial},
@@ -674,7 +674,7 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 	}
 	answer := final("recovered")
 	answer.Usage = &llm.Usage{InputTokens: 5}
-	settled, err := (Runner{
+	finished, err := (Runner{
 		Client:   client,
 		Recorder: rec,
 	}).Run(
@@ -689,17 +689,17 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !settled.ReadyToContinue || client.sends != 1 {
-		t.Fatalf("settled=%+v sends=%d", settled, client.sends)
+	if !finished.ReadyToContinue || client.sends != 1 {
+		t.Fatalf("settled=%+v sends=%d", finished, client.sends)
 	}
 	completed, err := (Runner{
 		Client:   client,
 		Recorder: rec,
-	}).Run(t.Context(), settled.Turn, Continue{CommandID: "continue"})
+	}).Run(t.Context(), finished.Turn, Continue{CommandID: "continue"})
 	if err != nil || completed.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("completed=%+v err=%v sends=%d", completed, err, client.sends)
 	}
-	view, err := settled.Turn.View()
+	view, err := finished.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -708,7 +708,7 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 	}
 }
 
-func TestProviderPauseUsesBoundedNextAttempt(t *testing.T) {
+func TestProviderPauseUsesBoundedNextModelCall(t *testing.T) {
 	paused := llm.Result{
 		Message: llm.AssistantMessage(llm.Text("working")),
 		Stop:    llm.Stop{Kind: llm.StopPause},
@@ -792,7 +792,7 @@ func TestProviderToolApprovalWaitsForExplicitDecision(t *testing.T) {
 	}
 }
 
-func TestStreamEventsCarryAttemptIdentity(t *testing.T) {
+func TestStreamEventsCarryCallIdentity(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{final("hi")},
 		deltas:  []llm.Delta{{Kind: llm.DeltaText, Text: "hi"}},
@@ -822,7 +822,7 @@ func TestStreamEventsCarryAttemptIdentity(t *testing.T) {
 		}
 		if event.Delta != nil {
 			deltas++
-			requireAttemptIdentity(t, event)
+			requireCallIdentity(t, event)
 		}
 	}
 	if got == nil || got.Stop.Kind != StopCompleted || !client.inputs[0].Stream {
@@ -836,7 +836,7 @@ func TestStreamEventsCarryAttemptIdentity(t *testing.T) {
 		select {
 		case event := <-observed:
 			if event.Delta != nil {
-				requireAttemptIdentity(t, event)
+				requireCallIdentity(t, event)
 				return
 			}
 		case <-deadline:
@@ -875,7 +875,7 @@ func TestRunWithObserverStreamsDeltas(t *testing.T) {
 		select {
 		case event := <-events:
 			if event.Delta != nil {
-				requireAttemptIdentity(t, event)
+				requireCallIdentity(t, event)
 				return
 			}
 		case <-deadline:
@@ -894,7 +894,7 @@ func TestRunWithoutObserverDoesNotStream(t *testing.T) {
 	}
 }
 
-func requireAttemptIdentity(t *testing.T, event Event) {
+func requireCallIdentity(t *testing.T, event Event) {
 	t.Helper()
 	if event.TurnID != "t1" ||
 		event.ModelCallID != "t1:model:1" ||
@@ -997,12 +997,12 @@ func TestParallelToolsRecordCompletionButKeepCallOrder(t *testing.T) {
 		Stop: llm.Stop{Kind: llm.StopToolUse},
 	}
 	client := &scriptedClient{results: []llm.Result{requested, final("done")}}
-	secondSettled := make(chan struct{})
+	secondFinished := make(chan struct{})
 	rec := notifyingRecorder{
 		Recorder: NewMemoryRecorder(),
 		onCommit: func(step Step) {
 			if step.Kind == StepToolFinished && step.Tool.Call.ID == "b" {
-				close(secondSettled)
+				close(secondFinished)
 			}
 		},
 	}
@@ -1014,7 +1014,7 @@ func TestParallelToolsRecordCompletionButKeepCallOrder(t *testing.T) {
 		},
 		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 			select {
-			case <-secondSettled:
+			case <-secondFinished:
 				return tool.Outcome{
 					State:  tool.StateSucceeded,
 					Output: new(tool.TextOutput("first result")),
@@ -1072,7 +1072,7 @@ func TestParallelToolsRecordCompletionButKeepCallOrder(t *testing.T) {
 	}
 }
 
-func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
+func TestStartedToolCanBeResolvedAfterCrash(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := NewMemoryRecorder()
 	def := testAgent()
@@ -1164,10 +1164,10 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 	}
 }
 
-func TestIntentFailurePreventsSend(t *testing.T) {
+func TestCallStartFailurePreventsSend(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("should not send")}}
 	rec := NewMemoryRecorder()
-	got, err := start(t, client, nil, failIntentRecorder{rec}, Hooks{})
+	got, err := start(t, client, nil, failCallStartRecorder{rec}, Hooks{})
 	step := unacknowledged(err)
 	if !nothingWritten(err) ||
 		step == nil ||

@@ -10,7 +10,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
+func TestReplayInterruptedModelRetainsUsageWithoutModelCall(t *testing.T) {
 	def := testAgent()
 	def.Limits.Resumes = 3
 	partial := callResult("call-1", "lookup")
@@ -21,7 +21,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 	third.Usage = &llm.Usage{InputTokens: 2, OutputTokens: 1}
 	turn := interruptionRecord(
 		interruptionStart(def),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
@@ -34,7 +34,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 		},
 		Step{Kind: StepTurnStopped, Stop: &Stop{Kind: StopInterrupted}},
 		Step{Kind: StepTurnContinued},
-		interruptionModelIntent("model-2"),
+		interruptionModelCallStart("model-2"),
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
@@ -46,7 +46,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 		},
 		Step{Kind: StepTurnStopped, Stop: &Stop{Kind: StopInterrupted}},
 		Step{Kind: StepTurnContinued},
-		interruptionModelIntent("model-3"),
+		interruptionModelCallStart("model-3"),
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
@@ -108,7 +108,7 @@ func TestReplayRejectsUnknownInterruptCause(t *testing.T) {
 	partial := final("partial")
 	turn := interruptionRecord(
 		interruptionStart(testAgent()),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
@@ -151,10 +151,10 @@ func TestInterruptCauseSurvivesJSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestReplayCrashWithModelIntentCanContinue(t *testing.T) {
+func TestReplayCrashWithModelCallStartCanContinue(t *testing.T) {
 	turn := interruptionRecord(
 		interruptionStart(testAgent()),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 	)
 	view, err := turn.View()
 	if err != nil {
@@ -179,22 +179,22 @@ func TestReplayCrashWithModelIntentCanContinue(t *testing.T) {
 	if state.Resumes != 1 {
 		t.Fatalf("crash resume count=%d, want 1", state.Resumes)
 	}
-	if state.modelIntent != "model-1" {
-		t.Fatalf("unclosed model intent=%q, want model-1", state.modelIntent)
+	if state.modelCallStart != "model-1" {
+		t.Fatalf("unclosed model intent=%q, want model-1", state.modelCallStart)
 	}
 	if state.ModelCalls != 0 {
 		t.Fatalf("crashed call consumed %d attempts", state.ModelCalls)
 	}
 }
 
-func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
+func TestReplayReadyAtResumeLimitDependsOnStop(t *testing.T) {
 	def := testAgent()
 	def.Limits.Resumes = 1
 	// A model attempt comes first: a pause before any attempt interrupted
 	// no work and does not count.
 	steps := []Step{
 		interruptionStart(def),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 		{Kind: StepModelCallFinished, Model: &ModelFact{
 			ModelCallID: "model-1",
 			MessageID:   "message-1",
@@ -256,10 +256,10 @@ func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
 	}
 }
 
-func TestReplayUncertainModelIntentNeedsReport(t *testing.T) {
+func TestReplayResultUnknownModelCallStartNeedsReport(t *testing.T) {
 	turn := interruptionRecord(
 		interruptionStart(testAgent()),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 		Step{
 			Kind: StepTurnStopped,
 			Stop: &Stop{Kind: StopResultUnknown, Reason: "model outcome unknown"},
@@ -274,11 +274,11 @@ func TestReplayUncertainModelIntentNeedsReport(t *testing.T) {
 	}
 }
 
-func TestReplayInterruptionPreservesSettledAnswer(t *testing.T) {
+func TestReplayInterruptionPreservesFinishedAnswer(t *testing.T) {
 	answer := final("finished before pause")
 	turn := interruptionRecord(
 		interruptionStart(testAgent()),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
@@ -309,7 +309,7 @@ func TestReplayInterruptionPreservesSettledAnswer(t *testing.T) {
 func TestReplayReportedModelNonexecutionCanContinue(t *testing.T) {
 	turn := interruptionRecord(
 		interruptionStart(testAgent()),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
@@ -362,7 +362,7 @@ func TestReplayReportedModelNonexecutionCanContinue(t *testing.T) {
 func TestReplayCrashReportedModelNonexecutionCanContinue(t *testing.T) {
 	turn := interruptionRecord(
 		interruptionStart(testAgent()),
-		interruptionModelIntent("model-1"),
+		interruptionModelCallStart("model-1"),
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
@@ -385,8 +385,8 @@ func TestReplayCrashReportedModelNonexecutionCanContinue(t *testing.T) {
 			state.failedModel,
 		)
 	}
-	if state.modelIntent != "" {
-		t.Fatalf("reported model call remains open: %q", state.modelIntent)
+	if state.modelCallStart != "" {
+		t.Fatalf("reported model call remains open: %q", state.modelCallStart)
 	}
 	if state.Resumes != 1 {
 		t.Fatalf("crash resume count=%d, want 1", state.Resumes)
@@ -400,8 +400,8 @@ func TestReplayStartedToolResumptionDependsOnStop(t *testing.T) {
 		Kind:   tool.KindLocal,
 		Schema: []byte(`{"type":"object"}`),
 	}
-	intent := interruptionModelIntent("model-1")
-	intent.Model.Tools = []tool.Definition{def}
+	callStart := interruptionModelCallStart("model-1")
+	callStart.Model.Tools = []tool.Definition{def}
 	result := llm.Result{
 		Message: llm.AssistantMessage(llm.Content{
 			Kind:     llm.ContentToolCall,
@@ -412,7 +412,7 @@ func TestReplayStartedToolResumptionDependsOnStop(t *testing.T) {
 	}
 	base := []Step{
 		interruptionStart(testAgent()),
-		intent,
+		callStart,
 		Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
@@ -490,7 +490,7 @@ func interruptionStart(def Agent) Step {
 	}
 }
 
-func interruptionModelIntent(id string) Step {
+func interruptionModelCallStart(id string) Step {
 	messageID := "message-" + id[len("model-"):]
 	return Step{
 		Kind: StepModelCallStarted,

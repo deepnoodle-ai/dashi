@@ -149,7 +149,7 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("r"))}
-	settled, err := runner.Run(
+	finished, err := runner.Run(
 		t.Context(),
 		delivered.Turn,
 		Resolve{CallID: "call-1", Outcome: &out},
@@ -157,7 +157,7 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	done, err := runner.Run(t.Context(), settled.Turn, Continue{})
+	done, err := runner.Run(t.Context(), finished.Turn, Continue{})
 	if err != nil || done.Stop.Kind != StopCompleted {
 		t.Fatalf("continue stop=%+v err=%v", done.Stop, err)
 	}
@@ -390,13 +390,13 @@ func TestContinueKeepsRecordedModel(t *testing.T) {
 		t.Fatalf("start stop=%+v err=%v", got.Stop, err)
 	}
 	out := tool.Outcome{State: tool.StateSucceeded, Output: new(tool.TextOutput("r"))}
-	settled, err := runner.Run(t.Context(), got.Turn, Resolve{CallID: "call-1", Outcome: &out})
+	finished, err := runner.Run(t.Context(), got.Turn, Resolve{CallID: "call-1", Outcome: &out})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// A retried Start with a different model is a change.
-	_, err = runner.Run(t.Context(), settled.Turn, Start{
+	_, err = runner.Run(t.Context(), finished.Turn, Start{
 		CommandID: got.Turn.Steps[0].CommandID,
 		Agent:     Agent{Model: "claude-sonnet-5", Instructions: "Be brief."},
 		Input:     userInput("hi"),
@@ -406,7 +406,7 @@ func TestContinueKeepsRecordedModel(t *testing.T) {
 	}
 
 	// Continue runs with the recorded model, not today's catalog default.
-	done, err := runner.Run(t.Context(), settled.Turn, Continue{})
+	done, err := runner.Run(t.Context(), finished.Turn, Continue{})
 	if err != nil || done.Stop.Kind != StopCompleted {
 		t.Fatalf("continue stop=%+v err=%v", done.Stop, err)
 	}
@@ -575,7 +575,7 @@ func TestLimitsNegativeCountResolvesToNone(t *testing.T) {
 	}
 }
 
-func TestLimitsRejectNegativeAttemptsAndConcurrency(t *testing.T) {
+func TestLimitsRejectNegativeModelCallsAndConcurrency(t *testing.T) {
 	tests := []struct {
 		name   string
 		limits Limits
@@ -621,7 +621,7 @@ func TestNegativeProviderPausesAllowsNone(t *testing.T) {
 	}
 }
 
-func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
+func TestNegativeResumesAllowsNoResume(t *testing.T) {
 	def := testAgent()
 	def.Limits.Resumes = -1
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
@@ -660,7 +660,7 @@ func TestNegativeInterruptionsAllowsNoResume(t *testing.T) {
 	}
 }
 
-func TestNoReservedFinalAnswerAdvertisesToolsOnLastAttempt(t *testing.T) {
+func TestNoReservedFinalReplyAdvertisesToolsOnLastModelCall(t *testing.T) {
 	def := testAgent()
 	def.Limits = Limits{ModelCalls: 2, NoReservedFinalReply: true}
 	client := &scriptedClient{

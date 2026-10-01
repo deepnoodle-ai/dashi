@@ -508,12 +508,12 @@ func (r *runtime) steerSkips(s *replayState, id string) bool {
 		status != ToolAllowed {
 		return false
 	}
-	attempt := s.callAttempts[id]
+	modelCall := s.modelCallOfTool[id]
 	for _, other := range s.callOrder {
 		if other == id {
 			break
 		}
-		if s.callAttempts[other] == attempt && s.Tools[other].steered {
+		if s.modelCallOfTool[other] == modelCall && s.Tools[other].steered {
 			return true
 		}
 	}

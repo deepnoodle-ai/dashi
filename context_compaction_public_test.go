@@ -245,12 +245,12 @@ func (r *stopAfterActiveApplication) Commit(ctx context.Context, req dashi.Commi
 
 func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 	for _, loseAck := range []bool{false, true} {
-		for _, attempts := range []int{3, 5} {
+		for _, modelCalls := range []int{3, 5} {
 			name := "interrupt"
 			if loseAck {
 				name = "lost acknowledgement"
 			}
-			if attempts == 3 {
+			if modelCalls == 3 {
 				name += "/one attempt left"
 			} else {
 				name += "/spare attempts"
@@ -277,7 +277,7 @@ func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 				first, err := (dashi.Runner{Client: client, Tools: tool.List{read}, Recorder: fault}).Run(ctx, dashi.Turn{ID: "application-recovery"}, dashi.Start{
 					Agent: dashi.Agent{
 						Model: dashitest.Model, Settings: llm.Settings{MaxTokens: 256},
-						Limits: dashi.Limits{ModelCalls: attempts, NoReservedFinalReply: true},
+						Limits: dashi.Limits{ModelCalls: modelCalls, NoReservedFinalReply: true},
 						// The applied replacement remains above this soft threshold.
 						ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, Fraction: .3, MaxTokens: 256},
 					},
@@ -333,14 +333,14 @@ func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 				if out.Spend.Usage.InputTokens != 300 || out.Spend.Usage.OutputTokens != 6 {
 					t.Fatalf("resume accounting: %+v", out.Spend)
 				}
-				summaryIntents := 0
+				summaryCallStarts := 0
 				for _, step := range out.Turn.Steps {
 					if step.Kind == dashi.StepModelCallStarted && step.Model.Purpose == dashi.ModelPurposeCompaction {
-						summaryIntents++
+						summaryCallStarts++
 					}
 				}
-				if summaryIntents != 1 {
-					t.Fatalf("summary dispatches=%d", summaryIntents)
+				if summaryCallStarts != 1 {
+					t.Fatalf("summary dispatches=%d", summaryCallStarts)
 				}
 			})
 		}

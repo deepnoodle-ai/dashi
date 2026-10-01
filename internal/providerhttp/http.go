@@ -340,9 +340,9 @@ func (c Client) Post(
 	case pe.statusCode >= 500:
 		category = llm.ErrorOverloaded
 	}
-	disposition := llm.SendStatusUnknown
+	sendStatus := llm.SendStatusUnknown
 	if KnownRejection(pe.statusCode) {
-		disposition = llm.SendStatusProviderRejected
+		sendStatus = llm.SendStatusProviderRejected
 	}
 	rejection := ParseRejection(pe.statusCode, body)
 	rejection.HasMedia = HasMedia(request)
@@ -353,7 +353,7 @@ func (c Client) Post(
 			c.Classify,
 			rejection,
 		),
-		SendStatus: disposition,
+		SendStatus: sendStatus,
 		Status:     pe.statusCode,
 		Code:       pe.code,
 		Body:       body,

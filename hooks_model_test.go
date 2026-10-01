@@ -42,7 +42,7 @@ func toolNames(defs []tool.Definition) []string {
 }
 
 // intentOf returns the n-th recorded model intent.
-func intentOf(t *testing.T, turn Turn, n int) *ModelFact {
+func callStartOf(t *testing.T, turn Turn, n int) *ModelFact {
 	t.Helper()
 	prefix := prefixThrough(t, turn, StepModelCallStarted, n)
 	return prefix.Steps[len(prefix.Steps)-1].Model
@@ -94,12 +94,12 @@ func TestHideRemovesToolsFromTheCall(t *testing.T) {
 	if got := toolNames(client.inputs[0].Tools); !slices.Equal(got, []string{"read"}) {
 		t.Fatalf("offered %v", got)
 	}
-	intent := intentOf(t, out.Turn, 1)
-	if got := toolNames(intent.Tools); !slices.Equal(got, []string{"read"}) {
+	callStart := callStartOf(t, out.Turn, 1)
+	if got := toolNames(callStart.Tools); !slices.Equal(got, []string{"read"}) {
 		t.Fatalf("intent tools = %v", got)
 	}
-	if !slices.Equal(intent.Hidden, []string{"write", "bash"}) {
-		t.Fatalf("intent hidden = %v", intent.Hidden)
+	if !slices.Equal(callStart.Hidden, []string{"write", "bash"}) {
+		t.Fatalf("intent hidden = %v", callStart.Hidden)
 	}
 	if len(out.Warnings) != 0 {
 		t.Fatalf("warnings = %+v", out.Warnings)
@@ -237,7 +237,7 @@ func TestInvalidHideAnswerIsSkippedWhole(t *testing.T) {
 	}
 }
 
-func TestHideWithDeliverAppliesBoth(t *testing.T) {
+func TestHideWithAddMessagesAppliesBoth(t *testing.T) {
 	both := ModelHook{Name: "plan", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
 		return ModelDecision{
 			Hide: []string{"write", "nope"},
@@ -271,7 +271,7 @@ func TestHideWithDeliverAppliesBoth(t *testing.T) {
 	}
 }
 
-func TestHideHasNoEffectOnTheReservedFinalAnswer(t *testing.T) {
+func TestHideHasNoEffectOnTheReservedFinalReply(t *testing.T) {
 	agent := structuredAgent()
 	agent.Limits.ModelCalls = 2
 	remote := &valueTool{}
@@ -292,7 +292,7 @@ func TestHideHasNoEffectOnTheReservedFinalAnswer(t *testing.T) {
 	if got := toolNames(client.inputs[1].Tools); !slices.Equal(got, []string{SubmitOutputTool}) {
 		t.Fatalf("final call tools = %v", got)
 	}
-	if len(intentOf(t, out.Turn, 2).Hidden) != 0 {
+	if len(callStartOf(t, out.Turn, 2).Hidden) != 0 {
 		t.Fatalf("final call recorded hides")
 	}
 	// Replay rejects a record that claims hides on the final call.

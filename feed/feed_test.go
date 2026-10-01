@@ -228,7 +228,7 @@ func TestFollowWakesOnObservedSteps(t *testing.T) {
 
 // The review's regression: the Observer delivers a message's deltas late,
 // after a reader resumed from the step that settled it. Nothing is sent.
-func TestFollowDropsPreviewsSettledBeforeCursor(t *testing.T) {
+func TestFollowDropsPreviewsFinishedBeforeCursor(t *testing.T) {
 	var hub Hub
 	rec := dashi.NewMemoryRecorder()
 	var mu sync.Mutex
@@ -253,13 +253,13 @@ func TestFollowDropsPreviewsSettledBeforeCursor(t *testing.T) {
 		return len(held) > 0 && held[len(held)-1].Step != nil &&
 			held[len(held)-1].Step.Kind == dashi.StepTurnStopped
 	})
-	settled := int64(3) // model_call_finished
-	if out.Turn.Steps[settled-1].Kind != dashi.StepModelCallFinished {
-		t.Fatalf("seq 3 is %s", out.Turn.Steps[settled-1].Kind)
+	finished := int64(3) // model_call_finished
+	if out.Turn.Steps[finished-1].Kind != dashi.StepModelCallFinished {
+		t.Fatalf("seq 3 is %s", out.Turn.Steps[finished-1].Kind)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
 	defer cancel()
-	follow := collect(ctx, &hub, rec, settled)
+	follow := collect(ctx, &hub, rec, finished)
 	waitReaders(t, &hub, 1)
 	for _, e := range held {
 		hub.Observe(e)
@@ -569,7 +569,7 @@ func TestOpenMessageIgnoresOlderRuns(t *testing.T) {
 // Once the hub observes a message's settling step, a delayed delta or gap
 // from an overlapping run cannot reopen it: readers do not get it, and a
 // reader that joins gets no gap for it. A terminal stop forgets the turn.
-func TestSettledMessageStaysClosed(t *testing.T) {
+func TestFinishedMessageStaysClosed(t *testing.T) {
 	var hub Hub
 	rd := hub.subscribe("t1")
 	delta := dashi.Event{TurnID: "t1", MessageID: "m", Seq: 2, Delta: &llm.Delta{Text: "x"}}

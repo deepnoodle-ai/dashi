@@ -330,8 +330,8 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		Approve:  true,
 		ArgsHash: canonjson.Hash(messyArgs),
 	}
-	settle := Resolve{CommandID: "approve", CallID: "call-1", Approval: &approval}
-	out, err = runner.Run(t.Context(), turn, settle)
+	finish := Resolve{CommandID: "approve", CallID: "call-1", Approval: &approval}
+	out, err = runner.Run(t.Context(), turn, finish)
 	if err != nil || !out.ReadyToContinue {
 		t.Fatalf("approve=%+v err=%v", out, err)
 	}
@@ -339,7 +339,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 	if _, err := runner.Run(
 		t.Context(),
 		turn,
-		settle,
+		finish,
 	); err != nil {
 		t.Fatalf("retried approval: %v", err)
 	}

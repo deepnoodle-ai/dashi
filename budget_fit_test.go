@@ -47,10 +47,10 @@ func TestNextCallFitsWithACallInFlight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.modelIntent == "" || s.latestAttempt != "" {
-		t.Fatalf("not in flight: intent=%q latest=%q", s.modelIntent, s.latestAttempt)
+	if s.modelCallStart == "" || s.latestModelCall != "" {
+		t.Fatalf("not in flight: intent=%q latest=%q", s.modelCallStart, s.latestModelCall)
 	}
-	risk := s.modelIntents[s.modelIntent].WorstCaseCost.Total
+	risk := s.startedModelCalls[s.modelCallStart].WorstCaseCost.Total
 	r := &runtime{ctx: t.Context(), agent: s.Agent}
 	if !r.nextCallFits(s, 0) {
 		t.Fatal("a generous cap refused the next call during the first call")
