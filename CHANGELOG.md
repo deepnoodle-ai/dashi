@@ -91,6 +91,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   that a finished task's result starts now opens with `↳ task t_k3f2
   (explore) completed · result delivered`, live, after a reopen, inline, and
   in plain output.
+- **A mouse selection in the CLI no longer vanishes across a turn.** In
+  fullscreen mode, dragging a selection over a task line or a blank reply
+  used to drop the whole selection. A selection now also copies a tool
+  line's name and argument, and copies a turn footer without its `──`
+  rule, so the copied text matches what is highlighted. Glyphs such as
+  `⏺`, `❯`, `↳`, and `⎿`, and a tool's state, are still left out. With
+  Wonton v0.6.0, copied text has a blank line between blocks, as on
+  screen, each selected row highlights as one continuous band, and a drag
+  that starts or ends on a glyph, rule, or gap row snaps to the nearest
+  text.
 
 ## [0.2.0] - 2026-10-01
 
