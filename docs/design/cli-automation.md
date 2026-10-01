@@ -1,7 +1,7 @@
 # One-shot input and recorded automation results
 
 Status: Accepted · Author: Codex · Date: 2026-09-30\
-Workflow: Spec, root dependency checkpoint, then build. Named PRD re-review returned ready; root accepted the technical checkpoint.\
+Workflow: Spec, root checkpoint, then build. CI clarity review returned ready. Root accepted it. Spend-scope clarification awaits named review.\
 Requirements: [Run one coding request from a script](../prds/cli-automation.md)
 
 ## Shape and ownership
@@ -86,6 +86,8 @@ Stable IDs order arrays. Integers remain JSON numbers; currency amounts remain c
 
 Invocation coverage includes its original/continued request, its admitted compaction/notice Turns, and reachable children.
 Session totals include every readable owned parent Turn and each verified child Turn once. Sort IDs before `Spend.Add` for stable overflow retention.
+`/status` keeps `Inspection` own-session spend, excluding children. Task reporting supplies parent/child/inclusive scopes through `delegate.Report`.
+Automation projects invocation and cumulative own/child/inclusive totals from those records. `/status` and ledger ownership remain unchanged.
 Parent/inclusive totals never sum each other. Use replayed Spend and `delegate.Report` semantics, never add deltas, previews, or TaskView plus child snapshots.
 Summary-purpose model attempts are already in their owning Turn's Spend. Between-Turn compaction remains a distinct parent Turn.
 Preserve usage-only incompleteness independently from exact money. Include omitted records as explicit missing contributions, never exact zero.
@@ -133,6 +135,8 @@ Keyless acceptance covers exact multiline/slash/mention input, no-admission fail
 Pin mixed limited/refused/canceled targets against opposing parent/ID order: limit wins, then refusal, with code 4 and all stops/actions retained.
 Interrupt/reopen fixtures count one write and notice, stable targets/routes, no implicit raises, and one authoritative spend contribution.
 Include incomplete usage/exact money, missing cache reporting, multicurrency, unreadable records, active/between-Turn compaction, and child notice costs.
+PRD fixture: USD 1/2/4 yields `/status` own 3, task/automation invocation 2/4/6, and automation cumulative 3/4/7.
+Duplicate references/offline reports count the verified child Turn once. Complete zero tool money stays separate.
 Run affected formatting/vet/build/race gates after code; independent implementation/acceptance, security, and taste reviews remain required.
 
 ## Alternatives and checkpoint
@@ -140,5 +144,5 @@ Run affected formatting/vet/build/race gates after code; independent implementat
 Internal events expose hidden requests. Blocks lose record identity/completeness. Offline projection avoids current tools/credentials.
 Bounded progress can drop previews. Final snapshots load full covered records. Explicit --plain preserves scripted line workflows without a record migration.
 No RPC, daemon, transcript repair, credential ingestion, new grant flags, automatic remedy, or family budget is introduced.
-This documentation PR stacks on published task PRD #148 at `2d66ad030d75db8a8ef60cab3e9a1f41a1715f1f` as a provisional dependency. Move this PRD onto the reviewed task feature before shared CLI integration and final gates. Implementation must use the preceding tracks' settled private seams under root scheduling.
-No new product/API question blocks the spec. Root accepted the checkpoint at `a639074698b8fbbbdf73b60a2f0931dec245fe30`. Prerequisite integration, writer qualification, and implementation authorization still precede production edits.
+The base is attachment PRD #145 at `9a80ac04ac8586913458de353f981d58de36e3ff`, including merged inspection/task PRDs #146/#148. Root schedules integration through their settled private seams.
+Root's accepted technical checkpoint retains prerequisite integration, writer qualification, and implementation authorization gates.

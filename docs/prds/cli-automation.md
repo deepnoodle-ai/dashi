@@ -102,14 +102,16 @@ Acceptance checks both formats and stdout/stderr separation:
   Distinguish original and later notice-Turn answers. Unknown legacy destination fields remain unknown.
   Endpoint presentation excludes credentials, userinfo, and query text.
 - [ ] Report invocation Turn spend separately from cumulative session spend.
-  Identify covered Turns. Totals cover their whole records, including prior facts on resume, rather than only newly billed work.
-  Repeated reports are snapshots and must not be added as new charges.
-  Count ordinary, between-Turn summary, active-context summary attempts, and scheduled notice work once under their recorded owners.
-  Report parent, child, and inclusive amounts distinctly. Model and local-tool money stay separate by currency, without conversion.
+  Count identified whole Turns once, including resumed facts, both summary kinds, and notices. Repeated snapshots create no charges.
+  `/status` retains own-session spend. Task reporting supplies child/inclusive scopes. Automation reports distinct invocation and cumulative own/child/inclusive scopes from verified records.
+  Separate model/tool money by currency, without conversion.
   Parent budgets remain parent-only. Inclusive spend neither enforces a family cap nor grants a child budget.
 - [ ] Preserve uncached input, cache reads/writes, output, hosted-request meters, estimated usage, unavailable cache metrics, and `Spend.UsageIncomplete`.
   Preserve `CostUnknown`, `CostPartial`, and unpriced-request evidence independently. Never label missing usage/cost as measured zero.
   Unreadable omitted records disclose their count and affected incomplete aggregates. Usage-only incompleteness does not qualify independently exact money.
+  Fixture: prior/current parent Turns USD 1/2 and verified child Turn USD 4 yield `/status` own USD 3.
+  Task/automation invocation parent/child/inclusive are USD 2/4/6. Automation cumulative own/child/inclusive are USD 3/4/7.
+  Duplicate references/reports count the child once. Separate tool money is zero with complete records.
 - [ ] Progress identifies its recorded target and local order. Mark provisional text/accounting explicitly and reconcile it with the final snapshot.
   Export only permitted presentation fields, never raw Turn/model-request dumps, hidden reasoning/replay artifacts, credentials, environment values, or attachment bytes.
   Public reasoning summaries require the existing explicit visibility setting. Internal compaction summaries do not become answers.
@@ -179,5 +181,5 @@ RPC, daemons, remote submission, new grant flags, automatic retry, and family bu
 
 Keyless fixtures prove framing, literal input, Dashi stops/exits, accounting, child quiet/notices, and interrupt/reopen without repeated effects.
 The CI fixture retains the test command's failed status when Dashi successfully diagnoses it.
-The [technical spec](../design/cli-automation.md) fixes framing, fields, writing, and preceding-track integration. Prior PRD re-review was ready; this clarity amendment awaits review.
-Root accepted the technical checkpoint. This documentation PR stacks provisionally on task PRD #148. Move this PRD onto the reviewed task feature before shared CLI integration and final gates. Preceding APIs, writer qualification, and implementation authorization remain gates before code.
+[Technical spec](../design/cli-automation.md) fixes reporting and integration. CI clarity review returned ready. Root accepted it. Spend-scope clarification awaits named review.
+Base: attachment PRD #145, including merged inspection/task PRDs #146/#148. Accepted checkpoint retains prerequisite API, writer qualification, and implementation authorization gates.
