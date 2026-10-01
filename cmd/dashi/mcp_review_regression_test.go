@@ -169,8 +169,8 @@ func TestMCPFailedProjectPreferencesRequireExplicitRouteButAllowValidDispatch(t 
 	out.Reset()
 	stderr.Reset()
 	code = run(t.Context(), []string{"-p", "/help", "--provider", "unknown"}, strings.NewReader(""), &out, &stderr)
-	if code != 1 || !strings.Contains(stderr.String(), "not configured") || sends.Load() != 3 {
-		t.Fatal("unknown explicit route fell back")
+	if code != 0 || !strings.Contains(out.String(), "Commands:") || sends.Load() != 3 {
+		t.Fatal("local help attempted live route setup")
 	}
 }
 

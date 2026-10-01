@@ -10,7 +10,6 @@ import (
 	"os/signal"
 	"path/filepath"
 
-	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/tui"
@@ -40,11 +39,17 @@ func run(
 	}
 	dir, err := workDir()
 	if err != nil {
+		if automationOneShot(o, stdin) {
+			return automationPreflightFailure(o, stdout, stderr, err)
+		}
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
+		if automationOneShot(o, stdin) {
+			return automationPreflightFailure(o, stdout, stderr, err)
+		}
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
@@ -54,133 +59,32 @@ func run(
 	invocation := dir
 	dir, err = canonicalWorkspace(dir, o.Workspace)
 	if err != nil {
+		if automationOneShot(o, stdin) {
+			return automationPreflightFailure(o, stdout, stderr, err)
+		}
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
 	}
-	origins, err := loadNamedEnvironment(invocation, o.EnvFiles, os.LookupEnv, os.Setenv)
+	if automationOneShot(o, stdin) {
+		return runAutomation(ctx, o, stdin, stdout, stderr, dir, home, session.NewStore(filepath.Join(home, ".dashi", "sessions")), func() (appConfig, error) {
+			return loadCLIConfig(o, home, dir, invocation, stdin, stderr)
+		})
+	}
+	cfg, err := loadCLIConfig(o, home, dir, invocation, stdin, stderr)
 	if err != nil {
-		fmt.Fprintf(stderr, "dashi: %v\n", err)
+		fmt.Fprintln(stderr, workspace.PrintableText("dashi: "+sanitizeAutomationDiagnostic(err.Error())))
 		return 1
 	}
-	user, project, registry, trusted, err := loadDestinationFiles(home, dir)
-	if err != nil {
-		fmt.Fprintf(stderr, "dashi: %v\n", err)
-		return 1
-	}
-	warnPreferenceSources(stderr, user, project)
-	store := session.NewStore(filepath.Join(home, ".dashi", "sessions"))
-	reopened, err := loadReopenedPreferences(store, dir, o)
-	if err != nil {
-		fmt.Fprintf(stderr, "dashi: %v\n", err)
-		return 1
-	}
-	launch, err := resolveLaunchPreferences(o, registry, trusted, user, project, reopened, os.LookupEnv, origins)
-	if err != nil {
-		fmt.Fprintf(stderr, "dashi: %v\n", err)
-		return 1
-	}
-	if launch.SelectionError == "" {
-		registry[launch.Selection.Destination.ID] = launch.Selection.Destination
-	}
-	preferences := &cliPreferences{launch: launch, routes: newRouteClients(registry, trusted, os.LookupEnv), client: newTurnClient(nil), writer: userPreferenceWriter{path: filepath.Join(home, ".dashi", "settings.json")}, interactive: !o.PrintSet && isTerminal(os.Stdin), guidance: o.SystemPrompt, guidanceSet: o.SystemPromptSet, environmentOrigins: origins, environmentFiles: namedEnvironmentPaths(invocation, o.EnvFiles)}
-	preferences.resolveSession = func(saved preferenceFile) (launchPreferences, error) {
-		return resolveLaunchPreferences(o, registry, trusted, user, project, saved, os.LookupEnv, origins)
-	}
-	cfg := appConfig{Dir: dir, HomeDir: home, InvocationDir: invocation, MCPFiles: o.MCPFiles, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences}
-	if o.PrintSet {
-		return runPrint(ctx, cfg, o, stdout, stderr)
-	}
+
 	if o.Plain || !isTerminal(os.Stdin) || !isTerminal(os.Stdout) {
 		return runLines(ctx, cfg, o, stdin, stdout, stderr)
 	}
 	return runScreen(ctx, cfg, o, stdout, stderr)
 }
 
-// runPrint runs one turn without a UI and prints the answer to stdout. Steps
-// go to stderr.
-func runPrint(
-	ctx context.Context,
-	cfg appConfig,
-	o Options,
-	stdout, stderr io.Writer,
-) int {
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
-	defer stop()
-	ui := &printUI{err: stderr, yes: o.Yes}
-	a, err := buildApp(ctx, cfg, ui)
-	if err != nil {
-		fmt.Fprintf(stderr, "dashi: %v\n", err)
-		return 1
-	}
-	defer func() {
-		if err := a.eng.closeTasks(); err != nil {
-			a.eng.warn("%v", err)
-			return
-		}
-		a.eng.Close()
-		if a.wiring.Close != nil {
-			_ = a.wiring.Close()
-		}
-	}()
-	if handled, code := a.ctrl.printCommand(o.Print, stdout, stderr); handled {
-		return code
-	}
-	notice, err := a.openSession(cfg.Store, cfg.Dir, o)
-	if err != nil {
-		fmt.Fprintf(stderr, "dashi: %v\n", err)
-		return 1
-	}
-	if notice != "" {
-		fmt.Fprintln(stderr, workspace.PrintableText(notice))
-	}
-	if err := a.initializeMCP(ctx, false); err != nil {
-		fmt.Fprintln(stderr, "dashi: MCP initialization canceled or failed; no work was started.")
-		return 1
-	}
-	var res Result
-	if len(o.AttachFiles) > 0 || len(attachmentPaths(o.Print)) > 0 {
-		in, selectErr := printAttachmentInput(ctx, cfg.Dir, o.Print, o.AttachFiles)
-		if selectErr != nil {
-			fmt.Fprintln(stderr, workspace.PrintableText("dashi: "+selectErr.Error()))
-			return 1
-		}
-		res, err = a.eng.PromptInput(ctx, in)
-	} else {
-		res, err = a.eng.Prompt(ctx, o.Print)
-	}
-	if err != nil {
-		fmt.Fprintf(stderr, "dashi: %v\n", err)
-		return 1
-	}
-	res, err = a.eng.QuietTasks(ctx, res)
-	if err != nil {
-		fmt.Fprintln(stderr, workspace.PrintableText("dashi: "+err.Error()+"; inspect with /tasks and /task ID after reopening"))
-		return 1
-	}
-	return printAnswer(res.Outcome, stdout, stderr)
-}
-
-// printAnswer writes the answer of a settled turn to stdout. Any other stop
-// gives the exit code 1 and its reason on stderr.
-func printAnswer(out dashi.Outcome, stdout, stderr io.Writer) int {
-	if out.Answer != "" {
-		answer := out.Answer
-		if f, ok := stdout.(*os.File); ok && isTerminal(f) {
-			// The answer is the model's text. On a terminal it must not carry
-			// escape sequences.
-			answer = workspace.PrintableText(answer)
-		}
-		fmt.Fprintln(stdout, answer)
-	}
-	if out.Stop.Kind != dashi.StopCompleted {
-		fmt.Fprintf(stderr, "dashi: the turn stopped: %s", out.Stop.Kind)
-		if out.Stop.Reason != "" {
-			fmt.Fprintf(stderr, " (%s)", out.Stop.Reason)
-		}
-		fmt.Fprintln(stderr)
-		return 1
-	}
-	return 0
+// runPrint keeps the fixture/embedding entry point for a prompt-only request.
+func runPrint(ctx context.Context, cfg appConfig, o Options, stdout, stderr io.Writer) int {
+	return runAutomation(ctx, o, nil, stdout, stderr, cfg.Dir, cfg.HomeDir, cfg.Store, func() (appConfig, error) { return cfg, nil })
 }
 
 // runLines runs the session in line mode.
@@ -350,4 +254,34 @@ func runScreen(
 var isTerminal = func(f *os.File) bool {
 	info, err := f.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+func loadCLIConfig(o Options, home, dir, invocation string, stdin io.Reader, stderr io.Writer) (appConfig, error) {
+	origins, err := loadNamedEnvironment(invocation, o.EnvFiles, os.LookupEnv, os.Setenv)
+	if err != nil {
+		return appConfig{}, err
+	}
+	user, project, registry, trusted, err := loadDestinationFiles(home, dir)
+	if err != nil {
+		return appConfig{}, err
+	}
+	warnPreferenceSources(stderr, user, project)
+	store := session.NewStore(filepath.Join(home, ".dashi", "sessions"))
+	reopened, err := loadReopenedPreferences(store, dir, o)
+	if err != nil {
+		return appConfig{}, err
+	}
+	launch, err := resolveLaunchPreferences(o, registry, trusted, user, project, reopened, os.LookupEnv, origins)
+	if err != nil {
+		return appConfig{}, err
+	}
+	if launch.SelectionError == "" {
+		registry[launch.Selection.Destination.ID] = launch.Selection.Destination
+	}
+	preferences := &cliPreferences{launch: launch, routes: newRouteClients(registry, trusted, os.LookupEnv), client: newTurnClient(nil), writer: userPreferenceWriter{path: filepath.Join(home, ".dashi", "settings.json")}, interactive: !o.PrintSet && !o.OutputFormatSet && !automationRedirected(stdin), guidance: o.SystemPrompt, guidanceSet: o.SystemPromptSet, environmentOrigins: origins, environmentFiles: namedEnvironmentPaths(invocation, o.EnvFiles)}
+	preferences.resolveSession = func(saved preferenceFile) (launchPreferences, error) {
+		return resolveLaunchPreferences(o, registry, trusted, user, project, saved, os.LookupEnv, origins)
+	}
+	cfg := appConfig{Dir: dir, HomeDir: home, InvocationDir: invocation, MCPFiles: o.MCPFiles, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences}
+	return cfg, nil
 }

@@ -25,6 +25,7 @@ type appConfig struct {
 	MCPFiles      []string
 	// ModelAttempts overrides the per-turn model-call limit; zero means 40.
 	ModelAttempts int
+	parentStopped func(int)
 
 	// recorder wraps each session's recorder; tests use it.
 	recorder func(*filerecorder.Recorder) dashi.Recorder
@@ -94,6 +95,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		MCP:           mcp,
 		ModelAttempts: cfg.ModelAttempts,
 		Emit:          func(b Block) { emitToUI(ui, b) },
+		ParentStopped: cfg.parentStopped,
 		Receipt: func(in *submittedInput, r inputReceipt) {
 			if u, ok := ui.(attachmentUI); ok {
 				u.AttachmentReceipt(in, r)
