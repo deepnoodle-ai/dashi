@@ -230,6 +230,11 @@ func newHarnessLimit(t *testing.T, attempts int, script ...reply) *harness {
 		ui:     newRecorderUI(),
 		limit:  attempts,
 	}
+	canonical, err := canonicalWorkspace(h.dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.dir = canonical
 	h.build(Options{})
 	return h
 }

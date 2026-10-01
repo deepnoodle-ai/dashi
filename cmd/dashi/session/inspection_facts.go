@@ -138,12 +138,15 @@ func turnAccounting(turn dashi.Turn, view dashi.TurnView) Accounting {
 }
 
 func executionSnapshot(turn dashi.Turn, view dashi.TurnView, accounting Accounting) Execution {
-	e := Execution{TurnID: turn.ID, Revision: view.Revision, Readable: true, Summary: view.Origin == dashi.StartCompaction, Stop: view.Stop, Accounting: accounting}
+	e := Execution{TurnID: turn.ID, Revision: view.Revision, Readable: true, Summary: view.Origin == dashi.StartCompaction, Stop: view.Stop, Accounting: accounting, Next: view.Next(), ReadyToContinue: view.ReadyToContinue}
 	e.Destination = Destination{view.Agent.Provider, view.Agent.API, view.Agent.Model, view.Agent.Revision}
 	for _, item := range view.Pending {
 		p := PendingObservation{Kind: item.Kind, ID: item.ID}
 		if item.Tool != nil {
 			p.ToolStatus = item.Tool.Status
+			a := item.Tool.Definition.Annotations
+			safe := a.ReadOnly != nil && *a.ReadOnly || a.Idempotent != nil && *a.Idempotent
+			p.UnsafeEffect = item.Tool.Status == dashi.ToolUncertain || item.Tool.Status == dashi.ToolStarted && !safe
 		}
 		e.Pending = append(e.Pending, p)
 	}

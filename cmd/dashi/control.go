@@ -75,12 +75,14 @@ type Controller struct {
 	quitAction string
 	// dropping is the action (a slash command, or Ctrl-C) that was just
 	// warned about dropping queued prompts; repeating it goes ahead.
-	dropping      string
-	answers       chan string
-	wg            sync.WaitGroup
-	work          atomic.Int64
-	answerPending atomic.Bool
-	base          context.Context
+	dropping         string
+	answers          chan string
+	wg               sync.WaitGroup
+	work             atomic.Int64
+	answerPending    atomic.Bool
+	base             context.Context
+	statusGeneration uint64
+	statusCancel     context.CancelFunc
 }
 
 // NewController returns a controller. base ends every run when it is done.
@@ -302,6 +304,10 @@ func (c *Controller) CancelWork() {
 func (c *Controller) Input(line string) {
 	raw := line
 	line = strings.TrimSpace(line)
+	if name, arg := splitCommand(line); name == "/status" {
+		c.inspectSession(arg)
+		return
+	}
 	if c.mcpInput(line) {
 		return
 	}
@@ -567,32 +573,9 @@ func (c *Controller) model(ctx context.Context, name string) {
 	c.notice("Model set to %s for the next turn.", name)
 }
 
-func (c *Controller) sessions(ctx context.Context) {
-	list, err := c.store.List(c.dir)
-	if err != nil {
-		c.emit(warnBlock("Sessions cannot be listed: %v.", err))
-		return
-	}
-	if len(list) == 0 {
-		c.notice("There are no sessions for this directory.")
-		return
-	}
-	labels := make([]string, len(list))
-	for i, s := range list {
-		labels[i] = fmt.Sprintf("%s  %s  %s",
-			s.Updated.Local().Format("Jan 2 15:04"), s.ID,
-			orDefault(s.Title, "(no prompt)"))
-	}
-	idx, ok := c.choose(ctx, "Sessions", labels)
-	if !ok {
-		return
-	}
-	c.openSession(list[idx].ID)
-}
-
 // OpenSession switches to the session with the given ID and shows it.
 func (c *Controller) openSession(id string) {
-	s, err := c.store.Load(id)
+	s, err := c.store.LoadScoped(c.base, c.dir, id)
 	if err != nil {
 		c.emit(warnBlock("%v.", err))
 		return

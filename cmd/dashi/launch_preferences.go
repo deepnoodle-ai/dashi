@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
@@ -118,7 +119,7 @@ func loadReopenedPreferences(store *session.Store, dir string, o Options) (prefe
 	var saved *session.Session
 	var err error
 	if o.ResumeID != "" {
-		saved, err = store.Load(o.ResumeID)
+		saved, err = store.LoadScoped(context.Background(), dir, o.ResumeID)
 	} else {
 		saved, err = store.Latest(dir)
 	}

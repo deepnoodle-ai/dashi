@@ -39,7 +39,11 @@ func routedTestEngine(t *testing.T, dispatch func(string) (int, string)) (*Engin
 	}
 	store := session.NewStore(t.TempDir())
 	store.DisableSync()
-	e := NewEngine(EngineConfig{Dir: t.TempDir(), Client: p.client, Model: "same/model", Store: store, Preferences: p})
+	dir, err := canonicalWorkspace(t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngine(EngineConfig{Dir: dir, Client: p.client, Model: "same/model", Store: store, Preferences: p})
 	saved, err := store.Create(e.cfg.Dir, e.Model())
 	if err != nil {
 		t.Fatal(err)
