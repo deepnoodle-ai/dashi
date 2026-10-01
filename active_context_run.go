@@ -1,11 +1,13 @@
 package dashi
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"math"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
@@ -279,8 +281,24 @@ func activeInputHasMedia(input llm.Input) bool {
 	has := func(blocks []content.Block) bool {
 		return slices.ContainsFunc(blocks, func(b content.Block) bool {
 			switch b.Kind {
-			case content.KindImage, content.KindDocument, content.KindAudio, content.KindVideo:
+			case content.KindImage, content.KindAudio, content.KindVideo:
 				return true
+			case content.KindDocument:
+				// A resolved text document is fixed textual input, including when
+				// a provider encodes its bytes as a native file. Unknown or remote
+				// documents still have no qualified active context estimate.
+				if b.Document == nil {
+					return true
+				}
+				source := b.Document.Source.WithDetectedMIMEType(b.Document.Title)
+				if len(source.Data) == 0 || !utf8.Valid(source.Data) || bytes.IndexByte(source.Data, 0) >= 0 {
+					return true
+				}
+				switch source.MIMEType {
+				case "application/json", "application/xml", "application/yaml", "application/x-yaml":
+					return false
+				}
+				return !strings.HasPrefix(source.MIMEType, "text/")
 			}
 			return false
 		})

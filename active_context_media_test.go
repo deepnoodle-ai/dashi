@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/content"
@@ -235,5 +236,65 @@ func TestActiveInputMediaDetection(t *testing.T) {
 	}
 	if activeInputHasMedia(llm.Input{Messages: []llm.Message{llm.UserMessage(llm.Text("text and ordinary path references"))}}) {
 		t.Fatal("text treated as media")
+	}
+}
+
+func TestActiveInputTextDocumentDetection(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		source content.Source
+		media  bool
+	}{
+		{"plain", content.Source{Data: []byte("notes"), MIMEType: "text/plain"}, false},
+		{"markdown", content.Source{Data: []byte("# Notes"), MIMEType: "text/markdown"}, false},
+		{"csv", content.Source{Data: []byte("a,b\n1,2"), MIMEType: "text/csv"}, false},
+		{"json", content.Source{Data: []byte(`{"note":"text"}`), MIMEType: "application/json"}, false},
+		{"xml", content.Source{Data: []byte("<note>text</note>"), MIMEType: "application/xml"}, false},
+		{"yaml", content.Source{Data: []byte("note: text"), MIMEType: "application/yaml"}, false},
+		{"x-yaml", content.Source{Data: []byte("note: text"), MIMEType: "application/x-yaml"}, false},
+		{"detected", content.Source{Data: []byte("notes")}, false},
+		{"UTF-8", content.Source{Data: []byte("日本語のメモ"), MIMEType: "text/plain"}, false},
+		{"invalid UTF-8", content.Source{Data: []byte{0xff}, MIMEType: "text/plain"}, true},
+		{"NUL", content.Source{Data: []byte{'a', 0, 'b'}, MIMEType: "text/plain"}, true},
+		{"PDF ASCII", content.Source{Data: []byte("%PDF-1.4"), MIMEType: "application/pdf"}, true},
+		{"unknown", content.Source{Data: []byte("notes"), MIMEType: "application/octet-stream"}, true},
+		{"remote", content.Source{URL: "https://example.test/notes.txt", MIMEType: "text/plain"}, true},
+		{"provider ID", content.Source{ID: "file-1", MIMEType: "text/plain"}, true},
+		{"provider URI", content.Source{URI: "provider://notes", MIMEType: "text/plain"}, true},
+		{"unresolved", content.Source{Ref: &content.Ref{ID: "notes"}, MIMEType: "text/plain"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			block := content.DocumentBlock(tc.source, "")
+			before, _ := json.Marshal(block)
+			for _, part := range []llm.Content{llm.Block(block), {Kind: llm.ContentToolResult, ToolResult: &llm.ToolResult{Output: tool.Output{Content: []content.Block{block}}}}, {Kind: llm.ContentHostedUse, HostedUse: &llm.HostedUse{Output: []content.Block{block}}}, {Kind: llm.ContentHostedResult, HostedResult: &llm.HostedResult{Output: []content.Block{block}}}} {
+				if got := activeInputHasMedia(llm.Input{Messages: []llm.Message{llm.UserMessage(part)}}); got != tc.media {
+					t.Fatalf("%s media=%v, want %v", part.Kind, got, tc.media)
+				}
+			}
+			after, _ := json.Marshal(block)
+			if !bytes.Equal(before, after) {
+				t.Fatal("classification changed document source")
+			}
+		})
+	}
+}
+
+func TestActiveCompactionHydratedTextDocumentHardLimit(t *testing.T) {
+	data := []byte(strings.Repeat("x", 10000))
+	ref := refFor("notes", data)
+	resolver := &countingResolver{files: map[string][]byte{"notes": data}}
+	c := &activeClient{window: 8000}
+	a := testAgent()
+	a.Settings.MaxTokens = 256
+	a.ActiveCompaction = &ActiveCompactionPolicy{}
+	start := activeStart(a)
+	start.Input[0].Content = append(start.Input[0].Content, llm.Document(content.Source{Ref: &ref, MIMEType: "text/plain"}, "notes.txt"))
+	out, err := (Runner{Client: c, ContentResolver: resolver}).Run(t.Context(), Turn{}, start)
+	if err != nil || out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitContextWindow || resolver.count() != 1 || c.sends != 0 || activeMediaWarnings(out.Warnings) != 0 {
+		t.Fatalf("stop=%+v resolutions=%d sends=%d warnings=%+v err=%v", out.Stop, resolver.count(), c.sends, out.Warnings, err)
+	}
+	source := out.Turn.Steps[0].Started.Input[0].Content[1].Block.Document.Source
+	if source.Ref == nil || *source.Ref != ref || source.Data != nil {
+		t.Fatal("classification rewrote recorded reference")
 	}
 }
