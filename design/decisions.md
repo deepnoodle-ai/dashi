@@ -516,3 +516,35 @@ file they exercise. Rationale: the root had grown to 43 files that
 did not sort by concern; the public vocabulary (Turn, Step, facts, Commands,
 Runner, Hooks, RunResult) stays together, and Session, which the engine does not
 need, lives in package `session`, built only on the public Runner API.
+
+**46. A `task_status` call that returns a final result delivers it.**
+Decided. The delivery rule kept the record as the only proof, and so ignored
+`task_status` reads: the record could not tell which child turn a read
+showed. A model that read the result then got the notice too, often in a
+whole extra turn that cost money for nothing. Now a `task_status` call that
+returns a turn's final result says so in its outcome's structured `Data`
+(`{"delivered_turn_id": ...}`), and a recorded call with that field delivers
+the turn it names (`delegate.DeliveredNotices`). The read changes nothing
+else: notices are produced and queued as before, and the record is checked
+just before one is delivered: on `Recover`, before a queue turn
+(`Session.Delivered`, which `NewTasks` sets), and in a host that holds
+notices until the turn ends, as the CLI does. A parent turn that is canceled
+or fails before the read is recorded has no read, so the notice goes out on
+the next turn. A notice that reaches a running turn is not checked, so the
+model may see a result twice in one turn, but no turn runs for it. A read of
+a running task, the task list, a deferred or interrupted stop, and user
+inspection (`/task`, `/tasks`) deliver nothing. Rationale: checking the
+record at delivery needs no locks, claims, or timers, and a crash before the
+read is recorded still redelivers on reopen. An earlier version claimed the
+result live at read time, which needed a way to withdraw queued notices, a
+give-back when the turn stopped first, and a 30-second wait for the record
+to settle. The marker is a turn ID, not text: matching text confused equal
+replies and broke when the wording or `MaxReply` changed. `Data` is a generic
+field of `tool.Outcome` (as `Progress.Data` is of progress), so the root
+package learns nothing about tasks. The runner keeps `Data` only while the
+model sees the tool's own result: when an `AfterTool` hook replaces or
+withholds it, or the result limit shortens it, the outcome is recorded
+without `Data`. So a read the model did not see in full is not delivery,
+and the notice still carries the whole reply. The rule is general, not a
+check in `delegate`, because any host that reads `Data` would otherwise
+trust a fact about a result the model never saw.

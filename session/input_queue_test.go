@@ -349,6 +349,43 @@ func TestSessionMissedSteers(t *testing.T) {
 	})
 }
 
+// Delivered drops the queued items it names just before a queue turn:
+// alone, they start no turn; beside others, the turn carries only those.
+func TestSessionDeliveredDropsQueuedItems(t *testing.T) {
+	client := dashitest.NewClient(dashitest.Reply("hi"), dashitest.Reply("read it"))
+	s := handle(dashi.NewMemoryRecorder(), client)
+	s.New = true
+	seen := 0
+	s.Delivered = func(turns []dashi.Turn) map[string]bool {
+		seen = len(turns)
+		return map[string]bool{"read": true}
+	}
+	if _, err := s.Send(t.Context(), "hi"); err != nil {
+		t.Fatal(err)
+	}
+	item := func(id string) dashi.ContextItem {
+		return dashi.ContextItem{ID: id, Message: llm.UserMessage(llm.Text("result " + id))}
+	}
+	if _, err := s.EnqueueItem(t.Context(), item("read")); err != nil {
+		t.Fatal(err)
+	}
+	if _, ran, err := s.RunQueue(t.Context()); err != nil || ran || seen != 1 {
+		t.Fatalf("ran=%v err=%v turns seen=%d", ran, err, seen)
+	}
+	if st, err := s.Open(t.Context()); err != nil || st.Turns != 1 || st.Queued != 0 {
+		t.Fatalf("state=%+v err=%v", st, err)
+	}
+	for _, id := range []string{"read", "new"} {
+		if _, err := s.EnqueueItem(t.Context(), item(id)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, ran, err := s.RunQueue(t.Context())
+	if err != nil || !ran || out.Turn.Steps[0].CommandID != `queue:["new"]` {
+		t.Fatalf("ran=%v err=%v turn=%+v", ran, err, out.Turn.Steps[0])
+	}
+}
+
 // Queued input under a durable recorder warns memory_only; the in-memory
 // recorder's queue lives as long as its record, so it does not.
 func TestSessionQueueMemoryOnly(t *testing.T) {

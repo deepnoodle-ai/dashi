@@ -237,11 +237,20 @@ func (ts *Tasks) execStatus(
 	}
 	wait := time.Duration(args.WaitSeconds) * time.Second
 	if args.TaskID != "" {
-		v, err := ts.awaitOne(ctx, args.TaskID, wait)
+		v, final, err := ts.awaitOne(ctx, args.TaskID, wait)
 		if err != nil {
 			return tool.Outcome{}, err
 		}
-		return tool.Succeeded(describe(v, true)), nil
+		out := tool.Succeeded(describe(v, true))
+		if final {
+			// The record names the child turn whose result the model saw,
+			// so a host can skip its notice (see DeliveredNotices).
+			out.Data, err = json.Marshal(statusData{DeliveredTurnID: v.TurnID})
+			if err != nil {
+				return tool.Outcome{}, err
+			}
+		}
+		return out, nil
 	}
 	views := ts.awaitAny(ctx, wait)
 	if len(views) == 0 {
@@ -300,12 +309,14 @@ func (ts *Tasks) unknown(id string) error {
 	)
 }
 
-// awaitOne returns the view of one task, after it ends or the wait is over.
+// awaitOne returns the view of one task, after it ends or the wait is over,
+// and whether the view holds the final result that the turn's notice
+// carries (see finalLocked).
 func (ts *Tasks) awaitOne(
 	ctx context.Context,
 	id string,
 	wait time.Duration,
-) (TaskView, error) {
+) (TaskView, bool, error) {
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	for {
@@ -313,21 +324,31 @@ func (ts *Tasks) awaitOne(
 		t, ok := ts.tasks[id]
 		if !ok {
 			ts.mu.Unlock()
-			return TaskView{}, ts.unknown(id)
+			return TaskView{}, false, ts.unknown(id)
 		}
 		v, ch := ts.viewLocked(t, nil), ts.changed
+		final := finalLocked(t)
 		ts.mu.Unlock()
 		if !v.Running() || wait == 0 {
-			return v, nil
+			return v, final, nil
 		}
 		select {
 		case <-ch:
 		case <-timer.C:
-			return v, nil
+			return v, final, nil
 		case <-ctx.Done():
-			return v, nil
+			return v, final, nil
 		}
 	}
+}
+
+// finalLocked reports whether the last turn of t ended with the result its
+// notice carries. A deferred notice waits for the host, and a turn that
+// Close interrupted resumes later, so neither is final yet. The caller holds
+// ts.mu.
+func finalLocked(t *task) bool {
+	c := t.last()
+	return c != nil && c.state != TaskRunning && !c.deferred && !c.suppressed
 }
 
 // awaitAny returns every task after the running turn of a task ends, or

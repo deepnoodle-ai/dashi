@@ -74,10 +74,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   in bold cyan; a partial or unknown name stays plain.
 - **The CLI shows delegated tasks on their tool lines.** The `task` tool line
   reads `task  explore · find the parser · t_k3f2`. One status line under it
-  follows the task, such as `⎿ completed · 1 model call · $0.0069 · /task
+  follows the task, such as `⎿  completed · 1 model call · $0.0069 · /task
   t_k3f2 to inspect`, in the tool line colors. It replaces the separate block
   that repeated the task ID, description, counts, and raw spend. `/tasks`
   prints one line per task in the same words, and counts are pluralized.
+
+### Added
+
+- **`tool.Outcome.Data` carries structured detail about a call for the
+  host.** It is raw JSON that the turn record keeps and the model never sees.
+  Like `Progress.Data`, Data that is not valid JSON or exceeds 64 KiB is
+  dropped, and the step records the new `WarningToolDataDropped`; the call
+  still succeeds. Data describes the result the tool returned, so it is also
+  dropped, with the same warning, when an `AfterTool` hook replaces or
+  withholds the result or `Limits.ToolResultBytes` shortens it. A change the
+  model does not see, such as one to `Output.Display` only, keeps it.
+- **`session.Session.Delivered` drops queued items that the record shows
+  delivered another way,** just before a queue turn, so they start no turn.
 
 ### Fixed
 
@@ -91,6 +104,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   that a finished task's result starts now opens with `↳ task t_k3f2
   (explore) completed · result delivered`, live, after a reopen, inline, and
   in plain output.
+- **A task result the agent read with `task_status` is not sent again.** A
+  `task_status` call that returns a task's final result records the child
+  turn in its outcome's `Data`, and the new `delegate.DeliveredNotices(turns)`
+  counts it as delivery (decision 46). The record is checked just before a
+  notice is delivered: on `Recover`, before a queue turn (the new
+  `Session.Delivered`, which `NewTasks` sets), and by the CLI, which holds
+  notices until the turn ends. So the read starts no extra turn, also after
+  a reopen. A notice that reaches a running turn is not checked, so the
+  model may see a result twice in that turn. If the parent turn is canceled
+  before the read is recorded, the notice goes out on the next turn. Reading
+  a running task or the task list delivers nothing, and the user's `/task`
+  and `/tasks` never count as delivery. A read whose result an `AfterTool`
+  hook changed or the result limit shortened records no `Data`, so it does
+  not count, and the notice still delivers the whole reply.
+- **The CLI no longer says task results wait for a stopped parent while the
+  parent runs.** The line now shows only when the turn really stopped, and
+  says what to do: "Task results will be sent when this turn goes on. Press
+  Enter to continue it, or type a new prompt." It and the pending-prompt line
+  are quiet indented lines.
+- **Task status lines keep their spacing.** Two spaces follow `⎿`, and the
+  space before ` · ` no longer disappears where a status line wraps.
+- **A subagent knows its task ID.** Its instructions end with "Your task ID
+  is t_k3f2.", so it can name itself in its reply.
 - **A mouse selection in the CLI no longer vanishes across a turn.** In
   fullscreen mode, dragging a selection over a task line or a blank reply
   used to drop the whole selection. A selection now also copies a tool

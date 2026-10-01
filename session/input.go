@@ -504,6 +504,9 @@ func (s *Session) planQueue(
 		if s.refine(ctx, t).next != dashi.NextNone {
 			return startPlan{}, false, nil
 		}
+		if items = s.dropDelivered(ctx, last); len(items) == 0 {
+			return startPlan{}, false, nil
+		}
 	}
 	s.created = true
 	ids := make([]string, len(items))
@@ -545,6 +548,27 @@ func (s *Session) planQueue(
 	s.running[p.id]++
 	s.driving = p.id
 	return p, true, nil
+}
+
+// dropDelivered removes the free queued items that Session.Delivered names
+// for turns 1 through last, and returns the free items left. A turn that
+// cannot be read is left out. The caller holds mu.
+func (s *Session) dropDelivered(ctx context.Context, last int) []*queuedItem {
+	if s.Delivered == nil {
+		return s.free(nil)
+	}
+	turns := make([]dashi.Turn, 0, last)
+	for n := 1; n <= last; n++ {
+		if t, err := s.load(ctx, n); err == nil {
+			turns = append(turns, t.turn)
+		}
+	}
+	if done := s.Delivered(turns); len(done) > 0 {
+		s.queue = slices.DeleteFunc(s.queue, func(q *queuedItem) bool {
+			return q.reserved == nil && done[q.item.ID]
+		})
+	}
+	return s.free(nil)
 }
 
 // usedKey reports whether a turn in the idempotency window, from turn n

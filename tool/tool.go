@@ -313,6 +313,21 @@ type Outcome struct {
 	Handle *Handle `json:"handle,omitempty"`
 	// Cost is the application-reported charge for completed tool work.
 	Cost *Cost `json:"cost,omitempty"`
+
+	// Data is optional structured detail about the call for the host. The
+	// turn record keeps it, and hosts read it from ToolView.Outcome; the
+	// model never sees it. Like Progress.Data, Data that is not valid JSON
+	// or exceeds 64 KiB is dropped: the runner records the outcome without
+	// it and adds a dashi.WarningToolDataDropped warning.
+	//
+	// Data describes the output this outcome returns, and the record keeps
+	// it only while the model sees that output. When an AfterTool hook
+	// replaces or withholds the result, or the result limit shortens it,
+	// the runner records the outcome without Data and adds the same
+	// warning. So a host may treat recorded Data as true of what the model
+	// saw. A change the model does not see keeps Data: a hook that returns
+	// the result unchanged, or one that changes only Output.Display.
+	Data json.RawMessage `json:"data,omitempty"`
 }
 
 // Clone returns a deep copy of o that shares no data with it.
@@ -329,6 +344,7 @@ func (o Outcome) Clone() Outcome {
 	if o.Cost != nil {
 		o.Cost = new(*o.Cost)
 	}
+	o.Data = slices.Clone(o.Data)
 	return o
 }
 
@@ -371,7 +387,8 @@ type Cost struct {
 }
 
 // Validate reports whether o carries exactly the payloads its State permits
-// and whether any output content is well formed.
+// and whether any output content is well formed. It does not check Data:
+// the runner drops Data that is not valid JSON or exceeds 64 KiB, and warns.
 func (o Outcome) Validate() error {
 	if o.Cost != nil {
 		if strings.TrimSpace(o.Cost.Currency) == "" ||

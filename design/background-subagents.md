@@ -102,10 +102,14 @@ depend on the tool call or the parent Turn.
 
 **Delivery rule.** A result is delivered when the record of the conversation
 holds the notice `task-done:<child ID>`: in a Turn's context, or in the `queue:`
-`CommandID` of a session queue Turn's start. Nothing else counts. A
-`task_status` read does not suppress a notice. `Recover` and the live path use
-this check. `OnTask` fires once per end in one process; a second `Recover` sends
-none.
+`CommandID` of a session queue Turn's start, or when a recorded `task_status`
+outcome names the child turn in its `Data` as delivered
+([decision 46](decisions.md)). A read of a running task or of the task list
+does not count. The check (`DeliveredNotices`) runs just before delivery: on
+`Recover`, before a session queue Turn (`Session.Delivered`), and in a host
+that holds notices. A steer into a running Turn is not checked, so the model
+may see a result twice in that Turn. `OnTask` fires once per end in one
+process; a second `Recover` sends none.
 
 **Running Turn.** On `TaskEnded`, the host sends `notice.Steer()` to the
 `Inbox`. The steer has origin `ContextTool`, never user text. The next model
@@ -170,6 +174,9 @@ check after each test.
 | No Turn running, one follow-up, split | `TestNoticesWithNoRunningTurnMakeOneFollowUp` |
 | Killed before the notice, once | `TestResultAfterKillReachesTheAgentOnce` |
 | Status read, then notice | `TestStatusReadDoesNotSuppressTheNotice` |
+| Status read of the result starts no Turn | `TestStatusReadOfTheFinalResultStartsNoTurn` (`notice_test.go`) |
+| Canceled before the read is recorded | `TestUnrecordedStatusReadLeavesTheNotice` (`notice_test.go`) |
+| Equal replies, one read | `TestStatusReadDeliversOnlyTheTaskItRead` (`notice_test.go`) |
 | Close then Recover, same child | `TestCloseInterruptsAndRecoverResumesTheSameChild` |
 | Killed inside `task` | `TestKilledInsideTaskCallHoldsOneChild` |
 | Stop, Ctrl-C | `TestStopCancelsTheChildForGood`, `TestCtrlCOnTheParentLeavesTasksRunning` |

@@ -163,7 +163,11 @@ const (
 	// WarningToolNotOffered means Agent.Tools names a tool that the Runner's
 	// Tools did not offer for a model call. The call runs without it. Each
 	// name warns once per turn.
-	WarningToolNotOffered              WarningCode = "tool_not_offered"
+	WarningToolNotOffered WarningCode = "tool_not_offered"
+	// WarningToolDataDropped means the call's outcome was recorded without
+	// its Data: the Data was not valid JSON or exceeded 64 KiB, or the model
+	// saw a changed result (see tool.Outcome.Data).
+	WarningToolDataDropped             WarningCode = "tool_data_dropped"
 	WarningActiveCompactionUnavailable WarningCode = "active_compaction_unavailable"
 	WarningActiveCompactionBlocked     WarningCode = "active_compaction_blocked"
 	// WarningActiveCompactionMediaEstimateUnavailable means this request has

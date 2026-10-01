@@ -8,15 +8,22 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // A notice tells the agent that a turn of a task ended. Delivery has one
-// rule: the notice is delivered when the record of the conversation holds
-// it for that child turn. Either a turn recorded a context item with the ID
-// NoticeID(turn), or a session's queue turn started with it: its command ID
-// is "queue:" and the JSON list of the item IDs it carried (see
-// session.Session.RunQueue). A task_status read does not count. Recover and
-// the live path use this same check.
+// rule: the notice is delivered when the record of the conversation shows
+// that the agent received that child turn's result. Either a turn recorded a
+// context item with the ID NoticeID(turn); or a session's queue turn started
+// with it: its command ID is "queue:" and the JSON list of the item IDs it
+// carried (see session.Session.RunQueue); or a recorded task_status call
+// returned the turn's final result, which its outcome's Data names by turn
+// ID (see statusData). A task_status read that shows a running task, or the
+// list of tasks, delivers nothing. Notices are sent as before; the check
+// runs just before one is delivered: on Recover, before a queue turn (see
+// session.Session.Delivered), and in a host that holds notices until the
+// turn ends. A notice that reaches a running turn is not checked, so the
+// model may see a result twice within one turn, but never in another turn.
 const (
 	noticePrefix = "task-done:"
 	queuePrefix  = "queue:"
@@ -104,14 +111,18 @@ func taskSender(id, subagent string) string {
 	return cutUTF8(from, maxFrom)
 }
 
-// deliveredNotices returns the child turns whose notice the turns record.
-func deliveredNotices(turns []dashi.Turn) map[string]bool {
+// DeliveredNotices returns the IDs, as NoticeID gives them, of the notices
+// that turns record as delivered, by the rule above. A host that routes
+// notices from Config.OnTask checks it just before it sends one, so a
+// result the agent already read with task_status starts no other turn. It
+// fits session.Session.Delivered.
+func DeliveredNotices(turns []dashi.Turn) map[string]bool {
 	out := map[string]bool{}
 	for _, turn := range turns {
 		for _, step := range turn.Steps {
 			for _, item := range step.Items() {
-				if id, ok := strings.CutPrefix(item.ID, noticePrefix); ok {
-					out[id] = true
+				if strings.HasPrefix(item.ID, noticePrefix) {
+					out[item.ID] = true
 				}
 			}
 			if list, ok := strings.CutPrefix(step.CommandID, queuePrefix); ok &&
@@ -119,13 +130,42 @@ func deliveredNotices(turns []dashi.Turn) map[string]bool {
 				var ids []string
 				if json.Unmarshal([]byte(list), &ids) == nil {
 					for _, id := range ids {
-						if child, ok := strings.CutPrefix(id, noticePrefix); ok {
-							out[child] = true
+						if strings.HasPrefix(id, noticePrefix) {
+							out[id] = true
 						}
 					}
 				}
 			}
+			if child := statusDelivery(step); child != "" {
+				out[NoticeID(child)] = true
+			}
 		}
 	}
 	return out
+}
+
+// statusData is the tool.Outcome.Data of a task_status call that returned
+// a turn's final result. The record keeps it, so delivery never depends on
+// the text the model saw.
+type statusData struct {
+	// DeliveredTurnID is the child turn whose result the call delivered.
+	DeliveredTurnID string `json:"delivered_turn_id"`
+}
+
+// statusDelivery returns the child turn whose result a step's finished
+// task_status call delivered, or "". The runner records Data only when the
+// model saw the result the tool returned, so a result that a hook changed or
+// the limit shortened has no marker and does not count.
+func statusDelivery(step dashi.Step) string {
+	f := step.Tool
+	if step.Kind != dashi.StepToolFinished || f == nil ||
+		f.Call.Name != StatusToolName || f.Outcome == nil ||
+		f.Outcome.State != tool.StateSucceeded || len(f.Outcome.Data) == 0 {
+		return ""
+	}
+	var d statusData
+	if json.Unmarshal(f.Outcome.Data, &d) != nil {
+		return ""
+	}
+	return d.DeliveredTurnID
 }

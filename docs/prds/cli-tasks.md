@@ -67,7 +67,7 @@ Use `/tasks` while work runs, then `/task ID` to inspect that task's evidence, a
 - [ ] Screen and inline modes show compact task progress without mixing child deltas into the parent's answer.
   Plain mode shows equivalent named task updates. Preserve draft, dialog focus, transcript position, and existing reasoning-visibility controls.
 - [ ] Each child Turn's result reaches the parent through the existing notice identity.
-  Reading `/task` or `task_status` does not mark the notice delivered.
+  Reading `/task` or `/tasks` does not mark the notice delivered. A `task_status` call that returns the final result does (decision 46).
   Reopen or repeated callbacks do not append a duplicate completion announcement or duplicate recorded notice; historical display can restore the original entry.
   Show unresolved/nonterminal stops as task progress; hold final result delivery until resolution or discard.
   Never rewrite or redeliver an already recorded notice; inspection still shows the child's current recorded result.

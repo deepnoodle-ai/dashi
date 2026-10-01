@@ -4,7 +4,8 @@
 // working. The model can later call "task_status" to read the state or the
 // reply, and "task_stop" to end a task. When a turn of a task ends, the
 // agent gets a notice: Tasks puts it on Config.Session, or the host routes
-// it from Config.OnTask.
+// it from Config.OnTask. A notice whose result a recorded task_status call
+// already returned is not delivered again (see DeliveredNotices).
 //
 // A Tasks value owns the running children. The host creates one for each
 // conversation, so a child does not depend on one tool call or one Turn.
@@ -142,8 +143,9 @@ type Config struct {
 	// notice on it before OnTask runs: SteerItem reaches the running turn,
 	// or queues the notice for a queue turn when no turn runs (see
 	// RunUntilQuiet). A session with a host Steering source, or one that is
-	// compacting, gets the notice on its queue. Nil means the host routes
-	// notices from OnTask.
+	// compacting, gets the notice on its queue. NewTasks sets the session's
+	// Delivered function, so a queue turn drops a notice that the record
+	// shows delivered. Nil means the host routes notices from OnTask.
 	Session *session.Session
 	// MaxTaskTurns bounds the turns of one child session. Zero means 10; a
 	// negative value means no bound.

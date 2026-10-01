@@ -20,15 +20,18 @@ import (
 type BlockKind string
 
 const (
-	KindUser       BlockKind = "user"
-	KindAssistant  BlockKind = "assistant"
-	KindReasoning  BlockKind = "reasoning"
-	KindTool       BlockKind = "tool"
-	KindDiff       BlockKind = "diff"
-	KindSteer      BlockKind = "steer"
-	KindStop       BlockKind = "stop"
-	KindFooter     BlockKind = "footer"
-	KindNotice     BlockKind = "notice"
+	KindUser      BlockKind = "user"
+	KindAssistant BlockKind = "assistant"
+	KindReasoning BlockKind = "reasoning"
+	KindTool      BlockKind = "tool"
+	KindDiff      BlockKind = "diff"
+	KindSteer     BlockKind = "steer"
+	KindStop      BlockKind = "stop"
+	KindFooter    BlockKind = "footer"
+	KindNotice    BlockKind = "notice"
+	// KindHint is a quiet line about the CLI's own state, such as
+	// when task results will be sent. It draws muted and indented.
+	KindHint       BlockKind = "hint"
 	KindWarning    BlockKind = "warning"
 	KindCompaction BlockKind = "compaction"
 	KindPending    BlockKind = "pending"
@@ -707,6 +710,8 @@ func FormatBlock(b Block) string {
 		return "warning: " + b.Text
 	case KindNotice:
 		return b.Text
+	case KindHint:
+		return "  " + strings.ReplaceAll(b.Text, "\n", "\n  ")
 	case KindTaskStatus, KindTaskResult:
 		return taskLineText(b)
 	}

@@ -896,6 +896,8 @@ func blockView(b Block) tui.View {
 		}
 	case KindWarning:
 		return sourceLabel("! ", b.Text, tui.ColorYellow)
+	case KindHint:
+		return tui.PaddingLTRB(2, 0, 0, 0, tui.Text("%s", b.Text).SourceOffset(0).Wrap().Style(mutedStyle))
 	}
 	// Notices answer the user, such as /status or /settings, so they use
 	// the normal foreground.

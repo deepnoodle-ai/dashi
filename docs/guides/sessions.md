@@ -167,7 +167,10 @@ A queue turn has the command ID `queue:` and the sorted item IDs, origin
 `StartUser` when any item came from the user (else `StartScheduled`), and the
 items' messages as its input. A caller's `Start` takes the queued user items
 first, ahead of its own input, since the user typed them first; other items
-run as a queue turn after it.
+run as a queue turn after it. Just before a queue turn, the session drops
+the items that `Session.Delivered` names, when it is set: items the record
+shows delivered another way, such as a task result the model already read
+with `task_status`. `delegate.NewTasks` sets it for its session.
 
 **Nothing is lost or doubled.** An item stays queued, in its place, until the
 session knows whether the `Start` that carried it recorded its first step. A

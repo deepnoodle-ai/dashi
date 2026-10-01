@@ -1,12 +1,14 @@
 package dashi
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // Limit for the text of one tool result in the messages the model sees. The
@@ -15,6 +17,28 @@ const (
 	defaultToolResultBytes = 64 << 10
 	minToolResultBytes     = 1 << 10
 )
+
+// maxOutcomeData bounds tool.Outcome.Data, as tool.Report bounds
+// Progress.Data.
+const maxOutcomeData = 64 << 10
+
+// dropBadData returns o without Data that is not valid JSON or exceeds
+// maxOutcomeData, and the warning to record when it dropped it. A tool's
+// detail for the host is never worth failing the call over.
+func dropBadData(o tool.Outcome, callID string) (tool.Outcome, []Warning) {
+	if len(o.Data) == 0 || len(o.Data) <= maxOutcomeData && json.Valid(o.Data) {
+		return o, nil
+	}
+	n := len(o.Data)
+	o.Data = nil
+	return o, []Warning{{
+		Code: WarningToolDataDropped,
+		Message: fmt.Sprintf(
+			"tool call %s returned %d bytes of Data that is not valid JSON or exceeds %d bytes; the outcome is recorded without it",
+			callID, n, maxOutcomeData,
+		),
+	}}
+}
 
 // Shortened records how the result limit changed one call's result in the
 // messages the model sees. Sizes count text bytes after the AfterTool hooks

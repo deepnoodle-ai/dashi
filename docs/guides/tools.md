@@ -166,6 +166,18 @@ keeps it for the host. Wrap it with `tool.Fatal` to stop the turn instead.
 `tool.Failed(text)` is for resolving an external or detached call, or for
 attaching a `Cost` to a failure.
 
+`Outcome.Data` is optional structured detail for the host, as raw JSON. The
+turn record keeps it and `ToolView.Outcome` returns it, but the model never
+sees it. Use it for facts a host reads back later, such as an ID the result
+refers to, instead of parsing the result text. Data that is not valid JSON or
+exceeds 64 KiB is dropped with a `WarningToolDataDropped` warning; the call
+still succeeds. Data describes the result the tool returned, so the record
+keeps it only while the model sees that result. When an `AfterTool` hook
+replaces or withholds the result, or `Limits.ToolResultBytes` shortens it,
+the outcome is recorded without Data, with the same warning. A change the
+model does not see keeps it: a hook that returns the result unchanged, or one
+that changes only `Output.Display`.
+
 A failed, denied, or skipped call reaches the model as a result flagged as an
 error. Anthropic and Gemini carry the flag natively. OpenAI Responses and Chat
 Completions have no flag, so the result text is preceded by `Tool failed:` and

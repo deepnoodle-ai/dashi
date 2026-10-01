@@ -63,6 +63,13 @@ type Session struct {
 	// cannot be read is skipped with a warning rather than blocking the
 	// session.
 	Exclusive bool
+	// Delivered, when set, returns the IDs of items that the session's turns
+	// already delivered some other way, such as a background task's result
+	// that a tool call returned (see delegate.DeliveredNotices). Just before
+	// a queue turn, the session drops the queued items it names, so they
+	// start no turn. It runs while the session is locked, and must not call
+	// the session or change the turns.
+	Delivered func(turns []dashi.Turn) map[string]bool
 
 	// mu guards everything below. Run holds it while choosing the turn and
 	// building the command, never while a turn runs.

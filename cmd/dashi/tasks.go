@@ -180,7 +180,7 @@ func (e *Engine) taskParents(ctx context.Context) ([]dashi.Turn, error) {
 		e.warn("Turn %d skipped: %v.", turnNumber(turn.ID), err)
 	}
 	known := host.tasks.List()
-	notices := recordedTaskNotices(turns)
+	notices := delegate.DeliveredNotices(turns)
 	host.mu.Lock()
 	for _, snapshot := range host.recorded {
 		known = append(known, snapshot.Task)
@@ -247,32 +247,6 @@ func (e *Engine) closeTasks() error {
 	return nil
 }
 
-func recordedTaskNotices(turns []dashi.Turn) map[string]bool {
-	delivered := map[string]bool{}
-	for _, turn := range turns {
-		for _, step := range turn.Steps {
-			for _, item := range step.Items() {
-				if strings.HasPrefix(item.ID, "task-done:") {
-					delivered[item.ID] = true
-				}
-			}
-			if step.Kind == dashi.StepTurnStarted {
-				if list, ok := strings.CutPrefix(step.CommandID, "queue:"); ok {
-					var ids []string
-					if json.Unmarshal([]byte(list), &ids) == nil {
-						for _, id := range ids {
-							if strings.HasPrefix(id, "task-done:") {
-								delivered[id] = true
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return delivered
-}
-
 func (e *Engine) flushTaskNotices(ctx context.Context) error {
 	host := e.taskHost()
 	if host == nil {
@@ -298,15 +272,12 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 	if incomplete != nil {
 		return fmt.Errorf("task notice delivery incomplete: %w", incomplete)
 	}
-	delivered := recordedTaskNotices(turns)
+	delivered := delegate.DeliveredNotices(turns)
 	host.mu.Lock()
 	defer host.mu.Unlock()
 	for id := range delivered {
-		// The result marker of the delivery turn shows a delivery this host
-		// queued. Say so only for a repeat that this record absorbed.
-		if _, pending := host.notices[id]; pending && !host.queued[id] {
-			e.cfg.Emit(Block{ID: "task-delivery", Kind: KindNotice, Text: "Task result delivery is recorded; reopening will not deliver it again.", Done: true})
-		}
+		// The record shows the delivery, by a queue turn or by a
+		// task_status read, so the held notice is not sent.
 		delete(host.notices, id)
 		delete(host.queued, id)
 	}
@@ -478,7 +449,7 @@ func (e *Engine) QuietTasks(ctx context.Context, result Result) (Result, error) 
 }
 
 func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) error {
-	notices := recordedTaskNotices(parents)
+	notices := delegate.DeliveredNotices(parents)
 	recorded := map[string]taskSnapshot{}
 	problems := map[string]string{}
 	if host.inputs.loader == nil {

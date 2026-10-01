@@ -186,7 +186,9 @@ func (c *childTurn) view() dashi.TurnView {
 }
 
 // NewTasks returns an empty Tasks. A Recorder in cfg.Runner that does not
-// implement dashi.Loader logs one warning.
+// implement dashi.Loader logs one warning. When cfg.Session has no
+// Delivered function, NewTasks sets it to DeliveredNotices, so a queue turn
+// never carries a result that the agent already read.
 func NewTasks(cfg Config) *Tasks {
 	catalog := cfg.Subagents
 	if len(catalog) == 0 {
@@ -200,6 +202,9 @@ func NewTasks(cfg Config) *Tasks {
 	}
 	if cfg.Runner.Recorder != nil && !loads(cfg.Runner.Recorder) {
 		t.warnNoLoader()
+	}
+	if s := cfg.Session; s != nil && s.Delivered == nil {
+		s.Delivered = DeliveredNotices
 	}
 	return t
 }
@@ -388,7 +393,7 @@ func (ts *Tasks) Recover(
 			"delegate: Recover needs a recorder that implements dashi.Loader",
 		)
 	}
-	delivered := deliveredNotices(turns)
+	delivered := DeliveredNotices(turns)
 	var errs []error
 	var adopted, resumed []*task
 	// Restore every task before any turn runs, so a resumed turn that ends
@@ -570,7 +575,7 @@ func (ts *Tasks) restoreLocked(
 			c.final = &v
 			c.state, c.answer, c.reason = endState(ts, stop, v)
 		}
-		if delivered[c.id] {
+		if delivered[NoticeID(c.id)] {
 			ts.reportedLocked(c, false)
 		}
 		t.turns = append(t.turns, c)
@@ -889,7 +894,7 @@ func (ts *Tasks) notifyEnded(t *task, delivered map[string]bool) {
 			return
 		}
 		c := t.turns[i]
-		if delivered[c.id] {
+		if delivered[NoticeID(c.id)] {
 			ts.reportedLocked(c, false)
 			ts.mu.Unlock()
 			continue
@@ -1069,6 +1074,10 @@ func (ts *Tasks) startTask(
 		if err != nil {
 			return TaskView{}, fmt.Errorf("delegate: resolve child tools: %w", err)
 		}
+		// The child can name itself to the parent. The record keeps the line,
+		// so a resumed child still knows it.
+		agent.Instructions = strings.TrimSpace(agent.Instructions +
+			"\n\nYour task ID is " + t.id + ".")
 		start, err = ts.prepareStart(ctx, ref, dashi.Start{CommandID: t.sessionID + "/start", Agent: agent, Parent: &ref, Input: []llm.Message{llm.UserMessage(llm.Text(args.Prompt))}})
 		if err != nil {
 			return TaskView{}, err

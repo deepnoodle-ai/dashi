@@ -84,9 +84,20 @@ The item is a `task-ended` reminder from the task
 user or operator text.
 
 There is one rule: **a result has reached the parent when the conversation's
-record holds the notice** (the context item `task-done:<child turn ID>`). A
-`task_status` read does not count, so the model that reads a result still
-gets the notice. Two cases:
+record holds the notice** (the context item `task-done:<child turn ID>`), or
+holds a `task_status` call that returned that turn's final result. Such a
+call records the child turn ID in its outcome's `Data`. If an `AfterTool`
+hook changed that result or the result limit shortened it, the record has
+no `Data`, so the read does not count. Notices still go out
+as usual; the record is checked just before one is delivered. `Recover`
+checks it, a session drops such a notice before a queue turn
+(`Session.Delivered`, which `NewTasks` sets), and a host that routes
+notices from `OnTask` checks `delegate.DeliveredNotices(turns)` before it
+sends one. A notice that reaches a running turn is not checked, so the model
+may see a result twice in that turn, but no extra turn runs for it. If the
+parent turn is canceled before the read is recorded, the notice is
+delivered on the next turn. A read of a running task, or of the task list,
+delivers nothing. Two cases:
 
 - **A turn runs.** `Session.SteerItem` sends the steer to the running turn.
   The next model call sees it. A turn records an ID once, so a repeat cannot

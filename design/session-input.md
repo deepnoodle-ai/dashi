@@ -140,8 +140,11 @@ expires with its turn.
 A finished background task's notice is enqueued on the parent session, and its
 follow-up is a queue turn. `delegate.FollowUp` and `delegate.FollowUpTurnID` are
 removed. The notice-delivery rule (a notice counts as delivered when the record
-holds its ID in a turn's context or in a start's command ID) reads the `queue:`
-prefix in place of the follow-up prefix. One `Tasks` serves one session.
+holds its ID in a turn's context or in a start's command ID, or a recorded
+`task_status` outcome names its child turn; decision 46) reads the `queue:`
+prefix in place of the follow-up prefix. Before a queue turn, the session
+drops the items that `Session.Delivered` names, which `NewTasks` sets to
+`delegate.DeliveredNotices`. One `Tasks` serves one session.
 
 ```go
 // RunUntilQuiet runs the session's queue and waits while tasks run. It
