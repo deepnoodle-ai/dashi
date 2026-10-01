@@ -20,20 +20,21 @@ import (
 // taskHost retains notice delivery candidates; only the parent Engine driver
 // changes the session queue. Child observer callbacks never drive a parent.
 type taskHost struct {
-	tasks       *delegate.Tasks
-	inputs      *taskInputs
-	mu          sync.Mutex
-	recoverMu   sync.Mutex
-	recovered   bool
-	recoveryErr error
-	deliveryErr error
-	notices     map[string]dashi.ContextItem
-	queued      map[string]bool
-	rescan      bool
-	recorded    map[string]taskSnapshot
-	problems    map[string]string
-	wake        func()
-	observedSeq map[string]int64
+	tasks        *delegate.Tasks
+	inputs       *taskInputs
+	mu           sync.Mutex
+	recoverMu    sync.Mutex
+	recovered    bool
+	recoveryErr  error
+	inventoryErr error
+	deliveryErr  error
+	notices      map[string]dashi.ContextItem
+	queued       map[string]bool
+	rescan       bool
+	recorded     map[string]taskSnapshot
+	problems     map[string]string
+	wake         func()
+	observedSeq  map[string]int64
 }
 
 func (e *Engine) newTaskHost(chat *dashi.Session, resolver *engineAttachmentResolver) *taskHost {
@@ -128,15 +129,12 @@ func (e *Engine) recoverTasks(ctx context.Context) error {
 	host.recovered = true
 	host.mu.Unlock()
 	chat := e.handle()
-	var turns []dashi.Turn
-	for turn, err := range chat.Turns(ctx) {
-		if err != nil {
-			host.mu.Lock()
-			host.recoveryErr = err
-			host.mu.Unlock()
-			return err
-		}
-		turns = append(turns, turn)
+	turns, err := e.taskParents(ctx)
+	if err != nil {
+		host.mu.Lock()
+		host.recoveryErr = err
+		host.mu.Unlock()
+		return err
 	}
 	if len(turns) == 0 {
 		return nil
@@ -153,7 +151,7 @@ func (e *Engine) recoverTasks(ctx context.Context) error {
 	if recovered {
 		return nil
 	}
-	err := host.tasks.Recover(ctx, chat.Runner, turns)
+	err = host.tasks.Recover(ctx, chat.Runner, turns)
 	host.mu.Lock()
 	host.recoveryErr = err
 	host.mu.Unlock()
@@ -162,6 +160,75 @@ func (e *Engine) recoverTasks(ctx context.Context) error {
 	}
 	return nil
 }
+
+// Discovery follows FR-4 for unrelated unreadable parent history. Known task
+// links still require their original parent; skipped history proves no absence.
+func (e *Engine) taskParents(ctx context.Context) ([]dashi.Turn, error) {
+	host := e.taskHost()
+	var turns []dashi.Turn
+	skipped := map[string]error{}
+	for turn, err := range e.handle().Turns(ctx) {
+		if err == nil {
+			turns = append(turns, turn)
+			continue
+		}
+		if turn.ID == "" || ctx.Err() != nil {
+			return nil, err
+		}
+		skipped[turn.ID] = err
+		e.warn("Turn %d skipped: %v.", turnNumber(turn.ID), err)
+	}
+	known := host.tasks.List()
+	notices := recordedTaskNotices(turns)
+	host.mu.Lock()
+	for _, snapshot := range host.recorded {
+		known = append(known, snapshot.Task)
+	}
+	for id := range host.notices {
+		notices[id] = true
+	}
+	var incomplete []error
+	var required []error
+	for parentID, err := range skipped {
+		incomplete = append(incomplete, fmt.Errorf("parent %s skipped: %w", parentID, err))
+		for notice := range notices {
+			prefix := delegate.NoticeID(delegate.ChildID(parentID, ""))
+			if !strings.HasPrefix(notice, prefix) {
+				continue
+			}
+			childTurn := strings.TrimPrefix(notice, "task-done:")
+			split := strings.LastIndexByte(childTurn, '-')
+			number, parseErr := strconv.Atoi(childTurn[split+1:])
+			if split < 0 || parseErr != nil || number < 1 {
+				required = append(required, fmt.Errorf("malformed recorded task notice %q", notice))
+				continue
+			}
+			child := childTurn[:split]
+			call := strings.TrimPrefix(child, delegate.ChildID(parentID, ""))
+			known = append(known, delegate.TaskView{ID: delegate.TaskID(child), SessionID: child, TurnID: childTurn, Parent: dashi.CallRef{TurnID: parentID, CallID: call}})
+		}
+		for _, task := range known {
+			if task.Parent.TurnID != parentID {
+				continue
+			}
+			problem := fmt.Sprintf("required parent %s unavailable: %v; restore its journal and reopen", parentID, err)
+			task.State, task.Answer, task.Reason = "record unavailable", "", problem
+			if host.recorded == nil {
+				host.recorded = map[string]taskSnapshot{}
+			}
+			if host.problems == nil {
+				host.problems = map[string]string{}
+			}
+			host.recorded[task.ID] = taskSnapshot{Task: task}
+			host.problems[task.ID] = problem
+			required = append(required, fmt.Errorf("task %s: %s", task.ID, problem))
+		}
+	}
+	host.inventoryErr = errors.Join(incomplete...)
+	host.mu.Unlock()
+	return turns, errors.Join(required...)
+}
+
 func (e *Engine) closeTasks() error {
 	host := e.taskHost()
 	if host == nil {
@@ -210,13 +277,22 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 	if e.HasPending() {
 		return nil
 	}
+	host.mu.Lock()
+	pending := len(host.notices) > 0 || host.rescan
+	host.mu.Unlock()
+	if !pending {
+		return nil
+	}
 	chat := e.handle()
-	var turns []dashi.Turn
-	for turn, err := range chat.Turns(ctx) {
-		if err != nil {
-			return err
-		}
-		turns = append(turns, turn)
+	turns, err := e.taskParents(ctx)
+	if err != nil {
+		return err
+	}
+	host.mu.Lock()
+	incomplete := host.inventoryErr
+	host.mu.Unlock()
+	if incomplete != nil {
+		return fmt.Errorf("task notice delivery incomplete: %w", incomplete)
 	}
 	delivered := recordedTaskNotices(turns)
 	host.mu.Lock()
@@ -358,7 +434,7 @@ func (e *Engine) QuietTasks(ctx context.Context, result Result) (Result, error) 
 	host := e.taskHost()
 	if host != nil {
 		host.mu.Lock()
-		recoveryErr := host.recoveryErr
+		recoveryErr := errors.Join(host.recoveryErr, host.inventoryErr)
 		host.mu.Unlock()
 		if recoveryErr != nil {
 			return result, recoveryErr

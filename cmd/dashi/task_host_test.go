@@ -950,3 +950,86 @@ func TestIdleInterruptKeepsRunningChildrenUntilExplicitExit(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestTaskDiscoverySkipsUnrelatedParentWithoutClaimingCompleteInventory(t *testing.T) {
+	h := newHarness(t, say("First."), say("Second."), say("New request works."))
+	h.input("first")
+	h.input("second")
+	rec, err := h.store.Recorder(h.app.eng.Session())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(rec.Path(dashi.TurnID(h.app.eng.Session().ID, 1)), []byte("damaged\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	h.app.eng.Close()
+	h.ui = newRecorderUI()
+	h.build(Options{Resume: true})
+	if err = h.app.eng.recoverTasks(t.Context()); err != nil {
+		t.Fatal("unrelated parent blocked discovery", err)
+	}
+	h.input("new request")
+	mustHave(t, h.ui.text(), "New request works.")
+	if _, err = h.app.eng.QuietTasks(t.Context(), Result{}); err == nil {
+		t.Fatal("skipped parent certified quiet inventory")
+	}
+	h.app.ctrl.Input("/tasks")
+	mustHave(t, h.ui.text(), "Task inventory incomplete")
+	if strings.Contains(h.ui.text(), "No delegated tasks in this session.") {
+		t.Fatal("skipped parent certified empty inventory")
+	}
+	h.app.ctrl.taskSpend()
+	mustHave(t, h.ui.text(), "Task-inclusive accounting incomplete")
+}
+
+func TestReadableTaskNoticeRequiresUnreadableOriginalParent(t *testing.T) {
+	client := &taskFixtureClient{}
+	ui := newRecorderUI()
+	a, cfg := taskTestApp(t, client, ui)
+	result, err := a.eng.Prompt(t.Context(), "delegate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = a.eng.QuietTasks(t.Context(), result); err != nil {
+		t.Fatal(err)
+	}
+	task := a.eng.taskHost().tasks.List()[0]
+	meta := a.eng.Session()
+	rec, err := cfg.Store.Recorder(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.eng.Close()
+	if err = os.WriteFile(rec.Path(task.Parent.TurnID), []byte("damaged parent\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	parentCalls, childCalls := client.counts()
+	b, err := buildApp(t.Context(), cfg, ui)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = b.openSession(cfg.Store, cfg.Dir, Options{Resume: true, ResumeID: meta.ID}); err != nil {
+		t.Fatal(err)
+	}
+	defer b.eng.Close()
+	if err = b.eng.recoverTasks(t.Context()); err == nil || !strings.Contains(err.Error(), "required parent") {
+		t.Fatal("notice lost required parent", err)
+	}
+	listed := b.eng.taskHost().list()
+	if len(listed) != 1 || listed[0].ID != task.ID || listed[0].State != "record unavailable" {
+		t.Fatal("required parent task disappeared", listed)
+	}
+	if _, err = b.eng.Prompt(t.Context(), "replacement"); err == nil {
+		t.Fatal("required parent allowed replacement")
+	}
+	if _, err = b.eng.QuietTasks(t.Context(), Result{}); err == nil {
+		t.Fatal("required parent claimed quiet")
+	}
+	if _, err = b.eng.DriveTaskNotices(t.Context()); err == nil {
+		t.Fatal("required parent allowed redelivery")
+	}
+	afterParent, afterChild := client.counts()
+	if afterParent != parentCalls || afterChild != childCalls {
+		t.Fatal("required parent repeated dispatch")
+	}
+}

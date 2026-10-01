@@ -26,6 +26,17 @@ func (c *Controller) taskInput(line string) bool {
 			return true
 		}
 		host := c.eng.taskHost()
+		if host != nil {
+			host.mu.Lock()
+			incomplete := host.inventoryErr
+			host.mu.Unlock()
+			if incomplete != nil {
+				c.notice("Task inventory incomplete; unreadable parent history was skipped: %v", incomplete)
+			}
+			if incomplete != nil && len(host.list()) == 0 {
+				return true
+			}
+		}
 		if host == nil || len(host.list()) == 0 {
 			c.notice("No delegated tasks in this session.")
 			return true
