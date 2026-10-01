@@ -171,7 +171,7 @@ func (u *recorderUI) Approve(ctx context.Context, r toolApproval) (Approval, err
 	return answer(ctx, r.ApprovalRequest)
 }
 
-func (u *recorderUI) Ask(context.Context, Question) (questionAnswer, error) {
+func (u *recorderUI) Ask(context.Context, taskQuestion) (questionAnswer, error) {
 	return questionAnswer{}, errors.New("not used")
 }
 

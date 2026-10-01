@@ -71,7 +71,7 @@ func layoutApproval(a toolApproval, width int, expanded bool) approvalLayout {
 		summary = ""
 	}
 	if a.Task != "" {
-		b.text(0, "", fmt.Sprintf("From task %s · /task %s shows it", a.Task, a.Task), rowMuted)
+		b.text(0, "", taskOrigin(a.Task), rowMuted)
 	}
 	if a.Command != "" {
 		skip = append(skip, "command")

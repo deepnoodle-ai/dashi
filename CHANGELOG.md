@@ -15,8 +15,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   indented, not as JSON. A long value shows its first lines and `+N more
   lines`; `e` shows all of it. Shell commands show the command and its
   directory, and file edits show the diff, without repeating those arguments.
-  Internal turn and call IDs no longer appear; a call from a delegated task
-  names the task. Line mode prints the same layout.
+  Internal turn and call IDs no longer appear in approvals or questions; a
+  prompt from a delegated task names the task. Line mode prints the same
+  layout.
 
 - **A `Runner` needs a `Client` only to fill in an agent or call the model.**
   A Start with an already-closed `WithPause` records ("admits") a turn without

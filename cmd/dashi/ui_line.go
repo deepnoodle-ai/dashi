@@ -169,13 +169,16 @@ func parseAnswer(line string) (Approval, bool) {
 	return Approval{}, false
 }
 
-func (u *lineUI) Ask(ctx context.Context, q Question) (questionAnswer, error) {
+func (u *lineUI) Ask(ctx context.Context, q taskQuestion) (questionAnswer, error) {
 	u.mu.Lock()
 	if u.inputEnded {
 		u.mu.Unlock()
 		return questionAnswer{}, errNoApprover
 	}
 	fmt.Fprintf(u.out, "%s\n", q.Prompt)
+	if q.Task != "" {
+		fmt.Fprintf(u.out, "  %s\n", taskOrigin(q.Task))
+	}
 	for i, c := range q.Choices {
 		fmt.Fprintf(u.out, "  %d. %s\n", i+1, c.Label)
 		if c.Description != "" {
@@ -192,7 +195,7 @@ func (u *lineUI) Ask(ctx context.Context, q Question) (questionAnswer, error) {
 		case <-ctx.Done():
 			return questionAnswer{}, ctx.Err()
 		case line := <-u.ctrl.Answers():
-			a, err := parseQuestionAnswer(q, line)
+			a, err := parseQuestionAnswer(q.Question, line)
 			if err == nil {
 				return a, nil
 			}
@@ -314,6 +317,6 @@ func (u *printUI) Approve(context.Context, toolApproval) (Approval, error) {
 		"with --yes, or to use the interactive screen."}, nil
 }
 
-func (u *printUI) Ask(context.Context, Question) (questionAnswer, error) {
+func (u *printUI) Ask(context.Context, taskQuestion) (questionAnswer, error) {
 	return questionAnswer{}, errNoApprover
 }

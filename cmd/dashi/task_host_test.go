@@ -261,7 +261,7 @@ func TestTaskDoneReopenContinuesWithoutRepeatingEffect(t *testing.T) {
 	if err = b.ctrl.taskAction(t.Context(), originalID, "done", "effect-call"); err != nil {
 		t.Fatal(err)
 	}
-	if len(confirmations) != 1 || !strings.Contains(confirmations[0].Prompt, "call effect-call") || !strings.Contains(confirmations[0].Prompt, "Arguments:") {
+	if len(confirmations) != 1 || !strings.Contains(confirmations[0].Prompt, "Call effect-call") || !strings.Contains(confirmations[0].Prompt, "Arguments:") {
 		t.Fatalf("original confirmation=%+v", confirmations)
 	}
 	if err = b.ctrl.taskAction(t.Context(), originalID, "done", "effect-call"); err == nil {

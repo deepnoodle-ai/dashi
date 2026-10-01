@@ -45,7 +45,7 @@ type UI interface {
 	// Approve asks the user about a tool call and blocks until the answer.
 	Approve(ctx context.Context, a toolApproval) (Approval, error)
 	// Ask asks the user a question for the model.
-	Ask(ctx context.Context, q Question) (questionAnswer, error)
+	Ask(ctx context.Context, q taskQuestion) (questionAnswer, error)
 	// Quit ends the program.
 	Quit()
 }
@@ -193,8 +193,9 @@ func (c *Controller) approveUI(
 	return c.ui.Approve(ctx, toolApproval{ApprovalRequest: r.Printable(), Task: task})
 }
 
-// Ask is the AskFunc the wiring uses.
-func (c *Controller) askUI(ctx context.Context, q Question) (workspace.Answer, error) {
+// askUI asks the UI a question for the model. task is the short ID of the
+// delegated task that asks, or empty.
+func (c *Controller) askUI(ctx context.Context, q Question, task string) (workspace.Answer, error) {
 	c.setMode(ModeApproval)
 	defer c.endDialog()
 	original := q.Choices
@@ -207,7 +208,7 @@ func (c *Controller) askUI(ctx context.Context, q Question) (workspace.Answer, e
 		}
 	}
 	q.Choices = choices
-	a, err := c.ui.Ask(ctx, q)
+	a, err := c.ui.Ask(ctx, taskQuestion{Question: q, Task: task})
 	if err != nil {
 		return workspace.Answer{}, err
 	}

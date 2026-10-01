@@ -209,7 +209,11 @@ func (p *askPrompt) Len() int {
 }
 func (p *askPrompt) Item(i int) tui.View {
 	if i == 0 {
-		return tui.Text(" %s", p.q.Prompt).Wrap().Bold()
+		prompt := tui.Text("   %s", p.q.Prompt).Wrap()
+		if p.task == "" {
+			return prompt
+		}
+		return tui.Stack(tui.Text("   %s", taskOrigin(p.task)).Wrap().Style(mutedStyle), prompt).Gap(0)
 	}
 	index := i - 1
 	text := ""
@@ -239,14 +243,14 @@ func (p *askPrompt) Item(i int) tui.View {
 
 func (s *screen) questionView() tui.View {
 	p := s.asking
-	views := []tui.View{tui.Divider(), tui.Text(" Question pending").Bold(),
+	views := []tui.View{tui.Divider(), tui.Text(" Question pending").Fg(tui.ColorYellow).Bold(),
 		tui.Height(s.dialogHeight(), tui.Viewport(&p.vp, p).Gap(0))}
 	if p.own {
 		views = append(views, tui.Text(" Enter submits your words · Ctrl-S inspects · Esc interrupts").Wrap().Style(hintStyle),
 			tui.InputField(&p.text).ID(questionInputID).Prompt("Answer:").Multiline(true).MaxHeight(3).OnKey(s.dialogTextKey(s.promptID)).OnPaste(s.dialogTextPaste(s.promptID)).OnSubmit(s.questionSubmit(s.promptID)))
 	} else {
 		views = append(views, tui.Text(" ↑/↓ move · Space selects · Enter chooses action").Wrap().Style(hintStyle),
-			tui.Text(" Tab submit · o own words · /status [ID] · /tasks · /task ID · /task-stop ID · Esc interrupts").Wrap().Style(hintStyle))
+			tui.Text(" Tab submit · o own words · / commands · Esc interrupts").Wrap().Style(hintStyle))
 	}
 	if p.err != "" {
 		views = append(views, tui.Text(" %s", p.err).Wrap().Fg(tui.ColorYellow))

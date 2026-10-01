@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
@@ -15,6 +16,29 @@ func (h *screenHarness) renderAt(width, height int) []string {
 	h.scr.drain()
 	text := tui.SprintScreen(h.scr.View(), tui.WithWidth(width), tui.WithHeight(height)).Text()
 	return strings.Split(strings.TrimRight(text, "\n"), "\n")
+}
+
+func TestTaskQuestionShowsTaskOrigin(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.scr.Ask(t.Context(), taskQuestion{Question: Question{Prompt: "Which branch?", Choices: []workspace.Choice{{Label: "main"}}}, Task: "t_abc123"})
+	}()
+	h.waitFor(func() bool { return h.scr.asking != nil })
+	screen := strings.Join(h.renderAt(80, 24), "\n")
+	h.mu.Lock()
+	h.scr.finishQuestion(questionAnswer{choices: []int{0}})
+	h.mu.Unlock()
+	<-done
+	for _, want := range []string{"Question pending", "From task t_abc123 · /task t_abc123 shows it", "   Which branch?", "/ commands · Esc interrupts"} {
+		if !strings.Contains(screen, want) {
+			t.Fatalf("missing %q in:\n%s", want, screen)
+		}
+	}
+	if strings.Contains(screen, "Turn") || strings.Contains(screen, "/task-stop") {
+		t.Fatalf("internal IDs or long command list shown:\n%s", screen)
+	}
 }
 
 func TestApprovalFitsSmallTerminalAndDenies(t *testing.T) {

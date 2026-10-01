@@ -92,6 +92,7 @@ type approvalPrompt struct {
 
 type askPrompt struct {
 	q        Question
+	task     string
 	reply    chan questionAnswer
 	vp       tui.ViewportState
 	index    int
@@ -228,9 +229,9 @@ func (s *screen) Approve(ctx context.Context, r toolApproval) (Approval, error) 
 }
 
 // Ask implements UI.
-func (s *screen) Ask(ctx context.Context, q Question) (questionAnswer, error) {
+func (s *screen) Ask(ctx context.Context, q taskQuestion) (questionAnswer, error) {
 	id := s.promptSeq.Add(1)
-	p := &askPrompt{q: q, reply: make(chan questionAnswer, 1), selected: map[int]bool{}, own: len(q.Choices) == 0}
+	p := &askPrompt{q: q.Question, task: q.Task, reply: make(chan questionAnswer, 1), selected: map[int]bool{}, own: len(q.Choices) == 0}
 	s.post(promptEvent{at: time.Now(), id: id, asking: p})
 	select {
 	case a := <-p.reply:
