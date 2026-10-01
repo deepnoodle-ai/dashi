@@ -42,7 +42,7 @@ func TestRunnerStartUsesHistoryWithoutRecordingIt(t *testing.T) {
 	if !reflect.DeepEqual(client.inputs[0].Messages, want) {
 		t.Fatalf("model request omitted history: %#v", client.inputs[0].Messages)
 	}
-	if out.Turn.Steps[0].Started.HistoryFingerprint == "" {
+	if out.Turn.Steps[0].Started.HistoryHash == "" {
 		t.Fatal("start did not record a history fingerprint")
 	}
 	encoded, err := json.Marshal(out.Turn)
@@ -319,7 +319,7 @@ func interruptionLimitedHistoryTurn(
 	if out.Stop.Kind != StopInterrupted {
 		t.Fatalf("resume did not interrupt: %+v", out.Stop)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +381,7 @@ func TestRunnerCrashThenContinueUsesSuppliedHistory(t *testing.T) {
 			Input:     []llm.Message{llm.UserMessage(llm.Text("current input"))},
 		},
 	)
-	if persistence(err) != PersistenceRejected {
+	if !nothingWritten(err) {
 		t.Fatalf("model intent write was not rejected: %v", err)
 	}
 	if first.Turn.ID != "history-recovery" {
@@ -598,7 +598,7 @@ func TestAdmitWithoutClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, want := admitted.Turn.Steps[0], withClient.Turn.Steps[0]
-	if got.CommandDigest != want.CommandDigest ||
+	if got.CommandHash != want.CommandHash ||
 		!reflect.DeepEqual(got.Started, want.Started) {
 		t.Fatalf("start step differs without a client:\n%+v\n%+v", got, want)
 	}
@@ -850,12 +850,12 @@ func crashedModelIntent(t *testing.T, rec *MemoryRecorder) Turn {
 			Input: []llm.Message{llm.UserMessage(llm.Text("hello"))},
 		}},
 		{Kind: StepModelCallStarted, Model: &ModelFact{
-			ModelCallID:   "t1:model:1",
-			MessageID:     "t1:model:1:message",
-			RequestDigest: "digest",
-			Provider:      def.Provider,
-			API:           def.API,
-			Model:         def.Model,
+			ModelCallID: "t1:model:1",
+			MessageID:   "t1:model:1:message",
+			RequestHash: "digest",
+			Provider:    def.Provider,
+			API:         def.API,
+			Model:       def.Model,
 		}},
 		{Kind: StepTurnStopped, Stop: &Stop{Kind: StopResultUnknown, Reason: "worker crashed"}},
 	} {

@@ -43,7 +43,7 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 	defer cancel()
 	def := dashi.Agent{
 		ID:       "reminder-live",
-		Revision: "1",
+		Version:  "1",
 		Provider: client.Provider(),
 		API:      client.API(),
 		Model:    modelName,
@@ -84,7 +84,7 @@ func RecordedReminder(t *testing.T, client llm.Client, modelName string) {
 			err,
 		)
 	}
-	projected, err := dashi.Project(out.Turn)
+	projected, err := dashi.TurnMessagesFull(out.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func IteratorTurn(t *testing.T, client llm.Client, modelName string) {
 	defer cancel()
 	def := dashi.Agent{
 		ID:       "iterator-live",
-		Revision: "1",
+		Version:  "1",
 		Provider: client.Provider(),
 		API:      client.API(),
 		Model:    modelName,
@@ -190,7 +190,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 	limits := dashi.Limits{ModelCalls: 2}
 	def := dashi.Agent{
 		ID:           "limit-live",
-		Revision:     "1",
+		Version:      "1",
 		Provider:     client.Provider(),
 		API:          client.API(),
 		Model:        modelName,
@@ -229,7 +229,7 @@ func ReservedFinalAnswer(t *testing.T, client llm.Client, modelName string) {
 			runs,
 		)
 	}
-	view, err := dashi.Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil || view.ModelCalls != 2 {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
@@ -258,7 +258,7 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 	defer cancel()
 	def := dashi.Agent{
 		ID:       "live-structured",
-		Revision: "1",
+		Version:  "1",
 		Provider: client.Provider(),
 		API:      client.API(),
 		Model:    modelName,
@@ -287,7 +287,7 @@ func StructuredOutput(t *testing.T, client llm.Client, modelName string) {
 			out.Output,
 		)
 	}
-	view, err := dashi.Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil || view.Output == nil || view.ModelCalls != 1 {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
@@ -312,7 +312,7 @@ func AgentTurn(
 	t.Helper()
 	agent := dashi.Agent{
 		ID:       provider + "-live",
-		Revision: "1",
+		Version:  "1",
 		Provider: client.Provider(),
 		API:      client.API(),
 		Model:    modelName,
@@ -347,7 +347,7 @@ func AgentTurn(
 				out.Reply,
 			)
 		}
-		view, err := dashi.Replay(out.Turn)
+		view, err := out.Turn.View()
 		if err != nil || view.ModelCalls != 1 || len(view.Pending) != 0 {
 			t.Fatalf("streamed record: view=%+v err=%v", view, err)
 		}
@@ -429,7 +429,7 @@ func AgentTurn(
 					counted.sends,
 				)
 			}
-			view, err := dashi.Replay(out.Turn)
+			view, err := out.Turn.View()
 			if err != nil || view.ModelCalls != 2 || len(view.Tools) != 1 || len(view.Pending) != 0 {
 				t.Fatalf("tool record: view=%+v err=%v", view, err)
 			}

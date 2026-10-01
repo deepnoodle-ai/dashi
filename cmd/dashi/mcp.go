@@ -18,7 +18,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
-type mcpStartupRequest struct{ Name, Fingerprint, Workspace, Review string }
+type mcpStartupRequest struct{ Name, Hash, Workspace, Review string }
 type mcpStartupFunc func(context.Context, mcpStartupRequest) (bool, error)
 
 // mcpRuntime is one run's frozen configuration and forwarding tool snapshot.
@@ -67,11 +67,11 @@ func (m *mcpRuntime) Initialize(ctx context.Context, approve mcpStartupFunc) err
 		HTTPClient: func(string, dashimcp.Server) *http.Client {
 			return &http.Client{Transport: &mcpRedirectTransport{next: http.DefaultTransport}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		},
-		Approve: func(ctx context.Context, name string, s dashimcp.Server, fingerprint string) (bool, error) {
+		Approve: func(ctx context.Context, name string, s dashimcp.Server, hash string) (bool, error) {
 			allowed := false
 			var err error
 			if approve != nil {
-				allowed, err = approve(ctx, mcpStartupRequest{Name: name, Fingerprint: fingerprint, Workspace: m.dir, Review: m.startupReview(name, s)})
+				allowed, err = approve(ctx, mcpStartupRequest{Name: name, Hash: hash, Workspace: m.dir, Review: m.startupReview(name, s)})
 			}
 			m.mu.Lock()
 			if !allowed || err != nil {

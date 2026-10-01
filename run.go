@@ -172,7 +172,7 @@ func (r Runner) Stream(
 //
 //   - nil: every step was recorded. Execution failures, limits, and waits
 //     are results, reported in RunResult.Stop with any partial work.
-//   - ErrRevisionConflict or ErrCommandConflict (check with errors.Is, which
+//   - ErrStaleTurn or ErrCommandIDReused (check with errors.Is, which
 //     also matches them inside a *CommitError): another worker owns or
 //     advanced the turn, or the command ID was reused. Reload the turn.
 //   - *CommitError: the run executed, but CommitError.Step was not saved,

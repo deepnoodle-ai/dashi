@@ -74,7 +74,7 @@ func TestBudgetIncompleteUsageEndsTokenCappedTurn(t *testing.T) {
 			if !strings.Contains(out.Stop.Reason, "start a new turn") {
 				t.Fatal("stop does not explain the host's next action")
 			}
-			view, err := Replay(out.Turn)
+			view, err := out.Turn.View()
 			if err != nil || !view.Stop.Ended || view.Next() != NextNone {
 				t.Fatalf("recorded terminal stop changed in replay: %v", err)
 			}
@@ -157,7 +157,7 @@ func reconciledUsageResult() llm.Result {
 func TestBudgetReconciliationBeforeTokenStopRestoresAdmission(t *testing.T) {
 	turn := appendAccountingStop(usageReconciliationRecord(),
 		&Stop{Kind: StopResultUnknown})
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil || !view.Spend.UsageIncomplete {
 		t.Fatalf("fixture did not expose incomplete usage: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestBudgetLateReconciliationNeverRevivesEndedTurn(t *testing.T) {
 	stop := incompleteUsageStop(state)
 	stop.Ended = true
 	turn = appendAccountingStop(turn, stop)
-	before, err := Replay(turn)
+	before, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,12 +234,12 @@ func TestReplayValidatesTokenTerminalFlagAtStopPrefix(t *testing.T) {
 			Ended: incomplete,
 		}
 		valid := appendAccountingStop(turn, stop)
-		if _, err := Replay(valid); err != nil {
+		if _, err := valid.View(); err != nil {
 			t.Fatalf("valid legacy/new token stop rejected: %v", err)
 		}
 		stop.Ended = !incomplete
 		invalid := appendAccountingStop(turn, stop)
-		if _, err := Replay(invalid); !errors.Is(err, ErrInvalidTurn) {
+		if _, err := invalid.View(); !errors.Is(err, ErrInvalidTurn) {
 			t.Fatalf("invalid terminal flag accepted: %v", err)
 		}
 	}
@@ -251,7 +251,7 @@ func TestBudgetIncompleteSettlementRecoversToTerminalStop(t *testing.T) {
 		llm.Usage{OutputTokens: 1},
 	)
 	turn.Steps[0].Started.Budget = &Budget{MaxOutputTokens: 100}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil || !view.Spend.UsageIncomplete || !view.ReadyToContinue {
 		t.Fatalf("settled prefix cannot reach stop recovery: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestBudgetIncompleteIntentRecoversBeforeTokenStop(t *testing.T) {
 		},
 	}}
 	turn = interruptionRecord(append(turn.Steps, intent)...)
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil || !view.Spend.UsageIncomplete || !view.ReadyToContinue {
 		t.Fatalf("recorded intent cannot reach recovery: %v", err)
 	}

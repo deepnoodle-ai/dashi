@@ -1,4 +1,4 @@
-// Command hosted_tools runs one agent turn in which Claude uses tools that
+// Command provider_tools runs one agent turn in which Claude uses tools that
 // Anthropic runs on its own servers: web search and a code execution sandbox.
 // It prints the answer, the hosted tool calls, the cited sources, and the
 // turn's usage. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL

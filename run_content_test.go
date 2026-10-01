@@ -262,7 +262,7 @@ func TestRefInHistoryResolvesUnderTheCurrentTurnID(t *testing.T) {
 	}
 }
 
-func TestRefRequestDigestCoversHydratedBytes(t *testing.T) {
+func TestRefRequestHashCoversHydratedBytes(t *testing.T) {
 	ref := refFor("upl_1", refBytes)
 	resolver := &countingResolver{files: map[string][]byte{"upl_1": refBytes}}
 	client := &bodyClient{scriptedClient{results: []llm.Result{final("done")}}}
@@ -273,18 +273,18 @@ func TestRefRequestDigestCoversHydratedBytes(t *testing.T) {
 		refMessage(ref),
 	)
 
-	var digestOf string
+	var hashOf string
 	for _, step := range out.Turn.Steps {
 		if step.Kind == StepModelCallStarted {
-			digestOf = step.Model.RequestDigest
+			hashOf = step.Model.RequestHash
 		}
 	}
 	body, err := json.Marshal(client.inputs[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if digestOf != canonjson.Digest(body) {
-		t.Fatalf("digest %q does not cover the hydrated request", digestOf)
+	if hashOf != canonjson.Hash(body) {
+		t.Fatalf("digest %q does not cover the hydrated request", hashOf)
 	}
 	if !bytes.Contains(body, []byte(base64Of(refBytes))) {
 		t.Fatal("the hydrated request holds no bytes")
@@ -374,8 +374,8 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 	good := refFor("upl_1", refBytes)
 	wrongSize := good
 	wrongSize.Size++
-	wrongDigest := refFor("upl_1", []byte("other bytes at the same size!"))
-	wrongDigest.Size = int64(len(refBytes))
+	wrongHash := refFor("upl_1", []byte("other bytes at the same size!"))
+	wrongHash.Size = int64(len(refBytes))
 	tests := []struct {
 		name     string
 		ref      content.Ref
@@ -418,11 +418,11 @@ func TestRefFailuresStopBeforeModelIntent(t *testing.T) {
 		},
 		{
 			name: "digest mismatch",
-			ref:  wrongDigest,
+			ref:  wrongHash,
 			resolver: &countingResolver{
 				files: map[string][]byte{"upl_1": refBytes},
 			},
-			want:     StopReasonContentDigestMismatch,
+			want:     StopReasonContentHashMismatch,
 			resolved: 1,
 		},
 		{
@@ -701,7 +701,7 @@ func TestRefInToolResultIsHydrated(t *testing.T) {
 	}
 }
 
-func TestRefProjectAndReplayNeverResolve(t *testing.T) {
+func TestRefTurnMessagesAndViewNeverLoad(t *testing.T) {
 	ref := refFor("upl_1", refBytes)
 	resolver := &countingResolver{files: map[string][]byte{"upl_1": refBytes}}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
@@ -712,7 +712,7 @@ func TestRefProjectAndReplayNeverResolve(t *testing.T) {
 	)
 	before := resolver.count()
 
-	projected, err := Project(out.Turn)
+	projected, err := TurnMessagesFull(out.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -49,7 +49,7 @@ func SeedContext(item ContextItem) ModelHook {
 			}
 			delivery := cloneContextItem(item)
 			if delivery.ID != "" && p.Turn.usedContextIDs[delivery.ID] {
-				base := fmt.Sprintf("%s:%s:%d", delivery.ID, p.Turn.ID, p.Turn.Revision)
+				base := fmt.Sprintf("%s:%s:%d", delivery.ID, p.Turn.ID, p.Turn.LastSeq)
 				delivery.ID = base
 				for suffix := 1; p.Turn.usedContextIDs[delivery.ID]; suffix++ {
 					delivery.ID = fmt.Sprintf("%s:%d", base, suffix)

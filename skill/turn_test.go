@@ -64,7 +64,7 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 		},
 	}
 	client := &skillClient{}
-	revision := "incident-agent-v1:" + bundle.Digest() + ":focus-v1"
+	revision := "incident-agent-v1:" + bundle.Hash() + ":focus-v1"
 	runner := dashi.Runner{
 		Client:   client,
 		Tools:    tool.Join(tool.List{action}, bundle),
@@ -74,8 +74,8 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 	start := dashi.Start{
 		CommandID: "start",
 		Agent: dashi.Agent{
-			Model:    "fixture",
-			Revision: revision,
+			Model:   "fixture",
+			Version: revision,
 		},
 		Input: []llm.Message{llm.UserMessage(llm.Text("review incident"))},
 	}
@@ -90,7 +90,7 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 			sawAction,
 		)
 	}
-	view, err := dashi.Replay(outcome.Turn)
+	view, err := outcome.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestSameBatchAuthorizationPrecedesLoadSettlement(t *testing.T) {
 	// revision when focus selectors or their meaning change, and a retried
 	// Start under the new revision no longer matches the recorded agent.
 	changed := start
-	changed.Agent.Revision = "incident-agent-v1:" + bundle.Digest() + ":focus-v2"
+	changed.Agent.Version = "incident-agent-v1:" + bundle.Hash() + ":focus-v2"
 	_, err = runner.Run(t.Context(), outcome.Turn, changed)
 	if !errors.Is(err, dashi.ErrAgentChanged) {
 		t.Fatalf("changed host policy revision: %v", err)

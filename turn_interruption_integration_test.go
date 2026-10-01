@@ -72,7 +72,7 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 			t.Fatalf("interruption %d: stop=%+v err=%v", i, out.Stop, err)
 		}
 		turn = out.Turn
-		view, err := Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -96,7 +96,7 @@ func TestRepeatedModelInterruptionsKeepUsageAndAttemptAllowance(
 		limited.Stop.Reason != "resumes" || client.sends != 3 {
 		t.Fatalf("limit=%+v err=%v sends=%d", limited.Stop, err, client.sends)
 	}
-	view, err := Replay(limited.Turn)
+	view, err := limited.Turn.View()
 	if err != nil || view.ModelCalls != 0 || view.Resumes != 2 ||
 		view.Spend.Usage.InputTokens != 6 ||
 		view.ReadyToContinue || limited.ReadyToContinue {
@@ -156,7 +156,7 @@ func TestInterruptedModelKeepsDeltaOnlyPartialOutputAndUsage(t *testing.T) {
 		partial.Result.Usage == nil || partial.Result.Usage.InputTokens != 5 {
 		t.Fatalf("partial result=%+v", partial)
 	}
-	messages, err := Project(out.Turn)
+	messages, err := TurnMessagesFull(out.Turn)
 	if err != nil || len(messages) != 1 || out.Reply != "" {
 		t.Fatalf(
 			"partial output reached model history: messages=%+v err=%v",
@@ -179,7 +179,7 @@ func TestContinueRecoversCrashedModelIntent(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("recovery=%+v err=%v sends=%d", out.Stop, err, client.sends)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil || view.Resumes != 1 || view.ModelCalls != 1 {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}
@@ -295,7 +295,7 @@ func TestTurnDeadlineLimitsRunningModelCall(t *testing.T) {
 				out.Stop.Reason != test.wantReason {
 				t.Fatalf("stop=%+v err=%v", out.Stop, err)
 			}
-			view, err := Replay(out.Turn)
+			view, err := out.Turn.View()
 			if err != nil || view.ModelCalls != 0 ||
 				view.Spend.Usage.InputTokens != 4 {
 				t.Fatalf("view=%+v err=%v", view, err)
@@ -410,8 +410,8 @@ func TestLeaseLossRejectsLateModelSettlement(t *testing.T) {
 		},
 		WithOwner("worker-a"),
 	)
-	if persistence(err) != PersistenceRejected ||
-		!errors.Is(err, ErrRevisionConflict) {
+	if !nothingWritten(err) ||
+		!errors.Is(err, ErrStaleTurn) {
 		t.Fatalf("stale write=%+v err=%v", first, err)
 	}
 	saved, err := rec.Load(t.Context(), "t1")
@@ -452,13 +452,13 @@ func seedOpenModelIntent(
 		{
 			Kind: StepModelCallStarted,
 			Model: &ModelFact{
-				ModelCallID:   "t1:model:1",
-				MessageID:     "t1:model:1:message",
-				RequestDigest: "request-digest",
-				Provider:      def.Provider,
-				API:           def.API,
-				Model:         def.Model,
-				Tools:         defs,
+				ModelCallID: "t1:model:1",
+				MessageID:   "t1:model:1:message",
+				RequestHash: "request-digest",
+				Provider:    def.Provider,
+				API:         def.API,
+				Model:       def.Model,
+				Tools:       defs,
 			},
 		},
 	} {

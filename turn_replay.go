@@ -40,7 +40,7 @@ type replayState struct {
 	providerTool           map[string]llm.ProviderToolApprovalRequest
 	providerToolOrder      []string
 	providerToolAttempts   map[string]string
-	commandDigests         map[string]string
+	commandHashes          map[string]string
 	latestResult           *llm.Result
 	awaitingClassification bool
 	failedModel            string
@@ -67,15 +67,16 @@ type replayState struct {
 	intentSeq map[string]int64
 }
 
-// Replay verifies a turn's versioned prefix and reconstructs its current view.
-// It does not execute any recorded intent.
-func Replay(t Turn) (TurnView, error) {
+// View checks the turn record and rebuilds what it means now: its stop,
+// reply, spend, and pending work. It only reads the record; it never
+// runs a model call or a tool.
+func (t Turn) View() (TurnView, error) {
 	s, e := replay(t)
 	if e != nil {
 		return TurnView{}, e
 	}
 	view := snapshotView(s.TurnView)
-	view.Stop = s.projectedStop()
+	view.Stop = s.inferredStop()
 	return view, nil
 }
 
@@ -127,7 +128,7 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 		modelDefs:            map[string]tool.Definition{},
 		providerTool:         map[string]llm.ProviderToolApprovalRequest{},
 		providerToolAttempts: map[string]string{},
-		commandDigests:       map[string]string{},
+		commandHashes:        map[string]string{},
 		modelIntents:         map[string]*ModelFact{},
 		modelSettlements:     map[string]*ModelFact{},
 		modelMessages:        map[string]string{},
@@ -152,14 +153,14 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 			return nil, fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
 		}
 		if step.CommandID != "" {
-			if step.CommandDigest == "" {
+			if step.CommandHash == "" {
 				return nil, fmt.Errorf("%w: command digest missing", ErrInvalidTurn)
 			}
-			if old, ok := s.commandDigests[step.CommandID]; ok &&
-				old != step.CommandDigest {
-				return nil, ErrCommandConflict
+			if old, ok := s.commandHashes[step.CommandID]; ok &&
+				old != step.CommandHash {
+				return nil, ErrCommandIDReused
 			}
-			s.commandDigests[step.CommandID] = step.CommandDigest
+			s.commandHashes[step.CommandID] = step.CommandHash
 		}
 		if i == 0 && step.Kind != StepTurnStarted {
 			return nil, fmt.Errorf("%w: first step is not start", ErrInvalidTurn)
@@ -182,17 +183,17 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 		if !s.awaitingClassification {
 			s.deliveredOnKept = 0
 		}
-		s.Revision = step.Seq
+		s.LastSeq = step.Seq
 		if cache.needed[step.Seq] {
-			cache.states[step.Seq] = s.projectionSnapshot()
+			cache.states[step.Seq] = s.viewSnapshot()
 		}
 	}
-	// Derive ArgsDigest from the final status, so no transition out of
+	// Derive ArgsHash from the final status, so no transition out of
 	// approval can leave a stale digest behind.
 	for id, v := range s.Tools {
-		v.ArgsDigest = ""
+		v.ArgsHash = ""
 		if v.Status == ToolApprovalPending {
-			v.ArgsDigest = ArgsDigest(v.Call.Args)
+			v.ArgsHash = ArgsHash(v.Call.Args)
 		}
 		s.Tools[id] = v
 	}
@@ -295,6 +296,6 @@ func (s *replayState) calculateSpend() error {
 
 // projectionSnapshot captures only immutable facts needed by the pure projector.
 // It does not calculate accounting or recursively validate a prefix.
-func (s *replayState) projectionSnapshot() *replayState {
+func (s *replayState) viewSnapshot() *replayState {
 	return &replayState{TurnView: TurnView{Stop: s.Stop, Tools: maps.Clone(s.Tools)}, modelIntent: s.modelIntent, unresolvedModel: s.unresolvedModel, callOrder: slices.Clone(s.callOrder), providerTool: maps.Clone(s.providerTool)}
 }

@@ -11,7 +11,7 @@
 A **hosted tool** runs at the provider (web search, code execution), and many
 bill per use on top of tokens. Before this change, any hosted use made a call's
 cost unknown although its token cost was known. The catalog priced no hosted
-requests; the runner counted `HostedUse` blocks by the name the model called
+requests; the runner counted `ProviderToolUse` blocks by the name the model called
 (`bash_code_execution`), so a price sheet would have had to know block names; it
 ignored the counters providers report; Gemini search grounding produced no
 block, so a grounded Gemini call looked fully priced when it was not; and one

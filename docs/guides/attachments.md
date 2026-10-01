@@ -112,10 +112,10 @@ Before each model request, Dashi does these steps on a copy of the input:
 
 Dashi keeps no cache. It calls `Resolve` again on every model call, every
 retry, and every resume. A reference that the host revoked stops the turn at
-the next call. `Project`, replay, and inspection never call the resolver.
+the next call. `TurnMessagesFull`, replay, and inspection never call the resolver.
 
 `BeforeModel` hooks see the reference. `BeforeSend` hooks see the prepared
-request with bytes. `ModelFact.RequestDigest` covers those bytes. The
+request with bytes. `ModelFact.RequestHash` covers those bytes. The
 resolver must bound its own read, because Dashi checks the length only after
 the read.
 
@@ -138,7 +138,7 @@ reference. A host can branch on the code:
 | `StopReasonContentUnavailable` | The resolver returned an error. Denied and deleted files look the same. |
 | `StopReasonContentTooLarge` | The declared size is over a limit. |
 | `StopReasonContentSizeMismatch` | The resolver returned a different number of bytes. |
-| `StopReasonContentDigestMismatch` | The bytes do not match the SHA-256. |
+| `StopReasonContentHashMismatch` | The bytes do not match the SHA-256. |
 
 The stop never contains bytes or the resolver's error text. Dashi never drops
 the block or falls back to another location.

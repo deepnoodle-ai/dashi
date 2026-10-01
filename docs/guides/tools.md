@@ -7,7 +7,7 @@ run on the provider's servers, and the outcomes a tool returns. See
 ## Try it
 
 Set `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`, then run
-`go run ./examples/tools` or `go run ./examples/hosted_tools`.
+`go run ./examples/tools` or `go run ./examples/provider_tools`.
 
 ```go
 weather := tool.MustFunc(

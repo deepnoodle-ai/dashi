@@ -69,7 +69,7 @@ func TestCompleteSettingsPriorityAndDispatchedIntent(t *testing.T) {
 			if !bytes.Equal(before, after) {
 				t.Fatal("earlier facts changed")
 			}
-			if tc.marked && out.Agent.Revision == first.Agent.Revision {
+			if tc.marked && out.Agent.Version == first.Agent.Version {
 				t.Fatal("complete settings did not change derived identity")
 			}
 			if tc.want.MaxTokens == 0 {
@@ -192,7 +192,7 @@ func TestCompleteSettingsDoNotChangeRecordedContinuation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(out.Agent.Settings, first.Agent.Settings) || out.Agent.NoInheritedSettings || out.Agent.Revision != first.Agent.Revision || !reflect.DeepEqual(client.Inputs()[0].Settings, first.Agent.Settings) {
+	if !reflect.DeepEqual(out.Agent.Settings, first.Agent.Settings) || out.Agent.NoInheritedSettings || out.Agent.Version != first.Agent.Version || !reflect.DeepEqual(client.Inputs()[0].Settings, first.Agent.Settings) {
 		t.Fatalf("continuation changed recorded agent: %+v", out.Agent)
 	}
 }

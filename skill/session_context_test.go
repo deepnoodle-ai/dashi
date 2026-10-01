@@ -59,7 +59,7 @@ func TestCatalogRestoresValueAcrossFreshRunnerContinues(t *testing.T) {
 	if !reflect.DeepEqual(values, []string{a.Catalog(), b.Catalog(), a.Catalog()}) {
 		t.Fatalf("catalog values=%q", values)
 	}
-	if ids[0] != "skills-"+a.Digest() || ids[1] != "skills-"+b.Digest() || ids[2] == ids[0] {
+	if ids[0] != "skills-"+a.Hash() || ids[1] != "skills-"+b.Hash() || ids[2] == ids[0] {
 		t.Fatalf("IDs=%q", ids)
 	}
 	input := client.Inputs()[0]

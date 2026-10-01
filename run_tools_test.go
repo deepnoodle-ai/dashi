@@ -97,7 +97,7 @@ func TestToolFailureRecordShapes(t *testing.T) {
 			if got.Stop != test.stop {
 				t.Fatalf("stop=%+v, want %+v", got.Stop, test.stop)
 			}
-			view, err := Replay(got.Turn)
+			view, err := got.Turn.View()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -174,7 +174,7 @@ func TestFatalToolErrorStopsLaterCallsUntilContinue(t *testing.T) {
 	if runsB.Load() != 0 {
 		t.Fatal("a call started after a fatal tool error")
 	}
-	view, err := Replay(first.Turn)
+	view, err := first.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestToolPanicIsRecordedAsUncertain(t *testing.T) {
 			if first.Stop.Kind != StopResultUnknown {
 				t.Fatalf("stop=%+v", first.Stop)
 			}
-			view, err := Replay(first.Turn)
+			view, err := first.Turn.View()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -309,7 +309,7 @@ func TestReplayKeepsRecordedToolUncertainty(t *testing.T) {
 			t.Fatalf("recorder rejected the uncertain record: %v", err)
 		}
 	}
-	view, err := Replay(forged)
+	view, err := forged.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,15 +487,15 @@ func assertRecordRoundTrips(t *testing.T, rec *MemoryRecorder, turn Turn) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	got, err := Replay(decoded)
+	got, err := decoded.View()
 	if err != nil {
 		t.Fatalf("decoded record does not replay: %v", err)
 	}
-	expected, err := Replay(turn)
+	expected, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if canonjson.Digest(got) != canonjson.Digest(expected) {
+	if canonjson.Hash(got) != canonjson.Hash(expected) {
 		t.Fatal("decoded record replays to a different view")
 	}
 }
@@ -674,7 +674,7 @@ func TestPauseDuringToolLoopSettlesRunningCallBeforeStopping(t *testing.T) {
 	if secondRuns != 0 {
 		t.Fatalf("second tool ran %d times before resume", secondRuns)
 	}
-	view, err := Replay(got.out.Turn)
+	view, err := got.out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -739,7 +739,7 @@ func TestToolResultAfterContextEndIsDropped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(saved)
+	view, err := saved.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -785,13 +785,13 @@ func startedLocalToolTurn(
 	commit(Step{
 		Kind: StepModelCallStarted,
 		Model: &ModelFact{
-			ModelCallID:   "t1:model:1",
-			MessageID:     "t1:model:1:message",
-			RequestDigest: "digest",
-			Provider:      def.Provider,
-			API:           def.API,
-			Model:         def.Model,
-			Tools:         []tool.Definition{toolDef},
+			ModelCallID: "t1:model:1",
+			MessageID:   "t1:model:1:message",
+			RequestHash: "digest",
+			Provider:    def.Provider,
+			API:         def.API,
+			Model:       def.Model,
+			Tools:       []tool.Definition{toolDef},
 		},
 	})
 	requested := llm.Result{

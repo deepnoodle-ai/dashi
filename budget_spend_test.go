@@ -541,7 +541,7 @@ func TestAttemptsSumToSpend(t *testing.T) {
 		t, client, nil, llm.Settings{MaxTokens: 100},
 		tool.List{budgetLookup(nil)}, Hooks{},
 	)
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -613,10 +613,10 @@ func TestAttemptsSumToSpend(t *testing.T) {
 }
 
 func TestAttemptsIncludePendingAttempt(t *testing.T) {
-	view, err := Replay(interruptionRecord(
+	view, err := interruptionRecord(
 		interruptionStart(testAgent()),
 		interruptionModelIntent("model-1"),
-	))
+	).View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +637,7 @@ func TestAttemptsIncludePendingAttempt(t *testing.T) {
 // Dashi digests Go values, and money.Amount always marshals one trimmed
 // spelling, so every spelling a store or a caller may supply decodes to a
 // value with the same digest.
-func TestMoneyDigestIgnoresStoredSpelling(t *testing.T) {
+func TestMoneyHashIgnoresStoredSpelling(t *testing.T) {
 	if canonjson.Equal(json.RawMessage(`"0.50"`), json.RawMessage(`"0.5"`)) {
 		t.Fatal("canonical JSON unexpectedly equates decimal strings")
 	}
@@ -649,8 +649,8 @@ func TestMoneyDigestIgnoresStoredSpelling(t *testing.T) {
 	if string(raw) != `{"max_cost":{"amount":"0.5","currency":"USD"}}` {
 		t.Fatalf("live budget encoded %s", raw)
 	}
-	want := canonjson.Digest(live)
-	if got := canonjson.Digest(jsonbRoundTrip(live)); got != want {
+	want := canonjson.Hash(live)
+	if got := canonjson.Hash(jsonbRoundTrip(live)); got != want {
 		t.Fatal("a jsonb round trip changed the budget digest")
 	}
 	for _, spelling := range []string{
@@ -668,7 +668,7 @@ func TestMoneyDigestIgnoresStoredSpelling(t *testing.T) {
 		if err := json.Unmarshal([]byte(text), &stored); err != nil {
 			t.Fatalf("decode %s: %v", spelling, err)
 		}
-		if canonjson.Digest(stored) != want {
+		if canonjson.Hash(stored) != want {
 			t.Fatalf("stored amount %s changed the budget digest", spelling)
 		}
 	}
@@ -707,7 +707,7 @@ func TestJSONBRoundTripBudgetTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}

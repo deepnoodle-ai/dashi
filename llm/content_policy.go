@@ -13,13 +13,13 @@ const (
 	ReasoningOmit ReasoningPolicy = "omit"
 )
 
-// HostedActivityPolicy controls omission of completed foreign hosted work.
+// ProviderToolActivityPolicy controls omission of completed foreign hosted work.
 type ProviderToolActivityPolicy string
 
 const (
-	// HostedReject preserves the strict default for provider-owned work.
+	// ProviderToolReject preserves the strict default for provider-owned work.
 	ProviderToolReject ProviderToolActivityPolicy = ""
-	// HostedOmit permits recorded omission of complete, paired foreign work.
+	// ProviderToolOmit permits recorded omission of complete, paired foreign work.
 	ProviderToolOmit ProviderToolActivityPolicy = "omit"
 )
 
@@ -30,7 +30,7 @@ type ContentPolicy struct {
 	// represented at the selected destination.
 	UnreplayableReasoning ReasoningPolicy `json:"unreplayable_reasoning,omitempty"`
 
-	// ForeignHostedActivity permits omission of complete provider-owned work
+	// ForeignProviderToolActivity permits omission of complete provider-owned work
 	// only when its private replay cannot reach the selected destination.
 	ForeignProviderToolActivity ProviderToolActivityPolicy `json:"foreign_provider_tool_activity,omitempty"`
 }

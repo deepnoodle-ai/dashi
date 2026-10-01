@@ -20,7 +20,7 @@ type ActiveCompactionPolicy struct {
 // Agent gains: ActiveCompaction *ActiveCompactionPolicy
 // Nil disables protection, or inherits under existing Session rules.
 
-func ProjectContext(t Turn) ([]llm.Message, error)
+func TurnMessages(t Turn) ([]llm.Message, error)
 // Project remains ordinary Turn messages, with no summary exchange.
 
 type ModelPurpose string
@@ -138,13 +138,13 @@ Unknown/partial summary usage keeps existing conservative accounting and capped-
 
 ## Projection and recovery
 
-`Project` returns full ordinary Turn messages and skips summary intents/results/application messages.
-`ProjectContext` applies recorded replacements to those messages in source order.
-Runner request construction combines unchanged caller history with `ProjectContext`.
-`Session.History` uses `Project`; `Session.ProjectedHistory` and later Turn starts use `ProjectContext` after existing between-Turn replacement rules.
+`TurnMessagesFull` returns full ordinary Turn messages and skips summary intents/results/application messages.
+`TurnMessages` applies recorded replacements to those messages in source order.
+Runner request construction combines unchanged caller history with `TurnMessages`.
+`Session.History` uses `TurnMessagesFull`; `Session.NextHistory` and later Turn starts use `TurnMessages` after existing between-Turn replacement rules.
 Cache these views separately. Existing caller-history fingerprints and ended-Turn cutoffs remain authoritative.
 Expose applied replacements as `TurnView.ContextCompactions []ContextCompactionFact` for inspection.
-Named context presence reflects retained `ProjectContext` messages; a summary mention never establishes presence.
+Named context presence reflects retained `TurnMessages` messages; a summary mention never establishes presence.
 
 On reload, an acknowledged successful summary settlement with no application derives pending application.
 Validate it and commit `context_compacted` once, without another model call.

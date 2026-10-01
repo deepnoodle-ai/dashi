@@ -181,8 +181,8 @@ func (c *Controller) inspectionDestinations(report sessionstore.Inspection) stri
 	if e := report.Latest; e != nil && e.Readable {
 		endpoint := "unavailable (recorded binding cannot be verified)"
 		if d, ok := p.routes.registry[e.Destination.Provider]; ok {
-			fingerprint, err := d.fingerprint()
-			if err == nil && e.Destination.Revision == cliRouteRevision+fingerprint && e.Destination.API == d.Definition.API {
+			hash, err := d.hash()
+			if err == nil && e.Destination.Version == cliRouteVersion+hash && e.Destination.API == d.Definition.API {
 				endpoint = sessionstore.PrintableEndpoint(d.Definition.Endpoint) + " (matching recorded binding)"
 			}
 		}

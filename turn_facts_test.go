@@ -31,7 +31,7 @@ func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	started := first.Turn.Steps[0].Started
-	if started.Origin != StartScheduled || started.HistoryFingerprint == "" {
+	if started.Origin != StartScheduled || started.HistoryHash == "" {
 		t.Fatalf("start fact=%+v", first.Turn.Steps[0].Started)
 	}
 	encoded, err := json.Marshal(first.Turn.Steps[0])
@@ -42,7 +42,7 @@ func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {
 		t.Fatalf("start step saved prior history: %s", encoded)
 	}
 	history[0] = llm.UserMessage(llm.Text("changed outside turn"))
-	projected, err := Project(first.Turn)
+	projected, err := TurnMessagesFull(first.Turn)
 	if err != nil || len(projected) != 2 ||
 		projected[0].Text() != "scheduled report" {
 		t.Fatalf("projected=%+v err=%v", projected, err)
@@ -59,7 +59,7 @@ func TestStartRecordsScheduledOriginWithoutPriorHistory(t *testing.T) {
 		first.Turn,
 		again,
 	)
-	if err != ErrCommandConflict {
+	if err != ErrCommandIDReused {
 		t.Fatalf("changed accepted history did not conflict: %v", err)
 	}
 }
@@ -132,7 +132,7 @@ func TestReplayRejectsUnknownCapabilityPolicy(t *testing.T) {
 			step.Model.CapabilityPolicy = "lenient"
 		}
 	}
-	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+	if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("replayed an unknown capability policy: %v", err)
 	}
 }

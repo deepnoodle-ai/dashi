@@ -32,7 +32,7 @@ func (v TurnView) Next() Next
 ```
 
 `Next` reads the **recorded** stop. For a record with no stop step after the
-latest `Start` or `Continue`, `Replay` and `Outcome` fill in a projected stop
+latest `Start` or `Continue`, `Turn.View` and `Outcome` fill in a projected stop
 (uncertain, interrupted, waiting, or empty; `state.go`, `projectedStop`) and
 mark it `Stop.Inferred`; `Next` then returns `NextRecover`. The mark is an
 exported field, so a view sent as JSON gives the same `Next`. A hook's view
@@ -97,7 +97,7 @@ A turn has **ended** when its stop is terminal (`ErrTurnEnded` guards it). A
 session *closes* a stopped turn by canceling it, which ends it. Today a terminal
 stop settles only calls that never started (`state.go`, the `StepTurnStopped` case).
 Calls in state started, waiting, or uncertain stay pending, and so does a model
-intent. `Project` then fails ("client tool call is unresolved", "model intent
+intent. `TurnMessagesFull` then fails ("client tool call is unresolved", "model intent
 needs reconciliation"; `project.go`). And `acceptsAfterEnd` still accepts a
 `Resolve` for started work after the terminal stop (`state.go`), which would
 change an old turn's projection after later turns were built on it. With the
@@ -111,7 +111,7 @@ Two fixes in track 1:
   the turn ended". A pending or unresolved model attempt projects nothing,
   since no message was recorded. Hosted approvals are already cleared at a
   terminal stop.
-- **Freeze at the terminal stop.** `Project` reads an ended turn's steps only up
+- **Freeze at the terminal stop.** `TurnMessagesFull` reads an ended turn's steps only up
   to its terminal stop. Later results are still recorded, for audit and
   accounting (`Spend` counts them), but never projected, and `TurnView.Reply`
   stays fixed there too.

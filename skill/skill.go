@@ -54,7 +54,7 @@ type Options struct {
 type Bundle struct {
 	definitions []Definition
 	catalog     string
-	digest      string
+	hash        string
 	loader      tool.Tool
 }
 
@@ -176,7 +176,7 @@ func New(definitions []Definition, options Options) (*Bundle, error) {
 	bundle := &Bundle{
 		definitions: entries,
 		catalog:     catalog,
-		digest:      "sha256:" + hex.EncodeToString(sum[:]),
+		hash:        "sha256:" + hex.EncodeToString(sum[:]),
 	}
 	if len(entries) == 0 {
 		return bundle, nil
@@ -218,11 +218,11 @@ func (b *Bundle) Catalog() string {
 
 // Digest identifies the names, descriptions, bodies, and loader name in this
 // bundle. It does not include host policy or action selectors.
-func (b *Bundle) Digest() string {
+func (b *Bundle) Hash() string {
 	if b == nil {
 		return ""
 	}
-	return b.digest
+	return b.hash
 }
 
 // Tools implements tool.Toolset. It returns one independently cloned loader,

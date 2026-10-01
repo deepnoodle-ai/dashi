@@ -61,7 +61,7 @@ Text retains last-answer-only behavior. JSON escaping preserves exact answer tex
 ## Relevant saved response and safe continuation
 
 Use the inspection track's workspace-scoped loader and exclusive lock. Preserve one lease across record-only reading and permitted live open.
-Require existing directories. Load through filerecorder and dashi.Replay without creating/repairing records or claiming a worker.
+Require existing directories. Load through filerecorder and Turn.View without creating/repairing records or claiming a worker.
 Use recorded origin/order/links and the existing foreground parent answer selection. Empty legacy origin remains user.
 
 Completed no-payload resume selects the relevant latest saved parent request/notice Outcome for the latest ordinary request, excluding compaction and unrelated history.

@@ -94,7 +94,7 @@ func TestAfterToolChainsReplacements(t *testing.T) {
 		settled.HookResults[0].Verdict != VerdictReplace {
 		t.Fatalf("settled = %+v", settled)
 	}
-	if _, err := Replay(out.Turn); err != nil {
+	if _, err := out.Turn.View(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -218,7 +218,7 @@ func TestAfterToolWithholdsWhenTheRunEnds(t *testing.T) {
 		!hasWarning(out, WarningHookFailed) {
 		t.Fatalf("view=%+v result=%+v warnings=%+v", view, view.Result(), out.Warnings)
 	}
-	if _, err := Project(out.Turn); err != nil {
+	if _, err := TurnMessagesFull(out.Turn); err != nil {
 		t.Fatalf("project: %v", err)
 	}
 }
@@ -399,7 +399,7 @@ func TestAfterToolRunsOnSettledHostResults(t *testing.T) {
 		if err != nil || modelText(out.Tools["call-1"].Result()) != "key=[redacted]" {
 			t.Fatalf("late result=%+v err=%v", out.Tools["call-1"].Result(), err)
 		}
-		if _, err := Project(out.Turn); err != nil {
+		if _, err := TurnMessagesFull(out.Turn); err != nil {
 			t.Fatalf("project: %v", err)
 		}
 	})
@@ -426,7 +426,7 @@ func TestReplayRejectsAResultOnRunnerWrittenOutcomes(t *testing.T) {
 			}
 		}
 	}
-	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+	if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("replay err = %v", err)
 	}
 }
@@ -651,7 +651,7 @@ func TestReplayRejectsAResultOffASettlement(t *testing.T) {
 			}
 		}
 	}
-	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+	if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("replay err = %v", err)
 	}
 }

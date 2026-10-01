@@ -27,7 +27,7 @@ const (
 	KindLocal Kind = "local"
 	// KindExternal identifies a tool whose result is supplied externally.
 	KindExternal Kind = "external"
-	// KindProviderHosted identifies a tool executed by the model service.
+	// KindProviderTool identifies a tool executed by the model service.
 	KindProviderTool Kind = "provider_tool"
 )
 
@@ -74,7 +74,7 @@ type Definition struct {
 	Annotations Annotations `json:"annotations,omitzero"`
 }
 
-// HostedSpec binds a server-executed tool to one provider and API. Options
+// ProviderToolSpec binds a server-executed tool to one provider and API. Options
 // contain non-secret provider fields; credentials belong on the client.
 type ProviderToolSpec struct {
 	// Provider identifies the configured destination that owns this tool.
@@ -481,7 +481,7 @@ func (e fatalError) Is(target error) bool {
 //
 // A Tool with a nil Executor is definition-only: the model sees it, but the
 // runner never executes it. That is meaningful for two kinds. A
-// KindProviderHosted tool runs inside the model call, so the runner neither
+// KindProviderTool tool runs inside the model call, so the runner neither
 // dispatches it nor runs hooks for it; provider packages construct these. A
 // KindExternal tool passes the BeforeTool hooks like a local tool, then waits
 // until the host records its result with Resolve. A local or unspecified-kind

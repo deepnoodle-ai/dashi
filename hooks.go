@@ -199,7 +199,7 @@ const (
 	VerdictReserve HookVerdict = "reserve"
 	VerdictLimit   HookVerdict = "limit"
 	VerdictDeny    HookVerdict = "deny"
-	// VerdictAllow, VerdictDefer and VerdictRewrite are BeforeTool answers.
+	// VerdictAllow, VerdictNeedsApproval and VerdictRewrite are BeforeTool answers.
 	VerdictAllow         HookVerdict = "allow"
 	VerdictNeedsApproval HookVerdict = "needs_approval"
 	VerdictRewrite       HookVerdict = "rewrite"
@@ -368,7 +368,7 @@ type ToolVerdict struct {
 // the model will see, as earlier hooks left it.
 //
 // A result hook changes only what the model sees: the next model call, and
-// the next turn's history through Project. The record, Observer and Stream
+// the next turn's history through TurnMessagesFull. The record, Observer and Stream
 // events, and ToolView.Outcome keep the raw output, so a result hook is not
 // storage redaction; keep a secret out of the record in the executor.
 type ResultPlan struct {
@@ -563,7 +563,7 @@ func reservedStopReason(reason string) bool {
 	case StopReasonHookFailed, StopReasonOutputRejected, StopReasonToolFatal,
 		StopReasonToolOutcomeInvalid, StopReasonContentNoLoader,
 		StopReasonContentUnavailable, StopReasonContentTooLarge,
-		StopReasonContentSizeMismatch, StopReasonContentDigestMismatch:
+		StopReasonContentSizeMismatch, StopReasonContentHashMismatch:
 		return true
 	}
 	return false

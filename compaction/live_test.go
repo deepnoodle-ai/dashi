@@ -67,7 +67,7 @@ func TestLiveCompactionContinuity(t *testing.T) {
 	}
 	ask := func(prompt string) dashi.RunResult {
 		t.Helper()
-		history, warnings := dashi.ProjectHistory(turns)
+		history, warnings := dashi.BuildHistory(turns)
 		if len(warnings) > 0 {
 			t.Fatalf("warnings: %+v", warnings)
 		}
@@ -83,7 +83,7 @@ func TestLiveCompactionContinuity(t *testing.T) {
 
 	// Keep no turns, so only the summary holds the fact.
 	c := &Compactor{Model: model, TailFraction: -1}
-	history, _ := dashi.ProjectHistory(turns)
+	history, _ := dashi.BuildHistory(turns)
 	start, err := c.Start(history)
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +91,7 @@ func TestLiveCompactionContinuity(t *testing.T) {
 	sum := run(start)
 	t.Logf("summary (%d output tokens, cost %v):\n%s",
 		sum.Spend.Usage.OutputTokens, sum.Spend.Cost, sum.Reply)
-	view, _ := dashi.ProjectHistory(turns)
+	view, _ := dashi.BuildHistory(turns)
 	if len(view) != 1 {
 		t.Fatalf("view has %d messages, want the summary alone", len(view))
 	}

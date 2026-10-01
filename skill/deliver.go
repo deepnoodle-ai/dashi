@@ -31,7 +31,7 @@ func (b *Bundle) Hooks() dashi.Hooks {
 		return dashi.Hooks{}
 	}
 	item := dashi.ContextItem{
-		ID:       "skills-" + b.digest,
+		ID:       "skills-" + b.hash,
 		Name:     catalogName,
 		Origin:   dashi.ContextRuntime,
 		Snapshot: true,

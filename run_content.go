@@ -141,7 +141,7 @@ func (r *runtime) resolveRef(ref content.Ref) ([]byte, string) {
 	}
 	sum := sha256.Sum256(data)
 	if !bytes.Equal([]byte(hex.EncodeToString(sum[:])), []byte(ref.SHA256)) {
-		return nil, StopReasonContentDigestMismatch
+		return nil, StopReasonContentHashMismatch
 	}
 	return data, ""
 }

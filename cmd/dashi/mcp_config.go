@@ -123,7 +123,7 @@ func selectMCP(home, dir, invocation string, explicit []string, read func(string
 	}
 	return out
 }
-func mcpEntryKey(s dashimcp.Server) string { return fmt.Sprintf("%s:%t", s.Fingerprint(), s.Untrusted) }
+func mcpEntryKey(s dashimcp.Server) string { return fmt.Sprintf("%s:%t", s.Hash(), s.Untrusted) }
 func preflightMCP(s dashimcp.Server, raw map[string]json.RawMessage) (string, string) {
 	if s.Disabled {
 		return "disabled", "disabled in configuration"

@@ -29,27 +29,27 @@ type Index interface {
 	LastTurn(ctx context.Context, sessionID string) (int, error)
 }
 
-// Liveness says whether any worker may still act on a turn.
-type Liveness string
+// WorkerStatus says whether any worker may still act on a turn.
+type WorkerStatus string
 
 const (
-	// LivenessUnknown means there is no proof either way, for example an
+	// WorkerStatusUnknown means there is no proof either way, for example an
 	// expired lease: its worker may still be inside a provider or tool call.
-	LivenessUnknown Liveness = "unknown"
-	// LivenessLive means a worker holds an unexpired claim on the turn.
-	LivenessLive Liveness = "live"
-	// LivenessStopped means the host knows no worker still acts on the
+	WorkerStatusUnknown WorkerStatus = "unknown"
+	// WorkerStatusRunning means a worker holds an unexpired claim on the turn.
+	WorkerStatusRunning WorkerStatus = "running"
+	// WorkerStatusStopped means the host knows no worker still acts on the
 	// turn: its process exited, or host fencing guarantees it. It says
 	// nothing about effects the worker started.
-	LivenessStopped Liveness = "stopped"
+	WorkerStatusStopped WorkerStatus = "stopped"
 )
 
-// TurnLiveness is an optional dashi.Recorder capability for hosts that lease
+// WorkerChecker is an optional dashi.Recorder capability for hosts that lease
 // turns. A session asks it about a last turn with no recorded stop: live
 // refines NextRecover to NextRunning, and stopped lets a new Start close the
 // turn. An error counts as unknown, which keeps the turn busy.
-type TurnLiveness interface {
-	Liveness(ctx context.Context, turnID string) (Liveness, error)
+type WorkerChecker interface {
+	WorkerStatus(ctx context.Context, turnID string) (WorkerStatus, error)
 }
 
 // sessionTurn is a loaded turn with its view and, once built, its
@@ -74,34 +74,34 @@ func (t *sessionTurn) ended() bool {
 
 // refined is a turn's Next with the liveness that refined it.
 type refined struct {
-	next     dashi.Next
-	liveness Liveness
+	next         dashi.Next
+	workerStatus WorkerStatus
 }
 
 // refine reads a turn's Next and refines NextRecover with liveness: this
-// handle running the turn, or the recorder's TurnLiveness. The caller
+// handle running the turn, or the recorder's WorkerChecker. The caller
 // holds mu.
 func (s *Session) refine(ctx context.Context, t *sessionTurn) refined {
 	next := t.view.Next()
 	switch {
 	case next == dashi.NextNone:
-		return refined{next: next, liveness: LivenessUnknown}
+		return refined{next: next, workerStatus: WorkerStatusUnknown}
 	case s.running[t.turn.ID] > 0:
-		return refined{next: dashi.NextRunning, liveness: LivenessLive}
+		return refined{next: dashi.NextRunning, workerStatus: WorkerStatusRunning}
 	case next != dashi.NextRecover:
-		return refined{next: next, liveness: LivenessUnknown}
+		return refined{next: next, workerStatus: WorkerStatusUnknown}
 	}
-	l := LivenessUnknown
-	if tl, ok := s.recorder().(TurnLiveness); ok {
-		v, err := tl.Liveness(ctx, t.turn.ID)
-		if err == nil && (v == LivenessLive || v == LivenessStopped) {
+	l := WorkerStatusUnknown
+	if tl, ok := s.recorder().(WorkerChecker); ok {
+		v, err := tl.WorkerStatus(ctx, t.turn.ID)
+		if err == nil && (v == WorkerStatusRunning || v == WorkerStatusStopped) {
 			l = v
 		}
 	}
-	if l == LivenessLive {
+	if l == WorkerStatusRunning {
 		next = dashi.NextRunning
 	}
-	return refined{next: next, liveness: l}
+	return refined{next: next, workerStatus: l}
 }
 
 // busy applies the last-turn rules: it returns the error for a turn a new
@@ -125,7 +125,7 @@ func (r refined) busy(t *sessionTurn, exclusive bool) *TurnBusyError {
 	case dashi.NextRunning, dashi.NextResolvePending:
 		return e
 	case dashi.NextRecover:
-		if r.liveness == LivenessStopped || exclusive {
+		if r.workerStatus == WorkerStatusStopped || exclusive {
 			return nil
 		}
 		return e
@@ -297,7 +297,7 @@ func (s *Session) store(n int, turn dashi.Turn) error {
 	if len(turn.Steps) == 0 {
 		return nil
 	}
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		delete(s.turns, n)
 		return err
@@ -308,7 +308,7 @@ func (s *Session) store(n int, turn dashi.Turn) error {
 }
 
 // history returns the projected history of turns 1 through n by the rule
-// of dashi.ProjectHistory. It walks back from turn n, so a fresh handle
+// of dashi.BuildHistory. It walks back from turn n, so a fresh handle
 // loads turns back to the newest completed compaction turn only, and it
 // keeps each ended turn's projection in the cache. A turn that fails to load
 // or project is left out with a dashi.WarningTurnUnreadable. The caller
@@ -323,7 +323,7 @@ func (s *Session) history(ctx context.Context, n int) ([]llm.Message, []dashi.Wa
 			if !ok {
 				continue // a failed compaction replaces nothing
 			}
-			if w := s.checkDigest(ctx, t); w != nil {
+			if w := s.checkHash(ctx, t); w != nil {
 				warnings = append(warnings, *w)
 			}
 			parts = append(parts, msgs)
@@ -331,7 +331,7 @@ func (s *Session) history(ctx context.Context, n int) ([]llm.Message, []dashi.Wa
 		}
 		var msgs []llm.Message
 		if err == nil {
-			msgs, err = s.contextProjection(t)
+			msgs, err = s.modelMessages(t)
 		}
 		if err != nil {
 			warnings = append(warnings, dashi.Warning{
@@ -391,7 +391,7 @@ func (s *Session) projection(t *sessionTurn) ([]llm.Message, error) {
 	if t.projected {
 		return t.messages, nil
 	}
-	msgs, err := dashi.Project(t.turn)
+	msgs, err := dashi.TurnMessagesFull(t.turn)
 	if err != nil {
 		return nil, err
 	}
@@ -409,11 +409,11 @@ func (s *Session) ready() {
 	}
 }
 
-func (s *Session) contextProjection(t *sessionTurn) ([]llm.Message, error) {
+func (s *Session) modelMessages(t *sessionTurn) ([]llm.Message, error) {
 	if t.contextProjected {
 		return t.contextMessages, nil
 	}
-	msgs, err := dashi.ProjectContext(t.turn)
+	msgs, err := dashi.TurnMessages(t.turn)
 	if err != nil {
 		return nil, err
 	}

@@ -95,7 +95,7 @@ func TestRuntimeActiveContextDiscardKeepsSettledEffects(t *testing.T) {
 	h.key(tui.KeyEvent{Key: tui.KeyEnter})
 	h.app.ctrl.Wait()
 	h.wait(func(s transcriptState) bool { return s.mode == ModeIdle && strings.Contains(s.text, "canceled") })
-	view, err := dashi.Replay(h.turn(1))
+	view, err := h.turn(1).View()
 	if err != nil {
 		t.Fatal(err)
 	}

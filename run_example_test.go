@@ -39,7 +39,7 @@ func (o *hostOutbox) unapplied(turn dashi.Turn) dashi.Command {
 // nothing to run now. The CommandID comes from the turn ID and revision, so
 // planning again after a crash gives the same command.
 func plan(turn dashi.Turn, view dashi.TurnView, history []llm.Message) dashi.Command {
-	id := fmt.Sprintf("%s@%d", turn.ID, view.Revision)
+	id := fmt.Sprintf("%s@%d", turn.ID, view.LastSeq)
 	switch view.Next() {
 	case dashi.NextContinue, dashi.NextRecover: // Resume once the old worker is gone.
 		return dashi.Continue{CommandID: id, History: history}
@@ -93,14 +93,14 @@ func Example_hostTurnLoop() {
 	// A worker plans and saves the next command, then crashes before
 	// running it.
 	turn, _ := rec.Load(ctx, "t1")
-	view, _ := dashi.Replay(turn)
+	view, _ := turn.View()
 	outbox.save(plan(turn, view, history))
 
 	for {
 		turn, _ := rec.Load(ctx, "t1")
 		cmd := outbox.unapplied(turn)
 		if cmd == nil {
-			view, _ := dashi.Replay(turn)
+			view, _ := turn.View()
 			if cmd = plan(turn, view, history); cmd == nil {
 				break
 			}
@@ -108,7 +108,7 @@ func Example_hostTurnLoop() {
 		}
 		out, err := runner.Run(ctx, turn, cmd, dashi.WithOwner(owner))
 		if err != nil {
-			fmt.Println(err) // Reload and back off on ErrRevisionConflict.
+			fmt.Println(err) // Reload and back off on ErrStaleTurn.
 			return
 		}
 		fmt.Println(dashi.CommandIDOf(cmd), "->", out.Stop.Kind, out.Next())

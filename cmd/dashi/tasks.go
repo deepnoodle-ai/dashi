@@ -317,7 +317,7 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			state, err := dashi.Replay(turn)
+			state, err := turn.View()
 			if err != nil {
 				return err
 			}
@@ -482,7 +482,7 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 		return errors.New("task recorder cannot load authoritative records")
 	}
 	for _, parent := range parents {
-		view, err := dashi.Replay(parent)
+		view, err := parent.View()
 		if err != nil {
 			return err
 		}
@@ -537,7 +537,7 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 					problems[id] = err.Error()
 					break
 				}
-				state, err := dashi.Replay(turn)
+				state, err := turn.View()
 				if err != nil {
 					problems[id] = err.Error()
 					break
@@ -556,7 +556,7 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 				if state.Stop.Kind == dashi.StopCompleted {
 					task.Reply = state.Reply
 				}
-				last = taskSnapshot{Task: task, Turn: turn, View: state, Target: delegate.TaskTarget{ID: id, TurnID: turn.ID, Revision: state.Revision}}
+				last = taskSnapshot{Task: task, Turn: turn, View: state, Target: delegate.TaskTarget{ID: id, TurnID: turn.ID, LastSeq: state.LastSeq}}
 			}
 			if problems[id] != "" {
 				// A damaged latest record cannot borrow an earlier stop as

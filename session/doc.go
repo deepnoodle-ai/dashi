@@ -10,5 +10,5 @@
 //
 // Session uses only the public contract of package dashi. A host that
 // stores its own turns can drive dashi.Runner directly instead, with
-// dashi.ProjectHistory as the history rule.
+// dashi.BuildHistory as the history rule.
 package session

@@ -95,7 +95,7 @@ func TestContinueThenQueueUsesRecordedAndNextDestinations(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		view, err := dashi.Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -104,7 +104,7 @@ func TestContinueThenQueueUsesRecordedAndNextDestinations(t *testing.T) {
 		if n == 2 {
 			want = "two"
 		}
-		if view.Agent.Provider != want || !strings.HasPrefix(view.Agent.Revision, cliRouteRevision) {
+		if view.Agent.Provider != want || !strings.HasPrefix(view.Agent.Version, cliRouteVersion) {
 			t.Fatalf("turn %d agent=%+v", n, view.Agent)
 		}
 	}
@@ -134,7 +134,7 @@ func TestNewDestinationClosesInterruptedOldTurnFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := dashi.Replay(first)
+	view, err := first.View()
 	if err != nil || view.Stop.Kind != dashi.StopCanceled || view.Stop.Reason != session.CloseReason {
 		t.Fatalf("old turn = %+v %v", view, err)
 	}
@@ -177,7 +177,7 @@ func TestNewDestinationCompletesRecordedOutputBeforeQueuedWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := dashi.Replay(firstTurn)
+	view, err := firstTurn.View()
 	if err != nil || view.Stop.Kind != dashi.StopCompleted || view.Agent.Provider != "one" {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}

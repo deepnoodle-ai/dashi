@@ -91,7 +91,7 @@ func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 	if out.Stop.Kind != StopInterrupted || secondRuns != 0 {
 		t.Fatalf("stop=%+v second runs=%d", out.Stop, secondRuns)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestInterruptedParallelBatchDoesNotStartLaterSibling(t *testing.T) {
 		len(out.Pending) != 2 {
 		t.Fatalf("out=%+v third runs=%d", out, thirdRuns.Load())
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestExplicitCancelSettlesUnstartedApproval(t *testing.T) {
 	if err != nil || canceled.Stop.Kind != StopCanceled || len(canceled.Pending) != 0 {
 		t.Fatalf("cancel=%+v err=%v", canceled, err)
 	}
-	view, err := Replay(canceled.Turn)
+	view, err := canceled.Turn.View()
 	if err != nil || view.Tools["call-1"].Status != ToolFinished || view.Tools["call-1"].Outcome.State != tool.StateNotExecuted {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}
@@ -284,7 +284,7 @@ func TestInterruptedAfterModelIntentDoesNotSend(t *testing.T) {
 		settled.Model.Interrupted != InterruptRun {
 		t.Fatalf("settlement=%+v", settled)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +330,7 @@ func TestInterruptedAfterModelResultDoesNotStartPendingTool(t *testing.T) {
 		client.sends != 1 || len(out.Pending) != 0 {
 		t.Fatalf("out=%+v err=%v runs=%d sends=%d", out, err, runs, client.sends)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +352,7 @@ func budgetHooks() Hooks {
 		Func: func(_ context.Context, plan SendPlan) (SendDecision, error) {
 			admission, err := json.Marshal(testAdmission{
 				Units:        3,
-				RequestProof: canonjson.Digest(plan.Request.Body()),
+				RequestProof: canonjson.Hash(plan.Request.Body()),
 			})
 			return SendDecision{Reservation: admission}, err
 		},
@@ -399,16 +399,16 @@ func (r *budgetRecorder) Commit(ctx context.Context, req CommitRequest) error {
 		if err := json.Unmarshal(
 			step.Model.Reservation["budget"],
 			&admission,
-		); err != nil || admission.Units <= 0 || admission.RequestProof != step.Model.RequestDigest {
+		); err != nil || admission.Units <= 0 || admission.RequestProof != step.Model.RequestHash {
 			return &CommitError{
-				Persistence: PersistenceRejected,
-				Err:         errors.New("invalid admission"),
+				NothingWritten: true,
+				Err:            errors.New("invalid admission"),
 			}
 		}
 		if r.balance < admission.Units {
 			return &CommitError{
-				Persistence: PersistenceRejected,
-				Err:         errors.New("budget exhausted"),
+				NothingWritten: true,
+				Err:            errors.New("budget exhausted"),
 			}
 		}
 	}
@@ -481,7 +481,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		startCommand,
 		WithOwner("owner-a"),
 	)
-	if persistence(err) != PersistenceUnknown || client.sends != 0 || rec.balance != 7 {
+	if !writeUnknown(err) || client.sends != 0 || rec.balance != 7 {
 		t.Fatalf(
 			"lost admission: out=%+v err=%v sends=%d balance=%d",
 			first,
@@ -491,15 +491,15 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		)
 	}
 	saved, err := rec.Load(t.Context(), "t1")
-	if err != nil || len(saved.Steps) != 2 || saved.Steps[1].Model.RequestDigest == "" || len(saved.Steps[1].Model.Reservation) == 0 {
+	if err != nil || len(saved.Steps) != 2 || saved.Steps[1].Model.RequestHash == "" || len(saved.Steps[1].Model.Reservation) == 0 {
 		t.Fatalf("saved=%+v err=%v", saved, err)
 	}
-	view, err := Replay(saved)
+	view, err := saved.View()
 	if err != nil || !view.ReadyToContinue {
 		t.Fatalf("crashed model intent is not ready: view=%+v err=%v", view, err)
 	}
 	changed := startCommand
-	changed.Agent.Revision = "r2"
+	changed.Agent.Version = "r2"
 	_, err = runner.Run(t.Context(), saved, changed, WithOwner("owner-a"))
 	if !errors.Is(err, ErrAgentChanged) {
 		t.Fatalf("changed agent accepted: %v", err)
@@ -520,7 +520,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		proof,
 		WithOwner("owner-a"),
 	)
-	if persistence(err) != PersistenceRejected || rec.balance != 7 {
+	if !nothingWritten(err) || rec.balance != 7 {
 		t.Fatalf("stale owner: out=%+v err=%v balance=%d", stale, err, rec.balance)
 	}
 	proved, err := runner.Run(
@@ -566,7 +566,7 @@ func TestHostAdmissionTakeoverAndExternalToolRecovery(t *testing.T) {
 		settle,
 		WithOwner("owner-b"),
 	)
-	if persistence(err) != PersistenceRejected || client.sends != 1 {
+	if !nothingWritten(err) || client.sends != 1 {
 		t.Fatalf(
 			"stale external worker: out=%+v err=%v sends=%d",
 			stale,

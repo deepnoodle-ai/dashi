@@ -408,7 +408,7 @@ func TestBreakingStreamWhileToolReports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil || view.Stop.Kind != StopInterrupted {
 		t.Fatalf("stop=%+v err=%v", view.Stop, err)
 	}

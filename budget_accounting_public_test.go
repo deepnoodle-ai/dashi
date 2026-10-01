@@ -96,7 +96,7 @@ func TestCutAnthropicProviderToolStreamCostIsPartial(t *testing.T) {
 			CommandID: "start",
 			Agent: dashi.Agent{
 				ID:       "agent",
-				Revision: "r1",
+				Version:  "r1",
 				Provider: provider,
 				API:      messages.API,
 				Model:    model,

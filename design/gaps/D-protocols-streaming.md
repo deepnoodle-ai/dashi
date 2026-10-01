@@ -36,7 +36,7 @@ Sources: ACP v1 1.23.0 / v2 alpha.5 via `tmp/research/acpresearch/`
 | Approvals | `session/request_permission` RPC bound to one connection; v2 `title`/`subject`; not re-issued | Approval is a host tool: Turn `waiting`, and the current change carries `arguments` and `deadline_at` (R24) | `tool_decision{defer}` then `turn_stopped{waiting}`; `Accept{Approval}` bound to args digest + policy revision (engine.go:239-248). No title, options, or deadline |
 | Cancel | Notification; flush, then `idle{cancelled}`; client cancels pending permissions | Separate cancel op; terminal `cancelled` change; disconnect never cancels (R45) | `Cancel` command or breaking the range → `turn_stopped{canceled}`; late `model_call_finished`/`tool_finished` may follow the stop (state.go:130-136) |
 | Terminal | Stop reasons end_turn, max_tokens, max_turn_requests, refusal, cancelled; **no failed** | `terminal: true` change is the only end signal (R22); Turn route closes `settled` | `StopKind` completed, waiting, limited, refused, canceled, failed, uncertain (turn.go:246-254). Only completed and canceled are final (state.go:603-606), and nothing on the stop says which |
-| Usage | `usage_update{used,size,cost}`; per-turn usage ambiguous (#1860) | Summed disjoint buckets on the current terminal change | Per-attempt `Result.Usage` in `model_call_finished`, disjoint buckets (llm/usage.go:39); summed only by `Replay` (state.go:115-120); provisional `DeltaUsage` |
+| Usage | `usage_update{used,size,cost}`; per-turn usage ambiguous (#1860) | Summed disjoint buckets on the current terminal change | Per-attempt `Result.Usage` in `model_call_finished`, disjoint buckets (llm/usage.go:39); summed only by `Turn.View` (state.go:115-120); provisional `DeltaUsage` |
 | Errors | JSON-RPC error; v2 custom `_…` stop | Pre-stream HTTP errors only; `TurnFailure{code (closed enum), message, details}` | `Stop.Reason` and `ModelFact.Error` are free strings, often `err.Error()` (engine.go:614-620); `Persistence` + `WriteError` on `Outcome` |
 
 ## ACP patterns
@@ -74,7 +74,7 @@ reliably available.
 | `has_more`, replay page | No read-after-`Seq` API; `Recorder` has only `Commit` (recorder.go:19-21) | Gap (host builds it) |
 | `ConversationMessage.id` for user and tool rows | `StartFact.Input`/`ContextItem`/`tool_finished` have no IDs | OK only through a documented derived ID |
 | Assistant message `id` = preview `message_id` (R26) | `ModelFact.MessageID` on requested/settled + `Event.MessageID` | OK |
-| `role`, `content`, `tool_use`, `tool_result`, `reminder` blocks | `Project` and step payloads (project.go:13) | OK. Per-step projection helper missing |
+| `role`, `content`, `tool_use`, `tool_result`, `reminder` blocks | `TurnMessagesFull` and step payloads (project.go:13) | OK. Per-step projection helper missing |
 | `redacted` / no stored reasoning (R19, R29) | Reasoning blocks are kept in `Result` for provider replay | Host must redact in projection |
 | `sequence`, `created_at` | `Seq`, `Step.At` | OK |
 | `user_key`, `agent_id` | `StartOrigin`/`ContextItem.Origin` only | Host |
@@ -90,7 +90,7 @@ reliably available.
 | `tool_calls[]` id, name, status | `TurnView.Tools` (state.go:25-31): requested/allowed→pending, started/waiting→running, settled→completed/failed, not_executed→cancelled, uncertain→failed | OK via fold |
 | `mode` | `tool.Definition.Kind` (external vs local); no mcp/callback | Partial |
 | `arguments`, `deadline_at` while settleable | `Call.Args` yes; per-wait deadline no (only `Limits.Deadline`) | Partial |
-| `usage` summed, `provenance` | `Replay` sums `modelUsages`; `ModelFact` provider/API/model | OK |
+| `usage` summed, `provenance` | `Turn.View` sums `modelUsages`; `ModelFact` provider/API/model | OK |
 | `structured_output`, `final_answer_message_id` | `output_recorded` step; last `model_call_finished.MessageID` when completed | OK |
 | `message.delta.attempt` (execution epoch) | `ModelCallID` is a model call, not a lease epoch; `Owner` is not recorded on steps or events | Gap / Host |
 | `content_index` | `Delta.Index` (provider block index, same caveat as nvoken) | OK |

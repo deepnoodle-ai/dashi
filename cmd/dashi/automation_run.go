@@ -177,7 +177,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 				if err != nil {
 					return dashi.TurnView{}, err
 				}
-				return dashi.Replay(turn)
+				return turn.View()
 			}, cancel)
 			if snap.answer.ID != "" {
 				output.selectTurn(turnNumber(snap.answer.ID))
@@ -275,7 +275,7 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 		if err != nil {
 			return dashi.TurnView{}, err
 		}
-		return dashi.Replay(turn)
+		return turn.View()
 	}, cancel)
 	if err = a.initializeMCP(execCtx, false); err != nil {
 		diagnostic("MCP initialization canceled or failed; no work was started")

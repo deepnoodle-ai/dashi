@@ -495,7 +495,7 @@ func RenderTurn(
 	turn dashi.Turn,
 	diffs map[int64][]string,
 ) ([]Block, error) {
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		return nil, err
 	}

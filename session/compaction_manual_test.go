@@ -49,7 +49,7 @@ func TestSessionManualCompactionResults(t *testing.T) {
 				t.Fatal(out.SessionWarnings)
 			}
 			reopened := handle(rec, client)
-			projected, err := reopened.ProjectedHistory(t.Context())
+			projected, err := reopened.NextHistory(t.Context())
 			if err != nil || !slices.Equal(textsOf(projected), want) {
 				t.Fatalf("reopened=%q err=%v", textsOf(projected), err)
 			}
@@ -199,7 +199,7 @@ func TestSessionManualCompactionConcurrentAndCanceled(t *testing.T) {
 	if !errors.Is(r.err, context.Canceled) || r.out.Origin != dashi.StartCompaction || r.out.Next() != dashi.NextContinue {
 		t.Fatalf("cancellation outcome=%+v err=%v", r.out, r.err)
 	}
-	projected, err := handle(rec, client).ProjectedHistory(t.Context())
+	projected, err := handle(rec, client).NextHistory(t.Context())
 	if err != nil || !slices.Equal(textsOf(projected), []string{"first", "first answer"}) {
 		t.Fatalf("canceled history=%q err=%v", textsOf(projected), err)
 	}
@@ -221,7 +221,7 @@ func TestSessionManualCompactionRecorderFailures(t *testing.T) {
 			if len(client.Inputs()) != 1 {
 				t.Fatal("summary dispatched without acknowledged admission")
 			}
-			projected, err := handle(rec, client).ProjectedHistory(t.Context())
+			projected, err := handle(rec, client).NextHistory(t.Context())
 			if err != nil || !slices.Equal(textsOf(projected), []string{"first", "answer"}) {
 				t.Fatalf("history=%q err=%v", textsOf(projected), err)
 			}
@@ -293,7 +293,7 @@ func TestSessionManualCompactionFailedNonemptySummary(t *testing.T) {
 	if err != nil || !slices.Contains(codes(out.SessionWarnings), session.WarningCompactionFailed) {
 		t.Fatalf("out=%+v err=%v", out, err)
 	}
-	projected, err := handle(rec, client).ProjectedHistory(t.Context())
+	projected, err := handle(rec, client).NextHistory(t.Context())
 	if err != nil || !slices.Equal(textsOf(projected), []string{"first", "answer"}) {
 		t.Fatalf("failed history=%q err=%v", textsOf(projected), err)
 	}

@@ -102,7 +102,7 @@ func TestStructuredOutputAfterOrdinaryTool(t *testing.T) {
 			t.Fatalf("request %d tools=%+v", i, in.Tools)
 		}
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil || view.Output == nil || view.Output.Source != OutputFromTool {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
@@ -235,14 +235,14 @@ func TestStructuredOutputStartedSubmissionRecoversWithoutModelResend(
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepToolFinished}
 	first, err := applyStructuredErr(client, nil, rec)
-	if persistence(err) != PersistenceRejected || client.sends != 1 {
+	if !nothingWritten(err) || client.sends != 1 {
 		t.Fatalf("first=%+v sends=%d", first, client.sends)
 	}
 	saved, err := base.Load(t.Context(), "t1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(saved)
+	view, err := saved.View()
 	if err != nil || view.Tools["submission"].Status != ToolStarted {
 		t.Fatalf("saved=%+v err=%v", view, err)
 	}
@@ -266,7 +266,7 @@ func TestStructuredOutputRecordRejectsForgedValue(t *testing.T) {
 			break
 		}
 	}
-	if _, err := Replay(out.Turn); err == nil {
+	if _, err := out.Turn.View(); err == nil {
 		t.Fatal("replay accepted output that did not match the recorded model call")
 	}
 }
@@ -293,7 +293,7 @@ func TestStructuredOutputSchemaCanVaryPerTurn(t *testing.T) {
 	if len(client.inputs) != 1 || string(client.inputs[0].Tools[0].Schema) != schema {
 		t.Fatalf("submitted schema=%+v", client.inputs)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil || string(view.OutputSchema) != schema || string(view.Agent.OutputSchema) != string(answerSchema) {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}
@@ -308,7 +308,7 @@ func TestStructuredOutputSchemaCanVaryPerTurn(t *testing.T) {
 			break
 		}
 	}
-	if _, err := Replay(out.Turn); err == nil {
+	if _, err := out.Turn.View(); err == nil {
 		t.Fatal("replay accepted a changed turn schema")
 	}
 }
@@ -360,7 +360,7 @@ func TestStructuredOutputSubmissionEvidenceCannotBeRewritten(t *testing.T) {
 			break
 		}
 	}
-	if _, err := Replay(out.Turn); err == nil {
+	if _, err := out.Turn.View(); err == nil {
 		t.Fatal("replay accepted a rewritten output submission")
 	}
 }
@@ -372,7 +372,7 @@ func TestStructuredOutputCannotBeSettledByHost(t *testing.T) {
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepToolFinished}
 	first, err := applyStructuredErr(client, nil, rec)
-	if persistence(err) != PersistenceRejected {
+	if !nothingWritten(err) {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
 	saved, err := base.Load(t.Context(), "t1")
@@ -402,7 +402,7 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepTurnStopped}
 	first, err := applyStructuredErr(client, nil, rec)
-	if persistence(err) != PersistenceRejected {
+	if !nothingWritten(err) {
 		t.Fatalf("err=%v", err)
 	}
 	if first.Output == nil {
@@ -416,7 +416,7 @@ func TestStructuredOutputRecordedOutputRejectsContextAndCancelUntilCompleted(
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(saved)
+	view, err := saved.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -529,7 +529,7 @@ func TestReplayRejectsContextAfterRecordedOutput(t *testing.T) {
 	for _, step := range forged {
 		turn := out.Turn
 		turn.Steps = append(slices.Clone(out.Turn.Steps[:i+1]), step)
-		if _, err := Replay(turn); err == nil {
+		if _, err := turn.View(); err == nil {
 			t.Fatalf("replay accepted %s after recorded output", step.Kind)
 		}
 	}

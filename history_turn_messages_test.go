@@ -86,7 +86,7 @@ func TestRecordedReminderAcrossToolIterations(t *testing.T) {
 	if !strings.Contains(string(encoded), "persistent context") {
 		t.Fatalf("recorded reminder missing from turn: %s", encoded)
 	}
-	projected, err := Project(got.Turn)
+	projected, err := TurnMessagesFull(got.Turn)
 	if err != nil || !hasReminder(projected, "scope") {
 		t.Fatalf("recorded reminder missing from projection: %v %+v", err, projected)
 	}
@@ -165,7 +165,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 		AddMessages{CommandID: "bad", Items: []ContextItem{bad}},
 	)
 	// AddMessages checks its items before recording anything.
-	if persistence(err) != "other" ||
+	if !otherError(err) ||
 		len(rejected.Turn.Steps) != len(delivered.Turn.Steps) {
 		t.Fatalf("untrusted operator reminder accepted: %+v err=%v", rejected, err)
 	}
@@ -198,7 +198,7 @@ func TestRecordedReminderSnapshotAndTrust(t *testing.T) {
 	}
 	// A replaced snapshot stays in place, ahead of its replacement, so the
 	// prompt prefix is stable (design/prompt-cache.md).
-	projected, err := Project(completed.Turn)
+	projected, err := TurnMessagesFull(completed.Turn)
 	if err != nil || !reminderBefore(projected, "old", "new") ||
 		!reminderBefore(client.inputs[1].Messages, "old", "new") {
 		t.Fatalf(
@@ -231,7 +231,7 @@ func TestOperatorReminderStartRequiresOperatorOrigin(t *testing.T) {
 				Input:     []llm.Message{llm.ReminderMessage(r)},
 			},
 		)
-		if persistence(err) != PersistenceRejected || client.sends != 0 {
+		if !nothingWritten(err) || client.sends != 0 {
 			t.Fatalf("origin=%s outcome=%+v err=%v", origin, got, err)
 		}
 	}
@@ -433,9 +433,9 @@ func unsettledCallsTurn() Turn {
 	return interruptionRecord(steps...)
 }
 
-func TestCanceledTurnProjectsUnsettledCallsAndFreezes(t *testing.T) {
+func TestCanceledTurnShowsUnfinishedCallsAndFreezes(t *testing.T) {
 	turn := unsettledCallsTurn()
-	if _, err := Project(turn); err == nil {
+	if _, err := TurnMessagesFull(turn); err == nil {
 		t.Fatal("an open turn with unsettled calls projected")
 	}
 	runner := Runner{Client: &scriptedClient{}}
@@ -443,7 +443,7 @@ func TestCanceledTurnProjectsUnsettledCallsAndFreezes(t *testing.T) {
 	if err != nil || !canceled.Stop.Ended {
 		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
 	}
-	messages, err := Project(canceled.Turn)
+	messages, err := TurnMessagesFull(canceled.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +469,7 @@ func TestCanceledTurnProjectsUnsettledCallsAndFreezes(t *testing.T) {
 	if err != nil || late.Tools["started"].Status != ToolFinished {
 		t.Fatalf("late=%+v err=%v", late.Tools["started"], err)
 	}
-	after, err := Project(late.Turn)
+	after, err := TurnMessagesFull(late.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +490,7 @@ func TestCanceledTurnDropsPendingModelAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	messages, err := Project(canceled.Turn)
+	messages, err := TurnMessagesFull(canceled.Turn)
 	if err != nil || len(messages) != 1 || messages[0].Role != llm.RoleUser {
 		t.Fatalf("messages=%+v err=%v", messages, err)
 	}
@@ -571,7 +571,7 @@ func TestLateModelResultKeepsEndedAnswer(t *testing.T) {
 	if err != nil || !canceled.Stop.Ended {
 		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
 	}
-	before, err := Project(canceled.Turn)
+	before, err := TurnMessagesFull(canceled.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,11 +591,11 @@ func TestLateModelResultKeepsEndedAnswer(t *testing.T) {
 	if out.Reply != "" || out.Next() != NextNone {
 		t.Fatalf("answer=%q next=%s", out.Reply, out.Next())
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil || view.Reply != "" {
 		t.Fatalf("replayed answer=%q err=%v", view.Reply, err)
 	}
-	after, err := Project(out.Turn)
+	after, err := TurnMessagesFull(out.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -629,7 +629,7 @@ func TestRepeatedCrashResumeCarriesOneReminder(t *testing.T) {
 	}
 	crashedAgain := cloneTurn(first.Turn)
 	crashedAgain.Steps = crashedAgain.Steps[:cut+1]
-	if view, err := Replay(crashedAgain); err != nil || view.Next() != NextRecover {
+	if view, err := crashedAgain.View(); err != nil || view.Next() != NextRecover {
 		t.Fatalf("second crash: next=%s err=%v", view.Next(), err)
 	}
 

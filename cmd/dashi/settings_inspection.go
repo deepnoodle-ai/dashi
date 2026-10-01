@@ -90,8 +90,8 @@ func (e *Engine) inspectSettings(ctx context.Context) settingsInspection {
 		}
 	}
 	view.CredentialSource = "none required"
-	fingerprint, _ := d.fingerprint()
-	if d.Project && !d.trustedBy(p.routes.user) && !p.routes.granted(fingerprint) {
+	hash, _ := d.hash()
+	if d.Project && !d.trustedBy(p.routes.user) && !p.routes.granted(hash) {
 		view.CredentialVariable = d.Definition.CredentialEnv
 		view.CredentialSource = "project binding trust required"
 	} else {
@@ -120,7 +120,7 @@ func (e *Engine) inspectSettings(ctx context.Context) settingsInspection {
 		view.PreviewError = launch.SelectionError
 		return view
 	}
-	client, err := p.routes.factory(d, p.routes.lookup, d.trustedBy(p.routes.user) || p.routes.granted(fingerprint))
+	client, err := p.routes.factory(d, p.routes.lookup, d.trustedBy(p.routes.user) || p.routes.granted(hash))
 	if err == nil {
 		var request llm.Request
 		request, err = client.Prepare(ctx, llm.Input{Model: view.Model, Stream: true, Settings: launch.Controls.Settings, Messages: []llm.Message{llm.UserMessage(llm.Text("Preparation preview."))}})

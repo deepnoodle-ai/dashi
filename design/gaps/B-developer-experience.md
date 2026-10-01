@@ -26,8 +26,8 @@ docs or examples shows a tool, an approval, or a recovery.
 | (a) One model call | Client+Config, `UnknownPolicy`, `Input`, `Message`/`Content`; ~5 lines via `llm.Generate`. `Model` is required, and strict capability checking rejects every model unless you set `UnknownAllow` or supply dated evidence. | `anthropic.New()`, `Generate(ctx, llm.WithMessages(...))`, `AnswerText()`; ~3 lines, default model. |
 | (b) Streamed call | Adds `Prepare`, `Input.Stream: true`, and `llm.Stream`; ~12 lines. There is no Input-level stream helper, and forgetting `Stream: true` yields a result with no deltas. | Type-assert `StreamingLLM`, then Next/Event/Err/Close plus manual accumulation; ~15 lines. **Dashi is better.** |
 | (c) Agent turn with a tool | `tool.Func`, a hand-written `Toolset` type, `Definition` (ID, Revision, Provider, API, Model, Limits), `Turn{ID}`, `Start{ID, Input}`, `Bindings`, `MemoryRecorder`, `AllowLocalPolicy`, then checks on `Persistence` and `Stop`; ~25 lines, **4 IDs, 5 structs, 1 interface**. | `NewAgent(AgentOptions{Model, Tools})` and `CreateResponse(WithInput)`; ~8 lines, 0 IDs, 1 struct. |
-| (d) Resume after a crash | Host-specific `Load` (not part of `Recorder`), `Replay`, classify each `Pending` string (model attempt, tool call, or hosted request), gather evidence, then `Accept{…ModelFailure/Outcome}` or `Continue`. You must re-supply a byte-identical `Definition`. ~30-40 lines. | Session store, `CreateResponse` with resume or tool results, and `TurnOutcome.Next` says what to do; ~6-10 lines. |
-| (e) Approve a tool call | Implement `Policy` (4 methods; embed `AllowLocalPolicy`) and return `DecisionDefer` with a `Revision`. On `StopWaiting`: `Replay`, look up the call, **recompute the unexported args digest**, then `Accept{ID, CallID, Approval: &ApprovalDecision{CallID, Approve, ArgsDigest, PolicyRevision}}`. ~25 lines. | `PreToolUse` hook or permission rules plus a `Dialog`, or `NewSuspendResult` then `WithToolResults`; ~10 lines. **Dashi's model is more correct** (binding to args and revision). |
+| (d) Resume after a crash | Host-specific `Load` (not part of `Recorder`), `Turn.View`, classify each `Pending` string (model attempt, tool call, or hosted request), gather evidence, then `Accept{…ModelFailure/Outcome}` or `Continue`. You must re-supply a byte-identical `Definition`. ~30-40 lines. | Session store, `CreateResponse` with resume or tool results, and `TurnOutcome.Next` says what to do; ~6-10 lines. |
+| (e) Approve a tool call | Implement `Policy` (4 methods; embed `AllowLocalPolicy`) and return `DecisionNeedsApproval` with a `Revision`. On `StopWaiting`: `Turn.View`, look up the call, **recompute the unexported args digest**, then `Accept{ID, CallID, Approval: &ApprovalDecision{CallID, Approve, ArgsHash, PolicyRevision}}`. ~25 lines. | `PreToolUse` hook or permission rules plus a `Dialog`, or `NewSuspendResult` then `WithToolResults`; ~10 lines. **Dashi's model is more correct** (binding to args and revision). |
 
 ## Findings
 
@@ -49,7 +49,7 @@ host-level primitive. **High.**
 
 **2. Tool approval cannot be completed with public API.** Evidence:
 `engine.go:249` and `state.go:454` compare `digest(v.Call.Args)` against
-`ApprovalDecision.ArgsDigest`. `digest` is unexported (`turn.go:324-328`) and is
+`ApprovalDecision.ArgsHash`. `digest` is unexported (`turn.go:324-328`) and is
 sha256 over `json.Marshal(json.RawMessage)`, which compacts whitespace. So
 `sha256(args)` computed by a caller can differ. Only tests compute it
 (`engine_test.go:288`). `Accept.CallID` must also repeat `Approval.CallID`
@@ -125,7 +125,7 @@ re-supplied.** Evidence: `Recorder` has only `Commit` (`recorder.go:19-21`).
 `break` or an unknown write (`docs/agent-turns.md:140-141`). Every command also
 needs the Definition, which must match the recorded one exactly
 (`engine.go:90-91`). The recorded copy is available through
-`Replay(turn).Definition`. `Limits.Deadline` is an absolute time inside the
+`turn.View().Definition`. `Limits.Deadline` is an absolute time inside the
 "reusable" Definition (`turn.go:42`), so a per-turn deadline changes the digest.
 Direction: add a `Loader` interface (`Load(ctx, turnID)`), let the engine or
 runner default to the recorded Definition, and move `Deadline` to
@@ -193,9 +193,9 @@ text" (`docs/agent-turns.md:52-60`), which is surprising for callers who check
 `Disposition` (`media/error.go:11-42`). Hosted-tool constructors vary in shape:
 `NewCodeExecutionTool(provider string)` vs `(options)`, `WebSearchOptions` vs
 `WebSearchToolOptions`, some return errors and some do not
-(`providers/*/hosted_tools.go`). Anthropic's `NewMCPToolset` returns a
+(`providers/*/provider_tools.go`). Anthropic's `NewMCPToolset` returns a
 `tool.Definition`, not a `tool.Toolset`
-(`providers/anthropic/messages/hosted_tools.go:171`). There are no video job
+(`providers/anthropic/messages/provider_tools.go:171`). There are no video job
 polling helpers (an iterator candidate). **Low.**
 
 ## Vocabulary drift
@@ -207,7 +207,7 @@ polling helpers (an iterator candidate). **Low.**
 | Result | `llm.Result`, `media.Result`, `Accept.ModelResult`, `llm.ToolResult` (a model content item) | `llm.ToolResult` vs `tool.Outcome`/`tool.Output` are two shapes for the same fact (`project.go:125-132` converts). | One tool-result term per layer. |
 | Definition | `dashi.Definition` (agent), `tool.Definition`, `StartFact.Definition`, `ToolFact.Definition` | The glossary says "Agent definition… tools" (`ubiquitous-language.md:10-11`), but the type has no tools, and no `Agent` type exists. | `AgentDefinition`, or an `Agent` facade. |
 | Origin | `content.Origin` (endpoint/credential scope struct); `StartOrigin` (user/scheduled/operator, typed); `ContextItem.Origin string` (user/library/tool/operator, untyped, `state.go:709-720`) | Three meanings, two overlapping closed vocabularies, one of them untyped. | `content.Scope` for replay; one typed `Authority` enum for starts and context. |
-| Revision | `Definition.Revision` (version string), `TurnView.Revision` (int64 sequence), `ToolDecision.Revision` (policy version), `ErrRevisionConflict` (sequence) | Three meanings. | `Version`, `Seq`, and `PolicyVersion`. |
+| Revision | `Definition.Revision` (version string), `TurnView.LastSeq` (int64 sequence), `ToolDecision.RulesVersion` (policy version), `ErrStaleTurn` (sequence) | Three meanings. | `Version`, `Seq`, and `PolicyVersion`. |
 | Step / Fact / Event | `Step` holds `*Fact` payloads; `ApprovalDecision` is also a command input; `dashi.Event` vs `llm.StreamEvent` vs `Delta` | "Fact" is used both for records and inputs. The glossary says "Event and observer… callback" only. | Keep Step as the record; make inputs `Approval`, not `ApprovalDecision`. |
 | StepKind names vs values | `StepTurnStarted="turn_started"`, `StepModelCallStarted="model_call_started"`, `StepApproval="approval_accepted"` (also used for denials) | Constant names, JSON values, and meaning disagree. | Align names with values; use `approval_recorded`. |
 | Input | `llm.Input` (model input), `Start.Input []llm.Message` | The glossary says turn input is "context items" (`ubiquitous-language.md:48-49`). | Update the glossary or accept `[]ContextItem`. |

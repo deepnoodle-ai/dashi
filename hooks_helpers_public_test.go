@@ -65,7 +65,7 @@ func TestHookHelpersHoldAcrossResume(t *testing.T) {
 		t.Fatal("no nudge recorded")
 	}
 	turn.Steps = turn.Steps[:cut+1]
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}

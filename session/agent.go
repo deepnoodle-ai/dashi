@@ -37,8 +37,8 @@ func (s *Session) carried(a dashi.Agent) dashi.Agent {
 		a.Provider != c.Provider() || a.API != c.API() {
 		a.Provider, a.API, a.Model = "", "", ""
 	}
-	if strings.HasPrefix(a.Revision, dashi.DerivedRevisionPrefix) {
-		a.Revision = ""
+	if strings.HasPrefix(a.Version, dashi.DerivedVersionPrefix) {
+		a.Version = ""
 	}
 	return a
 }

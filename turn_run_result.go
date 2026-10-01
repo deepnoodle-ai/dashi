@@ -26,7 +26,7 @@ type RunResult struct {
 	TurnView
 	// SessionWarnings holds warnings that no turn records, which a host
 	// built on Runner adds: package session reports its own there, and
-	// those of ProjectHistory. Runner.Run leaves it empty.
+	// those of BuildHistory. Runner.Run leaves it empty.
 	SessionWarnings []Warning
 }
 
@@ -53,7 +53,7 @@ const (
 // the Resolve command that answers it, so the caller never copies argument
 // digests or IDs by hand. Each builder derives the command
 // ID from the item: a retried answer is recognized as a duplicate, and a
-// different second answer fails with ErrCommandConflict.
+// different second answer fails with ErrCommandIDReused.
 //
 // Calls that are only requested, allowed, or denied need nothing but
 // Continue and are not listed.
@@ -122,7 +122,7 @@ func (p Pending) answer(approve bool, reason string) Resolve {
 	// call ID alone identifies this answer. An item that is not an
 	// approval gets an empty digest, which Run rejects as not pending.
 	if p.Tool != nil {
-		fact.ArgsDigest = p.Tool.ArgsDigest
+		fact.ArgsHash = p.Tool.ArgsHash
 	}
 	return Resolve{
 		CommandID: "approval:" + p.ID,
@@ -143,7 +143,7 @@ func restingOutcome(turn Turn) RunResult {
 
 func outcome(t Turn, s *replayState) RunResult {
 	view := snapshotView(s.TurnView)
-	view.Stop = s.projectedStop()
+	view.Stop = s.inferredStop()
 	return RunResult{Turn: cloneTurn(t), TurnView: view}
 }
 
@@ -156,7 +156,7 @@ func notReady(s *replayState) error {
 	if len(ids) > 0 {
 		return fmt.Errorf("%w: waiting on %s", ErrNotReady, strings.Join(ids, ", "))
 	}
-	stop := s.projectedStop()
+	stop := s.inferredStop()
 	if stop.Reason != "" {
 		return fmt.Errorf("%w: turn %s: %s", ErrNotReady, stop.Kind, stop.Reason)
 	}
@@ -167,10 +167,10 @@ func notReady(s *replayState) error {
 // recorder's own CommitError is copied rather than mutated, and its message
 // is not repeated.
 func commitError(step Step, err error) *CommitError {
-	out := &CommitError{Persistence: PersistenceUnknown, Step: &step, Err: err}
+	out := &CommitError{Step: &step, Err: err}
 	var ce *CommitError
 	if errors.As(err, &ce) {
-		out.Persistence = cmp.Or(ce.Persistence, PersistenceUnknown)
+		out.NothingWritten = ce.NothingWritten
 		if e, ok := err.(*CommitError); ok {
 			out.Err = e.Err
 		}

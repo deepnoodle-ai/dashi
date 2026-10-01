@@ -168,7 +168,7 @@ func TestSessionStreamFollowsDuplicate(t *testing.T) {
 		done <- result{out, err}
 	}()
 	entered(t, client)
-	rec.set(session.LivenessLive)
+	rec.set(session.WorkerStatusRunning)
 	retry := handle(rec, client)
 	// Release the model call only once the retry follows the running
 	// turn: a retry planned after the turn ended would get its outcome
@@ -238,7 +238,7 @@ func TestSessionStreamFollowsStoppedDuplicate(t *testing.T) {
 	}
 	// The duplicate check reads the turn before its stop, which a live
 	// worker makes NextRunning; the follow then loads the stopped turn.
-	rec.set(session.LivenessLive)
+	rec.set(session.WorkerStatusRunning)
 	rec.stale.Store(true)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -269,7 +269,7 @@ func TestSessionTurnsAndHistory(t *testing.T) {
 	if err != nil || texts(history) != "a|one|b|two" {
 		t.Fatalf("history=%q err=%v", texts(history), err)
 	}
-	projected, err := s.ProjectedHistory(t.Context())
+	projected, err := s.NextHistory(t.Context())
 	if err != nil || texts(projected) != texts(history) {
 		t.Fatalf("projected=%q err=%v", texts(projected), err)
 	}

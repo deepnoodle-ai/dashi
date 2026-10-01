@@ -303,7 +303,7 @@ func TestTaskDoneReopenContinuesWithoutRepeatingEffect(t *testing.T) {
 		if loadErr != nil {
 			t.Fatal(loadErr)
 		}
-		view, err := dashi.Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -391,7 +391,7 @@ func TestTaskPrintQuietAndPipeAttentionHaveCleanExit(t *testing.T) {
 	}
 }
 func TestTaskCommandIDUsesFullCanonicalPayload(t *testing.T) {
-	target := delegate.TaskTarget{ID: "t_fixture", TurnID: "child/1", Revision: 7}
+	target := delegate.TaskTarget{ID: "t_fixture", TurnID: "child/1", LastSeq: 7}
 	a, err := taskCommandID(target, "continue", "", dashi.Continue{ModelCalls: 64})
 	if err != nil {
 		t.Fatal(err)
@@ -406,7 +406,7 @@ func TestTaskCommandIDUsesFullCanonicalPayload(t *testing.T) {
 		t.Fatal("different cancellation payload shared identity")
 	}
 	changed := target
-	changed.Revision++
+	changed.LastSeq++
 	e, _ := taskCommandID(changed, "continue", "", dashi.Continue{ModelCalls: 64})
 	if e == a {
 		t.Fatal("revision excluded")

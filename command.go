@@ -275,7 +275,7 @@ func absentNull(raw json.RawMessage) json.RawMessage {
 
 // commandDigest is digest for a command, reporting values that cannot be
 // encoded. Continue.OnHistoryMismatch is left out (see its doc).
-func commandDigest(c Command) (string, error) {
+func commandHash(c Command) (string, error) {
 	if v, ok := c.(Continue); ok {
 		v.OnHistoryMismatch = ""
 		c = v
@@ -283,5 +283,5 @@ func commandDigest(c Command) (string, error) {
 	if _, err := json.Marshal(c); err != nil {
 		return "", err
 	}
-	return canonjson.Digest(c), nil
+	return canonjson.Hash(c), nil
 }

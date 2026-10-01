@@ -110,7 +110,7 @@ func ExampleTasks_Run() {
 		fmt.Println(err)
 		return
 	}
-	view, err := dashi.Replay(recorded)
+	view, err := recorded.View()
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -119,12 +119,12 @@ func ExampleTasks_Run() {
 	// This action follows external verification by the operator. It does not
 	// invent the external worker's uncaptured output.
 	command := view.Pending[0].Result(tool.Succeeded("Operator verified this exact call completed; its output was not captured."))
-	out, err := tasks.Run(ctx, delegate.TaskTarget{ID: task.ID, TurnID: task.TurnID, Revision: view.Revision}, command)
+	out, err := tasks.Run(ctx, delegate.TaskTarget{ID: task.ID, TurnID: task.TurnID, LastSeq: view.LastSeq}, command)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	out, err = tasks.Run(ctx, delegate.TaskTarget{ID: task.ID, TurnID: task.TurnID, Revision: out.Revision}, dashi.Continue{CommandID: "finish-verified-child"})
+	out, err = tasks.Run(ctx, delegate.TaskTarget{ID: task.ID, TurnID: task.TurnID, LastSeq: out.LastSeq}, dashi.Continue{CommandID: "finish-verified-child"})
 	if err != nil {
 		fmt.Println(err)
 		return

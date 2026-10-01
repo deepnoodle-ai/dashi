@@ -113,7 +113,7 @@ policy still decides every action.
 
 If you trust your skill dirs, you can put `bundle.Catalog()` in
 `Agent.Instructions` instead. Do not put `bundle.Digest()` in
-`Agent.Revision` for file skills: a person may edit a file between runs, and
+`Agent.Version` for file skills: a person may edit a file between runs, and
 a changed revision refuses to resume the turn. The catalog item ID holds the
 digest, so the record shows which catalog the model saw.
 

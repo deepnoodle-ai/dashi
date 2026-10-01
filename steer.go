@@ -265,11 +265,11 @@ func (r *runtime) afterSteerWrite(steers []ContextItem, o *RunResult) *RunResult
 // writeRejected reports whether a failed commit is known not to have been
 // saved.
 func writeRejected(err error) bool {
-	if errors.Is(err, ErrRevisionConflict) || errors.Is(err, ErrCommandConflict) {
+	if errors.Is(err, ErrStaleTurn) || errors.Is(err, ErrCommandIDReused) {
 		return true
 	}
 	var ce *CommitError
-	return errors.As(err, &ce) && ce.Persistence == PersistenceRejected
+	return errors.As(err, &ce) && ce.NothingWritten
 }
 
 // steersDelivered acknowledges recorded steers to the source. It runs

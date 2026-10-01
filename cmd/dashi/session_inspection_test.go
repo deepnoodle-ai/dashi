@@ -391,13 +391,13 @@ func TestInspectionEndpointDoesNotConstructClientOrLeakCredentials(t *testing.T)
 	d := p.routes.registry["one"]
 	d.Definition.Endpoint = "https://name:password@one.test/responses?api_key=SECRET#fragment"
 	p.routes.registry["one"] = d
-	fingerprint, _ := d.fingerprint()
+	hash, _ := d.hash()
 	p.routes.factory = func(configuredDestination, func(string) (string, bool), bool) (llm.Client, error) {
 		t.Fatal("inspection constructed client")
 		return nil, nil
 	}
 	ctrl := NewController(t.Context(), e, newRecorderUI(), e.cfg.Store, e.cfg.Dir)
-	report := sessionstore.Inspection{Metadata: *e.Session(), Latest: &sessionstore.Execution{Readable: true, Destination: sessionstore.Destination{Provider: "one", API: "openai.responses", Revision: cliRouteRevision + fingerprint}}, NextDestination: sessionstore.Destination{Provider: "one"}}
+	report := sessionstore.Inspection{Metadata: *e.Session(), Latest: &sessionstore.Execution{Readable: true, Destination: sessionstore.Destination{Provider: "one", API: "openai.responses", Version: cliRouteVersion + hash}}, NextDestination: sessionstore.Destination{Provider: "one"}}
 	got := ctrl.inspectionDestinations(report)
 	for _, secret := range []string{"password", "api_key", "SECRET", "fragment", "name:"} {
 		if strings.Contains(got, secret) {
@@ -407,7 +407,7 @@ func TestInspectionEndpointDoesNotConstructClientOrLeakCredentials(t *testing.T)
 	if !strings.Contains(got, "unavailable (recorded binding") {
 		t.Fatal(got)
 	}
-	report.Latest.Destination.Revision = "unknown"
+	report.Latest.Destination.Version = "unknown"
 	if got = ctrl.inspectionDestinations(report); !strings.Contains(got, "unavailable (recorded binding") {
 		t.Fatal(got)
 	}

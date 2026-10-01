@@ -28,7 +28,7 @@ other.
 - `session`: A conversation of many turns on a `dashi.Runner`: turn numbers,
   history, the carried agent, queued and steered input, and compaction.
 - `compaction`: Shortens a long history with a summary: a `Compactor` for a
-  session's compaction turns, and `Compact` and `Project` for a host-owned
+  session's compaction turns, and `Compact` and `TurnMessagesFull` for a host-owned
   history.
 - `catalog`: Documented capabilities, limits, and prices for known models at
   public provider endpoints, as embedded JSON.

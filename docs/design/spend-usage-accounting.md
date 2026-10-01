@@ -68,7 +68,7 @@ A token stop caused by UsageIncomplete records `Terminal: true` even if its reta
 
 Prospective intents need a separate guard because replay includes their fallback usage before dispatch.
 Before committing StepModelCallStarted, validate its candidate accounting against the current record.
-If it would newly make usage incomplete under an active token cap, return a PersistenceRejected CommitError with that proposed step.
+If it would newly make usage incomplete under an active token cap, return a NothingWritten CommitError with that proposed step.
 Do not call the recorder or model. This preserves the existing rejected-intent safety case.
 The existing record remains complete, so do not fabricate a terminal stop based on facts that were never committed.
 Apply this runner guard with either recorder. Cost-only and uncapped intents retain the broader aggregation behavior.

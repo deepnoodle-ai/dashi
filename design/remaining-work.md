@@ -196,7 +196,7 @@ external settle, a family budget cap over a host ledger, and a child index.
 **Status:** Designed, 2026-09-29; not built. `session.Session` is a handle over
 the unchanged engine: turn records are the only truth (turn IDs `S-n`), a new
 message refuses only on a busy turn (live, possibly live when neither
-`TurnLiveness` nor `Session.Exclusive` proves it stopped, waiting, or holding an
+`WorkerChecker` nor `Session.Exclusive` proves it stopped, waiting, or holding an
 unsettled uncertain call whatever its liveness, until the host settles it or
 cancels the turn) and closes other stopped turns, a lost worker's turn
 is taken over with `Continue{}` rather than replaced, sends are idempotent,
@@ -212,7 +212,7 @@ turn, and the agent moves to `Start`. Decisions 35–40. The `dashi` CLI's own
    the crash-resume reminder.
 2. `Agent` on `Start` (L): tool selection, `CurrentTurn`, `TurnView.Origin`, one
    runner in the CLI.
-3. Session core (L): `Session`, `S-n` IDs, `session.Index`, `TurnLiveness`,
+3. Session core (L): `Session`, `S-n` IDs, `session.Index`, `WorkerChecker`,
    `Exclusive`, idempotency; a keyless `chat` example on `dashitest`.
 4. Steering, the in-memory queue, and the CLI (M): dispatch on idle; port
    `examples/delegate` to `RunUntilQuiet`; port `cmd/dashi`.
@@ -235,7 +235,7 @@ research](roadmap-research/14-session-continuity-research.md) ·
 39](decisions.md)). `Session.Compactor` runs a compaction turn before a new
 turn when the last call used 80% of the window; the turn records the
 replacement history, which every reader honors. `compaction.Compactor`
-implements `session.Compactor` and makes no model call; `Compact`, `Project`, and
+implements `session.Compactor` and makes no model call; `Compact`, `TurnMessagesFull`, and
 `Record` stay for hosts that drive the engine directly. `examples/compaction`
 runs keyless on a session. **Size:** L. **Difficulty:** High. **Reference:**
 [guide](../docs/guides/compaction.md),
@@ -262,7 +262,7 @@ by reference; signed-URL results.
 
 ### 17. Incremental projection
 
-**Status:** Open, measurement gated. `Project` and replay rebuild state from
+**Status:** Open, measurement gated. `TurnMessagesFull` and replay rebuild state from
 the first step; there is no cached projection for long turns. **Size:** M.
 **Difficulty:** Medium.
 **Reference:** [adjacent-library findings](gaps/C-adjacent-libraries.md) and
@@ -274,7 +274,7 @@ projection is a material local cost.
 
 ### 18. Inspecting newer record versions
 
-**Status:** Open. An unknown step kind prevents `Replay` and `Project` on that Turn.
+**Status:** Open. An unknown step kind prevents `Turn.View` and `TurnMessagesFull` on that Turn.
 **Size:** M. **Difficulty:** High. **Reference:** [Turn record](turn.md),
 [protocol gaps](gaps/D-protocols-streaming.md), and [adjacent-library
 findings](gaps/C-adjacent-libraries.md); no approved design. **Next:** Separate

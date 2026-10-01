@@ -66,8 +66,8 @@ one of three things:
 
 A turn with no recorded stop is running or crashed, and the session cannot
 tell which by itself. It is running when this handle runs it, or when the
-recorder's `TurnLiveness` reports it live. It counts as stopped, and closes,
-only when `TurnLiveness` reports stopped or the handle sets `Exclusive`, the
+recorder's `WorkerChecker` reports it live. It counts as stopped, and closes,
+only when `WorkerChecker` reports stopped or the handle sets `Exclusive`, the
 host's promise that no other driver exists and earlier ones have exited. An
 expired lease is unknown, not stopped: the old worker may still be inside a
 provider or tool call. An unknown turn refuses.
@@ -91,7 +91,7 @@ the last turn through the newest turn a caller's `Start` began:
 - the same key and input returns that turn's current outcome, as the first
   call returned it (ended, or stopped waiting on an answer or at a limit),
   and `*TurnBusyError{Duplicate: true}` while the turn may still be running;
-- the same key with other input fails with `ErrCommandConflict`;
+- the same key with other input fails with `ErrCommandIDReused`;
 - a turn in that range that fails to load fails the `Start` with its error.
 
 Keys beginning with `queue:` or `compact:` are the session's own, and `Run`
@@ -205,10 +205,10 @@ for ev, err := range s.Stream(ctx, dashi.Say(text)) {
 turns included, for a transcript; an unreadable turn yields its error and the
 iteration goes on. A turn the session closed has a canceled stop with the
 reason `CloseReason`. `s.History(ctx)` is the conversation: every message of
-every turn but compaction turns. `s.ProjectedHistory(ctx)` is what the next
+every turn but compaction turns. `s.NextHistory(ctx)` is what the next
 turn sends; the two differ once a compaction turn has run (`Session.Compactor`;
 see [Compaction](compaction.md)). A host that keeps its own turns gets the
-same projected history from `dashi.ProjectHistory(turns)`. `s.Compact(ctx, nil)`
+same projected history from `dashi.BuildHistory(turns)`. `s.Compact(ctx, nil)`
 requests a summary while idle, and `s.StreamCompact(ctx, budget)` streams it. Both preserve
 queued input and refuse an unended last turn.
 

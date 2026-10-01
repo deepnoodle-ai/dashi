@@ -449,7 +449,7 @@ func (cl *call) follow(
 
 // reportTurn yields the RunResult event of a followed turn.
 func (cl *call) reportTurn(turn dashi.Turn) (dashi.RunResult, error) {
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		return dashi.RunResult{}, cl.fail(err)
 	}

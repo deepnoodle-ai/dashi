@@ -11,7 +11,7 @@ tag in ordinary user text cannot create a typed reminder or raise authority.
 
 `Start.Input` and `AddMessages` accept `llm.ReminderMessage`. `BeforeModel` can
 return one through `ModelDecision.AddMessages`. The full typed content is saved in
-the turn record and reconstructed by `Project`, including after an external tool
+the turn record and reconstructed by `TurnMessagesFull`, including after an external tool
 wait or process restart. A `ContextItem.Snapshot` item supersedes older items
 of the same origin and context-item name: `Turn.Context` returns the latest,
 and the reminder instruction tells the model the latest of a name is current.

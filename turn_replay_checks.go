@@ -77,7 +77,7 @@ func (s *replayState) pendingItems() []Pending {
 // projectedStop is the stop a caller sees for a turn at rest. A record
 // without a stop step ended mid-run, so the stop is inferred as Run would
 // have recorded it and marked Projected.
-func (s *replayState) projectedStop() Stop {
+func (s *replayState) inferredStop() Stop {
 	switch {
 	case s.Stop.Kind != "":
 		return s.Stop
@@ -175,7 +175,7 @@ func (s *replayState) canContinue() bool {
 // canContinueWith reports whether Continue can run, given the raised budget
 // and model-attempt cap it carries (nil and zero when it raises nothing).
 func (s *replayState) canContinueWith(raise *Budget, attempts int) bool {
-	if s.Revision == 0 || s.terminal() || s.unresolvedModel != "" ||
+	if s.LastSeq == 0 || s.terminal() || s.unresolvedModel != "" ||
 		len(s.providerTool) > 0 {
 		return false
 	}
@@ -360,7 +360,7 @@ func (s *replayState) checkStillOpen() error {
 }
 
 func (s *replayState) interruptionLimitReached() bool {
-	if s.Revision == 0 ||
+	if s.LastSeq == 0 ||
 		s.Resumes < max(s.Agent.Limits.Resumes, 0) {
 		return false
 	}

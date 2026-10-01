@@ -116,7 +116,7 @@ Content gains:
   and validate it during preparation. Dashi records requested and effective
   configuration and reported activity or usage, but does not turn hidden
   provider actions into `tool.Call`s it claims to dispatch or retry. The current
-  `KindProviderHosted` marker alone does not provide this contract.
+  `KindProviderTool` marker alone does not provide this contract.
 - **Dedicated endpoint**: a `media` operation, such as Imagen generation.
 
 ### `speech`

@@ -123,7 +123,7 @@ func TestSessionCompactionTurn(t *testing.T) {
 	start := loadTurn(t, rec, "s-3").Steps[0]
 	if c.Origin != dashi.StartCompaction || start.CommandID != "compact:s-3" ||
 		!c.Agent.NoTools || c.Compaction == nil || c.Compaction.Through != 2 ||
-		c.Compaction.Digest == "" {
+		c.Compaction.Hash == "" {
 		t.Fatalf("origin=%q key=%q noTools=%v fact=%+v",
 			c.Origin, start.CommandID, c.Agent.NoTools, c.Compaction)
 	}
@@ -143,7 +143,7 @@ func TestSessionCompactionTurn(t *testing.T) {
 		[]string{"first", "one", "second", "two", "third", "three"}) {
 		t.Fatalf("history=%q", got)
 	}
-	projected, err := s.ProjectedHistory(t.Context())
+	projected, err := s.NextHistory(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestSessionCompactionTurn(t *testing.T) {
 
 	counting := &countingRecorder{MemoryRecorder: rec}
 	fresh := handle(counting, client)
-	again, err := fresh.ProjectedHistory(t.Context())
+	again, err := fresh.NextHistory(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestSessionCompactionMismatch(t *testing.T) {
 	s.New = true
 	s.Compactor = keepLast{limit: 100, keep: 0}
 	sendAll(t, s, "first", "second")
-	want, err := s.ProjectedHistory(t.Context())
+	want, err := s.NextHistory(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -665,7 +665,7 @@ func TestSessionCompactionSummaryTags(t *testing.T) {
 			want = []string{"first", "one", "second", "two"}
 		}
 		for _, h := range []*session.Session{s, handle(rec, client)} {
-			projected, err := h.ProjectedHistory(t.Context())
+			projected, err := h.NextHistory(t.Context())
 			if err != nil {
 				t.Fatal(err)
 			}

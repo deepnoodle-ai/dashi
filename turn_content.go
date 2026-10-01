@@ -29,9 +29,9 @@ func (t Turn) Citations() []content.Citation {
 	return out
 }
 
-// HostedUses returns the provider-run tool calls across every settled model
+// ProviderToolUses returns the provider-run tool calls across every settled model
 // call in the turn, in order. Some providers report a hosted call's result
-// as a separate item; HostedUses copies that result's output and error flag
+// as a separate item; ProviderToolUses copies that result's output and error flag
 // onto its use, so each entry is one call with its result either way.
 func (t Turn) ProviderToolUses() []llm.ProviderToolUse {
 	var out []llm.ProviderToolUse

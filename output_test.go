@@ -16,7 +16,7 @@ func TestMustOutputSchema(t *testing.T) {
 	raw := MustOutputSchema[testPerson]()
 	agent := Agent{
 		ID:           "a",
-		Revision:     "1",
+		Version:      "1",
 		Provider:     "p",
 		API:          "api",
 		Model:        "m",

@@ -78,7 +78,7 @@ func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
 	if err != nil {
 		return dashi.Start{}, err
 	}
-	digest, err := dashi.HistoryFingerprint(projected)
+	hash, err := dashi.HistoryHash(projected)
 	if err != nil {
 		return dashi.Start{}, err
 	}
@@ -95,7 +95,7 @@ func (c *Compactor) Start(projected []llm.Message) (dashi.Start, error) {
 			Keep:      append(slices.Clone(kept), projected[cut:]...),
 			SummaryAt: len(kept),
 			Frame:     summaryFrame,
-			Digest:    digest,
+			Hash:      hash,
 		},
 	}, nil
 }

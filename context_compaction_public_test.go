@@ -135,7 +135,7 @@ func TestActiveCompactionNativeSeparateProviderToolStatus(t *testing.T) {
 				t.Fatalf("native separate item=%+v", c.first)
 			}
 			original, _ := json.Marshal(c.first)
-			raw, err := dashi.Project(out.Turn)
+			raw, err := dashi.TurnMessagesFull(out.Turn)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -148,7 +148,7 @@ func TestActiveCompactionNativeSeparateProviderToolStatus(t *testing.T) {
 			if err := json.Unmarshal(encoded, &loaded); err != nil {
 				t.Fatal(err)
 			}
-			view, err := dashi.ProjectContext(loaded)
+			view, err := dashi.TurnMessages(loaded)
 			viewJSON, _ := json.Marshal(view)
 			if err != nil || !strings.Contains(string(viewJSON), tc.status) || activeHasDiagnostic(view) == tc.empty {
 				t.Fatalf("reloaded context lost provider tool status or diagnostic: %v", err)
@@ -201,7 +201,7 @@ func TestActiveCompactionNativeCombinedProviderToolDiagnostic(t *testing.T) {
 				t.Fatalf("native combined item=%+v", c.first)
 			}
 			original, _ := json.Marshal(c.first)
-			raw, err := dashi.Project(out.Turn)
+			raw, err := dashi.TurnMessagesFull(out.Turn)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -214,7 +214,7 @@ func TestActiveCompactionNativeCombinedProviderToolDiagnostic(t *testing.T) {
 			if err := json.Unmarshal(encoded, &loaded); err != nil {
 				t.Fatal(err)
 			}
-			view, err := dashi.ProjectContext(loaded)
+			view, err := dashi.TurnMessages(loaded)
 			if err != nil || !activeHasDiagnostic(view) {
 				t.Fatalf("reloaded context lost provider tool diagnostic: %v", err)
 			}
@@ -305,12 +305,12 @@ func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 				if err := json.Unmarshal(data, &restored); err != nil {
 					t.Fatal(err)
 				}
-				view, err := dashi.Replay(restored)
+				view, err := restored.View()
 				if err != nil || view.ModelCalls != 2 || len(view.ContextCompactions) != 1 {
 					t.Fatalf("reload: attempts=%d summaries=%d err=%v", view.ModelCalls, len(view.ContextCompactions), err)
 				}
 				input := client.Inputs()[0]
-				input.Messages, err = dashi.ProjectContext(restored)
+				input.Messages, err = dashi.TurnMessages(restored)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -459,7 +459,7 @@ func TestActiveCompactionTextDocumentDiagnostic(t *testing.T) {
 			if !bytes.Equal(original, after) {
 				t.Fatal("summary rendering changed the original document")
 			}
-			raw, err := dashi.Project(out.Turn)
+			raw, err := dashi.TurnMessagesFull(out.Turn)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -472,7 +472,7 @@ func TestActiveCompactionTextDocumentDiagnostic(t *testing.T) {
 			if err := json.Unmarshal(encoded, &loaded); err != nil {
 				t.Fatal(err)
 			}
-			view, err := dashi.ProjectContext(loaded)
+			view, err := dashi.TurnMessages(loaded)
 			if err != nil || !activeHasDiagnostic(view) {
 				t.Fatalf("reloaded context lost diagnostic: %v", err)
 			}
@@ -581,7 +581,7 @@ func TestActiveCompactionNativeTextDocumentLongRequest(t *testing.T) {
 			if err := json.Unmarshal(encoded, &loaded); err != nil {
 				t.Fatal(err)
 			}
-			view, err := dashi.Replay(loaded)
+			view, err := loaded.View()
 			if err != nil || len(view.ContextCompactions) != 2 {
 				t.Fatalf("reload compactions=%d err=%v", len(view.ContextCompactions), err)
 			}

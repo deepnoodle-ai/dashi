@@ -637,7 +637,7 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 			r = NewRenderer(turnNumber(id), e.Model(), e.cfg.Dir)
 			if loader, ok := e.handle().Runner.Recorder.(dashi.Loader); ok {
 				if turn, err := loader.Load(ctx, id); err == nil {
-					if view, err := dashi.Replay(turn); err == nil {
+					if view, err := turn.View(); err == nil {
 						r.Origin, r.summary = view.Origin, view.Reply
 						r.showReasoning = view.Agent.Settings.ReasoningSummary != nil && *view.Agent.Settings.ReasoningSummary
 					}

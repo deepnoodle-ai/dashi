@@ -62,18 +62,18 @@ func (r Runner) apply(
 	}
 	// A Start's digest covers its resolved agent, so a retry that spells out
 	// a default, such as the client's provider, is the same command.
-	digested := command
+	hashed := command
 	if c, ok := command.(Start); ok {
 		c.Agent = agent
-		digested = c
+		hashed = c
 	}
-	d, err := commandDigest(digested)
+	d, err := commandHash(hashed)
 	if err != nil {
 		return RunResult{}, err
 	}
-	if old, ok := state.commandDigests[command.commandID()]; ok {
+	if old, ok := state.commandHashes[command.commandID()]; ok {
 		if old != d {
-			return RunResult{}, ErrCommandConflict
+			return RunResult{}, ErrCommandIDReused
 		}
 		if loader, ok := r.Recorder.(Loader); ok {
 			saved, loadErr := loader.Load(ctx, turn.ID)
@@ -89,8 +89,8 @@ func (r Runner) apply(
 					return RunResult{}, err
 				}
 			}
-			if current.commandDigests[command.commandID()] != d {
-				return RunResult{}, ErrRevisionConflict
+			if current.commandHashes[command.commandID()] != d {
+				return RunResult{}, ErrStaleTurn
 			}
 			return outcome(saved, current), nil
 		}
@@ -109,14 +109,14 @@ func (r Runner) apply(
 			if replayErr != nil {
 				return RunResult{}, replayErr
 			}
-			if old, found := current.commandDigests[command.commandID()]; found {
+			if old, found := current.commandHashes[command.commandID()]; found {
 				if isStart {
 					if err := agentChanged(agent, current.Agent); err != nil {
 						return RunResult{}, err
 					}
 				}
 				if old != d {
-					return RunResult{}, ErrCommandConflict
+					return RunResult{}, ErrCommandIDReused
 				}
 				return outcome(saved, current), nil
 			}
@@ -178,7 +178,7 @@ func (r Runner) apply(
 		if err := validateHistory(c.History); err != nil {
 			return RunResult{}, err
 		}
-		fingerprint, err := historyFingerprint(c.History)
+		hash, err := historyHash(c.History)
 		if err != nil {
 			return RunResult{}, err
 		}
@@ -220,16 +220,16 @@ func (r Runner) apply(
 			return RunResult{}, err
 		}
 		if o := rt.commit(Step{
-			Kind:          StepTurnStarted,
-			CommandID:     c.CommandID,
-			CommandDigest: d,
+			Kind:        StepTurnStarted,
+			CommandID:   c.CommandID,
+			CommandHash: d,
 			Started: &StartFact{
 				Agent:                  agent,
 				ActiveCompactionWindow: window,
 				Budget:                 cloneBudget(c.Budget),
 				OutputSchema:           slices.Clone(c.OutputSchema),
 				Origin:                 origin,
-				HistoryFingerprint:     fingerprint,
+				HistoryHash:            hash,
 				Input:                  llmclone.Messages(c.Input),
 				Parent:                 cloneCallRef(c.Parent),
 				Compaction:             c.Compaction.clone(),
@@ -252,10 +252,10 @@ func (r Runner) apply(
 			return rt.result(rt.current())
 		}
 		step := Step{
-			Kind:          StepMessagesAdded,
-			CommandID:     c.CommandID,
-			CommandDigest: d,
-			Context:       &ContextFact{Items: items},
+			Kind:        StepMessagesAdded,
+			CommandID:   c.CommandID,
+			CommandHash: d,
+			Context:     &ContextFact{Items: items},
 		}
 		if o := rt.commit(step); o != nil {
 			return rt.result(*o)
@@ -284,20 +284,20 @@ func (r Runner) apply(
 		if err := validateHistory(c.History); err != nil {
 			return RunResult{}, err
 		}
-		fingerprint, err := historyFingerprint(c.History)
+		hash, err := historyHash(c.History)
 		if err != nil {
 			return RunResult{}, err
 		}
-		stored := turn.Steps[0].Started.HistoryFingerprint
-		mismatch := stored != fingerprint
+		stored := turn.Steps[0].Started.HistoryHash
+		mismatch := stored != hash
 		if mismatch && c.OnHistoryMismatch == HistoryMismatchReject {
 			return RunResult{}, ErrHistoryMismatch
 		}
 		if state.interruptionLimitReached() {
 			step := Step{
-				Kind:          StepTurnStopped,
-				CommandID:     c.CommandID,
-				CommandDigest: d,
+				Kind:        StepTurnStopped,
+				CommandID:   c.CommandID,
+				CommandHash: d,
 				Stop: &Stop{
 					Kind:   StopLimited,
 					Reason: string(LimitResumes),
@@ -328,11 +328,11 @@ func (r Runner) apply(
 		}
 		rt.history = llmclone.Messages(c.History)
 		step := Step{
-			Kind:          StepTurnContinued,
-			CommandID:     c.CommandID,
-			CommandDigest: d,
-			Budget:        cloneBudget(c.Budget),
-			ModelCalls:    c.ModelCalls,
+			Kind:        StepTurnContinued,
+			CommandID:   c.CommandID,
+			CommandHash: d,
+			Budget:      cloneBudget(c.Budget),
+			ModelCalls:  c.ModelCalls,
 		}
 		if mismatch {
 			step.Warnings = []Warning{
@@ -399,10 +399,10 @@ func (r Runner) apply(
 			}
 			setSettlementCharge(state.modelIntents[c.CallID], fact)
 			step := Step{
-				Kind:          kind,
-				CommandID:     c.CommandID,
-				CommandDigest: d,
-				Model:         fact,
+				Kind:        kind,
+				CommandID:   c.CommandID,
+				CommandHash: d,
+				Model:       fact,
 			}
 			if err := checkLateResultStep(turn, state, step); err != nil {
 				return RunResult{}, err
@@ -421,7 +421,7 @@ func (r Runner) apply(
 			if o := rt.commit(Step{
 				Kind:                 StepProviderToolApprovalDecided,
 				CommandID:            c.CommandID,
-				CommandDigest:        d,
+				CommandHash:          d,
 				ProviderToolApproval: c.ProviderToolApproval,
 			}); o != nil {
 				return rt.result(*o)
@@ -431,14 +431,14 @@ func (r Runner) apply(
 			if !ok || v.Status != ToolApprovalPending || c.CallID != c.Approval.CallID {
 				return RunResult{}, errors.New("dashi: tool approval is not pending")
 			}
-			if c.Approval.ArgsDigest != ArgsDigest(v.Call.Args) {
+			if c.Approval.ArgsHash != ArgsHash(v.Call.Args) {
 				return RunResult{}, errors.New("dashi: stale tool approval")
 			}
 			if o := rt.commit(Step{
-				Kind:          StepApprovalDecided,
-				CommandID:     c.CommandID,
-				CommandDigest: d,
-				Approval:      c.Approval,
+				Kind:        StepApprovalDecided,
+				CommandID:   c.CommandID,
+				CommandHash: d,
+				Approval:    c.Approval,
 			}); o != nil {
 				return rt.result(*o)
 			}
@@ -466,10 +466,10 @@ func (r Runner) apply(
 			// context.
 			rt.afterTool(ctx, fact)
 			step := Step{
-				Kind:          StepToolFinished,
-				CommandID:     c.CommandID,
-				CommandDigest: d,
-				Tool:          fact,
+				Kind:        StepToolFinished,
+				CommandID:   c.CommandID,
+				CommandHash: d,
+				Tool:        fact,
 			}
 			if err := checkLateResultStep(turn, state, step); err != nil {
 				return RunResult{}, err
@@ -489,10 +489,10 @@ func (r Runner) apply(
 			return RunResult{}, errors.New("dashi: turn cannot cancel")
 		}
 		if o := rt.commit(Step{
-			Kind:          StepTurnStopped,
-			CommandID:     c.CommandID,
-			CommandDigest: d,
-			Stop:          &Stop{Kind: StopCanceled, Reason: c.Reason},
+			Kind:        StepTurnStopped,
+			CommandID:   c.CommandID,
+			CommandHash: d,
+			Stop:        &Stop{Kind: StopCanceled, Reason: c.Reason},
 		}); o != nil {
 			return rt.result(*o)
 		}

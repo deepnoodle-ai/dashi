@@ -268,7 +268,7 @@ func TestSeedContextDoesNotInferIdentityOrConsultTurnView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := dashi.Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}

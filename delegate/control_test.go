@@ -20,7 +20,7 @@ func finalNotice(v dashi.TurnView) bool {
 func target(h *harness, t *testing.T) delegate.TaskTarget {
 	t.Helper()
 	v := h.view(t, childTurnID())
-	return delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), Revision: v.Revision}
+	return delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), LastSeq: v.LastSeq}
 }
 func attention(h *harness, t *testing.T) *delegate.AttentionError {
 	t.Helper()
@@ -74,13 +74,13 @@ func TestTaskRunSettlesExactWaitingChildWithoutRepeatingEffect(t *testing.T) {
 	}
 	changed := settlement
 	changed.Outcome = ptrOutcome(tool.Succeeded("different captured output"))
-	if _, err = h.tasks.Run(t.Context(), original, changed); !errors.Is(err, dashi.ErrCommandConflict) {
+	if _, err = h.tasks.Run(t.Context(), original, changed); !errors.Is(err, dashi.ErrCommandIDReused) {
 		t.Fatalf("payload conflict: %v", err)
 	}
-	if _, err = h.tasks.Run(t.Context(), original, dashi.Continue{CommandID: "stale"}); !errors.Is(err, dashi.ErrRevisionConflict) {
+	if _, err = h.tasks.Run(t.Context(), original, dashi.Continue{CommandID: "stale"}); !errors.Is(err, dashi.ErrStaleTurn) {
 		t.Fatalf("stale action: %v", err)
 	}
-	out, err := h.tasks.Run(t.Context(), delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), Revision: settled.Revision}, dashi.Continue{CommandID: "finish"})
+	out, err := h.tasks.Run(t.Context(), delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), LastSeq: settled.LastSeq}, dashi.Continue{CommandID: "finish"})
 	if err != nil || out.Reply != "child finished" {
 		t.Fatalf("answer=%q err=%v", out.Reply, err)
 	}
@@ -176,7 +176,7 @@ func TestTaskRunUnknownCommandReconciliation(t *testing.T) {
 			if h.ran.Load() != 1 {
 				t.Fatal("effect repeated during reconciliation")
 			}
-			if _, err = h.tasks.Run(t.Context(), delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), Revision: out.Revision}, dashi.Continue{CommandID: "finish"}); err != nil {
+			if _, err = h.tasks.Run(t.Context(), delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), LastSeq: out.LastSeq}, dashi.Continue{CommandID: "finish"}); err != nil {
 				t.Fatal(err)
 			}
 			h.next(t, delegate.TaskEnded)
@@ -252,13 +252,13 @@ func TestTaskPreparationAndFrozenBindings(t *testing.T) {
 			s.Input = append(s.Input, llm.UserMessage(llm.Text("admitted parent evidence")))
 			s.Agent.Settings.MaxTokens = 321
 			s.Agent.NoInheritedSettings = true
-			s.Agent.Revision = "route-fingerprint"
+			s.Agent.Version = "route-fingerprint"
 			return s, nil
 		},
 		BindServices: func(_ context.Context, ref dashi.CallRef, a dashi.Agent) (delegate.ChildServices, error) {
 			bindings.Add(1)
 			h.tasks.List()
-			if a.Settings.MaxTokens != 321 || a.Revision != "route-fingerprint" {
+			if a.Settings.MaxTokens != 321 || a.Version != "route-fingerprint" {
 				t.Errorf("wrong binding agent: %+v", a)
 			}
 			return delegate.ChildServices{Client: selected}, nil

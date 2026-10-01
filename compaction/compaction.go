@@ -4,7 +4,7 @@
 // Start; it makes no model call itself. The turn runs through an ordinary
 // dashi.Runner, so its model call is recorded, priced, and capped by its
 // budget like any other. Its record holds the replacement history, which
-// dashi.ProjectHistory and a Session's projected history then use.
+// dashi.BuildHistory and a Session's projected history then use.
 //
 // With a session.Session, set Session.Compactor, and the session runs the
 // compaction turn when the last model call used most of the window. A host

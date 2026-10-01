@@ -48,7 +48,7 @@ func codecCommands() map[string]Command {
 			CommandID: "cmd-start",
 			Agent: Agent{
 				ID:           "agent",
-				Revision:     "r1",
+				Version:      "r1",
 				Instructions: "be brief",
 				Provider:     "p",
 				API:          "a",
@@ -76,7 +76,7 @@ func codecCommands() map[string]Command {
 			Parent:       &CallRef{TurnID: "t0", CallID: "c0"},
 			Compaction: &CompactionFact{
 				Through:   2,
-				Digest:    "d",
+				Hash:      "d",
 				Keep:      history[:1],
 				SummaryAt: 1,
 				Frame:     "summary:",
@@ -115,7 +115,7 @@ func codecCommands() map[string]Command {
 		"resolve/approval": Resolve{
 			CommandID: "cmd-approve",
 			CallID:    "c1",
-			Approval:  &ApprovalDecision{CallID: "c1", Approve: false, ArgsDigest: ArgsDigest(call.Args), Reason: "no"},
+			Approval:  &ApprovalDecision{CallID: "c1", Approve: false, ArgsHash: ArgsHash(call.Args), Reason: "no"},
 		},
 		"resolve/provider tool": Resolve{
 			CommandID:            "cmd-provider tool",
@@ -171,11 +171,11 @@ func TestCommandCodecRoundTrip(t *testing.T) {
 			if CommandKindOf(got) != CommandKind(kind) || CommandIDOf(got) != CommandIDOf(c) {
 				t.Fatalf("identity = %q %q", CommandKindOf(got), CommandIDOf(got))
 			}
-			want, err := commandDigest(c)
+			want, err := commandHash(c)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if d, _ := commandDigest(got); d != want {
+			if d, _ := commandHash(got); d != want {
 				t.Fatalf("digest changed: %s != %s", d, want)
 			}
 			// A second round trip is byte-stable.
@@ -203,8 +203,8 @@ func TestCommandCodecCompactsRawJSON(t *testing.T) {
 	if s := string(got.(Start).OutputSchema); s != `{"type":"object"}` {
 		t.Fatalf("schema = %s", s)
 	}
-	a, _ := commandDigest(c)
-	b, _ := commandDigest(got)
+	a, _ := commandHash(c)
+	b, _ := commandHash(got)
 	if a != b {
 		t.Fatal("compacting raw JSON changed the digest")
 	}
@@ -232,9 +232,9 @@ func TestCommandJSONUsesSnakeCase(t *testing.T) {
 	}
 }
 
-func TestCommandDigestIgnoresOnHistoryMismatch(t *testing.T) {
-	a, _ := commandDigest(Continue{CommandID: "c"})
-	b, _ := commandDigest(Continue{CommandID: "c", OnHistoryMismatch: HistoryMismatchReject})
+func TestCommandHashIgnoresOnHistoryMismatch(t *testing.T) {
+	a, _ := commandHash(Continue{CommandID: "c"})
+	b, _ := commandHash(Continue{CommandID: "c", OnHistoryMismatch: HistoryMismatchReject})
 	if a != b {
 		t.Fatal("OnHistoryMismatch changed the digest")
 	}

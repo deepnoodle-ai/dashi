@@ -95,7 +95,7 @@ func TestReplayInterruptedModelRetainsUsageWithoutAttempt(t *testing.T) {
 			Stop:    testStop(StopLimited, LimitResumes),
 		},
 	)
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestReplayRejectsUnknownInterruptCause(t *testing.T) {
 			},
 		},
 	)
-	_, err := Replay(turn)
+	_, err := turn.View()
 	if err == nil || !strings.Contains(err.Error(), "interrupt cause") {
 		t.Fatalf("replay of an unknown interrupt cause: err=%v", err)
 	}
@@ -156,7 +156,7 @@ func TestReplayCrashWithModelIntentCanContinue(t *testing.T) {
 		interruptionStart(testAgent()),
 		interruptionModelIntent("model-1"),
 	)
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
 		{Kind: StepTurnContinued},
 	}
 	crashed := interruptionRecord(steps...)
-	view, err := Replay(crashed)
+	view, err := crashed.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
 		slices.Clone(steps),
 		Step{Kind: StepTurnStopped, Stop: &Stop{Kind: StopInterrupted}},
 	)...)
-	view, err = Replay(interrupted)
+	view, err = interrupted.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
 		slices.Clone(steps),
 		Step{Kind: StepTurnStopped, Stop: &Stop{Kind: StopFailed}},
 	)...)
-	view, err = Replay(failed)
+	view, err = failed.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestReplayReadyAtInterruptionLimitDependsOnStop(t *testing.T) {
 			Kind:    StepTurnContinued,
 		},
 	)
-	view, err = Replay(failed)
+	view, err = failed.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestReplayUncertainModelIntentNeedsReport(t *testing.T) {
 			Stop: &Stop{Kind: StopResultUnknown, Reason: "model outcome unknown"},
 		},
 	)
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestReplayReportedModelNonexecutionCanContinue(t *testing.T) {
 			},
 		},
 	)
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,7 +441,7 @@ func TestReplayStartedToolResumptionDependsOnStop(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			steps := append([]Step(nil), base...)
 			steps = append(steps, Step{Kind: StepTurnStopped, Stop: &Stop{Kind: tc.stop}})
-			view, err := Replay(interruptionRecord(steps...))
+			view, err := interruptionRecord(steps...).View()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -460,7 +460,7 @@ func TestReplayDeadlineLimitIsFinal(t *testing.T) {
 			Stop: testStop(StopLimited, LimitDeadline),
 		},
 	)
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,12 +495,12 @@ func interruptionModelIntent(id string) Step {
 	return Step{
 		Kind: StepModelCallStarted,
 		Model: &ModelFact{
-			ModelCallID:   id,
-			MessageID:     messageID,
-			RequestDigest: "request-" + id,
-			Provider:      "test",
-			API:           "test.chat",
-			Model:         "fixture",
+			ModelCallID: id,
+			MessageID:   messageID,
+			RequestHash: "request-" + id,
+			Provider:    "test",
+			API:         "test.chat",
+			Model:       "fixture",
 		},
 	}
 }

@@ -88,7 +88,7 @@ func savedSession(t *testing.T, st *Store, dir, title string) (*Session, *filere
 func runInspectionTurn(t *testing.T, rec dashi.Recorder, id string, client *inspectionClient, start dashi.Start, tools tool.Toolset) dashi.RunResult {
 	t.Helper()
 	if start.Agent.Model == "" {
-		start.Agent = dashi.Agent{ID: "fixture", Revision: "recorded-route", Provider: "test", API: "test.chat", Model: "recorded-model"}
+		start.Agent = dashi.Agent{ID: "fixture", Version: "recorded-route", Provider: "test", API: "test.chat", Model: "recorded-model"}
 	}
 	out, err := (&dashi.Runner{Client: client, Recorder: rec, Tools: tools}).Run(t.Context(), dashi.NewTurn(id), start)
 	if err != nil || out.Stop.Kind != dashi.StopCompleted {
@@ -144,7 +144,7 @@ func TestInspectionSearchCardsAndReadOnlyOwnedElsewhere(t *testing.T) {
 			t.Fatalf("search %q: %+v %v", query, result, err)
 		}
 		card := result.Matches[0].Card
-		if card.Metadata.Title != s.Title || !card.Metadata.Updated.Equal(s.Updated) || card.Request == nil || card.Request.Text != "Review the handler" || card.Latest == nil || card.Latest.Stop.Kind != dashi.StopCompleted || card.Latest.Revision == 0 {
+		if card.Metadata.Title != s.Title || !card.Metadata.Updated.Equal(s.Updated) || card.Request == nil || card.Request.Text != "Review the handler" || card.Latest == nil || card.Latest.Stop.Kind != dashi.StopCompleted || card.Latest.LastSeq == 0 {
 			t.Fatalf("incomplete card: %+v", card)
 		}
 		if query == "RETRY HANDLER" && (result.Matches[0].Match == nil || result.Matches[0].Match.TurnID != session.TurnID(s.ID, 1)) {
@@ -315,7 +315,7 @@ func TestInspectionLiteralSearchSteeringAndSummaryExclusion(t *testing.T) {
 	start.TurnID = prefix.ID
 	start.Started.Input = dashi.Say("next ordinary request").Input
 	prefix.Steps = []dashi.Step{start, {Version: 1, TurnID: prefix.ID, Seq: 2, Kind: dashi.StepMessagesAdded, Context: &dashi.ContextFact{Items: []dashi.ContextItem{{ID: "steer-1", Message: llm.UserMessage(llm.Text("steering needle"))}, {ID: "runtime-1", Origin: dashi.ContextRuntime, Message: llm.UserMessage(llm.Text("runtime secret"))}}}}}
-	if _, err := dashi.Replay(prefix); err != nil {
+	if _, err := prefix.View(); err != nil {
 		t.Fatal(err)
 	}
 	for _, step := range prefix.Steps {
@@ -323,7 +323,7 @@ func TestInspectionLiteralSearchSteeringAndSummaryExclusion(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	runInspectionTurn(t, rec, session.TurnID(s.ID, 3), &inspectionClient{results: []llm.Result{reply("internal summary secret", "EUR")}}, dashi.Start{Origin: dashi.StartCompaction, Compaction: &dashi.CompactionFact{Through: 2, Digest: "fixture"}, Input: dashi.Say("summary prompt secret").Input}, nil)
+	runInspectionTurn(t, rec, session.TurnID(s.ID, 3), &inspectionClient{results: []llm.Result{reply("internal summary secret", "EUR")}}, dashi.Start{Origin: dashi.StartCompaction, Compaction: &dashi.CompactionFact{Through: 2, Hash: "fixture"}, Input: dashi.Say("summary prompt secret").Input}, nil)
 	for _, query := range []string{"[a.*]", "two  spaces", "steering needle"} {
 		if r, err := st.Search(t.Context(), dir, query); err != nil || len(r.Matches) != 1 || r.Matches[0].Match == nil {
 			t.Fatalf("literal %q: %+v %v", query, r, err)
@@ -490,7 +490,7 @@ func TestInspectionActiveSummariesToolOutputsAndPinnedContext(t *testing.T) {
 		return outcome, nil
 	})}
 	client := &inspectionClient{results: results, window: 16000}
-	start := dashi.Start{Agent: dashi.Agent{ID: "fixture", Revision: "recorded-route", Provider: "test", API: "test.chat", Model: "recorded-model", Settings: llm.Settings{MaxTokens: 256}, Tools: []string{"read"}, Limits: dashi.Limits{ModelCalls: 16, ToolResultBytes: 12000}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}}, Input: dashi.Say("Original objective: investigate evidence").Input}
+	start := dashi.Start{Agent: dashi.Agent{ID: "fixture", Version: "recorded-route", Provider: "test", API: "test.chat", Model: "recorded-model", Settings: llm.Settings{MaxTokens: 256}, Tools: []string{"read"}, Limits: dashi.Limits{ModelCalls: 16, ToolResultBytes: 12000}, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}}, Input: dashi.Say("Original objective: investigate evidence").Input}
 	out := runInspectionTurn(t, rec, session.TurnID(s.ID, 1), client, start, tools)
 	applied := 0
 	for _, step := range out.Turn.Steps {

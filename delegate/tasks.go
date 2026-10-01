@@ -178,7 +178,7 @@ func (c *childTurn) view() dashi.TurnView {
 		return *c.final
 	}
 	if len(c.steps) > 0 {
-		if v, err := dashi.Replay(dashi.Turn{ID: c.id, Steps: c.steps}); err == nil {
+		if v, err := (dashi.Turn{ID: c.id, Steps: c.steps}).View(); err == nil {
 			return v
 		}
 	}
@@ -394,7 +394,7 @@ func (ts *Tasks) Recover(
 	// Restore every task before any turn runs, so a resumed turn that ends
 	// early finds each delivered turn marked and never reports it again.
 	for _, turn := range turns {
-		view, err := dashi.Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			errs = append(errs, fmt.Errorf("delegate: replay %s: %w", turn.ID, err))
 			continue
@@ -538,7 +538,7 @@ func loadRecord(
 		if err != nil {
 			return record{}, err
 		}
-		view, err := dashi.Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			return record{}, fmt.Errorf("replay %s: %w", turn.ID, err)
 		}

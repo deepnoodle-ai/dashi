@@ -89,7 +89,7 @@ func run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		view, err := dashi.Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			return err
 		}
@@ -100,7 +100,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	projected, err := s.ProjectedHistory(ctx)
+	projected, err := s.NextHistory(ctx)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func run(ctx context.Context) error {
 		ID:     "heron",
 		Runner: dashi.Runner{Client: client, Recorder: rec},
 	}
-	again, err := reader.ProjectedHistory(ctx)
+	again, err := reader.NextHistory(ctx)
 	if err != nil {
 		return err
 	}

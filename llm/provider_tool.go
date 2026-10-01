@@ -8,7 +8,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/content"
 )
 
-// HostedUse reports provider-executed work. Output is populated only when the
+// ProviderToolUse reports provider-executed work. Output is populated only when the
 // API puts a completed result in the same item as the call. It is never a
 // client tool call and must not be dispatched by an application.
 type ProviderToolUse struct {
@@ -61,10 +61,10 @@ func (u ProviderToolUse) Clone() ProviderToolUse {
 	return u
 }
 
-// HostedResult records a separate provider result block paired with a use.
+// ProviderToolResult records a separate provider result block paired with a use.
 // Anthropic emits this shape; some Responses tools combine it with the use.
 type ProviderToolResult struct {
-	// CallID pairs this block with a preceding HostedUse.
+	// CallID pairs this block with a preceding ProviderToolUse.
 	CallID string `json:"call_id"`
 	// Type retains the provider's result-block type.
 	Type string `json:"type"`
@@ -96,7 +96,7 @@ func (r ProviderToolResult) Clone() ProviderToolResult {
 	return r
 }
 
-// HostedApprovalRequest exposes a provider's request for application approval.
+// ProviderToolApprovalRequest exposes a provider's request for application approval.
 // It is never approved by decoding or by a default policy.
 type ProviderToolApprovalRequest struct {
 	// ID identifies the decision the provider awaits.
@@ -129,7 +129,7 @@ func (r ProviderToolApprovalRequest) Clone() ProviderToolApprovalRequest {
 	return r
 }
 
-// HostedApprovalResponse carries the application's explicit decision for a
+// ProviderToolApprovalResponse carries the application's explicit decision for a
 // provider request. The provider adapter verifies that the request is in
 // history before encoding this response.
 type ProviderToolApprovalResponse struct {

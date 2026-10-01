@@ -321,7 +321,7 @@ func (r *Recorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
 		return rejected(err)
 	}
 	if log.claimed && log.owner != req.Owner {
-		return rejected(dashi.ErrRevisionConflict)
+		return rejected(dashi.ErrStaleTurn)
 	}
 	if req.Step.CommandID != "" {
 		for _, old := range log.steps {
@@ -329,16 +329,16 @@ func (r *Recorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
 				continue
 			}
 			if old.Kind == req.Step.Kind &&
-				old.CommandDigest == req.Step.CommandDigest {
+				old.CommandHash == req.Step.CommandHash {
 				return nil
 			}
-			return rejected(dashi.ErrCommandConflict)
+			return rejected(dashi.ErrCommandIDReused)
 		}
 	}
 	n := int64(len(log.steps))
 	switch {
 	case req.ExpectedSeq < 0 || req.Step.Seq != req.ExpectedSeq+1:
-		return rejected(dashi.ErrRevisionConflict)
+		return rejected(dashi.ErrStaleTurn)
 	case req.ExpectedSeq < n:
 		// A retry after a lost acknowledgement matches the recorded step;
 		// any other step at an occupied sequence comes from a stale worker.
@@ -349,9 +349,9 @@ func (r *Recorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
 		if old.Equal(req.Step) {
 			return nil
 		}
-		return rejected(dashi.ErrRevisionConflict)
+		return rejected(dashi.ErrStaleTurn)
 	case req.ExpectedSeq > n:
-		return rejected(dashi.ErrRevisionConflict)
+		return rejected(dashi.ErrStaleTurn)
 	}
 	if err := r.append(f, turnID, log, record); err != nil {
 		return err
@@ -615,9 +615,9 @@ func corrupt(path string, line int, reason string) error {
 }
 
 func rejected(err error) error {
-	return &dashi.CommitError{Persistence: dashi.PersistenceRejected, Err: err}
+	return &dashi.CommitError{NothingWritten: true, Err: err}
 }
 
 func unknown(err error) error {
-	return &dashi.CommitError{Persistence: dashi.PersistenceUnknown, Err: err}
+	return &dashi.CommitError{Err: err}
 }

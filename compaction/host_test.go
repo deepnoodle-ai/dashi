@@ -12,9 +12,9 @@ import (
 )
 
 // A host's compaction turn carries the Compactor's digest, so
-// ProjectHistory checks it as it checks a Session's: an altered earlier
+// BuildHistory checks it as it checks a Session's: an altered earlier
 // turn warns, and the replacement history is still used.
-func TestHostCompactionDigest(t *testing.T) {
+func TestHostCompactionHash(t *testing.T) {
 	client := dashitest.NewClient(
 		dashitest.Reply("one"),
 		dashitest.Reply("two"),
@@ -34,28 +34,28 @@ func TestHostCompactionDigest(t *testing.T) {
 		turns = append(turns, out.Turn)
 	}
 	for _, text := range []string{"first", "second"} {
-		history, _ := dashi.ProjectHistory(turns)
+		history, _ := dashi.BuildHistory(turns)
 		run(dashi.Start{
 			History: history,
 			Input:   []llm.Message{llm.UserMessage(llm.Text(text))},
 		})
 	}
-	history, _ := dashi.ProjectHistory(turns)
+	history, _ := dashi.BuildHistory(turns)
 	start, err := (&compaction.Compactor{}).Start(history)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if start.Compaction.Digest == "" {
+	if start.Compaction.Hash == "" {
 		t.Fatal("the compaction fact has no digest")
 	}
 	run(start)
 
-	want, warnings := dashi.ProjectHistory(turns)
+	want, warnings := dashi.BuildHistory(turns)
 	if len(warnings) != 0 {
 		t.Fatalf("warnings=%v", warnings)
 	}
 	turns[0].Steps[0].Started.Input = []llm.Message{llm.UserMessage(llm.Text("changed"))}
-	got, warnings := dashi.ProjectHistory(turns)
+	got, warnings := dashi.BuildHistory(turns)
 	if len(warnings) != 1 || warnings[0].Code != dashi.WarningCompactionMismatch {
 		t.Fatalf("warnings=%v", warnings)
 	}

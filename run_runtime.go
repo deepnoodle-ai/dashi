@@ -134,9 +134,9 @@ func (r *runtime) commit(step Step) *RunResult {
 		}
 		if err != nil {
 			r.err = &CommitError{
-				Persistence: PersistenceRejected,
-				Step:        &step,
-				Err:         err,
+				NothingWritten: true,
+				Step:           &step,
+				Err:            err,
 			}
 			o := r.current()
 			return &o
@@ -144,9 +144,9 @@ func (r *runtime) commit(step Step) *RunResult {
 	}
 	if _, err := json.Marshal(step); err != nil {
 		r.err = &CommitError{
-			Persistence: PersistenceRejected,
-			Step:        &step,
-			Err:         err,
+			NothingWritten: true,
+			Step:           &step,
+			Err:            err,
 		}
 		o := r.current()
 		return &o

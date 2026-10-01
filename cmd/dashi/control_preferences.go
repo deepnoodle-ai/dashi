@@ -192,10 +192,10 @@ func (s resolvedSelection) persistable(user map[string]configuredDestination) bo
 	if !ok || !slices.Contains(d.Definition.Models, s.Model) {
 		return false
 	}
-	wanted, err := s.Destination.fingerprint()
+	wanted, err := s.Destination.hash()
 	if err != nil {
 		return false
 	}
-	known, err := d.fingerprint()
+	known, err := d.hash()
 	return err == nil && wanted == known
 }

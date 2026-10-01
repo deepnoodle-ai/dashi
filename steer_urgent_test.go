@@ -296,7 +296,7 @@ func TestUrgentSteerLateFramesCountTowardOutput(t *testing.T) {
 	if !cut.EstimatedUsage {
 		t.Fatal("the cut call's usage is not marked estimated")
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -822,7 +822,7 @@ func TestSteeredTurnReplaysDeterministically(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(decoded)
+	view, err := decoded.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -831,7 +831,7 @@ func TestSteeredTurnReplaysDeterministically(t *testing.T) {
 		view.Reply != out.Reply {
 		t.Fatalf("replay differs: %+v vs %+v", view.Spend, out.Spend)
 	}
-	projected, err := Project(decoded)
+	projected, err := TurnMessagesFull(decoded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1281,7 +1281,7 @@ func TestReplayedInterruptSpendIsCappedAtMaxTokens(t *testing.T) {
 		cut.Result.Usage.OutputTokens != 5 {
 		t.Fatalf("recorded output exceeds max_tokens: %+v", cut.Result)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}

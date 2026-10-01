@@ -110,7 +110,7 @@ func TestFinishRejectsSubmissionWithItemsOnTheSameStep(t *testing.T) {
 		sent[len(sent)-2].Content[0].Kind != llm.ContentToolResult {
 		t.Fatalf("second request tail = %+v", sent[len(sent)-2:])
 	}
-	if _, err := Replay(out.Turn); err != nil {
+	if _, err := out.Turn.View(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -132,7 +132,7 @@ func TestReplayAllowsContextOnlyOnATurnedDownSubmission(t *testing.T) {
 			}}}
 		}
 	}
-	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+	if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("replay err = %v", err)
 	}
 }
@@ -395,7 +395,7 @@ func TestSubmissionRejectionSurvivesCrashes(t *testing.T) {
 				Agent:     structuredAgent(),
 				Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
 			})
-			if persistence(err) != PersistenceRejected {
+			if !nothingWritten(err) {
 				t.Fatalf("err = %v", err)
 			}
 			saved, err := base.Load(t.Context(), "t1")
@@ -440,8 +440,8 @@ func (f *failNthKind) Commit(ctx context.Context, req CommitRequest) error {
 		f.seen++
 		if f.seen == f.n {
 			return &CommitError{
-				Persistence: PersistenceRejected,
-				Err:         errors.New("injected failure"),
+				NothingWritten: true,
+				Err:            errors.New("injected failure"),
 			}
 		}
 	}
@@ -469,7 +469,7 @@ func TestReplayRejectsContextOnASchemaRejection(t *testing.T) {
 			}}}
 		}
 	}
-	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+	if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("replay err = %v", err)
 	}
 }
@@ -626,7 +626,7 @@ func TestVetoedSubmissionHidesItsMessageText(t *testing.T) {
 		if err != nil || out.Stop.Kind != StopLimited || out.Reply != "" {
 			t.Fatalf("limited stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
 		}
-		if _, err := Replay(out.Turn); err != nil {
+		if _, err := out.Turn.View(); err != nil {
 			t.Fatal(err)
 		}
 	})

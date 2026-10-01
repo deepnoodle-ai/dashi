@@ -38,7 +38,7 @@ overwrites a set value.
 | Whole `Agent` empty | defaults below | the recorded agent, whole |
 | `Agent.ID` | stays empty | recorded value |
 | `Agent.Model` | catalog default (1.2) | recorded value |
-| `Agent.Revision` | `"auto:"` + 16 hex of the agent digest | recorded value |
+| `Agent.Version` | `"auto:"` + 16 hex of the agent digest | recorded value |
 
 The turn ID is filled before the recorder is chosen or loaded, so every
 emitted step and the final `Stream` event carry it, and a host can save it
@@ -84,7 +84,7 @@ audit can tell a default allow from an explicit `AllowLocalPolicy`
 early; hooks later replace `Policy` and keep this default. Allowing an external
 tool records a `tool_waiting` step until the host settles it, so it grants the
 model nothing the host does not run itself. Provider-hosted tools never reach
-`AuthorizeTool`. Approval is opt-in: a policy that returns `DecisionDefer`.
+`AuthorizeTool`. Approval is opt-in: a policy that returns `DecisionNeedsApproval`.
 
 ## 1.2 Default model
 

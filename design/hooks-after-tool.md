@@ -71,7 +71,7 @@ redact := dashi.ResultHook{Name: "redact", Func: func(
   with a tool result records `ActiveHooks` like `Start` and `Continue`; hosts
   pass the same hooks to it.
 - **What it changes.** Only what the model sees: the next model call and the
-  next turn's history through `Project`. The record, `Observer` and `Stream`
+  next turn's history through `TurnMessagesFull`. The record, `Observer` and `Stream`
   events, and `ToolView.Outcome` keep the raw output. A redactor is not
   storage redaction; a host that must not store a secret removes it in the
   executor.
@@ -87,7 +87,7 @@ redact := dashi.ResultHook{Name: "redact", Func: func(
   settlement is still committed with a warning, withheld unless every hook left
   to answer fails open; the outcome and its cost are kept. A `Resolve` runs its
   hooks under the command's context, not the turn's deadline. A context that
-  ended before the chain started keeps today's rule. `Project` never refuses a
+  ended before the chain started keeps today's rule. `TurnMessagesFull` never refuses a
   turn because of hooks.
 
 **Recording.** `ToolFact.Result *llm.ToolResult` (JSON `result`) is set on

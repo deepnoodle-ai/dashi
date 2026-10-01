@@ -56,9 +56,9 @@ func TestZeroConfigTurnGeneratesAndRecordsIdentity(t *testing.T) {
 		t.Fatalf("start step command=%q turn=%q", first.CommandID, first.TurnID)
 	}
 	agent := first.Started.Agent
-	if agent.ID != "" || !strings.HasPrefix(agent.Revision, "auto:") ||
-		len(agent.Revision) != len("auto:")+16 {
-		t.Fatalf("recorded agent ID=%q revision=%q", agent.ID, agent.Revision)
+	if agent.ID != "" || !strings.HasPrefix(agent.Version, "auto:") ||
+		len(agent.Version) != len("auto:")+16 {
+		t.Fatalf("recorded agent ID=%q revision=%q", agent.ID, agent.Version)
 	}
 	// The generated turn ID reaches the recorder, so the not-found path of
 	// Loader and the saved record agree with the outcome.
@@ -127,7 +127,7 @@ func TestEmptyCommandIDsAndRecordedAgent(t *testing.T) {
 	// derived one does not differ too.
 	edited := agent
 	edited.Instructions = "Be thorough."
-	edited.Revision = got.Turn.Steps[0].Started.Agent.Revision
+	edited.Version = got.Turn.Steps[0].Started.Agent.Version
 	_, err = runner.Run(t.Context(), got.Turn, Start{
 		CommandID: got.Turn.Steps[0].CommandID,
 		Agent:     edited,
@@ -200,15 +200,15 @@ func TestCancelUsesRecordedAgentAfterPromptEdit(t *testing.T) {
 	}
 }
 
-func TestAgentRevisionTracksBehaviorFields(t *testing.T) {
+func TestAgentVersionTracksBehaviorFields(t *testing.T) {
 	base := Agent{
 		ID:       "a",
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",
 	}.resolved()
-	want := agentRevision(base)
-	if agentRevision(base) != want {
+	want := agentVersion(base)
+	if agentVersion(base) != want {
 		t.Fatal("revision is not stable")
 	}
 	changes := map[string]func(*Agent){
@@ -224,19 +224,19 @@ func TestAgentRevisionTracksBehaviorFields(t *testing.T) {
 	for name, change := range changes {
 		a := base
 		change(&a)
-		if agentRevision(a) == want {
+		if agentVersion(a) == want {
 			t.Errorf("%s change kept revision %s", name, want)
 		}
 	}
 	same := map[string]func(*Agent){
 		"id":       func(a *Agent) { a.ID = "b" },
-		"revision": func(a *Agent) { a.Revision = "r9" },
+		"revision": func(a *Agent) { a.Version = "r9" },
 		"deadline": func(a *Agent) { a.Limits.Deadline = time.Now().Add(time.Hour) },
 	}
 	for name, change := range same {
 		a := base
 		change(&a)
-		if agentRevision(a) != want {
+		if agentVersion(a) != want {
 			t.Errorf("%s change altered revision", name)
 		}
 	}
@@ -261,7 +261,7 @@ func TestNoHooksAllowBoundTools(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted || !ran {
 		t.Fatalf("stop=%+v err=%v ran=%v", out.Stop, err, ran)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +464,7 @@ func TestRejectsSnapshotWithTamperedAgent(t *testing.T) {
 	}
 }
 
-func TestGeneratedCommandIDIsPartOfDigest(t *testing.T) {
+func TestGeneratedCommandIDIsPartOfHash(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	runner := Runner{
 		Client:   client,
@@ -486,7 +486,7 @@ func TestGeneratedCommandIDIsPartOfDigest(t *testing.T) {
 	}
 }
 
-func TestAgentRevisionIsPinned(t *testing.T) {
+func TestAgentVersionIsPinned(t *testing.T) {
 	// A change to this value changes the revision of every recorded agent
 	// that relied on the derived one; make it deliberately.
 	agent := Agent{
@@ -495,7 +495,7 @@ func TestAgentRevisionIsPinned(t *testing.T) {
 		Model:        "claude-sonnet-5",
 		Instructions: "Be brief.",
 	}.resolved()
-	if got := agentRevision(agent); got != "auto:e4c9958dcd090433" {
+	if got := agentVersion(agent); got != "auto:20557d1d87035206" {
 		t.Fatalf("agentRevision = %q", got)
 	}
 }
@@ -732,7 +732,7 @@ func TestRecordedAgentKeepsResolvedLimits(t *testing.T) {
 	older := *old.Steps[0].Started
 	older.Agent.Limits.Resumes = 7
 	old.Steps[0].Started = &older
-	view, err := Replay(old)
+	view, err := old.View()
 	if err != nil {
 		t.Fatal(err)
 	}

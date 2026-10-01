@@ -112,7 +112,7 @@ func (e *Engine) runPending(ctx context.Context) (Result, error) {
 	// together with the editable draft, so corrections cannot retry old bytes.
 	var ce *dashi.CommitError
 	rejectedInput := p.input != nil && !p.summary && errors.As(err, &ce) &&
-		ce.Persistence == dashi.PersistenceRejected && ce.Step != nil &&
+		ce.NothingWritten && ce.Step != nil &&
 		ce.Step.Kind == dashi.StepTurnStarted && ce.Step.Started != nil &&
 		ce.Step.Started.Origin != dashi.StartCompaction && ce.Step.CommandID == p.start.CommandID
 	if e.pending == p && p.uncertain == "" && (!p.attempted || rejectedInput) && !p.summary &&
@@ -190,7 +190,7 @@ func (e *Engine) rememberPromptError(err error) {
 	if e.pending != nil && (e.pending.start.CommandID == "" || ce.Step.CommandID == e.pending.start.CommandID) {
 		e.pending.start.CommandID = ce.Step.CommandID
 		e.pending.attempted = true
-		if ce.Persistence == dashi.PersistenceUnknown {
+		if !ce.NothingWritten {
 			e.pending.uncertain = ce.Step.TurnID
 		}
 	}
@@ -223,7 +223,7 @@ func (e *Engine) reconcilePrompt(ctx context.Context, p *pendingPrompt) error {
 		step.CommandID != p.start.CommandID ||
 		len(step.Started.Input) < len(p.start.Input) ||
 		!reflect.DeepEqual(step.Started.Input[len(step.Started.Input)-len(p.start.Input):], p.start.Input) {
-		return fmt.Errorf("pending prompt conflicts with recorded turn %s: %w", id, dashi.ErrCommandConflict)
+		return fmt.Errorf("pending prompt conflicts with recorded turn %s: %w", id, dashi.ErrCommandIDReused)
 	}
 	if err := e.acknowledgePrompt(&step); err != nil {
 		return err

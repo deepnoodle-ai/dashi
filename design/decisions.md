@@ -220,7 +220,7 @@ charges, caps, and spend use `money.Amount`, an int64 of 1e-9 currency units
 as in `google.type.Money`; JSON writes a decimal string (`"0.5"`) and still
 reads the bare numbers of older records. Known break, accepted: a retry of a
 capped `Start` or budget-raising `Continue` recorded before exact money returns
-`ErrCommandConflict`, since its digest covers the old number encoding. Cents
+`ErrCommandIDReused`, since its digest covers the old number encoding. Cents
 are too coarse for per-token prices; nanos hold every catalog price exactly and
 cover about ±$9.2 billion.
 One rounding rule: a cost at risk rounds up, so rounding never breaches a cap,
@@ -343,7 +343,7 @@ on the public engine API, as `http.Get` sits over `Client.Do`. Turn records are
 the only truth: turn *n* of session `S` is `S-n`, an optional `session.Index`
 finds the last turn, and probing is the fallback. There is no session record,
 log, lease, or lock; recorder conditional appends, `S-n` collisions, and
-permanently ended turns keep the record correct. An optional `TurnLiveness`
+permanently ended turns keep the record correct. An optional `WorkerChecker`
 reports a turn live, stopped, or unknown; an expired lease is unknown, because
 owner fencing rejects a stale worker's commits but not an effect it already
 dispatched. `Session.Exclusive` is the host's promise that it is the only driver
@@ -399,7 +399,7 @@ turn's liveness, even under `Exclusive`: a stopped worker does not prove a
 stopped effect. The host settles the call or cancels the turn; a cancel records
 its acceptance of the risk. A busy turn refuses with `TurnBusyError`, which
 names the recovery calls and the uncertain call.
-Rationale: `Project` failed on such turns, so an ended turn would drop out of
+Rationale: `TurnMessagesFull` failed on such turns, so an ended turn would drop out of
 the next turn's history, user prompt included, and a late result could change
 history that later turns were built on.
 

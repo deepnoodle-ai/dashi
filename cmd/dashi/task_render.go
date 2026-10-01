@@ -175,14 +175,14 @@ func (e *Engine) inspectTask(ctx context.Context, id string) (taskSnapshot, erro
 		if err != nil {
 			return taskSnapshot{}, err
 		}
-		view, err := dashi.Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			return taskSnapshot{}, err
 		}
 		if view.Parent == nil || *view.Parent != task.Parent {
 			return taskSnapshot{}, fmt.Errorf("task parent identity differs")
 		}
-		return taskSnapshot{Task: task, Turn: turn, View: view, Target: delegate.TaskTarget{ID: id, TurnID: turn.ID, Revision: view.Revision}, Bound: true}, nil
+		return taskSnapshot{Task: task, Turn: turn, View: view, Target: delegate.TaskTarget{ID: id, TurnID: turn.ID, LastSeq: view.LastSeq}, Bound: true}, nil
 	}
 	host.mu.Lock()
 	saved, ok := host.recorded[id]
@@ -198,7 +198,7 @@ func taskDetails(snapshot taskSnapshot) string {
 	if !snapshot.Bound {
 		b.WriteString("Recorded child; live binding is unavailable. Restore its destination/tools and reopen this session before task controls.\n")
 	}
-	fmt.Fprintf(&b, "Task %s · %s\nChild Turn: %s · revision %d\nParent: %s · call %s\nState: %s · stop %s · terminal %t\nDestination: %s / %s / %s\n%s\n", snapshot.Task.ID, snapshot.Task.Subagent, v.ID, v.Revision, snapshot.Task.Parent.TurnID, snapshot.Task.Parent.CallID, snapshot.Task.State, v.Stop.Kind, v.Stop.Ended, v.Agent.Provider, v.Agent.API, v.Agent.Model, snapshot.Task.Description)
+	fmt.Fprintf(&b, "Task %s · %s\nChild Turn: %s · revision %d\nParent: %s · call %s\nState: %s · stop %s · terminal %t\nDestination: %s / %s / %s\n%s\n", snapshot.Task.ID, snapshot.Task.Subagent, v.ID, v.LastSeq, snapshot.Task.Parent.TurnID, snapshot.Task.Parent.CallID, snapshot.Task.State, v.Stop.Kind, v.Stop.Ended, v.Agent.Provider, v.Agent.API, v.Agent.Model, snapshot.Task.Description)
 	if snapshot.Prompt != nil {
 		fmt.Fprintf(&b, "Live approval/answer pending · Turn %s · original call %s. Inspection does not answer it.\n", snapshot.Prompt.TurnID, snapshot.Prompt.CallID)
 	}

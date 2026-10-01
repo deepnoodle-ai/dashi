@@ -133,7 +133,7 @@ func TestApproveRunsInSortedOrderOneAtATime(t *testing.T) {
 			mu.Lock()
 			running--
 			mu.Unlock()
-			if fp != s.Fingerprint() {
+			if fp != s.Hash() {
 				t.Errorf("fingerprint does not match the entry for %s", name)
 			}
 			return true, nil

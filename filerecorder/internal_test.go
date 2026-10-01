@@ -33,7 +33,7 @@ func TestLockWaitEndsWithContext(t *testing.T) {
 	if waited := time.Since(began); waited > time.Second {
 		t.Fatalf("commit waited %v for the lock after its context ended", waited)
 	}
-	requirePersistence(t, err, dashi.PersistenceRejected)
+	requireNothingWritten(t, err, true)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("commit error %v does not report the context", err)
 	}
@@ -49,7 +49,7 @@ func TestFailedWriteIsRejectedAndRolledBack(t *testing.T) {
 		return n, errors.New("disk full")
 	}
 	err := r.Commit(t.Context(), request(2))
-	requirePersistence(t, err, dashi.PersistenceRejected)
+	requireNothingWritten(t, err, true)
 	requireCount(t, r, 1)
 	info, err := os.Stat(r.Path("turn"))
 	if err != nil {
@@ -75,12 +75,12 @@ func TestFailedSyncIsUnknownAndRetiresTheLog(t *testing.T) {
 		return errors.New("EIO")
 	}
 	err := r.Commit(t.Context(), request(2))
-	requirePersistence(t, err, dashi.PersistenceUnknown)
+	requireNothingWritten(t, err, false)
 	r.syncFile = func(f *os.File) error {
 		return f.Sync()
 	}
 	err = r.Commit(t.Context(), request(3))
-	requirePersistence(t, err, dashi.PersistenceRejected)
+	requireNothingWritten(t, err, true)
 	if !errors.Is(err, errLogFailed) {
 		t.Fatalf("commit after a failed sync returned %v; want errLogFailed", err)
 	}
@@ -98,7 +98,7 @@ func TestReplacedLogResetsTheIndex(t *testing.T) {
 	r := newTestRecorder(t)
 	first := request(1)
 	first.Step.CommandID = "start"
-	first.Step.CommandDigest = "d1"
+	first.Step.CommandHash = "d1"
 	// The retry is acknowledged from the log and leaves step 1 indexed.
 	for range 2 {
 		if err := r.Commit(t.Context(), first); err != nil {
@@ -108,7 +108,7 @@ func TestReplacedLogResetsTheIndex(t *testing.T) {
 	other := newTestRecorder(t)
 	replaced := request(1)
 	replaced.Step.CommandID = "begin"
-	replaced.Step.CommandDigest = "d1"
+	replaced.Step.CommandHash = "d1"
 	if err := other.Commit(t.Context(), replaced); err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestReplacedLogResetsTheIndex(t *testing.T) {
 	// A retry of the replacement's recorded command appends nothing.
 	retry := request(4)
 	retry.Step.CommandID = "begin"
-	retry.Step.CommandDigest = "d1"
+	retry.Step.CommandHash = "d1"
 	if err := r.Commit(t.Context(), retry); err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +309,7 @@ func TestFailedDirectorySyncIsUnknown(t *testing.T) {
 		return errors.New("EIO")
 	}
 	err := r.Commit(t.Context(), request(1))
-	requirePersistence(t, err, dashi.PersistenceUnknown)
+	requireNothingWritten(t, err, false)
 	err = r.Commit(t.Context(), request(2))
 	if !errors.Is(err, errLogFailed) {
 		t.Fatalf("commit after a failed directory sync returned %v", err)
@@ -337,7 +337,7 @@ func TestRetiredWhileWaitingForLock(t *testing.T) {
 	r.retire("turn", errors.New("EIO"))
 	holder.Close()
 	err = <-done
-	requirePersistence(t, err, dashi.PersistenceRejected)
+	requireNothingWritten(t, err, true)
 	if !errors.Is(err, errLogFailed) {
 		t.Fatalf("commit returned %v; want errLogFailed", err)
 	}
@@ -387,12 +387,12 @@ func commitStep(t *testing.T, r *Recorder, seq int64) {
 	}
 }
 
-func requirePersistence(t *testing.T, err error, want dashi.Persistence) {
+func requireNothingWritten(t *testing.T, err error, want bool) {
 	t.Helper()
 	commitErr, ok := errors.AsType[*dashi.CommitError](err)
-	if !ok || commitErr.Persistence != want {
+	if !ok || commitErr.NothingWritten != want {
 		t.Fatalf(
-			"commit returned %v; want a *dashi.CommitError that is %s",
+			"commit returned %v; want a *dashi.CommitError with NothingWritten %t",
 			err,
 			want,
 		)

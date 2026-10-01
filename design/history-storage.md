@@ -33,7 +33,7 @@ a turn with one tool call that is about nine steps. The bytes that matter:
 Attachments are `content.Source.Data` (`content/content.go:37-62`), a `[]byte`
 that JSON encodes as base64, so a 2 MB image is 2.67 MB in every record that
 holds it. It lands in the `Input` of the turn that received it and in the
-`History` of every later turn. `Project` rebuilds model messages from step 1 and
+`History` of every later turn. `TurnMessagesFull` rebuilds model messages from step 1 and
 clones the history on each call (`project.go:13-14,56-62`). `replay` marshals
 every step on each pass (`state.go:83`); reading the code for this turn shape
 gives about 12 replays in the engine plus one per commit in `MemoryRecorder`
@@ -78,7 +78,7 @@ not for tool-heavy or long sessions. Attachments dominate (a) at every size: at
 **Read side.** Every option sends the full history to the provider on every
 model call; with stateless APIs that quadratic is paid in tokens and network,
 not storage, and prompt caching addresses its cost. What differs is what a
-resume, `Project`, or inspection must load for turn k:
+resume, `TurnMessagesFull`, or inspection must load for turn k:
 
 | Option | Load for turn k | Notes |
 |---|---|---|
@@ -87,7 +87,7 @@ resume, `Project`, or inspection must load for turn k:
 | (c) | Prior turn records or a host index, 7k KB total | Verify digest (sha256 of 1.4 MB is milliseconds) |
 | (d) | One range query on the log, 7k KB | Same verification |
 
-Under (c) and (d), `Replay` no longer touches history; only projection does.
+Under (c) and (d), `Turn.View` no longer touches history; only projection does.
 Caching the projection per Apply removes the ~20 re-encodes in every option.
 
 ## How the production apps store history
@@ -165,7 +165,7 @@ type Ref struct {
 // Source.Ref *Ref; Source.MIMEType is required.
 ```
 
-**Resolution.** Replay, `Project`, and inspection never resolve. Immediately
+**Resolution.** Replay, `TurnMessagesFull`, and inspection never resolve. Immediately
 before `Prepare`, the engine hydrates a copy of the model input through
 `Runner.ContentLoader`: `Resolve(ctx, turnID, Ref) ([]byte, error)`. It
 returns bytes only. Dashi cannot verify a signed URL or a provider file ID

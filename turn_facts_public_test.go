@@ -117,7 +117,7 @@ func pendingApproval(
 	t.Helper()
 	def := dashi.Agent{
 		ID:       "agent",
-		Revision: "r1",
+		Version:  "r1",
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",
@@ -163,7 +163,7 @@ func pendingApproval(
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,23 +173,23 @@ func pendingApproval(
 	return turn, runner, client, runs
 }
 
-func TestApprovalDigestFromPublicView(t *testing.T) {
+func TestApprovalHashFromPublicView(t *testing.T) {
 	turn, runner, _, runs := pendingApproval(t)
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
 	pending := view.Tools["call-1"]
-	if pending.Status != dashi.ToolApprovalPending || pending.ArgsDigest == "" {
+	if pending.Status != dashi.ToolApprovalPending || pending.ArgsHash == "" {
 		t.Fatalf("pending call=%+v", pending)
 	}
-	if pending.ArgsDigest != dashi.ArgsDigest(shownArgs) {
+	if pending.ArgsHash != dashi.ArgsHash(shownArgs) {
 		t.Fatal("view digest differs from the digest of the arguments first shown")
 	}
 	approval := dashi.ApprovalDecision{
-		CallID:     "call-1",
-		Approve:    true,
-		ArgsDigest: pending.ArgsDigest,
+		CallID:   "call-1",
+		Approve:  true,
+		ArgsHash: pending.ArgsHash,
 	}
 	accepted, err := runner.Run(
 		t.Context(),
@@ -199,8 +199,8 @@ func TestApprovalDigestFromPublicView(t *testing.T) {
 	if err != nil || !accepted.ReadyToContinue {
 		t.Fatalf("approve=%+v err=%v", accepted, err)
 	}
-	view, err = dashi.Replay(accepted.Turn)
-	if err != nil || view.Tools["call-1"].ArgsDigest != "" {
+	view, err = accepted.Turn.View()
+	if err != nil || view.Tools["call-1"].ArgsHash != "" {
 		t.Fatalf(
 			"answered call keeps its approval digest: %+v err=%v",
 			view.Tools["call-1"],
@@ -217,13 +217,13 @@ func TestApprovalDigestFromPublicView(t *testing.T) {
 	}
 }
 
-func TestApprovalDigestFromShownArguments(t *testing.T) {
+func TestApprovalHashFromShownArguments(t *testing.T) {
 	turn, runner, _, _ := pendingApproval(t)
 	// The UI saw the arguments before the store normalized them.
 	approval := dashi.ApprovalDecision{
-		CallID:     "call-1",
-		Approve:    true,
-		ArgsDigest: dashi.ArgsDigest(shownArgs),
+		CallID:   "call-1",
+		Approve:  true,
+		ArgsHash: dashi.ArgsHash(shownArgs),
 	}
 	accepted, err := runner.Run(
 		t.Context(),
@@ -239,9 +239,9 @@ func TestApprovalOfChangedArgumentsIsStale(t *testing.T) {
 	turn, runner, _, runs := pendingApproval(t)
 	changed := json.RawMessage(`{"b": 101, "a": "café"}`)
 	approval := dashi.ApprovalDecision{
-		CallID:     "call-1",
-		Approve:    true,
-		ArgsDigest: dashi.ArgsDigest(changed),
+		CallID:   "call-1",
+		Approve:  true,
+		ArgsHash: dashi.ArgsHash(changed),
 	}
 	_, err := runner.Run(
 		t.Context(),
@@ -258,7 +258,7 @@ func TestApprovalOfChangedArgumentsIsStale(t *testing.T) {
 
 // A call that leaves approval without an answer, here by cancellation, no
 // longer carries an approval digest.
-func TestCanceledApprovalHasNoArgsDigest(t *testing.T) {
+func TestCanceledApprovalHasNoArgsHash(t *testing.T) {
 	turn, runner, _, runs := pendingApproval(t)
 	canceled, err := runner.Run(
 		t.Context(),
@@ -268,12 +268,12 @@ func TestCanceledApprovalHasNoArgsDigest(t *testing.T) {
 	if err != nil || canceled.Stop.Kind != dashi.StopCanceled {
 		t.Fatalf("cancel=%+v err=%v", canceled.Stop, err)
 	}
-	view, err := dashi.Replay(canceled.Turn)
+	view, err := canceled.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
 	call := view.Tools["call-1"]
-	if call.Status == dashi.ToolApprovalPending || call.ArgsDigest != "" || *runs != 0 {
+	if call.Status == dashi.ToolApprovalPending || call.ArgsHash != "" || *runs != 0 {
 		t.Fatalf("canceled call=%+v runs=%d", call, *runs)
 	}
 }

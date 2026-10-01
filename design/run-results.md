@@ -12,7 +12,7 @@
 ## Problem
 
 A caller reads a run's result from four places: the Go error,
-`Outcome.RecordingErr()`, `Turn.AnswerText()`, and `Replay` for spend and call
+`Outcome.RecordingErr()`, `Turn.AnswerText()`, and `Turn.View` for spend and call
 details. Pending work is bare IDs. Answering an approval means copying a digest
 and a revision, naming the call twice, and inventing a command ID, and a denial
 reaches the model without its reason. The approval example is 220 lines.
@@ -27,13 +27,13 @@ comes back as a `*CommitError` whose `Step` is always set. A recorder's own
 `*CommitError` is wrapped in a new value (its persistence and cause copied,
 never mutated), so the message is not doubled. Check in this order:
 
-1. `errors.Is(err, ErrRevisionConflict)` or `ErrCommandConflict`: another
+1. `errors.Is(err, ErrStaleTurn)` or `ErrCommandIDReused`: another
    worker owns or advanced the turn, or the command ID was reused. The
    conflict comes plain from a pre-check or inside a `*CommitError`;
    `errors.Is` covers both. `Outcome.Turn` is not the saved record: reload the
    turn and back off.
 2. `errors.As(err, &commitErr)`: the turn ran, but `commitErr.Step` was not
-   saved (`PersistenceRejected`) or may have been (`PersistenceUnknown`, reload
+   saved (`NothingWritten`) or may have been (`PersistenceUnknown`, reload
    first). `Outcome.Turn` holds the steps this run knows were saved, and
    recovery treats the failure as a crash after them. If the failed step was
    the command's first, nothing ran. When it is a `model_call_finished` step,
@@ -54,7 +54,7 @@ IDs of the calls it waits on or the stop that prevents it.
 **2. The Outcome is the turn plus its view (4.2).** `Outcome` embeds
 `TurnView`, so `out.Stop`, `out.Output`, `out.Warnings`, and
 `out.ReadyToContinue` keep their names, and `out.Spend`, `out.Tools`, and the
-fields below need no replay. `Replay` returns the same view for a loaded
+fields below need no replay. `Turn.View` returns the same view for a loaded
 record.
 
 ```go
@@ -68,7 +68,7 @@ Answer  string    // text of the final assistant answer
 Pending []Pending // typed, in a stable order (was []string)
 ```
 
-`Replay` and `Outcome` project an unrecorded stop as `Run` does: an unsettled
+`Turn.View` and `Outcome` project an unrecorded stop as `Run` does: an unsettled
 model attempt is uncertain, an in-flight call or attempt is interrupted, and
 remaining pending work is waiting. A policy's view is taken mid-run, so its
 `Stop` stays empty. `Turn.StructuredOutput()` is removed because it replays
@@ -84,7 +84,7 @@ type Pending struct {
 	Name   string                     // tool name, for approvals and tool calls
 	Args   json.RawMessage            // the arguments a person approves
 	Tool   *ToolView                  // set for local calls
-	Hosted *llm.HostedApprovalRequest // set for hosted approval requests
+	Hosted *llm.ProviderToolApprovalRequest // set for hosted approval requests
 }
 
 func (p Pending) Approve() Resolve
@@ -103,7 +103,7 @@ calls in call order, then hosted requests in the order the model made them.
 or the request ID and origin for a hosted request. `Result` takes a value, so
 callers never write `new(...)`. Command IDs derive from the item
 (`approval:<id>`, `hosted-approval:<attempt>:<id>`, `result:<id>`): a retried
-answer is a duplicate, and a different second answer is `ErrCommandConflict`.
+answer is a duplicate, and a different second answer is `ErrCommandIDReused`.
 Local call IDs are unique within a turn (replay rejects a repeat), but a
 provider may reuse a hosted request ID once the first was answered, so
 `Pending.ModelCallID` scopes that command. A builder on the wrong kind of item
@@ -135,10 +135,10 @@ message, because hosted work can span several model calls:
 
 ```go
 func (t Turn) Citations() []content.Citation // in order, as reported
-func (t Turn) HostedUses() []llm.HostedUse   // each with its paired result
+func (t Turn) ProviderToolUses() []llm.ProviderToolUse   // each with its paired result
 ```
 
-`HostedUses` merges a separate `HostedResult` into its use's `Output` and
+`ProviderToolUses` merges a separate `ProviderToolResult` into its use's `Output` and
 `IsError`. `Citations` does not deduplicate: one source may carry two
 excerpts.
 
@@ -177,13 +177,13 @@ for err == nil && out.Stop.Kind == dashi.StopWaiting {
 ## Tests
 
 - Commit failures: rejected and unknown writes return `*CommitError` with
-  `Step`; a recorder's `ErrRevisionConflict` matches `errors.Is` with no doubled
+  `Step`; a recorder's `ErrStaleTurn` matches `errors.Is` with no doubled
   message; a failed `model_call_finished` write leaves the usage on `Step`.
 - A rejected command returns the caller's turn and view.
 - A crash between recording a denial and continuing keeps the operator's
   reason; the model receives it.
 - A mixed pending list (local approval, hosted approval, waiting external
   call) in stable order; builders settle each; retries are duplicates.
-- A policy's mid-run view has an empty `Stop`; `Replay` and `Run` agree.
+- A policy's mid-run view has an empty `Stop`; `Turn.View` and `Run` agree.
 - Answer text with citation fragments, reasoning blocks, hosted items, and a
-  provider pause; `Citations` and `HostedUses` across calls.
+  provider pause; `Citations` and `ProviderToolUses` across calls.

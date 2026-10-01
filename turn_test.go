@@ -292,7 +292,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
 	turn := reload(t, rec, "t1")
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,14 +321,14 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		messyArgs,
 		view.Tools["call-1"].Call.Args,
 	} {
-		if canonjson.Digest(args) != ArgsDigest(view.Tools["call-1"].Call.Args) {
+		if canonjson.Hash(args) != ArgsHash(view.Tools["call-1"].Call.Args) {
 			t.Fatalf("approval digest of %s does not match", args)
 		}
 	}
 	approval := ApprovalDecision{
-		CallID:     "call-1",
-		Approve:    true,
-		ArgsDigest: canonjson.Digest(messyArgs),
+		CallID:   "call-1",
+		Approve:  true,
+		ArgsHash: canonjson.Hash(messyArgs),
 	}
 	settle := Resolve{CommandID: "approve", CallID: "call-1", Approval: &approval}
 	out, err = runner.Run(t.Context(), turn, settle)
@@ -353,7 +353,7 @@ func TestJSONBRoundTripApprovalAndToolBinding(t *testing.T) {
 		t.Fatalf("continue=%+v err=%v runs=%d", out.Stop, err, runs)
 	}
 	turn = reload(t, rec, "t1")
-	if _, err := Replay(turn); err != nil {
+	if _, err := turn.View(); err != nil {
 		t.Fatalf("replay of reloaded turn: %v", err)
 	}
 	for _, step := range turn.Steps {
@@ -413,8 +413,8 @@ func TestJSONBRoundTripInterruptedToolAndHistory(t *testing.T) {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
 	stored := jsonbRoundTrip(history)
-	startBytes, _ := json.Marshal(fingerprintMessages(history))
-	storedBytes, _ := json.Marshal(fingerprintMessages(stored))
+	startBytes, _ := json.Marshal(hashMessages(history))
+	storedBytes, _ := json.Marshal(hashMessages(stored))
 	if bytes.Equal(startBytes, storedBytes) {
 		t.Fatal("simulation left the history byte-identical")
 	}
@@ -484,8 +484,8 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 		t.Fatalf("start=%+v err=%v", out.Stop, err)
 	}
 	stored := jsonbRoundTrip(history)
-	a, _ := json.Marshal(fingerprintMessages(history))
-	b, _ := json.Marshal(fingerprintMessages(stored))
+	a, _ := json.Marshal(hashMessages(history))
+	b, _ := json.Marshal(hashMessages(stored))
 	if bytes.Equal(a, b) {
 		t.Fatal("simulation left the history byte-identical")
 	}
@@ -528,13 +528,13 @@ func TestStrictHistoryAcceptsJSONBRoundTrip(t *testing.T) {
 
 func equalFixture() Step {
 	return Step{
-		Version:       1,
-		TurnID:        "turn",
-		Seq:           1,
-		At:            time.Date(2026, 1, 2, 3, 4, 5, 123456789, time.UTC),
-		Kind:          StepTurnStarted,
-		CommandID:     "start",
-		CommandDigest: "digest",
+		Version:     1,
+		TurnID:      "turn",
+		Seq:         1,
+		At:          time.Date(2026, 1, 2, 3, 4, 5, 123456789, time.UTC),
+		Kind:        StepTurnStarted,
+		CommandID:   "start",
+		CommandHash: "digest",
 		Started: &StartFact{
 			OutputSchema: messySchema,
 			Input: []llm.Message{

@@ -62,11 +62,11 @@ out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{Input: input})
 state of the turn; the error says whether the command applied. `out.Answer` is
 the final answer text, `out.Output` the structured output, `out.Spend` the
 usage and cost, and `out.Pending` the work the turn waits on. `out.Turn` is the
-record to pass to the next call. `dashi.Replay(turn)` gives the same view for a
+record to pass to the next call. `dashi.turn.View()` gives the same view for a
 turn loaded from a recorder.
 
 For most programs, `if err != nil { return err }` is enough. A host that
-recovers turns checks, in order: `errors.Is(err, dashi.ErrRevisionConflict)`
+recovers turns checks, in order: `errors.Is(err, dashi.ErrStaleTurn)`
 (another worker owns the turn; reload and back off), then
 `errors.As(err, &commitErr)` for a `*dashi.CommitError` (the run executed, but
 `commitErr.Step` was not recorded; recover as after a crash; see
@@ -74,7 +74,7 @@ recovers turns checks, in order: `errors.Is(err, dashi.ErrRevisionConflict)`
 means the command was rejected and nothing was recorded, except
 `ErrRecordInvalid`: steps this run recorded fail replay, a bug to report. A
 failed or limited turn is not an error; see `out.Stop`. `out.Turn.Citations()` and
-`out.Turn.HostedUses()` collect sources and provider-run tool calls from every
+`out.Turn.ProviderToolUses()` collect sources and provider-run tool calls from every
 model call in the turn.
 
 `out.Answer` is the latest assistant text, even when the turn did not
@@ -100,7 +100,7 @@ call. The saved turn records its own input and output plus a fingerprint of
 the earlier history; it does not save the earlier messages. Keep them in your
 application so a worker can supply them after a crash. If the history on
 `Continue` differs, Dashi proceeds and records a warning in
-`Outcome.Warnings` and `Replay(turn).Warnings`. If `Start` had no history,
+`Outcome.Warnings` and `turn.View().Warnings`. If `Start` had no history,
 omit `History` on `Continue` (or pass an empty slice).
 
 A [session](sessions.md) does this for you: it builds the history from the
@@ -154,26 +154,26 @@ for {
 	turn, _ := rec.Load(ctx, turnID)
 	cmd := outbox.unapplied(turn) // saved, but no step records it
 	if cmd == nil {
-		view, _ := dashi.Replay(turn)
+		view, _ := dashi.turn.View()
 		if cmd = plan(turn, view, history); cmd == nil {
 			break // NextNone, or waiting on the host
 		}
 		outbox.save(cmd) // dashi.MarshalCommand
 	}
 	if _, err := runner.Run(ctx, turn, cmd, dashi.WithOwner(owner)); err != nil {
-		return err // reload and back off on ErrRevisionConflict
+		return err // reload and back off on ErrStaleTurn
 	}
 }
 ```
 
 Here `plan` is the switch on `view.Next()`, with
-`CommandID: fmt.Sprintf("%s@%d", turn.ID, view.Revision)`.
+`CommandID: fmt.Sprintf("%s@%d", turn.ID, view.LastSeq)`.
 `Example_hostTurnLoop` runs the whole loop, including a crash between saving
 and running, without an API key.
 
 The rest of a host's work has its own guide: settling each model attempt in
 the recorder with `dashi.ModelCallCostOf` ([budgets](budgets.md)); history
-across turns and compaction with `dashi.ProjectHistory`
+across turns and compaction with `dashi.BuildHistory`
 ([compaction without a session](compaction.md#without-a-session)); and
 leases, crashes, and limits ([recovering turns](recovering-turns.md)).
 
@@ -184,7 +184,7 @@ recording began from a rejected command, `TurnView.ReplacementHistory` reads
 a compaction turn's result, `ContextItem.Validate` checks input before it is
 queued, and `Inbox.Has` checks a steer ID. A host that carries a recorded
 agent into its next turn clears a `Revision` that begins with
-`dashi.DerivedRevisionPrefix`.
+`dashi.DerivedVersionPrefix`.
 
 ## Structured output
 

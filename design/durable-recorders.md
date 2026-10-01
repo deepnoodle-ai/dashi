@@ -61,7 +61,7 @@ process and would not. Network filesystems are unsupported.
 **Commit.** Take an exclusive lock with a non-blocking attempt retried at a
 short backoff until the context ends (the runner bounds a commit after
 cancellation to five seconds); a context that ends first gives
-`PersistenceRejected`. Under the lock, read the log, parsing only seq, kind,
+`NothingWritten`. Under the lock, read the log, parsing only seq, kind,
 command ID and digest, and claim owners; apply `MemoryRecorder`'s checks
 (owner equals the last claim; command-ID retry or conflict; `ExpectedSeq`
 equals the step count; an occupied sequence matches by `Step.Equal`), then
@@ -110,7 +110,7 @@ package and drops its own recorder.
 `Recorder`'s doc comment states the rules: the owner fence first; append
 only at `ExpectedSeq+1` unless a retry rule applies; a retry equal by
 `Step.Equal` succeeds; command-ID retry and conflict; `*CommitError` with
-`PersistenceRejected` only when the call certainly wrote nothing, anything
+`NothingWritten` only when the call certainly wrote nothing, anything
 else unknown; safe for concurrent use; preserve JSON meaning. It points to
 `dashitest.Run` as the executable contract and to `filerecorder` as a
 reference. `CommitRequest.Owner` explains the empty and unclaimed cases.

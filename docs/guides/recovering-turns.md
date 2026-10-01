@@ -98,7 +98,7 @@ transaction with your own rows:
   them, and a genuine retry would then be rejected.
 - Postgres `jsonb` rejects `\u0000` in strings; store such steps as `json`
   or text, or reject them explicitly.
-- Return a `*dashi.CommitError` with `PersistenceRejected` only when the
+- Return a `*dashi.CommitError` with `NothingWritten` only when the
   transaction certainly wrote nothing. A timeout or lost connection after
   `COMMIT` was sent must be a plain error, which Dashi treats as unknown.
 - `Load` returns `dashi.ErrTurnNotFound` when the turn has no steps.

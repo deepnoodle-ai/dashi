@@ -36,7 +36,7 @@ func accountingStorage(t *testing.T, file bool) (dashi.Recorder, func() dashi.Lo
 
 func storageAgent() dashi.Agent {
 	return dashi.Agent{
-		ID: "agent", Revision: "r1",
+		ID: "agent", Version: "r1",
 		Provider: dashitest.Provider,
 		API:      dashitest.API,
 		Model:    dashitest.Model,
@@ -142,7 +142,7 @@ func TestRecordersReopenSeparateUsageAndMonetaryOverflow(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				view, err := dashi.Replay(saved)
+				view, err := saved.View()
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -202,7 +202,7 @@ func TestRecordersRejectUnsafeTokenIntentBeforeStorage(t *testing.T) {
 		})
 		var rejected *dashi.CommitError
 		if !errors.As(err, &rejected) ||
-			rejected.Persistence != dashi.PersistenceRejected ||
+			!rejected.NothingWritten ||
 			rejected.Step.Kind != dashi.StepModelCallStarted {
 			t.Fatalf("unsafe intent was not rejected before admission: %v", err)
 		}
@@ -262,7 +262,7 @@ func TestLateToolOverflowCannotPoisonOpenCostStop(t *testing.T) {
 					CostLimit: money.MustParseAmount("1"), CostUsed: money.MustParseAmount("1"),
 				},
 			}
-			before, err := dashi.Replay(turn)
+			before, err := turn.View()
 			if err != nil || before.Stop.Ended || before.Spend.CostUnknown != 0 {
 				t.Fatalf("invalid fixture: view=%+v err=%v", before, err)
 			}
@@ -275,7 +275,7 @@ func TestLateToolOverflowCannotPoisonOpenCostStop(t *testing.T) {
 			}
 			candidate := turn
 			candidate.Steps = append(append([]dashi.Step(nil), turn.Steps...), bad)
-			if _, err := dashi.Replay(candidate); !errors.Is(err, dashi.ErrInvalidTurn) {
+			if _, err := candidate.View(); !errors.Is(err, dashi.ErrInvalidTurn) {
 				t.Fatalf("late overflow changed an open stop: %v", err)
 			}
 
@@ -308,7 +308,7 @@ func TestLateToolOverflowCannotPoisonOpenCostStop(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			view, err := dashi.Replay(saved)
+			view, err := saved.View()
 			if err != nil || len(saved.Steps) != len(turn.Steps) ||
 				view.Tools["call-2"].Status != dashi.ToolWaiting ||
 				view.Spend.CostUnknown != 0 || view.Stop.Ended {

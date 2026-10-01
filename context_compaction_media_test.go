@@ -60,7 +60,7 @@ func TestActiveCompactionLargeImageEstimateUnavailable(t *testing.T) {
 			if estimate <= window || len(data) < 1000000 {
 				t.Fatalf("probe too small: PNG=%d estimate=%d window=%d", len(data), estimate, window)
 			}
-			if _, err := Replay(out.Turn); err != nil {
+			if _, err := out.Turn.View(); err != nil {
 				t.Fatal(err)
 			}
 			t.Logf("valid PNG bytes=%d prepared estimate=%d window=%d sends=%d warning=1", len(data), estimate, window, c.sends)
@@ -115,7 +115,7 @@ func TestActiveCompactionMediaHistoryToolHookReload(t *testing.T) {
 			if err != nil || out.Stop.Kind != StopCompleted || c.sends != 3 || calls != 2 || activeMediaWarnings(out.Warnings) != 1 || len(out.ContextCompactions) != 0 {
 				t.Fatalf("stop=%+v sends=%d calls=%d warnings=%+v err=%v", out.Stop, c.sends, calls, out.Warnings, err)
 			}
-			view, err := Replay(out.Turn)
+			view, err := out.Turn.View()
 			if err != nil || activeMediaWarnings(view.Warnings) != 1 {
 				t.Fatalf("reload warning=%+v err=%v", view.Warnings, err)
 			}

@@ -23,7 +23,7 @@ func (c *routedCompactor) Start(history []llm.Message) (dashi.Start, error) {
 		return start, err
 	}
 	start.Agent.ID = "dashi-cli-summary"
-	start.Agent.Revision, start.Agent.Provider, start.Agent.API = c.agent.Revision, c.agent.Provider, c.agent.API
+	start.Agent.Version, start.Agent.Provider, start.Agent.API = c.agent.Version, c.agent.Provider, c.agent.API
 	if start.Agent.Model == "" {
 		start.Agent.Model = c.agent.Model
 	}

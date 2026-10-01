@@ -88,7 +88,7 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 	return RunResult{}, false, false
 }
 func (r *runtime) activePlan(s *replayState, estimate, allowance int) (*ContextCompactionPlan, error) {
-	visible, err := projectedMessages(r.turn, nil, true)
+	visible, err := turnMessages(r.turn, nil, true)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func (r *runtime) activePlan(s *replayState, estimate, allowance int) (*ContextC
 			evidence = append(evidence, m.Message)
 		}
 	}
-	plan.Digest, err = historyFingerprint(evidence)
+	plan.Hash, err = historyHash(evidence)
 	return plan, err
 }
 func groupMessages(g contextGroup) []llm.Message {
@@ -159,7 +159,7 @@ func (r *runtime) activeSummaryMessages(plan *ContextCompactionPlan) ([]llm.Mess
 	out := []llm.Message{llm.UserMessage(llm.Text(strings.Join(evidence, "\n\n")))}
 	// Use the ordinary projection for delivery lifetime, roles, and slot
 	// metadata. Raw facts retain expired deliveries but must not restore them.
-	projected, err := projectedMessages(r.turn, nil, true)
+	projected, err := turnMessages(r.turn, nil, true)
 	if err != nil {
 		return nil, err
 	}
@@ -184,19 +184,19 @@ func (r *runtime) activeEstimateAfter(plan *ContextCompactionPlan, result *llm.R
 	if err != nil {
 		return 0, err
 	}
-	projectionTurn := r.turn
+	messagesTurn := r.turn
 	// An unsent/streaming summary intent is not ordinary conversation. Validate
 	// its result against the already-settled prefix without projecting an intent.
-	for i := len(projectionTurn.Steps) - 1; i >= 0; i-- {
-		step := projectionTurn.Steps[i]
+	for i := len(messagesTurn.Steps) - 1; i >= 0; i-- {
+		step := messagesTurn.Steps[i]
 		if step.Kind == StepModelCallStarted && step.Model.Purpose == ModelPurposeCompaction {
-			if i == len(projectionTurn.Steps)-1 {
-				projectionTurn.Steps = projectionTurn.Steps[:i]
+			if i == len(messagesTurn.Steps)-1 {
+				messagesTurn.Steps = messagesTurn.Steps[:i]
 			}
 			break
 		}
 	}
-	messages, err := projectedMessages(projectionTurn, r.history, true)
+	messages, err := turnMessages(messagesTurn, r.history, true)
 	if err != nil {
 		return 0, err
 	}

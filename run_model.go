@@ -42,7 +42,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	finalAnswerOnly := purpose == "" && !r.agent.Limits.NoReservedFinalReply &&
 		s.ModelCalls > 0 &&
 		s.ModelCalls+1 == s.attemptCap
-	messages, err := projectWithHistory(r.turn, r.history)
+	messages, err := turnMessagesWithHistory(r.turn, r.history)
 	if err != nil {
 		return r.stop(StopFailed, err.Error()), false
 	}
@@ -139,7 +139,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		if purpose == ModelPurposeCompaction {
 			input.Messages, err = r.activeSummaryMessages(plan)
 		} else {
-			input.Messages, err = projectWithHistory(r.turn, r.history)
+			input.Messages, err = turnMessagesWithHistory(r.turn, r.history)
 		}
 		if err != nil {
 			return r.stop(StopFailed, err.Error()), false
@@ -273,7 +273,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		Compaction:           plan.clone(),
 		ModelCallID:          attempt,
 		MessageID:            messageID,
-		RequestDigest:        canonjson.Digest(req.Body()),
+		RequestHash:          canonjson.Hash(req.Body()),
 		FinalReplyOnly:       finalAnswerOnly,
 		Reservation:          admission,
 		WorstCaseCost:        atRisk,
@@ -282,7 +282,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		API:                  r.runner.Client.API(),
 		Model:                r.agent.Model,
 		Effective:            snapshot.Effective,
-		Origin:               snapshot.Origin,
+		Endpoint:             snapshot.Origin,
 		Adjustments:          snapshot.Adjustments,
 		ContentChanges:       snapshot.ContentChanges,
 		ModelInfo:            snapshot.ModelInfo,

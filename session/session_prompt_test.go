@@ -223,7 +223,7 @@ func TestSessionIDIsTheDefaultCacheKey(t *testing.T) {
 
 func TestRecordedSummaryPreferenceSurvivesReopenAndModelSwitch(t *testing.T) {
 	agentOf := func(turn dashi.Turn) dashi.Agent {
-		view, err := dashi.Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			t.Fatal(err)
 		}

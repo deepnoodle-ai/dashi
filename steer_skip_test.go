@@ -242,7 +242,7 @@ func TestUrgentSteerSkipsLaterCallsInSequentialBatch(t *testing.T) {
 		"a",
 	)
 	// The record replays to the same view.
-	view, err := Replay(cloneTurn(out.Turn))
+	view, err := cloneTurn(out.Turn).View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestUrgentSteerSkipsOnlyUnstartedCallsInParallelBatch(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(decoded)
+	view, err := decoded.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestUrgentSteerSkipsOnlyUnstartedCallsInParallelBatch(t *testing.T) {
 			t.Fatalf("replay differs for %s", id)
 		}
 	}
-	projected, err := Project(decoded)
+	projected, err := TurnMessagesFull(decoded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,7 +506,7 @@ func TestCrashAfterSteeringSkipResumesFromTheRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(saved)
+	view, err := saved.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -578,7 +578,7 @@ func TestReplayAcceptsAllowedToNotExecutedOnlyForSteering(t *testing.T) {
 				forged.Steps[i].Tool.Reason = reason
 			}
 		}
-		if _, err := Replay(forged); err == nil ||
+		if _, err := forged.View(); err == nil ||
 			!strings.Contains(err.Error(), "only a steer") {
 			t.Fatalf("reason %q: replay err = %v", reason, err)
 		}
@@ -769,7 +769,7 @@ func TestUrgentSteerLeavesUnknownToolResult(t *testing.T) {
 	if fact := settledFact(t, out.Turn, "x"); fact.Reason != "unknown tool" {
 		t.Fatalf("x settled as %+v", fact)
 	}
-	if _, err := Replay(cloneTurn(out.Turn)); err != nil {
+	if _, err := cloneTurn(out.Turn).View(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1040,7 +1040,7 @@ func TestReplayRejectsSteeringSkipOfSubmission(t *testing.T) {
 	if out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
-	if _, err := Replay(cloneTurn(out.Turn)); err != nil {
+	if _, err := cloneTurn(out.Turn).View(); err != nil {
 		t.Fatal(err)
 	}
 	// Forge: the allowed submission settles as skipped by a steer instead
@@ -1066,7 +1066,7 @@ func TestReplayRejectsSteeringSkipOfSubmission(t *testing.T) {
 		steps = append(steps, step)
 	}
 	forged.Steps = steps
-	if _, err := Replay(forged); err == nil ||
+	if _, err := forged.View(); err == nil ||
 		!strings.Contains(err.Error(), "never skips the reserved output tool") {
 		t.Fatalf("replay err = %v", err)
 	}
@@ -1168,7 +1168,7 @@ func TestCancelDuringStartCheckStartsNothing(t *testing.T) {
 			if writes.Load() != 0 {
 				t.Fatal("write ran")
 			}
-			view, err := Replay(out.Turn)
+			view, err := out.Turn.View()
 			if err != nil {
 				t.Fatal(err)
 			}

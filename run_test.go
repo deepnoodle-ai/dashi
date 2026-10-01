@@ -87,7 +87,7 @@ func (f execFunc) Execute(
 func testAgent() Agent {
 	return Agent{
 		ID:       "agent",
-		Revision: "r1",
+		Version:  "r1",
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",
@@ -149,7 +149,7 @@ func TestSimpleTurnAndDuplicateStart(t *testing.T) {
 	if got.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("outcome=%+v sends=%d", got.Stop, client.sends)
 	}
-	view, err := Replay(got.Turn)
+	view, err := got.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,8 +286,8 @@ func (f failIntentRecorder) Commit(
 ) error {
 	if req.Step.Kind == StepModelCallStarted {
 		return &CommitError{
-			Persistence: PersistenceRejected,
-			Err:         errors.New("budget refused"),
+			NothingWritten: true,
+			Err:            errors.New("budget refused"),
 		}
 	}
 	return f.base.Commit(ctx, req)
@@ -303,8 +303,8 @@ func (f *failOnceKind) Commit(ctx context.Context, req CommitRequest) error {
 	if !f.failed && req.Step.Kind == f.kind {
 		f.failed = true
 		return &CommitError{
-			Persistence: PersistenceRejected,
-			Err:         errors.New("injected failure"),
+			NothingWritten: true,
+			Err:            errors.New("injected failure"),
 		}
 	}
 	return f.base.Commit(ctx, req)
@@ -360,7 +360,7 @@ func TestDeniedToolRecoveryDoesNotReauthorize(t *testing.T) {
 		}),
 	}
 	got, err := start(t, client, tool.List{binding}, rec, denyHooks())
-	if persistence(err) != PersistenceRejected || runs != 0 {
+	if !nothingWritten(err) || runs != 0 {
 		t.Fatalf("first outcome=%+v err=%v runs=%d", got, err, runs)
 	}
 	saved, err := base.Load(t.Context(), "t1")
@@ -436,7 +436,7 @@ func TestToolRewriteRequiresReauthorization(t *testing.T) {
 	if got.Stop.Kind != StopCompleted || runs != 1 {
 		t.Fatalf("stop=%+v runs=%d", got.Stop, runs)
 	}
-	view, err := Replay(got.Turn)
+	view, err := got.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,9 +473,9 @@ func TestApprovalBoundToCallAndArguments(t *testing.T) {
 		t.Fatalf("stop=%+v runs=%d", got.Stop, runs)
 	}
 	bad := ApprovalDecision{
-		CallID:     "call-1",
-		Approve:    true,
-		ArgsDigest: "wrong",
+		CallID:   "call-1",
+		Approve:  true,
+		ArgsHash: "wrong",
 	}
 	_, err = (Runner{
 		Client:   client,
@@ -490,14 +490,14 @@ func TestApprovalBoundToCallAndArguments(t *testing.T) {
 	if err == nil {
 		t.Fatal("stale approval was accepted")
 	}
-	view, err := Replay(got.Turn)
+	view, err := got.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
 	good := ApprovalDecision{
-		CallID:     "call-1",
-		Approve:    true,
-		ArgsDigest: canonjson.Digest(view.Tools["call-1"].Call.Args),
+		CallID:   "call-1",
+		Approve:  true,
+		ArgsHash: canonjson.Hash(view.Tools["call-1"].Call.Args),
 	}
 	accepted, err := (Runner{
 		Client:   client,
@@ -554,12 +554,12 @@ func TestSettledModelResultDoesNotSendAgain(t *testing.T) {
 	commit(Step{
 		Kind: StepModelCallStarted,
 		Model: &ModelFact{
-			ModelCallID:   "t1:model:1",
-			MessageID:     "t1:model:1:message",
-			RequestDigest: "digest",
-			Provider:      def.Provider,
-			API:           def.API,
-			Model:         def.Model,
+			ModelCallID: "t1:model:1",
+			MessageID:   "t1:model:1:message",
+			RequestHash: "digest",
+			Provider:    def.Provider,
+			API:         def.API,
+			Model:       def.Model,
 		},
 	})
 	commit(Step{
@@ -620,12 +620,12 @@ func TestCommittedFinalResultRecoversWithoutNewModelCall(t *testing.T) {
 	commit(Step{
 		Kind: StepModelCallStarted,
 		Model: &ModelFact{
-			ModelCallID:   "t1:model:1",
-			MessageID:     "t1:model:1:message",
-			RequestDigest: "digest",
-			Provider:      def.Provider,
-			API:           def.API,
-			Model:         def.Model,
+			ModelCallID: "t1:model:1",
+			MessageID:   "t1:model:1:message",
+			RequestHash: "digest",
+			Provider:    def.Provider,
+			API:         def.API,
+			Model:       def.Model,
 		},
 	})
 	answer := final("saved")
@@ -699,7 +699,7 @@ func TestUncertainModelNeedsReconciliation(t *testing.T) {
 	if err != nil || completed.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("completed=%+v err=%v sends=%d", completed, err, client.sends)
 	}
-	view, err := Replay(settled.Turn)
+	view, err := settled.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -722,7 +722,7 @@ func TestProviderPauseUsesBoundedNextAttempt(t *testing.T) {
 	if got.Stop.Kind != StopCompleted || client.sends != 2 {
 		t.Fatalf("stop=%+v sends=%d", got.Stop, client.sends)
 	}
-	view, err := Replay(got.Turn)
+	view, err := got.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -930,7 +930,7 @@ func TestInvalidToolArgumentsNeverExecute(t *testing.T) {
 	if got.Stop.Kind != StopCompleted || runs != 0 {
 		t.Fatalf("stop=%+v runs=%d", got.Stop, runs)
 	}
-	view, err := Replay(got.Turn)
+	view, err := got.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -939,7 +939,7 @@ func TestInvalidToolArgumentsNeverExecute(t *testing.T) {
 	}
 }
 
-func TestIncompleteModelCallIsNotProjectedAsExecutableCall(t *testing.T) {
+func TestIncompleteModelCallIsNotShownAsExecutableCall(t *testing.T) {
 	incomplete := callResult("call-1", "lookup")
 	incomplete.Stop = llm.Stop{Kind: llm.StopIncomplete}
 	incomplete.Message.Content = append(
@@ -986,7 +986,7 @@ func TestIncompleteModelCallIsNotProjectedAsExecutableCall(t *testing.T) {
 	}
 }
 
-func TestParallelToolsRecordCompletionButProjectCallOrder(t *testing.T) {
+func TestParallelToolsRecordCompletionButKeepCallOrder(t *testing.T) {
 	a := tool.Call{ID: "a", Name: "first", Args: []byte(`{}`)}
 	b := tool.Call{ID: "b", Name: "second", Args: []byte(`{}`)}
 	requested := llm.Result{
@@ -1106,13 +1106,13 @@ func TestStartedToolCanBeReconciledAfterCrash(t *testing.T) {
 	commit(Step{
 		Kind: StepModelCallStarted,
 		Model: &ModelFact{
-			ModelCallID:   "t1:model:1",
-			MessageID:     "t1:model:1:message",
-			RequestDigest: "digest",
-			Provider:      def.Provider,
-			API:           def.API,
-			Model:         def.Model,
-			Tools:         []tool.Definition{definition},
+			ModelCallID: "t1:model:1",
+			MessageID:   "t1:model:1:message",
+			RequestHash: "digest",
+			Provider:    def.Provider,
+			API:         def.API,
+			Model:       def.Model,
+			Tools:       []tool.Definition{definition},
 		},
 	})
 	requested := llm.Result{
@@ -1169,7 +1169,7 @@ func TestIntentFailurePreventsSend(t *testing.T) {
 	rec := NewMemoryRecorder()
 	got, err := start(t, client, nil, failIntentRecorder{rec}, Hooks{})
 	step := unacknowledged(err)
-	if persistence(err) != PersistenceRejected ||
+	if !nothingWritten(err) ||
 		step == nil ||
 		step.Kind != StepModelCallStarted ||
 		client.sends != 0 {
@@ -1192,7 +1192,7 @@ func TestChangedAgentAndCommandConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	changed := testAgent()
-	changed.Revision = "r2"
+	changed.Version = "r2"
 	_, err = (Runner{Client: client, Recorder: rec}).Run(
 		t.Context(),
 		got.Turn,
@@ -1214,7 +1214,7 @@ func TestChangedAgentAndCommandConflict(t *testing.T) {
 			Input:     []llm.Message{llm.UserMessage(llm.Text("different"))},
 		},
 	)
-	if !errors.Is(err, ErrCommandConflict) {
+	if !errors.Is(err, ErrCommandIDReused) {
 		t.Fatalf("command error=%v", err)
 	}
 }
@@ -1281,7 +1281,7 @@ func TestSnapshotContextKeepsReplacedItemInPlace(t *testing.T) {
 			},
 		},
 	})
-	messages, err := Project(turn)
+	messages, err := TurnMessagesFull(turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1292,7 +1292,7 @@ func TestSnapshotContextKeepsReplacedItemInPlace(t *testing.T) {
 		messages[2].Content[0].Block.Text.Text != "new" {
 		t.Fatalf("projection=%+v", messages)
 	}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1327,7 +1327,7 @@ func TestUnknownCommitRequiresReloadBeforeContinuation(t *testing.T) {
 	rec := &lostAcknowledgment{base: base}
 	got, err := start(t, client, nil, rec, Hooks{})
 	step := unacknowledged(err)
-	if persistence(err) != PersistenceUnknown ||
+	if !writeUnknown(err) ||
 		step == nil ||
 		step.Kind != StepModelCallStarted ||
 		client.sends != 0 {
@@ -1340,7 +1340,7 @@ func TestUnknownCommitRequiresReloadBeforeContinuation(t *testing.T) {
 	if len(saved.Steps) != 2 || saved.Steps[1].Kind != StepModelCallStarted {
 		t.Fatalf("saved steps=%+v", saved.Steps)
 	}
-	view, err := Replay(saved)
+	view, err := saved.View()
 	if err != nil || !view.ReadyToContinue {
 		t.Fatalf("saved intent is not ready: view=%+v err=%v", view, err)
 	}
@@ -1362,7 +1362,7 @@ func TestRecordedInvalidModelResultCannotResendAfterCrash(t *testing.T) {
 	base := NewMemoryRecorder()
 	rec := &failOnceKind{base: base, kind: StepTurnStopped}
 	first, err := start(t, client, nil, rec, Hooks{})
-	if persistence(err) != PersistenceRejected || client.sends != 1 {
+	if !nothingWritten(err) || client.sends != 1 {
 		t.Fatalf("first: outcome=%+v err=%v sends=%d", first, err, client.sends)
 	}
 	saved, err := base.Load(t.Context(), "t1")
@@ -1411,7 +1411,7 @@ func TestToolContextCannotClaimPrivilegedRole(t *testing.T) {
 				},
 			},
 		}
-		if _, err := Project(turn); !errors.Is(err, ErrInvalidTurn) {
+		if _, err := TurnMessagesFull(turn); !errors.Is(err, ErrInvalidTurn) {
 			t.Fatalf("tool context with role %q reached projection: %v", role, err)
 		}
 	}
@@ -1447,7 +1447,7 @@ func TestCanceledTurnRecordsLateModelResultWithoutRestart(t *testing.T) {
 	if err != nil || late.Stop.Kind != StopCanceled || client.sends != 1 {
 		t.Fatalf("late: stop=%+v err=%v sends=%d", late.Stop, err, client.sends)
 	}
-	view, err := Replay(late.Turn)
+	view, err := late.Turn.View()
 	if err != nil || view.Spend.Usage.InputTokens != 7 {
 		t.Fatalf("late usage=%+v err=%v", view.Spend.Usage, err)
 	}
@@ -1485,7 +1485,7 @@ func TestReplayRejectsToolResultWithoutAuthorization(t *testing.T) {
 			Tool:    &ToolFact{Call: call, Outcome: &outcome},
 		},
 	)
-	if _, err := Replay(forged); !errors.Is(err, ErrInvalidTurn) {
+	if _, err := forged.View(); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("forged successful tool result accepted: %v", err)
 	}
 }

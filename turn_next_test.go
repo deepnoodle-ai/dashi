@@ -42,7 +42,7 @@ func nextRows() []nextRow {
 	}
 	failed := func(reason string) *Stop { return &Stop{Kind: StopFailed, Reason: reason} }
 	return []nextRow{
-		{name: "not started", setup: func(s *replayState) { s.Revision = 0 }, want: NextNone},
+		{name: "not started", setup: func(s *replayState) { s.LastSeq = 0 }, want: NextNone},
 		{name: "no stop", want: NextRecover},
 		{
 			name:  "no stop, model attempt in flight",
@@ -218,7 +218,7 @@ func nextRows() []nextRow {
 				"failed/" + StopReasonContentUnavailable,
 				"failed/" + StopReasonContentTooLarge,
 				"failed/" + StopReasonContentSizeMismatch,
-				"failed/" + StopReasonContentDigestMismatch,
+				"failed/" + StopReasonContentHashMismatch,
 			},
 			stop: failed(StopReasonContentUnavailable),
 			want: NextFix,
@@ -298,7 +298,7 @@ func pendingCall(status ToolStatus) func(*replayState) {
 // and Terminal come from the same code replay uses.
 func rowView(row nextRow) TurnView {
 	s := &replayState{
-		TurnView:     TurnView{Tools: map[string]ToolView{}, Revision: 5},
+		TurnView:     TurnView{Tools: map[string]ToolView{}, LastSeq: 5},
 		providerTool: map[string]llm.ProviderToolApprovalRequest{},
 	}
 	s.Agent.Limits.Resumes = 2
@@ -312,7 +312,7 @@ func rowView(row nextRow) TurnView {
 	s.Stop.Ended = s.Stop.Kind != "" && s.terminal()
 	s.ReadyToContinue = s.canContinue()
 	view := s.TurnView
-	view.Stop = s.projectedStop()
+	view.Stop = s.inferredStop()
 	return view
 }
 
@@ -497,7 +497,7 @@ func TestNextReadsRecordedStop(t *testing.T) {
 		interruptionStart(testAgent()),
 		interruptionModelIntent("model-1"),
 	)
-	view, err := Replay(crashed)
+	view, err := crashed.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +565,7 @@ func TestNextSurvivesJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, turn := range map[string]Turn{"crashed": crashed, "completed": done.Turn} {
-		view, err := Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			t.Fatal(err)
 		}

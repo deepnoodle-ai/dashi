@@ -341,7 +341,7 @@ func (r *loseSettle) Commit(ctx context.Context, req CommitRequest) error {
 	if req.Step.Kind == StepModelCallFinished {
 		r.seen++
 		if r.seen == r.n {
-			return &CommitError{Persistence: PersistenceUnknown, Err: errors.New("lost")}
+			return &CommitError{Err: errors.New("lost")}
 		}
 	}
 	return r.MemoryRecorder.Commit(ctx, req)

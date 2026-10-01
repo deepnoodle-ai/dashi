@@ -200,7 +200,7 @@ func TestReplayKeepsValidOverflowingSettlements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(saved)
+	view, err := saved.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestReplayMonetaryOverflowRemainsUncertain(t *testing.T) {
 	turn := accountingRecord(llm.Usage{}, llm.Usage{})
 	turn.Steps[2].Model.Cost.Total = money.Amount(math.MaxInt64)
 	turn.Steps[4].Model.Cost.Total = 1
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestReplayUnpricedRequestsSaturateWithoutDroppingEvidence(t *testing.T) {
 	turn.Steps[4].Model.Cost.UnpricedRequests = map[string]int{
 		llm.MeterUnreported: 1,
 	}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestReplayRejectsMalformedIndividualAccounting(t *testing.T) {
 	} {
 		turn := accountingRecord(llm.Usage{})
 		corrupt(turn.Steps[2].Model)
-		if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+		if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 			t.Fatalf("invalid individual accounting accepted: %v", err)
 		}
 	}
@@ -306,7 +306,7 @@ func TestReplayDerivedUsageOverflowPreservesRecordedCharge(t *testing.T) {
 				settled.ResultUnknown = true
 				settled.Error = "connection lost"
 			}
-			view, err := Replay(turn)
+			view, err := turn.View()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -322,7 +322,7 @@ func TestReplayDerivedUsageOverflowPreservesRecordedCharge(t *testing.T) {
 				t.Fatal("failed enrichment lost the independent charge")
 			}
 			settled.Cost = nil
-			view, err = Replay(turn)
+			view, err = turn.View()
 			if err != nil || view.Spend.CostUnknown != 1 {
 				t.Fatalf("missing independent charge did not remain unknown: %v", err)
 			}
@@ -336,7 +336,7 @@ func TestReplayDerivedOverflowWithoutReportedUsageOmitsFallback(t *testing.T) {
 	turn.Steps[2].Model.Result.Usage = nil
 	pricing := newPricedClient().pricing
 	turn.Steps[1].Model.ModelInfo = &llm.ModelInfo{Pricing: &pricing}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestReplayDerivedOverflowWithoutReportedUsageOmitsFallback(t *testing.T) {
 		t.Fatal("failed fallback retained derived usage or lost recorded money")
 	}
 	turn.Steps[2].Model.Cost = nil
-	view, err = Replay(turn)
+	view, err = turn.View()
 	if err != nil || view.Spend.CostUnknown != 1 || len(view.Spend.Cost) != 0 {
 		t.Fatalf("incomplete fallback was priced: %v", err)
 	}
@@ -370,7 +370,7 @@ func TestReplayDerivedOverflowKeepsPartialMonetaryEvidence(t *testing.T) {
 	turn.Steps[0].Started.Budget = &Budget{
 		MaxCost: &Money{Amount: amount("1"), Currency: "USD"},
 	}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,8 +409,8 @@ func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
 			admission.Amount != fact.WorstCaseCost.Total ||
 			admission.Amount > r.balance {
 			return &CommitError{
-				Persistence: PersistenceRejected,
-				Err:         errors.New("credit reservation rejected"),
+				NothingWritten: true,
+				Err:            errors.New("credit reservation rejected"),
 			}
 		}
 		if err := r.base.Commit(ctx, req); err != nil {

@@ -14,7 +14,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-const cliRouteRevision = "dashi-cli:route-v1:"
+const cliRouteVersion = "dashi-cli:route-v1:"
 
 // routeClients owns immutable destination definitions for this invocation.
 // The grant map contains whole-binding fingerprints, never credential values.
@@ -43,33 +43,33 @@ func (r *routeClients) clientFor(agent dashi.Agent) (llm.Client, error) {
 	if !ok {
 		return nil, fmt.Errorf("recorded destination %q is no longer configured", agent.Provider)
 	}
-	fingerprint, err := d.fingerprint()
+	hash, err := d.hash()
 	if err != nil {
 		return nil, err
 	}
 	if agent.API != d.Definition.API || !slices.Contains(d.Definition.Models, agent.Model) {
 		return nil, errors.New("recorded destination API or model no longer matches its configuration")
 	}
-	if strings.HasPrefix(agent.Revision, cliRouteRevision) {
-		if agent.Revision != cliRouteRevision+fingerprint {
+	if strings.HasPrefix(agent.Version, cliRouteVersion) {
+		if agent.Version != cliRouteVersion+hash {
 			return nil, errors.New("recorded destination binding changed; restore its configuration before continuing")
 		}
 	} else {
 		// The earlier CLI used only the public OpenAI Responses route. Its
 		// automatic behavior revision cannot establish any custom binding.
 		builtin := builtinDestinations()["openai"]
-		if agent.ID != "dashi-cli" || !strings.HasPrefix(agent.Revision, "auto:") || agent.Provider != "openai" || d.Definition.API != builtin.Definition.API || d.Definition.Endpoint != builtin.Definition.Endpoint || len(d.BuiltinAliases) == 0 {
+		if agent.ID != "dashi-cli" || !strings.HasPrefix(agent.Version, "auto:") || agent.Provider != "openai" || d.Definition.API != builtin.Definition.API || d.Definition.Endpoint != builtin.Definition.Endpoint || len(d.BuiltinAliases) == 0 {
 			return nil, errors.New("recorded turn has unknown destination provenance; its route cannot be reconstructed")
 		}
 	}
-	return r.factory(d, r.lookup, d.trustedBy(r.user) || r.granted(fingerprint))
+	return r.factory(d, r.lookup, d.trustedBy(r.user) || r.granted(hash))
 }
 func selectionAgent(selection resolvedSelection, controls llm.Settings) (dashi.Agent, error) {
-	fingerprint, err := selection.Destination.fingerprint()
+	hash, err := selection.Destination.hash()
 	if err != nil {
 		return dashi.Agent{}, err
 	}
-	return dashi.Agent{ID: "dashi-cli", Revision: cliRouteRevision + fingerprint, Provider: selection.Destination.ID, API: selection.Destination.Definition.API, Model: selection.Model, Settings: controls, NoInheritedSettings: true}, nil
+	return dashi.Agent{ID: "dashi-cli", Version: cliRouteVersion + hash, Provider: selection.Destination.ID, API: selection.Destination.Definition.API, Model: selection.Model, Settings: controls, NoInheritedSettings: true}, nil
 }
 
 // turnClient forwards preparation to the bound turn. Each frozen request keeps

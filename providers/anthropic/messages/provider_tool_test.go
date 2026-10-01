@@ -212,7 +212,7 @@ func TestMCPToolsetSetsServerAndBetaHeader(t *testing.T) {
 	}
 }
 
-func TestProviderToolWebSearchStreamMatchesCompleteProjection(t *testing.T) {
+func TestProviderToolWebSearchStreamMatchesCompleteResult(t *testing.T) {
 	origin := content.Origin{
 		Provider: "anthropic",
 		API:      API,

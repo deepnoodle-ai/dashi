@@ -54,7 +54,7 @@ func TestAfterToolResultSurvivesAFileRecorder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := dashi.Replay(loaded)
+	view, err := loaded.View()
 	if err != nil {
 		t.Fatal(err)
 	}

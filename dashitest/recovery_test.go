@@ -134,7 +134,7 @@ func testRecovery(
 	}
 	requireRecordAt(t, saved, fired, committed)
 	if len(saved.Steps) > 0 {
-		if _, err := dashi.Replay(saved); err != nil {
+		if _, err := saved.View(); err != nil {
 			t.Fatalf("record does not replay: %v", err)
 		}
 	}
@@ -396,7 +396,7 @@ func resume(
 	if len(saved.Steps) == 0 {
 		return run(t, dashi.Turn{ID: "t1"}, begin, runner, opts...)
 	}
-	view, err := dashi.Replay(saved)
+	view, err := saved.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,16 +437,13 @@ func requireReported(
 	fault dashitest.Fault,
 ) {
 	t.Helper()
-	want := dashi.PersistenceUnknown
-	if fault == dashitest.Reject {
-		want = dashi.PersistenceRejected
-	}
+	want := fault == dashitest.Reject
 	commitErr, ok := errors.AsType[*dashi.CommitError](err)
 	if !ok {
 		t.Fatalf("run error %v is not a *dashi.CommitError", err)
 	}
-	if commitErr.Persistence != want {
-		t.Fatalf("reported persistence %q; want %q", commitErr.Persistence, want)
+	if commitErr.NothingWritten != want {
+		t.Fatalf("reported NothingWritten %t; want %t", commitErr.NothingWritten, want)
 	}
 	if commitErr.Step == nil {
 		t.Fatal("error does not name the unacknowledged step")
@@ -527,7 +524,7 @@ func requireEveryIntentSettled(t *testing.T, turn dashi.Turn) {
 func testAgent() dashi.Agent {
 	return dashi.Agent{
 		ID:       "agent",
-		Revision: "r1",
+		Version:  "r1",
 		Provider: "test",
 		API:      "test.chat",
 		Model:    "fixture",

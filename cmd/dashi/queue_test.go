@@ -202,7 +202,7 @@ func TestCrashInCommandThenDiscard(t *testing.T) {
 	}
 	// The record keeps the cancel beside the call that never settled.
 	turn := h.turn(1)
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestCrashInCommandThenDone(t *testing.T) {
 	if n := h.turns(); n != 2 || runs.Load() != 1 {
 		t.Fatalf("turns=%d runs=%d", n, runs.Load())
 	}
-	view, err := dashi.Replay(h.turn(1))
+	view, err := h.turn(1).View()
 	if err != nil {
 		t.Fatal(err)
 	}

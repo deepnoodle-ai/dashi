@@ -148,7 +148,7 @@ func TestMergeUntrustedNeverReplacesTrusted(t *testing.T) {
 	}
 }
 
-func TestFingerprintTracksTheRawEntry(t *testing.T) {
+func TestHashTracksTheRawEntry(t *testing.T) {
 	base := Server{
 		Command: "x",
 		Args:    []string{"a"},
@@ -158,7 +158,7 @@ func TestFingerprintTracksTheRawEntry(t *testing.T) {
 	same := base
 	same.Disabled = true
 	same.Warnings = []string{"w"}
-	if base.Fingerprint() != same.Fingerprint() {
+	if base.Hash() != same.Hash() {
 		t.Fatal("fingerprint changed with Disabled or Warnings")
 	}
 	changes := map[string]func(*Server){
@@ -173,12 +173,12 @@ func TestFingerprintTracksTheRawEntry(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s := base
 			change(&s)
-			if s.Fingerprint() == base.Fingerprint() {
+			if s.Hash() == base.Hash() {
 				t.Fatalf("fingerprint ignored a change of %s", name)
 			}
 		})
 	}
-	if strings.Contains(base.Fingerprint(), "$") {
+	if strings.Contains(base.Hash(), "$") {
 		t.Fatal("fingerprint is not a hash")
 	}
 }

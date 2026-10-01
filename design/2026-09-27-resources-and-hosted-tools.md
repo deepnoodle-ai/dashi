@@ -5,7 +5,7 @@
 ## Context and Dive baseline
 
 At the start of this work, Dashi could represent a `content.Resource` URI
-and mark a tool definition `provider_hosted`, but no adapter encoded either.
+and mark a tool definition `provider_tool`, but no adapter encoded either.
 `tool.Definition.Validate` required a JSON Schema even for a hosted tool.
 Anthropic Messages, OpenAI Responses, and Gemini rejected hosted definitions;
 generic resource blocks still fail provider encoding by design. Dashi already encoded some media references:
@@ -50,7 +50,7 @@ decision. Sources: Dive `llm/content.go`, `providers/{anthropic,openai,grok,meta
    support for each hosted tool type, beyond the current coarse `tools` flag.
 3. **Hosted activity is observable and replayable.** Add distinct hosted-use,
    hosted-result, and approval content kinds in `llm`, with provider origin,
-   status, stable IDs, display fields, and original structural `Replay` data.
+   status, stable IDs, display fields, and original structural `Turn.View` data.
    Never convert them to `tool.Call`: callers must not execute them. Preserve
    the provider's item/block order; a Responses item may carry call and result
    in one item, whereas Anthropic emits separate blocks. Unknown variants stay

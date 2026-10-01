@@ -11,7 +11,7 @@ import (
 )
 
 // A host that keeps its own turns builds each turn's history with
-// dashi.ProjectHistory. When the window is nearly full, it runs the
+// dashi.BuildHistory. When the window is nearly full, it runs the
 // Compactor's Start as an ordinary turn through its own Runner, with its own
 // turn ID, so the summary call is recorded and charged like any other. The
 // next history starts from the replacement. The scripted client needs no API
@@ -49,7 +49,7 @@ func ExampleCompactor_Start() {
 		"Any logging tips?",
 		"Which port does my project use?",
 	} {
-		history, _ := dashi.ProjectHistory(turns)
+		history, _ := dashi.BuildHistory(turns)
 		var last llm.Usage
 		if len(turns) > 0 {
 			last = compaction.LastUsage(turns[len(turns)-1])
@@ -58,7 +58,7 @@ func ExampleCompactor_Start() {
 			start, err := compactor.Start(history)
 			if err == nil {
 				run(start)
-				history, _ = dashi.ProjectHistory(turns)
+				history, _ = dashi.BuildHistory(turns)
 				fmt.Printf("history: %d messages, from: %s\n",
 					len(history), history[0].Text())
 			}

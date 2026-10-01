@@ -55,8 +55,8 @@ func TestChildAttachmentsStrictNamespaceConflictAndNoFollow(t *testing.T) {
 	if _, err := parent.ChildAttachments(dashi.CallRef{TurnID: "another-1", CallID: "task"}, true); err == nil {
 		t.Fatal("cross-parent storage accepted")
 	}
-	digest := sha256.Sum256([]byte(delegate.ChildID(ref.TurnID, ref.CallID)))
-	dir := filepath.Join(st.root, s.ID, "children", hex.EncodeToString(digest[:]))
+	hash := sha256.Sum256([]byte(delegate.ChildID(ref.TurnID, ref.CallID)))
+	dir := filepath.Join(st.root, s.ID, "children", hex.EncodeToString(hash[:]))
 	if err := os.Rename(dir, dir+"-kept"); err != nil {
 		t.Fatal(err)
 	}

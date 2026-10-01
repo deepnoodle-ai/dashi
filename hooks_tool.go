@@ -60,7 +60,7 @@ restart:
 			}, nil
 		}
 		if len(d.Rewrite) > 0 {
-			if ArgsDigest(d.Rewrite) == ArgsDigest(call.Args) {
+			if ArgsHash(d.Rewrite) == ArgsHash(call.Args) {
 				continue
 			}
 			r.addHookResult(HookResult{

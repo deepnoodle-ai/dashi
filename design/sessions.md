@@ -15,7 +15,7 @@ This document covers track 3, the session core; the CLI port is track 4. Terms
 
 `Runner.Run(ctx, turn, command)` stays the public engine for servers that
 schedule their own work, recovery workers, and tests. `session.Session` sits above
-it and uses only the public engine API: `Run`, `Stream`, `Replay`, `Project`,
+it and uses only the public engine API: `Run`, `Stream`, `Turn.View`, `TurnMessagesFull`,
 `Loader`, `StepReader`. It is `http.Get` over `Client.Do`: two levels of one
 design. `Session` lives in package `session`, which imports `dashi` and never
 the reverse; `compaction` implements its `Compactor` interface, so the session
@@ -59,7 +59,7 @@ func (s *Session) EnqueueItem(ctx context.Context, item ContextItem) (Queued, er
 func (s *Session) RunQueue(ctx context.Context, opts ...RunOption) (Outcome, bool, error)
 func (s *Session) Open(ctx context.Context) (State, error)
 func (s *Session) History(ctx context.Context) ([]llm.Message, error)          // conversation history
-func (s *Session) ProjectedHistory(ctx context.Context) ([]llm.Message, error) // what the next turn sends
+func (s *Session) NextHistory(ctx context.Context) ([]llm.Message, error) // what the next turn sends
 func (s *Session) Turns(ctx context.Context) iter.Seq2[Turn, error]
 
 // Say returns a Start holding one user text message.
@@ -150,13 +150,13 @@ out that the turn holds their key.
 No session lease or lock. Three engine rules keep the record correct:
 
 - A step commits only at the expected sequence of its turn, else
-  `ErrRevisionConflict`; `WithOwner` fences a stale lease holder.
+  `ErrStaleTurn`; `WithOwner` fences a stale lease holder.
 - Two workers starting turn *n* collide on `S-n`. One wins; the other reloads. A
   worker with a stale view collides the same way.
 - A new turn starts only after the last one has ended, and ending is permanent:
   a later command on it gets `ErrTurnEnded`.
 
-On `ErrRevisionConflict` or `ErrCommandConflict` from a `Start`, before its
+On `ErrStaleTurn` or `ErrCommandIDReused` from a `Start`, before its
 `turn_started` step committed, the session reloads the last turn and applies
 the idempotency check and the last-turn rules once more, then returns the error
 if it still loses. A conflict on a later step means the turn started and
@@ -170,13 +170,13 @@ either running or crashed.
 type Liveness string // whether any worker may still act on a turn
 
 const (
-    LivenessUnknown Liveness = "unknown" // no proof, e.g. an expired lease
-    LivenessLive    Liveness = "live"    // a worker holds an unexpired claim
-    LivenessStopped Liveness = "stopped" // the host knows no worker still acts
+    WorkerStatusUnknown Liveness = "unknown" // no proof, e.g. an expired lease
+    WorkerStatusRunning    Liveness = "live"    // a worker holds an unexpired claim
+    WorkerStatusStopped Liveness = "stopped" // the host knows no worker still acts
 )
 
-// TurnLiveness is an optional Recorder capability for hosts that lease turns.
-type TurnLiveness interface {
+// WorkerChecker is an optional Recorder capability for hosts that lease turns.
+type WorkerChecker interface {
     Liveness(ctx context.Context, turnID string) (Liveness, error)
 }
 ```
@@ -192,7 +192,7 @@ runs the turn or `Liveness` reports live.
 **`Exclusive`** promises that no other process drives the session and that
 earlier ones have exited, so no worker drives a turn this handle is not running.
 The CLI sets it under its process lock; leasing servers implement
-`TurnLiveness`.
+`WorkerChecker`.
 
 **A stopped worker is not a stopped effect.** Liveness and `Exclusive` say only
 whether a worker drives the turn; a tool's child process or a remote operation
@@ -296,7 +296,7 @@ usual retry arrives while its turn still runs.
    `StartFact.Input` ends with the retry's `Input` by JSON meaning (queued user
    items the session added come first); for a queue turn, the key itself is
    derived from the item IDs. History and agent are not compared. Same key,
-   different input: `ErrCommandConflict`.
+   different input: `ErrCommandIDReused`.
 4. A duplicate whose turn has stopped returns the turn's current outcome, as the
    first call returned it: ended (`NextNone`), or stopped without ending
    (waiting on an answer, at a limit, needing a decision), since waiting would
@@ -308,7 +308,7 @@ usual retry arrives while its turn still runs.
    and following it could wait forever, so it refuses.
 6. Two workers racing to `S-(n+1)` with the same key: with different histories,
    the engine's command digest covers `History` and the agent, so the loser gets
-   `ErrCommandConflict`; with the same, the engine takes the loser as a retry
+   `ErrCommandIDReused`; with the same, the engine takes the loser as a retry
    and returns the winner's outcome. Either way the session reloads and applies
    step 3, so a true retry is recognized and a loser whose turn has no recorded
    stop gets step 5, never a success for a turn still running.
@@ -357,7 +357,7 @@ return theirs in `Queued.Warnings`.
 | `ErrTurnBusy`, `*TurnBusyError` | error | The last turn is live, possibly live, waits on the host, or holds an unsettled uncertain call; `Duplicate` for a retry of a turn that may still be running |
 | `session.ErrNotFound` | error | An ID with no turns and no `New` |
 | `session.ErrExists` | error | `New` on a session with turns |
-| `ErrCommandConflict` | error (engine) | Same key, different input |
+| `ErrCommandIDReused` | error (engine) | Same key, different input |
 | `turn_closed` | warning | A new `Start` closed the last turn |
 | `memory_only` | warning | In-memory recorder; or input queued under a durable recorder |
 | `turn_unreadable` | warning | A turn was skipped while building history, or an unreadable last turn under `Exclusive` |

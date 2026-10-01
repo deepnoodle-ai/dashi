@@ -141,7 +141,7 @@ func coveredMessagesCached(t Turn, plan *ContextCompactionPlan, cache *contextVa
 				return nil, err
 			}
 		}
-		visible, err = projectedMessagesState(prefix, nil, true, state, cache)
+		visible, err = turnMessagesState(prefix, nil, true, state, cache)
 		if err != nil {
 			return nil, err
 		}
@@ -185,11 +185,11 @@ func coveredMessagesCached(t Turn, plan *ContextCompactionPlan, cache *contextVa
 	if !slices.Equal(actual, plan.Covered) {
 		return nil, errors.New("compaction coverage differs from visible source order")
 	}
-	fingerprint, err := historyFingerprint(messages)
+	hash, err := historyHash(messages)
 	if err != nil {
 		return nil, err
 	}
-	if fingerprint != plan.Digest {
+	if hash != plan.Hash {
 		return nil, errors.New("compaction coverage digest mismatch")
 	}
 	return messages, nil

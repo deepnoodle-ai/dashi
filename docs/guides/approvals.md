@@ -60,7 +60,7 @@ gate := dashi.ToolHook{Name: "read-only-gate", Func: func(
 	if ro := p.Definition.Annotations.ReadOnly; ro != nil && *ro {
 		return dashi.ToolDecision{}, nil
 	}
-	return dashi.Defer("changes something"), nil
+	return dashi.NeedsApproval("changes something"), nil
 }}
 runner.Hooks = gate.Hooks()
 ```
@@ -69,7 +69,7 @@ runner.Hooks = gate.Hooks()
 shown; hooks do not run again. `Result(outcome)` reports the result of a
 waiting external call the same way. Each builder derives its command ID from
 the call, so a retried answer is a duplicate and a different second answer
-fails with `ErrCommandConflict`. `Resolve` only records; `Continue` runs the
+fails with `ErrCommandIDReused`. `Resolve` only records; `Continue` runs the
 approved calls and returns `ErrNotReady` while any call is unanswered. Once
 every call is answered, `out.Pending` is empty and `out.ReadyToContinue` is
 true, but `out.Stop` still says waiting until `Continue` runs.
@@ -84,7 +84,7 @@ required host approval. Compose a separate judge turn with deferred approval:
 1. Use `RequireApproval` for the parent tools that need approval, or a coding
    policy with a nil callback. Wait for `PendingApproval` before reviewing.
 2. Persist an association between the parent turn ID, call ID, argument digest
-   (`dashi.ArgsDigest`), review-policy revision, and judge turn ID. Save the
+   (`dashi.ArgsHash`), review-policy revision, and judge turn ID. Save the
    judge's command IDs before dispatch. Reuse these IDs and the recorded judge
    turn on retries. Dashi does not store this association for you.
 3. Outside the parent's hook, run a judge `Runner` with a durable
@@ -108,7 +108,7 @@ required host approval. Compose a separate judge turn with deferred approval:
    the bound call. Never turn model advice into a remembered approval rule.
 
 On reopening, load the parent and its associated judge record. Inspect
-completed advice and `Replay(turn).Spend` without another judge call. The
+completed advice and `turn.View().Spend` without another judge call. The
 judge has its own spend and budget. Parent `Spend` and `Budget` exclude this
 separate turn. Report both spends. Enforce a combined cap through the host
 ledger, reserving each request before dispatch and reconciling its charge.

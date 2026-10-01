@@ -358,7 +358,7 @@ func TestReplayReadsTheRecordedViewNotTheRecordedLimit(t *testing.T) {
 	started := *turn.Steps[0].Started
 	started.Agent.Limits.ToolResultBytes = 1 << 20
 	turn.Steps[0].Started = &started
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +471,7 @@ func TestReplayRejectsBadShortenedRecords(t *testing.T) {
 				turn.Steps[i].Tool = &fact
 			}
 		}
-		if _, err := Replay(turn); err == nil {
+		if _, err := turn.View(); err == nil {
 			t.Errorf("%s: replay accepted the record", name)
 		}
 	}
@@ -617,7 +617,7 @@ func TestSeparatorOnlyShorteningSettlesAndReplays(t *testing.T) {
 			blocks = append(blocks, content.TextBlock(text))
 		}
 		out := runBlocks(t, blocks)
-		view, err := Replay(cloneTurn(out.Turn))
+		view, err := cloneTurn(out.Turn).View()
 		if err != nil {
 			t.Fatalf("%s: replay: %v", name, err)
 		}

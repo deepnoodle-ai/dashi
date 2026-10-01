@@ -47,7 +47,7 @@ const (
 func (v TurnView) Next() Next {
 	stop := v.Stop
 	switch {
-	case v.Revision == 0:
+	case v.LastSeq == 0:
 		return NextNone
 	case stop.Inferred:
 		return NextRecover

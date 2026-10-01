@@ -52,13 +52,13 @@ const (
 	ContentToolCall ContentKind = "tool_call"
 	// ContentToolResult answers a tool call with its output and failure flag.
 	ContentToolResult ContentKind = "tool_result"
-	// ContentHostedUse reports a provider-executed call, never a local call.
+	// ContentProviderToolUse reports a provider-executed call, never a local call.
 	ContentProviderToolUse ContentKind = "provider_tool_use"
-	// ContentHostedResult reports a separate provider-executed result block.
+	// ContentProviderToolResult reports a separate provider-executed result block.
 	ContentProviderToolResult ContentKind = "provider_tool_result"
-	// ContentHostedApprovalRequest asks for an application decision.
+	// ContentProviderToolApprovalRequest asks for an application decision.
 	ContentProviderToolApprovalRequest ContentKind = "provider_tool_approval_request"
-	// ContentHostedApprovalResponse records that application decision.
+	// ContentProviderToolApprovalResponse records that application decision.
 	ContentProviderToolApprovalResponse ContentKind = "provider_tool_approval_response"
 	// ContentReasoning carries display reasoning and optional private replay
 	// data.
@@ -109,16 +109,16 @@ type Content struct {
 	// ToolResult is required only for ContentToolResult.
 	ToolResult *ToolResult `json:"tool_result,omitempty"`
 
-	// HostedUse is provider activity and cannot be executed locally.
+	// ProviderToolUse is provider activity and cannot be executed locally.
 	ProviderToolUse *ProviderToolUse `json:"provider_tool_use,omitempty"`
 
-	// HostedResult is provider activity paired with HostedUse.
+	// ProviderToolResult is provider activity paired with ProviderToolUse.
 	ProviderToolResult *ProviderToolResult `json:"provider_tool_result,omitempty"`
 
-	// HostedApprovalRequest requires an explicit application response.
+	// ProviderToolApprovalRequest requires an explicit application response.
 	ProviderToolApprovalRequest *ProviderToolApprovalRequest `json:"provider_tool_approval_request,omitempty"`
 
-	// HostedApprovalResponse carries the application decision.
+	// ProviderToolApprovalResponse carries the application decision.
 	ProviderToolApprovalResponse *ProviderToolApprovalResponse `json:"provider_tool_approval_response,omitempty"`
 
 	// Reasoning is required only for ContentReasoning.

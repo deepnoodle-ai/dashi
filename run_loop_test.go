@@ -130,7 +130,7 @@ func TestMissingSelectedToolWarnsWithoutToolset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestMissingSelectedToolWarnsOnceAcrossContinue(t *testing.T) {
 	}
 }
 
-func TestToolSelectionChangesAutomaticRevision(t *testing.T) {
+func TestToolSelectionChangesAutomaticVersion(t *testing.T) {
 	revision := func(a Agent) string {
 		t.Helper()
 		client := &scriptedClient{results: []llm.Result{final("done")}}
@@ -225,7 +225,7 @@ func TestToolSelectionChangesAutomaticRevision(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return out.Agent.Revision
+		return out.Agent.Version
 	}
 	all := revision(Agent{Model: "fixture"})
 	named := revision(Agent{Model: "fixture", Tools: []string{"a"}})
@@ -241,7 +241,7 @@ func TestToolSelectionChangesAutomaticRevision(t *testing.T) {
 
 // The order of Agent.Tools does not change the agent: a host that builds the
 // list from a map can retry its Start.
-func TestToolSelectionOrderDoesNotChangeRevision(t *testing.T) {
+func TestToolSelectionOrderDoesNotChangeVersion(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	runner := Runner{Client: client, Tools: selectionTools(t, map[string]int{})}
 	start := func(tools ...string) Start {
@@ -260,8 +260,8 @@ func TestToolSelectionOrderDoesNotChangeRevision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retry with [a b a]: %v", err)
 	}
-	if again.Agent.Revision != out.Agent.Revision {
-		t.Fatalf("revision %s, then %s", out.Agent.Revision, again.Agent.Revision)
+	if again.Agent.Version != out.Agent.Version {
+		t.Fatalf("revision %s, then %s", out.Agent.Version, again.Agent.Version)
 	}
 	if len(again.Turn.Steps) != len(out.Turn.Steps) {
 		t.Fatal("the retry ran the turn again")
@@ -293,7 +293,7 @@ func TestRetryWithRecordedAgentSucceeds(t *testing.T) {
 	}); !errors.Is(err, ErrAgentChanged) {
 		t.Fatalf("err=%v, want ErrAgentChanged", err)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,8 +374,8 @@ func TestRetriedStartWithChangedAgent(t *testing.T) {
 	}
 	// The same Start returns the recorded result without a model call.
 	again, err := runner.Run(t.Context(), Turn{ID: "t1"}, start)
-	if err != nil || again.Revision != out.Revision || client.sends != 1 {
-		t.Fatalf("retry err=%v revision=%d sends=%d", err, again.Revision, client.sends)
+	if err != nil || again.LastSeq != out.LastSeq || client.sends != 1 {
+		t.Fatalf("retry err=%v revision=%d sends=%d", err, again.LastSeq, client.sends)
 	}
 	start.Agent.Instructions = "changed"
 	_, err = runner.Run(t.Context(), Turn{ID: "t1"}, start)
@@ -615,7 +615,7 @@ func TestTurnViewOrigin(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		view, err := Replay(out.Turn)
+		view, err := out.Turn.View()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -624,7 +624,7 @@ func TestTurnViewOrigin(t *testing.T) {
 				tc.origin, out.Origin, view.Origin, tc.want)
 		}
 	}
-	if v, _ := Replay(Turn{}); v.Origin != "" {
+	if v, _ := (Turn{}).View(); v.Origin != "" {
 		t.Fatalf("unstarted origin=%q", v.Origin)
 	}
 }

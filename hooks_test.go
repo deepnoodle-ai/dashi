@@ -84,7 +84,7 @@ func hasWarning(out RunResult, code WarningCode) bool {
 // toolResultText returns what the model saw as the result of call id.
 func toolResultText(t *testing.T, turn Turn, id string) string {
 	t.Helper()
-	messages, err := Project(turn)
+	messages, err := TurnMessagesFull(turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1099,7 +1099,7 @@ func TestPendingApproveNeedsOnlyCallAndArguments(t *testing.T) {
 	stale := answer
 	stale.CommandID = "stale"
 	stale.Approval = new(*answer.Approval)
-	stale.Approval.ArgsDigest = ArgsDigest(json.RawMessage(`{"value":9}`))
+	stale.Approval.ArgsHash = ArgsHash(json.RawMessage(`{"value":9}`))
 	if _, err := runner.Run(t.Context(), out.Turn, stale); err == nil {
 		t.Fatal("an answer for other arguments was accepted")
 	}
@@ -1365,14 +1365,14 @@ func TestReplayRejectsInvalidHookRecords(t *testing.T) {
 			turn.Steps[1].ActiveHooks = &ActiveHooks{BeforeTool: []string{"a"}}
 		},
 	}
-	if _, err := Replay(out.Turn); err != nil {
+	if _, err := out.Turn.View(); err != nil {
 		t.Fatalf("valid record rejected: %v", err)
 	}
 	for name, corrupt := range cases {
 		t.Run(name, func(t *testing.T) {
 			turn := cloneTurn(out.Turn)
 			corrupt(&turn)
-			if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+			if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 				t.Fatalf("replay err = %v", err)
 			}
 		})

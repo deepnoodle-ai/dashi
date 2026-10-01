@@ -48,7 +48,7 @@ func TestManualCompactionQueueAndReplay(t *testing.T) {
 	}
 	h.input("next prompt")
 	compactionMustHave(t, h.ui.text(), "Normal answer.")
-	_, err := dashi.Replay(h.turn(3))
+	_, err := h.turn(3).View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,11 +95,11 @@ func TestAutomaticCompactionInterruptedInputOrder(t *testing.T) {
 	if h.turns() != 4 || h.app.eng.Queued() != 0 || h.app.eng.HasPending() {
 		t.Fatalf("turns=%d queued=%d pending=%v", h.turns(), h.app.eng.Queued(), h.app.eng.HasPending())
 	}
-	_, err := dashi.Replay(h.turn(3))
+	_, err := h.turn(3).View()
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = dashi.Replay(h.turn(4))
+	_, err = h.turn(4).View()
 	if err != nil {
 		t.Fatal(err)
 	}

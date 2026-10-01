@@ -146,12 +146,12 @@ func (s *Session) History(ctx context.Context) ([]llm.Message, error) {
 	return s.conversation(ctx, last), nil
 }
 
-// ProjectedHistory returns what the next new turn sends as Start.History,
+// NextHistory returns what the next new turn sends as Start.History,
 // unless a compaction turn runs first: the replacement history of the
 // newest completed compaction turn, then the messages of the turns after
 // it. Without compaction turns it equals History. A turn that cannot be
 // read is left out.
-func (s *Session) ProjectedHistory(ctx context.Context) ([]llm.Message, error) {
+func (s *Session) NextHistory(ctx context.Context) ([]llm.Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ID == "" {
@@ -448,9 +448,9 @@ func notStarted(err error) bool {
 	var ce *dashi.CommitError
 	return errors.As(err, &ce) && ce.Step != nil &&
 		ce.Step.Kind == dashi.StepTurnStarted &&
-		(ce.Persistence == dashi.PersistenceRejected ||
-			errors.Is(ce.Err, dashi.ErrRevisionConflict) ||
-			errors.Is(ce.Err, dashi.ErrCommandConflict))
+		(ce.NothingWritten ||
+			errors.Is(ce.Err, dashi.ErrStaleTurn) ||
+			errors.Is(ce.Err, dashi.ErrCommandIDReused))
 }
 
 // planQueue chooses a queue turn for every free item, when the session is

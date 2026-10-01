@@ -79,7 +79,7 @@ func TestWriteTranscript(t *testing.T) {
 	mustHave(t, text, "may still be running")
 	mustHave(t, text, "Turn 1 canceled.")
 	mustHave(t, text, "Starting over from a clean state.")
-	view, err := dashi.Replay(h.turn(1))
+	view, err := h.turn(1).View()
 	if err != nil {
 		t.Fatal(err)
 	}

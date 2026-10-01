@@ -11,19 +11,19 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-func TestContextIdentityDoesNotChangeHistoryFingerprint(t *testing.T) {
+func TestContextIdentityDoesNotChangeHistoryHash(t *testing.T) {
 	message := llm.UserMessage(llm.Text("seed"))
-	before, err := historyFingerprint([]llm.Message{message})
+	before, err := historyHash([]llm.Message{message})
 	if err != nil {
 		t.Fatal(err)
 	}
 	message.Context = &llm.MessageContext{Origin: "runtime", Name: "seed"}
-	after, err := historyFingerprint([]llm.Message{message})
+	after, err := historyHash([]llm.Message{message})
 	if err != nil || before != after {
 		t.Fatalf("fingerprints differ: %s %s %v", before, after, err)
 	}
 	message.Content = []llm.Content{llm.Text("changed")}
-	changed, err := historyFingerprint([]llm.Message{message})
+	changed, err := historyHash([]llm.Message{message})
 	if err != nil || changed == before {
 		t.Fatalf("value change lost: %s %v", changed, err)
 	}
@@ -59,7 +59,7 @@ func TestIdentifiedMessageValidation(t *testing.T) {
 }
 
 func TestSeedContextIDCollisionAndHookViewOwnership(t *testing.T) {
-	view := TurnView{ID: "turn", Revision: 5, usedContextIDs: map[string]bool{"seed": true, "seed:turn:5": true, "seed:turn:5:1": true}}
+	view := TurnView{ID: "turn", LastSeq: 5, usedContextIDs: map[string]bool{"seed": true, "seed:turn:5": true, "seed:turn:5:1": true}}
 	copy := snapshotView(view)
 	copy.usedContextIDs["seed:turn:5:2"] = true
 	if view.usedContextIDs["seed:turn:5:2"] {
@@ -76,12 +76,12 @@ func TestSeedContextIDCollisionAndHookViewOwnership(t *testing.T) {
 	}
 }
 
-func TestProjectContextOwnsMetadataAndPreservesRecord(t *testing.T) {
+func TestTurnMessagesOwnsMetadataAndPreservesRecord(t *testing.T) {
 	// Minimal legacy record contains no projected metadata. Project restores the
 	// slot from recorded ContextItem fields and overrides embedded metadata.
 	turn := NewTurn("legacy")
 	turn.Steps = []Step{
-		{Version: 1, TurnID: turn.ID, Seq: 1, Kind: StepTurnStarted, Started: &StartFact{Agent: Agent{Revision: "test", Provider: "test", API: "test.chat", Model: "test"}, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}},
+		{Version: 1, TurnID: turn.ID, Seq: 1, Kind: StepTurnStarted, Started: &StartFact{Agent: Agent{Version: "test", Provider: "test", API: "test.chat", Model: "test"}, Input: []llm.Message{llm.UserMessage(llm.Text("go"))}}},
 		{Version: 1, TurnID: turn.ID, Seq: 2, Kind: StepMessagesAdded, Context: &ContextFact{Items: []ContextItem{{Name: "seed", Message: llm.UserMessage(llm.Text("seed"))}}}},
 	}
 	data, err := json.Marshal(turn)
@@ -92,7 +92,7 @@ func TestProjectContextOwnsMetadataAndPreservesRecord(t *testing.T) {
 	if err := json.Unmarshal(data, &restored); err != nil {
 		t.Fatal(err)
 	}
-	messages, err := Project(restored)
+	messages, err := TurnMessagesFull(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestProjectContextOwnsMetadataAndPreservesRecord(t *testing.T) {
 	if restored.Steps[1].Context.Items[0].Message.Context != nil {
 		t.Fatal("projection changed record")
 	}
-	again, err := Project(restored)
+	again, err := TurnMessagesFull(restored)
 	if err != nil || again[1].Context.Name != "seed" {
 		t.Fatalf("projection aliases metadata %v", err)
 	}

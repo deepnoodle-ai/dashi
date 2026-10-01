@@ -47,7 +47,7 @@ the model has prices in that currency and calls with default settings have a
 finite worst case; hosted tools and one-hour cache writes without a price can
 still leave a specific call unbounded.
 
-`Outcome.Spend` (or `Replay(turn).Spend` for a loaded turn) contains token
+`Outcome.Spend` (or `turn.View().Spend` for a loaded turn) contains token
 totals, model costs by currency, counts of calls with estimated usage, and
 counts of calls with unknown or incompatible-currency model cost. A call that
 billed hosted requests with no list price (Anthropic code execution, for

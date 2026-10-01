@@ -54,7 +54,7 @@ type TurnMessageRef struct {
 type ContextCompactionPlan struct {
 	Through         int64            `json:"through"`
 	Covered         []TurnMessageRef `json:"covered"`
-	Digest          string           `json:"digest"`
+	Hash            string           `json:"hash"`
 	Window          int              `json:"window"`
 	EstimatedBefore int              `json:"estimated_before"`
 }

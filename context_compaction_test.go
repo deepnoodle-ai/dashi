@@ -95,11 +95,11 @@ func TestActiveCompactionLongRequestAndViews(t *testing.T) {
 	if summaries != 2 {
 		t.Fatalf("summary hooks=%d", summaries)
 	}
-	raw, err := Project(out.Turn)
+	raw, err := TurnMessagesFull(out.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := ProjectContext(out.Turn)
+	view, err := TurnMessages(out.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestActiveCompactionLongRequestAndViews(t *testing.T) {
 	if err = json.Unmarshal(data, &restored); err != nil {
 		t.Fatal(err)
 	}
-	got, err := ProjectContext(restored)
+	got, err := TurnMessages(restored)
 	if err != nil || !canonjson.SameValue(got, view) {
 		t.Fatalf("reload=%v", err)
 	}
@@ -130,7 +130,7 @@ func TestActiveCompactionLongRequestAndViews(t *testing.T) {
 
 // A turn's own messages (Project, which a session's History uses) keep the
 // raw output an active compaction replaced, while the projected history of
-// the next turn (ProjectHistory) holds only the summary, before and after a
+// the next turn (BuildHistory) holds only the summary, before and after a
 // reload.
 func TestActiveCompactionHistorySeparation(t *testing.T) {
 	c, a := activeFixture()
@@ -146,11 +146,11 @@ func TestActiveCompactionHistorySeparation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, turn := range []Turn{out.Turn, loaded} {
-		raw, err := Project(turn)
+		raw, err := TurnMessagesFull(turn)
 		if err != nil {
 			t.Fatal(err)
 		}
-		view, warnings := ProjectHistory([]Turn{turn})
+		view, warnings := BuildHistory([]Turn{turn})
 		if len(warnings) > 0 {
 			t.Fatal(warnings)
 		}
@@ -382,7 +382,7 @@ func TestActiveCompactionRejectsChangedCoverage(t *testing.T) {
 			for i := range t.Steps {
 				f := t.Steps[i].Model
 				if f != nil && f.Compaction != nil {
-					f.Compaction.Digest = "changed"
+					f.Compaction.Hash = "changed"
 					return
 				}
 			}
@@ -408,7 +408,7 @@ func TestActiveCompactionRejectsChangedCoverage(t *testing.T) {
 	} {
 		changed := cloneTurn(out.Turn)
 		mutate(&changed)
-		if _, err := Replay(changed); !errors.Is(err, ErrInvalidTurn) {
+		if _, err := changed.View(); !errors.Is(err, ErrInvalidTurn) {
 			t.Fatalf("changed record accepted: %v", err)
 		}
 	}
@@ -539,11 +539,11 @@ func TestActiveCompactionManyReplacementsReload(t *testing.T) {
 	if err != nil || len(view.ContextCompactions) != 6 || len(cache.prefixes) != 6 || len(cache.states) != 6 {
 		t.Fatalf("prefixes=%d states=%d replay=%v", len(cache.prefixes), len(cache.states), err)
 	}
-	raw, err := Project(restored)
+	raw, err := TurnMessagesFull(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
-	projected, err := ProjectContext(restored)
+	projected, err := TurnMessages(restored)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -555,11 +555,11 @@ func TestActiveCompactionManyReplacementsReload(t *testing.T) {
 	// A corrupt earlier plan still fails the full long-history reload.
 	for i := range restored.Steps {
 		if f := restored.Steps[i].Model; f != nil && f.Compaction != nil {
-			f.Compaction.Digest = "corrupt"
+			f.Compaction.Hash = "corrupt"
 			break
 		}
 	}
-	if _, err = Replay(restored); !errors.Is(err, ErrInvalidTurn) {
+	if _, err = restored.View(); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("malformed long record=%v", err)
 	}
 }
@@ -572,7 +572,7 @@ func BenchmarkActiveCompactionReload(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		if _, err := ProjectContext(out.Turn); err != nil {
+		if _, err := TurnMessages(out.Turn); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -615,11 +615,11 @@ func TestActiveCompactionCompleteReplayGroup(t *testing.T) {
 			}
 		}
 	}
-	raw, err := Project(out.Turn)
+	raw, err := TurnMessagesFull(out.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := ProjectContext(out.Turn)
+	view, err := TurnMessages(out.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -630,7 +630,7 @@ func TestActiveCompactionCompleteReplayGroup(t *testing.T) {
 	}
 }
 
-func TestActiveCompactionSummaryUsesLiveProjectedContext(t *testing.T) {
+func TestActiveCompactionSummaryUsesLiveTurnMessages(t *testing.T) {
 	c, a := activeFixture()
 	c.results = append(c.results[:3], final("done"))
 	temporary := strings.Repeat("temporary note ", 560)

@@ -78,7 +78,7 @@ type Server struct {
 // environment, URL, headers, and the file path. A host keys a remembered
 // approval on it, so a repository cannot change a command after approval. It
 // ignores Disabled and Warnings.
-func (s Server) Fingerprint() string {
+func (s Server) Hash() string {
 	raw, _ := json.Marshal(struct {
 		Type    string            `json:"type"`
 		Command string            `json:"command"`

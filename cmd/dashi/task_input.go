@@ -77,7 +77,7 @@ func (h *taskInputs) originatingTask(ctx context.Context, ref dashi.CallRef) (da
 				return turn, dashi.TurnView{}, fmt.Errorf("task parent call is not a task")
 			}
 			turn.Steps = turn.Steps[: i+1 : i+1]
-			view, err := dashi.Replay(turn)
+			view, err := turn.View()
 			return turn, view, err
 		}
 	}
@@ -117,7 +117,7 @@ func (h *taskInputs) prepareStart(ctx context.Context, ref dashi.CallRef, start 
 	start.Agent.Settings = owned.Settings
 	start.Agent.NoInheritedSettings = true
 	start.Agent.ActiveCompaction = owned.ActiveCompaction
-	start.Agent.Revision = owned.Revision
+	start.Agent.Version = owned.Version
 	store, err := h.childStore(ref, true)
 	if err != nil {
 		return start, err
@@ -162,8 +162,8 @@ func (h *taskInputs) prepareStart(ctx context.Context, ref dashi.CallRef, start 
 			if err != nil {
 				return start, err
 			}
-			digest := sha256.Sum256(data)
-			if int64(len(data)) != source.Ref.Size || hex.EncodeToString(digest[:]) != source.Ref.SHA256 {
+			hash := sha256.Sum256(data)
+			if int64(len(data)) != source.Ref.Size || hex.EncodeToString(hash[:]) != source.Ref.SHA256 {
 				return start, fmt.Errorf("task parent evidence integrity differs")
 			}
 			key, _ := json.Marshal(source.Ref)

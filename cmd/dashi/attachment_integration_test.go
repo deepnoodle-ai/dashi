@@ -362,11 +362,7 @@ func (r *attachmentAdmissionFault) Commit(ctx context.Context, req dashi.CommitR
 				return err
 			}
 		}
-		persistence := dashi.PersistenceUnknown
-		if r.mode == "rejected" {
-			persistence = dashi.PersistenceRejected
-		}
-		return &dashi.CommitError{Persistence: persistence, Err: errors.New("fixture admission fault")}
+		return &dashi.CommitError{NothingWritten: r.mode == "rejected", Err: errors.New("fixture admission fault")}
 	}
 	return r.Recorder.Commit(ctx, req)
 }

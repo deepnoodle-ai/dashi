@@ -115,7 +115,7 @@ func TestCLIActiveMediaPrintAndRecordedReopen(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			view, err := dashi.Replay(turn)
+			view, err := turn.View()
 			if err != nil {
 				t.Fatal(err)
 			}

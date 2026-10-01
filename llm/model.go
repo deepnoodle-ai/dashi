@@ -83,7 +83,7 @@ const (
 	FeaturePromptCache Feature = "prompt_cache"
 )
 
-// HostedToolFeature scopes model evidence to a provider's wire tool type.
+// ProviderToolFeature scopes model evidence to a provider's wire tool type.
 // ModelEvidence already binds that fact to one API and endpoint.
 func ProviderToolFeature(toolType string) Feature {
 	return Feature("provider_tool:" + toolType)

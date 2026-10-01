@@ -11,13 +11,13 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// ArgsDigest returns the digest that binds an ApprovalDecision to a tool call's
+// ArgsHash returns the digest that binds an ApprovalDecision to a tool call's
 // arguments. It depends only on the arguments' JSON meaning, so arguments
 // shown before a recorder stored them and the same arguments reloaded from a
 // store that reorders keys or respells numbers give the same digest. A
-// pending call's ToolView.ArgsDigest holds this value already.
-func ArgsDigest(args json.RawMessage) string {
-	return canonjson.Digest(args)
+// pending call's ToolView.ArgsHash holds this value already.
+func ArgsHash(args json.RawMessage) string {
+	return canonjson.Hash(args)
 }
 
 // CompactionFact is recorded in the start fact of a compaction turn. With
@@ -30,8 +30,8 @@ func ArgsDigest(args json.RawMessage) string {
 type CompactionFact struct {
 	// Through is the last turn covered.
 	Through int `json:"through"`
-	// Digest is the history fingerprint of the projected history replaced.
-	Digest string `json:"digest"`
+	// Hash is the history fingerprint of the projected history replaced.
+	Hash string `json:"hash"`
 	// Keep holds the messages the replacement history keeps, which need not
 	// be a contiguous tail.
 	Keep []llm.Message `json:"keep,omitempty"`
@@ -93,10 +93,10 @@ type StartFact struct {
 	Budget       *Budget         `json:"budget,omitempty"`
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 	Origin       StartOrigin     `json:"origin,omitempty"`
-	// HistoryFingerprint identifies the caller-owned prior conversation at
+	// HistoryHash identifies the caller-owned prior conversation at
 	// Start.
-	HistoryFingerprint string        `json:"history_fingerprint,omitempty"`
-	Input              []llm.Message `json:"input"`
+	HistoryHash string        `json:"history_hash,omitempty"`
+	Input       []llm.Message `json:"input"`
 	// Parent is the tool call that caused this turn, when another turn's
 	// tool started it. It never changes after Start.
 	Parent *CallRef `json:"parent,omitempty"`
@@ -142,8 +142,8 @@ type ModelFact struct {
 	// ModelCallID is stable across the intent and its settlement.
 	ModelCallID string `json:"model_call_id"`
 	MessageID   string `json:"message_id,omitempty"`
-	// RequestDigest identifies the prepared bytes without recording their body.
-	RequestDigest string `json:"request_digest,omitempty"`
+	// RequestHash identifies the prepared bytes without recording their body.
+	RequestHash string `json:"request_hash,omitempty"`
 	// FinalReplyOnly records that application tools were withheld on this call.
 	FinalReplyOnly bool `json:"final_reply_only,omitempty"`
 	// Reservation carries each BeforeSend hook's reservation terms, keyed by
@@ -161,7 +161,7 @@ type ModelFact struct {
 	API              string               `json:"api,omitempty"`
 	Model            string               `json:"model,omitempty"`
 	Effective        llm.Settings         `json:"effective,omitzero"`
-	Origin           content.Origin       `json:"origin,omitzero"`
+	Endpoint         content.Origin       `json:"endpoint,omitzero"`
 	Adjustments      []llm.Adjustment     `json:"adjustments,omitempty"`
 	ContentChanges   []llm.ContentChange  `json:"content_changes,omitempty"`
 	ModelInfo        *llm.ModelInfo       `json:"model_info,omitempty"`
@@ -257,12 +257,12 @@ type ToolFact struct {
 type ApprovalDecision struct {
 	CallID  string `json:"call_id"`
 	Approve bool   `json:"approve"`
-	// ArgsDigest binds the answer to the call's arguments by JSON meaning,
-	// not bytes. Pending.Approve copies it from ToolView.ArgsDigest; a host
-	// can compute it with ArgsDigest from the arguments that were shown.
+	// ArgsHash binds the answer to the call's arguments by JSON meaning,
+	// not bytes. Pending.Approve copies it from ToolView.ArgsHash; a host
+	// can compute it with ArgsHash from the arguments that were shown.
 	// Bare-hex digests from before canonical hashing are still accepted,
 	// but only while the arguments keep their original bytes.
-	ArgsDigest string `json:"args_digest"`
+	ArgsHash string `json:"args_hash"`
 	// Reason explains a denial. The next Continue gives it to the model as
 	// the denied call's result.
 	Reason string `json:"reason,omitempty"`
@@ -386,18 +386,7 @@ const (
 	// other than the declared Size.
 	StopReasonContentSizeMismatch = "content_size_mismatch"
 
-	// StopReasonContentDigestMismatch means the SHA-256 of the resolved
-	// bytes differs from the declared digest.
-	StopReasonContentDigestMismatch = "content_digest_mismatch"
-)
-
-// Persistence classifies a step write the recorder did not acknowledge.
-type Persistence string
-
-const (
-	// PersistenceRejected means the recorder confirmed that it did not commit.
-	PersistenceRejected Persistence = "rejected"
-	// PersistenceUnknown means the caller must load the turn to determine whether
-	// the recorder committed the write.
-	PersistenceUnknown Persistence = "unknown"
+	// StopReasonContentHashMismatch means the SHA-256 of the resolved
+	// bytes differs from the declared hash.
+	StopReasonContentHashMismatch = "content_hash_mismatch"
 )

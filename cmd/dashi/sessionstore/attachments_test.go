@@ -220,8 +220,8 @@ func TestAttachmentCorruptionAndStrictIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := sha256.Sum256(got)
-	if hex.EncodeToString(digest[:]) == ref.SHA256 {
+	hash := sha256.Sum256(got)
+	if hex.EncodeToString(hash[:]) == ref.SHA256 {
 		t.Fatal("corruption fixture unchanged")
 	}
 	// Runner owns final digest verification; retry verifies it locally too.

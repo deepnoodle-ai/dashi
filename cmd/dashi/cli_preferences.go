@@ -47,15 +47,15 @@ func (p *cliPreferences) clientFor(ctx context.Context, agent dashi.Agent) (llm.
 	if !ok {
 		return nil, fmt.Errorf("recorded destination %q is no longer configured", agent.Provider)
 	}
-	fingerprint, err := d.fingerprint()
+	hash, err := d.hash()
 	if err != nil {
 		return nil, err
 	}
 	// Check the recorded binding before presenting or granting new trust.
-	if strings.HasPrefix(agent.Revision, cliRouteRevision) && agent.Revision != cliRouteRevision+fingerprint {
+	if strings.HasPrefix(agent.Version, cliRouteVersion) && agent.Version != cliRouteVersion+hash {
 		return nil, errors.New("recorded destination binding changed; restore its configuration before continuing")
 	}
-	if d.Project && !d.trustedBy(p.routes.user) && !p.routes.granted(fingerprint) {
+	if d.Project && !d.trustedBy(p.routes.user) && !p.routes.granted(hash) {
 		if !p.interactive || p.ask == nil {
 			return nil, fmt.Errorf("destination %q needs project binding trust; configure its reviewed binding in user settings or use an interactive run", d.ID)
 		}
@@ -67,7 +67,7 @@ func (p *cliPreferences) clientFor(ctx context.Context, agent dashi.Agent) (llm.
 		if answer.Text != "Allow binding" {
 			return nil, errors.New("project destination binding declined")
 		}
-		p.routes.grant(fingerprint)
+		p.routes.grant(hash)
 	}
 	client, err := p.routes.clientFor(agent)
 	if err != nil {
@@ -177,7 +177,7 @@ func (p *cliPreferences) modelChoices() []modelChoice {
 	for _, id := range slices.Sorted(slices.Values(mapKeys(p.routes.registry))) {
 		d := p.routes.registry[id]
 		status := "configured"
-		if !d.trustedBy(p.routes.user) && !p.routes.granted(mustFingerprint(d)) {
+		if !d.trustedBy(p.routes.user) && !p.routes.granted(mustHash(d)) {
 			status = "needs project binding trust"
 		} else if key, err := d.credential(p.routes.lookup, true); err != nil {
 			status = "invalid configuration"
@@ -203,7 +203,7 @@ func (p *cliPreferences) modelChoices() []modelChoice {
 	})
 	return choices
 }
-func mustFingerprint(d configuredDestination) string {
-	fingerprint, _ := d.fingerprint()
-	return fingerprint
+func mustHash(d configuredDestination) string {
+	hash, _ := d.hash()
+	return hash
 }

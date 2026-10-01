@@ -61,7 +61,7 @@ func (ts *Tasks) prepareStart(ctx context.Context, ref dashi.CallRef, start dash
 	checked.Input = start.Input
 	checked.Agent.Settings = start.Agent.Settings
 	checked.Agent.ActiveCompaction = start.Agent.ActiveCompaction
-	checked.Agent.Revision = start.Agent.Revision
+	checked.Agent.Version = start.Agent.Version
 	checked.Agent.NoInheritedSettings = start.Agent.NoInheritedSettings
 	if !equalValue(checked, start) {
 		return dashi.Start{}, errors.New("delegate: child preparation changed protected Start fields")
@@ -104,7 +104,7 @@ func (ts *Tasks) deferNotice(turn dashi.Turn) bool {
 	if err != nil {
 		return true
 	}
-	view, err := dashi.Replay(owned)
+	view, err := owned.View()
 	if err != nil {
 		return true
 	}

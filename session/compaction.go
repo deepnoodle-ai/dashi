@@ -134,7 +134,7 @@ func (s *Session) compactionSlot(ctx context.Context, p startPlan) (dashi.RunRes
 	}
 	if t.view.Origin != dashi.StartCompaction ||
 		t.turn.Steps[0].CommandID != p.command.CommandID {
-		return dashi.RunResult{}, dashi.ErrRevisionConflict
+		return dashi.RunResult{}, dashi.ErrStaleTurn
 	}
 	r := s.refine(ctx, t)
 	if r.next == dashi.NextRunning || r.next == dashi.NextRecover {
@@ -161,7 +161,7 @@ type Compactor interface {
 	// Start builds the compaction turn's Start: a summarizer agent, the
 	// summary request as Input, and Compaction with the kept messages,
 	// where the summary goes among them, its frame, and its Digest, the
-	// dashi.HistoryFingerprint of projected. The session sets the command ID,
+	// dashi.HistoryHash of projected. The session sets the command ID,
 	// origin, history, and Through, fills an empty Digest, turns tools
 	// off, and applies the caller's Start.Budget when it has one.
 	Start(projected []llm.Message) (dashi.Start, error)
@@ -239,9 +239,9 @@ func (s *Session) buildCompaction(
 	c.History = nil
 	c.Compaction = cloneCompaction(c.Compaction)
 	c.Compaction.Through = last
-	if c.Compaction.Digest == "" {
+	if c.Compaction.Hash == "" {
 		// A custom Compactor may leave it empty; the check still applies.
-		if c.Compaction.Digest, err = dashi.HistoryFingerprint(projected); err != nil {
+		if c.Compaction.Hash, err = dashi.HistoryHash(projected); err != nil {
 			return nil, err
 		}
 	}
@@ -366,8 +366,8 @@ func (cl *call) runCompaction(
 // worker took its slot: the same compact: key runs one turn, so a revision
 // or command conflict at any step means that worker records it.
 func takenSlot(err error) bool {
-	return errors.Is(err, dashi.ErrRevisionConflict) ||
-		errors.Is(err, dashi.ErrCommandConflict)
+	return errors.Is(err, dashi.ErrStaleTurn) ||
+		errors.Is(err, dashi.ErrCommandIDReused)
 }
 
 func compactionFailed(msg string) dashi.Warning {
@@ -382,7 +382,7 @@ func compactionFailed(msg string) dashi.Warning {
 // them, and returns a WarningCompactionMismatch while they differ. Loading
 // the covered turns only to check would undo the short load. The caller
 // holds mu.
-func (s *Session) checkDigest(ctx context.Context, t *sessionTurn) *dashi.Warning {
+func (s *Session) checkHash(ctx context.Context, t *sessionTurn) *dashi.Warning {
 	if t.checked {
 		return t.mismatch
 	}
@@ -392,7 +392,7 @@ func (s *Session) checkDigest(ctx context.Context, t *sessionTurn) *dashi.Warnin
 	}
 	t.checked = true
 	projected, _ := s.history(ctx, f.Through)
-	if got, err := dashi.HistoryFingerprint(projected); err != nil || got != f.Digest {
+	if got, err := dashi.HistoryHash(projected); err != nil || got != f.Hash {
 		t.mismatch = &dashi.Warning{
 			Code: dashi.WarningCompactionMismatch,
 			Message: fmt.Sprintf(

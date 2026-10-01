@@ -14,11 +14,11 @@ type Fault string
 
 const (
 	// Reject does not commit and returns a *dashi.CommitError with
-	// dashi.PersistenceRejected, as a failed fence or constraint would.
+	// NothingWritten set, as a failed fence or constraint would.
 	Reject Fault = "reject"
 
 	// LoseWrite does not commit and returns a *dashi.CommitError with
-	// dashi.PersistenceUnknown, as a timeout before the transaction
+	// NothingWritten unset, as a timeout before the transaction
 	// committed would.
 	LoseWrite Fault = "lose_write"
 
@@ -62,13 +62,12 @@ func (f *FaultRecorder) Commit(
 	switch f.Fault {
 	case Reject:
 		return &dashi.CommitError{
-			Persistence: dashi.PersistenceRejected,
-			Err:         ErrInjected,
+			NothingWritten: true,
+			Err:            ErrInjected,
 		}
 	case LoseWrite:
 		return &dashi.CommitError{
-			Persistence: dashi.PersistenceUnknown,
-			Err:         ErrInjected,
+			Err: ErrInjected,
 		}
 	case LoseAck:
 		if err := f.Recorder.Commit(ctx, req); err != nil {

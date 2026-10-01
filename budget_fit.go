@@ -168,7 +168,7 @@ func estimatedNextRequest(s *replayState, extraInputTokens int) (llm.Request, bo
 	}
 	body[bodySize-1] = '"'
 	req, err := llm.NewRequest(llm.RequestSnapshot{
-		Origin: intent.Origin,
+		Origin: intent.Endpoint,
 		Input: llm.Input{
 			Model:    intent.Model,
 			Messages: []llm.Message{llm.UserMessage(llm.Text("estimate"))},

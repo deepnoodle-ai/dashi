@@ -31,7 +31,7 @@ durable (settle-later) approval example is 86.
 | PR | Findings | What changed |
 | --- | --- | --- |
 | #46 | 1.1, 1.2, 1.3, 2.1, 3.1 | Generated IDs; `Agent{}` works; default and `catalog.Small` models; a nil Policy allows registered tools; `llm.ErrNoAPIKey`. Also fixed provider keys sent to other providers. |
-| #45 | 4.1, 4.2, 4.3, 8.1, 8.2, 9.4, 9.5 | One error (`*CommitError`); `Outcome` carries the view, `Answer`, typed `Pending`, and `Spend`; `Pending.Approve()`/`Deny(reason)`; `RequireApproval`; `Turn.Citations()`, `Turn.HostedUses()`. |
+| #45 | 4.1, 4.2, 4.3, 8.1, 8.2, 9.4, 9.5 | One error (`*CommitError`); `Outcome` carries the view, `Answer`, typed `Pending`, and `Spend`; `Pending.Approve()`/`Deny(reason)`; `RequireApproval`; `Turn.Citations()`, `Turn.ProviderToolUses()`. |
 | #41 | 3.2, 3.3, 3.4, 3.5 | `tool.List`; `tool.Succeeded`/`Failed`/`Waiting`/`Detached`; documented `tool.Func` rules; one hosted-tool constructor shape; tools guide. |
 | #40 | 10.1 | `tool.Report` and `Event.Progress`, live-only, latest-wins per call. |
 | #42 | 7.1, 7.2 | `filerecorder` package; exported `Step.Equal`. |
@@ -136,9 +136,9 @@ Follow-ups found while fixing (Low · Small unless noted):
   outcome, or otherwise make the split impossible to miss.
 - **4.2 High · Design. The result is split across three nouns.** The answer is
   on `outcome.Turn.AnswerText()`, pending calls are bare IDs on `Outcome`, and
-  details and spend need `dashi.Replay(turn)` to get a `TurnView`. For a
+  details and spend need `dashi.turn.View()` to get a `TurnView`. For a
   library that sells cost tracking, `outcome.Spend` should exist. Direction:
-  `Outcome` carries the view; `Replay` becomes a recovery tool.
+  `Outcome` carries the view; `Turn.View` becomes a recovery tool.
 - **4.3 Low · Small. Restart deduplication is not obvious.** Re-running a start
   returns the recorded result without re-running tools only when the same
   recorder and the same `CommandID` are supplied. Direction: say so in the
@@ -163,7 +163,7 @@ Follow-ups found while fixing (Low · Small unless noted):
 ## 8. Policy, authorization, and human interaction
 
 - **8.1 High · Design. Approving a call takes six steps.** Replay the turn;
-  look up `view.Tools[id]`; copy `ArgsDigest` and `Decision.Revision`; pass
+  look up `view.Tools[id]`; copy `ArgsHash` and `Decision.Revision`; pass
   `CallID` twice (on `Resolve` and `ApprovalDecision`); `Resolve` with its own
   `CommandID`; check `ReadyToContinue`; `Continue`. The binding is right; the
   caller should not have to know it. Direction: approval items on the outcome

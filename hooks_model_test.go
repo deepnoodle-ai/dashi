@@ -302,7 +302,7 @@ func TestHideHasNoEffectOnTheReservedFinalAnswer(t *testing.T) {
 			turn.Steps[i].Model.Hidden = []string{"remote"}
 		}
 	}
-	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+	if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("replay err = %v", err)
 	}
 }
@@ -374,7 +374,7 @@ func TestHiddenCallResolvesFromTheRecordAfterACrash(t *testing.T) {
 		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	})
-	if persistence(err) != PersistenceRejected {
+	if !nothingWritten(err) {
 		t.Fatalf("err = %v", err)
 	}
 	saved, err := base.Load(t.Context(), "t1")
@@ -438,7 +438,7 @@ func TestReplayRejectsInvalidHiddenTools(t *testing.T) {
 					turn.Steps[i].Model.Hidden = hidden
 				}
 			}
-			if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+			if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 				t.Fatalf("replay err = %v", err)
 			}
 		})

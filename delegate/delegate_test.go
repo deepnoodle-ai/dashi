@@ -251,7 +251,7 @@ func gated(g *gate, answer string) modelFunc {
 func agent(system string) dashi.Agent {
 	return dashi.Agent{
 		ID:           system,
-		Revision:     "r1",
+		Version:      "r1",
 		Provider:     "test",
 		API:          "test.chat",
 		Model:        "fixture",
@@ -322,8 +322,8 @@ func (c *crashRecorder) Commit(
 	if c.dead.Load() || c.trigger != nil && c.trigger(req) {
 		c.dead.Store(true)
 		return &dashi.CommitError{
-			Persistence: dashi.PersistenceRejected,
-			Err:         errors.New("crashed"),
+			NothingWritten: true,
+			Err:            errors.New("crashed"),
 		}
 	}
 	if req.Step.Kind == dashi.StepTurnStarted &&
@@ -530,7 +530,7 @@ func (h *harness) view(t *testing.T, id string) dashi.TurnView {
 	if err != nil {
 		t.Fatalf("load %s: %v", id, err)
 	}
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +543,7 @@ func (h *harness) waitStop(t *testing.T, id string, kind dashi.StopKind) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if turn, err := h.rec.Load(t.Context(), id); err == nil {
-			view, err := dashi.Replay(turn)
+			view, err := turn.View()
 			if err == nil && view.Stop.Kind == kind {
 				return
 			}

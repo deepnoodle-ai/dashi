@@ -202,7 +202,7 @@ type State struct {
 	// Last is the last turn's view, or nil when Turns is 0.
 	Last *dashi.TurnView
 	// Next is the last turn's next action, refined with liveness: NextRunning
-	// when this handle runs it or TurnLiveness reports it live. It is
+	// when this handle runs it or WorkerChecker reports it live. It is
 	// NextNone for a new session.
 	Next dashi.Next
 	// Queued counts the items waiting in this handle's queue, including
@@ -409,7 +409,7 @@ func lostStart(err error) bool {
 	var ce *dashi.CommitError
 	return errors.As(err, &ce) && ce.Step != nil &&
 		ce.Step.Kind == dashi.StepTurnStarted &&
-		errors.Is(ce.Err, dashi.ErrRevisionConflict)
+		errors.Is(ce.Err, dashi.ErrStaleTurn)
 }
 
 // takenKey reports whether a keyed Start found its command ID on the turn
@@ -417,7 +417,7 @@ func lostStart(err error) bool {
 // run again, tells a true retry, whose history or agent may differ, from a
 // conflict, so the Start never runs as a new turn.
 func takenKey(err error) bool {
-	if !errors.Is(err, dashi.ErrCommandConflict) {
+	if !errors.Is(err, dashi.ErrCommandIDReused) {
 		return false
 	}
 	var ce *dashi.CommitError
@@ -577,7 +577,7 @@ func (s *Session) duplicate(
 			if !sameInputTail(start.Started.Input, c.Input) {
 				return nil, fmt.Errorf(
 					"%w: command %s started turn %s with other input",
-					dashi.ErrCommandConflict,
+					dashi.ErrCommandIDReused,
 					c.CommandID,
 					t.turn.ID,
 				)

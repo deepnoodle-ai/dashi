@@ -397,7 +397,7 @@ func TestSteerWithRecordedIDButOtherContentIsSkipped(t *testing.T) {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
 	// The same ID with other content is refused in t1.
-	view, _ := Replay(out.Turn)
+	view, _ := out.Turn.View()
 	if len(view.Warnings) != 0 {
 		t.Fatalf("warnings = %+v", view.Warnings)
 	}
@@ -474,7 +474,7 @@ func TestReplayRejectsRepeatedContextID(t *testing.T) {
 	step.Seq++
 	step.CommandID = "d2"
 	forged.Steps = append(forged.Steps, step)
-	if _, err := Replay(forged); !errors.Is(err, ErrInvalidTurn) ||
+	if _, err := forged.View(); !errors.Is(err, ErrInvalidTurn) ||
 		!strings.Contains(err.Error(), "repeated context item ID") {
 		t.Fatalf("err = %v", err)
 	}
@@ -497,7 +497,7 @@ func (p pauseOnIntent) Commit(ctx context.Context, req CommitRequest) error {
 // TestRecordedSteerReachesNextTurnThroughHistory records a steer and then
 // pauses before its model call is dispatched. The host gives the turn up:
 // Leftovers returns nothing, because the steer is in the turn's record, and
-// the steer reaches the next turn exactly once through Project. A
+// the steer reaches the next turn exactly once through TurnMessagesFull. A
 // NextCallOnly steer does too: a call that was never dispatched does not
 // expire it, in Project or in the replayed view.
 func TestRecordedSteerReachesNextTurnThroughHistory(t *testing.T) {
@@ -538,7 +538,7 @@ func TestRecordedSteerReachesNextTurnThroughHistory(t *testing.T) {
 			if err != nil || len(left) != 0 {
 				t.Fatalf("leftovers = %+v err=%v", left, err)
 			}
-			history, err := Project(out.Turn)
+			history, err := TurnMessagesFull(out.Turn)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -952,9 +952,9 @@ func (f *steerFaultRecorder) Commit(ctx context.Context, req CommitRequest) erro
 	f.fired = true
 	switch f.mode {
 	case "reject":
-		return &CommitError{Persistence: PersistenceRejected, Err: errors.New("injected")}
+		return &CommitError{NothingWritten: true, Err: errors.New("injected")}
 	case "lose_write":
-		return &CommitError{Persistence: PersistenceUnknown, Err: errors.New("injected")}
+		return &CommitError{Err: errors.New("injected")}
 	}
 	if err := f.MemoryRecorder.Commit(ctx, req); err != nil {
 		return err
@@ -1045,7 +1045,7 @@ func TestReplayRejectsForgedSteeringSteps(t *testing.T) {
 		turn := cloneTurn(out.Turn)
 		for i := range turn.Steps {
 			if change(&turn.Steps[i]) {
-				if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) ||
+				if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) ||
 					!strings.Contains(err.Error(), want) {
 					t.Fatalf("forged step replayed: %v", err)
 				}
@@ -1059,7 +1059,7 @@ func TestReplayRejectsForgedSteeringSteps(t *testing.T) {
 			if s.Kind != StepMessagesAdded {
 				return false
 			}
-			s.CommandID, s.CommandDigest = "deliver", "v2:sha256:00"
+			s.CommandID, s.CommandHash = "deliver", "v2:sha256:00"
 			return true
 		})
 	})

@@ -19,7 +19,7 @@ func TestProjectSelectionStaysWorkspaceScoped(t *testing.T) {
 	project := p.routes.registry["two"]
 	project.Project, project.Source = true, "workspace A/.dashi/settings.json"
 	p.routes.registry["two"] = project
-	p.routes.grants[mustFingerprint(project)] = true
+	p.routes.grants[mustHash(project)] = true
 	if err := os.WriteFile(p.writer.path, []byte(`{"provider":"one","model":"same/model","unrelated":true}`), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestProjectOverrideCannotBecomeGlobalSelection(t *testing.T) {
 				project.Definition.Models = append([]string{"project/model"}, project.Definition.Models...)
 			}
 			p.routes.registry["two"] = project
-			p.routes.grants[mustFingerprint(project)] = true
+			p.routes.grants[mustHash(project)] = true
 			original := []byte(`{"provider":"one","model":"same/model","unrelated":true}`)
 			if err := os.WriteFile(p.writer.path, original, 0600); err != nil {
 				t.Fatal(err)

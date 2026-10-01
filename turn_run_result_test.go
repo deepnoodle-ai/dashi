@@ -138,7 +138,7 @@ func TestPendingBuildersAnswerMixedWork(t *testing.T) {
 	}
 	if _, err := runner.Run(t.Context(), out.Turn, ask.Deny("")); !errors.Is(
 		err,
-		ErrCommandConflict,
+		ErrCommandIDReused,
 	) {
 		t.Fatalf("second, different answer err=%v", err)
 	}
@@ -236,7 +236,7 @@ func TestDenialReasonSurvivesCrashAndReachesModel(t *testing.T) {
 
 	runner.Recorder = &failOnceKind{base: base, kind: StepToolFinished}
 	_, err = runner.Run(t.Context(), denied.Turn, Continue{CommandID: "c1"})
-	if persistence(err) != PersistenceRejected {
+	if !nothingWritten(err) {
 		t.Fatalf("crashing continue err=%v", err)
 	}
 	saved, err := base.Load(t.Context(), "t1")
@@ -305,8 +305,8 @@ type conflictRecorder struct{ base *MemoryRecorder }
 func (r conflictRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	if req.Step.Kind == StepModelCallStarted {
 		return &CommitError{
-			Persistence: PersistenceRejected,
-			Err:         ErrRevisionConflict,
+			NothingWritten: true,
+			Err:            ErrStaleTurn,
 		}
 	}
 	return r.base.Commit(ctx, req)
@@ -315,8 +315,8 @@ func (r conflictRecorder) Commit(ctx context.Context, req CommitRequest) error {
 func TestCommitErrorWrapsRecorderConflict(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("unused")}}
 	out, err := start(t, client, nil, conflictRecorder{NewMemoryRecorder()}, Hooks{})
-	if !errors.Is(err, ErrRevisionConflict) {
-		t.Fatalf("err=%v does not match ErrRevisionConflict", err)
+	if !errors.Is(err, ErrStaleTurn) {
+		t.Fatalf("err=%v does not match ErrStaleTurn", err)
 	}
 	ce, ok := errors.AsType[*CommitError](err)
 	if !ok || ce.Step == nil || ce.Step.Kind != StepModelCallStarted {
@@ -337,7 +337,7 @@ func TestFailedModelSettlementKeepsUsageOnStep(t *testing.T) {
 	rec := &failOnceKind{base: NewMemoryRecorder(), kind: StepModelCallFinished}
 	out, err := start(t, client, nil, rec, Hooks{})
 	step := unacknowledged(err)
-	if persistence(err) != PersistenceRejected ||
+	if !nothingWritten(err) ||
 		step == nil ||
 		step.Model == nil ||
 		step.Model.Result == nil {
@@ -426,7 +426,7 @@ func TestHookViewStopIsEmptyMidRun(t *testing.T) {
 	}
 }
 
-func TestReplayProjectsStopLikeOutcome(t *testing.T) {
+func TestViewInfersStopLikeRun(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	out, err := start(t, client, nil, nil, Hooks{})
 	if err != nil {
@@ -434,14 +434,14 @@ func TestReplayProjectsStopLikeOutcome(t *testing.T) {
 	}
 	// Cut the record after the model intent, as a crash would.
 	crashed := Turn{ID: out.Turn.ID, Steps: out.Turn.Steps[:2]}
-	view, err := Replay(crashed)
+	view, err := crashed.View()
 	if err != nil || view.Stop.Kind != StopInterrupted {
 		t.Fatalf("replayed stop=%+v err=%v", view.Stop, err)
 	}
 	if got := restingOutcome(crashed); got.Stop != view.Stop {
 		t.Fatalf("outcome stop=%+v replay stop=%+v", got.Stop, view.Stop)
 	}
-	view, err = Replay(out.Turn)
+	view, err = out.Turn.View()
 	if err != nil || view.Stop != out.Stop || view.Reply != out.Reply {
 		t.Fatalf("replay=%+v outcome stop=%+v", view.Stop, out.Stop)
 	}
@@ -637,7 +637,7 @@ func TestPendingItemsListOnlyHostWork(t *testing.T) {
 	}
 }
 
-func TestProjectedStopForRequestedCallsIsInterrupted(t *testing.T) {
+func TestInferredStopForRequestedCallsIsInterrupted(t *testing.T) {
 	s := &replayState{
 		TurnView: TurnView{Tools: map[string]ToolView{
 			"a": {Call: tool.Call{ID: "a"}, Status: ToolRequested},
@@ -648,11 +648,11 @@ func TestProjectedStopForRequestedCallsIsInterrupted(t *testing.T) {
 	if len(s.Pending) != 0 {
 		t.Fatalf("requested call listed as host work: %v", s.Pending)
 	}
-	if stop := s.projectedStop(); stop.Kind != StopInterrupted || !stop.Inferred {
+	if stop := s.inferredStop(); stop.Kind != StopInterrupted || !stop.Inferred {
 		t.Fatalf("stop=%+v", stop)
 	}
 	s.Tools["a"] = ToolView{Call: tool.Call{ID: "a"}, Status: ToolFinished}
-	if stop := s.projectedStop(); stop.Kind != "" || !stop.Inferred {
+	if stop := s.inferredStop(); stop.Kind != "" || !stop.Inferred {
 		t.Fatalf("settled turn without a stop step projected %+v", stop)
 	}
 }
@@ -769,18 +769,18 @@ func TestReplayRejectsStaleApprovalStep(t *testing.T) {
 		t.Fatal(err)
 	}
 	fact := out.Pending[0].Approve().Approval
-	fact.ArgsDigest = ArgsDigest([]byte(`{"other":true}`))
+	fact.ArgsHash = ArgsHash([]byte(`{"other":true}`))
 	turn := cloneTurn(out.Turn)
 	turn.Steps = append(turn.Steps, Step{
-		Version:       1,
-		TurnID:        "t1",
-		Seq:           int64(len(turn.Steps) + 1),
-		Kind:          StepApprovalDecided,
-		CommandID:     "forged",
-		CommandDigest: "forged",
-		Approval:      fact,
+		Version:     1,
+		TurnID:      "t1",
+		Seq:         int64(len(turn.Steps) + 1),
+		Kind:        StepApprovalDecided,
+		CommandID:   "forged",
+		CommandHash: "forged",
+		Approval:    fact,
 	})
-	if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) {
+	if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("replay accepted a stale approval: %v", err)
 	}
 }
@@ -813,8 +813,8 @@ type wrappingRecorder struct{ base *MemoryRecorder }
 func (r wrappingRecorder) Commit(ctx context.Context, req CommitRequest) error {
 	if req.Step.Kind == StepModelCallStarted {
 		return fmt.Errorf("pg: %w", &CommitError{
-			Persistence: PersistenceRejected,
-			Err:         errors.New("fence"),
+			NothingWritten: true,
+			Err:            errors.New("fence"),
 		})
 	}
 	return r.base.Commit(ctx, req)
@@ -823,7 +823,7 @@ func (r wrappingRecorder) Commit(ctx context.Context, req CommitRequest) error {
 func TestWrappedRecorderCommitErrorIsNotRepeated(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("unused")}}
 	_, err := start(t, client, nil, wrappingRecorder{NewMemoryRecorder()}, Hooks{})
-	if persistence(err) != PersistenceRejected || unacknowledged(err) == nil {
+	if !nothingWritten(err) || unacknowledged(err) == nil {
 		t.Fatalf("err=%v", err)
 	}
 	if n := strings.Count(err.Error(), "rejected"); n != 1 {
@@ -831,17 +831,24 @@ func TestWrappedRecorderCommitErrorIsNotRepeated(t *testing.T) {
 	}
 }
 
-// persistence returns the persistence of a *CommitError returned by Run,
-// empty for nil, and "other" for any other error.
-func persistence(err error) Persistence {
-	if err == nil {
-		return ""
-	}
-	var ce *CommitError
-	if errors.As(err, &ce) {
-		return ce.Persistence
-	}
-	return "other"
+// nothingWritten reports whether err is a *CommitError that confirms
+// nothing was written.
+func nothingWritten(err error) bool {
+	ce, ok := errors.AsType[*CommitError](err)
+	return ok && ce.NothingWritten
+}
+
+// writeUnknown reports whether err is a *CommitError for a write that
+// may have committed.
+func writeUnknown(err error) bool {
+	ce, ok := errors.AsType[*CommitError](err)
+	return ok && !ce.NothingWritten
+}
+
+// otherError reports whether err is neither nil nor a *CommitError.
+func otherError(err error) bool {
+	_, ok := errors.AsType[*CommitError](err)
+	return err != nil && !ok
 }
 
 // unacknowledged returns the step a *CommitError names, or nil.
@@ -1021,7 +1028,7 @@ func TestIncompleteProviderToolApprovalIsNotActionable(t *testing.T) {
 	}
 }
 
-func TestCanceledProviderToolApprovalDoesNotLeaveDanglingProjection(t *testing.T) {
+func TestCanceledProviderToolApprovalDoesNotLeaveDanglingMessage(t *testing.T) {
 	origin := content.Origin{
 		Provider: "test",
 		API:      "test.chat",
@@ -1057,7 +1064,7 @@ func TestCanceledProviderToolApprovalDoesNotLeaveDanglingProjection(t *testing.T
 	if err != nil || canceled.Stop.Kind != StopCanceled || len(canceled.Pending) != 0 {
 		t.Fatalf("canceled=%+v err=%v", canceled, err)
 	}
-	messages, err := Project(canceled.Turn)
+	messages, err := TurnMessagesFull(canceled.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}

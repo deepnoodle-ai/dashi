@@ -28,13 +28,13 @@ type Problem struct{ SessionID, TurnID, Message string }
 
 // MessagePreview identifies ordinary recorded text, never a projected history.
 type MessagePreview struct {
-	TurnID   string
-	Revision int64
-	Role     llm.Role
-	Text     string
+	TurnID  string
+	LastSeq int64
+	Role    llm.Role
+	Text    string
 }
 
-type Destination struct{ Provider, API, Model, Revision string }
+type Destination struct{ Provider, API, Model, Version string }
 type PendingObservation struct {
 	Kind         dashi.PendingKind
 	ID           string
@@ -47,7 +47,7 @@ type PendingObservation struct {
 // It says nothing about a live worker or permission to execute a command.
 type Execution struct {
 	TurnID          string
-	Revision        int64
+	LastSeq         int64
 	Readable        bool
 	Summary         bool
 	Destination     Destination
@@ -371,7 +371,7 @@ func scanInspection(ctx context.Context, dir *attachmentDir, metadata Session, q
 		turn, loadErr := reader.Load(ctx, id)
 		var view dashi.TurnView
 		if loadErr == nil {
-			view, loadErr = dashi.Replay(turn)
+			view, loadErr = turn.View()
 		}
 		if loadErr != nil {
 			if ctx.Err() != nil {
@@ -392,13 +392,13 @@ func scanInspection(ctx context.Context, dir *attachmentDir, metadata Session, q
 		if view.Origin == dashi.StartCompaction {
 			continue
 		}
-		out.Request = &MessagePreview{TurnID: id, Revision: view.Revision, Role: llm.RoleUser, Text: "[request has no public text]"}
+		out.Request = &MessagePreview{TurnID: id, LastSeq: view.LastSeq, Role: llm.RoleUser, Text: "[request has no public text]"}
 		out.RequestIncomplete = false
 		for _, message := range ordinaryText(turn) {
 			if err := ctx.Err(); err != nil {
 				return out, err
 			}
-			preview := MessagePreview{id, view.Revision, message.Role, previewText(message.Text, "")}
+			preview := MessagePreview{id, view.LastSeq, message.Role, previewText(message.Text, "")}
 			if message.initial && message.Role == llm.RoleUser {
 				out.Request = &preview
 				out.RequestIncomplete = false

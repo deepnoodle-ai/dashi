@@ -82,7 +82,7 @@ func TestBundleCatalogAndLoader(t *testing.T) {
 	}
 }
 
-func TestBundleDeterministicDigestAndEmptySet(t *testing.T) {
+func TestBundleDeterministicHashAndEmptySet(t *testing.T) {
 	a := skill.Definition{Name: "Alpha", Description: "First", Instructions: "A"}
 	b := skill.Definition{Name: "Beta", Instructions: "B"}
 	first, err := skill.New([]skill.Definition{b, a}, skill.Options{})
@@ -94,9 +94,9 @@ func TestBundleDeterministicDigestAndEmptySet(t *testing.T) {
 		t.Fatal(err)
 	}
 	if first.Catalog() != second.Catalog() ||
-		first.Digest() != second.Digest() ||
-		!strings.HasPrefix(first.Digest(), "sha256:") {
-		t.Fatalf("bundle depends on input order: %q vs %q", first.Digest(), second.Digest())
+		first.Hash() != second.Hash() ||
+		!strings.HasPrefix(first.Hash(), "sha256:") {
+		t.Fatalf("bundle depends on input order: %q vs %q", first.Hash(), second.Hash())
 	}
 	changed, err := skill.New(
 		[]skill.Definition{a, {Name: "Beta", Instructions: "changed"}},
@@ -112,8 +112,8 @@ func TestBundleDeterministicDigestAndEmptySet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Digest() == changed.Digest() ||
-		first.Digest() == renamedTool.Digest() {
+	if first.Hash() == changed.Hash() ||
+		first.Hash() == renamedTool.Hash() {
 		t.Fatal("changed body or loader name did not change digest")
 	}
 	empty, err := skill.New(nil, skill.Options{})

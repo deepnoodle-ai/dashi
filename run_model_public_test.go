@@ -253,7 +253,7 @@ func TestRunnerCacheKeyIsTheDefaultPromptCacheKey(t *testing.T) {
 	}
 }
 
-func TestAgentRevisionIgnoresTheCacheKey(t *testing.T) {
+func TestAgentVersionIgnoresTheCacheKey(t *testing.T) {
 	revision := func(key string) string {
 		w := &wire{replies: []string{claudeText("Hi.")}}
 		client, err := messages.New(messages.Config{
@@ -273,7 +273,7 @@ func TestAgentRevisionIgnoresTheCacheKey(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return out.Turn.Steps[0].Started.Agent.Revision
+		return out.Turn.Steps[0].Started.Agent.Version
 	}
 	if a, b := revision("one"), revision("two"); a != b {
 		t.Fatalf("revisions differ by key: %s, %s", a, b)

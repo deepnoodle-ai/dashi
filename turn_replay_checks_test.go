@@ -71,7 +71,7 @@ func TestTerminalStops(t *testing.T) {
 			s := &replayState{}
 			s.Stop, s.ModelCalls = tt.stop, tt.attempts
 			s.attemptCap = 8
-			s.Revision = 2
+			s.LastSeq = 2
 			s.Spend.CostUnknown = tt.costUnknown
 			if got := s.terminal(); got != tt.want {
 				t.Fatalf("terminal=%t, want %t", got, tt.want)
@@ -140,7 +140,7 @@ func TestReplayRejectsMisstatedTerminal(t *testing.T) {
 			interruptionStart(testAgent()),
 			Step{Kind: StepTurnStopped, Stop: stop},
 		)
-		if _, err := Replay(turn); !errors.Is(err, ErrInvalidTurn) || !strings.Contains(err.Error(), "terminal") {
+		if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) || !strings.Contains(err.Error(), "terminal") {
 			t.Fatalf("replay of %+v: err=%v", stop, err)
 		}
 	}
@@ -220,7 +220,7 @@ func TestDeadlineStopSettlesPendingApproval(t *testing.T) {
 		Kind:    StepTurnStopped,
 		Stop:    testStop(StopLimited, LimitDeadline),
 	})
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +381,7 @@ func TestBudgetStopAfterLastAttemptContinuesWithBothRaises(t *testing.T) {
 	if out.Stop.Ended {
 		t.Fatal("budget stop after the last attempt is terminal")
 	}
-	if _, err := Replay(out.Turn); err != nil {
+	if _, err := out.Turn.View(); err != nil {
 		t.Fatal(err)
 	}
 	out, err = runner.Run(t.Context(), out.Turn, Continue{

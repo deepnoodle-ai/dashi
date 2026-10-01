@@ -97,11 +97,11 @@ func TestSessionNotStarted(t *testing.T) {
 		want bool
 	}{
 		{"rejected command", context.Canceled, true},
-		{"start rejected", &dashi.CommitError{Persistence: dashi.PersistenceRejected, Step: started}, true},
-		{"start conflicts", &dashi.CommitError{Persistence: dashi.PersistenceUnknown, Step: started, Err: dashi.ErrRevisionConflict}, true},
-		{"start key taken", &dashi.CommitError{Persistence: dashi.PersistenceUnknown, Step: started, Err: dashi.ErrCommandConflict}, true},
-		{"start unknown", &dashi.CommitError{Persistence: dashi.PersistenceUnknown, Step: started}, false},
-		{"model rejected", &dashi.CommitError{Persistence: dashi.PersistenceRejected, Step: model}, false},
+		{"start rejected", &dashi.CommitError{NothingWritten: true, Step: started}, true},
+		{"start conflicts", &dashi.CommitError{Step: started, Err: dashi.ErrStaleTurn}, true},
+		{"start key taken", &dashi.CommitError{Step: started, Err: dashi.ErrCommandIDReused}, true},
+		{"start unknown", &dashi.CommitError{Step: started}, false},
+		{"model rejected", &dashi.CommitError{NothingWritten: true, Step: model}, false},
 		{"record invalid", fmt.Errorf("%w: x", dashi.ErrRecordInvalid), false},
 		{"stream stopped", errStreamStopped, false},
 	}

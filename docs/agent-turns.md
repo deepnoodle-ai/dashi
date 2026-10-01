@@ -36,14 +36,14 @@ nothing. See [the runnable example](../examples/agent/main.go) for setup.
 `Runner.Run` returns an `Outcome` that is always the latest known state, and an
 error that says whether the command applied. `Outcome` holds the turn and
 embeds its `TurnView`: `Stop`, `Answer`, `Output`, `Spend`, typed `Pending`
-work, and per-call `Tools`. `Replay(turn)` gives the same view for a loaded
+work, and per-call `Tools`. `turn.View()` gives the same view for a loaded
 turn.
 
 | `Run` error                                   | Caller action                                                                                  |
 | --------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `nil`                                         | Every step was recorded.                                                                       |
-| `ErrRevisionConflict`, `ErrCommandConflict`   | Another worker owns or advanced the turn, or the command ID was reused. Reload and back off.   |
-| `*CommitError`, `PersistenceRejected`         | The run executed, but `CommitError.Step` was not saved. Recover as after a crash.              |
+| `ErrStaleTurn`, `ErrCommandIDReused`   | Another worker owns or advanced the turn, or the command ID was reused. Reload and back off.   |
+| `*CommitError`, `NothingWritten`         | The run executed, but `CommitError.Step` was not saved. Recover as after a crash.              |
 | `*CommitError`, `PersistenceUnknown`          | The write may have committed. Reload the turn before any retry.                                |
 | `ErrRecordInvalid`                            | Steps this run recorded fail replay: a runner or recorder bug. Something was recorded.        |
 | `ErrTurnEnded`                                | The turn has ended; only late results of started work are accepted. Reload for its final state. |
@@ -110,7 +110,7 @@ optional `Owner` token (`dashi.WithOwner`). A host recorder should atomically
 check revision and owner, append the step, and commit related budget,
 accounting, or outbox rows; each `BeforeSend` hook may supply non-secret
 admission JSON for that transaction, recorded under the hook's name. Return
-`CommitError` with `PersistenceRejected` only when the write certainly did not
+`CommitError` with `NothingWritten` only when the write certainly did not
 commit, and `PersistenceUnknown` (or a plain error) when it may have. A recorder
 that also implements `Loader` lets `Run` answer a command retried with a stale
 snapshot from the stored record; `Load` reports a missing turn as
@@ -146,7 +146,7 @@ definitions. A local executor runs only after valid arguments and an allowed
 hook is asked again about the new arguments. `tool.KindExternal` calls wait for
 the host's `Resolve`. A deferred call needs an answer bound to its call ID and
 arguments: `Pending.Approve` and `Pending.Deny(reason)` build it, and
-`dashi.ArgsDigest` computes the digest from arguments shown earlier. The digest
+`dashi.ArgsHash` computes the digest from arguments shown earlier. The digest
 compares JSON meaning, so it survives a store that respells the arguments. A
 denial's reason becomes the call's result for the model. With no hook opinion,
 every bound local and external tool runs, recorded with the reason

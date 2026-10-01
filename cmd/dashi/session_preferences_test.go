@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"github.com/deepnoodle-ai/dashi"
 	"strings"
 	"testing"
 )
@@ -114,7 +113,7 @@ func TestSessionPickerRestoresPreferencesAndDispatchesSelectedRoute(t *testing.T
 				if err != nil {
 					t.Fatal(err)
 				}
-				view, err := dashi.Replay(turn)
+				view, err := turn.View()
 				if err != nil {
 					t.Fatal(err)
 				}

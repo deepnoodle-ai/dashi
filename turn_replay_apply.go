@@ -53,7 +53,7 @@ func (s *replayState) apply(step Step) error {
 			return e
 		}
 		// The runner records a resolved agent; only its ID may be empty.
-		if a := step.Started.Agent; a.Revision == "" || a.Provider == "" ||
+		if a := step.Started.Agent; a.Version == "" || a.Provider == "" ||
 			a.API == "" || a.Model == "" {
 			return errors.New("recorded agent requires revision, provider, API, and model")
 		}
@@ -198,7 +198,7 @@ func (s *replayState) apply(step Step) error {
 		if step.Model == nil ||
 			step.Model.ModelCallID == "" ||
 			step.Model.MessageID == "" ||
-			step.Model.RequestDigest == "" ||
+			step.Model.RequestHash == "" ||
 			s.modelIntent != "" ||
 			s.Output != nil ||
 			len(s.pending()) > 0 {
@@ -627,7 +627,7 @@ func (s *replayState) apply(step Step) error {
 		if !ok || v.Status != ToolApprovalPending {
 			return errors.New("approval without pending decision")
 		}
-		if step.Approval.ArgsDigest != ArgsDigest(v.Call.Args) {
+		if step.Approval.ArgsHash != ArgsHash(v.Call.Args) {
 			return errors.New("stale approval")
 		}
 		// Verdict stays the hooks'; the host's answer is kept beside it,

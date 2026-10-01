@@ -127,7 +127,7 @@ func TestActiveContextCLIFiveCompactionsRetainEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	turn := activeAssertCompleted(t, cfg, a, c)
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func activeAssertCompleted(t *testing.T, cfg appConfig, a *app, c *activeCLIClie
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}

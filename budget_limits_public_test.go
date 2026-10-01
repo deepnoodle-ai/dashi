@@ -99,7 +99,7 @@ func TestCostCapAdmitsDefaultSettingsOnOptionalMaxTokensProvider(t *testing.T) {
 			CommandID: "start",
 			Agent: dashi.Agent{
 				ID:       "agent",
-				Revision: "r1",
+				Version:  "r1",
 				Provider: "router",
 				API:      completions.API,
 				Model:    "priced",

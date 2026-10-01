@@ -159,8 +159,8 @@ func TestSessionIdempotency(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, err := s.Run(t.Context(), keyed("k", "goodbye"))
-		if !errors.Is(err, dashi.ErrCommandConflict) {
-			t.Fatalf("err = %v; want ErrCommandConflict", err)
+		if !errors.Is(err, dashi.ErrCommandIDReused) {
+			t.Fatalf("err = %v; want ErrCommandIDReused", err)
 		}
 		requireTurns(t, rec, 1)
 	})
@@ -505,7 +505,7 @@ func TestSessionCarryForward(t *testing.T) {
 		t.Fatalf("carried agent = %+v", got)
 	case !got.Limits.Deadline.IsZero():
 		t.Fatal("the deadline carried forward")
-	case got.Revision == first.Agent.Revision:
+	case got.Version == first.Agent.Version:
 		t.Fatal("the derived revision carried forward")
 	}
 	// A scheduled turn's agent never carries.
@@ -728,16 +728,16 @@ func TestSessionProbingReads(t *testing.T) {
 		for i := 1; i <= n; i++ {
 			turn := session.TurnID(id, i)
 			err := rec.Commit(t.Context(), dashi.CommitRequest{Step: dashi.Step{
-				Version:       1,
-				TurnID:        turn,
-				Seq:           1,
-				At:            time.Now(),
-				Kind:          dashi.StepTurnStarted,
-				CommandID:     "start",
-				CommandDigest: "digest",
+				Version:     1,
+				TurnID:      turn,
+				Seq:         1,
+				At:          time.Now(),
+				Kind:        dashi.StepTurnStarted,
+				CommandID:   "start",
+				CommandHash: "digest",
 				Started: &dashi.StartFact{
 					Agent: dashi.Agent{
-						Revision: "r1",
+						Version:  "r1",
 						Provider: "test",
 						API:      "test",
 						Model:    "test",

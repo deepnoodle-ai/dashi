@@ -108,8 +108,8 @@ consumer that breaks after it consumes the items. Only proof that it did not
 restores the items, in order: an error after which `Run` promises nothing was
 recorded (neither a `*CommitError` carrying a `Step` nor `ErrRecordInvalid`;
 `recorded` in `runner.go`), or a `*CommitError` whose `Step.Kind` is
-`turn_started` with `PersistenceRejected`, `ErrRevisionConflict`, or
-`ErrCommandConflict`. Anything else is inconclusive: an unknown outcome for the
+`turn_started` with `NothingWritten`, `ErrStaleTurn`, or
+`ErrCommandIDReused`. Anything else is inconclusive: an unknown outcome for the
 start, a failed later step (a rejected model step included), or
 `ErrRecordInvalid`, which follows recorded steps. The session then loads `S-n`:
 a `turn_started` step with this command ID consumes the items, a missing one
@@ -296,9 +296,9 @@ result starts, never splitting a tool call from its result. The kept tail is
 sized by `Policy`'s window; the transcript by the smaller of that window and the
 catalog window of `Model`, when set. It cannot check savings before the summary
 exists. `Compactor` makes no model call. A host that keeps its own turns
-builds history with `dashi.ProjectHistory`, the rule `Session` uses, and runs
+builds history with `dashi.BuildHistory`, the rule `Session` uses, and runs
 `Compactor.Start` through its own `Runner`, so the summary call is recorded
-and charged like any turn. The earlier `Compact`, `Project`, `Record`, and
+and charged like any turn. The earlier `Compact`, `TurnMessagesFull`, `Record`, and
 `NewSummarizer` path, whose summary call bypassed the host's recorder, was
 removed (2026-10-01).
 

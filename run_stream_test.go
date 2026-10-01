@@ -115,7 +115,7 @@ func TestRunnerStreamValidationAndRejectedWrite(t *testing.T) {
 			terminals++
 			// The final event carries the outcome and the write failure
 			// together.
-			if persistence(err) != PersistenceRejected {
+			if !nothingWritten(err) {
 				t.Fatalf("outcome=%+v err=%v", event.Result, err)
 			}
 		} else if err != nil {
@@ -147,7 +147,7 @@ func TestRunnerStreamBreakBeforeDispatchRecordsInterruption(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			view, err := Replay(turn)
+			view, err := turn.View()
 			if err != nil || view.Stop.Kind != StopInterrupted || client.sends != 0 {
 				t.Fatalf("view=%+v err=%v sends=%d", view, err, client.sends)
 			}
@@ -202,7 +202,7 @@ func TestStreamBreakKeepsInterruptedPartialResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil || view.Stop.Kind != StopInterrupted || client.sends != 1 {
 		t.Fatalf("view=%+v err=%v sends=%d", view, err, client.sends)
 	}
@@ -255,7 +255,7 @@ func TestRunnerStreamBreakAfterToolStartLeavesCallPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil || view.Stop.Kind != StopInterrupted || runs != 0 ||
 		view.Tools["call"].Status != ToolStarted {
 		t.Fatalf("view=%+v err=%v runs=%d", view, err, runs)
@@ -281,7 +281,7 @@ func TestRunnerStreamBreakWithContextCancelEndsTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}

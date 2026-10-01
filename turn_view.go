@@ -39,10 +39,10 @@ type ToolView struct {
 	// Verdict is the combined BeforeTool result.
 	Verdict ToolVerdict
 	Outcome *tool.Outcome
-	// ArgsDigest is set while Status is ToolApprovalPending. It identifies
-	// Call.Args by JSON meaning; echo it in ApprovalDecision.ArgsDigest to approve
+	// ArgsHash is set while Status is ToolApprovalPending. It identifies
+	// Call.Args by JSON meaning; echo it in ApprovalDecision.ArgsHash to approve
 	// or deny exactly the arguments shown.
-	ArgsDigest string
+	ArgsHash string
 	// Approval is the host's answer to a deferred call, recorded by Resolve.
 	// Verdict remains the hooks' deferral.
 	Approval *ApprovalDecision
@@ -94,8 +94,8 @@ type TurnView struct {
 	// Compaction is what a compaction turn replaces, recorded at Start; nil
 	// for other turns.
 	Compaction *CompactionFact
-	// Revision is the latest acknowledged step sequence number.
-	Revision int64
+	// LastSeq is the latest acknowledged step sequence number.
+	LastSeq int64
 	// ModelCalls counts settled calls that were not interrupted.
 	ModelCalls int
 	// Resumes counts resumes after a context stop or worker crash,

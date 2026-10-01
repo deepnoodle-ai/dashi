@@ -82,9 +82,9 @@ type Step struct {
 	Kind StepKind  `json:"kind"`
 	// CommandID identifies the host command that produced this step, if any.
 	CommandID string `json:"command_id,omitempty"`
-	// CommandDigest binds that ID to the command's content for retries.
-	CommandDigest string     `json:"command_digest,omitempty"`
-	Started       *StartFact `json:"started,omitempty"`
+	// CommandHash binds that ID to the command's content for retries.
+	CommandHash string     `json:"command_hash,omitempty"`
+	Started     *StartFact `json:"started,omitempty"`
 	// Budget on a continuation records the entire raised budget for audit.
 	Budget *Budget `json:"budget,omitempty"`
 	// ModelCalls on a continuation records the raised model-attempt cap.
@@ -164,7 +164,7 @@ const (
 	// prepared media, whose context size cannot be estimated from wire bytes.
 	WarningActiveCompactionMediaEstimateUnavailable WarningCode = "active_compaction_media_estimate_unavailable"
 
-	// ProjectHistory reports the warnings below, which no turn records.
+	// BuildHistory reports the warnings below, which no turn records.
 	// Package session passes them on in Outcome.SessionWarnings.
 
 	// WarningTurnUnreadable means a turn failed to load or project and was
@@ -188,12 +188,14 @@ var (
 	// turn's recorded one, or a turn snapshot whose recorded agent differs
 	// from the recorder's. The wrapping error names the fields or the fix.
 	ErrAgentChanged = errors.New("dashi: agent changed")
-	// ErrCommandConflict reports a reused command ID with different content.
-	ErrCommandConflict = errors.New("dashi: command conflict")
+	// ErrCommandIDReused reports a reused command ID with different content.
+	ErrCommandIDReused = errors.New("dashi: command ID reused with different content")
 	// ErrInvalidTurn reports a turn record that fails replay validation.
 	ErrInvalidTurn = errors.New("dashi: invalid turn record")
-	// ErrRevisionConflict reports a recorder sequence or owner conflict.
-	ErrRevisionConflict = errors.New("dashi: revision conflict")
+	// ErrStaleTurn reports a commit made from an out-of-date copy of the
+	// turn: another worker added a step first, or holds the turn's lease.
+	// Reload the turn.
+	ErrStaleTurn = errors.New("dashi: stale turn")
 	// ErrStreamConsumed reports a second attempt to range one stream.
 	ErrStreamConsumed = errors.New("dashi: stream already consumed")
 	// ErrTurnNotFound reports that a recorder holds no steps for a turn ID.

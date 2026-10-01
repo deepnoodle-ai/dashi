@@ -44,9 +44,9 @@ Dive's code.
 | Image / PDF inputs | S | S | P (no docs on DeepInfra) | S | S | S | S | S | `content/content.go`; `deepinfra.go` Prepare |
 | File IDs / URIs (reference) | S | S | P (no image file ID) | S (fileData) | S | S | S | P | `messages.go:626`; `completions.go:352`; `gemini.go:518`; origin-scoped (`provider-content-replay.md`) |
 | Files API upload | M | M | M | M | M | M | M | M | Neither library has one |
-| Server tools: web search | S | S (+grok, meta) | M | S (google_search) | S | P | M | M | `anthropic/.../hosted_tools.go:16`; `responses/hosted_tools.go:23`; `gemini/hosted_tools.go:14` |
+| Server tools: web search | S | S (+grok, meta) | M | S (google_search) | S | P | M | M | `anthropic/.../provider_tools.go:16`; `responses/provider_tools.go:23`; `gemini/provider_tools.go:14` |
 | Server tools: code exec / fetch / file search / image gen | S (code, web_fetch) | S (code, file_search, image_gen; grok x_search, collections) | M | S (code, url_context, file_search) | P (+computer use) | P | M | M | Computer use missing in Dashi (Dive had it) |
-| MCP passthrough | P (no auth) | P (no auth headers) | M | M | S | S | M | M | `MCPToolsetOptions{Name,URL}` `hosted_tools.go:163`; `responses/hosted_tools.go:82-99` |
+| MCP passthrough | P (no auth) | P (no auth headers) | M | M | S | S | M | M | `MCPToolsetOptions{Name,URL}` `provider_tools.go:163`; `responses/provider_tools.go:82-99` |
 | Hosted approval flow | M | S | – | – | M | P | – | – | `llm/hosted.go:96-120` |
 | Batch API | M | M | M | M | M | M | M | M | – |
 | Stop sequences, top_p, top_k, seed | M | M | M | M | M | M | M | M | `llm.Settings` has MaxTokens, Temperature, Reasoning, ToolChoice, ParallelTools only (`llm/llm.go:327-345`) |
@@ -158,7 +158,7 @@ caller receives:
 | Post-usage check between steps | Hooks only | `checkpointBudgetExceeded` | **Partial**: `BeforeModel` can stop the turn, but has no built-in check | `policy.go` ModelDecision.Stop | Check the new limits in the engine before each attempt, using recorded usage and cost |
 | Budget-stop representation | Hook abort error | Typed reasons and statuses | **Partial**: `StopRefused` or `StopLimited` with a string reason | `engine.go:559,681`; `turn.go:244-258` | Typed limit reasons. Keep the answer produced alongside the limit, as reserved final-answer already does |
 | Resume after raising a budget | – | `resume` endpoint, credit-resume worker | **Partial**: a refused turn can continue, but `model_calls` is terminal and a definition revision cannot change mid-turn | `state.go:603-609` | Add a `RaiseLimits` command that is recorded, validated as monotonic, and continues the turn |
-| Tool and hosted-tool cost | None | Counts only | **Missing** | `HostedUse` has no metering | Record hosted request counts in `Usage`. Let local tools report cost in `tool.Outcome` |
+| Tool and hosted-tool cost | None | Counts only | **Missing** | `ProviderToolUse` has no metering | Record hosted request counts in `Usage`. Let local tools report cost in `tool.Outcome` |
 | Child / subagent roll-up | – | – (mobius `addChild`) | **Missing** | – | Add a parent reference to the turn view so a host can aggregate child turns |
 | Billing identity per attempt | Invented keys | `model_call_facts` IDs | **Covered** | `engine.go:564`; `ModelFact.Reservation` | Keep as is. This is what recs2 asked for |
 | Tenant ledgers, credits, markups | App | App | **Correctly the app's job** | Opaque `Admission`; Recorder transaction | Document the recipe (reserve in the Recorder, settle on the result) |

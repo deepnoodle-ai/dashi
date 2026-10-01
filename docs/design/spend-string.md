@@ -38,7 +38,7 @@ The [accounting spec](spend-usage-accounting.md) supersedes the original usage-o
 New usage failures set `UsageIncomplete`; its marker never qualifies exact monetary sums.
 Old positive `CostUnknown` values retain conservative display because their cause cannot be inferred.
 
-Replace cost loops in `examples/tools/main.go` and `examples/hosted_tools/main.go` with `fmt.Printf("Cost: %s\n", spend)`.
+Replace cost loops in `examples/tools/main.go` and `examples/provider_tools/main.go` with `fmt.Printf("Cost: %s\n", spend)`.
 The hosted example keeps its token, hosted-request, and unpriced-meter diagnostics. Remove duplicate unknown and partial counter prose.
 The existing unpriced-meter diagnostic may use the counter to decide when to print details.
 Update `docs/guides/budgets.md` with the method's purpose, category labels, missing-cost behavior, and uncertainty rules.

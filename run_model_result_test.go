@@ -110,7 +110,7 @@ func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(
 	if err != nil || first.Stop.Kind != StopResultUnknown {
 		t.Fatalf("first=%+v err=%v", first, err)
 	}
-	view, err := Replay(first.Turn)
+	view, err := first.Turn.View()
 	if err != nil || view.Spend.Usage.InputTokens != 4 {
 		t.Fatalf("usage=%+v err=%v", view.Spend.Usage, err)
 	}
@@ -130,7 +130,7 @@ func TestPartialProviderFailureStaysUncertainDespiteRejectionLabel(
 			},
 		},
 	)
-	if persistence(err) != PersistenceRejected {
+	if !nothingWritten(err) {
 		t.Fatalf(
 			"partial response accepted as non-dispatch: out=%+v err=%v",
 			falseProof,

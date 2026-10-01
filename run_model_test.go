@@ -76,7 +76,7 @@ func TestReservedFinalAnswerUsesLastAttemptWithoutExtraCall(t *testing.T) {
 			t.Fatalf("intent %d=%+v", intents, step.Model)
 		}
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil || view.ModelCalls != 2 || view.Stop.Kind != StopLimited {
 		t.Fatalf("replay=%+v err=%v", view, err)
 	}
@@ -147,7 +147,7 @@ func TestReservedFinalAnswerKeepsStructuredOutputSubmission(t *testing.T) {
 	for _, step := range out.Turn.Steps {
 		if step.Kind == StepModelCallStarted && step.Model.FinalReplyOnly {
 			step.Model.Tools = append(step.Model.Tools, binding.Definition)
-			if _, err := Replay(out.Turn); err == nil {
+			if _, err := out.Turn.View(); err == nil {
 				t.Fatal("replay accepted an application tool on the final-answer request")
 			}
 			return
@@ -198,7 +198,7 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 					Stop:    &stop,
 				},
 			)
-			_, err := Replay(turn)
+			_, err := turn.View()
 			if (err == nil) != tt.allowed {
 				t.Fatalf("replay of %+v: allowed=%t err=%v", stop, tt.allowed, err)
 			}
@@ -231,7 +231,7 @@ func TestReplayAllowsDeadlineAfterRecordedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := Replay(limited.Turn)
+	view, err := limited.Turn.View()
 	if err != nil {
 		t.Fatalf("replay rejected limited stop after final attempt: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestReservedFinalAnswerCannotExecuteUnadvertisedTool(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopLimited || client.sends != 2 || runs != 1 {
 		t.Fatalf("out=%+v err=%v sends=%d runs=%d", out, err, client.sends, runs)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil || view.Tools["second"].Status != ToolFinished ||
 		view.Tools["second"].Outcome == nil || view.Tools["second"].Outcome.State != tool.StateNotExecuted {
 		t.Fatalf("replay=%+v err=%v", view, err)
@@ -321,7 +321,7 @@ func TestReservedFinalAnswerClassifiesAfterStopWriteFailure(t *testing.T) {
 			Input:     []llm.Message{llm.UserMessage(llm.Text("look up"))},
 		},
 	)
-	if persistence(err) != PersistenceRejected || client.sends != 2 {
+	if !nothingWritten(err) || client.sends != 2 {
 		t.Fatalf("first=%+v err=%v sends=%d", first, err, client.sends)
 	}
 	saved, err := base.Load(t.Context(), "limit")
@@ -428,14 +428,14 @@ func TestContinueRaisesModelAttemptLimit(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "done" {
 		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
 	}
-	if _, err := Replay(out.Turn); err != nil {
+	if _, err := out.Turn.View(); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
 }
 
 func TestBudgetRaiseAloneCannotRunToolsWithoutModelCalls(t *testing.T) {
 	s := &replayState{}
-	s.Revision, s.ModelCalls, s.attemptCap = 2, 3, 3
+	s.LastSeq, s.ModelCalls, s.attemptCap = 2, 3, 3
 	s.Stop = Stop{
 		Kind:  StopLimited,
 		Limit: &LimitDetail{Kind: LimitTotalTokens},
@@ -533,7 +533,7 @@ func TestRunnerTimeoutRetainsOrderedMixedPartialData(t *testing.T) {
 		settled.Result.Usage.OutputTokens != 2 || out.Spend.Usage.OutputTokens != 2 {
 		t.Fatalf("usage=%+v spend=%+v", settled.Result.Usage, out.Spend)
 	}
-	replayed, err := Replay(out.Turn)
+	replayed, err := out.Turn.View()
 	if err != nil || replayed.Reply != "" || replayed.Stop.Kind != StopResultUnknown {
 		t.Fatalf("replayed=%+v err=%v", replayed, err)
 	}

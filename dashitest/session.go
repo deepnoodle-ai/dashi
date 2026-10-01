@@ -59,7 +59,7 @@ func testSessionIndexAgrees(t *testing.T, s Store) {
 	for _, cmd := range []string{"start-a", "start-b"} {
 		step := startStep(next)
 		step.CommandID = cmd
-		step.CommandDigest = "dashitest-digest-" + cmd
+		step.CommandHash = "dashitest-digest-" + cmd
 		wg.Go(func() {
 			if commit(t, s, step, owner) == nil {
 				wins.Add(1)
@@ -98,12 +98,12 @@ func testSessionProbing(t *testing.T, s Store) {
 				t.Fatalf("session %q of %d turns opened with %d", id, n, st.Turns)
 			}
 			if want := session.TurnID(id, n); st.Last.ID != want ||
-				st.Last.Revision != steps {
+				st.Last.LastSeq != steps {
 				t.Fatalf(
 					"session %q: last turn %s at revision %d; want %s at %d",
 					id,
 					st.Last.ID,
-					st.Last.Revision,
+					st.Last.LastSeq,
 					want,
 					steps,
 				)

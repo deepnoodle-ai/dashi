@@ -70,13 +70,13 @@ func TestDecodedStartRunsLikeOriginal(t *testing.T) {
 					got.Stop.Kind, len(got.Turn.Steps), want.Stop.Kind, len(want.Turn.Steps))
 			}
 			g, w := got.Turn.Steps[0], want.Turn.Steps[0]
-			if g.CommandDigest != w.CommandDigest || !reflect.DeepEqual(g.Started, w.Started) {
+			if g.CommandHash != w.CommandHash || !reflect.DeepEqual(g.Started, w.Started) {
 				t.Fatalf("start step differs:\n got %+v\nwant %+v", g, w)
 			}
 			// Replayed on the turn the original started, it is a retry.
 			again := run(t, want.Turn, c)
-			if again.Revision != want.Revision {
-				t.Fatalf("retry advanced the turn to %d from %d", again.Revision, want.Revision)
+			if again.LastSeq != want.LastSeq {
+				t.Fatalf("retry advanced the turn to %d from %d", again.LastSeq, want.LastSeq)
 			}
 		})
 	}
@@ -102,7 +102,7 @@ func TestDecodedCommandConflictsWhenChanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Run(context.Background(), out.Turn, c); !errors.Is(err, dashi.ErrCommandConflict) {
-		t.Fatalf("err = %v, want ErrCommandConflict", err)
+	if _, err := r.Run(context.Background(), out.Turn, c); !errors.Is(err, dashi.ErrCommandIDReused) {
+		t.Fatalf("err = %v, want ErrCommandIDReused", err)
 	}
 }

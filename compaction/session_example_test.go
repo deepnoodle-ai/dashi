@@ -52,12 +52,12 @@ func ExampleCompactor() {
 			fmt.Println(err)
 			return
 		}
-		view, _ := dashi.Replay(turn)
+		view, _ := turn.View()
 		fmt.Println(turn.ID, view.Origin)
 	}
 
 	history, _ := s.History(ctx)
-	projected, _ := s.ProjectedHistory(ctx)
+	projected, _ := s.NextHistory(ctx)
 	fmt.Printf("conversation: %d messages, projected: %d\n",
 		len(history), len(projected))
 	fmt.Println("summary:", projected[0].Text())
@@ -66,7 +66,7 @@ func ExampleCompactor() {
 		ID:     "chat",
 		Runner: dashi.Runner{Client: client, Recorder: rec},
 	}
-	again, _ := reader.ProjectedHistory(ctx)
+	again, _ := reader.NextHistory(ctx)
 	a, _ := json.Marshal(projected)
 	b, _ := json.Marshal(again)
 	fmt.Println("a handle with no compactor reads the same:", string(a) == string(b))

@@ -327,7 +327,7 @@ func TestBudgetClampsOutputAndRecordsCharge(t *testing.T) {
 	if client.inputs[0].Settings.MaxTokens != 50 {
 		t.Fatalf("effective max tokens=%d", client.inputs[0].Settings.MaxTokens)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +373,7 @@ func TestValidationFailureKeepsFinishedProviderUsage(t *testing.T) {
 	if settled.EstimatedUsage {
 		t.Fatal("finished provider usage was marked estimated")
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -474,7 +474,7 @@ func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 	if client.sends != 2 {
 		t.Fatalf("total sends=%d", client.sends)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -499,7 +499,7 @@ func TestBudgetMissingUsageUsesRecordedBestGuess(t *testing.T) {
 		nil,
 		Hooks{},
 	)
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,7 +585,7 @@ func TestBudgetToolCostIsTrackedOutsideModelCap(t *testing.T) {
 		tool.List{lookup},
 		Hooks{},
 	)
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -731,7 +731,7 @@ func TestBudgetProviderToolRequestsUseAdapterCounts(t *testing.T) {
 	)
 	client.results = []llm.Result{result}
 	out := runBudgetTurn(t, client, nil, llm.Settings{MaxTokens: 100}, nil, Hooks{})
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -764,7 +764,7 @@ func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
 	}
 	client.results = []llm.Result{result}
 	out := runBudgetTurn(t, client, nil, llm.Settings{MaxTokens: 100}, nil, Hooks{})
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -909,7 +909,7 @@ func runInterruptedBudgetTurn(t *testing.T, usage *llm.Usage) RunResult {
 
 func TestBudgetInterruptedCallCountsPartialBestGuess(t *testing.T) {
 	out := runInterruptedBudgetTurn(t, nil)
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -941,7 +941,7 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 				t,
 				&llm.Usage{InputTokens: 100, OutputTokens: tc.reportedOutput},
 			)
-			view, err := Replay(out.Turn)
+			view, err := out.Turn.View()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1048,7 +1048,7 @@ func TestBudgetCumulativeOverflowRejectsNextIntent(t *testing.T) {
 		tool.List{budgetLookup(nil)},
 		Hooks{},
 	)
-	if persistence(err) != PersistenceRejected {
+	if !nothingWritten(err) {
 		t.Fatalf("overflowing intent error=%v", err)
 	}
 	if step := unacknowledged(err); step == nil || step.Kind != StepModelCallStarted {
@@ -1057,7 +1057,7 @@ func TestBudgetCumulativeOverflowRejectsNextIntent(t *testing.T) {
 	if client.sends != 1 {
 		t.Fatalf("overflowing intent dispatched a call: sends=%d", client.sends)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1113,7 +1113,7 @@ func TestBudgetInterruptedProviderToolUseRecordsUnreportedRequests(t *testing.T)
 	if out.Stop.Kind != StopInterrupted {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1184,7 +1184,7 @@ func TestRunCancelKeepsReturnedProviderToolContent(t *testing.T) {
 	if uses != 3 {
 		t.Fatalf("kept provider tool uses=%d, want 3", uses)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1280,7 +1280,7 @@ func TestBudgetPartialCostsSumAcrossCalls(t *testing.T) {
 		tool.List{budgetLookup(nil)},
 		Hooks{},
 	)
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1383,7 +1383,7 @@ func TestBudgetInterruptedSilentProviderToolIsPartial(t *testing.T) {
 	if out.Stop.Kind != StopResultUnknown {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
-	view, err := Replay(out.Turn)
+	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}

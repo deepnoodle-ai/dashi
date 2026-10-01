@@ -95,8 +95,8 @@ func (d *attachmentDraft) prepareInput() (*submittedInput, error) {
 		if source == nil || len(source.Data) == 0 {
 			return nil, fmt.Errorf("attachment %d has no snapshot", e.number)
 		}
-		digest := sha256.Sum256(source.Data)
-		ref := content.Ref{ID: snapshotID, SHA256: hex.EncodeToString(digest[:]), Size: int64(len(source.Data))}
+		hash := sha256.Sum256(source.Data)
+		ref := content.Ref{ID: snapshotID, SHA256: hex.EncodeToString(hash[:]), Size: int64(len(source.Data))}
 		in.snapshots = append(in.snapshots, inputSnapshot{id: snapshotID, name: name, mime: source.MIMEType, data: source.Data, ref: ref})
 		*source = content.Source{MIMEType: source.MIMEType, Ref: &ref}
 		parts = append(parts, llm.Block(block))

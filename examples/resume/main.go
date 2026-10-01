@@ -148,7 +148,7 @@ func deliver(
 	if err != nil {
 		return dashi.RunResult{}, err
 	}
-	view, err := dashi.Replay(turn)
+	view, err := turn.View()
 	if err != nil {
 		return dashi.RunResult{}, err
 	}

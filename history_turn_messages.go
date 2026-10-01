@@ -10,18 +10,18 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// Project returns this turn's own model messages without modifying the record.
+// TurnMessagesFull returns this turn's own model messages without modifying the record.
 // It excludes prior conversation history, which the application owns. Unsettled
 // client calls and model intents cannot be projected into a new request, so
-// Project fails on a turn that has them, unless the turn has ended.
+// TurnMessagesFull fails on a turn that has them, unless the turn has ended.
 //
 // An ended turn (Stop.Ended) always projects, and only up to its terminal
 // stop: results recorded after it count in Spend but never change the
 // projection. Each tool call still started, waiting, or uncertain there
 // projects as an error result, and a model attempt with no recorded result
 // projects nothing.
-func Project(t Turn) ([]llm.Message, error) {
-	return projectedPublic(t, nil, false)
+func TurnMessagesFull(t Turn) ([]llm.Message, error) {
+	return publicTurnMessages(t, nil, false)
 }
 
 // modelToolResult is the result the model sees for a settled outcome when
@@ -54,16 +54,16 @@ func sharedToolResult(callID string, o *tool.Outcome) llm.ToolResult {
 
 // projectWithHistory assembles one model request from the current call's prior
 // history and this turn's recorded messages. It never stores that history.
-func projectWithHistory(t Turn, history []llm.Message) ([]llm.Message, error) {
-	return projectedPublic(t, history, true)
+func turnMessagesWithHistory(t Turn, history []llm.Message) ([]llm.Message, error) {
+	return publicTurnMessages(t, history, true)
 }
 
-// ProjectContext returns this Turn's model context with recorded replacements.
-// Source messages remain available through Project and the immutable facts.
-func ProjectContext(t Turn) ([]llm.Message, error) { return projectedPublic(t, nil, true) }
+// TurnMessages returns this Turn's model context with recorded replacements.
+// Source messages remain available through TurnMessagesFull and the immutable facts.
+func TurnMessages(t Turn) ([]llm.Message, error) { return publicTurnMessages(t, nil, true) }
 
-func projectedPublic(t Turn, history []llm.Message, compact bool) ([]llm.Message, error) {
-	messages, err := projectedMessages(t, history, compact)
+func publicTurnMessages(t Turn, history []llm.Message, compact bool) ([]llm.Message, error) {
+	messages, err := turnMessages(t, history, compact)
 	if err != nil {
 		return nil, err
 	}
@@ -74,23 +74,23 @@ func projectedPublic(t Turn, history []llm.Message, compact bool) ([]llm.Message
 	return out, nil
 }
 
-func projectedMessages(
+func turnMessages(
 	t Turn,
 	history []llm.Message,
 	compact bool,
 ) ([]contextMessage, error) {
-	return projectedMessagesCached(t, history, compact, &contextValidationCache{prefixes: map[int64][]contextMessage{}})
+	return turnMessagesCached(t, history, compact, &contextValidationCache{prefixes: map[int64][]contextMessage{}})
 }
 
-func projectedMessagesCached(t Turn, history []llm.Message, compact bool, cache *contextValidationCache) ([]contextMessage, error) {
+func turnMessagesCached(t Turn, history []llm.Message, compact bool, cache *contextValidationCache) ([]contextMessage, error) {
 	state, err := replayCached(t, cache)
 	if err != nil {
 		return nil, err
 	}
-	return projectedMessagesState(t, history, compact, state, cache)
+	return turnMessagesState(t, history, compact, state, cache)
 }
 
-func projectedMessagesState(t Turn, history []llm.Message, compact bool, state *replayState, cache *contextValidationCache) ([]contextMessage, error) {
+func turnMessagesState(t Turn, history []llm.Message, compact bool, state *replayState, cache *contextValidationCache) ([]contextMessage, error) {
 	var err error
 	ended := state.Stop.Ended
 	if ended {

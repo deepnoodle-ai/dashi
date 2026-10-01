@@ -94,13 +94,13 @@ func FormatInspection(report Inspection) string {
 	if report.Request == nil {
 		out.WriteString("\nNo readable recorded request.")
 	} else {
-		fmt.Fprintf(&out, "\nLast request (%s at revision %d): %s", report.Request.TurnID, report.Request.Revision, report.Request.Text)
+		fmt.Fprintf(&out, "\nLast request (%s at revision %d): %s", report.Request.TurnID, report.Request.LastSeq, report.Request.Text)
 	}
 	if report.RequestIncomplete {
 		out.WriteString("\nNewer request facts may be missing.")
 	}
 	if e := report.Latest; e != nil {
-		fmt.Fprintf(&out, "\nLatest execution: %s at revision %d", e.TurnID, e.Revision)
+		fmt.Fprintf(&out, "\nLatest execution: %s at revision %d", e.TurnID, e.LastSeq)
 		if e.Summary {
 			out.WriteString(" (summary Turn)")
 		}

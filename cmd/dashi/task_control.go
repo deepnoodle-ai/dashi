@@ -126,12 +126,12 @@ func taskCommandID(target delegate.TaskTarget, action, call string, command dash
 		Action   string
 		Call     string
 		Payload  dashi.Command
-	}{target.ID, target.TurnID, target.Revision, action, call, command})
+	}{target.ID, target.TurnID, target.LastSeq, action, call, command})
 	if err != nil {
 		return "", err
 	}
-	digest := sha256.Sum256([]byte(dashi.ArgsDigest(raw)))
-	return "cli-task:" + hex.EncodeToString(digest[:]), nil
+	hash := sha256.Sum256([]byte(dashi.ArgsHash(raw)))
+	return "cli-task:" + hex.EncodeToString(hash[:]), nil
 }
 func (c *Controller) runTaskCommand(ctx context.Context, snapshot taskSnapshot, action, call string, command dashi.Command) (dashi.RunResult, error) {
 	if err := c.eng.recoverTasks(ctx); err != nil {
@@ -220,14 +220,14 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 		if pending == nil {
 			return fmt.Errorf("call %s is not an already-started pending effect", callID)
 		}
-		if err := c.confirmTask(ctx, snapshot, callID, fmt.Sprintf("Verify that this exact external effect completed. It may still be running.\nTask %s · Turn %s · revision %d\nCall %s · tool %s\nArguments: %s\nNo tool runs and no output is recovered by this action.", id, snapshot.View.ID, snapshot.View.Revision, callID, pending.Name, string(pending.Args))); err != nil {
+		if err := c.confirmTask(ctx, snapshot, callID, fmt.Sprintf("Verify that this exact external effect completed. It may still be running.\nTask %s · Turn %s · revision %d\nCall %s · tool %s\nArguments: %s\nNo tool runs and no output is recovered by this action.", id, snapshot.View.ID, snapshot.View.LastSeq, callID, pending.Name, string(pending.Args))); err != nil {
 			return err
 		}
 		outcome := tool.Succeeded("Operator verified this exact call completed; its output was not captured.")
 		_, err = c.runTaskCommand(ctx, snapshot, action, callID, dashi.Resolve{CallID: callID, Outcome: &outcome})
 		return err
 	case "discard":
-		if err := c.confirmTask(ctx, snapshot, "", fmt.Sprintf("Discard task %s, Turn %s, revision %d? Uncertain effects may already have run. This does not prove they stopped.", id, snapshot.View.ID, snapshot.View.Revision)); err != nil {
+		if err := c.confirmTask(ctx, snapshot, "", fmt.Sprintf("Discard task %s, Turn %s, revision %d? Uncertain effects may already have run. This does not prove they stopped.", id, snapshot.View.ID, snapshot.View.LastSeq)); err != nil {
 			return err
 		}
 		_, err = c.runTaskCommand(ctx, snapshot, action, "", dashi.Cancel{Reason: "Operator discarded this exact stopped task; uncertain effects may have run."})
@@ -318,7 +318,7 @@ func (c *Controller) taskSpend() {
 	}
 	var parent, children dashi.Spend
 	for _, turn := range turns {
-		view, err := dashi.Replay(turn)
+		view, err := turn.View()
 		if err != nil {
 			c.notice("Task-inclusive accounting incomplete: %v", err)
 			return
