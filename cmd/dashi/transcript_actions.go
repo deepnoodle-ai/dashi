@@ -166,6 +166,7 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 	if e.Type == tui.MousePress && !inside {
 		return
 	}
+	local.Y = dragEdgeRow(&s.vp, local)
 	if s.vp.HandleMouse(local) {
 		return
 	}
@@ -186,6 +187,22 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 			s.vp.ScrollToBottom()
 		}
 	}
+}
+
+// dragEdgeRow returns the viewport row to report for a mouse event. The
+// viewport auto-scrolls a drag held above its first row, but the transcript
+// starts on the screen's first row, and terminals clamp the pointer to the
+// window: no event can land above it. So a selection drag that reaches the top
+// row while there is more transcript above is reported one row higher, which
+// the viewport reads as a drag past its top edge.
+func dragEdgeRow(vp *tui.ViewportState, e tui.MouseEvent) int {
+	if e.Type != tui.MouseDrag || e.Y > 0 || !vp.SelectionActive() {
+		return e.Y
+	}
+	if item, line := vp.Anchor(); item == 0 && line == 0 {
+		return e.Y
+	}
+	return -1
 }
 
 func fullBlock(b Block) Block {

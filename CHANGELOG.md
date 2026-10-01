@@ -23,6 +23,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   when it fits. The mouse wheel scrolls three lines per notch, and also
   scrolls dialog details.
 
+### Fixed
+
+- **The CLI scrolls up when a mouse selection is dragged to the top row.** In
+  fullscreen mode, holding a selection drag on the transcript's top row now
+  scrolls up and extends the selection, as dragging below the transcript
+  already scrolled down. The transcript starts on the screen's first row, so
+  the terminal could never report the pointer above it.
+
 ## [0.2.0] - 2026-10-01
 
 ### Changed
