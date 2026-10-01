@@ -67,6 +67,11 @@ and workspace paths, or press Ctrl+G to edit a draft externally. Idle Ctrl-C
 requires an unchanged repeat within two seconds. See [composer controls](cli-composer.md)
 for keyboard behavior, private history, editor selection, and exit protection.
 
+Attach a screenshot, PDF, or text file with `/attach PATH` or `@path`.
+Explicit mentions show a preview on the first Enter and send on the second.
+Use repeatable `--attach PATH` with `-p`. See [attachments](attachments.md) for
+selection limits, failure recovery, and immutable snapshots.
+
 ## Commands
 
 | Input | Result |
@@ -74,6 +79,9 @@ for keyboard behavior, private history, editor selection, and exit protection.
 | `/copy [N|all]` | Copy selection, list code blocks, or copy their original source |
 | `/scrollback [raw]` | Inspect complete output in native terminal scrollback |
 | `/mouse` | Toggle application mouse capture for native selection |
+| `/attach PATH` | Select a file for the next idle request |
+| `/attachments` | Inspect numbered selections |
+| `/detach N` | Remove a selection and its mention spans |
 | `/compact` | Summarize history while idle; leave queued input waiting |
 | `/model [destination model\|model]` | Pick or set a destination/model for the next turn |
 | `/settings [--json]` | Inspect safe next-turn settings and a preparation preview |
@@ -111,7 +119,10 @@ unsupported authentication, and cleanup.
 Each session is a folder in `~/.dashi/sessions`. It holds one record for each
 turn, and a `session.json` with the title, directory, and next-turn preferences. The
 turns are a [`dashi.Session`](sessions.md). A session is saved when its first
-turn records, so a launch that you close at once leaves nothing behind.
+turn records, so an attachment-free launch that you close at once leaves
+nothing behind. Attachment publication can retain snapshots and a discovery
+header before Start. That header is not proof of a recorded request or completed
+work; ordinary session lists still require a Turn.
 
 - `dashi -c` (or `--resume`) reopens the newest session of this directory
   that has a turn. It shows the full scrollback.

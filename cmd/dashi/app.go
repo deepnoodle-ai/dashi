@@ -82,8 +82,13 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		MCP:           mcp,
 		ModelAttempts: cfg.ModelAttempts,
 		Emit:          func(b Block) { emitToUI(ui, b) },
-		recorder:      cfg.recorder,
-		Preferences:   cfg.Preferences,
+		Receipt: func(in *submittedInput, r inputReceipt) {
+			if u, ok := ui.(attachmentUI); ok {
+				u.AttachmentReceipt(in, r)
+			}
+		},
+		recorder:    cfg.recorder,
+		Preferences: cfg.Preferences,
 	})
 	resources.warning = eng.warn
 	ctrl = NewController(ctx, eng, ui, cfg.Store, cfg.Dir)

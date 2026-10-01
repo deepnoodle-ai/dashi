@@ -4,6 +4,53 @@ A model can read a file that a person or a host attaches. Dashi has two
 tools for this. A host that stores uploads names them with a `content.Ref`.
 A terminal front end turns `@file` words into content with `content/mention`.
 
+## CLI selections
+
+In the full-screen and inline editors, type `explain @notes.txt` and press
+Enter. The first Enter selects the file and shows a numbered preview. Check
+its path, type, size, and any outside-workspace notice. Press Enter again to
+send the unchanged draft. Selection reads the file once; later source changes
+or deletion do not change the snapshot.
+
+Use `/attach PATH` to select a file before composing, `/attachments` to inspect
+selections, and `/detach N` to remove one. A failed selection stays visible and
+blocks submission until you correct or remove it. Detach removes the matching
+`@path` spans too. Names can use quotes or escaped spaces. A line suffix such
+as `@main.go:12` selects the whole file and keeps the suffix in the prompt.
+
+Plain line mode uses the same preview: repeat the prompt, or enter a blank
+line, to confirm. Print mode needs no second Enter:
+
+```sh
+dashi -p 'Compare @notes.txt with the screenshot' --attach screen.png
+```
+
+Repeat `--attach` for more files; flags precede prompt mentions in selection
+order. All selections must succeed before print mode starts work. Diagnostics
+go to stderr; the answer goes to stdout. For terminal drops or pasted paths,
+use `/attach PATH` or an explicit `@path`; the editor does not infer attachment
+authority from arbitrary pasted text.
+
+The CLI accepts UTF-8 text without NUL bytes, PNG, JPEG, GIF, WebP, and PDF.
+Defaults are 256 KiB per text file, 3.75 MB per image, 10 MB per PDF, and 32 MB
+of encoded content per submission. It checks the opened descriptor is a regular
+file, rejects special files, and checks the bytes against the claimed format.
+Selecting outside the workspace grants no tool access there.
+
+Before an ordinary Start, the CLI publishes private immutable snapshots in
+that session. Turn records contain only IDs, digests, sizes, and basenames.
+Resume resolves those snapshots under the same session, checks their size and
+digest, and never falls back to the source path. Secure local storage currently
+requires macOS or Linux; other platforms can still open attachment-free work.
+
+Only acknowledgement of the matching ordinary Start consumes the draft.
+Compaction and Continue do not consume independent selections. A rejected
+Start keeps a retryable draft. An uncertain Start freezes it until recorded
+facts reconcile the outcome. Attachments cannot become a steer, `/queue`
+text, or a delayed send during a running Turn. Exit and session changes warn
+before losing unsent selections. Published snapshots, including orphans, are
+retained; `/discard` does not delete them.
+
 ## Stored files by reference
 
 Without a reference, the bytes of an upload enter the Turn record. They grow
@@ -93,7 +140,11 @@ also counts toward `MaxTotalBytes`.
 
 ## Files from a terminal: `content/mention`
 
-`mention.Expand` reads a message typed by a person and attaches files. The
+`mention.Scan` finds explicit mention spans without reading files.
+`mention.ReadFileContext` makes one bounded, cancelable selection; `ReadFile`
+is its context-free wrapper. A front end can show a preview before dispatch.
+
+The legacy `mention.Expand` reads a message typed by a person and attaches files. The
 person picks each file, so there is no workspace boundary. A model tool that
 reads files must enforce its own boundary.
 

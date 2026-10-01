@@ -71,6 +71,38 @@ func validAttachmentSession(id string) bool {
 // Close releases descriptors, not the caller's session lease.
 func (a *AttachmentStore) Close() { a.session.close() }
 
+// SaveSessionHeader persists non-authoritative discovery/preferences metadata
+// before attachment Start admission. Only Turn records acknowledge submitted
+// input. The caller holds this same session's lease; no new session is created.
+func (a *AttachmentStore) SaveSessionHeader(ctx context.Context, s *Session) error {
+	if s == nil || s.ID != a.sessionID {
+		return fmt.Errorf("session: attachment header belongs to another session")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	data, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	id, err := NewAttachmentID()
+	if err != nil {
+		return err
+	}
+	tmp := ".session-" + id + ".tmp"
+	defer a.session.root.Remove(tmp)
+	if err := writeAttachment(ctx, a.session, tmp, data); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := a.session.root.Rename(tmp, "session.json"); err != nil {
+		return err
+	}
+	return a.session.file.Sync()
+}
+
 // NewAttachmentID allocates an opaque snapshot identity. Keep this ID with
 // its pending input; retry Publish with the same ID and immutable bytes.
 func NewAttachmentID() (string, error) {

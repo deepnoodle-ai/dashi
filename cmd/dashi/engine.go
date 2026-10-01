@@ -37,7 +37,8 @@ type EngineConfig struct {
 	ModelAttempts int
 	// Emit receives every block the engine produces. It may run on any
 	// goroutine.
-	Emit func(Block)
+	Emit    func(Block)
+	Receipt func(*submittedInput, inputReceipt)
 
 	// recorder wraps the session's recorder; tests use it to fail commits.
 	recorder func(*filerecorder.Recorder) dashi.Recorder
@@ -55,9 +56,10 @@ type Engine struct {
 	sess *session.Session
 	// chat drives the open session. The process lock makes it the only
 	// driver, so it is Exclusive.
-	chat   *dashi.Session
-	inbox  *dashi.Inbox
-	unlock func()
+	chat               *dashi.Session
+	inbox              *dashi.Inbox
+	unlock             func()
+	attachmentResolver *engineAttachmentResolver
 	// model is the model the next Start uses. Changing it does not touch
 	// turns already started.
 	model        string
@@ -137,13 +139,15 @@ func (e *Engine) Open(s *session.Session) error {
 		recorder = e.cfg.recorder(rec)
 	}
 	inbox := dashi.NewInbox()
+	resolver := &engineAttachmentResolver{store: e.cfg.Store, session: s}
 	chat := &dashi.Session{
 		ID: s.ID,
 		Runner: dashi.Runner{
-			Client:   e.cfg.Client,
-			Tools:    e.cfg.Wiring.Tools,
-			Hooks:    e.cfg.Wiring.Hooks,
-			Recorder: recorder,
+			Client:          e.cfg.Client,
+			Tools:           e.cfg.Wiring.Tools,
+			Hooks:           e.cfg.Wiring.Hooks,
+			Recorder:        recorder,
+			ContentResolver: resolver,
 		},
 		Steering:  inbox,
 		Exclusive: true,
@@ -156,6 +160,7 @@ func (e *Engine) Open(s *session.Session) error {
 	e.mu.Lock()
 	e.release()
 	e.sess, e.chat, e.inbox, e.unlock = s, chat, inbox, unlock
+	e.attachmentResolver = resolver
 	if s.Model != "" && e.model == "" {
 		e.model = s.Model
 	}
@@ -179,6 +184,10 @@ func (e *Engine) Close() {
 func (e *Engine) release() {
 	if e.unlock == nil {
 		return
+	}
+	if e.attachmentResolver != nil {
+		e.attachmentResolver.close()
+		e.attachmentResolver = nil
 	}
 	if e.sess != nil {
 		e.cfg.Store.Discard(e.sess)

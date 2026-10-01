@@ -67,7 +67,7 @@ func (c *Controller) commands() []commandEntry {
 			}
 			c.startRun(c.eng.Discard)
 		}},
-		{name: "/queue", usage: "TEXT", description: "hold a prompt for the next turn", run: c.prompt, during: c.queue},
+		{name: "/queue", usage: "TEXT", description: "hold a prompt for the next turn", run: c.queuedPrompt, during: c.queue},
 		{name: "/new", description: "start a new session", run: func(string) {
 			if !c.keepQueued("/new") {
 				c.async(c.newSession)
@@ -95,6 +95,23 @@ func (c *Controller) commands() []commandEntry {
 			c.goWork(func() { c.resources(c.base) })
 		}},
 		{name: "/help", aliases: []string{"/?"}, description: "show commands and composer controls", run: func(string) { c.notice("%s", c.commandHelp()) }, during: func(string) { c.notice("%s", c.commandHelp()) }},
+	}
+	_, printAttachments := c.ui.(*printUI)
+	if _, hasAttachments := c.ui.(attachmentUI); hasAttachments || printAttachments {
+		for _, entry := range []struct{ name, usage, description string }{{"/attach", "PATH", "select a frozen file snapshot"}, {"/attachments", "", "inspect numbered attachment selections"}, {"/detach", "N", "remove a selection and its mention tokens"}} {
+			action := func(arg string) {
+				if u, ok := c.ui.(attachmentUI); ok {
+					u.AttachmentCommand(entry.name, arg)
+				} else {
+					c.notice("%s requires an interactive composer or --plain; -p uses --attach.", entry.name)
+				}
+			}
+			command := commandEntry{name: entry.name, usage: entry.usage, description: entry.description, run: action}
+			if entry.name == "/attachments" {
+				command.during = action
+			}
+			entries = append(entries, command)
+		}
 	}
 	for _, control := range []struct{ name, usage, description string }{
 		{"/effort", "LEVEL|omit", "set next-turn reasoning effort"}, {"/thinking", "on|off", "request public reasoning summaries"}, {"/temperature", "N|omit", "set or omit sampling temperature"}, {"/max-tokens", "N|default", "set the next-turn output limit"},

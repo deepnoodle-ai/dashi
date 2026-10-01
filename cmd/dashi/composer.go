@@ -25,7 +25,8 @@ func (g *idleExitGuard) confirm(now time.Time, draft string, queued int, pending
 }
 func (s *screen) protectIdleExit() bool {
 	queued, pending := s.eng.Queued(), s.eng.HasPending()
-	if s.exitGuard.confirm(time.Now(), s.input, queued, pending) {
+	signature := fmt.Sprintf("%s|attachment-revision:%d", s.input, s.attachments.revision)
+	if s.exitGuard.confirm(time.Now(), signature, queued, pending) {
 		// The notice already disclosed this queue loss. Do not warn a second time.
 		s.ctrl.mu.Lock()
 		s.ctrl.dropping = "Ctrl-C"
@@ -36,7 +37,7 @@ func (s *screen) protectIdleExit() bool {
 	if queued > 0 {
 		notice += fmt.Sprintf("%d queued %s will be lost. ", queued, plural(queued, "message"))
 	}
-	if s.input != "" {
+	if s.input != "" || len(s.attachments.entries) > 0 {
 		notice += "The unsent draft will be lost. "
 	}
 	if pending {
@@ -90,7 +91,13 @@ func (s *screen) editDraft() []tui.Cmd {
 	if err != nil {
 		s.Emit(warnBlock("External editor: %v; original draft kept.", err))
 	} else {
-		s.input = edited
+		if s.attachments.frozenBy != "" {
+			s.Emit(warnBlock("The attachment request is pending; editor return cannot change it."))
+		} else {
+			s.input = edited
+			s.attachments.setText(edited)
+			s.updateAttachmentUnsaved()
+		}
 	}
 	return []tui.Cmd{tui.Focus(inputID)}
 }

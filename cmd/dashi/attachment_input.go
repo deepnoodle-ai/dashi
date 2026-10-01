@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"sync"
 
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
 	"github.com/deepnoodle-ai/dashi/content"
@@ -32,6 +33,7 @@ type inputReceipt struct {
 // submittedInput owns one frozen request and stable publication IDs. It is
 // retained with pending Start, never flattened into a text queue or steer.
 type submittedInput struct {
+	mu            sync.Mutex
 	id            string
 	draftRevision uint64
 	message       llm.Message
@@ -105,6 +107,8 @@ func (d *attachmentDraft) prepareInput() (*submittedInput, error) {
 }
 
 func (in *submittedInput) publish(ctx context.Context, store *session.AttachmentStore) error {
+	in.mu.Lock()
+	defer in.mu.Unlock()
 	if in.acknowledged {
 		return fmt.Errorf("attachment submission is already recorded")
 	}
@@ -133,6 +137,8 @@ func (in *submittedInput) publish(ctx context.Context, store *session.Attachment
 }
 
 func (in *submittedInput) messageForStart() (llm.Message, error) {
+	in.mu.Lock()
+	defer in.mu.Unlock()
 	if in.acknowledged {
 		return llm.Message{}, fmt.Errorf("attachment submission is already recorded")
 	}
@@ -150,6 +156,11 @@ func (in *submittedInput) messageForStart() (llm.Message, error) {
 // receipt changes only the matching frozen draft. Summary Starts, Continue,
 // and acknowledgement for other revisions cannot consume it.
 func (d *attachmentDraft) receipt(in *submittedInput, r inputReceipt) bool {
+	if in == nil {
+		return false
+	}
+	in.mu.Lock()
+	defer in.mu.Unlock()
 	if in == nil || r.submissionID != in.id || r.draftRevision != in.draftRevision || d.frozenBy != in.id || d.revision != in.draftRevision || in.acknowledged {
 		return false
 	}
@@ -179,6 +190,11 @@ func (d *attachmentDraft) receipt(in *submittedInput, r inputReceipt) bool {
 // retryInput reuses publication and submission identity only while the unchanged
 // draft still describes the retained, known-unrecorded request.
 func (d *attachmentDraft) retryInput(in *submittedInput) error {
+	if in == nil {
+		return fmt.Errorf("attachment retry has no retained input")
+	}
+	in.mu.Lock()
+	defer in.mu.Unlock()
 	if in == nil || in.unknown || in.acknowledged || d.revision != in.draftRevision || d.frozenBy != "" {
 		return fmt.Errorf("attachment retry does not match the unchanged draft")
 	}

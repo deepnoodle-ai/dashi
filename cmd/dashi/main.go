@@ -131,7 +131,17 @@ func runPrint(
 		fmt.Fprintln(stderr, "dashi: MCP initialization canceled or failed; no work was started.")
 		return 1
 	}
-	res, err := a.eng.Prompt(ctx, o.Print)
+	var res Result
+	if len(o.AttachFiles) > 0 || len(attachmentPaths(o.Print)) > 0 {
+		in, selectErr := printAttachmentInput(ctx, cfg.Dir, o.Print, o.AttachFiles)
+		if selectErr != nil {
+			fmt.Fprintln(stderr, workspace.PrintableText("dashi: "+selectErr.Error()))
+			return 1
+		}
+		res, err = a.eng.PromptInput(ctx, in)
+	} else {
+		res, err = a.eng.Prompt(ctx, o.Print)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 1
@@ -171,6 +181,7 @@ func runLines(
 	stdout, stderr io.Writer,
 ) int {
 	ui := newLineUI(stdout)
+	ui.attachmentErrors = stderr
 	a, err := buildApp(ctx, cfg, ui)
 	if err != nil {
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
@@ -289,6 +300,7 @@ func runScreen(
 	} else {
 		err = tui.Run(scr, tui.WithBracketedPaste(true), tui.WithMouseDrag(true), tui.WithFPS(30))
 	}
+	scr.cancelAttachmentSelections()
 	// Stop work that is still running, so the turn records an interruption.
 	a.ctrl.Interrupt()
 	a.ctrl.Wait()

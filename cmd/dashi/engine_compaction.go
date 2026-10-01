@@ -13,6 +13,7 @@ import (
 
 type pendingPrompt struct {
 	start dashi.Start
+	input *submittedInput
 	// uncertain names an ordinary Start whose recording acknowledgment was
 	// lost. No later caller Start can evict its idempotency window.
 	uncertain string
@@ -107,7 +108,15 @@ func (e *Engine) runPending(ctx context.Context) (Result, error) {
 	if e.pending == p && p.uncertain == "" && !p.attempted && !p.summary &&
 		res.Outcome.Origin != dashi.StartCompaction {
 		e.pending = nil
+		e.inputReceipt(p, inputPreRecordFailure)
 		e.cfg.Emit(Block{ID: "pending:" + p.start.CommandID, Kind: KindPending, Done: true})
+	}
+	if e.pending == p && p.input != nil {
+		if p.uncertain != "" {
+			e.inputReceipt(p, inputPendingUnknown)
+		} else if (!p.summary || p.attempted) && res.Outcome.Origin != dashi.StartCompaction {
+			e.inputReceipt(p, inputPreRecordFailure)
+		}
 	}
 	e.inputMu.Unlock()
 	return res, err
@@ -190,6 +199,7 @@ func (e *Engine) reconcilePrompt(ctx context.Context, p *pendingPrompt) error {
 	if errors.Is(err, dashi.ErrTurnNotFound) || err == nil && len(turn.Steps) == 0 {
 		e.inputMu.Lock()
 		p.uncertain = ""
+		e.inputReceipt(p, inputConfirmedAbsent)
 		e.inputMu.Unlock()
 		return nil
 	}
@@ -224,7 +234,11 @@ func (e *Engine) acknowledgePrompt(step *dashi.Step) error {
 	if e.pending == nil || e.pending.start.CommandID != "" && step.CommandID != e.pending.start.CommandID {
 		return nil
 	}
+	if e.pending.input != nil && (len(step.Started.Input) < len(e.pending.start.Input) || !reflect.DeepEqual(step.Started.Input[len(step.Started.Input)-len(e.pending.start.Input):], e.pending.start.Input)) {
+		return nil
+	}
 	key := e.pending.start.CommandID
+	e.inputReceipt(e.pending, inputRecorded)
 	e.pending = nil
 	e.cfg.Emit(Block{ID: "pending:" + key, Kind: KindPending, Done: true})
 	return e.flushLaterLocked()

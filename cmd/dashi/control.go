@@ -60,10 +60,11 @@ type Chooser interface {
 // and the slash commands. It never blocks its caller, so a screen can call it
 // from its event loop.
 type Controller struct {
-	eng   *Engine
-	ui    UI
-	store *session.Store
-	dir   string
+	eng            *Engine
+	ui             UI
+	store          *session.Store
+	dir            string
+	attachmentRoot string
 
 	mu     sync.Mutex
 	mode   Mode
@@ -91,12 +92,13 @@ func NewController(
 	dir string,
 ) *Controller {
 	return &Controller{
-		eng:     eng,
-		ui:      ui,
-		store:   store,
-		dir:     dir,
-		base:    base,
-		answers: make(chan string, 1),
+		eng:            eng,
+		ui:             ui,
+		store:          store,
+		dir:            dir,
+		attachmentRoot: attachmentWorkspace(dir),
+		base:           base,
+		answers:        make(chan string, 1),
 	}
 }
 
@@ -298,6 +300,7 @@ func (c *Controller) CancelWork() {
 
 // Input handles one submitted line.
 func (c *Controller) Input(line string) {
+	raw := line
 	line = strings.TrimSpace(line)
 	if c.mcpInput(line) {
 		return
@@ -315,6 +318,11 @@ func (c *Controller) Input(line string) {
 		return
 	case ModeRunning:
 		c.steer(line)
+		return
+	}
+	// Screen admission belongs to screen.submit on the Wonton event loop.
+	// Only the synchronous line reader admits attachments through Controller.
+	if u, ok := c.ui.(interface{ attachmentLineInput(string) bool }); ok && !strings.HasPrefix(line, "/") && u.attachmentLineInput(raw) {
 		return
 	}
 	name, _ := splitCommand(line)
@@ -343,6 +351,10 @@ func (c *Controller) Input(line string) {
 
 func (c *Controller) steer(line string) {
 	if line == "" {
+		return
+	}
+	if len(attachmentPaths(line)) > 0 {
+		c.notice("Attachments need a fresh idle submission; no files were read or sent.")
 		return
 	}
 	if c.duringTurnCommand(line) {
@@ -414,7 +426,16 @@ func (c *Controller) startRun(fn func(context.Context) (Result, error)) {
 		}
 		c.mu.Unlock()
 		if err != nil && !errors.Is(err, context.Canceled) {
-			c.emit(warnBlock("%s", busyText(err)))
+			var attachmentErr *attachmentFailure
+			if errors.As(err, &attachmentErr) {
+				if ui, ok := c.ui.(interface{ AttachmentWarning(string) }); ok {
+					ui.AttachmentWarning(busyText(err))
+				} else {
+					c.emit(warnBlock("%s", busyText(err)))
+				}
+			} else {
+				c.emit(warnBlock("%s", busyText(err)))
+			}
 		}
 		if quit && action != "" && c.keepQueued(action) {
 			return
@@ -478,18 +499,27 @@ func (c *Controller) async(fn func(context.Context)) {
 // the action goes ahead.
 func (c *Controller) keepQueued(action string) bool {
 	n := c.eng.Queued()
+	attachmentLoss := false
+	if u, ok := c.ui.(attachmentUI); ok {
+		attachmentLoss = u.AttachmentUnsaved()
+	}
 	c.mu.Lock()
 	warned := c.dropping == action
 	c.dropping = ""
-	if n > 0 && !warned {
+	if (n > 0 || attachmentLoss) && !warned {
 		c.dropping = action
 	}
 	c.mu.Unlock()
-	if n == 0 || warned {
+	if n == 0 && !attachmentLoss || warned {
 		return false
 	}
-	c.emit(warnBlock("%d queued %s will be lost. Repeat %s to go ahead.",
-		n, plural(n, "message"), action))
+	if attachmentLoss {
+		c.notice("The unsent attachment draft will be lost. Repeat %s to accept draft loss.", action)
+	}
+	if n > 0 {
+		c.emit(warnBlock("%d queued %s will be lost. Repeat %s to go ahead.",
+			n, plural(n, "message"), action))
+	}
 	if c.eng.HasPending() {
 		c.notice("The pending prompt and later queued input are held only in memory and cannot be recovered after exit.")
 	}

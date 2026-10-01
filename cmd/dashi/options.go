@@ -21,6 +21,7 @@ type Options struct {
 	Workspace       string
 	EnvFiles        []string
 	MCPFiles        []string
+	AttachFiles     []string
 	SystemPrompt    string
 	SystemPromptSet bool
 	Models          bool
@@ -70,6 +71,15 @@ func parseArgs(args []string) (Options, error) {
 				return o, err
 			}
 			o.Print, o.PrintSet = v, true
+		case "--attach":
+			v, err := value()
+			if err != nil {
+				return o, err
+			}
+			if strings.TrimSpace(v) == "" {
+				return o, fmt.Errorf("--attach needs a path")
+			}
+			o.AttachFiles = append(o.AttachFiles, v)
 		case "--model":
 			v, err := value()
 			if err != nil {
@@ -156,6 +166,9 @@ func parseArgs(args []string) (Options, error) {
 			return o, fmt.Errorf("unknown flag %s", a)
 		}
 	}
+	if len(o.AttachFiles) > 0 && !o.PrintSet {
+		return o, fmt.Errorf("--attach requires -p; use /attach or @file interactively")
+	}
 	if o.Plain && o.Inline {
 		return o, fmt.Errorf("--plain and --inline cannot be combined")
 	}
@@ -180,6 +193,7 @@ Flags:
       --model NAME     choose an exact registered model ID
       --api-endpoint URL  override a custom destination endpoint
       --mcp-config FILE  add a trusted MCP configuration (repeatable)
+      --attach PATH     select a file for -p (repeatable, before mentions)
       --workspace DIR  use an existing workspace directory
       --env-file PATH  load an explicit literal environment file
       --system-prompt TEXT  replace built-in coding guidance

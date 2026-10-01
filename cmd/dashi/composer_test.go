@@ -131,7 +131,7 @@ func TestCompletionSuffixAndWorkspaceBoundary(t *testing.T) {
 		t.Fatal(got)
 	}
 	got = h.scr.completeDraft("  /he arg\nnext line")
-	if !reflect.DeepEqual(got, []string{"  /help arg\nnext line"}) {
+	if !reflect.DeepEqual(got, []string{"  /help arg\nnext line", "  /attachments arg\nnext line"}) {
 		t.Fatal(got)
 	}
 	for _, entry := range h.scr.pathCompletion.paths {
