@@ -2,7 +2,7 @@
 
 Status: Accepted · Author: Task track · Date: 2026-09-30\
 Workflow: Spec, root checkpoint, then implementation. Named PRD re-review and root technical checkpoint approved.\
-Requirements: [See and control delegated work](../prds/cli-tasks.md)
+Requirements: [See and control delegated work](../prds/cli-tasks.md) · PRD PR: #148
 
 ## Ownership and narrow library seams
 

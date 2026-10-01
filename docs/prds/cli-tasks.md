@@ -1,7 +1,7 @@
 # See and control delegated work
 
 Status: Approved\
-PRD PR: Not opened · Implementation PR: Not opened · Updated: 2026-09-30
+PRD PR: #148 · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
 
