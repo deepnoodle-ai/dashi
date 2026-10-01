@@ -31,6 +31,9 @@ type Warning struct {
 	// Path is the file or folder that caused the warning.
 	Path    string
 	Message string
+	// Skipped is true when the file or folder did not load. False means the
+	// skill loaded with an adjustment, such as a shortened description.
+	Skipped bool
 }
 
 // Info describes one loaded skill for a host that lists skills or explains
@@ -250,7 +253,7 @@ func loadDir(dir string) ([]entry, []Warning) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, []Warning{{Path: dir, Message: "cannot read: " + err.Error()}}
+		return nil, []Warning{{Path: dir, Message: "cannot read: " + err.Error(), Skipped: true}}
 	}
 	var (
 		found    []entry
@@ -268,7 +271,8 @@ func loadDir(dir string) ([]entry, []Warning) {
 		if err != nil {
 			warnings = append(warnings, Warning{
 				Path:    path,
-				Message: "cannot read: " + err.Error(),
+				Message: statProblem(path, err),
+				Skipped: true,
 			})
 			continue
 		}
@@ -298,6 +302,7 @@ func loadDir(dir string) ([]entry, []Warning) {
 					e.info.Name,
 					first,
 				),
+				Skipped: true,
 			})
 
 		} else {
@@ -308,26 +313,38 @@ func loadDir(dir string) ([]entry, []Warning) {
 	return found, warnings
 }
 
+// statProblem describes an entry that cannot be read. A symlink whose target
+// is missing is named as such; the stat error would only repeat the path.
+func statProblem(path string, err error) string {
+	if errors.Is(err, fs.ErrNotExist) {
+		if target, linkErr := os.Readlink(path); linkErr == nil {
+			return "broken symlink: target " + target + " does not exist"
+		}
+	}
+	return "cannot read: " + err.Error()
+}
+
+// loadFolder reads one skill folder. A folder without SKILL.md is not a
+// skill, often a container for other folders, and is skipped silently.
+// Nested folders are not searched.
 func loadFolder(dir, base string) (entry, bool, []Warning) {
 	path := filepath.Join(dir, skillFile)
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return entry{}, false, []Warning{{
-			Path: dir,
-			Message: "folder has no " + skillFile +
-				"; nested directories are not loaded",
-		}}
+		return entry{}, false, nil
 	}
 	return loadFile(path, base, dir)
 }
 
 // loadFile parses one skill file. dir is empty for a command file, which only
 // a user can invoke. A field of the wrong type is ignored with a warning that
-// names the field; the skill still loads.
+// names the field; the skill still loads. A description over the catalog
+// limit is shortened with a warning; the skill still loads.
 func loadFile(path, base, dir string) (entry, bool, []Warning) {
 	fail := func(format string, args ...any) (entry, bool, []Warning) {
 		return entry{}, false, []Warning{{
 			Path:    path,
 			Message: fmt.Sprintf(format, args...),
+			Skipped: true,
 		}}
 	}
 	raw, err := readLimited(path)
@@ -357,6 +374,13 @@ func loadFile(path, base, dir string) (entry, bool, []Warning) {
 		name = base
 	}
 	description := strings.Join(strings.Fields(fm.Description), " ")
+	if len(description) > maxDescriptionBytes {
+		description = truncateUTF8(description, maxDescriptionBytes)
+		warnings = append(warnings, Warning{
+			Path:    path,
+			Message: fmt.Sprintf("description shortened to %d bytes", maxDescriptionBytes),
+		})
+	}
 	text := strings.TrimSpace(string(body))
 	switch {
 	case len(name) > maxLoaderName || !loaderName.MatchString(name):
@@ -366,8 +390,6 @@ func loadFile(path, base, dir string) (entry, bool, []Warning) {
 			name,
 			maxLoaderName,
 		)
-	case len(description) > maxDescriptionBytes:
-		return fail("description exceeds %d bytes", maxDescriptionBytes)
 	case !validMetadata(description):
 		return fail("description has control characters")
 	case text == "":
@@ -593,6 +615,19 @@ func splitFrontmatter(raw []byte) (front, body []byte, found bool, err error) {
 		size += len(line)
 	}
 	return nil, nil, false, errors.New("frontmatter has no closing ---")
+}
+
+// truncateUTF8 cuts s to at most limit bytes without splitting a rune and
+// drops trailing space left by the cut.
+func truncateUTF8(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return strings.TrimRight(s[:cut], " ")
 }
 
 func oneLine(err error) string {

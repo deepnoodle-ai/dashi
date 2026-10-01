@@ -120,7 +120,7 @@ func (i *inlineScreen) LiveView() tui.View {
 		return tui.Text("")
 	}
 	if i.inspecting {
-		return tui.Text(" Press Enter or Escape to return to Dashi.").Hint()
+		return tui.Text(" Press Enter or Escape to return to Dashi.").Style(hintStyle)
 	}
 	return tui.Stack(
 		tui.Height(8, tui.Viewport(&i.vp, inlineItems{i}).Gap(1)), i.footer(),

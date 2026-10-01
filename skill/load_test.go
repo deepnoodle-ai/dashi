@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/skill"
 )
@@ -93,28 +94,81 @@ func TestLoadDirsWarnsForEachBadFileAndKeepsGoodOnes(t *testing.T) {
 	for _, i := range set.Skills() {
 		names = append(names, i.Name)
 	}
-	if strings.Join(names, ",") != "good-one,good-two,same" {
+	if strings.Join(names, ",") != "good-one,good-two,long,same" {
 		t.Fatalf("names = %v", names)
 	}
-	want := []string{
-		"unclosed", "badyaml", "badname", "empty", "long", "huge",
-		"git", "dup-b", "onlysupport", "binary.md", "empty-cmd.md",
-		"onlyfrontmatter.md",
+	// Folders without SKILL.md are skipped silently. The long description
+	// is shortened, so that skill loads with a warning.
+	want := map[string]bool{
+		"unclosed": true, "badyaml": true, "badname": true, "empty": true,
+		"long": false, "huge": true, "dup-b": true, "binary.md": true,
+		"empty-cmd.md": true, "onlyfrontmatter.md": true,
 	}
-	for _, name := range want {
+	for name, skipped := range want {
 		found := false
 		for _, w := range warns {
 			if strings.Contains(w.Path, string(filepath.Separator)+name) &&
-				w.Message != "" {
+				w.Message != "" && w.Skipped == skipped {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("no warning names %q; warnings = %+v", name, warns)
+			t.Errorf("no warning names %q (skipped %t); warnings = %+v", name, skipped, warns)
 		}
 	}
 	if len(warns) != len(want) {
 		t.Errorf("got %d warnings, want %d: %+v", len(warns), len(want), warns)
+	}
+}
+
+func TestLoadDirsShortensLongDescription(t *testing.T) {
+	root := t.TempDir()
+	// A folded block scalar over the limit whose multi-byte runes straddle
+	// the cut.
+	long := strings.Repeat("word ", 204) + "ab€€"
+	writeTree(t, root, map[string]string{
+		"long/SKILL.md": "---\nname: long\ndescription: >\n  " + long + "\n---\nBody",
+	})
+	set, warns := skill.LoadDirs(root)
+	got, ok := info(set, "long")
+	if !ok || !got.ModelInvocable {
+		t.Fatalf("long skill = %+v, %v", got, ok)
+	}
+	if len(got.Description) > 1024 || !utf8.ValidString(got.Description) ||
+		!strings.HasPrefix(long, got.Description) {
+		t.Fatalf("description = %d bytes %q", len(got.Description), got.Description)
+	}
+	if len(warns) != 1 || warns[0].Skipped ||
+		!strings.Contains(warns[0].Message, "shortened") {
+		t.Fatalf("warnings = %+v", warns)
+	}
+	// The shortened description passes the catalog checks.
+	if _, err := set.Bundle(skill.Options{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadDirsSkipsContainerFolderSilently(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{
+		"synced/0b8f2c/SKILL.md": "Nested body.",
+		"review/SKILL.md":        "Body.",
+	})
+	set, warns := skill.LoadDirs(root)
+	if len(warns) != 0 || len(set.Skills()) != 1 {
+		t.Fatalf("skills = %+v warnings = %+v", set.Skills(), warns)
+	}
+}
+
+func TestLoadDirsReportsBrokenSymlink(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Symlink(filepath.Join(root, "missing"), filepath.Join(root, "gone")); err != nil {
+		t.Skip(err)
+	}
+	_, warns := skill.LoadDirs(root)
+	if len(warns) != 1 || !warns[0].Skipped ||
+		!strings.Contains(warns[0].Message, "broken symlink") {
+		t.Fatalf("warnings = %+v", warns)
 	}
 }
 

@@ -74,10 +74,10 @@ func (s *screen) approvalView() tui.View {
 	views := []tui.View{
 		tui.Divider(), tui.MaxHeight(2, tui.Text(" Approval pending · %s", p.req.Summary).Wrap().Fg(tui.ColorYellow).Bold()),
 		tui.Height(s.dialogHeight(), tui.Viewport(&p.vp, approvalDetails(p.req)).Gap(0)),
-		tui.Text(" ↑/↓ or Page Up/Down inspect · /status [ID] · /tasks · /task ID · /task-stop ID · Esc interrupts").Wrap().Hint(),
+		tui.Text(" ↑/↓ or Page Up/Down inspect · /status [ID] · /tasks · /task ID · /task-stop ID · Esc interrupts").Wrap().Style(hintStyle),
 	}
 	if p.denying {
-		views = append(views, tui.Text(" Deny: Enter submits the reason · Ctrl-S inspects without editing.").Hint(),
+		views = append(views, tui.Text(" Deny: Enter submits the reason · Ctrl-S inspects without editing.").Style(hintStyle),
 			tui.InputField(&p.reason).ID(denialInputID).Prompt("Reason:").OnKey(s.dialogTextKey(s.promptID)).OnPaste(s.dialogTextPaste(s.promptID)).OnSubmit(s.denialSubmit(s.promptID)))
 	} else {
 		views = append(views, tui.Text(" y allow once · a allow for this Dashi run · n deny").Wrap().Bold())
@@ -187,11 +187,11 @@ func (s *screen) questionView() tui.View {
 	views := []tui.View{tui.Divider(), tui.Text(" Question pending").Bold(),
 		tui.Height(s.dialogHeight(), tui.Viewport(&p.vp, p).Gap(0))}
 	if p.own {
-		views = append(views, tui.Text(" Enter submits your words · Ctrl-S inspects · Esc interrupts").Wrap().Hint(),
+		views = append(views, tui.Text(" Enter submits your words · Ctrl-S inspects · Esc interrupts").Wrap().Style(hintStyle),
 			tui.InputField(&p.text).ID(questionInputID).Prompt("Answer:").Multiline(true).MaxHeight(3).OnKey(s.dialogTextKey(s.promptID)).OnPaste(s.dialogTextPaste(s.promptID)).OnSubmit(s.questionSubmit(s.promptID)))
 	} else {
-		views = append(views, tui.Text(" ↑/↓ move · Space selects · Enter chooses action").Wrap().Hint(),
-			tui.Text(" Tab submit · o own words · /status [ID] · /tasks · /task ID · /task-stop ID · Esc interrupts").Wrap().Hint())
+		views = append(views, tui.Text(" ↑/↓ move · Space selects · Enter chooses action").Wrap().Style(hintStyle),
+			tui.Text(" Tab submit · o own words · /status [ID] · /tasks · /task ID · /task-stop ID · Esc interrupts").Wrap().Style(hintStyle))
 	}
 	if p.err != "" {
 		views = append(views, tui.Text(" %s", p.err).Wrap().Fg(tui.ColorYellow))

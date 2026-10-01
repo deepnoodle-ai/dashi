@@ -59,8 +59,9 @@ func TestActiveContextRendererFailureUnavailableAndStops(t *testing.T) {
 	start := dashi.Step{Kind: dashi.StepStarted, TurnID: "turn", Started: &dashi.StartFact{
 		Agent: dashi.Agent{ActiveCompaction: &dashi.ActiveCompactionPolicy{}}, ActiveCompactionWindow: 16000,
 	}}
-	blocks := r.Event(stepEvent(start))
-	compactionMustHave(t, blocks[len(blocks)-1].Text, "16,000-token recorded window", "estimates")
+	if blocks := r.Event(stepEvent(start)); len(blocks) != 1 || blocks[0].Kind != KindUser {
+		t.Fatalf("start showed a per-Turn protection notice: %+v", blocks)
+	}
 	r.Event(stepEvent(dashi.Step{Kind: dashi.StepModelIntent, Model: &dashi.ModelFact{AttemptID: "bad", Purpose: dashi.ModelPurposeCompaction}}))
 	failure := onlyBlock(t, r.Event(stepEvent(dashi.Step{Kind: dashi.StepModelSettled, Model: &dashi.ModelFact{
 		AttemptID: "bad", Purpose: dashi.ModelPurposeCompaction, Error: "summary did not shrink",
@@ -98,7 +99,9 @@ func TestCLIActiveContextWindowPinnedPerAdmission(t *testing.T) {
 			t.Fatalf("admission %d lost policy/window: %+v", i+1, start)
 		}
 	}
-	compactionMustHave(t, h.ui.text(), "20,000-token recorded window", "50,000-token recorded window")
+	if strings.Contains(h.ui.text(), "recorded window") {
+		t.Fatalf("per-Turn protection notice shown:\n%s", h.ui.text())
+	}
 	// Stored history retains the admitted window after catalog changes.
 	if start := h.turn(1).Steps[0].Started; start.ActiveCompactionWindow != 20000 {
 		t.Fatal("later catalog mutated first admission")

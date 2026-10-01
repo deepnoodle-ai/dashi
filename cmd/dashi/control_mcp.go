@@ -193,7 +193,7 @@ func (c *Controller) mcpCommand(arg string) {
 // The review viewport keeps all configuration details inspectable while the
 // two startup-only choices remain visible on an 80x24 terminal.
 func mcpStartupView(p *pickerState) tui.View {
-	views := []tui.View{tui.Divider(), tui.MaxHeight(2, tui.Text(" %s", p.title).Wrap().Bold()), tui.Height(8, tui.Viewport(&p.startupVP, p.startupReview).Gap(0)), tui.Text(" Page Up/Down inspect · ↑/↓ choose · Enter confirms · Esc declines").Wrap().Hint()}
+	views := []tui.View{tui.Divider(), tui.MaxHeight(2, tui.Text(" %s", p.title).Wrap().Bold()), tui.Height(8, tui.Viewport(&p.startupVP, p.startupReview).Gap(0)), tui.Text(" Page Up/Down inspect · ↑/↓ choose · Enter confirms · Esc declines").Wrap().Style(hintStyle)}
 	for index, option := range p.options {
 		prefix := "   "
 		if index == p.index {

@@ -207,7 +207,6 @@ func (r *Renderer) step(s dashi.Step) []Block {
 			Text: joinMessages(s.Started.Input),
 			Done: true,
 		})
-		out = append(out, activeContextProtection(s)...)
 	case dashi.StepModelIntent:
 		out = append(out, r.activeContextIntent(s)...)
 		out = append(out, modelPreparationBlocks(s)...)

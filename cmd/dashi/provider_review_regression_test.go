@@ -74,7 +74,8 @@ func TestStartupAdjustmentsVisibleBeforeSend(t *testing.T) {
 	if result, err := e.Prompt(t.Context(), "temperature from startup"); err != nil || result.Outcome.Stop.Kind != dashi.StopCompleted {
 		t.Fatalf("result=%+v %v", result, err)
 	}
-	if !strings.Contains(beforeSend, "temperature 3 → 2") || !strings.Contains(beforeSend, "Unverified support:") {
+	// Unverified support is /settings detail, not a per-Turn notice.
+	if !strings.Contains(beforeSend, "temperature 3 → 2") || strings.Contains(beforeSend, "Unverified support:") {
 		t.Fatalf("before Send=%s", beforeSend)
 	}
 }

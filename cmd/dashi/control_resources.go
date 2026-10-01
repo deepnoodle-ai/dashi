@@ -58,9 +58,19 @@ func (c *Controller) resources(ctx context.Context) {
 			}
 		}
 	}
-	if len(found.Warnings) > 0 {
-		fmt.Fprintln(&out, "Warnings:")
+	for _, section := range []struct {
+		heading string
+		skipped bool
+	}{{"Not loaded:", true}, {"Loaded with adjustments:", false}} {
+		heading := section.heading
 		for _, warning := range found.Warnings {
+			if warning.Skipped != section.skipped {
+				continue
+			}
+			if heading != "" {
+				fmt.Fprintln(&out, heading)
+				heading = ""
+			}
 			fmt.Fprintf(&out, "  %s: %s\n", warning.Path, warning.Message)
 		}
 	}

@@ -15,15 +15,6 @@ type activeContextAttempt struct {
 	awaitingStop bool
 }
 
-func activeContextProtection(s dashi.Step) []Block {
-	if s.Started == nil || s.Started.Agent.ActiveCompaction == nil ||
-		s.Started.Agent.ActiveCompaction.Disabled || s.Started.ActiveCompactionWindow <= 0 {
-		return nil
-	}
-	return []Block{{ID: "active-protection:" + s.TurnID, Kind: KindNotice,
-		Text: fmt.Sprintf("Active-Turn protection (text-only): %s-token recorded window. Request sizes are estimates, not provider-tokenizer guarantees.", groupDigits(s.Started.ActiveCompactionWindow)), Done: true}}
-}
-
 func activeContextUnavailable(s dashi.Step, w dashi.Warning) (Block, bool) {
 	text := w.Message
 	switch w.Code {

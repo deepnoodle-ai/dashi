@@ -59,7 +59,8 @@ Review $1 for bugs. Report each bug with its file and line.
 
 - `name` is optional. It defaults to the folder or file name. A name has
   letters, digits, `-` and `_`, and at most 64 bytes.
-- `description` is what the model sees. Keep it under 1,024 bytes.
+- `description` is what the model sees. Keep it under 1,024 bytes; a longer
+  one is shortened to fit, with a warning.
 - `argument-hint` is for your UI. `Info.ArgumentHint` returns it.
 - `disable-model-invocation: true` keeps the skill out of the catalog.
 - `user-invocable: false` stops `Expand` from returning the skill.
@@ -74,11 +75,15 @@ Review $1 for bugs. Report each bug with its file and line.
 ## Warnings
 
 A bad file never stops the load. The loader skips it and returns a `Warning`
-with the file path. Causes: a file that cannot be read, a missing closing
-`---`, invalid YAML, a bad name, an empty body, a body over 64 KiB, a
-description over 1,024 bytes, two skills with one name in one dir, and a
-folder that has no `SKILL.md` (nested dirs such as `commands/git/` are not
-loaded).
+with the file path and `Skipped` set. Causes: a file that cannot be read or a
+broken symlink, a missing closing `---`, invalid YAML, a bad name, an empty
+body, a body over 64 KiB, and two skills with one name in one dir.
+
+Some problems only adjust a skill that still loads; their warnings have
+`Skipped` false. A description over 1,024 bytes is cut at a character
+boundary, and an unusable frontmatter field is ignored. A folder without
+`SKILL.md` is not a skill and gives no warning; nested folders are not
+searched.
 
 The catalog holds at most 256 skills and 64 KiB. The loader fills it in name
 order. It leaves out each skill that does not fit and warns. That skill stays

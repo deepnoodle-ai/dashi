@@ -31,6 +31,9 @@ type settingsInspection struct {
 	PreviewError               string                          `json:"preview_error,omitempty"`
 	PromptSource               string                          `json:"prompt_source"`
 	Recorded                   *recordedSettings               `json:"recorded_attempt,omitempty"`
+	// ActiveTurnWindow is the last Turn's recorded Active-Turn protection
+	// window, or zero when that Turn had no protection.
+	ActiveTurnWindow int `json:"active_turn_window,omitempty"`
 }
 type inspectedKnowledge struct {
 	ContextWindow   int                         `json:"context_window,omitempty"`
@@ -137,6 +140,10 @@ func (e *Engine) inspectSettings(ctx context.Context) settingsInspection {
 		turn, err := loader.Load(ctx, last.View.ID)
 		if err == nil {
 			for _, step := range turn.Steps {
+				if started := step.Started; step.Kind == dashi.StepStarted && started != nil &&
+					started.Agent.ActiveCompaction != nil && !started.Agent.ActiveCompaction.Disabled {
+					view.ActiveTurnWindow = started.ActiveCompactionWindow
+				}
 				if step.Kind == dashi.StepModelIntent && step.Model != nil {
 					fact := step.Model
 					show := last.View.Agent.Settings.ReasoningSummary != nil && *last.View.Agent.Settings.ReasoningSummary
@@ -212,6 +219,9 @@ func (c *Controller) settings(ctx context.Context, arg string) {
 	}
 	if view.PreviewError != "" {
 		fmt.Fprintf(&text, "\nCannot prepare preview: %s", view.PreviewError)
+	}
+	if view.ActiveTurnWindow > 0 {
+		fmt.Fprintf(&text, "\nActive-Turn protection (text-only): %s-token recorded window. Request sizes are estimates, not provider-tokenizer guarantees.", groupDigits(view.ActiveTurnWindow))
 	}
 	if view.Recorded != nil {
 		fmt.Fprintf(&text, "\nRecorded attempt %s: %s %s; %s", view.Recorded.AttemptID, view.Recorded.Destination, view.Recorded.Model, view.Recorded.Summary)

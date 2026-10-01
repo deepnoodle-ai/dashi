@@ -64,8 +64,11 @@ type Engine struct {
 	attachmentResolver *engineAttachmentResolver
 	// model is the model the next Start uses. Changing it does not touch
 	// turns already started.
-	model             string
-	windowWarned      map[string]bool
+	model        string
+	windowWarned map[string]bool
+	// sessionNotices maps each once-per-session notice text to the block
+	// that showed it in the open session.
+	sessionNotices    map[string]string
 	tasks             *taskHost
 	taskWake          func()
 	persistenceFailed bool
@@ -190,6 +193,7 @@ func (e *Engine) openOwned(s *session.Session, ownedUnlock func()) error {
 	e.mu.Lock()
 	e.release()
 	e.sess, e.chat, e.inbox, e.unlock = s, chat, inbox, unlock
+	e.sessionNotices = nil
 	e.attachmentResolver = resolver
 	e.tasks = host
 	if s.Model != "" && e.model == "" {
@@ -371,7 +375,11 @@ func (e *Engine) Scrollback(ctx context.Context) []Block {
 			out = append(out, warnBlock("Turn %d skipped: %v.", n, err))
 			continue
 		}
-		out = append(out, blocks...)
+		for _, b := range blocks {
+			if !e.repeatsSessionNotice(b) {
+				out = append(out, b)
+			}
+		}
 	}
 	return out
 }
@@ -710,7 +718,9 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 			}
 		}
 		for _, b := range r.Event(ev) {
-			e.cfg.Emit(b)
+			if !e.repeatsSessionNotice(b) {
+				e.cfg.Emit(b)
+			}
 		}
 		if ev.Step != nil && ev.Step.Kind == dashi.StepToolSettled &&
 			r.CallName(ev.Step.Tool.Call.ID) == "bash" {
@@ -852,6 +862,26 @@ func (e *Engine) record(s *dashi.Step) error {
 		e.persistenceFailed = true
 	}
 	return err
+}
+
+// repeatsSessionNotice reports whether b repeats a notice already shown in
+// the open session. Active-Turn protection limits rarely change between
+// Turns, so only the first Turn shows each one. An update to the block that
+// showed it is not a repeat.
+func (e *Engine) repeatsSessionNotice(b Block) bool {
+	if b.Kind != KindCompaction || b.State != "unavailable" {
+		return false
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if id, ok := e.sessionNotices[b.Text]; ok {
+		return id != b.ID
+	}
+	if e.sessionNotices == nil {
+		e.sessionNotices = map[string]string{}
+	}
+	e.sessionNotices[b.Text] = b.ID
+	return false
 }
 
 func (e *Engine) warn(format string, args ...any) {

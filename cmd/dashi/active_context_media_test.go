@@ -102,7 +102,10 @@ func TestCLIActiveMediaPrintAndRecordedReopen(t *testing.T) {
 			if strings.Count(stderr.String(), "Active-Turn protection unavailable for media") != 1 {
 				t.Fatalf("live warning missing/repeated: %s", stderr.String())
 			}
-			compactionMustHave(t, stderr.String(), "text-only", "cannot estimate", "provider decides whether it fits", "cost limits still apply")
+			if strings.Contains(stderr.String(), "text-only") {
+				t.Fatalf("per-Turn protection notice shown: %s", stderr.String())
+			}
+			compactionMustHave(t, stderr.String(), "cannot estimate", "provider decides whether it fits", "cost limits still apply")
 			rec, err := cfg.Store.Recorder(a.eng.Session())
 			if err != nil {
 				t.Fatal(err)
@@ -190,20 +193,21 @@ func TestRuntimeActiveMediaUnavailableAndReopen(t *testing.T) {
 	}
 	exportActiveRuntime(t, h, "media-unavailable-reopen")
 }
-func TestActiveMediaRendererReplacesKnownWindowMarker(t *testing.T) {
+func TestActiveMediaRendererMarksUnavailableMedia(t *testing.T) {
 	r := NewRenderer(1, "fixture", "")
 	started := dashi.Step{Kind: dashi.StepStarted, TurnID: "media", Started: &dashi.StartFact{Agent: dashi.Agent{ActiveCompaction: &dashi.ActiveCompactionPolicy{}}, ActiveCompactionWindow: 128000}}
 	var live Transcript
 	for _, b := range r.Event(stepEvent(started)) {
 		live.Apply(b)
 	}
-	if len(live.Blocks) != 2 || !strings.Contains(live.Blocks[1].Text, "text-only") {
-		t.Fatalf("known window claimed full protection: %+v", live.Blocks)
+	// The recorded window is inspection detail, not a per-Turn notice.
+	if len(live.Blocks) != 1 || live.Blocks[0].Kind != KindUser {
+		t.Fatalf("start showed more than the prompt: %+v", live.Blocks)
 	}
 	event := dashi.Step{Kind: dashi.StepModelIntent, TurnID: "media", Warnings: []dashi.Warning{{Code: dashi.WarningActiveCompactionMediaEstimateUnavailable, Message: "Media context size cannot be estimated; provider content preparation and actual window acceptance govern it."}}}
 	b := onlyBlock(t, r.Event(stepEvent(event)))
 	live.Apply(b)
-	if b.Kind != KindCompaction || b.State != "unavailable" || !b.Done || b.ID != live.Blocks[1].ID {
+	if b.Kind != KindCompaction || b.State != "unavailable" || !b.Done || b.ID != "active-protection:media" {
 		t.Fatalf("marker lost state/identity: %+v", b)
 	}
 	compactionMustHave(t, b.Text, "unavailable for media", "cannot estimate", "provider decides whether it fits")

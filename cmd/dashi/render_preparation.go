@@ -29,9 +29,6 @@ func modelPreparationBlocks(step dashi.Step) []Block {
 			lines = append(lines, warning.Message)
 		}
 	}
-	if len(fact.Unverified) > 0 {
-		lines = append(lines, fmt.Sprintf("Unverified support: %v.", fact.Unverified))
-	}
 	if len(lines) == 0 {
 		return nil
 	}
