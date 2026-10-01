@@ -74,7 +74,7 @@ func (s *screen) approvalView() tui.View {
 	views := []tui.View{
 		tui.Divider(), tui.MaxHeight(2, tui.Text(" Approval pending · %s", p.req.Summary).Wrap().Fg(tui.ColorYellow).Bold()),
 		tui.Height(s.dialogHeight(), tui.Viewport(&p.vp, approvalDetails(p.req)).Gap(0)),
-		tui.Text(" ↑/↓ or Page Up/Down inspect · /status [ID] · Esc interrupts").Wrap().Hint(),
+		tui.Text(" ↑/↓ or Page Up/Down inspect · /status [ID] · /tasks · /task ID · /task-stop ID · Esc interrupts").Wrap().Hint(),
 	}
 	if p.denying {
 		views = append(views, tui.Text(" Deny: Enter submits the reason · Ctrl-S inspects without editing.").Hint(),
@@ -191,7 +191,7 @@ func (s *screen) questionView() tui.View {
 			tui.InputField(&p.text).ID(questionInputID).Prompt("Answer:").Multiline(true).MaxHeight(3).OnKey(s.dialogTextKey(s.promptID)).OnPaste(s.dialogTextPaste(s.promptID)).OnSubmit(s.questionSubmit(s.promptID)))
 	} else {
 		views = append(views, tui.Text(" ↑/↓ move · Space selects · Enter chooses action").Wrap().Hint(),
-			tui.Text(" Tab submit · o own words · /status [ID] · Esc interrupts").Wrap().Hint())
+			tui.Text(" Tab submit · o own words · /status [ID] · /tasks · /task ID · /task-stop ID · Esc interrupts").Wrap().Hint())
 	}
 	if p.err != "" {
 		views = append(views, tui.Text(" %s", p.err).Wrap().Fg(tui.ColorYellow))

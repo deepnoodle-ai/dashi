@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/wonton/tui"
 	"golang.org/x/term"
@@ -30,6 +31,13 @@ func TestTaskPTYChild(t *testing.T) {
 	var effects atomic.Int32
 	installTaskEffect(t, &effects, true)
 	client := &taskFixtureClient{effect: true}
+	selective := os.Getenv("DASHI_TASK_SELECTIVE") != ""
+	var releaseChildren chan struct{}
+	if selective {
+		client.secondTask = true
+		releaseChildren = make(chan struct{})
+		client.childHold = releaseChildren
+	}
 	cfg := testConfig(t)
 	cfg.Client = client
 	cfg.Dir = os.Getenv("DASHI_TASK_WORKSPACE")
@@ -58,7 +66,15 @@ func TestTaskPTYChild(t *testing.T) {
 			}
 		}
 	}()
-	capture := func() { s.captureTaskEvidence(client, &effects) }
+	released := false
+	capture := func() {
+		if selective && !released && len(a.eng.taskHost().tasks.List()) == 2 && a.ctrl.Mode() == ModeIdle {
+			released = true
+			close(releaseChildren)
+			s.input = "unsent selective draft"
+		}
+		s.captureTaskEvidence(client, &effects)
+	}
 	if mode == "inline" {
 		i := &sessionEvidenceInline{newInlineScreen(s, os.Stdout), capture}
 		err = i.runner.Run(i)
@@ -70,6 +86,18 @@ func TestTaskPTYChild(t *testing.T) {
 	a.ctrl.Wait()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if selective {
+		tasks := a.eng.taskHost().tasks.List()
+		if len(tasks) != 2 || effects.Load() != 0 {
+			t.Fatal("selective control affected another child/effect", tasks, effects.Load())
+		}
+		for _, task := range tasks {
+			snapshot, err := a.eng.inspectTask(t.Context(), task.ID)
+			if err != nil || snapshot.View.Stop.Kind != dashi.StopCanceled {
+				t.Fatal("selective stop not recorded", err)
+			}
+		}
 	}
 	after, err := composerTTYAttributes(int(os.Stdin.Fd()))
 	if err != nil || !reflect.DeepEqual(before, after) {
@@ -85,17 +113,24 @@ func (s *screen) captureTaskEvidence(client *taskFixtureClient, effects *atomic.
 	meta := s.eng.Session()
 	state := struct {
 		Input, Session, Picker, Approval, Question string
+		SavedDraft, Dialog                         string
+		Prompt                                     uint64
+		ApprovalArguments                          string
 		Mode                                       Mode
 		ParentCalls, ChildCalls, Effects           int
 		Blocks                                     []Block
 		Tasks                                      []delegate.TaskView
 		Details, Rows                              []string
-	}{Input: s.input, Session: meta.ID, Mode: s.ctrl.Mode(), ParentCalls: parent, ChildCalls: child, Effects: int(effects.Load()), Blocks: s.tr.Blocks, Tasks: s.eng.taskHost().list(), Rows: attachmentRows(&s.attachments, s.ctrl.attachmentRoot)}
+	}{Input: s.input, SavedDraft: s.savedDraft, Prompt: s.promptID, Session: meta.ID, Mode: s.ctrl.Mode(), ParentCalls: parent, ChildCalls: child, Effects: int(effects.Load()), Blocks: s.tr.Blocks, Tasks: s.eng.taskHost().list(), Rows: attachmentRows(&s.attachments, s.ctrl.attachmentRoot)}
 	if s.picker != nil {
 		state.Picker = s.picker.title
 		state.Details = s.picker.details
 	}
+	if s.dialogStatus != nil {
+		state.Dialog = s.dialogStatus.text
+	}
 	if s.approval != nil {
+		state.ApprovalArguments = s.approval.req.Arguments
 		state.Approval = s.approval.req.Summary
 	}
 	if s.asking != nil {

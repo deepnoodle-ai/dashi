@@ -295,7 +295,7 @@ func TestQuitDuringRunKeepsQueuedPrompt(t *testing.T) {
 }
 
 // Ctrl-C during an approval prompt cancels the run but keeps a queued
-// prompt: it warns once the run settles, and a second Ctrl-C quits.
+// prompt. Idle Ctrl-C still uses the existing two-step queue exit guard.
 func TestInterruptDuringApprovalKeepsQueuedPrompt(t *testing.T) {
 	var runs atomicCounter
 	withNoteTool(t, &runs)
@@ -320,12 +320,15 @@ func TestInterruptDuringApprovalKeepsQueuedPrompt(t *testing.T) {
 		t.Fatalf("quit with a queued prompt:\n%s", h.ui.text())
 	default:
 	}
-	mustHave(t, h.ui.text(), "1 queued message will be lost. Repeat Ctrl-C to go ahead.")
 	if n := h.app.eng.Queued(); n != 1 {
 		t.Fatalf("queued=%d", n)
 	}
+	if h.app.ctrl.Interrupt() {
+		t.Fatal("first idle Ctrl-C lost queued work")
+	}
+	mustHave(t, h.ui.text(), "1 queued message will be lost. Repeat Ctrl-C to go ahead.")
 	if !h.app.ctrl.Interrupt() {
-		t.Fatal("the repeated Ctrl-C did not quit")
+		t.Fatal("repeated idle Ctrl-C did not quit")
 	}
 }
 

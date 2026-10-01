@@ -20,10 +20,6 @@ func (c *Controller) taskInput(line string) bool {
 	if name != "/tasks" && name != "/task" && name != "/task-stop" {
 		return false
 	}
-	if c.Mode() == ModeApproval || c.Mode() == ModeCommand {
-		c.notice("Answer or close the current dialog before a task command.")
-		return true
-	}
 	if name == "/tasks" {
 		if arg != "" {
 			c.notice("Usage: /tasks")
@@ -35,6 +31,9 @@ func (c *Controller) taskInput(line string) bool {
 			return true
 		}
 		for _, task := range host.list() {
+			if owner, active := c.broker.activeOwner(); active && owner.TaskID == task.SessionID && task.Running() {
+				task.State = "approval pending"
+			}
 			c.emit(taskRow(task))
 		}
 		c.goWork(c.taskSpend)
@@ -59,12 +58,19 @@ func (c *Controller) taskInput(line string) bool {
 		return true
 	}
 	id := fields[0]
+	if (c.Mode() == ModeApproval || c.Mode() == ModeCommand) && action != "inspect" && action != "stop" {
+		c.notice("During a pending dialog, use /tasks, /task ID, or /task-stop ID. Answer or close it before resolution commands.")
+		return true
+	}
 	if action == "inspect" {
 		show := func(ctx context.Context) {
 			snapshot, err := c.eng.inspectTask(ctx, id)
 			if err != nil {
 				c.notice("Task %s unavailable: %v", id, err)
 				return
+			}
+			if owner, active := c.broker.activeOwner(); active && owner.TaskID == snapshot.Task.SessionID {
+				snapshot.Prompt = &owner.Call
 			}
 			if viewer, ok := c.ui.(interface {
 				ChooseTaskDetails(context.Context, string, string)
@@ -117,6 +123,9 @@ func taskCommandID(target delegate.TaskTarget, action, call string, command dash
 	return "cli-task:" + hex.EncodeToString(digest[:]), nil
 }
 func (c *Controller) runTaskCommand(ctx context.Context, snapshot taskSnapshot, action, call string, command dashi.Command) (dashi.Outcome, error) {
+	if err := c.eng.recoverTasks(ctx); err != nil {
+		return dashi.Outcome{}, err
+	}
 	id, err := taskCommandID(snapshot.Target, action, call, command)
 	if err != nil {
 		return dashi.Outcome{}, err
@@ -277,12 +286,27 @@ func (c *Controller) taskSpend() {
 		c.notice("Task-inclusive accounting unavailable: recorder cannot load authoritative records.")
 		return
 	}
-	var parent, children dashi.Spend
+	var turns []dashi.Turn
 	for turn, err := range chat.Turns(c.base) {
 		if err != nil {
 			c.notice("Task-inclusive accounting incomplete: %v", err)
 			return
 		}
+		turns = append(turns, turn)
+	}
+	if host := c.eng.taskHost(); host != nil {
+		if err := host.readRecorded(c.base, turns); err != nil {
+			for _, task := range host.list() {
+				if task.State == "record unavailable" {
+					c.emit(taskRow(task))
+				}
+			}
+			c.notice("Task-inclusive accounting incomplete; child and inclusive totals unavailable: %v", err)
+			return
+		}
+	}
+	var parent, children dashi.Spend
+	for _, turn := range turns {
 		view, err := dashi.Replay(turn)
 		if err != nil {
 			c.notice("Task-inclusive accounting incomplete: %v", err)

@@ -19,6 +19,10 @@ return afterward. Plain mode prints the same details.
 
 Each approval identifies the original child Turn/call, tool, arguments, and
 existing preview/scope. Parent and child questions share one dialog owner.
+While a dialog remains pending, type `/tasks`, `/task ID`, or `/task-stop ID`
+to inspect or stop exactly one child. Escape returns to the original dialog
+with its draft, selection, and call unchanged. Resolution commands wait until
+the dialog closes.
 Approval of task creation grants no later child effects. Allow-once stays on
 that original call; remembered grants keep their existing run scope.
 
@@ -26,7 +30,9 @@ that original call; remembered grants keep their existing run scope.
   record confirms it. It does not roll back effects or prove an uncertain effect
   never ran. Foreground work and other children continue.
 - Ctrl-C interrupts the foreground parent and reports continuing children.
-  Use `/tasks` and `/task-stop ID` to stop them.
+  Use `/tasks` and `/task-stop ID` to stop them. During a child approval,
+  Ctrl-C retains that child prompt. At idle, running children also stay alive;
+  explicit quit closes all children.
 - `/task ID continue` resumes a ready stopped child with its recorded destination
   and restrictions. A waiting approval uses its original bound response. An
   attempt limit requires confirmation of the doubled attempt cap; other limits
@@ -51,6 +57,9 @@ Reopen recovers children from parent call records before unrelated new work.
 Canceled/ended children stay ended. Waiting or uncertain effects stay visible;
 settled effects do not run again. Missing bindings identify affected children;
 restore the recorded destination/tools and reopen before controlling them.
+Missing or corrupt required journals leave the recorded task visibly unavailable
+and accounting incomplete. Restore those journals and reopen before unrelated
+work, continuation, result dispatch, or successful print completion.
 
 `/tasks` reports parent, child, and inclusive spend from records, counting each
 child Turn once. Model money and tool money stay separate; unknown charges,

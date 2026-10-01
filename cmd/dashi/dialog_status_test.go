@@ -90,6 +90,11 @@ func TestNativeQuestionStatusSubmissionPreservesExactPrompt(t *testing.T) {
 				h.scr.dialogStatusSubmit(h.scr.dialogStatus)("/status ../invalid")
 			}
 			h.mu.Unlock()
+			for _, command := range []string{"/tasks", "/task unknown", "/task-stop unknown", "/task unknown continue", "/task unknown done call"} {
+				h.mu.Lock()
+				h.scr.dialogStatusSubmit(h.scr.dialogStatus)(command)
+				h.mu.Unlock()
+			}
 			h.app.ctrl.Wait()
 			h.waitFor(func() bool { return strings.Contains(dialogTranscriptText(h.scr), "status unavailable") })
 			h.key(tui.KeyEvent{Key: tui.KeyEscape})

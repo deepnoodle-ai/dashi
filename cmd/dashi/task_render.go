@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -15,7 +17,7 @@ import (
 
 func taskRow(view delegate.TaskView) Block {
 	if view.State == "record unavailable" {
-		return Block{ID: "task:" + view.SessionID, Kind: KindWarning, Text: fmt.Sprintf("Task %s · %s · latest record unavailable\n%s\nRecorded state/counts/spend are incomplete; no completion is inferred. Inspect: /task %s", view.ID, view.Subagent, view.Description, view.ID), Done: true}
+		return Block{ID: "task:" + view.SessionID, Kind: KindWarning, Text: fmt.Sprintf("Task %s · %s · latest record unavailable\n%s\nParent %s · call %s\n%s\nRecorded state/counts/spend are incomplete; no completion is inferred. Inspect: /task %s", view.ID, view.Subagent, view.Description, view.Parent.TurnID, view.Parent.CallID, view.Reason, view.ID), Done: true}
 	}
 	text := fmt.Sprintf("Task %s · %s · %s · %d model attempts · %d tool calls\n%s\nChild spend: %s\nInspect: /task %s", view.ID, view.Subagent, view.State, view.ModelCalls, view.ToolCalls, view.Description, view.Spend.String(), view.ID)
 	return Block{ID: "task:" + view.TurnID, Kind: KindNotice, Text: text, Done: !view.Running()}
@@ -148,12 +150,19 @@ type taskSnapshot struct {
 	View   dashi.TurnView
 	Target delegate.TaskTarget
 	Bound  bool
+	Prompt *dashi.CallRef
 }
 
 func (e *Engine) inspectTask(ctx context.Context, id string) (taskSnapshot, error) {
 	host := e.taskHost()
 	if host == nil {
 		return taskSnapshot{}, fmt.Errorf("no task host is open")
+	}
+	host.mu.Lock()
+	problem := host.problems[id]
+	host.mu.Unlock()
+	if problem != "" {
+		return taskSnapshot{}, fmt.Errorf("recorded child unavailable: %s", problem)
 	}
 	for _, task := range host.tasks.List() {
 		if task.ID != id {
@@ -177,11 +186,7 @@ func (e *Engine) inspectTask(ctx context.Context, id string) (taskSnapshot, erro
 	}
 	host.mu.Lock()
 	saved, ok := host.recorded[id]
-	problem := host.problems[id]
 	host.mu.Unlock()
-	if problem != "" {
-		return taskSnapshot{}, fmt.Errorf("recorded child unavailable: %s", problem)
-	}
 	if ok {
 		return saved, nil
 	}
@@ -194,6 +199,9 @@ func taskDetails(snapshot taskSnapshot) string {
 		b.WriteString("Recorded child; live binding is unavailable. Restore its destination/tools and reopen this session before task controls.\n")
 	}
 	fmt.Fprintf(&b, "Task %s · %s\nChild Turn: %s · revision %d\nParent: %s · call %s\nState: %s · stop %s · terminal %t\nDestination: %s / %s / %s\n%s\n", snapshot.Task.ID, snapshot.Task.Subagent, v.ID, v.Revision, snapshot.Task.Parent.TurnID, snapshot.Task.Parent.CallID, snapshot.Task.State, v.Stop.Kind, v.Stop.Terminal, v.Agent.Provider, v.Agent.API, v.Agent.Model, snapshot.Task.Description)
+	if snapshot.Prompt != nil {
+		fmt.Fprintf(&b, "Live approval/answer pending · Turn %s · original call %s. Inspection does not answer it.\n", snapshot.Prompt.TurnID, snapshot.Prompt.CallID)
+	}
 	fmt.Fprintf(&b, "Child spend: %s\nModel attempts: %d · tool calls: %d\nEstimated usage calls: %d · usage incomplete %t\nAttempt cap: %d; no child monetary cap. Parent caps exclude children.\n", snapshot.Task.Spend.String(), snapshot.Task.ModelCalls, snapshot.Task.ToolCalls, snapshot.Task.Spend.Estimated, snapshot.Task.Spend.UsageIncomplete, v.Agent.Limits.ModelAttempts)
 	calls, unresolved := taskDispatchCounts(snapshot.Turn)
 	fmt.Fprintf(&b, "This Turn: %d confirmed model dispatches · %d unresolved intents. Attempts and estimates do not prove Send.\nTokens: input %d · output %d · cache writes %d · cache reads %d; cache-write reporting unavailable %t · total mismatch %t.\n", calls, unresolved, v.Spend.Usage.InputTokens, v.Spend.Usage.OutputTokens, v.Spend.Usage.CacheCreationInputTokens, v.Spend.Usage.CacheReadInputTokens, v.Spend.Usage.CacheCreationInputTokensUnavailable, v.Spend.Usage.TotalTokenCountMismatch)
@@ -224,6 +232,13 @@ func taskDetails(snapshot taskSnapshot) string {
 	}
 	for _, p := range v.Pending {
 		fmt.Fprintf(&b, "Pending %s: %s · %s\nArguments: %s\n", p.Kind, p.ID, p.Name, string(p.Args))
+	}
+	for _, id := range slices.Sorted(maps.Keys(v.Tools)) {
+		call := v.Tools[id]
+		if call.Status != dashi.ToolRequested && call.Status != dashi.ToolApprovalPending {
+			continue
+		}
+		fmt.Fprintf(&b, "Recorded requested call %s: %s · %s\nArguments: %s\n", id, call.Call.Name, call.Status, string(call.Call.Args))
 	}
 	if snapshot.Task.Running() {
 		fmt.Fprintf(&b, "Live lower bounds. Stop: /task-stop %s\n", snapshot.Task.ID)

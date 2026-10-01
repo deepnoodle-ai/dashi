@@ -28,6 +28,8 @@ type taskFixtureClient struct {
 	childStarted            chan struct{}
 	startOnce               sync.Once
 	effect                  bool
+	secondTask              bool
+	childAttempts           map[string]int
 	loopUntil               int
 }
 
@@ -44,6 +46,19 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 	if child {
 		n = c.childCalls
 		c.childCalls++
+		if c.secondTask {
+			if c.childAttempts == nil {
+				c.childAttempts = map[string]int{}
+			}
+			key := "first"
+			for _, m := range in.Messages {
+				if strings.Contains(m.Text(), "second task") {
+					key = "second"
+				}
+			}
+			n = c.childAttempts[key]
+			c.childAttempts[key]++
+		}
 	} else {
 		c.parentCalls++
 	}
@@ -70,7 +85,12 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 		return say("Child result, recorded once.")(ctx, call)
 	}
 	if n == 0 {
-		return callTool("task-call", "task", `{"subagent":"general","description":"Check the exact effect","prompt":"Inspect the focused task"}`)(ctx, call)
+		res, err := callTool("task-call", "task", `{"subagent":"general","description":"Check the exact effect","prompt":"Inspect the focused task"}`)(ctx, call)
+		if c.secondTask {
+			second := tool.Call{ID: "second-task-call", Name: "task", Args: []byte(`{"subagent":"general","description":"Keep the other work","prompt":"Inspect second task"}`)}
+			res.Message.Content = append(res.Message.Content, llm.Content{Kind: llm.ContentToolCall, ToolCall: &second})
+		}
+		return res, err
 	}
 	if n == 1 {
 		if c.parentHold != nil {
@@ -104,7 +124,7 @@ func taskTestApp(t *testing.T, client *taskFixtureClient, ui UI) (*app, appConfi
 	a.ctrl.mu.Lock()
 	a.ctrl.autoTaskDelivery = false
 	a.ctrl.mu.Unlock()
-	t.Cleanup(func() { a.ctrl.CancelWork(); a.ctrl.Wait(); a.eng.Close() })
+	t.Cleanup(func() { a.ctrl.CancelWork(); a.eng.closeTasks(); a.ctrl.Wait(); a.eng.Close() })
 	return a, cfg
 }
 func waitTask(t *testing.T, a *app, ready func(delegate.TaskView) bool) delegate.TaskView {
@@ -640,57 +660,115 @@ func TestTaskDiscardExplicitlyClosesWaitingEffectWithoutRepeat(t *testing.T) {
 	}
 }
 
-func TestTaskCorruptChildStaysVisibleAndNeverRecreatesCompletedWork(t *testing.T) {
-	client := &taskFixtureClient{}
-	ui := newRecorderUI()
-	a, cfg := taskTestApp(t, client, ui)
-	result, err := a.eng.Prompt(t.Context(), "delegate")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = a.eng.QuietTasks(t.Context(), result); err != nil {
-		t.Fatal(err)
-	}
-	task := a.eng.taskHost().tasks.List()[0]
-	meta := a.eng.Session()
-	rec, err := cfg.Store.Recorder(meta)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := rec.Path(task.TurnID)
-	a.eng.Close()
-	if err = os.WriteFile(path, []byte("damaged record\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	b, err := buildApp(t.Context(), cfg, ui)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = b.openSession(cfg.Store, cfg.Dir, Options{Resume: true, ResumeID: meta.ID}); err != nil {
-		t.Fatal(err)
-	}
-	defer b.eng.Close()
-	if err = b.eng.recoverTasks(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	listed := b.eng.taskHost().list()
-	if len(listed) != 1 || listed[0].ID != task.ID || listed[0].State != "record unavailable" {
-		t.Fatalf("damaged child disappeared: %+v", listed)
-	}
-	if _, err = b.eng.inspectTask(t.Context(), task.ID); err == nil {
-		t.Fatal("damage inferred success")
-	}
-	if _, err = b.eng.QuietTasks(t.Context(), Result{}); err == nil {
-		t.Fatal("damaged child reported quiet success")
-	}
-	parent, child := client.counts()
-	if parent != 3 || child != 1 {
-		t.Fatalf("damaged child retried: %d/%d", parent, child)
+func TestTaskUnavailableChildStaysVisibleAndBlocksNewWork(t *testing.T) {
+	for _, damage := range []string{"corrupt", "missing", "missing-before-notice"} {
+		t.Run(damage, func(t *testing.T) {
+			var effects atomic.Int32
+			installTaskEffect(t, &effects, false)
+			client := &taskFixtureClient{effect: true}
+			ui := newRecorderUI()
+			a, cfg := taskTestApp(t, client, ui)
+			result, err := a.eng.Prompt(t.Context(), "delegate")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if damage != "missing-before-notice" {
+				if _, err = a.eng.QuietTasks(t.Context(), result); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopCompleted) })
+			}
+			task := a.eng.taskHost().tasks.List()[0]
+			meta := a.eng.Session()
+			rec, err := cfg.Store.Recorder(meta)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := rec.Path(task.TurnID)
+			original, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			beforeParent, beforeChild := client.counts()
+			a.eng.Close()
+			if strings.HasPrefix(damage, "missing") {
+				err = os.Remove(path)
+			} else {
+				err = os.WriteFile(path, []byte("damaged record\n"), 0600)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := buildApp(t.Context(), cfg, ui)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = b.openSession(cfg.Store, cfg.Dir, Options{Resume: true, ResumeID: meta.ID}); err != nil {
+				t.Fatal(err)
+			}
+			defer b.eng.Close()
+			if err = b.eng.recoverTasks(t.Context()); err == nil {
+				t.Fatal("unavailable child recovery succeeded")
+			}
+			listed := b.eng.taskHost().list()
+			if len(listed) != 1 || listed[0].ID != task.ID || listed[0].State != "record unavailable" {
+				t.Fatalf("damaged child disappeared: %+v", listed)
+			}
+			if _, err = b.eng.inspectTask(t.Context(), task.ID); err == nil {
+				t.Fatal("damage inferred success")
+			}
+			if _, err = b.eng.QuietTasks(t.Context(), Result{}); err == nil {
+				t.Fatal("damaged child reported quiet success")
+			}
+			b.ctrl.taskSpend()
+			if !strings.Contains(ui.text(), "accounting incomplete") {
+				t.Fatal("missing records claimed exact accounting", ui.text())
+			}
+			if _, err = b.eng.Prompt(t.Context(), "unrelated new work"); err == nil {
+				t.Fatal("unavailable child permitted new work")
+			}
+			if _, err = b.eng.DriveTaskNotices(t.Context()); err == nil {
+				t.Fatal("unavailable child permitted notice dispatch")
+			}
+			if err = b.ctrl.taskAction(t.Context(), task.ID, "continue", ""); err == nil {
+				t.Fatal("unavailable child allowed replacement continuation")
+			}
+			parent, child := client.counts()
+			if parent != beforeParent || child != beforeChild || effects.Load() != 1 {
+				t.Fatalf("damaged child retried: %d/%d", parent, child)
+			}
+
+			b.eng.Close()
+			if err = os.WriteFile(path, original, 0600); err != nil {
+				t.Fatal(err)
+			}
+			c, err := buildApp(t.Context(), cfg, ui)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = c.openSession(cfg.Store, cfg.Dir, Options{Resume: true, ResumeID: meta.ID}); err != nil {
+				t.Fatal(err)
+			}
+			defer c.eng.Close()
+			if err = c.eng.recoverTasks(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			snapshot, err := c.eng.inspectTask(t.Context(), task.ID)
+			if err != nil || snapshot.View.Stop.Kind != dashi.StopCompleted || snapshot.Task.ID != task.ID {
+				t.Fatal("restored task unavailable", err)
+			}
+			afterParent, afterChild := client.counts()
+			if afterParent != beforeParent || afterChild != beforeChild || effects.Load() != 1 {
+				t.Fatal("restoration repeated dispatch/effect")
+			}
+
+		})
 	}
 }
 
 func TestTaskQuitDuringChildApprovalInterruptsBeforeDialogDismissal(t *testing.T) {
-	for _, action := range []string{"quit", "interrupt"} {
+	for _, action := range []string{"quit", "ctrl-d"} {
 		t.Run(action, func(t *testing.T) {
 			var runs atomic.Int32
 			installTaskEffect(t, &runs, true)
@@ -716,8 +794,8 @@ func TestTaskQuitDuringChildApprovalInterruptsBeforeDialogDismissal(t *testing.T
 			meta := a.eng.Session()
 			if action == "quit" {
 				a.ctrl.QuitDuringRun("/quit")
-			} else if a.ctrl.Interrupt() {
-				t.Fatal("approval interrupt exited before settling")
+			} else {
+				a.ctrl.QuitDuringRun("Ctrl-D")
 			}
 			done := make(chan struct{})
 			go func() { a.ctrl.Wait(); close(done) }()
@@ -752,5 +830,123 @@ func TestTaskQuitDuringChildApprovalInterruptsBeforeDialogDismissal(t *testing.T
 				t.Fatalf("approval lost/duplicated task=%+v effects=%d prompts=%+v", recovered, runs.Load(), nextUI.approvals)
 			}
 		})
+	}
+}
+
+func TestChildApprovalInspectionAndStopRetainsOtherOriginalCall(t *testing.T) {
+	var effects atomic.Int32
+	installTaskEffect(t, &effects, true)
+	childHold := make(chan struct{})
+	client := &taskFixtureClient{effect: true, secondTask: true, childHold: childHold, parentHold: make(chan struct{})}
+	ui := newRecorderUI()
+	shown := make(chan ApprovalRequest, 4)
+	// Use the actual line answer channel, bound to each broker prompt.
+	a, _ := taskTestApp(t, client, ui)
+	ui.answer = func(ctx context.Context, r ApprovalRequest) (Approval, error) {
+		if r.Tool != "external_effect" {
+			return Approval{Allow: true}, nil
+		}
+		shown <- r
+		select {
+		case <-a.ctrl.Answers():
+			return Approval{Allow: true}, nil
+		case <-ctx.Done():
+			return Approval{}, ctx.Err()
+		}
+	}
+	a.ctrl.Input("delegate two")
+	deadline := time.Now().Add(5 * time.Second)
+	for len(a.eng.taskHost().tasks.List()) != 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if len(a.eng.taskHost().tasks.List()) != 2 {
+		t.Fatal("two children not admitted")
+	}
+	close(childHold)
+	var first ApprovalRequest
+	select {
+	case first = <-shown:
+	case <-time.After(5 * time.Second):
+		t.Fatal("missing child prompt")
+	}
+	owner, ok := a.ctrl.broker.activeOwner()
+	if !ok || owner.TaskID == "" {
+		t.Fatal("child owner missing")
+	}
+	id := delegate.TaskID(owner.TaskID)
+	a.ctrl.Input("/tasks")
+	a.ctrl.Input("/task " + id)
+	deadline = time.Now().Add(5 * time.Second)
+	for !strings.Contains(ui.text(), "Child Turn: "+owner.Call.TurnID) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if !strings.Contains(ui.text(), "Child Turn: "+owner.Call.TurnID) || !strings.Contains(ui.text(), "Arguments: {\"target\":\"once\"}") {
+		t.Fatal("dialog inspection failed", ui.text())
+	}
+	if a.ctrl.Interrupt() {
+		t.Fatal("Ctrl-C exited during child prompt")
+	}
+	// The foreground parent is interrupted; both children retain their own owners.
+	deadline = time.Now().Add(5 * time.Second)
+	for a.eng.Last(t.Context()).View.Stop.Kind != dashi.StopInterrupted && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	after, active := a.ctrl.broker.activeOwner()
+	if !active || after != owner || effects.Load() != 0 {
+		t.Fatal("foreground interrupt changed child owner", after)
+	}
+	a.ctrl.Input("/task-stop " + id)
+	var second ApprovalRequest
+	select {
+	case second = <-shown:
+	case <-time.After(5 * time.Second):
+		t.Fatal("selective stop did not expose other child prompt", ui.text())
+	}
+	other, active := a.ctrl.broker.activeOwner()
+	if !active || other.TaskID == owner.TaskID || second.Arguments != first.Arguments || second.Tool != first.Tool {
+		t.Fatal("wrong replacement approval", other, second)
+	}
+	waitTask(t, a, func(v delegate.TaskView) bool { return v.ID == id && v.State == delegate.TaskState(dashi.StopCanceled) })
+	snapshot, err := a.eng.inspectTask(t.Context(), id)
+	if err != nil || snapshot.View.Stop.Kind != dashi.StopCanceled || effects.Load() != 0 {
+		t.Fatal("selective stop did not cancel exact child", snapshot.View.Stop, err)
+	}
+	a.ctrl.Input("/tasks")
+	a.ctrl.Input("/task " + delegate.TaskID(other.TaskID))
+	a.ctrl.Input("yes")
+	waitTask(t, a, func(v delegate.TaskView) bool {
+		return v.ID == delegate.TaskID(other.TaskID) && v.State == delegate.TaskState(dashi.StopWaiting)
+	})
+	a.ctrl.Wait()
+	if effects.Load() != 1 || a.ctrl.Mode() != ModeIdle {
+		t.Fatal("other child/process lost", effects.Load(), a.ctrl.Mode())
+	}
+	if snapshot, err = a.eng.inspectTask(t.Context(), id); err != nil || snapshot.View.Stop.Kind != dashi.StopCanceled {
+		t.Fatal("stale answer revived canceled task")
+	}
+}
+
+func TestIdleInterruptKeepsRunningChildrenUntilExplicitExit(t *testing.T) {
+	client := &taskFixtureClient{childHold: make(chan struct{}), childStarted: make(chan struct{})}
+	ui := newRecorderUI()
+	a, _ := taskTestApp(t, client, ui)
+	if _, err := a.eng.Prompt(t.Context(), "delegate"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-client.childStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("missing child")
+	}
+	if a.ctrl.Interrupt() {
+		t.Fatal("idle Ctrl-C exited with running child")
+	}
+	task := a.eng.taskHost().tasks.List()[0]
+	if !task.Running() {
+		t.Fatal("idle interrupt stopped child")
+	}
+	mustHave(t, ui.text(), "No foreground work to interrupt; 1 child tasks continue")
+	if err := a.ctrl.taskAction(t.Context(), task.ID, "stop", ""); err != nil {
+		t.Fatal(err)
 	}
 }

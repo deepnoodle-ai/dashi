@@ -13,6 +13,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/session"
+	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/workspace"
 )
 
@@ -26,7 +27,7 @@ const (
 	// ModeRunning is a turn in progress. Typed text is a steer. Ctrl-C
 	// cancels the model call or the running tool.
 	ModeRunning
-	// ModeApproval waits for an answer to an approval prompt. Ctrl-C quits.
+	// ModeApproval waits for an answer. Ctrl-C interrupts the foreground owner.
 	ModeApproval
 	// ModeCommand runs a slash command that may wait for the user, such as
 	// a picker. Input is ignored until it ends.
@@ -172,7 +173,9 @@ func (c *Controller) CancelUnanswered() {
 		time.Sleep(20 * time.Millisecond)
 	}
 	if c.Mode() == ModeApproval {
-		c.Interrupt()
+		c.mu.Lock()
+		c.cancelExitDialogLocked()
+		c.mu.Unlock()
 	}
 }
 
@@ -288,8 +291,22 @@ func (c *Controller) Open() {
 // When prompts are queued, the first Ctrl-C at the prompt only warns that
 // quitting drops them.
 func (c *Controller) Interrupt() bool {
-	if c.Mode() == ModeIdle && c.keepQueued("Ctrl-C") {
-		return false
+	if c.Mode() == ModeIdle {
+		if host := c.eng.taskHost(); host != nil {
+			running := 0
+			for _, task := range host.tasks.List() {
+				if task.Running() {
+					running++
+				}
+			}
+			if running > 0 {
+				c.notice("No foreground work to interrupt; %d child tasks continue. Use /tasks and /task-stop ID, or /quit to exit.", running)
+				return false
+			}
+		}
+		if c.keepQueued("Ctrl-C") {
+			return false
+		}
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -315,11 +332,15 @@ func (c *Controller) Interrupt() bool {
 		}
 		return false
 	case ModeApproval:
-		// Quitting during a prompt cancels the run. Dashi records the turn
-		// as interrupted, and the call had not started. As with
-		// QuitDuringRun, queued prompts get a warning once the run settles.
-		c.quit, c.quitAction = true, "Ctrl-C"
-		c.cancelExitDialogLocked()
+		if c.cancel != nil {
+			c.cancel()
+		}
+		owner, active := c.broker.activeOwner()
+		if active && owner.TaskID != "" {
+			c.notice("Foreground interrupted; child approval stays pending. Use /tasks, /task %s, or /task-stop %s to control that child.", delegate.TaskID(owner.TaskID), delegate.TaskID(owner.TaskID))
+		} else {
+			c.broker.cancelActive()
+		}
 		return false
 	}
 	return true
