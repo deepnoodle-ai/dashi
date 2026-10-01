@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.26.8
 
 require (
-	github.com/deepnoodle-ai/dashi v0.1.1
+	github.com/deepnoodle-ai/dashi v0.2.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 )
 
