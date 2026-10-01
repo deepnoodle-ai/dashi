@@ -42,6 +42,18 @@ channel passed with
 `dashi.WithPause` for a graceful stop before the next model or tool call. Work
 already running finishes.
 
+Only `Start` and `Continue` call the model, so only they need
+`Runner.Client`. `Settle`, `Deliver`, and `Cancel` record facts and run with a
+`Runner` that has just a `Recorder`. A turn with no steps has not started, so
+`Cancel` refuses it; a host that admitted work and never ran it withdraws its
+own admission.
+
+To record an admitted turn before any paid request, pass a `Start` with an
+already-closed pause channel. Dashi records the `Start` step and a
+`StopInterrupted` stop ("pause requested"), prepares and sends no model
+request, and `Next()` gives `NextContinue`. A later `Continue` runs the turn
+and counts one interruption; a `Cancel` withdraws it.
+
 A command is applied once per recorder. Running the same command again, with
 the same `CommandID` and content against the same recorder, returns the
 recorded result without calling the model or running tools again; this is how

@@ -21,6 +21,10 @@ import (
 // agent goes on its Start and is recorded, per-call controls are RunOption
 // values, and each turn's state lives in its Turn.
 type Runner struct {
+	// Client prepares and sends model requests. Only Start and Continue
+	// call the model, so only they require it; Settle, Deliver, and Cancel
+	// record facts and run with a Recorder alone. When set on those
+	// commands, it must match the turn's recorded provider and API.
 	Client llm.Client
 	// Tools implements the tools a turn may call. It is resolved before each
 	// model call, so a dynamic toolset can change between calls; the turn's
@@ -76,6 +80,14 @@ func WithOwner(owner string) RunOption {
 
 // WithPause requests a stop before the next model or tool call once pause is
 // closed. Closing it does not interrupt work already in flight.
+//
+// A Start with an already-closed pause admits a turn without running it:
+// the turn records its Start step and an interrupted stop ("pause
+// requested"), and no model request is prepared or sent. Next then gives
+// NextContinue; a later Continue runs the turn and counts one interruption
+// (see Limits.Interruptions), and a Cancel, which needs no Client, ends it.
+// A host uses this to fix the admitted request in the record before any paid
+// request runs.
 func WithPause(pause <-chan struct{}) RunOption {
 	return func(o *runOptions) {
 		o.pause = pause
@@ -221,8 +233,11 @@ func (r Runner) apply(
 		r.OnContextDone != ContextCancel {
 		return Outcome{}, errors.New("dashi: invalid context-done behavior")
 	}
-	if r.Client == nil {
-		return Outcome{}, errors.New("dashi: client is required")
+	switch command.(type) {
+	case Start, Continue:
+		if r.Client == nil {
+			return Outcome{}, errors.New("dashi: client is required to start or continue a turn")
+		}
 	}
 	// Empty IDs are generated before anything reads them: the turn ID before
 	// replay, recorder setup, and loading, and the command ID before its
@@ -671,7 +686,12 @@ func (r Runner) apply(
 		}
 		return rt.result(rt.current())
 	case Cancel:
-		if len(turn.Steps) == 0 || state.Output != nil {
+		// A turn with no steps has not started: a host that admitted work
+		// and never ran it cancels its own admission.
+		if len(turn.Steps) == 0 {
+			return Outcome{}, errors.New("dashi: cannot cancel: turn has not started")
+		}
+		if state.Output != nil {
 			return Outcome{}, errors.New("dashi: turn cannot cancel")
 		}
 		if o := rt.commit(Step{
