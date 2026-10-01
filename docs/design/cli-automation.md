@@ -67,9 +67,12 @@ Retain the exact pending Start/CommandID on unknown acknowledgement. Reload esta
 
 ## Public version 1 projection
 
-Use explicitly tagged private DTOs and copying functions. Never JSON-encode Turn, Outcome, Event, Block, Agent, or tool/model facts directly.
-The schema is a CLI contract, not a Go package export. Future compatible fields are additive; incompatible meaning requires a version bump.
-Arrays use stable IDs/order. Integers remain integer JSON numbers; money uses canonical decimal strings by currency.
+JSON/JSONL serialize a fixed CLI run report, independent of the task. See the PRD's trimmed examples and CI field mapping.
+Optional `structured_output` passes through an already-recorded typed model answer. This slice adds no CLI task-schema selection.
+`exit_code` describes Dashi execution, not build/test success or diagnosis correctness.
+Use tagged private DTOs and copying functions, never direct Turn/Outcome/Event/Block/Agent/tool/model encoding.
+Version 1 permits additive fields. Incompatible meaning requires a new version.
+Stable IDs order arrays. Integers remain JSON numbers; currency amounts remain canonical decimal strings.
 
 | Object | Version 1 fields and meaning |
 | --- | --- |
@@ -134,10 +137,8 @@ Run affected formatting/vet/build/race gates after code; independent implementat
 
 ## Alternatives and checkpoint
 
-Exporting internal events is smaller initially but exposes hidden requests and unstable semantics. Blocks lose record identity and completeness.
-Always building the live app reuses startup, but makes historical reporting depend on current tools/credentials. Separate record projection keeps that job available.
-Buffered progress prevents slow consumers from blocking execution, at the cost of explicit gaps. Final snapshots require loading full covered records.
-Whole-stdin behavior changes bare pipes; explicit --plain preserves scripted line workflows. Document this intentional change without a record migration.
+Internal events expose hidden requests. Blocks lose record identity/completeness. Offline projection avoids current tools/credentials.
+Bounded progress can drop previews. Final snapshots load full covered records. Explicit --plain preserves scripted line workflows without a record migration.
 No RPC, daemon, transcript repair, credential ingestion, new grant flags, automatic remedy, or family budget is introduced.
 This documentation PR stacks on published task PRD #148 at `2d66ad030d75db8a8ef60cab3e9a1f41a1715f1f` as a provisional dependency. Move this PRD onto the reviewed task feature before shared CLI integration and final gates. Implementation must use the preceding tracks' settled private seams under root scheduling.
 No new product/API question blocks the spec. Root accepted the checkpoint at `a639074698b8fbbbdf73b60a2f0931dec245fe30`. Prerequisite integration, writer qualification, and implementation authorization still precede production edits.

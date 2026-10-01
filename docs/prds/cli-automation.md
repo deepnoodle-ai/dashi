@@ -5,22 +5,23 @@ PRD PR: #149 · Implementation PR: Not opened · Updated: 2026-09-30
 
 ## Problem and context
 
-A developer pipes a multiline build log into Dashi, asks for a diagnosis, and parses the result in CI.
+A developer asks Dashi to explain a failed build log in CI.
+CI needs a fixed run report: did Dashi finish, what did it answer, and does it need attention?
+The build/test command determines build success. Dashi completion does not certify the build or its diagnosis.
 Today, `-p` ignores stdin. Without `-p`, line mode creates separate requests and can consume later lines as approval answers.
 Its banners and notices share stdout. Print mode returns only an answer and collapses all other stops to exit code 1.
 The script cannot reliably identify its recorded work, missing usage, or the action needed after interruption.
 
 This completes O03/O04 and slice 8's reporting share of O06 in the [operational matrix](../research/cli-parity-operations.md).
-[Claude Code](https://code.claude.com/docs/en/headless) combines piped data with a prompt and offers text, JSON, and streaming output.
-[Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md) reserves stdout for JSONL and distinguishes progress from settled work.
-Adopt those concrete workflows using Dashi's recorded Turn and Session authority.
+[Claude Code](https://code.claude.com/docs/en/headless) combines piped data and prompts. [Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md) separates JSONL progress from settled work.
+Use those workflows with Dashi's recorded authority.
 Reuse the [accounting contract](spend-usage-accounting.md), composer command boundary, and preceding attachment, inspection, active-context, and task tracks.
 
 ## Users and concepts
 
-The primary user writes local scripts or CI jobs. They need one request, a parseable result, and safe continuation.
+Scripts/CI send one request, log its answer, and detect unfinished Dashi work.
 **Invocation** is one CLI process. It admits at most one new user request.
-**Result** reports the invocation and its recorded work. Child and scheduled notice Turns remain distinct from the original request.
+**Result** is a fixed CLI run report. Child/notice Turns retain separate identities.
 **JSONL** is one JSON object per LF-terminated line. Progress is provisional. The final result contains the authoritative recorded snapshot.
 
 ## Use cases and acceptance
@@ -30,17 +31,17 @@ The primary user writes local scripts or CI jobs. They need one request, a parse
 Run `cat build.log | dashi -p "Explain the failure" --output-format json`.
 
 - [ ] Read nonterminal stdin to EOF before admission. Preserve Unicode, tabs, blank lines, trailing newlines, and slash-prefixed lines.
-  The combined request creates one user-origin Turn, never one Turn per line or an approval/command stream.
-- [ ] Place the exact `-p` text before exact stdin, separated by two newlines when both contain bytes.
-  Preserve each part without trimming. Stdin alone is valid. Empty/whitespace-only combined input rejects before admission.
+  Create one user-origin Turn, never a command/approval stream or one Turn per line.
+- [ ] Combine exact `-p` text, two newlines, and exact stdin when both contain bytes. Do not trim.
+  Stdin alone is valid. Reject empty/whitespace-only combined input before admission.
 - [ ] Stdin is literal text: `/quit`, `yes`, `@file`, and attachment-like paths in it cause no local command, approval, or file read.
   Explicit `-p` attachment mentions and `--attach` retain the attachment track's validation and snapshot policy.
   Only parse that explicit prompt for mentions, before combining it with stdin.
 - [ ] Limit stdin to 16 MiB. Read failure, invalid UTF-8, NUL, or overflow fails before model/tool dispatch.
   Never silently shorten or omit failed input. Signal cancellation during reading admits no request.
-- [ ] Nonterminal stdin without `--plain` selects one-shot text output, including without `-p`.
-  `--output-format text|json|jsonl` explicitly selects one-shot output with any terminal arrangement. It never reads terminal stdin.
-  `-p` without the new flag keeps answer-only text output and now includes redirected stdin.
+- [ ] Nonterminal stdin without `--plain` selects one-shot text, with or without `-p`.
+  Explicit `--output-format text|json|jsonl` selects one-shot with any terminal arrangement, never reading terminal stdin.
+  `-p` keeps answer-only text output and now includes redirected stdin.
 - [ ] `--plain` without `-p` intentionally retains the existing line/command/approval route.
   Reject `--plain` or `--inline` with any explicit output format.
   Fullscreen/inline interactive launch and terminal-input line mode otherwise retain their routes and controls.
@@ -51,11 +52,47 @@ Run `cat build.log | dashi -p "Explain the failure" --output-format json`.
 
 ### UC-2: Parse the result and its cost
 
-Run the same request with `json`, then `jsonl`. Parse stdout independently from stderr.
+`--output-format json|jsonl` selects CLI report framing, not a task-specific diagnosis schema.
+Optional `structured_output` passes through an already-recorded typed model answer. This CLI slice adds no task-schema selection.
+
+Trimmed proposed reports omit snapshots, totals, persistence, warnings, and stop/action details.
+Dashi completed its diagnosis of the failed build:
+
+```json
+{"version":1,"type":"result","mode":"execution","exit_code":0,"session_id":"s1","request_turn_id":"t1","answer_turn_id":"t1","answer":"The test failed: expected 3, got 4.","quiet":true,"affected":[]}
+```
+
+Dashi waits for approval:
+
+```json
+{"version":1,"type":"result","mode":"execution","exit_code":3,"session_id":"s1","request_turn_id":"t1","answer":"","quiet":false,"affected":[{"turn_id":"t1","call_id":"c1","primary":true,"stop":{"kind":"waiting"},"action":{"kind":"approve"}}]}
+```
+
+| Field | Script consumer |
+| --- | --- |
+| `exit_code` | Branch on Dashi completion/attention. Preserve the build's exit status. |
+| `answer` | Log the textual diagnosis. It does not certify test results. |
+| `session_id` | Save the recorded session identity for inspection or permitted resume. |
+| `affected[].primary`, `affected[].action.kind` | Identify the primary target/remedy. Inspect all affected targets. Never auto-approve. |
+| `totals.invocation.inclusive.model_cost`, `totals.invocation.inclusive.tool_cost` | Optional cost logging by currency with completeness flags. Repeated reports are snapshots. |
+
+CI keeps its existing test outcome while logging Dashi's answer:
+
+```sh
+build_status=0
+go test ./... >build.log 2>&1 || build_status=$?
+if [ "$build_status" -ne 0 ]; then
+  dashi -p "Explain this test failure" --output-format json <build.log >diagnosis.json || true
+  jq -r '.answer // empty' diagnosis.json || true
+fi
+exit "$build_status"
+```
+
+Acceptance checks both formats and stdout/stderr separation:
 
 - [ ] JSON emits exactly one result object. JSONL emits typed progress objects and exactly one final result.
-  Every line parses separately, including multiline answers and Unicode separators. Neither mode emits ANSI, banners, or human notices to stdout.
-  Text output stays answer-only. Loading, trust, attachment, compaction, tool, and task notices use printable stderr.
+  Lines parse separately, including multiline answers/Unicode separators. Keep ANSI, banners, and human notices off stdout.
+  Text remains answer-only. All notices use printable stderr.
 - [ ] Valid machine-mode invocations return a versioned result even for preflight failures, with unavailable identities absent.
   Malformed flags/unknown formats may leave stdout empty and report usage on stderr. Document that boundary.
 - [ ] Results identify session, original request Turn, last answer Turn, affected Turn/task/call, and recorded revisions where available.
@@ -89,17 +126,17 @@ Interrupt a tool-using invocation, then run `dashi --resume SESSION_ID --output-
   Emit the latest recorded result when stdout remains usable. Hard termination cannot promise a final result or effect completion.
 - [ ] Reopen first loads and validates the workspace-scoped records under existing ownership rules.
   Reporting completed or resolution-required work uses those records only. It requires no current credential, tool binding, MCP startup, or attachment access.
-  Corrupt records or another owner produce explicit errors rather than invented results.
+  Reject corrupt or foreign-owned records explicitly.
   Only before continuing or admitting new work, validate its live destination, tools, resources, and immutable attachment evidence.
-  Missing credentials or changed bindings then produce explicit errors. No destination fallback occurs.
+  Reject missing credentials or changed bindings without destination fallback.
 - [ ] Fixture: report completed parent/child work with unavailable credentials, changed tool bindings, and inaccessible attachment storage.
   JSON and JSONL retain recorded IDs, answers, stops, destinations, and spend. No provider call, MCP process, attachment read, or new Turn occurs.
 - [ ] With no payload, one-shot resume continues only work that existing recovery deems ready/interrupted.
   Already-completed work returns a read-only result without another Turn or call.
   Pending approval, questions, uncertain effects, limits, and terminal stops report their exact target and remedy.
   Resume never doubles attempt limits, raises budgets, settles effects, or grants approval implicitly.
-- [ ] With a new payload, start one new user Turn only after previous work and child recovery permit admission.
-  Do not automatically discard unresolved work to accept it. A failed/unknown admission preserves its identity and requires reconciliation before resubmission.
+- [ ] Admit one new user Turn only when previous work and child recovery permit. Never discard unresolved work automatically.
+  Failed/unknown admission retains its identity and requires reconciliation before resubmission.
 - [ ] Stdin never answers an approval. Existing unattended denial and explicit `--yes` rules apply to original parent and child calls.
   Formatting, resume, instructions, and attachment selection grant no authority. Project MCP startup retains its separate binding/trust policy.
 - [ ] Wait for the task track's pending children and permitted scheduled notice work before successful exit.
@@ -110,12 +147,12 @@ Interrupt a tool-using invocation, then run `dashi --resume SESSION_ID --output-
 
 ## Exit contract
 
-The result carries the process exit code separately from each Turn's recorded stop.
+Process exit codes remain separate from recorded Turn stops.
 Signal exit takes precedence, then output/persistence failure, then the affected recorded work.
 For mixed recorded stops, choose execution failure before required interaction, then limit, refusal, and cancellation.
 Waiting, uncertain effects, and interruption requiring continuation belong to required interaction when no invocation signal applies.
 For equal rank, prefer the original parent, then notice/child targets in lexical Turn ID, task ID, and call ID order.
-Report every affected stop, identity, and required action. The primary target never replaces or hides the others.
+Report every affected stop/identity/action. The primary target never hides another.
 
 | Code | Observable result |
 | --- | --- |
@@ -126,7 +163,7 @@ Report every affected stop, identity, and required action. The primary target ne
 | 4 | Recorded limit, refusal, or cancellation prevents successful completion. No automatic remedy. |
 | 130 / 143 | Invocation interrupted by SIGINT / SIGTERM. Preserve the actual recorded stops and any uncertainty. |
 
-Completed work with a recorded denied call retains its completed stop. The report exposes the denial without inventing a waiting stop.
+Completed work retains its completed stop. Expose recorded denials without inventing a waiting stop.
 Fixtures pin every code, empty input, no stdout contamination, and interrupted reading.
 A completed parent with failed and waiting children selects the failed child and code 1 while reporting both children.
 A waiting parent with a failed child also selects the failed child. Equal-rank parent/notice/child stops follow the stable target order.
@@ -136,13 +173,11 @@ Repeated record-only reports select the same primary target and preserve all sto
 
 ## Decisions, limits, and success
 
-Use one versioned reporting contract across JSON and JSONL, with the same final result. Reject exporting internal structs as a public format.
-Keep literal whole-stdin input and explicit line-mode compatibility. Reject autodetecting commands or approval answers inside payloads.
-Reuse record-derived accounting/recovery and the task host's quiet/report boundary. Reject a second ledger, recovery store, or queue driver.
-Keep machine formatting separate from model JSON-schema output. RPC, daemons, remote submission, new grant flags, automatic retry, and family budgets remain outside scope.
+Use one versioned CLI report, literal whole stdin, explicit line-mode compatibility, and existing accounting/recovery/task authority.
+Do not export internal structs, infer commands/approvals from payloads, or add a second ledger, recovery store, or queue driver.
+RPC, daemons, remote submission, new grant flags, automatic retry, and family budgets remain outside scope.
 
-Success is a keyless shell transcript piping a multiline log into one recorded request and parsing both formats with `jq`.
-It also proves stops/exit codes, accounting completeness, child quiet/result delivery, and interrupt/reopen without repeated effects.
-Named independent PRD re-review returned ready with no remaining findings.
-The [technical spec](../design/cli-automation.md) freezes framing, presentation fields, bounded writing, and preceding-track integration before code.
+Keyless fixtures prove framing, literal input, Dashi stops/exits, accounting, child quiet/notices, and interrupt/reopen without repeated effects.
+The CI fixture retains the test command's failed status when Dashi successfully diagnoses it.
+The [technical spec](../design/cli-automation.md) fixes framing, fields, writing, and preceding-track integration. Prior PRD re-review was ready; this clarity amendment awaits review.
 Root accepted the technical checkpoint. This documentation PR stacks provisionally on task PRD #148. Move this PRD onto the reviewed task feature before shared CLI integration and final gates. Preceding APIs, writer qualification, and implementation authorization remain gates before code.
