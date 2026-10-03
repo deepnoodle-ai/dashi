@@ -102,13 +102,9 @@ func (q questions) ask(
 	if err != nil {
 		return nil, err
 	}
-	results, err := fanout.Map(ctx, client, batches, workers,
+	results, failed := fanout.Map(ctx, client, batches, workers,
 		func(_ context.Context, _ int, b *batch) (*decide.Request, error) { return b.req, nil })
-	if err != nil {
-		return nil, err
-	}
 	models := map[string]bool{}
-	var failed error
 	for n, r := range results {
 		if r.Response != nil {
 			sel.Usage.InputTokens += r.Response.Usage.InputTokens
