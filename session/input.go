@@ -534,11 +534,9 @@ func (s *Session) planQueue(
 	}
 	history, unreadable := s.history(ctx, last)
 	if !compacted {
-		cp, warnings := s.planCompaction(ctx, last, history, nil)
-		if cp != nil {
+		if cp := s.planCompaction(ctx, last, history, nil); cp != nil {
 			return *cp, true, nil
 		}
-		p.warnings = append(p.warnings, warnings...)
 	}
 	p.warnings = append(p.warnings, unreadable...)
 	c.History = history

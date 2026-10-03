@@ -1,6 +1,7 @@
 package compaction
 
 import (
+	"context"
 	"slices"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -62,7 +63,8 @@ func (c *Compactor) Needed(messages []llm.Message, last llm.Usage) bool {
 // their own role. The Start has origin StartCompaction and no tools, and
 // its fact's Hash is the dashi.HistoryHash of messages. The caller sets its
 // CommandID and may set Budget; a Session also sets the fact's Through.
-func (c *Compactor) Start(messages []llm.Message) (dashi.Start, error) {
+// Start makes no model call, so it does not use ctx.
+func (c *Compactor) Start(_ context.Context, messages []llm.Message) (dashi.Start, error) {
 	window, _ := c.Policy.Window()
 	cut := c.cut(messages, window)
 	covered := withoutReminders(withoutAuthoritative(messages[:cut]))

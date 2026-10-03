@@ -36,8 +36,12 @@ their middle, followed by the turns after the compaction turn.
 - **The conversation is untouched.** `s.History` never includes compaction
   turns; `s.Turns` does. A UI hides them by `TurnView.Origin`, or shows a
   marker. `s.NextHistory` is what the next turn sends.
-- **Steering waits.** While a compaction turn runs, `s.Steer` refuses with a
-  `*TurnBusyError` whose `Origin` is `compaction`. `Enqueue` works.
+- **Steering waits.** While a compaction turn runs, and while the compactor
+  builds its Start, `s.Steer` refuses with a `*TurnBusyError` whose `Origin`
+  is `compaction`. `Enqueue` works. The session calls `Compactor.Start`
+  without holding its lock, with the context of the call that asked for the
+  compaction, so a compactor may take its time, such as to ask a model which
+  messages to keep, without blocking the handle.
 
 ## What the Compactor chooses
 
@@ -106,7 +110,7 @@ accounting.
 ```go
 history, warnings := dashi.BuildHistory(turns) // stored turns, oldest first
 if compactor.Needed(history, compaction.LastUsage(last)) {
-	start, err := compactor.Start(history) // origin compaction, no tools
+	start, err := compactor.Start(ctx, history) // origin compaction, no tools
 	if err == nil {
 		start.CommandID = "compact:" + id // the host's own turn ID
 		out, err := runner.Run(ctx, dashi.NewTurn(id), start)

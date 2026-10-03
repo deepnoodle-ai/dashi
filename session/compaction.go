@@ -55,6 +55,9 @@ func (cl *call) manualCompact(ctx context.Context, budget *dashi.Budget) (dashi.
 	s.mu.Lock()
 	p, err := s.planManualCompaction(ctx, budget)
 	s.mu.Unlock()
+	if err == nil {
+		err = s.buildCompaction(ctx, p)
+	}
 	if err != nil {
 		return dashi.RunResult{}, cl.fail(err)
 	}
@@ -118,11 +121,9 @@ func (s *Session) planManualCompaction(
 		}
 	}
 	messages, warnings := s.history(ctx, last)
-	p, err := s.buildCompaction(ctx, last, messages, budget)
-	if p != nil {
-		p.warnings = warnings
-	}
-	return p, err
+	p := s.reserveCompaction(ctx, last, messages, budget)
+	p.warnings = warnings
+	return p, nil
 }
 
 // compactionSlot resolves a lost manual reservation without allocating a
@@ -164,7 +165,13 @@ type Compactor interface {
 	// dashi.HistoryHash of messages. The session sets the command ID,
 	// origin, history, and Through, fills an empty Hash, turns tools
 	// off, and applies the caller's Start.Budget when it has one.
-	Start(messages []llm.Message) (dashi.Start, error)
+	//
+	// The session calls Start without holding its lock, so a slow Start,
+	// such as one that asks a model which messages to keep, never blocks
+	// Steer or Enqueue. Meanwhile the session counts as compacting: Steer
+	// refuses with a *TurnBusyError, as it does while the compaction turn
+	// runs. ctx ends with the call that asked for the compaction.
+	Start(ctx context.Context, messages []llm.Message) (dashi.Start, error)
 }
 
 // isCompaction reports whether command c runs a compaction turn.
@@ -189,82 +196,106 @@ func lastUsage(turn dashi.Turn) llm.Usage {
 }
 
 // planCompaction runs the compaction check before turn last+1: when the
-// last turn completed and the Compactor asks for it, it returns the plan of
-// a compaction turn. A Compactor that cannot build its Start gives a
-// WarningCompactionFailed instead, and the turn runs without compaction.
-// The check is skipped after a turn that failed or was canceled, and after
-// a compaction turn, so a failing summary is tried at most once per
-// completed turn. A non-nil budget, the caller's Start.Budget, caps the
-// compaction turn too. The caller holds mu.
+// last turn completed and the Compactor asks for it, it reserves the slot
+// and returns the plan of a compaction turn, whose Start buildCompaction
+// makes outside mu. The check is skipped after a turn that failed or was
+// canceled, and after a compaction turn, so a failing summary is tried at
+// most once per completed turn. A non-nil budget, the caller's
+// Start.Budget, caps the compaction turn too. The caller holds mu.
 func (s *Session) planCompaction(
 	ctx context.Context,
 	last int,
 	messages []llm.Message,
 	budget *dashi.Budget,
-) (*startPlan, []dashi.Warning) {
+) *startPlan {
 	if s.Compactor == nil || last == 0 {
-		return nil, nil
+		return nil
 	}
 	t, err := s.load(ctx, last)
 	if err != nil || t.view.Stop.Kind != dashi.StopCompleted ||
 		t.view.Origin == dashi.StartCompaction ||
 		!s.Compactor.Needed(messages, lastUsage(t.turn)) {
-		return nil, nil
+		return nil
 	}
-	p, err := s.buildCompaction(ctx, last, messages, budget)
-	if err != nil {
-		return nil, []dashi.Warning{compactionFailed(fmt.Sprintf(
-			"the compaction turn could not start: %v", err,
-		))}
-	}
-	return p, nil
+	return s.reserveCompaction(ctx, last, messages, budget)
 }
 
-func (s *Session) buildCompaction(
+// compactionInput is what a compaction turn's Start is built from, outside
+// mu: the history it replaces, the caller's budget, and the agent whose
+// model writes the summary unless the Compactor names another.
+type compactionInput struct {
+	messages []llm.Message
+	budget   *dashi.Budget
+	agent    dashi.Agent
+}
+
+// reserveCompaction marks turn last+1 as this handle's compaction turn, so
+// Steer refuses while the Compactor builds its Start and while it runs,
+// and returns its plan without a command. The caller holds mu, and passes
+// the plan to buildCompaction after releasing it.
+func (s *Session) reserveCompaction(
 	ctx context.Context,
 	last int,
 	messages []llm.Message,
 	budget *dashi.Budget,
-) (*startPlan, error) {
-	c, err := s.Compactor.Start(llmclone.Messages(messages))
-	if err == nil && c.Compaction == nil {
-		err = errors.New("the compactor's Start has no Compaction")
-	}
-	if err != nil {
-		return nil, err
-	}
+) *startPlan {
 	id := TurnID(s.ID, last+1)
-	c.CommandID = "compact:" + id
-	c.Origin = dashi.StartCompaction
-	c.History = nil
-	c.Compaction = cloneCompaction(c.Compaction)
-	c.Compaction.Through = last
-	if c.Compaction.Hash == "" {
-		// A custom Compactor may leave it empty; the check still applies.
-		if c.Compaction.Hash, err = dashi.HistoryHash(messages); err != nil {
-			return nil, err
-		}
-	}
-	if c.Agent.Model == "" {
-		// The summary is written by the session's model, unless the
-		// compactor names another.
-		a := s.agentFor(ctx, dashi.Agent{}, last)
-		c.Agent.Provider, c.Agent.API, c.Agent.Model = a.Provider, a.API, a.Model
-	}
-	c.Agent.Tools, c.Agent.NoTools = nil, true
-	if budget != nil {
-		b := budget.Clone()
-		c.Budget = &b
-	}
 	s.running[id]++
 	s.compacting = id
 	return &startPlan{
 		n:       last + 1,
 		id:      id,
-		command: c,
 		runner:  s.runner(),
 		compact: true,
-	}, nil
+		summarize: &compactionInput{
+			messages: messages,
+			budget:   budget,
+			agent:    s.agentFor(ctx, dashi.Agent{}, last),
+		},
+	}
+}
+
+// buildCompaction asks the Compactor for a reserved compaction turn's
+// Start and completes p.command. It runs without mu, so a slow Compactor
+// blocks neither Steer nor Enqueue. When it fails, it gives the slot back,
+// as the end of a run would.
+func (s *Session) buildCompaction(ctx context.Context, p *startPlan) error {
+	in := p.summarize
+	c, err := s.Compactor.Start(ctx, llmclone.Messages(in.messages))
+	if err == nil && c.Compaction == nil {
+		err = errors.New("the compactor's Start has no Compaction")
+	}
+	if err == nil {
+		c.CommandID = "compact:" + p.id
+		c.Origin = dashi.StartCompaction
+		c.History = nil
+		c.Compaction = cloneCompaction(c.Compaction)
+		c.Compaction.Through = p.n - 1
+		if c.Compaction.Hash == "" {
+			// A custom Compactor may leave it empty; the check still
+			// applies.
+			c.Compaction.Hash, err = dashi.HistoryHash(in.messages)
+		}
+	}
+	if err != nil {
+		s.mu.Lock()
+		s.stopRunning(p.id)
+		s.mu.Unlock()
+		return err
+	}
+	if c.Agent.Model == "" {
+		// The summary is written by the session's model, unless the
+		// compactor names another.
+		a := in.agent
+		c.Agent.Provider, c.Agent.API, c.Agent.Model = a.Provider, a.API, a.Model
+	}
+	c.Agent.Tools, c.Agent.NoTools = nil, true
+	if in.budget != nil {
+		b := in.budget.Clone()
+		c.Budget = &b
+	}
+	p.command = c
+	return nil
 }
 
 // compact runs a planned compaction turn. For Stream, it reports the
@@ -275,6 +306,17 @@ func (s *Session) buildCompaction(
 // returns an error only when the call must stop: the consumer broke the
 // range, or the context ended; the next Start then closes the turn.
 func (cl *call) compact(ctx context.Context, p startPlan) (lost bool, _ error) {
+	if err := cl.s.buildCompaction(ctx, &p); err != nil {
+		if ctx.Err() != nil {
+			return false, cl.fail(ctx.Err())
+		}
+		// The turn runs without compaction, and its result carries the
+		// warning.
+		cl.warnings = append(cl.warnings, compactionFailed(fmt.Sprintf(
+			"the compaction turn could not start: %v", err,
+		)))
+		return false, nil
+	}
 	out, lost, err := cl.runCompaction(ctx, p)
 	if lost {
 		return true, nil

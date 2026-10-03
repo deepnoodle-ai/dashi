@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/dashitest"
@@ -27,7 +28,7 @@ func (c keepLast) Needed(_ []llm.Message, last llm.Usage) bool {
 	return last.InputTokens+last.OutputTokens >= c.limit
 }
 
-func (c keepLast) Start(projected []llm.Message) (dashi.Start, error) {
+func (c keepLast) Start(_ context.Context, projected []llm.Message) (dashi.Start, error) {
 	if c.err != nil {
 		return dashi.Start{}, c.err
 	}
@@ -365,6 +366,10 @@ func TestSessionCompactionSkipped(t *testing.T) {
 			[]dashi.WarningCode{session.WarningCompactionFailed}) ||
 			!strings.Contains(out.SessionWarnings[0].Message, "no cut") {
 			t.Fatalf("turn=%s warnings=%v", out.Turn.ID, out.SessionWarnings)
+		}
+		// The failed Start gave the compaction slot back.
+		if q, err := s.Steer(t.Context(), "next"); err != nil || q.TurnID != "" {
+			t.Fatalf("steer: %+v err=%v; want it queued", q, err)
 		}
 	})
 }
@@ -747,5 +752,124 @@ func TestSessionRefusesCallerCompaction(t *testing.T) {
 	}
 	if _, err := rec.Load(t.Context(), session.TurnID("s", 1)); !errors.Is(err, dashi.ErrTurnNotFound) {
 		t.Fatalf("turn 1: %v; want none", err)
+	}
+}
+
+// gatedCompactor is keepLast whose Start waits at a gate, as a Compactor
+// that asks a model which messages to keep would.
+type gatedCompactor struct {
+	keepLast
+	gate *gate
+}
+
+func (c gatedCompactor) Start(ctx context.Context, h []llm.Message) (dashi.Start, error) {
+	if err := c.gate.wait(ctx); err != nil {
+		return dashi.Start{}, err
+	}
+	return c.keepLast.Start(ctx, h)
+}
+
+// within fails the test when f does not return soon: it is blocked.
+func within(t *testing.T, what string, f func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f()
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%s blocked while the Compactor built its Start", what)
+	}
+}
+
+// The Compactor builds its Start outside the session lock: Steer refuses
+// at once, as during the compaction turn, and Enqueue and Open work.
+func TestSessionCompactorStartDoesNotBlock(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(
+		used("one", 100),
+		dashitest.Reply("summary"),
+		dashitest.Reply("two"),
+	)
+	s := handle(rec, client)
+	s.New = true
+	g := newGate()
+	s.Compactor = gatedCompactor{keepLast: keepLast{limit: 100}, gate: g}
+	sendAll(t, s, "first")
+
+	done := make(chan error, 1)
+	var out dashi.RunResult
+	go func() {
+		var err error
+		out, err = s.Send(t.Context(), "second")
+		done <- err
+	}()
+	g.requireEntered(t, done)
+	within(t, "Steer", func() {
+		_, err := s.Steer(t.Context(), "hurry")
+		var busy *session.TurnBusyError
+		if !errors.As(err, &busy) || busy.Origin != dashi.StartCompaction ||
+			busy.TurnID != "s-2" {
+			t.Errorf("steer: %v; want a TurnBusyError for the compaction", err)
+		}
+	})
+	within(t, "Enqueue", func() {
+		if _, err := s.Enqueue(t.Context(), "later"); err != nil {
+			t.Error(err)
+		}
+	})
+	within(t, "Open", func() {
+		if _, err := s.Open(t.Context()); err != nil {
+			t.Error(err)
+		}
+	})
+	close(g.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if v := load(t, rec, "s-2"); v.Origin != dashi.StartCompaction ||
+		v.Stop.Kind != dashi.StopCompleted {
+		t.Fatalf("s-2 origin=%q stop=%s", v.Origin, v.Stop.Kind)
+	}
+	if out.Turn.ID != "s-3" || out.Reply != "two" {
+		t.Fatalf("turn=%s reply=%q", out.Turn.ID, out.Reply)
+	}
+	history, err := s.History(t.Context())
+	if err != nil || !slices.Contains(textsOf(history), "later") {
+		t.Fatalf("history=%q err=%v; want the queued item", textsOf(history), err)
+	}
+}
+
+// A Compactor's Start gets the call's context. When the call ends while
+// Start runs, no compaction turn is recorded and the slot is given back:
+// a later Steer queues instead of refusing.
+func TestSessionCompactorStartGetsTheCallContext(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(used("one", 100), dashitest.Reply("two"))
+	s := handle(rec, client)
+	s.New = true
+	g := newGate()
+	s.Compactor = gatedCompactor{keepLast: keepLast{limit: 100}, gate: g}
+	sendAll(t, s, "first")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.Send(ctx, "second")
+		done <- err
+	}()
+	g.requireEntered(t, done)
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("send: %v; want context.Canceled", err)
+	}
+	if _, err := rec.Load(t.Context(), "s-2"); !errors.Is(err, dashi.ErrTurnNotFound) {
+		t.Fatalf("s-2: %v; want no turn", err)
+	}
+	q, err := s.Steer(t.Context(), "hurry")
+	if err != nil || q.TurnID != "" {
+		t.Fatalf("steer: %+v err=%v; want it queued", q, err)
 	}
 }

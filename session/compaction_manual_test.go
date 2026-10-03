@@ -63,8 +63,8 @@ func TestSessionManualCompactionResults(t *testing.T) {
 
 type cappedCompactor struct{ keepLast }
 
-func (c cappedCompactor) Start(h []llm.Message) (dashi.Start, error) {
-	start, err := c.keepLast.Start(h)
+func (c cappedCompactor) Start(ctx context.Context, h []llm.Message) (dashi.Start, error) {
+	start, err := c.keepLast.Start(ctx, h)
 	start.Budget = &dashi.Budget{MaxOutputTokens: 100}
 	start.Agent.Model = "summary-model"
 	return start, err

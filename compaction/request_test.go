@@ -8,7 +8,7 @@ import (
 
 func TestStartShortensOversizedMessagesWithoutDroppingAny(t *testing.T) {
 	c := &Compactor{Policy: policyWith(8_000), MaxTokens: 1_000, TailFraction: -1}
-	s, err := c.Start(exchange(0, 300_000))
+	s, err := c.Start(t.Context(), exchange(0, 300_000))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestStartShortensOversizedMessagesWithoutDroppingAny(t *testing.T) {
 func TestStartFailsWhenHistoryCannotFit(t *testing.T) {
 	history, _ := conversation(50, 3_000)
 	c := &Compactor{Policy: policyWith(2_000), MaxTokens: 500, TailFraction: -1}
-	if _, err := c.Start(history); err == nil {
+	if _, err := c.Start(t.Context(), history); err == nil {
 		t.Fatal("history larger than the window was sent")
 	}
 }
@@ -69,7 +69,7 @@ func TestFitTranscriptKeepsCountAndBudget(t *testing.T) {
 func TestStartSmallWindowShrinksOutputAllowance(t *testing.T) {
 	history, _ := conversation(2, 200)
 	// The default allowance (16,384) is larger than the whole window.
-	s, err := (&Compactor{Policy: policyWith(8_000)}).Start(history)
+	s, err := (&Compactor{Policy: policyWith(8_000)}).Start(t.Context(), history)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -55,7 +55,7 @@ func ExampleCompactor_Start() {
 			last = compaction.LastUsage(turns[len(turns)-1])
 		}
 		if compactor.Needed(history, last) {
-			start, err := compactor.Start(history)
+			start, err := compactor.Start(ctx, history)
 			if err == nil {
 				run(start)
 				history, _ = dashi.BuildHistory(turns)

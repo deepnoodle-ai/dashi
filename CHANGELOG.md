@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Breaking: `session.Compactor.Start` takes a `context.Context`,** and the
+  session calls it without holding its lock, so a slow compactor never blocks
+  `Steer`, `Enqueue`, or `Open`. While it runs, `Steer` refuses with a
+  `*TurnBusyError` for the compaction, as it does while the compaction turn
+  runs. `compaction.Compactor.Start` takes the context too; update custom
+  compactors and hosts that call `Start` themselves.
 - **Plain names across the API.** Names now say what they mean, so a new
   reader does not have to decode them. Recorded values change with the names
   (step kinds, JSON keys, stop and verdict codes), so turns recorded by an

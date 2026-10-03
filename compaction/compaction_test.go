@@ -10,7 +10,7 @@ import (
 
 func TestIsSummary(t *testing.T) {
 	history, _ := conversation(6, 400)
-	s, err := (&Compactor{Policy: policyWith(20_000)}).Start(history)
+	s, err := (&Compactor{Policy: policyWith(20_000)}).Start(t.Context(), history)
 	if err != nil {
 		t.Fatal(err)
 	}
