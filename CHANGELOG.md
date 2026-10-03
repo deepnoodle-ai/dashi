@@ -91,6 +91,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   model does not see, such as one to `Output.Display` only, keeps it.
 - **`session.Session.Delivered` drops queued items that the record shows
   delivered another way,** just before a queue turn, so they start no turn.
+- **`ModelDecision` and `ResultDecision` carry `Reason` and `RulesVersion`,**
+  recorded in the hook's `HookResult` as `ToolDecision`'s are, so a
+  `BeforeModel` or `AfterTool` hook can say why it changed something and which
+  rules or decision model decided. The model never sees them. A `BeforeModel`
+  stop with no `Reason` still records `Stop.Reason`.
 
 ### Fixed
 

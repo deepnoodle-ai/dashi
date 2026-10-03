@@ -1,6 +1,7 @@
 package dashi
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,10 +73,11 @@ func (r *runtime) beforeModel(
 		}
 		if d.Stop != nil {
 			r.addHookResult(HookResult{
-				Point:   HookBeforeModel,
-				Name:    h.Name,
-				Verdict: VerdictStop,
-				Reason:  d.Stop.Reason,
+				Point:        HookBeforeModel,
+				Name:         h.Name,
+				Verdict:      VerdictStop,
+				RulesVersion: d.RulesVersion,
+				Reason:       cmp.Or(d.Reason, d.Stop.Reason),
 			})
 			stop := *d.Stop
 			if stop.Limit != nil {
@@ -97,9 +99,11 @@ func (r *runtime) beforeModel(
 			deliver = append(deliver, cloneContextItem(item))
 		}
 		r.addHookResult(HookResult{
-			Point:   HookBeforeModel,
-			Name:    h.Name,
-			Verdict: VerdictChange,
+			Point:        HookBeforeModel,
+			Name:         h.Name,
+			Verdict:      VerdictChange,
+			RulesVersion: d.RulesVersion,
+			Reason:       d.Reason,
 		})
 	}
 	if w, ok := ignored.warning(); ok {

@@ -655,3 +655,34 @@ func TestReplayRejectsAResultOffAFinish(t *testing.T) {
 		t.Fatalf("replay err = %v", err)
 	}
 }
+
+func TestAfterToolRecordsReasonAndRulesVersion(t *testing.T) {
+	screen := ResultHook{Name: "screen", Func: func(
+		_ context.Context,
+		p ResultPlan,
+	) (ResultDecision, error) {
+		r := p.Result
+		r.Output = tool.TextOutput("withheld: possible injection")
+		return ResultDecision{
+			Replace:      &r,
+			Reason:       "P(injection)=0.88",
+			RulesVersion: "jev-1.13.0",
+		}, nil
+	}}
+	runs := 0
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "remote"), final("done")},
+	}
+	out, err := runHooked(t, client, tool.List{secretTool(&runs)}, screen.Hooks())
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	got := finishOf(t, out.Turn, "call-1").HookResults
+	if len(got) != 1 || got[0].Verdict != VerdictReplace ||
+		got[0].Reason != "P(injection)=0.88" || got[0].RulesVersion != "jev-1.13.0" {
+		t.Fatalf("hook results = %+v", got)
+	}
+	if strings.Contains(modelText(out.Tools["call-1"].Result()), "0.88") {
+		t.Fatal("the model saw the reason")
+	}
+}

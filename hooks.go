@@ -283,6 +283,12 @@ type ModelDecision struct {
 	// StopRefused, StopFailed, or StopLimited with a host, cost or token
 	// Limit; other stops could end the turn for good by accident.
 	Stop *Stop
+	// Reason is recorded with a change or a stop and is never shown to the
+	// model. A stop with no Reason records Stop.Reason.
+	Reason string
+	// RulesVersion is audit data naming the rules that decided, such as a
+	// policy or decision model version.
+	RulesVersion string
 }
 
 // SendPlan gives BeforeSend the immutable prepared request, the turn's spend,
@@ -390,6 +396,12 @@ type ResultDecision struct {
 	// CallID. A replacement with the same JSON meaning as Result is no
 	// opinion, so a hook may return one on every call.
 	Replace *llm.ToolResult
+	// Reason is recorded with a replacement and is never shown to the
+	// model.
+	Reason string
+	// RulesVersion is audit data naming the rules that decided, such as a
+	// policy or decision model version.
+	RulesVersion string
 }
 
 // FinishPlan gives BeforeFinish a candidate final reply: model text that
