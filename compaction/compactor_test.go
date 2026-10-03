@@ -27,7 +27,7 @@ func TestCompactorKeepsToolPairsValidAtEveryCut(t *testing.T) {
 	history, starts := conversation(6, 400)
 	for _, fraction := range []float64{0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7} {
 		c := &Compactor{Policy: policyWith(20_000), TailFraction: fraction}
-		s, err := c.Start(history)
+		s, err := c.Start(t.Context(), history)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -48,7 +48,7 @@ func TestCompactorStartIsASummaryRequest(t *testing.T) {
 	}, exchange(0, 100)...)
 	history = append(history, exchange(1, 100)...)
 	c := &Compactor{Policy: policyWith(100_000), TailFraction: -1, Model: "m"}
-	s, err := c.Start(history)
+	s, err := c.Start(t.Context(), history)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestCompactorSummaryRequestKeepsAgentMail(t *testing.T) {
 	)
 	history = append(history, exchange(1, 100)...)
 	c := &Compactor{Policy: policyWith(100_000), TailFraction: -1}
-	s, err := c.Start(history)
+	s, err := c.Start(t.Context(), history)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestCompactorNeeded(t *testing.T) {
 	if c.Needed(only, llm.Usage{InputTokens: 900}) {
 		t.Fatal("needed with nothing to summarize")
 	}
-	if _, err := c.Start(only); !errors.Is(err, ErrNothingToCompact) {
+	if _, err := c.Start(t.Context(), only); !errors.Is(err, ErrNothingToCompact) {
 		t.Fatalf("err=%v", err)
 	}
 }
@@ -138,11 +138,11 @@ func TestCompactorSummaryModelWindow(t *testing.T) {
 	session := &Compactor{Policy: policyWith(1_000_000), TailFraction: -1}
 	small := *session
 	small.Model = "claude-haiku-4-5" // a 200k-token window in the catalog
-	big, err := session.Start(history)
+	big, err := session.Start(t.Context(), history)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := small.Start(history)
+	s, err := small.Start(t.Context(), history)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestCompactorSummaryModelWindow(t *testing.T) {
 
 func TestCompactorKeepsTailWithinBudget(t *testing.T) {
 	history, starts := conversation(4, 2_000)
-	s, err := (&Compactor{Policy: policyWith(10_000)}).Start(history)
+	s, err := (&Compactor{Policy: policyWith(10_000)}).Start(t.Context(), history)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestCompactorKeepsTailWithinBudget(t *testing.T) {
 func TestCompactorSummarizesAllWhenNewestTurnIsTooLarge(t *testing.T) {
 	history, _ := conversation(3, 100)
 	history = append(history, exchange(3, 60_000)...)
-	s, err := (&Compactor{Policy: policyWith(10_000)}).Start(history)
+	s, err := (&Compactor{Policy: policyWith(10_000)}).Start(t.Context(), history)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -94,6 +94,12 @@ type TurnView struct {
 	// Origin is who supplied the turn's initial work, recorded at Start: an
 	// unset Start.Origin reads as StartUser. It is empty before Start.
 	Origin StartOrigin
+	// Input is the turn's input, in record order: Start.Input, then the
+	// message of each later item from the user (origin ContextUser) that an
+	// AddMessages command or a steer added. Items that hooks add are not
+	// input. A named item's message carries its slot in Context, as in the
+	// turn's messages. A hook or tool reads the user's request here.
+	Input []llm.Message
 	// Compaction is what a compaction turn replaces, recorded at Start; nil
 	// for other turns.
 	Compaction *CompactionFact

@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Breaking: `session.Compactor.Start` takes a `context.Context`,** and the
+  session calls it without holding its lock, so a slow compactor never blocks
+  `Steer`, `Enqueue`, or `Open`. While it runs, `Steer` and a new `Run` or
+  `Send` on the same handle refuse with a `*TurnBusyError` for the
+  compaction, as they do while the compaction turn runs, so `Start` runs once
+  per compaction turn. `compaction.Compactor.Start` takes the context too; update custom
+  compactors and hosts that call `Start` themselves.
 - **Plain names across the API.** Names now say what they mean, so a new
   reader does not have to decode them. Recorded values change with the names
   (step kinds, JSON keys, stop and verdict codes), so turns recorded by an
@@ -95,6 +102,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   model does not see, such as one to `Output.Display` only, keeps it.
 - **`session.Session.Delivered` drops queued items that the record shows
   delivered another way,** just before a queue turn, so they start no turn.
+- **`ModelDecision` and `ResultDecision` carry `Reason` and `RulesVersion`,**
+  recorded in the hook's `HookResult` as `ToolDecision`'s are, so a
+  `BeforeModel` or `AfterTool` hook can say why it changed something and which
+  rules or decision model decided. The model never sees them. A `BeforeModel`
+  stop with no `Reason` still records `Stop.Reason`. A `BeforeModel` decision
+  that changes nothing but carries a `Reason` or `RulesVersion` is recorded
+  with the new `VerdictNoChange`, so `HookActed` reports that the hook ran.
+- **`TurnView.Input` holds the turn's input,** in record order: `Start.Input`,
+  then user items that `AddMessages` or a steer added later. Items that hooks
+  add are left out. A hook reads it from its plan's `Turn`, and a tool from
+  `dashi.CurrentTurn(ctx)`, to see what the user asked for.
+- **`compaction.IsSummary` reports whether a message is a compaction
+  summary,** from the package's `Compactor` or from `Agent.ActiveCompaction`,
+  so other packages need not match the frame text.
+- **A `decide` module for decision models,** at
+  `github.com/deepnoodle-ai/dashi/decide`. It needs Go 1.27, so the root
+  module and the others stay on Go 1.26. It holds shared internal helpers so
+  far; its packages follow.
 
 ### Fixed
 

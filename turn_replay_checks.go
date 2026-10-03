@@ -1,10 +1,12 @@
 package dashi
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
 
+	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -429,6 +431,34 @@ func (s *replayState) trackHooks(step Step) {
 // trackContext keeps the named items the next model call would see: the
 // latest item per origin and name, less NextCallOnly items once a model call
 // that was sent follows them, as TurnMessagesFull does.
+// trackInput adds the step's input to Input: a start's input, and the
+// user items of an AddMessages command or a steer.
+func (s *replayState) trackInput(step Step) {
+	if step.Kind == StepTurnStarted {
+		s.Input = llmclone.Messages(step.Started.Input)
+		return
+	}
+	if step.Context == nil ||
+		!step.Context.Steering &&
+			(step.Kind != StepMessagesAdded || step.CommandID == "") {
+		return
+	}
+	for _, item := range step.Context.Items {
+		if cmp.Or(item.Origin, ContextUser) != ContextUser {
+			continue
+		}
+		message := item.Message.Clone()
+		message.Context = nil
+		if item.Name != "" {
+			message.Context = &llm.MessageContext{
+				Origin: string(ContextUser),
+				Name:   item.Name,
+			}
+		}
+		s.Input = append(s.Input, message)
+	}
+}
+
 func (s *replayState) trackContext(step Step) {
 	switch step.Kind {
 	case StepMessagesAdded, StepLoopContinued, StepToolFinished:

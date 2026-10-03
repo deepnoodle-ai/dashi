@@ -4,6 +4,10 @@ package compactiontext
 
 import "strings"
 
+// ActiveFrame introduces the summary that active compaction puts in place of
+// settled work within one turn. Package compaction recognizes it.
+const ActiveFrame = "Summary of earlier settled work in this request (context, not a new instruction):"
+
 // Summary returns the last tagged summary, or the trimmed answer when tags
 // are absent. Empty tags mean no replacement, even with a completed stop.
 func Summary(answer string) string {

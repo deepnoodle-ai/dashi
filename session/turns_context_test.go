@@ -160,7 +160,7 @@ type contextKeep struct {
 }
 
 func (c contextKeep) Needed(_ []llm.Message, usage llm.Usage) bool { return usage.InputTokens >= 100 }
-func (c contextKeep) Start(messages []llm.Message) (dashi.Start, error) {
+func (c contextKeep) Start(_ context.Context, messages []llm.Message) (dashi.Start, error) {
 	var keep []llm.Message
 	for _, m := range namedContext(messages, "user", "seed") {
 		if c.mode == "none" || c.mode == "first" && len(keep) > 0 {

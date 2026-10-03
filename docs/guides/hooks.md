@@ -27,7 +27,14 @@ messages in between, which the model then sees. If the run's context ends while
 a hook runs, the turn stops as it would for any ended context.
 
 A tool hook that returns `dashi.Allow(reason)` leaves an audit record naming
-it; one with no opinion leaves none. When a `BeforeTool` hook fails, the model
+it; one with no opinion leaves none. `ToolDecision`, `ModelDecision`, and
+`ResultDecision` each carry a `Reason` and a `RulesVersion`, recorded in the
+hook's `HookResult` with any answer other than no opinion: say why, and name
+the policy or decision model version that decided. A `BeforeModel` decision
+that changes nothing but carries a `Reason` or `RulesVersion` is recorded as
+`VerdictNoChange`, so `HookActed` tells a retried call that the hook already
+ran. Only a `BeforeTool`
+denial's reason reaches the model. When a `BeforeTool` hook fails, the model
 sees its name, so keep private details out of hook names. A hook that stops
 the turn with a cost or token limit resumes like the turn's own caps, with a
 `Continue` that raises the `Budget`; a limit the host owns, such as prepaid
@@ -119,6 +126,9 @@ retained context. Old compaction messages without identity remain in place and
 receive one new identified copy. `SeedContext` requires Name and clears
 NextCallOnly.
 
+For the user's request, read `p.Turn.Input`: the turn's start input, then
+user items that `AddMessages` or a steer added later, but not items hooks
+added. A tool reads the same view with `dashi.CurrentTurn(ctx)`.
 For context limited to the current turn, inspect `p.Turn.Context(origin, name)`.
 To act once per turn in any hook, ask `p.Turn.HookActed(point, name)`. It reads
 recorded hook decisions and holds when another process resumes the turn.

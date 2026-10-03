@@ -80,8 +80,10 @@ four pages**. Prefer concise explanations of concepts, decisions, and tradeoffs.
 
 ## Modules and releases
 
-Dashi is four Go modules: the root, `mcp`, `providers/google/gemini`, and
-`cmd/dashi`. A committed `go.work` ties them together for local work.
+Dashi is five Go modules: the root, `mcp`, `providers/google/gemini`,
+`decide`, and `cmd/dashi`. A committed `go.work` ties them together for local
+work. `decide` needs Go 1.27, so `go.work` does too; the other modules stay on
+Go 1.26.
 
 - Never add `replace` directives to a `go.mod`. `go install …@version` refuses
   a module that has them, which breaks
@@ -91,7 +93,7 @@ Dashi is four Go modules: the root, `mcp`, `providers/google/gemini`, and
 - `go mod tidy` ignores the workspace. Avoid it in sub-modules between
   `release-prep` and tagging, and expect it to fail when a sub-module imports a
   root package added since the last release.
-- Run `make check` before opening a PR; it covers all four modules.
+- Run `make check` before opening a PR; it covers all five modules.
 - Record user-visible changes under `## [Unreleased]` in `CHANGELOG.md`.
 - Release steps are in `docs/dev/releasing.md`. Tag every module at the same
   version.

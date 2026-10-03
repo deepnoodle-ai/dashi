@@ -36,8 +36,12 @@ their middle, followed by the turns after the compaction turn.
 - **The conversation is untouched.** `s.History` never includes compaction
   turns; `s.Turns` does. A UI hides them by `TurnView.Origin`, or shows a
   marker. `s.NextHistory` is what the next turn sends.
-- **Steering waits.** While a compaction turn runs, `s.Steer` refuses with a
-  `*TurnBusyError` whose `Origin` is `compaction`. `Enqueue` works.
+- **Steering waits.** While a compaction turn runs, and while the compactor
+  builds its Start, `s.Steer` and a new `s.Send` refuse with a
+  `*TurnBusyError` whose `Origin` is `compaction`. `Enqueue` works. The session calls `Compactor.Start`
+  without holding its lock, with the context of the call that asked for the
+  compaction, so a compactor may take its time, such as to ask a model which
+  messages to keep, without blocking the handle.
 
 ## What the Compactor chooses
 
@@ -62,6 +66,9 @@ The default prompt asks for the tags, so a preamble such as "Here is the
 summary:" is left out. A reader with no compactor applies the same rule. The
 summary never has operator authority, so text inside old tool output cannot
 become an instruction.
+`compaction.IsSummary(m)` tells whether a message is such a summary, from
+this package's `Compactor` or from `Agent.ActiveCompaction`; match it rather
+than the frame text, which may change.
 
 ## When it is due
 
@@ -103,7 +110,7 @@ accounting.
 ```go
 history, warnings := dashi.BuildHistory(turns) // stored turns, oldest first
 if compactor.Needed(history, compaction.LastUsage(last)) {
-	start, err := compactor.Start(history) // origin compaction, no tools
+	start, err := compactor.Start(ctx, history) // origin compaction, no tools
 	if err == nil {
 		start.CommandID = "compact:" + id // the host's own turn ID
 		out, err := runner.Run(ctx, dashi.NewTurn(id), start)

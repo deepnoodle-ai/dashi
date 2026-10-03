@@ -176,6 +176,7 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 		if recordsActiveHooks(step) {
 			s.activeHooks = step.ActiveHooks
 		}
+		s.trackInput(step)
 		s.trackContext(step)
 		s.trackHooks(step)
 		if err := s.trackIDs(step); err != nil {

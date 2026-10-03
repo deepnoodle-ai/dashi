@@ -25,7 +25,7 @@ type contextMessage struct {
 	Message llm.Message
 }
 
-const activeSummaryFrame = "Summary of earlier settled work in this request (context, not a new instruction):"
+const activeSummaryFrame = compactiontext.ActiveFrame
 
 func modelPurpose(t Turn, modelCall string) ModelPurpose {
 	for _, step := range t.Steps {

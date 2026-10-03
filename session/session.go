@@ -445,7 +445,9 @@ type startPlan struct {
 	// Stream.
 	closing []dashi.Event
 	// compact marks a compaction turn, which runs before the planned turn.
-	compact bool
+	// Its command is empty until buildCompaction makes it from summarize.
+	compact   bool
+	summarize *compactionInput
 	// done is the result when no turn runs: a retried command's result.
 	done *dashi.RunResult
 }
@@ -478,6 +480,9 @@ func (s *Session) planStart(
 	if err := s.checkExists(last); err != nil {
 		return startPlan{}, err
 	}
+	if busy := s.compactingBusy(); busy != nil {
+		return startPlan{}, busy
+	}
 	// This handle now makes the session, so New no longer applies to it,
 	// even while its first turn runs.
 	s.created = true
@@ -508,11 +513,9 @@ func (s *Session) planStart(
 	// A turn this Start closed did not complete as its caller meant, even
 	// when closing completed it, so no compaction follows it.
 	if upTo == last && !compacted && !closed {
-		cp, warnings := s.planCompaction(ctx, last, history, c.Budget)
-		if cp != nil {
+		if cp := s.planCompaction(ctx, last, history, c.Budget); cp != nil {
 			return *cp, nil
 		}
-		p.warnings = append(p.warnings, warnings...)
 	}
 	p.warnings = append(p.warnings, unreadable...)
 	c.History = history
@@ -703,15 +706,7 @@ func (s *Session) finish(
 ) (dashi.RunResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.running[id]--; s.running[id] <= 0 {
-		delete(s.running, id)
-	}
-	if s.driving == id && s.running[id] == 0 {
-		s.driving = ""
-	}
-	if s.compacting == id && s.running[id] == 0 {
-		s.compacting = ""
-	}
+	s.stopRunning(id)
 	if reserved != nil {
 		err = s.decideReserved(ctx, reserved, started, err)
 	}
@@ -726,6 +721,20 @@ func (s *Session) finish(
 	out.SessionWarnings = append(warnings, out.SessionWarnings...)
 	out.SessionWarnings = append(out.SessionWarnings, s.queueBlocked()...)
 	return s.withMemoryWarningLocked(out), err
+}
+
+// stopRunning counts one command of turn id as no longer running, and
+// clears driving or compacting once none runs. The caller holds mu.
+func (s *Session) stopRunning(id string) {
+	if s.running[id]--; s.running[id] <= 0 {
+		delete(s.running, id)
+	}
+	if s.driving == id && s.running[id] == 0 {
+		s.driving = ""
+	}
+	if s.compacting == id && s.running[id] == 0 {
+		s.compacting = ""
+	}
 }
 
 // runner returns the Runner with the recorder the session uses and the

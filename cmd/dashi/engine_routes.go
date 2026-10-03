@@ -17,8 +17,8 @@ type routedCompactor struct {
 }
 type dashiCompactor = compaction.Compactor
 
-func (c *routedCompactor) Start(history []llm.Message) (dashi.Start, error) {
-	start, err := c.dashiCompactor.Start(history)
+func (c *routedCompactor) Start(ctx context.Context, history []llm.Message) (dashi.Start, error) {
+	start, err := c.dashiCompactor.Start(ctx, history)
 	if err != nil {
 		return start, err
 	}

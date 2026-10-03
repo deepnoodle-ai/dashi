@@ -318,9 +318,11 @@ func (r *runtime) afterToolHooks(
 		}
 		current = replace
 		r.addHookResult(HookResult{
-			Point:   HookAfterTool,
-			Name:    h.Name,
-			Verdict: VerdictReplace,
+			Point:        HookAfterTool,
+			Name:         h.Name,
+			Verdict:      VerdictReplace,
+			RulesVersion: d.RulesVersion,
+			Reason:       d.Reason,
 		})
 	}
 	return current

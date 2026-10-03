@@ -41,7 +41,7 @@ func TestHostCompactionHash(t *testing.T) {
 		})
 	}
 	history, _ := dashi.BuildHistory(turns)
-	start, err := (&compaction.Compactor{}).Start(history)
+	start, err := (&compaction.Compactor{}).Start(t.Context(), history)
 	if err != nil {
 		t.Fatal(err)
 	}

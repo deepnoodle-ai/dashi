@@ -445,3 +445,86 @@ func TestReplayRejectsInvalidHiddenTools(t *testing.T) {
 		})
 	}
 }
+
+func TestModelDecisionRecordsReasonAndRulesVersion(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	tools := tool.List{namedTool("read", nil), namedTool("write", nil)}
+	plan := ModelHook{Name: "plan", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		return ModelDecision{
+			Hide:         []string{"write"},
+			Reason:       "P(read only)=0.91",
+			RulesVersion: "jev-1.13.0",
+		}, nil
+	}}
+	out := runAgent(t, testAgent(), client, tools, plan.Hooks())
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop = %+v", out.Stop)
+	}
+	prefix := prefixThrough(t, out.Turn, StepModelCallStarted, 1)
+	got := prefix.Steps[len(prefix.Steps)-1].HookResults
+	if len(got) != 1 || got[0].Verdict != VerdictChange ||
+		got[0].Reason != "P(read only)=0.91" || got[0].RulesVersion != "jev-1.13.0" {
+		t.Fatalf("hook results = %+v", got)
+	}
+}
+
+func TestModelDecisionWithOnlyAReasonIsRecordedAsNoChange(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	var acted []bool
+	check := ModelHook{Name: "check", Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
+		acted = append(acted, p.Turn.HookActed(HookBeforeModel, "check"))
+		return ModelDecision{Reason: "P(stuck)=0.12", RulesVersion: "jev-1.13.0"}, nil
+	}}
+	quiet := ModelHook{Name: "quiet", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		return ModelDecision{}, nil
+	}}
+	out := runAgent(t, testAgent(), client, nil, JoinHooks(check, quiet))
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop = %+v", out.Stop)
+	}
+	prefix := prefixThrough(t, out.Turn, StepModelCallStarted, 1)
+	got := prefix.Steps[len(prefix.Steps)-1].HookResults
+	if len(got) != 1 || got[0].Name != "check" || got[0].Verdict != VerdictNoChange ||
+		got[0].Reason != "P(stuck)=0.12" || got[0].RulesVersion != "jev-1.13.0" {
+		t.Fatalf("hook results = %+v", got)
+	}
+	view, err := out.Turn.View()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !view.HookActed(HookBeforeModel, "check") || view.HookActed(HookBeforeModel, "quiet") {
+		t.Fatalf("HookActed check=%v quiet=%v",
+			view.HookActed(HookBeforeModel, "check"), view.HookActed(HookBeforeModel, "quiet"))
+	}
+	if len(acted) != 1 || acted[0] {
+		t.Fatalf("acted before the first call = %v", acted)
+	}
+}
+
+func TestModelStopRecordsItsReasonUnlessTheDecisionHasOne(t *testing.T) {
+	for _, tc := range []struct{ reason, want string }{
+		{"", "over quota"},
+		{"P(abuse)=0.97", "P(abuse)=0.97"},
+	} {
+		client := &scriptedClient{}
+		stop := ModelHook{Name: "guard", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+			return ModelDecision{
+				Stop:         &Stop{Kind: StopRefused, Reason: "over quota"},
+				Reason:       tc.reason,
+				RulesVersion: "rules-2",
+			}, nil
+		}}
+		out := runAgent(t, testAgent(), client, nil, stop.Hooks())
+		if out.Stop.Kind != StopRefused || out.Stop.Reason != "over quota" {
+			t.Fatalf("stop = %+v", out.Stop)
+		}
+		var got []HookResult
+		for _, step := range out.Turn.Steps {
+			got = append(got, step.HookResults...)
+		}
+		if len(got) != 1 || got[0].Verdict != VerdictStop ||
+			got[0].Reason != tc.want || got[0].RulesVersion != "rules-2" {
+			t.Fatalf("reason %q: hook results = %+v", tc.reason, got)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package dashi
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,10 +73,11 @@ func (r *runtime) beforeModel(
 		}
 		if d.Stop != nil {
 			r.addHookResult(HookResult{
-				Point:   HookBeforeModel,
-				Name:    h.Name,
-				Verdict: VerdictStop,
-				Reason:  d.Stop.Reason,
+				Point:        HookBeforeModel,
+				Name:         h.Name,
+				Verdict:      VerdictStop,
+				RulesVersion: d.RulesVersion,
+				Reason:       cmp.Or(d.Reason, d.Stop.Reason),
 			})
 			stop := *d.Stop
 			if stop.Limit != nil {
@@ -88,6 +90,17 @@ func (r *runtime) beforeModel(
 		r.pendingWarnings = append(r.pendingWarnings, warnings...)
 		hid := len(candidateHidden) > len(hidden)
 		if d.Settings == nil && len(d.AddMessages) == 0 && !hid {
+			if d.Reason != "" || d.RulesVersion != "" {
+				// A hook that looked and changed nothing can still leave
+				// a record, so it knows on a retried call that it ran.
+				r.addHookResult(HookResult{
+					Point:        HookBeforeModel,
+					Name:         h.Name,
+					Verdict:      VerdictNoChange,
+					RulesVersion: d.RulesVersion,
+					Reason:       d.Reason,
+				})
+			}
 			continue
 		}
 		input.Settings = candidate.Settings
@@ -97,9 +110,11 @@ func (r *runtime) beforeModel(
 			deliver = append(deliver, cloneContextItem(item))
 		}
 		r.addHookResult(HookResult{
-			Point:   HookBeforeModel,
-			Name:    h.Name,
-			Verdict: VerdictChange,
+			Point:        HookBeforeModel,
+			Name:         h.Name,
+			Verdict:      VerdictChange,
+			RulesVersion: d.RulesVersion,
+			Reason:       d.Reason,
 		})
 	}
 	if w, ok := ignored.warning(); ok {
