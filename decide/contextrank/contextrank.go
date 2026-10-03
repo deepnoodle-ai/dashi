@@ -98,9 +98,10 @@ type Ranker struct {
 	// none. It must honor ctx, which ends at Timeout.
 	Source func(ctx context.Context, exchange string) ([]Candidate, error)
 
-	// MinProbability is the P(yes) a candidate needs to be chosen. Zero
-	// means above 0.5, the model leaning yes; a negative value means no
-	// floor. Calibrate it on your own items before relying on the default.
+	// MinProbability is the floor for P(yes): a candidate needs a P(yes) of
+	// at least MinProbability to be chosen. Zero means above 0.5, the model
+	// leaning yes; a negative value means no floor. Calibrate it on your
+	// own items before relying on the default.
 	MinProbability float64
 	// MaxBytes limits the new content added per turn, counted with each
 	// item's header line. Zero means DefaultMaxBytes; a negative value
@@ -160,7 +161,8 @@ type Cause string
 const (
 	// CauseChosen means the item was added to the turn.
 	CauseChosen Cause = "chosen"
-	// CauseBelowMinimum means P(yes) fell short of MinProbability.
+	// CauseBelowMinimum means P(yes) was below MinProbability, or 0.5 or
+	// less when MinProbability is zero.
 	CauseBelowMinimum Cause = "below_minimum"
 	// CauseOverBudget means the item was judged and above the floor, but
 	// did not fit in MaxBytes after higher-ranked items.
