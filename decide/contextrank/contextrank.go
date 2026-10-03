@@ -71,7 +71,8 @@ type Candidate struct {
 	// ID is the host's stable ID, such as "note_42". Keep the same ID when
 	// a changed note replaces an older one: the model is then told the
 	// latest copy is current. IDs must be unique in one Source result; a
-	// repeated ID is ignored.
+	// candidate with no ID or a repeated one is ignored and listed as
+	// CauseInvalid.
 	ID string
 	// Text is what the decision model reads. Empty means the start of
 	// Content. Write it for untrusted or code sources, whose start may be a
@@ -79,7 +80,7 @@ type Candidate struct {
 	// most 4 KiB is read.
 	Text string
 	// Content is what the agent's model sees if the item is chosen. A
-	// candidate with no Content is ignored.
+	// candidate with no Content is ignored and listed as CauseInvalid.
 	Content string
 }
 
@@ -175,6 +176,11 @@ const (
 	CauseOverMaxCandidates Cause = "over_max_candidates"
 	// CauseUnanswered means Decide returned no valid answer for the item.
 	CauseUnanswered Cause = "unanswered"
+	// CauseInvalid means the candidate has no ID or no Content, or repeats
+	// an earlier candidate's ID, so it was ignored. When every candidate is
+	// invalid, the ranking fails, so a Source that never sets ID shows up
+	// as a WarningHookFailed.
+	CauseInvalid Cause = "invalid"
 )
 
 // Hook returns the BeforeModel hook, named HookName, for Runner.Hooks.
@@ -301,12 +307,19 @@ func (r *Ranker) rank(
 
 	options := r.prepare(candidates, plan.Input.Messages)
 	var asked []*option
+	invalid := 0
 	for _, o := range options {
-		if o.result.Cause == "" {
+		switch o.result.Cause {
+		case "":
 			asked = append(asked, o)
+		case CauseInvalid:
+			invalid++
 		}
 	}
-	if len(asked) > 0 {
+	if invalid > 0 && invalid == len(options) {
+		sel.Err = fmt.Errorf("contextrank: source returned %d candidates "+
+			"and none has a unique ID and Content", invalid)
+	} else if len(asked) > 0 {
 		judged, err := judge(ctx, c, exchange, asked)
 		sel.Model = judged.model
 		sel.RequestIDs = judged.requestIDs
@@ -324,8 +337,8 @@ func (r *Ranker) rank(
 	return sel
 }
 
-// prepare builds an option per usable candidate and marks the ones that
-// are not judged: present, too large, or past MaxCandidates.
+// prepare builds an option per candidate and marks the ones that are not
+// judged: invalid, present, too large, or past MaxCandidates.
 func (r *Ranker) prepare(
 	candidates []Candidate,
 	messages []llm.Message,
@@ -337,6 +350,9 @@ func (r *Ranker) prepare(
 	judged := 0
 	for _, c := range candidates {
 		if c.ID == "" || c.Content == "" || seen[c.ID] {
+			options = append(options, &option{
+				result: CandidateResult{ID: c.ID, Cause: CauseInvalid},
+			})
 			continue
 		}
 		seen[c.ID] = true
@@ -461,7 +477,7 @@ func reason(sel Selection) string {
 	var chosen []string
 	for _, j := range sel.Candidates {
 		switch j.Cause {
-		case CausePresent, CauseTooLarge, CauseOverMaxCandidates:
+		case CausePresent, CauseTooLarge, CauseOverMaxCandidates, CauseInvalid:
 			continue
 		case CauseChosen:
 			chosen = append(chosen, j.ID)

@@ -525,6 +525,76 @@ func TestTooLargeAndMaxCandidates(t *testing.T) {
 	}
 }
 
+func TestInvalidCandidates(t *testing.T) {
+	t.Run("listed beside valid ones", func(t *testing.T) {
+		srv, client := judge(t, map[string]float64{"a": 0.9})
+		var rec record
+		ranker := &contextrank.Ranker{
+			Client: client,
+			Source: fixed(
+				contextrank.Candidate{Text: "no id", Content: "no id"},
+				note("a", 50),
+				contextrank.Candidate{ID: "empty"},
+				note("a", 60), // a repeated ID
+			),
+			OnSelection: rec.add,
+		}
+		model := dashitest.NewClient(dashitest.Reply("ok"))
+		runner := dashi.Runner{Client: model, Hooks: ranker.Hook().Hooks()}
+		out, err := runner.Run(t.Context(), dashi.Turn{}, start("hi"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []contextrank.Cause
+		for _, c := range rec.all()[0].Candidates {
+			got = append(got, c.Cause)
+		}
+		want := []contextrank.Cause{
+			contextrank.CauseInvalid, contextrank.CauseChosen,
+			contextrank.CauseInvalid, contextrank.CauseInvalid,
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("causes = %v; want %v", got, want)
+		}
+		if n := len(srv.Requests()[0].Request.Questions); n != 1 {
+			t.Fatalf("questions = %d; want 1", n)
+		}
+		if hasWarning(out.Warnings, dashi.WarningHookFailed) {
+			t.Fatal("a valid candidate was left, yet the hook failed")
+		}
+		h, _ := hookResult(out.Turn)
+		if !strings.HasPrefix(h.Reason, "chose 1 of 1 ") {
+			t.Fatalf("reason = %q", h.Reason)
+		}
+	})
+	t.Run("all invalid fails with a warning", func(t *testing.T) {
+		srv, client := judge(t, nil)
+		var rec record
+		ranker := &contextrank.Ranker{
+			Client: client,
+			// A Source that maps Text and Content but forgets ID.
+			Source:      fixed(contextrank.Candidate{Content: "a"}, contextrank.Candidate{Content: "b"}),
+			OnSelection: rec.add,
+		}
+		model := dashitest.NewClient(dashitest.Reply("ok"))
+		runner := dashi.Runner{Client: model, Hooks: ranker.Hook().Hooks()}
+		out, err := runner.Run(t.Context(), dashi.Turn{}, start("hi"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out.Reply != "ok" || !hasWarning(out.Warnings, dashi.WarningHookFailed) {
+			t.Fatalf("reply %q, warnings %+v; want the turn to run with a warning", out.Reply, out.Warnings)
+		}
+		sel := rec.all()[0]
+		if sel.Err == nil || len(sel.Candidates) != 2 || sel.Candidates[0].Cause != contextrank.CauseInvalid {
+			t.Fatalf("selection = %+v", sel)
+		}
+		if n := len(srv.Requests()); n != 0 {
+			t.Fatalf("Decide requests = %d; want 0", n)
+		}
+	})
+}
+
 func TestManyCandidatesSplitAcrossRequests(t *testing.T) {
 	srv, client := judge(t, map[string]float64{"n99": 0.9})
 	var cands []contextrank.Candidate

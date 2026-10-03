@@ -95,6 +95,7 @@ const (
     CausePresent           Cause = "present"             // already in history; not judged
     CauseOverMaxCandidates Cause = "over_max_candidates" // past MaxCandidates; not judged
     CauseUnanswered        Cause = "unanswered"
+    CauseInvalid           Cause = "invalid"             // no ID or no Content, or a repeated ID; ignored
 )
 ```
 
@@ -144,7 +145,8 @@ kept tail stay present.
   without the ranker. Unjudged content is never added: it would stay in
   history for every later call. A single unanswered question drops only that
   candidate. A nil `Client` whose `NewClient()` fails takes the same path on
-  every turn.
+  every turn, as does a source whose candidates are all `invalid`, so a
+  source that never sets `ID` shows up as a warning rather than silence.
 - **Threshold.** Per README decision 4, zero means P(yes) above 0.5. A needed
   tool scored 0.47 in PR #174's live run, so hosts should calibrate before
   relying on the default.
