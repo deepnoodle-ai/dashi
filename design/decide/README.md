@@ -41,8 +41,9 @@ use step (a recorded `dashi.Step`), notice (an agent message), evidence
    failure is recorded as a warning. Nothing fails a turn that would succeed
    without Decide.
 4. **Zero means the most likely answer wins.** No package ships a tuned
-   threshold. A zero floor means "the model leans yes": P(yes) above 0.5, or
-   the top choice. A negative value turns a floor off. Hosts tune their own
+   threshold. A zero floor means "the model leans yes": P(yes) above 0.5.
+   A pick takes the top choice; a match on a choice needs P above 0.5.
+   A negative value turns a floor off. Hosts tune their own
    with Decide's `calibrate` and pin a version such as `jev-1.13.0` with
    `decide.WithModel`, because `jev-latest` can move.
 5. **Spend.** Tools report Decide spend as `tool.Outcome.Cost`, which Dashi

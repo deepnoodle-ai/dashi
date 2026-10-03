@@ -63,7 +63,7 @@ func TestJudgeItemsMatchesAndRanks(t *testing.T) {
 	got := text(o)
 	for _, want := range []string{
 		`Judged 6 items from tickets ("status:open") with jev-1.13.0 in `,
-		"billing: yes 3, no 3. urgent: yes 5, no 1.",
+		"Most likely answers: billing yes 3, no 3; urgent yes 5, no 1.",
 		"Matching billing=yes, urgent=yes: 3 items, best first:\n" +
 			"  T-001  billing 0.98  urgent 0.95\n" +
 			"  T-002  billing 0.97  urgent 0.70\n" +
@@ -97,8 +97,11 @@ func TestJudgeItemsMatchesAndRanks(t *testing.T) {
 	}
 	items := d["items"].([]any)
 	first := items[0].(map[string]any)
-	if first["id"] != "T-001" || first["request_id"] == "" {
-		t.Errorf("first item = %v", first)
+	if first["id"] != "T-001" || first["request_id"] != nil {
+		t.Errorf("first item = %v; want no request_id on an item that did not fail", first)
+	}
+	if ids := d["request_ids"].([]any); len(ids) != 6 {
+		t.Errorf("request_ids = %v, want one per request", ids)
 	}
 	if p := first["answers"].(map[string]any)["billing"].(map[string]any)["noul"]; p != 0.98 {
 		t.Errorf("billing answer = %v, want every probability", p)
@@ -130,7 +133,7 @@ func TestJudgeItemsListsLikelyAnswersWithoutFind(t *testing.T) {
 	got := text(o)
 	for _, want := range []string{
 		"Judged 2 items from tickets with jev-1.13.0",
-		"tone: calm 1, angry 1. refund: yes 1, no 1.",
+		"Most likely answers: tone calm 1, angry 1; refund yes 1, no 1.",
 		"Items in list order, with each most likely answer:\n" +
 			"  T-001  tone angry 0.90  refund no 0.95\n" +
 			"  T-002  tone calm 0.90  refund yes 0.58\n",
@@ -139,6 +142,48 @@ func TestJudgeItemsListsLikelyAnswersWithoutFind(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("result lacks %q:\n%s", want, got)
 		}
+	}
+}
+
+// A choice's most likely answer can be at 0.5 or less. Such an item does
+// not match, but it is listed as a close call, so no counted item is out
+// of sight.
+func TestJudgeItemsMatchesAChoice(t *testing.T) {
+	_, client := newFakeDecide(t)
+	list := &fakeList{name: "tickets", entries: []entry{
+		{"T-1", "topic=billing:0.90"},
+		{"T-2", "topic=billing:0.45"},
+		{"T-3", "topic=billing:0.38"},
+		{"T-4", "topic=refund:0.80"},
+	}}
+	judge := newJudge(t, listtool.Config{Client: client, Lists: []listtool.AnyList{list.list()}})
+	o, err := call(t, context.Background(), judge, `{"list": "tickets", "questions": [
+		{"key": "topic", "type": "choice", "text": "What is the ticket about?",
+		 "options": ["billing", "refund", "other"]}],
+		"find": {"topic": "billing"}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := text(o)
+	for _, want := range []string{
+		"Most likely answers: topic billing 3, refund 1, other 0.",
+		"Matching topic=billing: 1 item, best first:\n  T-1  topic 0.90\n",
+		"Close calls: 2, such as T-2 (topic 0.45), T-3 (topic 0.38).",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("result lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "T-4") {
+		t.Errorf("result lists T-4, whose likely answer is refund:\n%s", got)
+	}
+
+	o, err = call(t, context.Background(), judge, `{"list": "tickets", "questions": [
+		{"key": "topic", "type": "choice", "text": "What is the ticket about?",
+		 "options": ["billing", "refund", "other"]}],
+		"find": {"topic": "refund"}}`)
+	if err != nil || !strings.Contains(text(o), "Matching topic=refund: 1 item, best first:\n  T-4  topic 0.80") {
+		t.Errorf("refund: %q, %v", text(o), err)
 	}
 }
 
@@ -156,7 +201,7 @@ func TestJudgeItemsShowsAtMostShow(t *testing.T) {
 	if n := strings.Count(got, "\n  T-"); n != 5 {
 		t.Errorf("listed %d items, want 5:\n%s", n, got)
 	}
-	if !strings.Contains(got, "  ... and 25 more. Set show (at most 100) to list more.") {
+	if !strings.Contains(got, "  ... and 25 more. Set show (at most 100), or narrow the query.") {
 		t.Errorf("result does not say what it left out:\n%s", got)
 	}
 	if !strings.Contains(got, "  T-010  billing 0.99") {
@@ -267,6 +312,76 @@ func TestJudgeItemsCountsACallWithoutDataAsMaxRequests(t *testing.T) {
 	second := out.Tools["call-2"].Outcome
 	if !strings.Contains(text(*second), "This turn has used 10 of its 15 judge_items requests") {
 		t.Errorf("second call = %q", text(*second))
+	}
+}
+
+// With no per-call limit, a call whose count is unknown counts as the
+// whole turn's limit, so MaxTurnRequests still bounds the turn. (Counting
+// it as 500 would let the second call run.)
+func TestJudgeItemsCountsACallWithoutDataAsTheTurnLimit(t *testing.T) {
+	srv, client := newFakeDecide(t)
+	list := &fakeList{name: "tickets", entries: tickets(6, func(int) string { return "billing=0.9" })}
+	judge := newJudge(t, listtool.Config{Client: client, Lists: []listtool.AnyList{list.list()},
+		MaxRequests: -1, MaxTurnRequests: 1000})
+	redact := dashi.ResultHook{Name: "redact", Func: func(_ context.Context, p dashi.ResultPlan) (dashi.ResultDecision, error) {
+		replaced := p.Result
+		replaced.Output = tool.TextOutput("[redacted]")
+		return dashi.ResultDecision{Replace: &replaced}, nil
+	}}
+	runner := dashi.Runner{
+		Client: dashitest.NewClient(
+			dashitest.CallTool("call-1", "judge_items", billingUrgent),
+			dashitest.CallTool("call-2", "judge_items", billingUrgent),
+			dashitest.Reply("Done."),
+		),
+		Tools: tool.List{judge},
+		Hooks: redact.Hooks(),
+	}
+	out, err := runner.Run(context.Background(), dashi.Turn{}, dashi.Start{
+		Agent: dashi.Agent{Model: dashitest.Model},
+		Input: []llm.Message{llm.UserMessage(llm.Text("Which tickets are about billing?"))},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(srv.Requests()); n != 6 {
+		t.Errorf("Decide requests = %d, want 6: the second call must not send", n)
+	}
+	if o := out.Tools["call-2"].Outcome; o.State != tool.StateFailed {
+		t.Errorf("second call = %s; want it refused", o.State)
+	}
+}
+
+// Two calls in one model response, run at once: the later call counts the
+// running one as the most it could send, so the turn stays in bounds.
+func TestJudgeItemsLimitsParallelCalls(t *testing.T) {
+	for _, tc := range []struct{ maxRequests, maxTurnRequests int }{{0, 10}, {-1, 1000}} {
+		t.Run(fmt.Sprint("MaxRequests ", tc.maxRequests), func(t *testing.T) {
+			srv, client := newFakeDecide(t)
+			srv.SetLatency(5 * time.Millisecond)
+			list := &fakeList{name: "tickets", entries: tickets(6, func(int) string { return "billing=0.9" })}
+			judge := newJudge(t, listtool.Config{Client: client, Lists: []listtool.AnyList{list.list()},
+				MaxRequests: tc.maxRequests, MaxTurnRequests: tc.maxTurnRequests})
+			both := dashitest.CallTool("call-1", "judge_items", billingUrgent)
+			second := dashitest.CallTool("call-2", "judge_items", billingUrgent)
+			both.Message.Content = append(both.Message.Content, second.Message.Content...)
+			out := runTurn(t, tool.List{judge}, dashi.Limits{ToolConcurrency: 2},
+				"Which tickets are about billing?", both, dashitest.Reply("Done."))
+			if n := len(srv.Requests()); n != 6 {
+				t.Errorf("Decide requests = %d, want 6 from one call", n)
+			}
+			refused := 0
+			for _, id := range []string{"call-1", "call-2"} {
+				o := out.Tools[id].Outcome
+				if strings.Contains(text(*o), "judge_items requests, and this call needs 6") {
+					refused++
+				}
+			}
+			if refused == 0 {
+				t.Errorf("neither call was refused: %q, %q",
+					text(*out.Tools["call-1"].Outcome), text(*out.Tools["call-2"].Outcome))
+			}
+		})
 	}
 }
 
@@ -408,7 +523,7 @@ func TestJudgeItemsFitsTheResultLimit(t *testing.T) {
 	}
 	got := text(*v.Outcome)
 	if len(got) > 1024 || !strings.Contains(got, "Matching billing=yes, urgent=yes: 100 items") ||
-		!strings.Contains(got, "more. No more fit in one result. Narrow the query, or add an answer to find.") {
+		!strings.Contains(got, "more. Set show (at most 100), or narrow the query.") {
 		t.Errorf("result (%d bytes):\n%s", len(got), got)
 	}
 }

@@ -166,7 +166,7 @@ func (j *judge) execute(ctx context.Context, call tool.Call) (tool.Outcome, erro
 	r := Result{Tool: judgeName}
 	fail := func(err error) (tool.Outcome, error) {
 		r.Err = err
-		return j.finish(ctx, call, r, err.Error(), record(r))
+		return j.finish(ctx, call, r, err.Error())
 	}
 	var args judgeArgs
 	if err := json.Unmarshal(call.Args, &args); err != nil {
@@ -191,8 +191,7 @@ func (j *judge) execute(ctx context.Context, call tool.Call) (tool.Outcome, erro
 			list.name(), err))
 	}
 	if len(items) == 0 {
-		return j.finish(ctx, call, r, fmt.Sprintf("No items in %s%s.", list.name(), quoted(args.Query)),
-			record(r))
+		return j.finish(ctx, call, r, fmt.Sprintf("No items in %s%s.", list.name(), quoted(args.Query)))
 	}
 	if n := len(items); n > j.maxRequests {
 		return fail(fmt.Errorf("Too many %s match (%s): judge_items sends one request per item, "+
@@ -216,6 +215,9 @@ func (j *judge) execute(ctx context.Context, call tool.Call) (tool.Outcome, erro
 		if it.sent {
 			r.Requests++
 		}
+		if it.requestID != "" {
+			r.RequestIDs = append(r.RequestIDs, it.requestID)
+		}
 		addUsage(&r.Usage, it.usage)
 		if r.Model == "" {
 			r.Model = it.model
@@ -229,12 +231,12 @@ func (j *judge) execute(ctx context.Context, call tool.Call) (tool.Outcome, erro
 	}
 	if err := ctx.Err(); err != nil {
 		r.Err = err
-		return j.finish(ctx, call, r, "", nil)
+		return j.finish(ctx, call, r, "")
 	}
 	if failed == len(results) {
 		r.Err = lastErr
 		return j.finish(ctx, call, r, fmt.Sprintf("Could not judge %s: %s. Read the items with your "+
-			"other tools, or ask the user.", list.name(), reason(lastErr)), record(r))
+			"other tools, or ask the user.", list.name(), reason(lastErr)))
 	}
 	v := judgeOutput{
 		list: list.name(), query: args.Query, model: r.Model, took: time.Since(start),
@@ -244,7 +246,7 @@ func (j *judge) execute(ctx context.Context, call tool.Call) (tool.Outcome, erro
 	if args.Show > 0 {
 		v.show = min(args.Show, maxShow)
 	}
-	return j.finish(ctx, call, r, v.fit(resultBytes(ctx)), record(r))
+	return j.finish(ctx, call, r, v.fit(resultBytes(ctx)))
 }
 
 func quoted(query string) string {
@@ -473,20 +475,18 @@ func (j *judge) judgeOne(
 	return r
 }
 
-// spentThisTurn adds up the requests that this turn's earlier judge_items
+// spentThisTurn adds up the requests that this turn's other judge_items
 // calls recorded in their Data. A call that may have sent requests but
-// recorded no count, because a hook dropped its Data or its result is not
-// recorded yet, counts as MaxRequests.
+// recorded no count, because a hook dropped its Data, it is still running,
+// or its result is unknown, counts as the most it could send: MaxRequests,
+// or MaxTurnRequests when that is lower or MaxRequests is unlimited.
 func (j *judge) spentThisTurn(ctx context.Context) int {
 	view, ok := dashi.CurrentTurn(ctx)
 	if !ok {
 		return 0
 	}
 	self, _ := dashi.CurrentCall(ctx)
-	unknown := j.maxRequests
-	if unknown == math.MaxInt {
-		unknown = defaultMaxRequests
-	}
+	unknown := min(j.maxRequests, j.maxTurnRequests)
 	n := 0
 	for id, v := range view.Tools {
 		if id == self.CallID || v.Call.Name != judgeName {

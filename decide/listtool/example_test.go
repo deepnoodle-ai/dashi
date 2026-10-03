@@ -89,7 +89,7 @@ func Example() {
 	fmt.Println(judged)
 	fmt.Println(out.Tools["call-2"].Result().Output.Content[0].Text.Text)
 	// Output:
-	// billing: yes 2, no 1. urgent: yes 1, no 2.
+	// Most likely answers: billing yes 2, no 1; urgent yes 1, no 2.
 	// Matching billing=yes, urgent=yes: 1 item, best first:
 	//   T-2  billing 0.90  urgent 0.90
 	// {"status":"ranked","none_probability":0.05,"candidates":[{"id":"c_1","text":"Dana Lee, Acme","probability":0.85},{"id":"c_2","text":"Dana Li, Globex","probability":0.1}]}

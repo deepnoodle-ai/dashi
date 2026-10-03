@@ -120,7 +120,7 @@ question.
 
 ```text
 Judged 300 items from tickets ("status:open") with jev-1.13.0 in 4.2s.
-billing: yes 41, no 257. urgent: yes 19, no 279.
+Most likely answers: billing yes 41, no 257; urgent yes 19, no 279.
 Matching billing=yes, urgent=yes: 12 items, best first:
   T-1042  billing 0.98  urgent 0.95
   T-0977  billing 0.97  urgent 0.91  ...
@@ -130,8 +130,11 @@ Judged on their first 64 KiB only: 3. Failed: 2. T-0101: Decide timed out. ...
 
 **One match rule.** For each `find` condition, P is the probability that it
 holds: P(yes) or P(no) for `yes_no`, P(that option) for `choice`. An item
-matches when every P is above 0.5. Matches are ranked by the product of their
-P values. A close call is any P from 0.4 to 0.6. With no `find`, the tool
+matches when every P is above 0.5, also for a `choice`. Matches are ranked by
+the product of their P values. A close call is any P from 0.4 to 0.6, or a
+wanted answer that is most likely at 0.5 or less, which a `choice` can have,
+so such an item is never out of sight. The counts are of most likely
+answers, and the result says so. With no `find`, the tool
 lists items in list order with each question's most likely answer and its P,
 and a close call is a most likely answer of 0.6 or less. The rule claims no
 accuracy; the agent sees the numbers (shared decision 4).
@@ -223,17 +226,20 @@ again.
 
 **Record.** The output stays under the turn's tool result limit by listing
 fewer items, because Dashi drops `Data` from a shortened result. `Data` holds
-the list, query, model version, request count, usage, and every item's
-answers with every probability. When that is over Dashi's `Data` limit, it
-keeps each item's most likely answer and its P for each question. Failed
-items keep their request IDs.
+the list, query, model version, request count, usage, the request IDs, and
+every item's answers with every probability. When that is over Dashi's
+`Data` limit, it keeps each item's most likely answer and its P for each
+question; then it drops the request ID list and keeps as many items as fit,
+counting the rest in `dropped_items`. At the default limits (500 items, two
+questions) it keeps every item. Failed items keep their request IDs.
 
 ## Testing
 
 Keyless (shared decision 8): a `decidetest` server answers by keyword rules
 and `ChoiceFor`, and a `dashitest` model calls both tools. The example
-`decide/examples/triage` judges 300 synthetic tickets and picks "the Sam
-from the design review"; with `-live` it uses Claude and Jev.
+`decide/listtool/example`, next to the package it shows, judges 300
+synthetic tickets and picks the customer on the top one; with `-live` it
+uses Claude and Jev.
 
 ## Alternatives
 

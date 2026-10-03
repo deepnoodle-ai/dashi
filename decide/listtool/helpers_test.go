@@ -24,8 +24,9 @@ import (
 
 // entry is a list item in tests. Its text tells the fake Decide server
 // what to answer: "billing=0.95" sets P(yes) for the question billing,
-// "tone=calm" makes calm the likely option of the question tone, and
-// "fail" makes the request fail.
+// "tone=calm" makes calm the likely option of the question tone at 0.9,
+// "tone=calm:0.45" gives calm 0.45 and splits the rest evenly, and "fail"
+// makes the request fail.
 type entry struct{ id, text string }
 
 // fakeList is a list over entries that records each query it gets.
@@ -55,7 +56,7 @@ func (f *fakeList) list() listtool.List[entry] {
 
 var (
 	noulRule   = regexp.MustCompile(`(\w+)=([0-9.]+)`)
-	choiceRule = regexp.MustCompile(`(\w+)=([a-z_]+)`)
+	choiceRule = regexp.MustCompile(`(\w+)=([a-z_]+)(?::([0-9.]+))?`)
 )
 
 // fakeDecide is a decidetest server whose answers come from the state's
@@ -104,19 +105,22 @@ func (f *fakeDecide) answer(req *decide.Request) (*decide.Response, error) {
 				resp.Answers[key] = f.pick(q)
 				continue
 			}
-			chosen := 0
+			chosen, p := 0, 0.9
 			for _, m := range choiceRule.FindAllStringSubmatch(text, -1) {
 				for i, o := range q.Criteria {
 					if m[1] == key && m[2] == o.Key {
 						chosen = i
+						if m[3] != "" {
+							p, _ = strconv.ParseFloat(m[3], 64)
+						}
 					}
 				}
 			}
 			probs := make([]float64, len(q.Criteria))
 			for i := range probs {
-				probs[i] = 0.1 / float64(len(probs)-1)
+				probs[i] = (1 - p) / float64(len(probs)-1)
 			}
-			probs[chosen] = 0.9
+			probs[chosen] = p
 			resp.Answers[key] = decidetest.ChoiceFor(q, probs...)
 		}
 	}

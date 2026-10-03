@@ -58,7 +58,8 @@ type Config struct {
 	// Price turns a call's usage into Outcome.Cost, which Dashi adds to
 	// Spend.ToolCost. model is the resolved model, such as "jev-1.13.0".
 	// Nil means no Cost; usage is in Outcome.Data either way. A Cost with
-	// a negative amount or a blank currency is dropped.
+	// a negative amount or a blank currency is dropped, and Outcome.Data
+	// then holds "cost_dropped": true.
 	Price func(model string, u decide.Usage) *tool.Cost
 	// OnResult receives every call's full Result, failed and cancelled
 	// calls too, after the call ends. It runs on the call's goroutine
@@ -84,10 +85,13 @@ type Result struct {
 	Usage decide.Usage
 	// Model is the resolved model, such as "jev-1.13.0".
 	Model string
-	// Status is pick_item's status, as the model saw it: "ranked",
-	// "picked", or "no_match". It is empty for judge_items and when the
-	// call failed.
-	Status string
+	// RequestIDs holds Decide's ID for every request that got one, failed
+	// requests included: one per item in list order for judge_items, and
+	// the one request for pick_item.
+	RequestIDs []string
+	// Status is pick_item's status, as the model saw it. It is empty for
+	// judge_items and when the call failed.
+	Status PickStatus
 	// NoneProbability is pick_item's probability that none of the items
 	// is the one looking_for describes.
 	NoneProbability float64
@@ -109,11 +113,28 @@ type ItemResult struct {
 	// looking_for describes. It is zero for judge_items.
 	Probability float64
 	// RequestID is Decide's ID for the request that judged the item, kept
-	// for failed items too when Decide gave one.
+	// for failed items too when Decide gave one. It is empty for
+	// pick_item, whose one request ID is in Result.RequestIDs.
 	RequestID string
 	// Err is why this item failed, if it did.
 	Err error
 }
+
+// PickStatus is the status of a pick_item result.
+type PickStatus string
+
+// Statuses of a pick_item result.
+const (
+	// PickStatusRanked: the result lists the most likely items, and the
+	// model chooses.
+	PickStatusRanked PickStatus = "ranked"
+	// PickStatusPicked: the top item passed MinProbability and MinMargin,
+	// and the tool chose it.
+	PickStatusPicked PickStatus = "picked"
+	// PickStatusNoMatch: "none of these" is at least as likely as the top
+	// item.
+	PickStatusNoMatch PickStatus = "no_match"
+)
 
 // Defaults and caps. The tool result limit is the turn's, read at call
 // time; these bound everything else.
@@ -243,17 +264,11 @@ func (s *settings) listsText() string {
 	return b.String()
 }
 
-// finish ends a call: it passes r to OnResult, then returns the outcome.
-// A cancelled call returns the context's error, so Dashi records no Cost
-// and only OnResult sees the spend. Any other failure is an ordinary
-// failed outcome that keeps the Cost and Data.
-func (s *settings) finish(
-	ctx context.Context,
-	call tool.Call,
-	r Result,
-	output string,
-	data json.RawMessage,
-) (tool.Outcome, error) {
+// finish ends a call: it passes r to OnResult, then returns the outcome
+// with r as its Data. A cancelled call returns the context's error, so
+// Dashi records no Cost and only OnResult sees the spend. Any other
+// failure is an ordinary failed outcome that keeps the Cost and Data.
+func (s *settings) finish(ctx context.Context, call tool.Call, r Result, output string) (tool.Outcome, error) {
 	if s.onResult != nil {
 		ref, ok := dashi.CurrentCall(ctx)
 		if !ok {
@@ -268,23 +283,26 @@ func (s *settings) finish(
 	if r.Err != nil {
 		o = tool.Failed(output)
 	}
-	o.Data = data
-	o.Cost = s.cost(r)
+	var dropped bool
+	o.Cost, dropped = s.cost(r)
+	o.Data = record(r, dropped)
 	return o, nil
 }
 
-// cost prices r's usage, dropping a Cost that Outcome.Validate would
-// refuse, so a bad price never stops the turn.
-func (s *settings) cost(r Result) *tool.Cost {
+// cost prices r's usage. It drops a Cost that Outcome.Validate would
+// refuse, so a bad price never stops the turn, and reports the drop.
+func (s *settings) cost(r Result) (c *tool.Cost, dropped bool) {
 	if s.price == nil || r.Requests == 0 {
-		return nil
+		return nil, false
 	}
-	c := s.price(r.Model, r.Usage)
-	if c == nil || c.Amount < 0 ||
-		c.Currency == "" || strings.TrimSpace(c.Currency) != c.Currency {
-		return nil
+	c = s.price(r.Model, r.Usage)
+	if c == nil {
+		return nil, false
 	}
-	return &tool.Cost{Amount: c.Amount, Currency: c.Currency}
+	if c.Amount < 0 || c.Currency == "" || strings.TrimSpace(c.Currency) != c.Currency {
+		return nil, true
+	}
+	return &tool.Cost{Amount: c.Amount, Currency: c.Currency}, false
 }
 
 // resultBytes is the turn's tool result limit, or zero for no limit.
@@ -311,18 +329,6 @@ func userRequest(ctx context.Context) string {
 		return ""
 	}
 	return state.Request(view, requestBytes)
-}
-
-// encode returns the first form of the record that fits under Dashi's
-// Data limit. Each form is smaller than the one before it.
-func encode(forms ...any) json.RawMessage {
-	for _, f := range forms {
-		b, err := json.Marshal(f)
-		if err == nil && len(b) <= maxDataBytes {
-			return b
-		}
-	}
-	return nil
 }
 
 // reason says in a few words why a Decide request failed.

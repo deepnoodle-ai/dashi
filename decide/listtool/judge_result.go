@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/decide/internal/state"
+	"github.com/deepnoodle-ai/decide"
 )
 
 // judgeOutput is what one judge_items call found, ready to write for the
@@ -80,9 +81,11 @@ func (v judgeOutput) render(show, closeShown, failShown int) string {
 			}
 			parts[j] = fmt.Sprintf("%s %d", answer, n)
 		}
-		tallies[i] = fmt.Sprintf("%s: %s.", q.Key, strings.Join(parts, ", "))
+		tallies[i] = q.Key + " " + strings.Join(parts, ", ")
 	}
-	b.WriteString(strings.Join(tallies, " ") + "\n")
+	// The counts are of most likely answers. A match needs P above 0.5,
+	// which a choice's most likely answer may not reach.
+	b.WriteString("Most likely answers: " + strings.Join(tallies, "; ") + ".\n")
 
 	var close []string
 	if len(v.conds) > 0 {
@@ -95,7 +98,11 @@ func (v judgeOutput) render(show, closeShown, failShown int) string {
 				m.probs = append(m.probs, p)
 				m.rank *= p
 				hit = hit && p > 0.5
-				if near == "" && p >= closeLow && p <= closeHigh {
+				// A close call is a P near 0.5, or a most likely answer
+				// that is not above 0.5, which a choice can have. Either
+				// way the item is listed, never left out.
+				leads := p <= 0.5 && likelyIs(it.answers[c.q.Key], c.answer)
+				if near == "" && (p >= closeLow && p <= closeHigh || leads) {
 					near = fmt.Sprintf("%s (%s %.2f)", it.id, c.q.Key, p)
 				}
 			}
@@ -125,7 +132,7 @@ func (v judgeOutput) render(show, closeShown, failShown int) string {
 			b.WriteString("\n")
 		}
 		if more := len(matches) - show; more > 0 {
-			fmt.Fprintf(&b, "  ... and %d more. %s\n", more, v.moreHint(show))
+			fmt.Fprintf(&b, "  ... and %d more. %s\n", more, moreHint)
 		}
 	} else {
 		b.WriteString("Items in list order, with each most likely answer:\n")
@@ -151,7 +158,7 @@ func (v judgeOutput) render(show, closeShown, failShown int) string {
 			}
 		}
 		if more := len(ok) - show; more > 0 {
-			fmt.Fprintf(&b, "  ... and %d more. %s\n", more, v.moreHint(show))
+			fmt.Fprintf(&b, "  ... and %d more. %s\n", more, moreHint)
 		}
 	}
 
@@ -164,7 +171,7 @@ func (v judgeOutput) render(show, closeShown, failShown int) string {
 		last = append(last, line+".")
 	}
 	if cut := countFunc(v.items, func(it judged) bool { return it.cut }); cut > 0 {
-		last = append(last, fmt.Sprintf("Judged on their first %s only: %d.", size(v.maxItemBytes), cut))
+		last = append(last, fmt.Sprintf("Judged on their first %s bytes only: %d.", count(v.maxItemBytes), cut))
 	}
 	if failed := len(v.items) - len(ok); failed > 0 {
 		line := fmt.Sprintf("Failed: %d.", failed)
@@ -189,14 +196,12 @@ func (v judgeOutput) render(show, closeShown, failShown int) string {
 }
 
 // moreHint tells the model how to see items the result left out.
-func (v judgeOutput) moreHint(show int) string {
-	switch {
-	case show == v.show && show < maxShow:
-		return fmt.Sprintf("Set show (at most %d) to list more.", maxShow)
-	case len(v.conds) > 0:
-		return "No more fit in one result. Narrow the query, or add an answer to find."
-	}
-	return "Use find to list only the items you need."
+var moreHint = fmt.Sprintf("Set show (at most %d), or narrow the query.", maxShow)
+
+// likelyIs says whether answer is a's most likely answer.
+func likelyIs(a decide.Answer, answer string) bool {
+	got, _ := likely(a)
+	return got == answer
 }
 
 func countFunc[T any](s []T, f func(T) bool) int {
@@ -215,12 +220,4 @@ func itemCount(n int) string {
 		return "1 item"
 	}
 	return count(n) + " items"
-}
-
-// size writes a byte count as people read it, such as 64 KiB.
-func size(n int) string {
-	if n >= 1<<10 && n%(1<<10) == 0 {
-		return fmt.Sprintf("%d KiB", n>>10)
-	}
-	return fmt.Sprintf("%d bytes", n)
 }
