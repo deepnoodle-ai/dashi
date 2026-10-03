@@ -123,6 +123,9 @@ retained context. Old compaction messages without identity remain in place and
 receive one new identified copy. `SeedContext` requires Name and clears
 NextCallOnly.
 
+For the user's request, read `p.Turn.Input`: the turn's start input, then
+user items that `AddMessages` or a steer added later, but not items hooks
+added. A tool reads the same view with `dashi.CurrentTurn(ctx)`.
 For context limited to the current turn, inspect `p.Turn.Context(origin, name)`.
 To act once per turn in any hook, ask `p.Turn.HookActed(point, name)`. It reads
 recorded hook decisions and holds when another process resumes the turn.

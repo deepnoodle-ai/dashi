@@ -96,6 +96,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `BeforeModel` or `AfterTool` hook can say why it changed something and which
   rules or decision model decided. The model never sees them. A `BeforeModel`
   stop with no `Reason` still records `Stop.Reason`.
+- **`TurnView.Input` holds the turn's input,** in record order: `Start.Input`,
+  then user items that `AddMessages` or a steer added later. Items that hooks
+  add are left out. A hook reads it from its plan's `Turn`, and a tool from
+  `dashi.CurrentTurn(ctx)`, to see what the user asked for.
 
 ### Fixed
 
