@@ -15,7 +15,8 @@
 //	runner := dashi.Runner{Client: model, Hooks: ranker.Hook().Hooks()}
 //
 // The hook ranks once per turn, before its first model call, and the turn
-// records the items it added, so a resumed turn does not rank again. It
+// records the ranking, even one that adds nothing, so a resumed turn does
+// not rank again. It
 // skips compaction work and, by default, child turns. An item the model
 // already sees with the same content is not judged again and costs nothing.
 // Items go after the user's message, so the cached prompt prefix survives.
@@ -217,9 +218,8 @@ func (r *Ranker) beforeModel(
 	if sel.Err != nil {
 		return dashi.ModelDecision{}, sel.Err
 	}
-	if len(sel.Added) == 0 {
-		return dashi.ModelDecision{}, nil
-	}
+	// A ranking that adds nothing still returns its Reason, so the turn
+	// records it and a resumed turn does not rank again.
 	return dashi.ModelDecision{
 		AddMessages:  sel.Added,
 		Reason:       reason(sel),
@@ -228,7 +228,7 @@ func (r *Ranker) beforeModel(
 }
 
 // ranks reports whether this call is the first ordinary model call of a
-// turn the ranker serves, with nothing added yet.
+// turn the ranker serves, with no ranking recorded yet.
 func (r *Ranker) ranks(plan dashi.ModelPlan) bool {
 	switch {
 	case plan.Purpose != "":
@@ -472,8 +472,9 @@ func present(messages []llm.Message, item dashi.ContextItem) bool {
 	return false
 }
 
-// reason is the one line recorded with the added items, such as "chose 2
-// of 12 (note_42 0.91, note_7 0.84); request req_8f2".
+// reason is the one line recorded for a ranking, such as "chose 2 of 12
+// (note_42 0.91, note_7 0.84); request req_8f2", or "chose 0 of 12;
+// request req_8f2" when it adds nothing.
 func reason(sel Selection) string {
 	asked := 0
 	// Each chosen result keeps its own P(yes): an invalid candidate can
@@ -500,8 +501,10 @@ func reason(sel Selection) string {
 		}
 		parts = append(parts, fmt.Sprintf("%s %.2f", j.ID, j.Probability))
 	}
-	line := fmt.Sprintf("chose %d of %d (%s)",
-		len(chosen), asked, strings.Join(parts, ", "))
+	line := fmt.Sprintf("chose %d of %d", len(chosen), asked)
+	if len(parts) > 0 {
+		line += " (" + strings.Join(parts, ", ") + ")"
+	}
 	switch ids := sel.RequestIDs; len(ids) {
 	case 0:
 		return line

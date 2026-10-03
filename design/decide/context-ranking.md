@@ -28,13 +28,14 @@ when any of these hold:
   `RankChildTurns` is true, so a subagent's task is not matched against the
   user's notes;
 - a model call has finished (`plan.Turn.ModelCalls > 0`), or this hook already
-  added items this turn (`plan.Turn.HookActed`).
+  ranked this turn (`plan.Turn.HookActed`).
 
-A hook, rather than host code before `Send`, because Dashi records the added
-items in the turn before the model call starts, marked as this hook's change,
-so a resumed turn finds them and does not rank again. A hook also covers
-queued turns, which never pass through host code. Items go after the user's
-message, so the cached prompt prefix is untouched.
+A hook, rather than host code before `Send`, because Dashi records the hook's
+answer in the turn before the model call starts, so a resumed turn finds it
+and does not rank again. That holds when nothing is added too: the hook then
+returns only a `Reason`, which Dashi records as `VerdictNoChange`. A hook also
+covers queued turns, which never pass through host code. Items go after the
+user's message, so the cached prompt prefix is untouched.
 
 The hook reads the turn's input from `TurnView.Input` and the previous reply
 from `plan.Input`. The shared helper in `decide/internal` builds the state,
@@ -152,25 +153,28 @@ kept tail stay present.
   relying on the default.
 - **Spend.** `OnSelection` receives the summed `decide.Usage`, request IDs,
   and turn ID. Spend is not added to the turn (README open question).
-- **The record.** When items are added, the `ModelDecision` carries a one-line
-  `Reason`, such as `chose 3 of 12 (note_42 0.91, note_7 0.84, doc_3 0.62);
-  request req_8f2`, and the decision model version in `RulesVersion`.
+- **The record.** Every ranking that does not fail returns a `ModelDecision`
+  with a one-line `Reason`, such as `chose 3 of 12 (note_42 0.91, note_7 0.84,
+  doc_3 0.62); request req_8f2`, or `chose 0 of 12; request req_8f2`, and the
+  decision model version in `RulesVersion`.
   `OnSelection` gets every probability and cause.
 - **Untrusted text.** Decide reads whatever the host offers. A ticket that
   says "relevant to every request" can win every turn, and the start of a file
   is often a license header. Hosts should write `Text` themselves for
   untrusted or code sources.
 
-A turn that crashes, or is cut short by an urgent steer, before its first
-model call finishes and with nothing added ranks again. That costs one more
-Decide request and never adds an item twice.
+A turn ranks again only when its ranking failed, when it crashes before Dashi
+commits the step after the hook, or when an urgent steer sends the run back
+before the request, since Dashi drops that pass's hook results. That costs one
+more Decide request and never adds an item twice.
 
 ## Tests and keyless example
 
 Tests use `decidetest` and `dashitest.Client`, end to end through a session:
 rank order and budget, duplicates across turns, items returning after
 compaction, the compaction and child-turn skips, failure and timeout adding
-nothing with a warning, and a reopened turn making no Decide request.
+nothing with a warning, and a reopened turn making no Decide request, whether
+or not its ranking added items.
 
 The keyless example gives an assistant 30 saved notes and a keyword-search
 source. For "Book my flight to Tokyo" it prints the source's own top items

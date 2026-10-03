@@ -299,8 +299,8 @@ func TestDuplicatesAcrossTurns(t *testing.T) {
 	if c := causes(sel); c["seat"] != contextrank.CausePresent || c["passport"] != contextrank.CausePresent {
 		t.Fatalf("turn 2 causes = %v", c)
 	}
-	if _, ok := hookResult(out.Turn); ok {
-		t.Fatal("turn 2 recorded a change")
+	if h, _ := hookResult(out.Turn); h.Verdict != dashi.VerdictNoChange || h.Reason != "chose 0 of 0" {
+		t.Fatalf("turn 2 hook result = %+v; want a ranking that added nothing", h)
 	}
 	// The previous reply is part of the exchange.
 	if st, _ := srv.Requests()[0].Request.State.(string); st != "User: Book my flight to Tokyo" {
@@ -479,41 +479,62 @@ func TestChildTurns(t *testing.T) {
 }
 
 func TestResumedTurnDoesNotRankAgain(t *testing.T) {
-	srv, client := judge(t, map[string]float64{"a": 0.9})
-	ranker := &contextrank.Ranker{Client: client, Source: fixed(note("a", 50))}
-	model := dashitest.NewClient(dashitest.Reply("done"))
-	// The worker loses the acknowledgement of the step that starts the
-	// model call, after it committed with the added item: a crash.
-	store := dashi.NewMemoryRecorder()
-	rec := &dashitest.FaultRecorder{
-		Recorder: store,
-		Kind:     dashi.StepModelCallStarted,
-		Fault:    dashitest.LoseAck,
+	cases := []struct {
+		name    string
+		p       float64
+		want    []string
+		verdict dashi.HookVerdict
+		reason  string
+	}{
+		{"items added", 0.9, []string{"a"}, dashi.VerdictChange,
+			"chose 1 of 1 (a 0.90); request req_1"},
+		// Every candidate falls below the floor: the ranking adds nothing,
+		// yet the turn records it.
+		{"nothing added", 0.2, nil, dashi.VerdictNoChange,
+			"chose 0 of 1; request req_1"},
 	}
-	runner := dashi.Runner{Client: model, Recorder: rec, Hooks: ranker.Hook().Hooks()}
-	cmd := start("hi")
-	cmd.CommandID = "start-1"
-	if _, err := runner.Run(t.Context(), dashi.Turn{ID: "t1"}, cmd); err == nil {
-		t.Fatal("the injected fault returned no error")
-	}
-	saved, err := store.Load(t.Context(), "t1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	out, err := runner.Run(t.Context(), saved, dashi.Continue{CommandID: "resume"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.Reply != "done" {
-		t.Fatalf("reply = %q; stop %+v", out.Reply, out.Stop)
-	}
-	if n := len(srv.Requests()); n != 1 {
-		t.Fatalf("Decide requests = %d; want 1", n)
-	}
-	for i, in := range model.Inputs() {
-		if got := sent(in); !slices.Equal(got, []string{"a"}) {
-			t.Fatalf("model call %d saw %v; want the item once", i+1, got)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, client := judge(t, map[string]float64{"a": tc.p})
+			ranker := &contextrank.Ranker{Client: client, Source: fixed(note("a", 50))}
+			model := dashitest.NewClient(dashitest.Reply("done"))
+			// The worker loses the acknowledgement of the step that starts
+			// the model call, after it committed: a crash.
+			store := dashi.NewMemoryRecorder()
+			rec := &dashitest.FaultRecorder{
+				Recorder: store,
+				Kind:     dashi.StepModelCallStarted,
+				Fault:    dashitest.LoseAck,
+			}
+			runner := dashi.Runner{Client: model, Recorder: rec, Hooks: ranker.Hook().Hooks()}
+			cmd := start("hi")
+			cmd.CommandID = "start-1"
+			if _, err := runner.Run(t.Context(), dashi.Turn{ID: "t1"}, cmd); err == nil {
+				t.Fatal("the injected fault returned no error")
+			}
+			saved, err := store.Load(t.Context(), "t1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := runner.Run(t.Context(), saved, dashi.Continue{CommandID: "resume"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Reply != "done" {
+				t.Fatalf("reply = %q; stop %+v", out.Reply, out.Stop)
+			}
+			if n := len(srv.Requests()); n != 1 {
+				t.Fatalf("Decide requests = %d; want 1", n)
+			}
+			for i, in := range model.Inputs() {
+				if got := sent(in); !slices.Equal(got, tc.want) {
+					t.Fatalf("model call %d saw %v; want %v", i+1, got, tc.want)
+				}
+			}
+			if h, _ := hookResult(out.Turn); h.Verdict != tc.verdict || h.Reason != tc.reason {
+				t.Fatalf("hook result = %+v; want %s, %q", h, tc.verdict, tc.reason)
+			}
+		})
 	}
 }
 
