@@ -325,6 +325,21 @@ func TestDuplicatesAcrossTurns(t *testing.T) {
 	}
 }
 
+func TestStateKeepsTheEndOfLongMessages(t *testing.T) {
+	srv, client := judge(t, map[string]float64{"owner": 0.9})
+	ranker := &contextrank.Ranker{Client: client, Source: fixed(note("owner", 50))}
+	model := dashitest.NewClient(dashitest.Reply("ok"))
+	runner := dashi.Runner{Client: model, Hooks: ranker.Hook().Hooks()}
+	trace := strings.Repeat("ERROR db timeout at handler.go:42\n", 300) // about 10 KB
+	if _, err := runner.Run(t.Context(), dashi.Turn{}, start(trace+"Which service owns this?")); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := srv.Requests()[0].Request.State.(string)
+	if len(st) > 5<<10 || !strings.HasSuffix(st, "Which service owns this?") {
+		t.Fatalf("state is %d bytes and ends %q; want the question kept", len(st), st[max(0, len(st)-40):])
+	}
+}
+
 func TestSkipsCompactionTurns(t *testing.T) {
 	srv, client := judge(t, map[string]float64{"port": 0.9})
 	ranker := &contextrank.Ranker{Client: client, Source: fixed(note("port", 60))}

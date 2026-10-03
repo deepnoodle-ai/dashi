@@ -57,7 +57,7 @@ const (
 // Sizes of the text a decision model reads, in bytes.
 const (
 	// maxRequestBytes and maxReplyBytes bound the two parts of the latest
-	// exchange.
+	// exchange; each keeps its end.
 	maxRequestBytes = 4 << 10
 	maxReplyBytes   = 2 << 10
 	// maxTextBytes bounds what Decide reads of one candidate.
@@ -237,7 +237,8 @@ func (r *Ranker) ranks(plan dashi.ModelPlan) bool {
 }
 
 // latestExchange returns the assistant reply before the turn's input, if
-// any, and the user's latest message, which the turn's input holds. It is
+// any, and the user's latest message, which the turn's input holds. Each
+// keeps its end, where the question or a follow-up offer usually is. It is
 // "" when the turn has no user text.
 func latestExchange(plan dashi.ModelPlan) string {
 	request := state.Request(plan.Turn, maxRequestBytes)
@@ -247,7 +248,7 @@ func latestExchange(plan dashi.ModelPlan) string {
 	reply := ""
 	for _, m := range slices.Backward(plan.Input.Messages) {
 		if m.Role == llm.RoleAssistant && m.Text() != "" {
-			reply = state.Cut(m.Text(), maxReplyBytes)
+			reply = state.KeepEnd(m.Text(), maxReplyBytes)
 			break
 		}
 	}
