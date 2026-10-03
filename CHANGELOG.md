@@ -81,6 +81,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Decide examples.** `examples/decide` uses a decision model (Jev or Clef,
+  through the Decide library) as a judge inside hooks: a risk gate on tool
+  calls, a prompt-injection screen on tool results, and per-turn tool
+  narrowing. Each runs without API keys by default.
 - **`tool.Outcome.Data` carries structured detail about a call for the
   host.** It is raw JSON that the turn record keeps and the model never sees.
   Like `Progress.Data`, Data that is not valid JSON or exceeds 64 KiB is
