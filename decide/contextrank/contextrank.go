@@ -476,31 +476,29 @@ func present(messages []llm.Message, item dashi.ContextItem) bool {
 // of 12 (note_42 0.91, note_7 0.84); request req_8f2".
 func reason(sel Selection) string {
 	asked := 0
-	var chosen []string
+	// Each chosen result keeps its own P(yes): an invalid candidate can
+	// repeat a chosen one's ID.
+	var chosen []CandidateResult
 	for _, j := range sel.Candidates {
 		switch j.Cause {
 		case CausePresent, CauseTooLarge, CauseOverMaxCandidates, CauseInvalid:
 			continue
 		case CauseChosen:
-			chosen = append(chosen, j.ID)
+			chosen = append(chosen, j)
 		}
 		asked++
 	}
-	p := map[string]float64{}
-	for _, j := range sel.Candidates {
-		p[j.ID] = j.Probability
-	}
 	// Rank order, as added.
-	slices.SortStableFunc(chosen, func(a, b string) int {
-		return cmp.Compare(p[b], p[a])
+	slices.SortStableFunc(chosen, func(a, b CandidateResult) int {
+		return cmp.Compare(b.Probability, a.Probability)
 	})
 	var parts []string
-	for i, id := range chosen {
+	for i, j := range chosen {
 		if i == 8 {
 			parts = append(parts, fmt.Sprintf("and %d more", len(chosen)-i))
 			break
 		}
-		parts = append(parts, fmt.Sprintf("%s %.2f", id, p[id]))
+		parts = append(parts, fmt.Sprintf("%s %.2f", j.ID, j.Probability))
 	}
 	line := fmt.Sprintf("chose %d of %d (%s)",
 		len(chosen), asked, strings.Join(parts, ", "))

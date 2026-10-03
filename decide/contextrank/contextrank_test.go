@@ -665,8 +665,9 @@ func TestInvalidCandidates(t *testing.T) {
 			t.Fatal("a valid candidate was left, yet the hook failed")
 		}
 		h, _ := hookResult(out.Turn)
-		if !strings.HasPrefix(h.Reason, "chose 1 of 1 ") {
-			t.Fatalf("reason = %q", h.Reason)
+		// The invalid repeat of "a" does not replace the chosen a's P(yes).
+		if !strings.HasPrefix(h.Reason, "chose 1 of 1 (a 0.90)") {
+			t.Fatalf("reason = %q; want a's own P(yes)", h.Reason)
 		}
 	})
 	t.Run("all invalid fails with a warning", func(t *testing.T) {
