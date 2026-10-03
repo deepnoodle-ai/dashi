@@ -1,6 +1,7 @@
 package state
 
 import (
+	"strings"
 	"testing"
 	"unicode/utf8"
 
@@ -25,7 +26,7 @@ func TestRequest(t *testing.T) {
 	if got := Request(view, 0); got != "Triage the open tickets" {
 		t.Fatalf("request = %q", got)
 	}
-	if got := Request(view, 6); got != "Triage" {
+	if got := Request(view, 7); got != "tickets" {
 		t.Fatalf("cut request = %q", got)
 	}
 	if got := Request(dashi.TurnView{}, 100); got != "" {
@@ -63,6 +64,40 @@ func TestCut(t *testing.T) {
 		got := Cut(tc.text, tc.max)
 		if got != tc.want || !utf8.ValidString(got) {
 			t.Errorf("Cut(%q, %d) = %q; want %q", tc.text, tc.max, got, tc.want)
+		}
+	}
+}
+
+func TestRequestKeepsQuestionAfterPastedLog(t *testing.T) {
+	log := strings.Repeat("ERROR db timeout at handler.go:42\n", 300)
+	view := dashi.TurnView{Input: []llm.Message{
+		llm.UserMessage(llm.Text(log + "Which service owns this?")),
+	}}
+	got := Request(view, 4<<10)
+	if len(got) > 4<<10 || !strings.HasSuffix(got, "Which service owns this?") {
+		t.Fatalf("request is %d bytes and ends %q", len(got), got[max(0, len(got)-40):])
+	}
+}
+
+func TestKeepEnd(t *testing.T) {
+	for _, tc := range []struct {
+		text string
+		max  int
+		want string
+	}{
+		{"hello", 0, "hello"},
+		{"hello", -1, "hello"},
+		{"hello", 5, "hello"},
+		{"hello", 3, "llo"},
+		{"hellé", 1, ""}, // é is two bytes
+		{"hellé", 2, "é"},
+		{"héllo", 4, "llo"},
+		{"日本", 4, "本"},
+		{"日本", 2, ""},
+	} {
+		got := KeepEnd(tc.text, tc.max)
+		if got != tc.want || !utf8.ValidString(got) {
+			t.Errorf("KeepEnd(%q, %d) = %q; want %q", tc.text, tc.max, got, tc.want)
 		}
 	}
 }
