@@ -14,8 +14,12 @@ import (
 // last user message in view.Input that is not a named context item, cut to
 // maxBytes with Cut. Reminder content is not text, so a message of
 // reminders only is skipped. It returns "" when the turn has no such
-// message.
+// message, and for a compaction turn, whose Input is the session's summary
+// instruction rather than a request from the user.
 func Request(view dashi.TurnView, maxBytes int) string {
+	if view.Origin == dashi.StartCompaction {
+		return ""
+	}
 	for _, m := range slices.Backward(view.Input) {
 		if m.Role != llm.RoleUser || m.Context != nil {
 			continue

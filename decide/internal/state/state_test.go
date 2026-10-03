@@ -33,6 +33,18 @@ func TestRequest(t *testing.T) {
 	}
 }
 
+// A compaction turn's Input is the session's summary instruction, not a
+// request from the user.
+func TestRequestCompactionTurn(t *testing.T) {
+	view := dashi.TurnView{
+		Origin: dashi.StartCompaction,
+		Input:  []llm.Message{llm.UserMessage(llm.Text("Summarize the conversation."))},
+	}
+	if got := Request(view, 0); got != "" {
+		t.Fatalf("compaction turn request = %q; want none", got)
+	}
+}
+
 func TestCut(t *testing.T) {
 	for _, tc := range []struct {
 		text string
