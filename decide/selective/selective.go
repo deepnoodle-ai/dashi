@@ -7,8 +7,8 @@
 // tail later, asks a decision model through Decide whether each older
 // segment is still needed and whether its exact text is, keeps the needed
 // segments whole or as a short form, and has the summary cover what was not
-// kept whole. The history after compaction is no larger than the stock
-// compactor's.
+// kept whole. The history after compaction fits the stock compactor's size
+// budget.
 //
 // Any Decide failure, a pairing problem, or a selection with nothing to
 // summarize falls back to the stock Start, and OnSelection receives the

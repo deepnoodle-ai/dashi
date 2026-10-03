@@ -19,8 +19,9 @@ for word and summarizes only the rest, at the same post-compaction size.
 Selective keeps the stock total: `Base`'s tail budget, 0.25 of the window by
 default. `OlderFraction` (0.15 by default) of it goes to older segments, so
 the tail is cut later, at 0.10. Older segments fill whatever room the tail
-leaves. History after compaction is no larger than stock, and compactions
-come no more often.
+leaves. History after compaction fits the stock budget, and compactions
+come no more often. (Stock often keeps less than its budget, because it cuts
+only where a user message starts.)
 
 The current turn, from the user's latest own words on, stays whole as stock
 keeps it. When the turn is larger than 0.10, the tail starts at the latest

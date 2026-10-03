@@ -156,11 +156,29 @@ var themes = []theme{
 
 var followUps = []string{"Keep going.", "OK, continue.", "Fine, carry on."}
 
+// vagueLatest is the latest request of the vague variant: it names no
+// subject, so neither Decide nor a summarizer can learn from it what the
+// next step needs.
+const vagueLatest = "Keep going."
+
+// variant changes how sessions are generated.
+type variant struct {
+	// vague replaces the theme's latest request, which names the needles'
+	// subjects, with vagueLatest.
+	vague bool
+	// longTurn makes the last turn larger than selective's tail share
+	// (0.10 of the window) but smaller than stock's (0.25), by reading a
+	// large file after the latest request.
+	longTurn bool
+}
+
 // session is one history to compact and the needles planted in it.
 type session struct {
 	name     string
 	messages []llm.Message
 	needles  []needle
+	latest   string // the latest request
+	lastRead string // the file read after the latest request
 }
 
 // builder writes a session's messages.
@@ -171,7 +189,7 @@ type builder struct {
 	calls    int
 }
 
-func newSession(i int, seed uint64) session {
+func newSession(i int, seed uint64, v variant) session {
 	th := themes[i%len(themes)]
 	b := &builder{rng: rand.New(rand.NewPCG(seed, uint64(i))), th: th}
 	b.add(llm.Message{Role: llm.RoleSystem, Content: []llm.Content{llm.Text(
@@ -203,13 +221,24 @@ func newSession(i int, seed uint64) session {
 			b.add(llm.UserMessage(llm.Text(followUps[k/4%len(followUps)])))
 		}
 	}
-	b.add(llm.UserMessage(llm.Text(th.latest)))
-	b.exchange("", "read_file", `{"path":"`+b.file()+`"}`, b.code(20))
+	latest := th.latest
+	if v.vague {
+		latest = vagueLatest
+	}
+	b.add(llm.UserMessage(llm.Text(latest)))
+	lines := 20
+	if v.longTurn {
+		lines = 170 // about 10 KB: 2,500 tokens, over 0.10 of a 16,000-token window
+	}
+	lastRead := b.code(lines)
+	b.exchange("", "read_file", `{"path":"`+b.file()+`"}`, lastRead)
 	b.add(llm.AssistantMessage(llm.Text("I have what I need and will make the change now.")))
 	return session{
 		name:     th.project,
 		messages: b.messages,
 		needles:  []needle{th.errNeedle, th.pathNeedle, th.decNeedle, th.conNeedle},
+		latest:   latest,
+		lastRead: lastRead,
 	}
 }
 

@@ -3,15 +3,19 @@
 //
 // Each session plants exact details early: an error code, a path, a
 // decision and its reason, and a constraint the user stated once. Then it
-// is compacted four ways to the same size, and a probe turn asks one
+// is compacted five ways to the same size, and a probe turn asks one
 // question per needle:
 //
 //  1. stock: compaction.Compactor, tail 0.25 of the window.
-//  2. recency: selective's layout, pinning, and prompt, with every older
+//  2. stock, request-aware: the same, with the latest request added to the
+//     summary prompt. The stock summarizer never sees the latest request,
+//     because it sits in the tail; Decide does, so this arm tests whether
+//     that alone explains selective's lead.
+//  3. recency: selective's layout, pinning, and prompt, with every older
 //     segment scored by position, so the newest are kept. Its scores come
 //     from an in-process fake, not from Decide.
-//  3. selective: selective.Compactor with Decide.
-//  4. selective, summary first: the same compaction with the summary moved
+//  4. selective: selective.Compactor with Decide.
+//  5. selective, summary first: the same compaction with the summary moved
 //     before the kept older segments.
 //
 // By default it needs no API key: a decidetest server answers with canned
@@ -28,8 +32,15 @@
 // Decide wait, and fallbacks against the design's bar. With OPENAI_API_KEY
 // set it also sends one selective history to OpenAI.
 //
+// Two variants change the generated sessions. -vague replaces the latest
+// request, which names the subjects of the needles, with "Keep going.".
+// -long-turn reads a large file after the latest request, so the last turn
+// is larger than selective's tail share but fits stock's; the keyless run
+// then checks that the file survives word for word.
+//
 //	go run ./selective/eval
 //	go run ./selective/eval -live -sessions 4
+//	go run ./selective/eval -live -vague
 package main
 
 import (
@@ -70,12 +81,13 @@ const jevPricePerToken = 0.042 / 1e6
 // Arm names.
 const (
 	armStock        = "stock"
+	armStockRequest = "stock, request-aware"
 	armRecency      = "recency"
 	armSelective    = "selective"
 	armSummaryFirst = "selective, summary first"
 )
 
-var arms = []string{armStock, armRecency, armSelective, armSummaryFirst}
+var arms = []string{armStock, armStockRequest, armRecency, armSelective, armSummaryFirst}
 
 type config struct {
 	live     bool
@@ -84,6 +96,7 @@ type config struct {
 	model    string
 	openai   string
 	seed     uint64
+	variant  variant
 }
 
 func main() {
@@ -95,6 +108,8 @@ func main() {
 	flag.StringVar(&cfg.model, "model", "claude-haiku-4-5", "Claude model for summaries and probes (-live)")
 	flag.StringVar(&cfg.openai, "openai-model", "gpt-6-luna", "OpenAI model that receives one selective history (-live)")
 	seed := flag.Uint64("seed", 1, "session generator seed")
+	flag.BoolVar(&cfg.variant.vague, "vague", false, `make the latest request "Keep going." instead of one that names the needles' subjects`)
+	flag.BoolVar(&cfg.variant.longTurn, "long-turn", false, "read a large file in the last turn, over selective's tail share")
 	flag.Parse()
 	cfg.seed = *seed
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -152,7 +167,7 @@ func run(ctx context.Context, cfg config, out io.Writer) (*report, error) {
 	r := &report{results: map[string][]outcome{}}
 	sessions := make([]session, cfg.sessions)
 	for i := range sessions {
-		sessions[i] = newSession(i, cfg.seed)
+		sessions[i] = newSession(i, cfg.seed, cfg.variant)
 		r.sessions = append(r.sessions, sessions[i].name)
 		r.sizes = append(r.sizes, keptTokens(sessions[i].messages, &dashi.CompactionFact{SummaryAt: -1}))
 		r.needles = append(r.needles, sessions[i].needles)
@@ -314,21 +329,28 @@ func (e *env) session(ctx context.Context, n int, s session) (map[string]outcome
 		return fmt.Sprintf("s%d-%s-%s", n, strings.ReplaceAll(arm, " ", ""), what)
 	}
 
-	// Stock.
-	st, err := stock.Start(ctx, s.messages)
-	if err != nil {
-		return nil, nil, err
+	// Stock, and stock with the latest request in its summary prompt.
+	aware := stock
+	aware.Prompt = compaction.DefaultPrompt + requestNote(s.latest)
+	for arm, c := range map[string]compaction.Compactor{armStock: stock, armStockRequest: aware} {
+		st, err := c.Start(ctx, s.messages)
+		if err != nil {
+			return nil, nil, err
+		}
+		hist, spend, err := e.compact(ctx, id(arm, "compact"), st, s.messages)
+		if err != nil {
+			return nil, nil, err
+		}
+		o := outcome{kept: keptTokens(hist, st.Compaction)}
+		o.addSpend(spend)
+		if o.found, o.probeCost, err = e.probe(ctx, id(arm, "probe"), hist, s.needles); err != nil {
+			return nil, nil, err
+		}
+		res[arm] = o
+		if !e.cfg.live && e.cfg.variant.longTurn {
+			check(arm, keepsWhole(hist, s.lastRead))
+		}
 	}
-	hist, spend, err := e.compact(ctx, id(armStock, "compact"), st, s.messages)
-	if err != nil {
-		return nil, nil, err
-	}
-	o := outcome{kept: keptTokens(hist, st.Compaction)}
-	o.addSpend(spend)
-	if o.found, o.probeCost, err = e.probe(ctx, id(armStock, "probe"), hist, s.needles); err != nil {
-		return nil, nil, err
-	}
-	res[armStock] = o
 
 	// Recency and selective share everything but the Decide client.
 	for _, arm := range []string{armRecency, armSelective} {
@@ -370,6 +392,9 @@ func (e *env) session(ctx context.Context, n int, s session) (map[string]outcome
 		res[arm] = o
 		if !e.cfg.live && arm == armSelective {
 			check(arm, survives(hist, s.needles))
+		}
+		if !e.cfg.live && e.cfg.variant.longTurn {
+			check(arm, keepsWhole(hist, s.lastRead))
 		}
 		if arm != armSelective {
 			continue
@@ -528,6 +553,31 @@ func (e *env) checkFallback(ctx context.Context, stock compaction.Compactor, msg
 	return nil
 }
 
+// requestNote tells the stock summarizer the latest request, which it does
+// not otherwise see, because the request sits in the kept tail.
+func requestNote(latest string) string {
+	return "\n\nThe user's latest request, kept word for word after your summary, is:\n" +
+		"<latest_request>\n" + latest + "\n</latest_request>\n" +
+		"Make sure the summary keeps every exact detail that request may need."
+}
+
+// keepsWhole checks that a tool result in hist holds text whole.
+func keepsWhole(hist []llm.Message, text string) error {
+	for _, m := range hist {
+		for _, c := range m.Content {
+			if c.ToolResult == nil {
+				continue
+			}
+			for _, b := range c.ToolResult.Output.Content {
+				if b.Text != nil && b.Text.Text == text {
+					return nil
+				}
+			}
+		}
+	}
+	return errors.New("the file read in the last turn is not kept word for word")
+}
+
 // survives checks that every needle is word for word in hist.
 func survives(hist []llm.Message, needles []needle) error {
 	text := historyText(hist)
@@ -658,6 +708,12 @@ func (r *report) print(w io.Writer, cfg config) {
 	if cfg.live {
 		mode = "live (" + cfg.model + ", Jev)"
 	}
+	if cfg.variant.vague {
+		mode += ", vague latest request"
+	}
+	if cfg.variant.longTurn {
+		mode += ", long last turn"
+	}
 	fmt.Fprintf(w, "needle in history: %s, %d sessions, window %d tokens\n\n", mode, len(r.sessions), cfg.window)
 	fmt.Fprintf(w, "%-26s %-11s %5s %7s %8s %8s %8s %10s %9s %9s\n",
 		"arm", "recall", "falls", "kept", "sum in", "sum out", "sum $", "Decide in", "Decide $", "wait max")
@@ -762,14 +818,14 @@ func (r *report) print(w io.Writer, cfg config) {
 		}
 		verdict := func(ok bool) string {
 			if ok {
-				return "met"
+				return "met on generated sessions"
 			}
 			return "NOT met"
 		}
-		fmt.Fprintf(w, "bar: selective beats stock by 10+ points: %+.0f, %s\n",
-			recall[armSelective]-recall[armStock], verdict(recall[armSelective]-recall[armStock] >= 10))
-		fmt.Fprintf(w, "bar: selective beats recency by 10+ points: %+.0f, %s\n",
-			recall[armSelective]-recall[armRecency], verdict(recall[armSelective]-recall[armRecency] >= 10))
+		for _, a := range []string{armStock, armStockRequest, armRecency} {
+			fmt.Fprintf(w, "bar: selective beats %s by 10+ points: %+.0f, %s\n",
+				a, recall[armSelective]-recall[a], verdict(recall[armSelective]-recall[a] >= 10))
+		}
 		rate := 100 * float64(falls) / float64(max(len(sel), 1))
 		fmt.Fprintf(w, "bar: fallbacks under 5%%: %.0f%%, %s\n", rate, verdict(rate < 5))
 		fmt.Fprintf(w, "bar: Decide spend below summary spend: $%.6f vs $%.4f, %s\n",
