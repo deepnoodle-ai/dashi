@@ -2,8 +2,11 @@ package selective
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -388,5 +391,65 @@ func TestZeroCompactorWorks(t *testing.T) {
 	}
 	if !c.Needed(history(), llm.Usage{InputTokens: 120_000}) {
 		t.Fatal("not needed with a full context")
+	}
+}
+
+// sourceFile is a Go file of about n bytes with distinct lines.
+func sourceFile(name string, n int) string {
+	var b strings.Builder
+	b.WriteString("package " + name + "\n\n")
+	for i := 0; b.Len() < n; i++ {
+		fmt.Fprintf(&b, "func %s%d(x int) int { return x*%d + %d }\n", name, i, i%13, i)
+	}
+	return b.String()
+}
+
+// A last turn larger than the tail share stays whole, as the stock
+// compactor keeps it: a 40 KB file read in the last turn survives word for
+// word, its messages are never judged, and Decide sees the turn as the
+// recent messages.
+func TestLongLastTurnKeptWhole(t *testing.T) {
+	parser, lexer := sourceFile("parser", 40_000), sourceFile("lexer", 24_000)
+	messages := append(history()[:7],
+		user("Now edit parser.go."), // 7: the latest request
+		call("c3", "read_file"),
+		result("c3", parser),
+		call("c4", "read_file"),
+		result("c4", lexer),
+		assistant("Editing parser.go now."),
+	)
+	srv, client := judge(t, map[string]float64{
+		"s0.needed": 0.1, "s0.verbatim": 0.1,
+		"s1.needed": 0.9,
+		"s2.needed": 0.9,
+		"s3.needed": 0.9, "s3.verbatim": 0.9,
+		"s4.needed": 0.9, "s4.verbatim": 0.9,
+	})
+	var base compaction.Compactor
+	base.Policy.Model.Capabilities.ContextWindow = 90_000
+	st, sel := start(t, &Compactor{Base: base, Client: client}, messages)
+	if sel.Fallback != "" {
+		t.Fatalf("fell back: %s", sel.Fallback)
+	}
+	for _, s := range sel.Segments {
+		if slices.ContainsFunc(s.Messages, func(i int) bool { return i >= 7 }) {
+			t.Fatalf("judged a message of the last turn: %+v", s.Messages)
+		}
+	}
+	f := st.Compaction
+	if !reflect.DeepEqual(f.Keep[f.SummaryAt:], messages[7:]) {
+		t.Fatalf("the tail is not the whole last turn: %s", texts(f.Keep[f.SummaryAt:]))
+	}
+	if strings.Contains(requestText(t, st.Input), "parser0(") {
+		t.Fatal("the summary covers the last turn")
+	}
+	for _, r := range srv.Requests() {
+		var state struct {
+			RecentMessages string `json:"recent_messages"`
+		}
+		b, _ := json.Marshal(r.Request.State)
+		if err := json.Unmarshal(b, &state); err != nil || !strings.Contains(state.RecentMessages, "Editing parser.go now.") {
+			t.Fatalf("Decide's recent messages lack the last turn: %v %.200q", err, state.RecentMessages)
+		}
 	}
 }

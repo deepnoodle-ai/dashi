@@ -22,6 +22,12 @@ the tail is cut later, at 0.10. Older segments fill whatever room the tail
 leaves. History after compaction is no larger than stock, and compactions
 come no more often.
 
+The current turn, from the user's latest own words on, stays whole as stock
+keeps it. When the turn is larger than 0.10, the tail starts at the latest
+request (or at stock's cut, if that is later). A large file read in the last
+turn is then never judged or shortened; it counts in the budget and leaves
+less room for older segments.
+
 ### What happens to each older message
 
 Each message before the tail falls into one class:

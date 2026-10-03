@@ -62,7 +62,10 @@ type Compactor struct {
 	// OlderFraction is the share of the window for older segments, taken
 	// from Base's total, so the tail is cut later. Zero means
 	// DefaultOlderFraction. Older segments fill whatever room the tail
-	// leaves.
+	// leaves. The tail never starts after the user's latest own words while
+	// Base's tail would keep them: a current turn larger than the tail
+	// share is kept whole, as Base keeps it, and leaves less room for older
+	// segments.
 	OlderFraction float64
 
 	// MinNeeded is the floor on P(needed). Zero keeps a segment only if
@@ -167,8 +170,9 @@ func (c *Compactor) Needed(messages []llm.Message, last llm.Usage) bool {
 
 // Start builds the compaction turn's Start. It keeps the history's system
 // and developer messages, the user's own words, the older segments Decide
-// finds still needed (whole or short), and a later-cut tail, with the
-// summary of the rest just before the tail. It returns Base's Start
+// finds still needed (whole or short), and a later-cut tail that holds at
+// least what Base's tail holds of the current turn, with the summary of the
+// rest just before the tail. It returns Base's Start
 // instead when Decide fails or passes Timeout, when the user's own words
 // alone exceed the budget, when nothing was dropped or shortened, or when a
 // tool call would be separated from its result. It returns an error only
@@ -221,8 +225,10 @@ func (c *Compactor) selective(ctx context.Context, messages []llm.Message, sel *
 		return dashi.Start{}, errors.New("selective: no room for older segments")
 	}
 	older = min(older, total)
-	cut := compactionrules.Cut(messages, max(0, int((total-older)*float64(window))))
 	budget := int(total * float64(window))
+	cut := currentTurnCut(messages,
+		compactionrules.Cut(messages, max(0, budget)),
+		compactionrules.Cut(messages, max(0, int((total-older)*float64(window)))))
 	budget -= compactionrules.EstimateAll(messages[cut:])
 	if budget <= 0 {
 		return dashi.Start{}, errors.New("selective: the tail fills the budget")
@@ -310,6 +316,35 @@ func (c *Compactor) selective(ctx context.Context, messages []llm.Message, sel *
 			Hash:      sel.Hash,
 		},
 	}, nil
+}
+
+// currentTurnCut returns where the tail starts, given stockCut, Base's own
+// cut at the total share, and cut, the later cut at the tail share. When
+// the current turn (from the user's latest own words on) is larger than the
+// tail share, cut falls inside it. The tail then starts where the current
+// turn does, or at stockCut if that is later, so every message after the
+// user's latest own words that the stock compactor keeps word for word is
+// kept word for word here too, counted in the budget, and never judged.
+func currentTurnCut(messages []llm.Message, stockCut, cut int) int {
+	latest := -1
+	for i := len(messages) - 1; i >= 0; i-- {
+		if m, ok := compactionrules.WithoutReminders(messages[i]); ok && ownWords(m) {
+			latest = i
+			break
+		}
+	}
+	switch {
+	case latest < 0 || cut <= latest:
+		return cut
+	case stockCut >= latest:
+		return stockCut
+	}
+	for at := latest; at > stockCut; at-- {
+		if compactionrules.CanCut(messages, at) {
+			return at
+		}
+	}
+	return stockCut
 }
 
 // choose runs compact.Select over the pinned messages and the judged

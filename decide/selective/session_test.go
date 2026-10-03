@@ -53,11 +53,12 @@ func TestSessionCompaction(t *testing.T) {
 		dashitest.Reply("<summary>The log showed only heartbeats.</summary>"),
 		dashitest.Reply("Fixed the parser."),
 	)
-	// The docs fill the 400-token tail, so no tail is kept. The segments,
-	// in order: s0 = call c1 and the log, s1 = "Read the log.", s2 = call
-	// c2 and the failure, s3 = "The tests fail at offset 16.", s4 = call c3
-	// and the docs, s5 = "Read the docs.". Unanswered questions get 0.5,
-	// which is not above 0.5, so those segments are dropped.
+	// The last turn, from "Read the grammar docs." on, is larger than the
+	// 400-token tail share, but the stock tail keeps it, so it stays whole
+	// as the tail. The segments, in order: s0 = call c1 and the log, s1 =
+	// "Read the log.", s2 = call c2 and the failure, s3 = "The tests fail
+	// at offset 16.". Unanswered questions get 0.5, which is not above 0.5,
+	// so those segments are dropped.
 	srv := decidetest.NewServer(t)
 	srv.Answer("s2.needed", decidetest.NoulAnswer(0.95))
 	srv.Answer("s0.needed", decidetest.NoulAnswer(0.05))
@@ -122,7 +123,7 @@ func TestSessionCompaction(t *testing.T) {
 		acts = append(acts, seg.Action)
 	}
 	drop, keep := selective.ActionDrop, selective.ActionKeep
-	want := []selective.Action{drop, drop, keep, drop, drop, drop}
+	want := []selective.Action{drop, drop, keep, drop}
 	if !slices.Equal(acts, want) {
 		t.Fatalf("actions = %v, want %v", acts, want)
 	}
@@ -137,6 +138,9 @@ func TestSessionCompaction(t *testing.T) {
 	text := allText(next)
 	if !strings.Contains(text, testError) {
 		t.Fatalf("the needed failure is not kept word for word:\n%s", text)
+	}
+	if !strings.Contains(text, docs) {
+		t.Fatal("the last turn's docs are not kept word for word")
 	}
 	if strings.Contains(text, "heartbeat ok\n2026") {
 		t.Fatal("the dropped log is still in the history")
