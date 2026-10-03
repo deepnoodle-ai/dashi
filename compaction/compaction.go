@@ -22,13 +22,11 @@
 package compaction
 
 import (
-	"encoding/json"
 	"math"
 	"strings"
 
-	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/compactionrules"
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
-	"github.com/deepnoodle-ai/dashi/internal/contentsrc"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
 )
@@ -36,7 +34,7 @@ import (
 const (
 	// bytesPerToken converts encoded size to a token estimate. The estimate is
 	// rough and only guides where to cut.
-	bytesPerToken = 4
+	bytesPerToken = compactionrules.BytesPerToken
 
 	// DefaultTailFraction is the share of the context window that a
 	// Compactor keeps as verbatim recent messages.
@@ -93,104 +91,24 @@ func withoutAuthoritative(messages []llm.Message) []llm.Message {
 	return out
 }
 
-// chooseCut picks the smallest cut after the first start whose tail fits
-// the budget. It skips a cut that would leave a tool result without its
-// call. The cut at the end of history always fits, so the result is always
-// valid.
-func chooseCut(history []llm.Message, starts, sizes []int, budget int) int {
-	for _, c := range starts[min(1, len(starts)):] {
-		if sizes[c] <= budget && !splitsExchange(history[c:]) {
-			return c
-		}
-	}
-	return len(history)
-}
-
-// splitsExchange reports whether tail has a tool result whose call is not in
-// tail. Such a tail is not valid history for a model.
-func splitsExchange(tail []llm.Message) bool {
-	calls := map[string]bool{}
-	for _, m := range tail {
-		for _, c := range m.Content {
-			switch {
-			case c.ToolCall != nil:
-				calls[c.ToolCall.ID] = true
-			case c.ToolResult != nil && !calls[c.ToolResult.CallID]:
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// withoutReminders copies messages and removes reminder content. The host
-// supplies reminders again on each Turn, so a summary must not keep them. A
-// reminder with a sender (From) is agent mail, such as a subagent's reply,
-// which nobody supplies again, so it stays. A message left with no content
-// is dropped.
+// withoutReminders copies messages and removes reminder content that has no
+// sender, as compactionrules.WithoutReminders does. A message left with no
+// content is dropped.
 func withoutReminders(messages []llm.Message) []llm.Message {
 	out := make([]llm.Message, 0, len(messages))
 	for _, m := range messages {
-		kept := make([]llm.Content, 0, len(m.Content))
-		for _, c := range m.Content {
-			if c.Kind != llm.ContentReminder || c.Reminder != nil && c.Reminder.From != "" {
-				kept = append(kept, c)
-			}
+		if m, ok := compactionrules.WithoutReminders(m); ok {
+			out = append(out, m)
 		}
-		if len(kept) == 0 {
-			continue
-		}
-		m.Content = kept
-		out = append(out, m)
 	}
 	return out
 }
 
 // estimate returns a rough token count for one message.
-func estimate(m llm.Message) int {
-	m.Context = nil
-	b, _ := json.Marshal(m)
-	size := len(b)
-	for _, c := range m.Content {
-		var blocks []content.Block
-		if c.Block != nil {
-			blocks = append(blocks, *c.Block)
-		}
-		if c.ToolResult != nil {
-			blocks = append(blocks, c.ToolResult.Output.Content...)
-		}
-		if c.ProviderToolUse != nil {
-			blocks = append(blocks, c.ProviderToolUse.Output...)
-		}
-		if c.ProviderToolResult != nil {
-			blocks = append(blocks, c.ProviderToolResult.Output...)
-		}
-		for _, src := range contentsrc.Blocks(blocks) {
-			if src.Ref == nil || src.Ref.Size <= 0 {
-				continue
-			}
-			wire := referenceWireSize(src.Ref.Size)
-			if wire > math.MaxInt-size {
-				return math.MaxInt
-			}
-			size += wire
-		}
-	}
-	return size/bytesPerToken + 1
-}
+func estimate(m llm.Message) int { return compactionrules.Estimate(m) }
 
 // referenceWireSize estimates the inline base64 bytes of a declared reference.
-// It never loads a reference or claims provider-specific media token fit.
-func referenceWireSize(size int64) int {
-	groups := size / 3
-	if size%3 != 0 {
-		groups++
-	}
-	if groups > int64(math.MaxInt/4) {
-		return math.MaxInt
-	}
-	return int(groups) * 4
-}
+func referenceWireSize(size int64) int { return compactionrules.ReferenceWireSize(size) }
 
 // usedTokens counts the tokens one model call used: all input, cached input
 // included, plus output. It saturates instead of overflowing.

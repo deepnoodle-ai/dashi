@@ -26,6 +26,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/compaction"
 	"github.com/deepnoodle-ai/dashi/decide/internal/client"
+	"github.com/deepnoodle-ai/dashi/internal/compactionrules"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/decide"
@@ -220,14 +221,9 @@ func (c *Compactor) selective(ctx context.Context, messages []llm.Message, sel *
 		return dashi.Start{}, errors.New("selective: no room for older segments")
 	}
 	older = min(older, total)
-	cut, err := c.cut(ctx, messages, total-older)
-	if err != nil {
-		return dashi.Start{}, err
-	}
+	cut := compactionrules.Cut(messages, max(0, int((total-older)*float64(window))))
 	budget := int(total * float64(window))
-	for _, m := range messages[cut:] {
-		budget -= estimate(m)
-	}
+	budget -= compactionrules.EstimateAll(messages[cut:])
 	if budget <= 0 {
 		return dashi.Start{}, errors.New("selective: the tail fills the budget")
 	}
@@ -314,23 +310,6 @@ func (c *Compactor) selective(ctx context.Context, messages []llm.Message, sel *
 			Hash:      sel.Hash,
 		},
 	}, nil
-}
-
-// cut returns the index of the first tail message when the tail keeps tail
-// of the window, using Base's own cut rule. A share of zero or less keeps
-// no tail.
-func (c *Compactor) cut(ctx context.Context, messages []llm.Message, tail float64) (int, error) {
-	b := c.Base
-	b.TailFraction = tail
-	if tail <= 0 {
-		b.TailFraction = -1
-	}
-	probe, err := b.Start(ctx, messages)
-	if err != nil {
-		return 0, fmt.Errorf("selective: cut the tail: %w", err)
-	}
-	f := probe.Compaction
-	return len(messages) - (len(f.Keep) - f.SummaryAt), nil
 }
 
 // choose runs compact.Select over the pinned messages and the judged

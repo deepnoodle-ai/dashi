@@ -1,18 +1,12 @@
 package selective
 
 import (
-	"encoding/json"
-	"math"
 	"slices"
 
 	"github.com/deepnoodle-ai/dashi/compaction"
-	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/compactionrules"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
-
-// bytesPerToken converts encoded size to a rough token estimate, as package
-// compaction does.
-const bytesPerToken = 4
 
 // plan sorts the messages before the tail into classes. Every slice holds
 // indexes into the history Start was given.
@@ -68,11 +62,11 @@ func split(messages []llm.Message, cut int) *plan {
 		inResults = false
 	}
 	for i := range cut {
-		m, ok := withoutReminders(messages[i])
+		m, ok := compactionrules.WithoutReminders(messages[i])
 		if !ok {
 			continue
 		}
-		p.msgs[i], p.sizes[i] = m, estimate(m)
+		p.msgs[i], p.sizes[i] = m, compactionrules.Estimate(m)
 		run := false
 		switch {
 		case m.Role == llm.RoleSystem || m.Role == llm.RoleDeveloper:
@@ -178,7 +172,7 @@ func (s *segment) measure(p *plan, shortForm func([]llm.Message) ([]llm.Message,
 			s.whole = append(s.whole, m)
 		}
 	}
-	s.size = estimateAll(s.whole)
+	s.size = compactionrules.EstimateAll(s.whole)
 	short, ok := shortForm(cloneMessages(s.whole))
 	if !ok {
 		return
@@ -189,7 +183,7 @@ func (s *segment) measure(p *plan, shortForm func([]llm.Message) ([]llm.Message,
 			cleaned = append(cleaned, m)
 		}
 	}
-	if size := estimateAll(cleaned); size < s.size {
+	if size := compactionrules.EstimateAll(cleaned); size < s.size {
 		s.short, s.shortSize = cleaned, size
 	}
 }
@@ -272,15 +266,6 @@ func ownWords(m llm.Message) bool {
 
 func isResult(c llm.Content) bool { return c.ToolResult != nil }
 
-// withoutReminders returns m without reminders that have no sender. The
-// host sends those again, so compaction removes them, as the stock
-// compactor does. It returns false when nothing is left.
-func withoutReminders(m llm.Message) (llm.Message, bool) {
-	return without(m, func(c llm.Content) bool {
-		return c.Kind == llm.ContentReminder && (c.Reminder == nil || c.Reminder.From == "")
-	})
-}
-
 // withoutReasoning returns m without reasoning and opaque provider content,
 // which a kept older message loses, as the stock summary does, so a later
 // model switch cannot make a provider reject it. It returns false when
@@ -303,53 +288,6 @@ func without(m llm.Message, drop func(llm.Content) bool) (llm.Message, bool) {
 	}
 	m.Content = kept
 	return m, len(kept) > 0
-}
-
-// estimate returns a rough token count for one message: its encoded size,
-// plus the inline size of media it references, divided by bytesPerToken.
-func estimate(m llm.Message) int {
-	m.Context = nil
-	b, _ := json.Marshal(m)
-	size := len(b)
-	for _, c := range m.Content {
-		if c.Block != nil {
-			size += referenced(*c.Block)
-		}
-		if c.ToolResult != nil {
-			for _, b := range c.ToolResult.Output.Content {
-				size += referenced(b)
-			}
-		}
-	}
-	return size/bytesPerToken + 1
-}
-
-// referenced returns the inline base64 size of media that b references by
-// content.Ref, which its encoding does not hold.
-func referenced(b content.Block) int {
-	var src *content.Source
-	switch {
-	case b.Image != nil:
-		src = &b.Image.Source
-	case b.Document != nil:
-		src = &b.Document.Source
-	case b.Audio != nil:
-		src = &b.Audio.Source
-	case b.Video != nil:
-		src = &b.Video.Source
-	}
-	if src == nil || src.Ref == nil || src.Ref.Size <= 0 {
-		return 0
-	}
-	return int(min((src.Ref.Size+2)/3*4, math.MaxInt32))
-}
-
-func estimateAll(msgs []llm.Message) int {
-	n := 0
-	for _, m := range msgs {
-		n += estimate(m)
-	}
-	return n
 }
 
 func cloneMessages(msgs []llm.Message) []llm.Message {

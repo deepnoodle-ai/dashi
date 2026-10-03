@@ -6,6 +6,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/catalog"
+	"github.com/deepnoodle-ai/dashi/internal/compactionrules"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
 )
@@ -126,22 +127,7 @@ func (c *Compactor) cut(messages []llm.Message, window int) int {
 	if fraction == 0 {
 		fraction = DefaultTailFraction
 	}
-	budget := max(0, int(fraction*float64(window)))
-	sizes := make([]int, len(messages)+1)
-	for i := len(messages) - 1; i >= 0; i-- {
-		sizes[i] = sizes[i+1] + estimate(messages[i])
-	}
-	var starts []int
-	for i, m := range messages {
-		if m.Role == llm.RoleUser && !slices.ContainsFunc(m.Content, isResult) {
-			starts = append(starts, i)
-		}
-	}
-	return chooseCut(messages, starts, sizes, budget)
-}
-
-func isResult(c llm.Content) bool {
-	return c.ToolResult != nil
+	return compactionrules.Cut(messages, max(0, int(fraction*float64(window))))
 }
 
 var _ session.Compactor = (*Compactor)(nil)

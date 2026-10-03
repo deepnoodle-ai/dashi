@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"github.com/deepnoodle-ai/dashi/decide/internal/state"
+	"github.com/deepnoodle-ai/dashi/internal/compactionrules"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/decide"
 	"github.com/deepnoodle-ai/decide/patterns/compact"
@@ -39,13 +40,13 @@ type focus struct {
 func focusState(messages []llm.Message, cut int, p *plan) json.RawMessage {
 	var f focus
 	for _, m := range messages {
-		if m, ok := withoutReminders(m); ok && ownWords(m) {
+		if m, ok := compactionrules.WithoutReminders(m); ok && ownWords(m) {
 			f.Task = state.Cut(m.Text(), taskBytes)
 			break
 		}
 	}
 	for _, m := range slices.Backward(messages) {
-		if m, ok := withoutReminders(m); ok && ownWords(m) {
+		if m, ok := compactionrules.WithoutReminders(m); ok && ownWords(m) {
 			f.LatestRequest = state.Cut(m.Text(), requestBytes)
 			break
 		}

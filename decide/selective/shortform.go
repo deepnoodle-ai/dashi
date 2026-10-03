@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -126,58 +127,10 @@ func runeStart(s string, i int) int {
 	return i
 }
 
-// render writes messages as plain text for Decide: tool calls and results
-// become labeled text, reasoning and opaque provider content stay out, and
-// media becomes a note.
+// render writes messages as plain text for Decide, as the stock compactor
+// writes its transcript: tool calls and results become labeled text,
+// reasoning, opaque provider content, and reminders without a sender stay
+// out, and media becomes a note.
 func render(messages []llm.Message) string {
-	var items []string
-	for _, m := range messages {
-		var text []string
-		flush := func() {
-			if len(text) > 0 {
-				items = append(items, string(m.Role)+": "+strings.Join(text, "\n"))
-				text = nil
-			}
-		}
-		for _, c := range m.Content {
-			switch {
-			case c.Block != nil:
-				text = append(text, blockText(*c.Block))
-			case c.Refusal != nil:
-				text = append(text, *c.Refusal)
-			case c.ToolCall != nil:
-				flush()
-				items = append(items, fmt.Sprintf("tool call %s id=%s: %s",
-					c.ToolCall.Name, c.ToolCall.ID, c.ToolCall.Args))
-			case c.ToolResult != nil:
-				flush()
-				label := "tool result"
-				if c.ToolResult.IsError {
-					label = "tool error"
-				}
-				var parts []string
-				for _, b := range c.ToolResult.Output.Content {
-					parts = append(parts, blockText(b))
-				}
-				items = append(items, fmt.Sprintf("%s id=%s: %s",
-					label, c.ToolResult.CallID, strings.Join(parts, "\n")))
-			case c.Reminder != nil && c.Reminder.From != "":
-				flush()
-				items = append(items, fmt.Sprintf("message from %s: %s",
-					c.Reminder.From, c.Reminder.Content))
-			}
-		}
-		flush()
-	}
-	return strings.Join(items, "\n\n")
-}
-
-func blockText(b content.Block) string {
-	if b.Text != nil {
-		return b.Text.Text
-	}
-	if note, ok := mediaNote(b); ok {
-		return note
-	}
-	return ""
+	return strings.Join(compactiontext.Transcript(messages), "\n\n")
 }
