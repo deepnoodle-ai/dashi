@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -681,42 +682,46 @@ func TestSessionCompactionSummaryTags(t *testing.T) {
 	}
 }
 
-// Two calls on one handle plan the same compaction slot. The loser's
-// finish must not clear the handle's compacting mark while the winner's
-// compaction turn runs, so a Steer still refuses.
+// A second call on one handle does not plan the compaction slot that the
+// first reserved, even after the first built its Start: it refuses with a
+// *TurnBusyError. The compaction turn then runs, and a Steer still refuses.
 func TestSessionCompactionSameHandleRace(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := dashitest.NewClient(
 		used("one", 100),
 		dashitest.Reply("summary"),
-		dashitest.Reply("b"),
+		dashitest.Reply("a"),
 	)
 	first := handle(rec, client)
 	first.New = true
 	sendAll(t, first, "first")
 
 	g := newGate()
-	bDone := make(chan error, 1)
+	var bErr error
 	var s *session.Session
 	race := &raceRecorder{MemoryRecorder: rec, before: func() {
-		// A has planned the compaction slot; B plans it too and wins.
-		go func() {
-			_, err := s.Send(context.Background(), "from b")
-			bDone <- err
-		}()
-		g.requireEntered(t, bDone)
+		// A has built its compaction Start and is recording it.
+		_, bErr = s.Send(context.Background(), "from b")
 	}}
 	s = handle(race, gatedClient{Client: client, gate: g})
 	s.Compactor = keepLast{limit: 100}
-	s.Send(t.Context(), "from a") // loses the slot; its result does not matter
-
-	_, err := s.Steer(t.Context(), "hurry")
+	aDone := make(chan error, 1)
+	go func() {
+		_, err := s.Send(t.Context(), "from a")
+		aDone <- err
+	}()
+	g.requireEntered(t, aDone)
 	var busy *session.TurnBusyError
+	if !errors.As(bErr, &busy) || busy.Origin != dashi.StartCompaction ||
+		busy.TurnID != "s-2" {
+		t.Fatalf("send from b: %v; want a TurnBusyError for the compaction", bErr)
+	}
+	_, err := s.Steer(t.Context(), "hurry")
 	if !errors.As(err, &busy) || busy.Origin != dashi.StartCompaction {
 		t.Fatalf("steer during the compaction: %v; want a TurnBusyError", err)
 	}
 	close(g.release)
-	if err := <-bDone; err != nil {
+	if err := <-aDone; err != nil {
 		t.Fatal(err)
 	}
 }
@@ -871,5 +876,69 @@ func TestSessionCompactorStartGetsTheCallContext(t *testing.T) {
 	q, err := s.Steer(t.Context(), "hurry")
 	if err != nil || q.TurnID != "" {
 		t.Fatalf("steer: %+v err=%v; want it queued", q, err)
+	}
+}
+
+// countingCompactor is gatedCompactor that counts its Needed and Start
+// calls.
+type countingCompactor struct {
+	gatedCompactor
+	needed, starts *atomic.Int32
+}
+
+func (c countingCompactor) Needed(h []llm.Message, last llm.Usage) bool {
+	c.needed.Add(1)
+	return c.gatedCompactor.Needed(h, last)
+}
+
+func (c countingCompactor) Start(ctx context.Context, h []llm.Message) (dashi.Start, error) {
+	c.starts.Add(1)
+	return c.gatedCompactor.Start(ctx, h)
+}
+
+// While the Compactor builds a Start, a second Send on the same handle
+// refuses with a *TurnBusyError for the compaction, as it does while the
+// compaction turn runs. It asks the Compactor nothing, so Start runs once.
+func TestSessionCompactorStartRunsOnce(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(
+		used("one", 100),
+		dashitest.Reply("summary"),
+		dashitest.Reply("two"),
+	)
+	s := handle(rec, client)
+	s.New = true
+	g := newGate()
+	var needed, starts atomic.Int32
+	s.Compactor = countingCompactor{
+		gatedCompactor: gatedCompactor{keepLast: keepLast{limit: 100}, gate: g},
+		needed:         &needed,
+		starts:         &starts,
+	}
+	sendAll(t, s, "first")
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.Send(t.Context(), "second")
+		done <- err
+	}()
+	g.requireEntered(t, done)
+	within(t, "the second Send", func() {
+		_, err := s.Send(t.Context(), "third")
+		var busy *session.TurnBusyError
+		if !errors.As(err, &busy) || busy.Origin != dashi.StartCompaction ||
+			busy.TurnID != "s-2" {
+			t.Errorf("second send: %v; want a TurnBusyError for the compaction", err)
+		}
+	})
+	if n := needed.Load(); n != 1 {
+		t.Errorf("Needed ran %d times; want 1", n)
+	}
+	close(g.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if n := starts.Load(); n != 1 {
+		t.Fatalf("Start ran %d times; want 1", n)
 	}
 }

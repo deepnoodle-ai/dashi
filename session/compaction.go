@@ -101,12 +101,8 @@ func (s *Session) planManualCompaction(
 	if last == 0 {
 		return nil, ErrNothingToCompact
 	}
-	if s.compacting != "" {
-		return nil, &TurnBusyError{
-			TurnID: s.compacting,
-			Origin: dashi.StartCompaction,
-			Next:   dashi.NextRunning,
-		}
+	if busy := s.compactingBusy(); busy != nil {
+		return nil, busy
 	}
 	t, err := s.load(ctx, last)
 	if err != nil {
@@ -124,6 +120,22 @@ func (s *Session) planManualCompaction(
 	p := s.reserveCompaction(ctx, last, messages, budget)
 	p.warnings = warnings
 	return p, nil
+}
+
+// compactingBusy returns the *TurnBusyError for the compaction turn this
+// handle is building or running, or nil when there is none. The turn after
+// it is not free, even before the compaction turn is recorded, so a new
+// turn must not plan it, nor ask the Compactor for it again. The caller
+// holds mu.
+func (s *Session) compactingBusy() *TurnBusyError {
+	if s.compacting == "" {
+		return nil
+	}
+	return &TurnBusyError{
+		TurnID: s.compacting,
+		Origin: dashi.StartCompaction,
+		Next:   dashi.NextRunning,
+	}
 }
 
 // compactionSlot resolves a lost manual reservation without allocating a
@@ -169,8 +181,9 @@ type Compactor interface {
 	// The session calls Start without holding its lock, so a slow Start,
 	// such as one that asks a model which messages to keep, never blocks
 	// Steer or Enqueue. Meanwhile the session counts as compacting: Steer
-	// refuses with a *TurnBusyError, as it does while the compaction turn
-	// runs. ctx ends with the call that asked for the compaction.
+	// and a new Start refuse with a *TurnBusyError, as they do while the
+	// compaction turn runs, so the handle calls Start once per compaction
+	// turn. ctx ends with the call that asked for the compaction.
 	Start(ctx context.Context, messages []llm.Message) (dashi.Start, error)
 }
 
@@ -230,9 +243,9 @@ type compactionInput struct {
 }
 
 // reserveCompaction marks turn last+1 as this handle's compaction turn, so
-// Steer refuses while the Compactor builds its Start and while it runs,
-// and returns its plan without a command. The caller holds mu, and passes
-// the plan to buildCompaction after releasing it.
+// Steer and a new Start refuse while the Compactor builds its Start and
+// while it runs, and returns its plan without a command. The caller holds
+// mu, and passes the plan to buildCompaction after releasing it.
 func (s *Session) reserveCompaction(
 	ctx context.Context,
 	last int,

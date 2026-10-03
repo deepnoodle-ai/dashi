@@ -484,6 +484,10 @@ func (s *Session) planQueue(
 	if err := s.checkExists(last); err != nil {
 		return startPlan{}, false, err
 	}
+	if s.compacting != "" {
+		// The queue waits for the compaction, as for a running turn.
+		return startPlan{}, false, nil
+	}
 	var p startPlan
 	if last > 0 {
 		// An unreadable last turn fails even under Exclusive: it may have

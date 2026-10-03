@@ -480,6 +480,9 @@ func (s *Session) planStart(
 	if err := s.checkExists(last); err != nil {
 		return startPlan{}, err
 	}
+	if busy := s.compactingBusy(); busy != nil {
+		return startPlan{}, busy
+	}
 	// This handle now makes the session, so New no longer applies to it,
 	// even while its first turn runs.
 	s.created = true

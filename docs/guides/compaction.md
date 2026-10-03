@@ -37,8 +37,8 @@ their middle, followed by the turns after the compaction turn.
   turns; `s.Turns` does. A UI hides them by `TurnView.Origin`, or shows a
   marker. `s.NextHistory` is what the next turn sends.
 - **Steering waits.** While a compaction turn runs, and while the compactor
-  builds its Start, `s.Steer` refuses with a `*TurnBusyError` whose `Origin`
-  is `compaction`. `Enqueue` works. The session calls `Compactor.Start`
+  builds its Start, `s.Steer` and a new `s.Send` refuse with a
+  `*TurnBusyError` whose `Origin` is `compaction`. `Enqueue` works. The session calls `Compactor.Start`
   without holding its lock, with the context of the call that asked for the
   compaction, so a compactor may take its time, such as to ask a model which
   messages to keep, without blocking the handle.
