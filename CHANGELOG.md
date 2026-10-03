@@ -97,6 +97,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   once per candidate from the host's `Source`, whether it would help answer
   the latest exchange, and adds the best as contextual reminders under a
   byte budget, once per turn and never again on resume.
+- **Selective compaction (`decide/selective`).** A `session.Compactor` that
+  wraps `compaction.Compactor`, asks a decision model through Decide which
+  older segments are still needed, keeps those word for word (or as a short
+  form) with the user's own words, and summarizes only the rest, at the
+  stock size. Any Decide failure falls back to the stock compactor;
+  `OnSelection` reports the choices, Decide usage, request IDs, and models.
 - **`tool.Outcome.Data` carries structured detail about a call for the
   host.** It is raw JSON that the turn record keeps and the model never sees.
   Like `Progress.Data`, Data that is not valid JSON or exceeds 64 KiB is
