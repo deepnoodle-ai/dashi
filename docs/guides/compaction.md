@@ -62,6 +62,9 @@ The default prompt asks for the tags, so a preamble such as "Here is the
 summary:" is left out. A reader with no compactor applies the same rule. The
 summary never has operator authority, so text inside old tool output cannot
 become an instruction.
+`compaction.IsSummary(m)` tells whether a message is such a summary, from
+this package's `Compactor` or from `Agent.ActiveCompaction`; match it rather
+than the frame text, which may change.
 
 ## When it is due
 

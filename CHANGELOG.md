@@ -100,6 +100,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   then user items that `AddMessages` or a steer added later. Items that hooks
   add are left out. A hook reads it from its plan's `Turn`, and a tool from
   `dashi.CurrentTurn(ctx)`, to see what the user asked for.
+- **`compaction.IsSummary` reports whether a message is a compaction
+  summary,** from the package's `Compactor` or from `Agent.ActiveCompaction`,
+  so other packages need not match the frame text.
 
 ### Fixed
 
