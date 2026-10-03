@@ -510,6 +510,39 @@ func TestChildTurnSkipped(t *testing.T) {
 	}
 }
 
+// TestSessionCompactionSkipped runs a session compaction turn, which
+// summarizes earlier turns, with CheckEvery on and two identical failures.
+// The watcher asks nothing and reminds nothing in that turn.
+func TestSessionCompactionSkipped(t *testing.T) {
+	srv, client := judge(t, 0.95, 0.95)
+	var seen checks
+	w := &turnwatch.Watcher{Client: client, CheckEvery: 1, OnCheck: seen.add}
+	model := dashitest.NewClient(runTests("c1"), runTests("c2"),
+		dashitest.Reply("<summary>The parser tests fail.</summary>"))
+	out := run(t, w, model, dashi.Turn{ID: "t1"}, dashi.Start{
+		Origin: dashi.StartCompaction,
+		Agent:  dashi.Agent{Model: dashitest.Model},
+		Input:  []llm.Message{llm.UserMessage(llm.Text("Summarize."))},
+		Compaction: &dashi.CompactionFact{
+			Frame: "Summary:",
+		},
+	})
+	if out.Stop.Kind != dashi.StopCompleted || out.ModelCalls != 3 {
+		t.Fatalf("stop %s after %d model calls", out.Stop.Kind, out.ModelCalls)
+	}
+	if len(srv.Requests()) != 0 || len(seen.all()) != 0 {
+		t.Fatalf("%d Decide requests, checks %+v; want none", len(srv.Requests()), seen.all())
+	}
+	if r := watcherResults(out.Turn); len(r) != 0 {
+		t.Fatalf("hook results = %+v", r)
+	}
+	for i, in := range model.Inputs() {
+		if n := len(reminders(in)); n != 0 {
+			t.Fatalf("call %d saw %d reminders", i+1, n)
+		}
+	}
+}
+
 // healthyTools returns write_file, which always succeeds, and run_tests,
 // which fails with a new error on each of its first fails runs and then
 // passes: the edit-and-test loop of an agent that is making progress.

@@ -144,9 +144,11 @@ func (w *Watcher) check(
 	p dashi.ModelPlan,
 ) (dashi.ModelDecision, error) {
 	turn := p.Turn
-	// A child turn shares its parent's hooks through delegate, and one loop
-	// should not get a reminder at every level.
-	if p.Purpose != "" || turn.Parent != nil || turn.Compaction != nil {
+	// Skip the summary call of active compaction (Purpose is set) and a
+	// session compaction turn, which summarizes earlier turns rather than
+	// working on a request. A child turn shares its parent's hooks through
+	// delegate, and one loop should not get a reminder at every level.
+	if p.Purpose != "" || turn.Origin == dashi.StartCompaction || turn.Parent != nil {
 		return dashi.ModelDecision{}, nil
 	}
 	sent := remindersSent(turn)

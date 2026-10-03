@@ -21,8 +21,11 @@ Decide, synchronously, on the hook's context with a short `Timeout`, so the
 answer lands before the call it is about. There is no goroutine and no state
 between calls: everything the hook counts, it reads from the turn record
 (`ModelPlan.Turn`), so a resumed turn behaves the same in any process. The
-hook skips compaction calls and child turns (`Turn.Parent` is set), since
-`delegate` gives subagents the parent's hooks.
+hook skips compaction: both the summary call of active compaction
+(`ModelPlan.Purpose` is set) and every call of a session compaction turn
+(`TurnView.Origin` is `dashi.StartCompaction`), which summarizes earlier turns
+rather than working on a request. It also skips child turns (`Turn.Parent` is
+set), since `delegate` gives subagents the parent's hooks.
 
 **2. Free checks trigger a Decide request.** Each looks at the tool results
 that arrived since the previous model call. A call matches another when its
@@ -164,7 +167,8 @@ A keyless test scripts a `run_tests` tool that fails three times with the same
 arguments while `decidetest` answers `repeating` 0.95, and checks the
 reminder, its `HookResult`, and the next model request. Variants cover a "no"
 answer, a Decide failure and a timeout, the cap across a resume, a child
-turn, heuristic-only mode, a healthy edit-and-test loop (zero Decide
+turn, a session compaction turn with `CheckEvery` on (no request and no
+reminder), heuristic-only mode, a healthy edit-and-test loop (zero Decide
 requests), and the hooks asked again for one model call: after an urgent
 steer, after `Continue` past a denied send, and after a mid-turn summary.
 `ExampleWatcher` runs keyless.
