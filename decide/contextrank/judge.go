@@ -70,7 +70,7 @@ func judge(
 				models = append(models, resp.Model)
 			}
 			for i, o := range chunks[r.Index] {
-				o.judge.Probability, o.judge.Cause = answer(resp, key(i))
+				o.result.Probability, o.result.Cause = answer(resp, key(i))
 			}
 			continue
 		}

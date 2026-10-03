@@ -129,8 +129,9 @@ type Selection struct {
 	TurnID string
 	// Added are the items added to the turn, in rank order.
 	Added []dashi.ContextItem
-	// Judged lists every candidate, in the Source's order.
-	Judged []Judged
+	// Candidates lists every candidate's result, in the Source's order,
+	// including the ones that were not judged.
+	Candidates []CandidateResult
 	// Err is why nothing was added, such as a failed Source or Decide
 	// request, or the timeout.
 	Err error
@@ -142,8 +143,8 @@ type Selection struct {
 	Usage decide.Usage
 }
 
-// Judged is one candidate's outcome.
-type Judged struct {
+// CandidateResult is what happened to one candidate.
+type CandidateResult struct {
 	ID string
 	// Probability is P(yes), or 0 when the candidate was not judged.
 	Probability float64
@@ -169,9 +170,9 @@ const (
 	// CausePresent means the model already sees the item with the same
 	// content, so it was not judged and used no budget.
 	CausePresent Cause = "present"
-	// CauseNotJudged means the item came after the first MaxCandidates
-	// candidates to judge.
-	CauseNotJudged Cause = "not_judged"
+	// CauseOverMaxCandidates means the item came after the first
+	// MaxCandidates candidates to judge, so it was not judged.
+	CauseOverMaxCandidates Cause = "over_max_candidates"
 	// CauseUnanswered means Decide returned no valid answer for the item.
 	CauseUnanswered Cause = "unanswered"
 )
@@ -261,9 +262,9 @@ func latestExchange(plan dashi.ModelPlan) string {
 // option is one candidate as the ranker handles it.
 type option struct {
 	Candidate
-	item  dashi.ContextItem
-	size  int
-	judge Judged
+	item   dashi.ContextItem
+	size   int
+	result CandidateResult
 }
 
 // rank runs the Source and Decide under the timeout and selects the items.
@@ -301,7 +302,7 @@ func (r *Ranker) rank(
 	options := r.prepare(candidates, plan.Input.Messages)
 	var asked []*option
 	for _, o := range options {
-		if o.judge.Cause == "" {
+		if o.result.Cause == "" {
 			asked = append(asked, o)
 		}
 	}
@@ -318,7 +319,7 @@ func (r *Ranker) rank(
 		sel.Added = r.choose(asked)
 	}
 	for _, o := range options {
-		sel.Judged = append(sel.Judged, o.judge)
+		sel.Candidates = append(sel.Candidates, o.result)
 	}
 	return sel
 }
@@ -341,14 +342,14 @@ func (r *Ranker) prepare(
 		seen[c.ID] = true
 		o := &option{Candidate: c, item: contextItem(c)}
 		o.size = len(reminderContent(o.item))
-		o.judge.ID = c.ID
+		o.result.ID = c.ID
 		switch {
 		case present(messages, o.item):
-			o.judge.Cause = CausePresent
+			o.result.Cause = CausePresent
 		case o.size > maxBytes:
-			o.judge.Cause = CauseTooLarge
+			o.result.Cause = CauseTooLarge
 		case judged >= maxJudged:
-			o.judge.Cause = CauseNotJudged
+			o.result.Cause = CauseOverMaxCandidates
 		default:
 			judged++
 		}
@@ -367,27 +368,27 @@ func (r *Ranker) choose(asked []*option) []dashi.ContextItem {
 	}
 	var kept []*option
 	for _, o := range asked {
-		p := o.judge.Probability
+		p := o.result.Probability
 		switch {
-		case o.judge.Cause == CauseUnanswered:
+		case o.result.Cause == CauseUnanswered:
 		case floor > 0 && (p < floor || above && p == floor):
-			o.judge.Cause = CauseBelowMinimum
+			o.result.Cause = CauseBelowMinimum
 		default:
 			kept = append(kept, o)
 		}
 	}
 	slices.SortStableFunc(kept, func(a, b *option) int {
-		return cmp.Compare(b.judge.Probability, a.judge.Probability)
+		return cmp.Compare(b.result.Probability, a.result.Probability)
 	})
 	budget := r.maxBytes()
 	var added []dashi.ContextItem
 	for _, o := range kept {
 		if o.size > budget {
-			o.judge.Cause = CauseOverBudget
+			o.result.Cause = CauseOverBudget
 			continue
 		}
 		budget -= o.size
-		o.judge.Cause = CauseChosen
+		o.result.Cause = CauseChosen
 		added = append(added, o.item)
 	}
 	return added
@@ -458,9 +459,9 @@ func present(messages []llm.Message, item dashi.ContextItem) bool {
 func reason(sel Selection) string {
 	asked := 0
 	var chosen []string
-	for _, j := range sel.Judged {
+	for _, j := range sel.Candidates {
 		switch j.Cause {
-		case CausePresent, CauseTooLarge, CauseNotJudged:
+		case CausePresent, CauseTooLarge, CauseOverMaxCandidates:
 			continue
 		case CauseChosen:
 			chosen = append(chosen, j.ID)
@@ -468,7 +469,7 @@ func reason(sel Selection) string {
 		asked++
 	}
 	p := map[string]float64{}
-	for _, j := range sel.Judged {
+	for _, j := range sel.Candidates {
 		p[j.ID] = j.Probability
 	}
 	// Rank order, as added.

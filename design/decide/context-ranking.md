@@ -72,14 +72,14 @@ func (r *Ranker) Hook() dashi.ModelHook
 type Selection struct {
     TurnID     string
     Added      []dashi.ContextItem // in rank order
-    Judged     []Judged            // every candidate
+    Candidates []CandidateResult   // every candidate, judged or not
     Err        error
     Model      string              // the resolved decision model version
     RequestIDs []string
     Usage      decide.Usage
 }
 
-type Judged struct {
+type CandidateResult struct {
     ID          string
     Probability float64 // P(yes); 0 when not judged
     Cause       Cause
@@ -88,12 +88,13 @@ type Judged struct {
 type Cause string
 
 const (
-    CauseChosen       Cause = "chosen"
-    CauseBelowMinimum Cause = "below_minimum"
-    CauseOverBudget   Cause = "over_budget" // judged and above the floor, but did not fit
-    CauseTooLarge     Cause = "too_large"   // could never fit; not judged
-    CausePresent      Cause = "present"     // already in history; not judged
-    CauseUnanswered   Cause = "unanswered"
+    CauseChosen            Cause = "chosen"
+    CauseBelowMinimum      Cause = "below_minimum"
+    CauseOverBudget        Cause = "over_budget"         // judged and above the floor, but did not fit
+    CauseTooLarge          Cause = "too_large"           // could never fit; not judged
+    CausePresent           Cause = "present"             // already in history; not judged
+    CauseOverMaxCandidates Cause = "over_max_candidates" // past MaxCandidates; not judged
+    CauseUnanswered        Cause = "unanswered"
 )
 ```
 

@@ -78,7 +78,7 @@ func (r *record) all() []contextrank.Selection {
 
 func causes(sel contextrank.Selection) map[string]contextrank.Cause {
 	out := map[string]contextrank.Cause{}
-	for _, j := range sel.Judged {
+	for _, j := range sel.Candidates {
 		out[j.ID] = j.Cause
 	}
 	return out
@@ -515,7 +515,7 @@ func TestTooLargeAndMaxCandidates(t *testing.T) {
 	}
 	want := map[string]contextrank.Cause{
 		"huge": contextrank.CauseTooLarge, "a": contextrank.CauseChosen,
-		"b": contextrank.CauseChosen, "c": contextrank.CauseNotJudged,
+		"b": contextrank.CauseChosen, "c": contextrank.CauseOverMaxCandidates,
 	}
 	if got := causes(rec.all()[0]); !mapsEqual(got, want) {
 		t.Fatalf("causes = %v; want %v", got, want)

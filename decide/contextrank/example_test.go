@@ -54,7 +54,7 @@ func ExampleRanker() {
 			return notes, nil // a real source narrows with embeddings or search
 		},
 		OnSelection: func(sel contextrank.Selection) {
-			for _, j := range sel.Judged {
+			for _, j := range sel.Candidates {
 				fmt.Printf("%s %.2f %s\n", j.ID, j.Probability, j.Cause)
 			}
 		},

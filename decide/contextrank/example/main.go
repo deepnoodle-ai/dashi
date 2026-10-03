@@ -172,9 +172,9 @@ func printSelection(exchange string, sel contextrank.Selection) {
 		fmt.Println("ranking failed:", sel.Err)
 		return
 	}
-	var chosen []contextrank.Judged
+	var chosen []contextrank.CandidateResult
 	present, below := 0, 0
-	for _, j := range sel.Judged {
+	for _, j := range sel.Candidates {
 		switch j.Cause {
 		case contextrank.CauseChosen:
 			chosen = append(chosen, j)
@@ -197,8 +197,8 @@ func printSelection(exchange string, sel contextrank.Selection) {
 		fmt.Printf("  %-34s %.2f %s\n", top[i].ID, j.Probability, j.ID)
 	}
 	// The best notes left out show how close the floor was.
-	var rest []contextrank.Judged
-	for _, j := range sel.Judged {
+	var rest []contextrank.CandidateResult
+	for _, j := range sel.Candidates {
 		if j.Cause == contextrank.CauseBelowMinimum || j.Cause == contextrank.CauseOverBudget {
 			rest = append(rest, j)
 		}
@@ -210,11 +210,11 @@ func printSelection(exchange string, sel contextrank.Selection) {
 	}
 	fmt.Printf("  next best: %s\n", strings.Join(next, ", "))
 	fmt.Printf("  (%d notes judged in %d request(s), %d input tokens)\n",
-		len(sel.Judged)-present, len(sel.RequestIDs), sel.Usage.InputTokens)
+		len(sel.Candidates)-present, len(sel.RequestIDs), sel.Usage.InputTokens)
 }
 
 // byProbability orders judged notes by P(yes), highest first.
-func byProbability(a, b contextrank.Judged) int {
+func byProbability(a, b contextrank.CandidateResult) int {
 	return cmp.Compare(b.Probability, a.Probability)
 }
 
