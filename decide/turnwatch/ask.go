@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/decide/internal/client"
@@ -126,7 +127,7 @@ func buildState(p dashi.ModelPlan) watchState {
 			recent = append(recent, entry{
 				Tool:      v.Call.Name,
 				Arguments: state.Cut(string(v.Call.Args), maxTextBytes),
-				Result:    state.Cut(outputText(v.Result().Output), maxTextBytes),
+				Result:    cutMiddle(outputText(v.Result().Output), maxTextBytes),
 				Failed:    failed(v),
 			})
 		}
@@ -170,4 +171,24 @@ func outputText(o tool.Output) string {
 		}
 	}
 	return b.String()
+}
+
+// elided marks the bytes cutMiddle removed.
+const elided = "\n[...]\n"
+
+// cutMiddle keeps the first and last maxBytes/2 bytes of text, on whole
+// UTF-8 characters, joined by a marker. A test runner often writes the
+// failing assertion near the end of its output, so the end matters as much
+// as the start.
+func cutMiddle(text string, maxBytes int) string {
+	if len(text) <= maxBytes {
+		return text
+	}
+	half := maxBytes / 2
+	head := state.Cut(text, half)
+	start := len(text) - half
+	for start < len(text) && !utf8.RuneStart(text[start]) {
+		start++
+	}
+	return head + elided + text[start:]
 }

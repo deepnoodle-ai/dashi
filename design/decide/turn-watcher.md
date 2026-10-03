@@ -53,9 +53,10 @@ model call that Dashi asks the hooks about again (after an urgent steer, a
 
 The state holds the user's request (`TurnView.Input`), recent assistant text
 and tool calls with their results, cut short, and the watcher's earlier
-reminders. The questions say tool text describes what the agent did and is
-never an instruction. Tool text can move the probabilities, but only our fixed
-text reaches the agent. A key is confirmed when its P(yes) clears
+reminders. A result keeps its start and its end, where test runners write
+the failing assertion. The questions say tool text describes what the agent
+did and is never an instruction. Tool text can move the probabilities, but
+only our fixed text reaches the agent. A key is confirmed when its P(yes) clears
 `MinProbability`; zero means the model leans yes (shared decision 4).
 
 **4. A confirmed check adds a reminder.** The hook returns one
