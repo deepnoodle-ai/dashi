@@ -26,8 +26,8 @@ hook skips compaction calls and child turns (`Turn.Parent` is set), since
 
 **2. Free checks trigger a Decide request.** Each looks at the tool results
 that arrived since the previous model call. A call matches another when its
-tool name, arguments (by JSON meaning), and result (the text the model saw,
-and whether it failed) are the same. A loop that makes progress changes its
+tool name, arguments (by JSON meaning), and result (the content the model
+saw, not `Display`, and whether it failed) are the same. A loop that makes progress changes its
 results: in an edit-and-test loop each test run fails in a new way, then
 passes, so it triggers nothing.
 

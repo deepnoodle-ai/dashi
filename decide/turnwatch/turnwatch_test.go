@@ -248,6 +248,33 @@ func TestNoTriggerNoRequest(t *testing.T) {
 	}
 }
 
+// TestDisplayIgnored fails the same call twice with the same content but a
+// new Display each time. The model never sees Display, so the second
+// failure still triggers a check.
+func TestDisplayIgnored(t *testing.T) {
+	srv, client := judge(t, 0.95, 0.05)
+	var runs atomic.Int32
+	flaky := tool.MustFunc("run_tests", "Runs the tests of a package.",
+		func(context.Context, tool.Call, testArgs) (tool.Outcome, error) {
+			o := tool.Failed("FAIL TestParse: got 4 tokens, want 3")
+			o.Output.Display = fmt.Sprintf("run %d failed", runs.Add(1))
+			return o, nil
+		})
+	model := dashitest.NewClient(runTests("c1"), runTests("c2"), dashitest.Reply("Stuck."))
+	runner := dashi.Runner{Client: model, Tools: tool.List{flaky}, Hooks: (&turnwatch.Watcher{Client: client}).Hook().Hooks()}
+	out, err := runner.Run(t.Context(), dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runs.Load() != 2 || len(srv.Requests()) != 1 {
+		t.Fatalf("%d runs, %d Decide requests; want 2, 1", runs.Load(), len(srv.Requests()))
+	}
+	if r := watcherResults(out.Turn); len(r) != 1 ||
+		!strings.HasPrefix(r[0].Reason, "repeating: failed_again: run_tests, 2 times;") {
+		t.Fatalf("hook results = %+v", r)
+	}
+}
+
 func TestSameCallAndCheckEvery(t *testing.T) {
 	srv, client := judge(t, 0.1, 0.9)
 	w := &turnwatch.Watcher{Client: client, SameCalls: 2, CheckEvery: 3}

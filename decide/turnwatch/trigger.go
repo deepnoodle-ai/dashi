@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
@@ -85,13 +86,14 @@ func argsKey(args json.RawMessage) string {
 }
 
 // resultHash identifies the result the model saw: its content and whether
-// it is an error. The call ID is left out, since every call has its own.
+// it is an error. The call ID is left out, since every call has its own,
+// and so is Output.Display, which the model never sees.
 func resultHash(v dashi.ToolView) string {
 	r := v.Result()
 	b, err := json.Marshal(struct {
-		Output  tool.Output `json:"output"`
-		IsError bool        `json:"is_error"`
-	}{r.Output, r.IsError || failed(v)})
+		Content []content.Block `json:"content"`
+		IsError bool            `json:"is_error"`
+	}{r.Output.Content, r.IsError || failed(v)})
 	if err != nil {
 		// Unreadable: match no other call.
 		return "call:" + v.Call.ID
