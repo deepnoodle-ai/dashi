@@ -19,8 +19,15 @@ for word and summarizes only the rest, at the same post-compaction size.
 Selective keeps the stock total: `Base`'s tail budget, 0.25 of the window by
 default. `OlderFraction` (0.15 by default) of it goes to older segments, so
 the tail is cut later, at 0.10. Older segments fill whatever room the tail
-leaves. History after compaction is no larger than stock, and compactions
-come no more often.
+leaves. History after compaction fits the stock budget, and compactions
+come no more often. (Stock often keeps less than its budget, because it cuts
+only where a user message starts.)
+
+The current turn, from the user's latest own words on, stays whole as stock
+keeps it. When the turn is larger than 0.10, the tail starts at the latest
+request (or at stock's cut, if that is later). A large file read in the last
+turn is then never judged or shortened; it counts in the budget and leaves
+less room for older segments.
 
 ### What happens to each older message
 
@@ -114,7 +121,7 @@ equals the winning `CompactionFact.Hash`. The record needs no new field:
 type Compactor struct {
     Base          compaction.Compactor // when to compact, window, total size, summary model
     Client        *decide.Client       // nil: decide.NewClient() from the environment
-    OlderFraction float64              // window share for older segments; zero: 0.15
+    OlderFraction float64              // window share for older segments; zero: 0.15; negative: off
     MinNeeded     float64              // zero: P(needed) above 0.5; negative: rank only
     MinVerbatim   float64              // zero: P(exact text) above 0.5; negative: always whole
     MaxRequests   int                  // concurrent Decide requests; zero: 4
@@ -128,12 +135,12 @@ func (c *Compactor) Needed(messages []llm.Message, last llm.Usage) bool
 func (c *Compactor) Start(ctx context.Context, messages []llm.Message) (dashi.Start, error)
 
 type Selection struct {
-    Hash     string          // history hash, as in CompactionFact.Hash
-    Segments []SegmentChoice // messages, action, probabilities, size
-    Usage    decide.Usage
-    Requests []string        // Decide request IDs
-    Models   []string        // resolved decision model versions
-    Fallback string          // why stock ran; empty if selective ran
+    Hash       string          // history hash, as in CompactionFact.Hash
+    Segments   []SegmentChoice // message indexes, action, probabilities, size
+    Usage      decide.Usage
+    RequestIDs []string        // Decide request IDs
+    Models     []string        // resolved decision model versions
+    Fallback   string          // why stock ran; empty if selective ran
 }
 ```
 
