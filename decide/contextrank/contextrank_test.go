@@ -386,6 +386,77 @@ func TestSkipsCompactionTurns(t *testing.T) {
 	}
 }
 
+func TestItemInKeptTailStaysPresent(t *testing.T) {
+	srv, client := judge(t, map[string]float64{"port": 0.9})
+	sources := 0
+	ranker := &contextrank.Ranker{
+		Client: client,
+		Source: func(context.Context, string) ([]contextrank.Candidate, error) {
+			sources++
+			if sources == 1 {
+				return nil, nil // turn 1 adds nothing
+			}
+			return []contextrank.Candidate{note("port", 60)}, nil
+		},
+	}
+	full := dashitest.Reply("Port 8443.")
+	full.Usage = &llm.Usage{InputTokens: 900}
+	model := dashitest.NewClient(
+		dashitest.Reply("Noted."),
+		full,
+		dashitest.Reply("<summary>The project is Heron.</summary>"),
+		dashitest.Reply("Yes, 8443."),
+	)
+	policy := compaction.Policy{}
+	policy.Model.Capabilities.ContextWindow = 1_000
+	s := &session.Session{
+		Runner:    dashi.Runner{Client: model, Hooks: ranker.Hook().Hooks()},
+		Agent:     dashi.Agent{Model: dashitest.Model},
+		Compactor: compaction.New(policy), // keeps a quarter-window tail
+	}
+	// Turn 1 is long, so it is summarized; turn 2, with the item, is kept.
+	for _, text := range []string{
+		"My project Heron deploys today. " + strings.Repeat("Log line. ", 200),
+		"Which port?",
+	} {
+		if _, err := s.Send(t.Context(), text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := s.Send(t.Context(), "Is it still 8443?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.ID != session.TurnID(s.ID, 4) {
+		t.Fatalf("turn = %s; want a compaction turn before it", out.ID)
+	}
+	inputs := model.Inputs()
+	if got := sent(inputs[len(inputs)-1]); !slices.Equal(got, []string{"port"}) {
+		t.Fatalf("turn 4 saw %v; want the kept item once", got)
+	}
+	if n := len(srv.Requests()); n != 1 {
+		t.Fatalf("Decide requests = %d; want 1, since the kept item is present", n)
+	}
+}
+
+func TestSkipsCallsWithAPurpose(t *testing.T) {
+	// Dashi's active compaction runs only after a model call, where
+	// ModelCalls already stops the ranker, so call the hook directly to
+	// keep the Purpose rule on its own.
+	srv, client := judge(t, map[string]float64{"a": 0.9})
+	ranker := &contextrank.Ranker{Client: client, Source: fixed(note("a", 50))}
+	view := dashi.TurnView{ID: "t1", Input: []llm.Message{llm.UserMessage(llm.Text("hi"))}}
+	hook := ranker.Hook().Func
+	d, err := hook(t.Context(), dashi.ModelPlan{Purpose: dashi.ModelPurposeCompaction, Turn: view})
+	if err != nil || len(d.AddMessages) != 0 || len(srv.Requests()) != 0 {
+		t.Fatalf("compaction call: decision %+v, error %v, %d Decide requests", d, err, len(srv.Requests()))
+	}
+	d, err = hook(t.Context(), dashi.ModelPlan{Turn: view})
+	if err != nil || len(d.AddMessages) != 1 {
+		t.Fatalf("ordinary call: decision %+v, error %v; want one item", d, err)
+	}
+}
+
 func TestChildTurns(t *testing.T) {
 	for _, rank := range []bool{false, true} {
 		srv, client := judge(t, map[string]float64{"a": 0.9})
@@ -495,6 +566,37 @@ func TestFailureAddsNothing(t *testing.T) {
 				t.Fatalf("the turn waited %v", time.Since(began))
 			}
 		})
+	}
+}
+
+func TestFailedSplitRequestAddsNothing(t *testing.T) {
+	srv, client := judge(t, map[string]float64{"n99": 0.9, "n00": 0.9})
+	srv.FailNext(400) // one of the two requests; not retried
+	var cands []contextrank.Candidate
+	for i := range 100 {
+		cands = append(cands, note(fmt.Sprintf("n%02d", i), 40))
+	}
+	var rec record
+	ranker := &contextrank.Ranker{Client: client, Source: fixed(cands...), MaxCandidates: -1, OnSelection: rec.add}
+	model := dashitest.NewClient(dashitest.Reply("ok"))
+	runner := dashi.Runner{Client: model, Hooks: ranker.Hook().Hooks()}
+	out, err := runner.Run(t.Context(), dashi.Turn{}, start("hi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sent(model.Inputs()[0]); len(got) != 0 {
+		t.Fatalf("model saw %v; want nothing added when any request fails", got)
+	}
+	if !hasWarning(out.Warnings, dashi.WarningHookFailed) {
+		t.Fatalf("warnings = %+v; want %s", out.Warnings, dashi.WarningHookFailed)
+	}
+	sel := rec.all()[0]
+	if sel.Err == nil || len(sel.Added) != 0 {
+		t.Fatalf("selection = %+v", sel)
+	}
+	// The request that answered still counts.
+	if len(sel.RequestIDs) != 1 || sel.Usage.InputTokens == 0 {
+		t.Fatalf("request IDs %v, usage %+v; want the answered request kept", sel.RequestIDs, sel.Usage)
 	}
 }
 
