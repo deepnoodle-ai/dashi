@@ -130,6 +130,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   with the same result, asks Decide to confirm only when one triggers, and
   adds a short reminder from the watcher, at most `MaxReminders` per turn; a
   failed check is a `hook_failed` warning.
+- **`decide/listtool`: the `judge_items` and `pick_item` tools** let an agent
+  judge every item of a long host list, or find one item's ID, with a
+  decision model instead of reading the items; see `decide/listtool/example`.
 
 ### Fixed
 

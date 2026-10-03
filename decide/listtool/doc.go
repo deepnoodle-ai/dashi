@@ -1,0 +1,66 @@
+// Package listtool gives an agent two tools for a host list too long to
+// read, such as 300 open tickets or 40 contacts: judge_items and pick_item.
+// Both hand the reading to a decision model, such as TypeSafe's Jev,
+// through the Decide library, so no LLM reads every item.
+//
+// A host defines each list once, as a List: a name, a description the
+// model reads, an Items function that returns the items for a query, and
+// ID and Text functions for each item. Config holds the lists for both
+// tools:
+//
+//	tickets := listtool.List[Ticket]{
+//		Name:        "tickets",
+//		Description: "Open support tickets. The query is a search such as \"label:billing\".",
+//		Items:       searchTickets,
+//		ID:          func(t Ticket) string { return t.ID },
+//		Text:        func(t Ticket) string { return t.Subject + "\n" + t.Body },
+//	}
+//	cfg := listtool.Config{Lists: []listtool.AnyList{tickets, contacts}}
+//	judge, err := listtool.JudgeItems(cfg)
+//	// handle err
+//	pick, err := listtool.PickItem(cfg)
+//	// handle err
+//	runner.Tools = tool.List{judge, pick, sendEmail}
+//
+// judge_items asks the same questions, yes_no or choice, about every item a
+// query returns, one Decide request per item. It returns counts of each
+// answer, the IDs of the items that match the answers the model asked for
+// (find), best first, and close calls the model should read itself. The
+// result never holds item text, so an item cannot speak to the model.
+// MaxQuestions, MaxRequests, and MaxTurnRequests bound each call before it
+// spends anything; a call over a limit fails at once and says why, so the
+// model narrows its query. MaxTurnRequests holds for calls that run at
+// once. It does not count a run that a crash or an interruption stopped
+// before Dashi recorded its result: Continue runs that call again, and the
+// stopped run's requests count nowhere. A host that needs a hard limit
+// counts requests itself, before they are sent. It builds Config.Client
+// with decide.WithHTTPClient and a transport that adds each request to the
+// host's own durable count for the turn, whose ID dashi.CurrentCall reads
+// from the request's context, and that refuses requests past the host's
+// limit. A refused request fails like any other Decide request.
+//
+// pick_item finds one item from a description, such as "Sam from the
+// design review", and returns the most likely items with their IDs. By
+// default the model chooses from them; a host that has calibrated sets
+// MinProbability and MinMargin to let the tool pick. The ID it returns is
+// the host's own, so the action tool checks it as it always does, and
+// approvals and BeforeTool hooks still guard the action. Model advice
+// never grants permission.
+//
+// Both tools are read-only. When Decide fails, a call returns an ordinary
+// failed result that tells the model to use its other tools or ask the
+// user; it never guesses an item and never stops the turn. Each result
+// stays under the turn's tool result limit, so Dashi keeps its
+// Outcome.Data: the list, query, model, request count, token usage, and
+// every item's answers, shortened when large. With Price set,
+// Outcome.Cost carries the spend, which Dashi adds to Spend.ToolCost,
+// failed calls included. A call still running when the run's context ends
+// has no outcome: Dashi records neither its Cost nor its Data. OnResult
+// receives every call's full Result, those calls too, so a host that
+// bills them counts their usage from OnResult.
+//
+// The tools claim no accuracy. A judge_items answer counts when its
+// probability is above 0.5, and pick_item acts on nothing by default.
+// Tune MinProbability and MinMargin on your own data with Decide's
+// calibrate pattern, and pin the model with decide.WithModel.
+package listtool

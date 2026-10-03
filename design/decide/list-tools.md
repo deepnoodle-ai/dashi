@@ -39,7 +39,7 @@ type Config struct {
     // judge_items
     MaxQuestions    int // zero: 8; at most 64
     MaxRequests     int // Decide requests in one call; zero: 500
-    MaxTurnRequests int // requests across all calls in one turn; zero: 2,000
+    MaxTurnRequests int // requests the turn records for all calls; zero: 2,000
     MaxItemBytes    int // zero: 64 KiB; the rest of an item is not judged
     Concurrency     int // requests at once in one call; zero: 8
 
@@ -48,6 +48,7 @@ type Config struct {
     MinMargin      float64 // top minus runner-up; zero: no check
 
     // Price turns usage into Outcome.Cost. Nil: usage in Data, no Cost.
+    // A call the run stopped has neither; only OnResult sees its usage.
     Price func(model string, u decide.Usage) *tool.Cost
     // OnResult receives every call's full Result, failed and cancelled too.
     OnResult func(ctx context.Context, call dashi.CallRef, r Result)
@@ -120,7 +121,7 @@ question.
 
 ```text
 Judged 300 items from tickets ("status:open") with jev-1.13.0 in 4.2s.
-billing: yes 41, no 257. urgent: yes 19, no 279.
+Most likely answers: billing yes 41, no 257; urgent yes 19, no 279.
 Matching billing=yes, urgent=yes: 12 items, best first:
   T-1042  billing 0.98  urgent 0.95
   T-0977  billing 0.97  urgent 0.91  ...
@@ -130,8 +131,11 @@ Judged on their first 64 KiB only: 3. Failed: 2. T-0101: Decide timed out. ...
 
 **One match rule.** For each `find` condition, P is the probability that it
 holds: P(yes) or P(no) for `yes_no`, P(that option) for `choice`. An item
-matches when every P is above 0.5. Matches are ranked by the product of their
-P values. A close call is any P from 0.4 to 0.6. With no `find`, the tool
+matches when every P is above 0.5, also for a `choice`. Matches are ranked by
+the product of their P values. A close call is any P from 0.4 to 0.6, or a
+wanted answer that is most likely at 0.5 or less, which a `choice` can have,
+so such an item is never out of sight. The counts are of most likely
+answers, and the result says so. With no `find`, the tool
 lists items in list order with each question's most likely answer and its P,
 and a close call is a most likely answer of 0.6 or less. The rule claims no
 accuracy; the agent sees the numbers (shared decision 4).
@@ -140,9 +144,12 @@ accuracy; the agent sees the numbers (shared decision 4).
 `Concurrency` requests at a time. It counts before it spends: a call over
 `MaxQuestions` or `MaxRequests`, or one that would take the turn past
 `MaxTurnRequests`, fails at once and names the count and the limit, so the
-agent narrows its query. The turn count adds up the requests recorded by
-earlier `judge_items` calls in the turn; a call whose `Data` a hook dropped
-counts as `MaxRequests`. An item longer than `MaxItemBytes` is judged on its
+agent narrows its query. The turn count adds up the turn's other
+`judge_items` calls: a finished call at the count in its `Data`, and a
+running call, an unknown result, or a call whose `Data` a hook dropped at the
+most it could send. Dashi records each call's start before the call runs, so
+calls that run at once see each other and stay under the limit together.
+Spend shows what this count misses. An item longer than `MaxItemBytes` is judged on its
 first `MaxItemBytes` bytes, and the result says how many items were cut. As
 items finish, the tool reports progress through `tool.Report`: "judged
 120/300, 2 failed".
@@ -213,27 +220,41 @@ Decide is unavailable. Find the item with your other tools, or ask the
 user." Never `tool.Fatal`, never a guessed item (shared decision 3). Listing
 the items unranked was the other choice; it invites the guess decision 3
 rules out, and the model's other tools still work. On cancellation the tool
-sends no new requests and returns the context error; Dashi then records no
-`Cost`, so only `OnResult` sees that spend.
+sends no new requests and returns the context error. A call's context ends
+only when the run stops, and Dashi then records no outcome for the call,
+whatever the tool returns: no `Cost`, no `Data`. Only `OnResult` sees that
+spend; a host that bills it adds it to its own ledger.
 
-**Spend.** Usage is always in `Data`. With `Price` set, the tool returns
-`Outcome.Cost`, which Dashi adds to `Spend.ToolCost` (shared decision 5).
-`MaxRequests` and `MaxTurnRequests` bound it. A rerun after a crash pays
-again.
+**Spend.** Every outcome Dashi records, failed ones included, has the usage in
+`Data`. With `Price` set, the tool returns `Outcome.Cost`, which Dashi adds to
+`Spend.ToolCost` (shared decision 5).
+`MaxRequests` bounds each call. `MaxTurnRequests` bounds what the turn
+records plus the calls still running, but not a rerun: when a crash or an
+interruption stops a call before Dashi records its result, `Continue` runs the
+read-only call again, and the stopped run's requests count nowhere, as they
+are missing from `Spend.ToolCost` too. A reservation keyed by the call would
+close that gap, but Dashi gives a tool no durable place to write one before it
+spends. A host that needs a hard limit counts in its own durable ledger
+before each request: a `decide.WithHTTPClient` transport adds the request to
+the turn's count, with the turn ID from `dashi.CurrentCall` on the request's
+context, and refuses requests past the host's limit.
 
 **Record.** The output stays under the turn's tool result limit by listing
 fewer items, because Dashi drops `Data` from a shortened result. `Data` holds
-the list, query, model version, request count, usage, and every item's
-answers with every probability. When that is over Dashi's `Data` limit, it
-keeps each item's most likely answer and its P for each question. Failed
-items keep their request IDs.
+the list, query, model version, request count, usage, the request IDs, and
+every item's answers with every probability. When that is over Dashi's
+`Data` limit, it keeps each item's most likely answer and its P for each
+question; then it drops the request ID list and keeps as many items as fit,
+counting the rest in `dropped_items`. At the default limits (500 items, two
+questions) it keeps every item. Failed items keep their request IDs.
 
 ## Testing
 
 Keyless (shared decision 8): a `decidetest` server answers by keyword rules
 and `ChoiceFor`, and a `dashitest` model calls both tools. The example
-`decide/examples/triage` judges 300 synthetic tickets and picks "the Sam
-from the design review"; with `-live` it uses Claude and Jev.
+`decide/listtool/example`, next to the package it shows, judges 300
+synthetic tickets and picks the customer on the top one; with `-live` it
+uses Claude and Jev.
 
 ## Alternatives
 
