@@ -538,6 +538,9 @@ func TestJudgeItemsReportsListErrors(t *testing.T) {
 			"Could not read tickets: database is down. Try another query, or use your other tools."},
 		{"item without ID", &fakeList{name: "tickets", entries: []entry{{"", "x"}}},
 			"Could not read tickets: item 1 has no ID."},
+		{"repeated ID", &fakeList{name: "tickets", entries: []entry{
+			{"T-001", "billing=0.9"}, {"T-002", "billing=0.1"}, {"T-001", "billing=0.2"}}},
+			`Could not read tickets: items 1 and 3 have the same ID "T-001".`},
 		{"no items", &fakeList{name: "tickets"}, `No items in tickets ("status:open").`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

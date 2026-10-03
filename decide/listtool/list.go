@@ -27,7 +27,9 @@ type List[T any] struct {
 	// its text.
 	Items func(ctx context.Context, query string) ([]T, error)
 	// ID returns the item's ID in the host, such as "T-1042". The model
-	// sees it, and the tools return it. Every item needs one.
+	// sees it, and the tools return it. Every item needs one, and the items
+	// of one call need different IDs; otherwise the call fails before it
+	// sends a request.
 	ID func(T) string
 	// Text returns what the decision model reads about the item. The model
 	// never sees it in a judge_items result; pick_item shows the first
@@ -74,18 +76,24 @@ func (l List[T]) check() error {
 }
 
 // read returns the items for query with their IDs and text. An item with
-// no ID is an error, because the tools could not name it.
+// no ID, or with the ID of an earlier item, is an error, because the tools
+// could not tell the model which item an ID names.
 func (l List[T]) read(ctx context.Context, query string) ([]item, error) {
 	values, err := l.Items(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	items := make([]item, len(values))
+	seen := make(map[string]int, len(values))
 	for i, v := range values {
 		items[i] = item{id: l.ID(v), text: l.Text(v)}
 		if items[i].id == "" {
 			return nil, fmt.Errorf("item %d has no ID", i+1)
 		}
+		if first, ok := seen[items[i].id]; ok {
+			return nil, fmt.Errorf("items %d and %d have the same ID %q", first, i+1, items[i].id)
+		}
+		seen[items[i].id] = i + 1
 	}
 	return items, nil
 }

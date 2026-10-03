@@ -286,3 +286,21 @@ func TestPickItemReportsListErrors(t *testing.T) {
 		}
 	}
 }
+
+// Two items with one ID would let the result show one item's text beside
+// the other's probability, so the call fails before it sends a request.
+func TestPickItemRefusesRepeatedIDs(t *testing.T) {
+	srv, client := newFakeDecide(t)
+	list := &fakeList{name: "contacts", entries: []entry{
+		{"c_812", "Sam Lee, Design"}, {"c_377", "Sam Ortiz, Sales"}, {"c_812", "Samir Patel, Finance"}}}
+	pick := newPick(t, listtool.Config{Client: client, Lists: []listtool.AnyList{list.list()}})
+	o, err := call(t, context.Background(), pick, lookForSam)
+	want := `Could not read contacts: items 1 and 3 have the same ID "c_812". ` +
+		"Find the item with your other tools, or ask the user."
+	if err != nil || o.State != tool.StateFailed || text(o) != want {
+		t.Errorf("outcome %s %q, error %v; want %q", o.State, text(o), err, want)
+	}
+	if n := len(srv.Requests()); n != 0 {
+		t.Errorf("sent %d requests", n)
+	}
+}
