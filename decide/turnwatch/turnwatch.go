@@ -174,7 +174,9 @@ func (w *Watcher) check(
 	latest, reminded := sinceLastReply(p.Input.Messages)
 	if reminded {
 		// This model call was already checked: Dashi asks the hooks again
-		// when an urgent steer sends the run back before the request.
+		// when an urgent steer sends the run back before the request. A
+		// check that added no reminder leaves no mark and can run again;
+		// see https://github.com/deepnoodle-ai/dashi/issues/182.
 		return dashi.ModelDecision{}, nil
 	}
 	heuristic := w.MinProbability < 0
