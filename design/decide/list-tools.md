@@ -48,6 +48,7 @@ type Config struct {
     MinMargin      float64 // top minus runner-up; zero: no check
 
     // Price turns usage into Outcome.Cost. Nil: usage in Data, no Cost.
+    // A call the run stopped has neither; only OnResult sees its usage.
     Price func(model string, u decide.Usage) *tool.Cost
     // OnResult receives every call's full Result, failed and cancelled too.
     OnResult func(ctx context.Context, call dashi.CallRef, r Result)
@@ -219,11 +220,14 @@ Decide is unavailable. Find the item with your other tools, or ask the
 user." Never `tool.Fatal`, never a guessed item (shared decision 3). Listing
 the items unranked was the other choice; it invites the guess decision 3
 rules out, and the model's other tools still work. On cancellation the tool
-sends no new requests and returns the context error; Dashi then records no
-`Cost`, so only `OnResult` sees that spend.
+sends no new requests and returns the context error. A call's context ends
+only when the run stops, and Dashi then records no outcome for the call,
+whatever the tool returns: no `Cost`, no `Data`. Only `OnResult` sees that
+spend; a host that bills it adds it to its own ledger.
 
-**Spend.** Usage is always in `Data`. With `Price` set, the tool returns
-`Outcome.Cost`, which Dashi adds to `Spend.ToolCost` (shared decision 5).
+**Spend.** Every outcome Dashi records, failed ones included, has the usage in
+`Data`. With `Price` set, the tool returns `Outcome.Cost`, which Dashi adds to
+`Spend.ToolCost` (shared decision 5).
 `MaxRequests` bounds each call. `MaxTurnRequests` bounds what the turn
 records plus the calls still running, but not a rerun: when a crash or an
 interruption stops a call before Dashi records its result, `Continue` runs the

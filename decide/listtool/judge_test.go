@@ -613,6 +613,54 @@ func TestJudgeItemsStopsWhenCancelled(t *testing.T) {
 	}
 }
 
+// When the run's context ends while a call runs, Dashi records no outcome
+// for the call, whatever the tool returns: no Cost reaches Spend.ToolCost
+// and no Data is kept. OnResult is the only place the spend appears.
+func TestJudgeItemsSpendReachesOnlyOnResultWhenTheRunEnds(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// The transport ends the run after the first response arrives.
+	ending := roundTripper(func(req *http.Request) (*http.Response, error) {
+		resp, err := http.DefaultTransport.RoundTrip(req)
+		cancel()
+		return resp, err
+	})
+	srv, _ := newFakeDecide(t)
+	client := srv.Client(t, decide.WithMaxRetries(0),
+		decide.WithHTTPClient(&http.Client{Transport: ending}))
+	list := &fakeList{name: "tickets", entries: tickets(20, func(int) string { return "billing=0.9" })}
+	// Run may return before the stopped call does, so OnResult sends.
+	results := make(chan listtool.Result, 1)
+	judge := newJudge(t, listtool.Config{
+		Client: client, Lists: []listtool.AnyList{list.list()}, Price: usd, Concurrency: 1,
+		OnResult: func(_ context.Context, _ dashi.CallRef, r listtool.Result) { results <- r },
+	})
+	runner := dashi.Runner{
+		Client: dashitest.NewClient(dashitest.CallTool("call-1", "judge_items", billingUrgent)),
+		Tools:  tool.List{judge},
+	}
+	out, err := runner.Run(ctx, dashi.Turn{ID: "t1"}, dashi.Start{
+		Agent: dashi.Agent{Model: dashitest.Model},
+		Input: []llm.Message{llm.UserMessage(llm.Text("Which tickets are about billing?"))},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != dashi.StopInterrupted {
+		t.Errorf("stop = %s, want interrupted", out.Stop.Kind)
+	}
+	if v := out.Tools["call-1"]; v.Status != dashi.ToolStarted || v.Outcome != nil {
+		t.Errorf("call-1 = %s with outcome %v; want started with none", v.Status, v.Outcome)
+	}
+	if len(out.Spend.ToolCost) != 0 {
+		t.Errorf("Spend.ToolCost = %v, want empty", out.Spend.ToolCost)
+	}
+	got := <-results
+	if !errors.Is(got.Err, context.Canceled) || got.Requests == 0 || got.Usage.InputTokens == 0 {
+		t.Errorf("OnResult got %+v; want the spend of a cancelled call", got)
+	}
+}
+
 func TestJudgeItemsCutsLongItems(t *testing.T) {
 	srv, client := newFakeDecide(t)
 	list := &fakeList{name: "tickets", entries: []entry{

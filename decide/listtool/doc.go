@@ -54,8 +54,10 @@
 // Outcome.Data: the list, query, model, request count, token usage, and
 // every item's answers, shortened when large. With Price set,
 // Outcome.Cost carries the spend, which Dashi adds to Spend.ToolCost,
-// failed calls included. OnResult receives every call's full Result, also
-// when the call is cancelled and Dashi records no Cost.
+// failed calls included. A call still running when the run's context ends
+// has no outcome: Dashi records neither its Cost nor its Data. OnResult
+// receives every call's full Result, those calls too, so a host that
+// bills them counts their usage from OnResult.
 //
 // The tools claim no accuracy. A judge_items answer counts when its
 // probability is above 0.5, and pick_item acts on nothing by default.

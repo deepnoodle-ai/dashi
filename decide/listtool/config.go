@@ -68,13 +68,20 @@ type Config struct {
 
 	// Price turns a call's usage into Outcome.Cost, which Dashi adds to
 	// Spend.ToolCost. model is the resolved model, such as "jev-1.13.0".
-	// Nil means no Cost; usage is in Outcome.Data either way. A Cost with
-	// a negative amount or a blank currency is dropped, and Outcome.Data
+	// Nil means no Cost; usage is still in Outcome.Data. A Cost with a
+	// negative amount or a blank currency is dropped, and Outcome.Data
 	// then holds "cost_dropped": true.
+	//
+	// A call that ends with its outcome, failed ones included, keeps its
+	// Cost and Data. A call still running when the run's context ends
+	// keeps neither: Dashi records no outcome for it, so its spend is
+	// missing from Spend.ToolCost and reaches only OnResult. A host that
+	// bills those calls adds OnResult's usage to its own ledger.
 	Price func(model string, u decide.Usage) *tool.Cost
 	// OnResult receives every call's full Result, failed and cancelled
 	// calls too, after the call ends. It runs on the call's goroutine
 	// with a context that is not cancelled, and should return quickly.
+	// For a call the run stopped, it can run after Runner.Run returns.
 	OnResult func(ctx context.Context, call dashi.CallRef, r Result)
 }
 
@@ -276,9 +283,10 @@ func (s *settings) listsText() string {
 }
 
 // finish ends a call: it passes r to OnResult, then returns the outcome
-// with r as its Data. A cancelled call returns the context's error, so
-// Dashi records no Cost and only OnResult sees the spend. Any other
-// failure is an ordinary failed outcome that keeps the Cost and Data.
+// with r as its Data. A cancelled call returns the context's error. Its
+// context ends only when the run stops, and then Dashi records no outcome
+// at all, so only OnResult sees the spend. Any other failure is an
+// ordinary failed outcome that keeps the Cost and Data.
 func (s *settings) finish(ctx context.Context, call tool.Call, r Result, output string) (tool.Outcome, error) {
 	if s.onResult != nil {
 		ref, ok := dashi.CurrentCall(ctx)
