@@ -79,11 +79,12 @@ has sent. At the cap it stops checking for that turn. A negative
 before letting the watcher speak.
 
 **5. The record says why.** A reminder is a `change` `HookResult` named
-`turnwatch`, with a `Reason` such as `repeating 0.94, off_request 0.08
-(request r_8f2)` and the resolved decision model, such as `jev-1.13.0`, in
-`RulesVersion`. A check that finds nothing leaves no record. `OnCheck` sees
-every check with its probabilities and usage. Replay never runs hooks, so it
-never asks Decide.
+`turnwatch`. Its `Reason` names the confirmed key, the trigger, and the
+probabilities, such as `off_request: same_call: read_file, 3 times;
+repeating 0.40, off_request 0.62 (request r_8f2)`, and its `RulesVersion`
+holds the resolved decision model, such as `jev-1.13.0`. A check that finds
+nothing leaves no record. `OnCheck` sees every check with its probabilities
+and usage. Replay never runs hooks, so it never asks Decide.
 
 **6. Failure fails open.** No client, a Decide error, a timeout, or a missing
 key gives no reminder. The hook returns the error, so Dashi skips it, records
@@ -94,8 +95,8 @@ one.
 
 **7. Heuristic-only mode.** A negative `MinProbability` turns the floor off:
 the hook never asks Decide and reminds on every free trigger with the
-`repeating` text, its `Reason` naming the trigger (`failed_again: run_tests,
-3 times`). `CheckEvery` is ignored, since only Decide can judge drift.
+`repeating` text, its `Reason` naming the key and trigger
+(`repeating: failed_again: run_tests, 3 times`). `CheckEvery` is ignored, since only Decide can judge drift.
 
 **8. Deferred: stopping the turn.** The only stop a hook may use,
 `StopRefused`, shows in the CLI as "The model refused the request". When the

@@ -194,7 +194,7 @@ func TestRepeatedFailureReminds(t *testing.T) {
 		t.Fatalf("hook results = %+v", results)
 	}
 	r := results[0]
-	want := "failed_again: run_tests, 2 times; repeating 0.95, off_request 0.08 (request req_1)"
+	want := "repeating: failed_again: run_tests, 2 times; repeating 0.95, off_request 0.08 (request req_1)"
 	if r.Verdict != dashi.VerdictChange || r.Reason != want || r.RulesVersion != "jev-1.13.0" {
 		t.Fatalf("hook result = %+v", r)
 	}
@@ -260,7 +260,7 @@ func TestSameCallAndCheckEvery(t *testing.T) {
 	// check_every (3 model calls) hold; same_call is named, and off_request
 	// is the confirmed key.
 	if len(srv.Requests()) != 1 || len(results) != 1 ||
-		!strings.HasPrefix(results[0].Reason, "same_call: read_file, 3 times;") {
+		!strings.HasPrefix(results[0].Reason, "off_request: same_call: read_file, 3 times;") {
 		t.Fatalf("%d requests, results %+v", len(srv.Requests()), results)
 	}
 	got := reminders(model.Inputs()[3])
@@ -438,7 +438,7 @@ func TestHeuristicOnly(t *testing.T) {
 		runTests("c1"), runTests("c2"), dashitest.Reply("Stuck."))
 	out := run(t, w, model, dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
 	results := watcherResults(out.Turn)
-	if len(results) != 1 || results[0].Reason != "failed_again: run_tests, 2 times" ||
+	if len(results) != 1 || results[0].Reason != "repeating: failed_again: run_tests, 2 times" ||
 		results[0].RulesVersion != "" {
 		t.Fatalf("hook results = %+v", results)
 	}

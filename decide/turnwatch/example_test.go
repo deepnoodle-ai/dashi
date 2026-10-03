@@ -65,5 +65,5 @@ func ExampleWatcher() {
 	// Output:
 	// check: failed_again -> remind
 	// reminder: A call you made keeps failing in the same way. Do not repeat it unchanged. Read the error, work out why it fails, and try a different approach.
-	// record: change jev-1.13.0, failed_again: run_tests, 2 times; repeating 0.94, off_request 0.08 (request req_1)
+	// record: change jev-1.13.0, repeating: failed_again: run_tests, 2 times; repeating 0.94, off_request 0.08 (request req_1)
 }

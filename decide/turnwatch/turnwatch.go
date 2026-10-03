@@ -198,8 +198,10 @@ func (w *Watcher) check(
 	c.Action = ActionRemind
 	w.report(c)
 	return dashi.ModelDecision{
-		AddMessages:  []dashi.ContextItem{reminder(sent+1, key)},
-		Reason:       reason,
+		AddMessages: []dashi.ContextItem{reminder(sent+1, key)},
+		// The confirmed key comes first, so the record says which reminder
+		// the agent got.
+		Reason:       key + ": " + reason,
 		RulesVersion: c.Model,
 	}, nil
 }
