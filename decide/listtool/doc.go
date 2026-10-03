@@ -29,7 +29,15 @@
 // result never holds item text, so an item cannot speak to the model.
 // MaxQuestions, MaxRequests, and MaxTurnRequests bound each call before it
 // spends anything; a call over a limit fails at once and says why, so the
-// model narrows its query.
+// model narrows its query. MaxTurnRequests holds for calls that run at
+// once. It does not count a run that a crash or an interruption stopped
+// before Dashi recorded its result: Continue runs that call again, and the
+// stopped run's requests count nowhere. A host that needs a hard limit
+// counts requests itself, before they are sent. It builds Config.Client
+// with decide.WithHTTPClient and a transport that adds each request to the
+// host's own durable count for the turn, whose ID dashi.CurrentCall reads
+// from the request's context, and that refuses requests past the host's
+// limit. A refused request fails like any other Decide request.
 //
 // pick_item finds one item from a description, such as "Sam from the
 // design review", and returns the most likely items with their IDs. By

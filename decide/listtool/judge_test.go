@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -353,15 +354,36 @@ func TestJudgeItemsCountsACallWithoutDataAsTheTurnLimit(t *testing.T) {
 }
 
 // Two calls in one model response, run at once: the later call counts the
-// running one as the most it could send, so the turn stays in bounds.
+// running one as the most it could send, so the turn stays in bounds. The
+// first call's requests wait until the second call is refused, so the two
+// calls overlap.
 func TestJudgeItemsLimitsParallelCalls(t *testing.T) {
-	for _, tc := range []struct{ maxRequests, maxTurnRequests int }{{0, 10}, {-1, 1000}} {
+	for _, tc := range []struct {
+		maxRequests, maxTurnRequests int
+		want                         string
+	}{
+		{0, 10, "This turn has used 10 of its 10 judge_items requests"},
+		{-1, 1000, "This turn has used 1,000 of its 1,000 judge_items requests"},
+	} {
 		t.Run(fmt.Sprint("MaxRequests ", tc.maxRequests), func(t *testing.T) {
 			srv, client := newFakeDecide(t)
-			srv.SetLatency(5 * time.Millisecond)
+			refused := make(chan struct{})
+			srv.Respond(func(req *decide.Request) (*decide.Response, error) {
+				select {
+				case <-refused:
+				case <-time.After(10 * time.Second):
+					t.Error("the second call did not end while the first call ran")
+				}
+				return srv.answer(req)
+			})
 			list := &fakeList{name: "tickets", entries: tickets(6, func(int) string { return "billing=0.9" })}
 			judge := newJudge(t, listtool.Config{Client: client, Lists: []listtool.AnyList{list.list()},
-				MaxRequests: tc.maxRequests, MaxTurnRequests: tc.maxTurnRequests})
+				MaxRequests: tc.maxRequests, MaxTurnRequests: tc.maxTurnRequests,
+				OnResult: func(_ context.Context, call dashi.CallRef, _ listtool.Result) {
+					if call.CallID == "call-2" {
+						close(refused)
+					}
+				}})
 			both := dashitest.CallTool("call-1", "judge_items", billingUrgent)
 			second := dashitest.CallTool("call-2", "judge_items", billingUrgent)
 			both.Message.Content = append(both.Message.Content, second.Message.Content...)
@@ -370,20 +392,126 @@ func TestJudgeItemsLimitsParallelCalls(t *testing.T) {
 			if n := len(srv.Requests()); n != 6 {
 				t.Errorf("Decide requests = %d, want 6 from one call", n)
 			}
-			refused := 0
-			for _, id := range []string{"call-1", "call-2"} {
-				o := out.Tools[id].Outcome
-				if strings.Contains(text(*o), "judge_items requests, and this call needs 6") {
-					refused++
-				}
+			if o := out.Tools["call-1"].Outcome; o.State != tool.StateSucceeded {
+				t.Errorf("first call = %s %q", o.State, text(*o))
 			}
-			if refused == 0 {
-				t.Errorf("neither call was refused: %q, %q",
-					text(*out.Tools["call-1"].Outcome), text(*out.Tools["call-2"].Outcome))
+			if o := out.Tools["call-2"].Outcome; o.State != tool.StateFailed || !strings.Contains(text(*o), tc.want) {
+				t.Errorf("second call = %s %q, want %q", o.State, text(*o), tc.want)
 			}
 		})
 	}
 }
+
+// When the worker stops after a call sent its requests but before Dashi
+// recorded its result, Continue runs the read-only call again. The rerun
+// counts the turn's other calls but cannot see its own stopped run, so
+// Decide gets that call's requests twice and the turn counts them once.
+// This is the case MaxTurnRequests documents as not counted.
+func TestJudgeItemsCountsARerunCallOnce(t *testing.T) {
+	srv, client := newFakeDecide(t)
+	out := runWithLostResult(t, srv, client, 10)
+	if n := len(srv.Requests()); n != 12 {
+		t.Errorf("Decide requests = %d, want 12: the stopped run and the rerun", n)
+	}
+	if got := data(t, *out.Tools["call-1"].Outcome)["requests"]; got != 6.0 {
+		t.Errorf("call-1 recorded %v requests, want 6", got)
+	}
+	second := out.Tools["call-2"].Outcome
+	if second.State != tool.StateFailed || !strings.Contains(text(*second),
+		"This turn has used 6 of its 10 judge_items requests, and this call needs 6") {
+		t.Errorf("second call = %s %q", second.State, text(*second))
+	}
+}
+
+// A host that needs a hard limit counts each request before it is sent,
+// in a transport keyed by the turn, as the package documentation says. Its
+// count holds through the rerun that MaxTurnRequests does not count.
+func TestJudgeItemsHostCountHoldsThroughARerun(t *testing.T) {
+	const hostLimit = 10
+	var (
+		mu    sync.Mutex
+		sent  = map[string]int{}
+		inner = http.DefaultTransport
+	)
+	counted := roundTripper(func(req *http.Request) (*http.Response, error) {
+		if call, ok := dashi.CurrentCall(req.Context()); ok {
+			mu.Lock()
+			over := sent[call.TurnID] >= hostLimit
+			if !over {
+				sent[call.TurnID]++
+			}
+			mu.Unlock()
+			if over {
+				return nil, errors.New("over the host's Decide limit for this turn")
+			}
+		}
+		return inner.RoundTrip(req)
+	})
+	srv, _ := newFakeDecide(t)
+	client := srv.Client(t, decide.WithMaxRetries(0),
+		decide.WithHTTPClient(&http.Client{Transport: counted}))
+	out := runWithLostResult(t, srv, client, 0)
+	if n := len(srv.Requests()); n != hostLimit || sent["t1"] != hostLimit {
+		t.Errorf("Decide requests = %d, host count = %d; want %d", n, sent["t1"], hostLimit)
+	}
+	if o := out.Tools["call-1"].Outcome; !strings.Contains(text(*o), "Failed: 2.") {
+		t.Errorf("rerun call = %s %q; want two items refused", o.State, text(*o))
+	}
+}
+
+// runWithLostResult runs a turn whose model calls judge_items on six
+// tickets. The first worker loses the write of that call's result, as a
+// crash after the call would, and a second run continues the turn from
+// the record. The model then calls judge_items once more and finishes.
+func runWithLostResult(
+	t *testing.T,
+	srv *fakeDecide,
+	client *decide.Client,
+	maxTurnRequests int,
+) dashi.RunResult {
+	t.Helper()
+	list := &fakeList{name: "tickets", entries: tickets(6, func(int) string { return "billing=0.9" })}
+	judge := newJudge(t, listtool.Config{
+		Client: client, Lists: []listtool.AnyList{list.list()}, MaxTurnRequests: maxTurnRequests})
+	store := dashi.NewMemoryRecorder()
+	runner := dashi.Runner{
+		Client: dashitest.NewClient(
+			dashitest.CallTool("call-1", "judge_items", billingUrgent),
+			dashitest.CallTool("call-2", "judge_items", billingUrgent),
+			dashitest.Reply("Done."),
+		),
+		Tools: tool.List{judge},
+		Recorder: &dashitest.FaultRecorder{
+			Recorder: store, Kind: dashi.StepToolFinished, Fault: dashitest.LoseWrite},
+	}
+	ctx := context.Background()
+	if _, err := runner.Run(ctx, dashi.Turn{ID: "t1"}, dashi.Start{
+		CommandID: "start",
+		Agent:     dashi.Agent{Model: dashitest.Model},
+		Input:     []llm.Message{llm.UserMessage(llm.Text("Which tickets are about billing?"))},
+	}); err == nil {
+		t.Fatal("the first worker did not fail")
+	}
+	saved, err := store.Load(ctx, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := saved.View(); v.Tools["call-1"].Status != dashi.ToolStarted {
+		t.Fatalf("call-1 = %s, want started with no result", v.Tools["call-1"].Status)
+	}
+	if n := len(srv.Requests()); n != 6 {
+		t.Fatalf("Decide requests before the crash = %d, want 6", n)
+	}
+	out, err := runner.Run(ctx, saved, dashi.Continue{CommandID: "resume"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+type roundTripper func(*http.Request) (*http.Response, error)
+
+func (f roundTripper) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
 func TestJudgeItemsKeepsTheOtherItemsWhenSomeFail(t *testing.T) {
 	_, client := newFakeDecide(t)

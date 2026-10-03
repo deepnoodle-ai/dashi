@@ -480,6 +480,13 @@ func (j *judge) judgeOne(
 // recorded no count, because a hook dropped its Data, it is still running,
 // or its result is unknown, counts as the most it could send: MaxRequests,
 // or MaxTurnRequests when that is lower or MaxRequests is unlimited.
+//
+// The view shows every call that started before this one, because the
+// runner records a call's start before it runs the call; a call that
+// starts later sees this one. So calls that run at once stay under
+// MaxTurnRequests together. The view cannot show an earlier run of this
+// same call that a crash or an interruption stopped, so a rerun does not
+// count it.
 func (j *judge) spentThisTurn(ctx context.Context) int {
 	view, ok := dashi.CurrentTurn(ctx)
 	if !ok {
@@ -494,13 +501,13 @@ func (j *judge) spentThisTurn(ctx context.Context) int {
 		}
 		switch v.Status {
 		case dashi.ToolFinished:
-			if v.Outcome == nil || v.Outcome.State == tool.StateNotExecuted {
+			if v.Outcome != nil && v.Outcome.State == tool.StateNotExecuted {
 				continue
 			}
 			var rec struct {
 				Requests *int `json:"requests"`
 			}
-			if json.Unmarshal(v.Outcome.Data, &rec) == nil && rec.Requests != nil {
+			if v.Outcome != nil && json.Unmarshal(v.Outcome.Data, &rec) == nil && rec.Requests != nil {
 				n += *rec.Requests
 			} else {
 				n += unknown

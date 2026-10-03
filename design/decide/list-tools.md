@@ -39,7 +39,7 @@ type Config struct {
     // judge_items
     MaxQuestions    int // zero: 8; at most 64
     MaxRequests     int // Decide requests in one call; zero: 500
-    MaxTurnRequests int // requests across all calls in one turn; zero: 2,000
+    MaxTurnRequests int // requests the turn records for all calls; zero: 2,000
     MaxItemBytes    int // zero: 64 KiB; the rest of an item is not judged
     Concurrency     int // requests at once in one call; zero: 8
 
@@ -143,9 +143,12 @@ accuracy; the agent sees the numbers (shared decision 4).
 `Concurrency` requests at a time. It counts before it spends: a call over
 `MaxQuestions` or `MaxRequests`, or one that would take the turn past
 `MaxTurnRequests`, fails at once and names the count and the limit, so the
-agent narrows its query. The turn count adds up the requests recorded by
-earlier `judge_items` calls in the turn; a call whose `Data` a hook dropped
-counts as `MaxRequests`. An item longer than `MaxItemBytes` is judged on its
+agent narrows its query. The turn count adds up the turn's other
+`judge_items` calls: a finished call at the count in its `Data`, and a
+running call, an unknown result, or a call whose `Data` a hook dropped at the
+most it could send. Dashi records each call's start before the call runs, so
+calls that run at once see each other and stay under the limit together.
+Spend shows what this count misses. An item longer than `MaxItemBytes` is judged on its
 first `MaxItemBytes` bytes, and the result says how many items were cut. As
 items finish, the tool reports progress through `tool.Report`: "judged
 120/300, 2 failed".
@@ -221,8 +224,16 @@ sends no new requests and returns the context error; Dashi then records no
 
 **Spend.** Usage is always in `Data`. With `Price` set, the tool returns
 `Outcome.Cost`, which Dashi adds to `Spend.ToolCost` (shared decision 5).
-`MaxRequests` and `MaxTurnRequests` bound it. A rerun after a crash pays
-again.
+`MaxRequests` bounds each call. `MaxTurnRequests` bounds what the turn
+records plus the calls still running, but not a rerun: when a crash or an
+interruption stops a call before Dashi records its result, `Continue` runs the
+read-only call again, and the stopped run's requests count nowhere, as they
+are missing from `Spend.ToolCost` too. A reservation keyed by the call would
+close that gap, but Dashi gives a tool no durable place to write one before it
+spends. A host that needs a hard limit counts in its own durable ledger
+before each request: a `decide.WithHTTPClient` transport adds the request to
+the turn's count, with the turn ID from `dashi.CurrentCall` on the request's
+context, and refuses requests past the host's limit.
 
 **Record.** The output stays under the turn's tool result limit by listing
 fewer items, because Dashi drops `Data` from a shortened result. `Data` holds

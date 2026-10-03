@@ -34,8 +34,19 @@ type Config struct {
 	// send, one per item. Zero means 500. Negative means no limit.
 	MaxRequests int
 	// MaxTurnRequests is the most Decide requests the judge_items calls of
-	// one turn may send together. Zero means 2,000. Negative means no
-	// limit.
+	// one turn may send together, as the turn records them. Zero means
+	// 2,000. Negative means no limit.
+	//
+	// Before it sends anything, a call counts the turn's other judge_items
+	// calls: a finished call at the count in its Data, and a running call,
+	// or one whose count the record lacks, at the most it could send.
+	// Dashi records each call's start before the call runs, so calls that
+	// run at once stay under the limit together. One case is not counted:
+	// when a crash or an interruption stops a call before Dashi records its
+	// result, Continue runs the call again, and the requests of the stopped
+	// run count nowhere, as they are missing from Spend.ToolCost too. For a
+	// limit that holds through crashes, count requests in the host; see the
+	// package documentation.
 	MaxTurnRequests int
 	// MaxItemBytes is how much of an item's Text judge_items sends.
 	// The rest of a longer item is not judged, and the result counts the
