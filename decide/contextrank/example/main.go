@@ -173,15 +173,19 @@ func printSelection(exchange string, sel contextrank.Selection) {
 		return
 	}
 	var chosen []contextrank.CandidateResult
-	present, below := 0, 0
-	for _, j := range sel.Candidates {
-		switch j.Cause {
+	present, below, judged := 0, 0, 0
+	for _, c := range sel.Candidates {
+		switch c.Cause {
 		case contextrank.CauseChosen:
-			chosen = append(chosen, j)
+			chosen = append(chosen, c)
+			judged++
 		case contextrank.CausePresent:
 			present++
 		case contextrank.CauseBelowMinimum:
 			below++
+			judged++
+		case contextrank.CauseOverBudget, contextrank.CauseUnanswered:
+			judged++
 		}
 	}
 	if len(chosen) == 0 {
@@ -192,25 +196,25 @@ func printSelection(exchange string, sel contextrank.Selection) {
 	slices.SortStableFunc(chosen, byProbability)
 	top, _ := keywordSearch(context.Background(), exchange)
 	fmt.Printf("\n  %-34s %s\n", "keyword search, top "+fmt.Sprint(len(chosen)),
-		"Decide ("+sel.Model+"), chosen")
-	for i, j := range chosen {
-		fmt.Printf("  %-34s %.2f %s\n", top[i].ID, j.Probability, j.ID)
+		"Decide ("+sel.Model+"), chosen with P(yes)")
+	for i, c := range chosen {
+		fmt.Printf("  %-34s %s %.2f\n", top[i].ID, c.ID, c.Probability)
 	}
 	// The best notes left out show how close the floor was.
 	var rest []contextrank.CandidateResult
-	for _, j := range sel.Candidates {
-		if j.Cause == contextrank.CauseBelowMinimum || j.Cause == contextrank.CauseOverBudget {
-			rest = append(rest, j)
+	for _, c := range sel.Candidates {
+		if c.Cause == contextrank.CauseBelowMinimum || c.Cause == contextrank.CauseOverBudget {
+			rest = append(rest, c)
 		}
 	}
 	slices.SortStableFunc(rest, byProbability)
 	var next []string
-	for _, j := range rest[:min(3, len(rest))] {
-		next = append(next, fmt.Sprintf("%s %.2f (%s)", j.ID, j.Probability, j.Cause))
+	for _, c := range rest[:min(3, len(rest))] {
+		next = append(next, fmt.Sprintf("%s %.2f (%s)", c.ID, c.Probability, c.Cause))
 	}
 	fmt.Printf("  next best: %s\n", strings.Join(next, ", "))
 	fmt.Printf("  (%d notes judged in %d request(s), %d input tokens)\n",
-		len(sel.Candidates)-present, len(sel.RequestIDs), sel.Usage.InputTokens)
+		judged, len(sel.RequestIDs), sel.Usage.InputTokens)
 }
 
 // byProbability orders judged notes by P(yes), highest first.
