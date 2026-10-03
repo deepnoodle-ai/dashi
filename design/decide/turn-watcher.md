@@ -25,12 +25,16 @@ hook skips compaction calls and child turns (`Turn.Parent` is set), since
 `delegate` gives subagents the parent's hooks.
 
 **2. Free checks trigger a Decide request.** Each looks at the tool results
-that arrived since the previous model call:
+that arrived since the previous model call. A call matches another when its
+tool name, arguments (by JSON meaning), and result (the text the model saw,
+and whether it failed) are the same. A loop that makes progress changes its
+results: in an edit-and-test loop each test run fails in a new way, then
+passes, so it triggers nothing.
 
-- **Failed again:** a call that just failed has the same tool name and
-  arguments (by JSON meaning) as an earlier failed call in this turn.
-- **Same call:** a call that just finished matches `SameCalls` earlier calls,
-  whatever their results.
+- **Failed again:** a call that just failed matches an earlier call in this
+  turn: same call, same error.
+- **Same call:** a call that just finished matches `SameCalls` earlier calls:
+  same call, same result.
 - **Every N calls** (opt-in): `TurnView.ModelCalls` reaches a multiple of
   `CheckEvery`. It is the only way to catch drift with no repeated call, and
   it pays on turns with no problem, so it is off by default.
@@ -154,8 +158,9 @@ listed there.
 A keyless test scripts a `run_tests` tool that fails three times with the same
 arguments while `decidetest` answers `repeating` 0.95, and checks the
 reminder, its `HookResult`, and the next model request. Variants cover a "no"
-answer, a Decide failure, the cap, a child turn, heuristic-only mode, and
-replay; `ExampleWatcher` runs keyless.
+answer, a Decide failure, the cap, a child turn, heuristic-only mode, a
+healthy edit-and-test loop (zero Decide requests), and replay;
+`ExampleWatcher` runs keyless.
 
 ## Alternatives
 

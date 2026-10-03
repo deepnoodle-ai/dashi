@@ -3,9 +3,11 @@ package turnwatch_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +28,11 @@ type testArgs struct {
 
 type fileArgs struct {
 	Path string `json:"path"`
+}
+
+type writeArgs struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
 }
 
 // tools returns run_tests, which always fails the same way, and
@@ -471,6 +478,70 @@ func TestChildTurnSkipped(t *testing.T) {
 	if len(srv.Requests()) != 0 || len(watcherResults(out.Turn)) != 0 {
 		t.Fatalf("%d Decide requests, results %+v; want none",
 			len(srv.Requests()), watcherResults(out.Turn))
+	}
+}
+
+// healthyTools returns write_file, which always succeeds, and run_tests,
+// which fails with a new error on each of its first fails runs and then
+// passes: the edit-and-test loop of an agent that is making progress.
+func healthyTools(fails int) tool.List {
+	var runs atomic.Int32
+	return tool.List{
+		tool.MustFunc("write_file", "Writes a file.",
+			func(_ context.Context, _ tool.Call, in writeArgs) (tool.Outcome, error) {
+				return tool.Succeeded("wrote " + in.Path), nil
+			}),
+		tool.MustFunc("run_tests", "Runs the tests of a package.",
+			func(context.Context, tool.Call, testArgs) (tool.Outcome, error) {
+				n := int(runs.Add(1))
+				if n <= fails {
+					return tool.Failed(fmt.Sprintf("FAIL TestParse: case %d of %d", n, fails+1)), nil
+				}
+				return tool.Succeeded("ok ./parser"), nil
+			}),
+	}
+}
+
+// TestHealthyLoopAsksNothing runs an edit-and-test loop whose test runs
+// fail in a new way each time and then pass. The same call with a new
+// result is progress, so no check runs, in either mode.
+func TestHealthyLoopAsksNothing(t *testing.T) {
+	const fails = 5
+	for _, mode := range []struct {
+		name string
+		min  float64
+	}{{"decide", 0}, {"heuristic", -1}} {
+		t.Run(mode.name, func(t *testing.T) {
+			srv, client := judge(t, 0.95, 0.95)
+			var seen checks
+			w := &turnwatch.Watcher{Client: client, MinProbability: mode.min, OnCheck: seen.add}
+			var script []llm.Result
+			for i := range fails + 1 {
+				args := fmt.Sprintf(`{"path":"parser/lex.go","content":"fix %d"}`, i)
+				script = append(script,
+					dashitest.CallTool(fmt.Sprintf("w%d", i), "write_file", args),
+					runTests(fmt.Sprintf("t%d", i)))
+			}
+			model := dashitest.NewClient(append(script, dashitest.Reply("Fixed."))...)
+			runner := dashi.Runner{Client: model, Tools: healthyTools(fails), Hooks: w.Hook().Hooks()}
+			agent := dashi.Agent{Limits: dashi.Limits{ModelCalls: 20}}
+			out, err := runner.Run(t.Context(), dashi.Turn{ID: "t1"}, start(agent))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Stop.Kind != dashi.StopCompleted || out.ModelCalls != 2*(fails+1)+1 {
+				t.Fatalf("stop %s after %d model calls", out.Stop.Kind, out.ModelCalls)
+			}
+			if n := len(srv.Requests()); n != 0 {
+				t.Fatalf("%d Decide requests, want 0", n)
+			}
+			if all := seen.all(); len(all) != 0 {
+				t.Fatalf("checks = %+v", all)
+			}
+			if r := watcherResults(out.Turn); len(r) != 0 {
+				t.Fatalf("hook results = %+v", r)
+			}
+		})
 	}
 }
 

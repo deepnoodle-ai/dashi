@@ -52,9 +52,9 @@ type Watcher struct {
 	// confirmed. Zero means the model leans yes: P(yes) above 0.5. A
 	// negative value never asks Decide and reminds on every free trigger.
 	MinProbability float64
-	// SameCalls is how many earlier calls with the same tool and arguments,
-	// whatever their results, trigger a check. Zero means 3; negative turns
-	// the check off.
+	// SameCalls is how many earlier calls with the same tool, arguments,
+	// and result trigger a check. Zero means 3; negative turns the check
+	// off.
 	SameCalls int
 	// CheckEvery triggers a check every this many model calls, to catch
 	// drift with no repeated call. Zero turns it off. It is ignored when
@@ -75,11 +75,11 @@ type Watcher struct {
 type Trigger string
 
 const (
-	// TriggerFailedAgain is a call that failed with the same tool and
-	// arguments as an earlier failed call in the turn.
+	// TriggerFailedAgain is a call that failed with the same tool,
+	// arguments, and error as an earlier call in the turn.
 	TriggerFailedAgain Trigger = "failed_again"
-	// TriggerSameCall is a call with the same tool and arguments as
-	// SameCalls earlier calls, whatever their results.
+	// TriggerSameCall is a call with the same tool, arguments, and result
+	// as SameCalls earlier calls.
 	TriggerSameCall Trigger = "same_call"
 	// TriggerCheckEvery is a model call count that reached a multiple of
 	// CheckEvery.

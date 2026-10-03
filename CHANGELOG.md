@@ -126,9 +126,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   module and the others stay on Go 1.26. It holds shared internal helpers so
   far; its packages follow.
 - **`decide/turnwatch` reminds an agent that repeats a failing call.** Its
-  `Watcher.Hook` runs free checks before each model call, asks Decide to
-  confirm only when one triggers, and adds a short reminder from the watcher,
-  at most `MaxReminders` per turn; a failed check is a `hook_failed` warning.
+  `Watcher.Hook` runs free checks before each model call for a call repeated
+  with the same result, asks Decide to confirm only when one triggers, and
+  adds a short reminder from the watcher, at most `MaxReminders` per turn; a
+  failed check is a `hook_failed` warning.
 
 ### Fixed
 

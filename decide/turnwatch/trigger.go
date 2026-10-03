@@ -2,6 +2,8 @@ package turnwatch
 
 import (
 	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
@@ -13,6 +15,10 @@ import (
 // in this order: failed again, same call, every N model calls. It returns
 // the first that triggers, with a short description for the record, or
 // "" when none does.
+//
+// Both call checks match tool name, arguments, and result. A loop that
+// makes progress changes its results, as an edit-and-test loop does when
+// each test run fails in a new way, so it triggers nothing.
 func (w *Watcher) trigger(
 	turn dashi.TurnView,
 	latest []string,
@@ -23,7 +29,7 @@ func (w *Watcher) trigger(
 		if !ok || !failed(v) {
 			continue
 		}
-		if n := matching(turn, v.Call, true); n >= 2 {
+		if n := matching(turn, v); n >= 2 {
 			return TriggerFailedAgain,
 				fmt.Sprintf("%s: %s, %d times", TriggerFailedAgain, v.Call.Name, n)
 		}
@@ -34,7 +40,7 @@ func (w *Watcher) trigger(
 			if !ok || v.Status != dashi.ToolFinished {
 				continue
 			}
-			if n := matching(turn, v.Call, false); n-1 >= same {
+			if n := matching(turn, v); n-1 >= same {
 				return TriggerSameCall,
 					fmt.Sprintf("%s: %s, %d times", TriggerSameCall, v.Call.Name, n)
 			}
@@ -48,21 +54,25 @@ func (w *Watcher) trigger(
 	return "", ""
 }
 
-// matching counts the turn's calls, call included, with call's tool and
-// arguments by JSON meaning; with onlyFailed, only failed ones.
-func matching(turn dashi.TurnView, call tool.Call, onlyFailed bool) int {
-	key := argsKey(call.Args)
+// matching counts the turn's finished calls, v included, with v's tool,
+// arguments by JSON meaning, and result. A failed call matches only failed
+// calls, since the result includes whether the call failed.
+func matching(turn dashi.TurnView, v dashi.ToolView) int {
+	key := callKey(v)
 	n := 0
-	for _, v := range turn.Tools {
-		if v.Call.Name != call.Name || argsKey(v.Call.Args) != key {
-			continue
+	for _, other := range turn.Tools {
+		if other.Status == dashi.ToolFinished && other.Call.Name == v.Call.Name &&
+			callKey(other) == key {
+			n++
 		}
-		if onlyFailed && !failed(v) {
-			continue
-		}
-		n++
 	}
 	return n
+}
+
+// callKey identifies a finished call by its arguments and the result the
+// model saw.
+func callKey(v dashi.ToolView) string {
+	return argsKey(v.Call.Args) + " " + resultHash(v)
 }
 
 // argsKey identifies arguments by JSON meaning, or by their bytes when they
@@ -72,6 +82,22 @@ func argsKey(args json.RawMessage) string {
 		return "raw:" + string(args)
 	}
 	return dashi.ArgsHash(args)
+}
+
+// resultHash identifies the result the model saw: its content and whether
+// it is an error. The call ID is left out, since every call has its own.
+func resultHash(v dashi.ToolView) string {
+	r := v.Result()
+	b, err := json.Marshal(struct {
+		Output  tool.Output `json:"output"`
+		IsError bool        `json:"is_error"`
+	}{r.Output, r.IsError || failed(v)})
+	if err != nil {
+		// Unreadable: match no other call.
+		return "call:" + v.Call.ID
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 func failed(v dashi.ToolView) bool {
