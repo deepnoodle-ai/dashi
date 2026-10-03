@@ -13,6 +13,11 @@
 // Any Decide failure, a pairing problem, or a selection with nothing to
 // summarize falls back to the stock Start, and OnSelection receives the
 // cause in Selection.Fallback.
+//
+// Experimental: on generated sessions it kept more needed details than the
+// stock compactor, but its lead over a stock compactor that also sees the
+// latest request is within noise. It may change or be removed after runs on
+// recorded sessions; see docs/dev/selective-compaction-eval.md.
 package selective
 
 import (
