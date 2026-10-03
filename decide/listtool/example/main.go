@@ -1,6 +1,7 @@
 // Command example runs a support agent with the judge_items and pick_item
-// tools from package listtool. The host has two lists: about thirty open
-// support tickets and the customer contacts. The user asks for the urgent
+// tools from package listtool. The host has two lists: 300 open support
+// tickets (30 written out, 270 generated routine ones) and the customer
+// contacts. The user asks for the urgent
 // billing tickets and an email to the customer on the top one. The agent
 // judges every ticket with judge_items, reads the top ticket, finds the
 // customer's contact ID with pick_item, and sends the email with a tool
@@ -55,7 +56,11 @@ type contact struct {
 	ID, Name, Company, Role, Email string
 }
 
-var tickets = []ticket{
+// tickets is the host's ticket list: the written tickets, then routine
+// ones, so the list is too long for the agent to read.
+var tickets = append(written, routine(270)...)
+
+var written = []ticket{
 	{"T-1001", "Marco Diaz", "Initech", "Dark mode for the dashboard?", "Is dark mode on the roadmap? No rush."},
 	{"T-1002", "Lena Fischer", "Umbrella", "Invoice address is wrong", "Our March invoice shows the old office address. Please correct it for next month."},
 	{"T-1003", "Tom Becker", "Hooli", "Export to CSV fails", "Exporting reports to CSV gives an empty file."},
@@ -86,6 +91,37 @@ var tickets = []ticket{
 	{"T-1028", "Leila Haddad", "Ollivanders", "Can't download invoice PDF", "The invoice PDF link returns 404."},
 	{"T-1029", "Paul Novak", "Strickland Propane", "Slack integration", "Does the Slack integration support threads?"},
 	{"T-1030", "Yuki Mori", "Spacely Sprockets", "Account locked after failed payment", "Payment bounced and the whole team is locked out right now. We have a client demo in two hours."},
+}
+
+// routine returns n generated tickets about features, none about billing
+// and none urgent, numbered after the written tickets.
+func routine(n int) []ticket {
+	first := []string{"Alex", "Jordan", "Taylor", "Morgan", "Casey", "Riley", "Jamie", "Avery", "Quinn", "Drew"}
+	last := []string{"Ng", "Kowal", "Moreau", "Okafor", "Lindqvist", "Brennan", "Ito", "Varga", "Reyes"}
+	companies := []string{"Initech", "Hooli", "Globex", "Acme", "Soylent", "Vandelay", "Tyrell", "Aperture"}
+	features := []string{"reports", "exports", "webhooks", "the API", "SSO", "dashboards", "search",
+		"notifications", "the mobile app", "integrations", "user roles"}
+	kinds := []struct{ subject, body string }{
+		{"Question about %s", "How do we set up %s for a new team?"},
+		{"Feedback on %s", "We like %s. Here are a few small ideas."},
+		{"%s feels slow", "Loading %s takes a while on large projects."},
+		{"Docs for %s", "Where can we read more about %s?"},
+		{"Feature request: %s", "Could %s support custom fields?"},
+	}
+	out := make([]ticket, n)
+	for i := range out {
+		feature := features[i%len(features)]
+		kind := kinds[i%len(kinds)]
+		subject := fmt.Sprintf(kind.subject, feature)
+		out[i] = ticket{
+			ID:       fmt.Sprintf("T-%d", 1001+len(written)+i),
+			Customer: first[i%len(first)] + " " + last[i%len(last)],
+			Company:  companies[i%len(companies)],
+			Subject:  strings.ToUpper(subject[:1]) + subject[1:],
+			Body:     fmt.Sprintf(kind.body, feature),
+		}
+	}
+	return out
 }
 
 var contacts = []contact{
