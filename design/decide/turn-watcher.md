@@ -60,10 +60,12 @@ text reaches the agent. A key is confirmed when its P(yes) clears
 
 **4. A confirmed check adds a reminder.** The hook returns one
 `ContextItem` in `ModelDecision.AddMessages`, from `dashi.ContextRuntime`,
-holding a contextual `llm.Reminder` named `turnwatch` with
-`From: "turnwatch"`. The model reads it as coming from the watcher, not the
-user. When both keys are confirmed, `repeating` wins. The text is fixed per
-key and asks the agent to check its approach, never to stop:
+holding a contextual `llm.Reminder` named `turnwatch`; the model reads the
+name, not the user, as its source. It has no `From`, which marks agent mail
+that the CLI shows as a delivered message and compaction keeps; it is a
+runtime reminder, like a host's. When both keys are confirmed, `repeating`
+wins. The text is fixed per key and asks the agent to check its approach,
+never to stop:
 
 - `repeating`: "A call you made keeps failing in the same way. Do not repeat
   it unchanged. Read the error, work out why it fails, and try a different

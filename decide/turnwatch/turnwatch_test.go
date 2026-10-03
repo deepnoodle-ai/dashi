@@ -125,7 +125,7 @@ func reminders(in llm.Input) []llm.Reminder {
 	var out []llm.Reminder
 	for _, m := range in.Messages {
 		for _, part := range m.Content {
-			if part.Kind == llm.ContentReminder && part.Reminder.From == turnwatch.Name {
+			if part.Kind == llm.ContentReminder && part.Reminder.Name == turnwatch.Name {
 				out = append(out, *part.Reminder)
 			}
 		}
@@ -180,7 +180,8 @@ func TestRepeatedFailureReminds(t *testing.T) {
 	}
 	got := reminders(inputs[2])
 	if len(got) != 1 || !strings.HasPrefix(got[0].Content, "A call you made keeps failing") ||
-		got[0].Name != turnwatch.Name || got[0].Tier != llm.ReminderContextual {
+		got[0].Name != turnwatch.Name || got[0].Tier != llm.ReminderContextual ||
+		got[0].From != "" {
 		t.Fatalf("third call reminders = %+v", got)
 	}
 	item, ok := out.Context(dashi.ContextRuntime, turnwatch.Name)

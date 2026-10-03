@@ -6,8 +6,8 @@
 // free checks on the tool calls that finished since the previous call. Only
 // when one triggers does it ask a decision model, through Decide, whether
 // the agent is repeating a failed approach or has moved away from the
-// request. A confirmed answer adds a short reminder, marked as from the
-// watcher, before the next model call. The watcher never stops a turn.
+// request. A confirmed answer adds a short runtime reminder, named
+// "turnwatch", before the next model call. The watcher never stops a turn.
 //
 // Everything the hook counts, it reads from the turn record, so a turn
 // resumed in another process behaves the same. A failed Decide request adds
@@ -29,7 +29,7 @@ import (
 )
 
 // Name is the watcher's hook name, the name of its reminder slot, and the
-// sender its reminders show.
+// name of its reminders.
 const Name = "turnwatch"
 
 // Defaults for a Watcher's zero fields.
@@ -234,7 +234,6 @@ func reminder(n int, key string) dashi.ContextItem {
 		Message: llm.ReminderMessage(llm.Reminder{
 			Name:    Name,
 			Tier:    llm.ReminderContextual,
-			From:    Name,
 			Content: reminderText[key],
 		}),
 	}
@@ -283,15 +282,16 @@ func sinceLastReply(messages []llm.Message) (calls []string, reminded bool) {
 	return calls, reminded
 }
 
-// isReminder reports whether m is one of the watcher's reminders.
+// isReminder reports whether m is one of the watcher's reminders: a
+// runtime context item in the watcher's slot or, when the slot is unknown,
+// a reminder with the watcher's name.
 func isReminder(m llm.Message) bool {
-	if m.Context != nil && m.Context.Origin == string(dashi.ContextRuntime) &&
-		m.Context.Name == Name {
-		return true
+	if m.Context != nil {
+		return m.Context.Origin == string(dashi.ContextRuntime) && m.Context.Name == Name
 	}
 	for _, part := range m.Content {
 		if part.Kind == llm.ContentReminder && part.Reminder != nil &&
-			part.Reminder.Name == Name && part.Reminder.From == Name {
+			part.Reminder.Name == Name {
 			return true
 		}
 	}
