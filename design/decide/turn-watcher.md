@@ -68,12 +68,19 @@ holding a contextual `llm.Reminder` named `turnwatch`; the model reads the
 name, not the user, as its source. It has no `From`, which marks agent mail
 that the CLI shows as a delivered message and compaction keeps; it is a
 runtime reminder, like a host's. When both keys are confirmed, `repeating`
-wins. The text is fixed per key and asks the agent to check its approach,
-never to stop:
+wins. The text is fixed per key and, for `repeating`, per trigger, so it
+says only what the trigger saw: a `same_call` trigger is a call that did not
+fail, so its text does not say the call fails. Each text asks the agent to
+check its approach, never to stop:
 
-- `repeating`: "A call you made keeps failing in the same way. Do not repeat
-  it unchanged. Read the error, work out why it fails, and try a different
-  approach."
+- `repeating` after `failed_again`: "A call you made keeps failing in the same
+  way. Do not repeat it unchanged. Read the error, work out why it fails, and
+  try a different approach."
+- `repeating` after `same_call`: "You made the same call several times and got
+  the same result each time. Do not repeat it unchanged. Use the result you
+  already have, or try a different approach."
+- `repeating` after `check_every`: "Your recent calls may repeat an approach
+  that already failed. Work out why it failed, and try a different approach."
 - `off_request`: "Your recent calls may have moved away from the user's
   request. Re-read the request and check that your next call works toward it."
 
@@ -100,9 +107,10 @@ are few, and without them a host cannot tell a quiet watcher from a broken
 one.
 
 **7. Heuristic-only mode.** A negative `MinProbability` turns the floor off:
-the hook never asks Decide and reminds on every free trigger with the
-`repeating` text, its `Reason` naming the key and trigger
-(`repeating: failed_again: run_tests, 3 times`). `CheckEvery` is ignored, since only Decide can judge drift.
+the hook never asks Decide and reminds on every free trigger with that
+trigger's `repeating` text, its `Reason` naming the key and trigger
+(`repeating: failed_again: run_tests, 3 times`). A `same_call` trigger on a
+call that succeeded gets the `same_call` text, which does not say it fails. `CheckEvery` is ignored, since only Decide can judge drift.
 
 **8. Deferred: stopping the turn.** The only stop a hook may use,
 `StopRefused`, shows in the CLI as "The model refused the request". When the
@@ -168,7 +176,8 @@ arguments while `decidetest` answers `repeating` 0.95, and checks the
 reminder, its `HookResult`, and the next model request. Variants cover a "no"
 answer, a Decide failure and a timeout, the cap across a resume, a child
 turn, a session compaction turn with `CheckEvery` on (no request and no
-reminder), heuristic-only mode, a healthy edit-and-test loop (zero Decide
+reminder), heuristic-only mode (including repeated successful calls, whose
+reminder does not say they fail), a healthy edit-and-test loop (zero Decide
 requests), and the hooks asked again for one model call: after an urgent
 steer, after `Continue` past a denied send, and after a mid-turn summary.
 `ExampleWatcher` runs keyless.

@@ -122,15 +122,30 @@ const (
 	keyOffRequest = "off_request"
 )
 
-// reminderText is the fixed text per question key. Only this text reaches
-// the agent; tool text can move the probabilities but never the words.
-var reminderText = map[string]string{
-	keyRepeating: "A call you made keeps failing in the same way. Do not " +
-		"repeat it unchanged. Read the error, work out why it fails, and try " +
-		"a different approach.",
-	keyOffRequest: "Your recent calls may have moved away from the user's " +
-		"request. Re-read the request and check that your next call works " +
-		"toward it.",
+// reminderText returns the fixed text for a confirmed key and the trigger
+// that led to the check, so the reminder says only what the trigger saw: a
+// same_call trigger is a call that did not fail, so its text does not say
+// the call fails. Only this text reaches the agent; tool text can move the
+// probabilities but never the words.
+func reminderText(key string, trigger Trigger) string {
+	if key == keyOffRequest {
+		return "Your recent calls may have moved away from the user's " +
+			"request. Re-read the request and check that your next call works " +
+			"toward it."
+	}
+	switch trigger {
+	case TriggerFailedAgain:
+		return "A call you made keeps failing in the same way. Do not " +
+			"repeat it unchanged. Read the error, work out why it fails, and " +
+			"try a different approach."
+	case TriggerSameCall:
+		return "You made the same call several times and got the same " +
+			"result each time. Do not repeat it unchanged. Use the result you " +
+			"already have, or try a different approach."
+	default:
+		return "Your recent calls may repeat an approach that already " +
+			"failed. Work out why it failed, and try a different approach."
+	}
 }
 
 // Hook returns the watcher's BeforeModel hook, named "turnwatch". Add it
@@ -200,7 +215,7 @@ func (w *Watcher) check(
 	c.Action = ActionRemind
 	w.report(c)
 	return dashi.ModelDecision{
-		AddMessages: []dashi.ContextItem{reminder(sent+1, key)},
+		AddMessages: []dashi.ContextItem{reminder(sent+1, reminderText(key, trigger))},
 		// The confirmed key comes first, so the record says which reminder
 		// the agent got.
 		Reason:       key + ": " + reason,
@@ -228,7 +243,7 @@ func (w *Watcher) confirmed(probs map[string]float64) string {
 }
 
 // reminder builds the n-th reminder of a turn.
-func reminder(n int, key string) dashi.ContextItem {
+func reminder(n int, text string) dashi.ContextItem {
 	return dashi.ContextItem{
 		ID:     Name + "-" + strconv.Itoa(n),
 		Name:   Name,
@@ -236,7 +251,7 @@ func reminder(n int, key string) dashi.ContextItem {
 		Message: llm.ReminderMessage(llm.Reminder{
 			Name:    Name,
 			Tier:    llm.ReminderContextual,
-			Content: reminderText[key],
+			Content: text,
 		}),
 	}
 }

@@ -482,6 +482,33 @@ func TestHeuristicOnly(t *testing.T) {
 	}
 }
 
+// TestHeuristicSameCallSucceeded reads one file four times with the same
+// result in heuristic-only mode. The same_call reminder does not say the
+// call fails, since it succeeded.
+func TestHeuristicSameCallSucceeded(t *testing.T) {
+	var seen checks
+	w := &turnwatch.Watcher{MinProbability: -1, OnCheck: seen.add}
+	read := func(id string) llm.Result {
+		return dashitest.CallTool(id, "read_file", `{"path":"a.go"}`)
+	}
+	model := dashitest.NewClient(read("c1"), read("c2"), read("c3"), read("c4"),
+		dashitest.Reply("Done."))
+	out := run(t, w, model, dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
+	results := watcherResults(out.Turn)
+	if len(results) != 1 || results[0].Reason != "repeating: same_call: read_file, 4 times" {
+		t.Fatalf("hook results = %+v", results)
+	}
+	got := reminders(model.Inputs()[4])
+	if len(got) != 1 ||
+		!strings.HasPrefix(got[0].Content, "You made the same call several times") ||
+		strings.Contains(got[0].Content, "fail") {
+		t.Fatalf("reminders = %+v", got)
+	}
+	if all := seen.all(); len(all) != 1 || all[0].Trigger != turnwatch.TriggerSameCall {
+		t.Fatalf("checks = %+v", all)
+	}
+}
+
 func TestNegativeMaxRemindersOnlyReports(t *testing.T) {
 	_, client := judge(t, 0.95, 0.05)
 	var seen checks
