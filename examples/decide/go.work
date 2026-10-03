@@ -1,0 +1,10 @@
+go 1.27
+
+// This workspace builds the examples against the Dashi checkout two
+// directories up, so they track main rather than the last release. It is
+// separate from the root go.work because Decide needs Go 1.27 and Dashi's
+// own modules stay on Go 1.26.
+use (
+	.
+	../..
+)
