@@ -92,6 +92,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   through the Decide library) as a judge inside hooks: a risk gate on tool
   calls, a prompt-injection screen on tool results, and per-turn tool
   narrowing. Each runs without API keys by default.
+- **`decide/contextrank` adds the notes and documents each turn needs,**
+  chosen by a decision model. A `Ranker`'s `BeforeModel` hook asks Decide,
+  once per candidate from the host's `Source`, whether it would help answer
+  the latest exchange, and adds the best as contextual reminders under a
+  byte budget, once per turn and never again on resume.
 - **`tool.Outcome.Data` carries structured detail about a call for the
   host.** It is raw JSON that the turn record keeps and the model never sees.
   Like `Progress.Data`, Data that is not valid JSON or exceeds 64 KiB is
