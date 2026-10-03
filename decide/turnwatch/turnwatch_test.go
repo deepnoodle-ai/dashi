@@ -1,0 +1,493 @@
+package turnwatch_test
+
+import (
+	"context"
+	"encoding/json"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/dashitest"
+	"github.com/deepnoodle-ai/dashi/decide/turnwatch"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
+	"github.com/deepnoodle-ai/decide"
+	"github.com/deepnoodle-ai/decide/decidetest"
+)
+
+const request = "Fix the failing parser test."
+
+type testArgs struct {
+	Package string `json:"package"`
+}
+
+type fileArgs struct {
+	Path string `json:"path"`
+}
+
+// tools returns run_tests, which always fails the same way, and
+// read_file, which always succeeds.
+func tools() tool.List {
+	return tool.List{
+		tool.MustFunc("run_tests", "Runs the tests of a package.",
+			func(context.Context, tool.Call, testArgs) (tool.Outcome, error) {
+				return tool.Failed("FAIL TestParse: got 4 tokens, want 3"), nil
+			}),
+		tool.MustFunc("read_file", "Reads a file.",
+			func(_ context.Context, _ tool.Call, in fileArgs) (tool.Outcome, error) {
+				return tool.Succeeded("contents of " + in.Path), nil
+			}),
+	}
+}
+
+func runTests(id string) llm.Result {
+	return dashitest.CallTool(id, "run_tests", `{"package":"./parser"}`)
+}
+
+func start(agent dashi.Agent) dashi.Start {
+	agent.Model = dashitest.Model
+	return dashi.Start{
+		Agent: agent,
+		Input: []llm.Message{llm.UserMessage(llm.Text(request))},
+	}
+}
+
+// checks collects every Check the watcher reports.
+type checks struct {
+	mu   sync.Mutex
+	list []turnwatch.Check
+}
+
+func (c *checks) add(check turnwatch.Check) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.list = append(c.list, check)
+}
+
+func (c *checks) all() []turnwatch.Check {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.list)
+}
+
+// judge starts a fake Decide server that answers with these probabilities.
+func judge(t *testing.T, repeating, offRequest float64) (*decidetest.Server, *decide.Client) {
+	t.Helper()
+	srv := decidetest.NewServer(t)
+	srv.Answer("repeating", decidetest.NoulAnswer(repeating))
+	srv.Answer("off_request", decidetest.NoulAnswer(offRequest))
+	return srv, srv.Client(t, decide.WithMaxRetries(0))
+}
+
+func run(
+	t *testing.T,
+	w *turnwatch.Watcher,
+	model *dashitest.Client,
+	turn dashi.Turn,
+	cmd dashi.Command,
+	opts ...dashi.RunOption,
+) dashi.RunResult {
+	t.Helper()
+	runner := dashi.Runner{Client: model, Tools: tools(), Hooks: w.Hook().Hooks()}
+	out, err := runner.Run(t.Context(), turn, cmd, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// watcherResults returns the turn's recorded results for the watcher.
+func watcherResults(turn dashi.Turn) []dashi.HookResult {
+	var out []dashi.HookResult
+	for _, step := range turn.Steps {
+		for _, r := range step.HookResults {
+			if r.Name == turnwatch.Name {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
+}
+
+// reminders returns the watcher reminders in a model input.
+func reminders(in llm.Input) []llm.Reminder {
+	var out []llm.Reminder
+	for _, m := range in.Messages {
+		for _, part := range m.Content {
+			if part.Kind == llm.ContentReminder && part.Reminder.From == turnwatch.Name {
+				out = append(out, *part.Reminder)
+			}
+		}
+	}
+	return out
+}
+
+func TestRepeatedFailureReminds(t *testing.T) {
+	srv, client := judge(t, 0.95, 0.08)
+	var seen checks
+	w := &turnwatch.Watcher{Client: client, OnCheck: seen.add}
+	model := dashitest.NewClient(
+		runTests("c1"),
+		runTests("c2"),
+		dashitest.CallTool("c3", "read_file", `{"path":"parser/lex.go"}`),
+		dashitest.Reply("The lexer splits '->' in two; fixed."),
+	)
+	out := run(t, w, model, dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
+	if out.Stop.Kind != dashi.StopCompleted {
+		t.Fatalf("stop = %+v", out.Stop)
+	}
+
+	// One Decide request, after the second identical failure.
+	reqs := srv.Requests()
+	if len(reqs) != 1 {
+		t.Fatalf("%d Decide requests, want 1", len(reqs))
+	}
+	var state struct {
+		UserRequest string `json:"user_request"`
+		Recent      []struct {
+			Tool   string `json:"tool"`
+			Result string `json:"result"`
+			Failed bool   `json:"failed"`
+		} `json:"recent_activity"`
+	}
+	raw, _ := reqs[0].Request.State.(json.RawMessage)
+	if err := json.Unmarshal(raw, &state); err != nil {
+		t.Fatalf("state %s: %v", raw, err)
+	}
+	if state.UserRequest != request || len(state.Recent) != 2 ||
+		!state.Recent[1].Failed || !strings.Contains(state.Recent[1].Result, "FAIL") {
+		t.Fatalf("state = %s", raw)
+	}
+	if _, ok := reqs[0].Request.Questions["off_request"]; !ok {
+		t.Fatal("off_request was not asked")
+	}
+
+	// The next model call sees the fixed reminder, from the watcher.
+	inputs := model.Inputs()
+	if n := len(reminders(inputs[1])); n != 0 {
+		t.Fatalf("second call saw %d reminders", n)
+	}
+	got := reminders(inputs[2])
+	if len(got) != 1 || !strings.HasPrefix(got[0].Content, "A call you made keeps failing") ||
+		got[0].Name != turnwatch.Name || got[0].Tier != llm.ReminderContextual {
+		t.Fatalf("third call reminders = %+v", got)
+	}
+	item, ok := out.Context(dashi.ContextRuntime, turnwatch.Name)
+	if !ok || item.ID != "turnwatch-1" {
+		t.Fatalf("context item = %+v, %v", item, ok)
+	}
+
+	// The record says why, and which decision model decided.
+	results := watcherResults(out.Turn)
+	if len(results) != 1 {
+		t.Fatalf("hook results = %+v", results)
+	}
+	r := results[0]
+	want := "failed_again: run_tests, 2 times; repeating 0.95, off_request 0.08 (request req_1)"
+	if r.Verdict != dashi.VerdictChange || r.Reason != want || r.RulesVersion != "jev-1.13.0" {
+		t.Fatalf("hook result = %+v", r)
+	}
+
+	all := seen.all()
+	if len(all) != 1 {
+		t.Fatalf("checks = %+v", all)
+	}
+	c := all[0]
+	if c.Trigger != turnwatch.TriggerFailedAgain || c.Action != turnwatch.ActionRemind ||
+		c.TurnID != "t1" || c.ModelCalls != 2 || c.RequestID != "req_1" ||
+		c.Model != "jev-1.13.0" || c.Usage.OutputTokens == 0 || len(c.Answers) != 2 {
+		t.Fatalf("check = %+v", c)
+	}
+}
+
+func TestNoAnswerAddsNothing(t *testing.T) {
+	srv, client := judge(t, 0.2, 0.1)
+	var seen checks
+	w := &turnwatch.Watcher{Client: client, OnCheck: seen.add}
+	model := dashitest.NewClient(runTests("c1"), runTests("c2"), dashitest.Reply("Stuck."))
+	out := run(t, w, model, dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
+	if len(srv.Requests()) != 1 {
+		t.Fatalf("%d Decide requests, want 1", len(srv.Requests()))
+	}
+	if r := watcherResults(out.Turn); len(r) != 0 {
+		t.Fatalf("a check that finds nothing left %+v", r)
+	}
+	if all := seen.all(); len(all) != 1 || all[0].Action != turnwatch.ActionNone {
+		t.Fatalf("checks = %+v", all)
+	}
+	if n := len(reminders(model.Inputs()[2])); n != 0 {
+		t.Fatalf("%d reminders", n)
+	}
+}
+
+func TestNoTriggerNoRequest(t *testing.T) {
+	srv, client := judge(t, 0.95, 0.95)
+	w := &turnwatch.Watcher{Client: client}
+	model := dashitest.NewClient(
+		dashitest.CallTool("c1", "run_tests", `{"package":"./parser"}`),
+		dashitest.CallTool("c2", "run_tests", `{"package":"./lexer"}`),
+		dashitest.CallTool("c3", "read_file", `{"path":"a.go"}`),
+		dashitest.CallTool("c4", "read_file", `{"path":"a.go"}`),
+		dashitest.Reply("Done."),
+	)
+	out := run(t, w, model, dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
+	if out.Stop.Kind != dashi.StopCompleted || len(srv.Requests()) != 0 {
+		t.Fatalf("stop %s, %d Decide requests; want none", out.Stop.Kind, len(srv.Requests()))
+	}
+}
+
+func TestSameCallAndCheckEvery(t *testing.T) {
+	srv, client := judge(t, 0.1, 0.9)
+	w := &turnwatch.Watcher{Client: client, SameCalls: 2, CheckEvery: 3}
+	read := func(id string) llm.Result {
+		return dashitest.CallTool(id, "read_file", `{"path":"a.go"}`)
+	}
+	model := dashitest.NewClient(read("c1"), read("c2"), read("c3"), dashitest.Reply("Done."))
+	out := run(t, w, model, dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
+	results := watcherResults(out.Turn)
+	// After the third read, both same_call (two earlier reads) and
+	// check_every (3 model calls) hold; same_call is named, and off_request
+	// is the confirmed key.
+	if len(srv.Requests()) != 1 || len(results) != 1 ||
+		!strings.HasPrefix(results[0].Reason, "same_call: read_file, 3 times;") {
+		t.Fatalf("%d requests, results %+v", len(srv.Requests()), results)
+	}
+	got := reminders(model.Inputs()[3])
+	if len(got) != 1 || !strings.HasPrefix(got[0].Content, "Your recent calls may have moved") {
+		t.Fatalf("reminders = %+v", got)
+	}
+}
+
+// TestCapAcrossResume stops a turn after two reminders and resumes it from
+// its stored record with a new Watcher: the cap still holds, and the
+// watcher asks Decide no more.
+func TestCapAcrossResume(t *testing.T) {
+	srv, client := judge(t, 0.95, 0.05)
+	agent := dashi.Agent{Limits: dashi.Limits{ModelCalls: 4, NoReservedFinalReply: true}}
+	model := dashitest.NewClient(runTests("c1"), runTests("c2"), runTests("c3"), runTests("c4"))
+	out := run(t, &turnwatch.Watcher{Client: client}, model, dashi.Turn{ID: "t1"}, start(agent))
+	if out.Stop.Kind != dashi.StopLimited || len(srv.Requests()) != 2 {
+		t.Fatalf("stop %s, %d Decide requests; want limited, 2", out.Stop.Kind, len(srv.Requests()))
+	}
+
+	// Another process loads the stored record.
+	b, err := json.Marshal(out.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored dashi.Turn
+	if err := json.Unmarshal(b, &stored); err != nil {
+		t.Fatal(err)
+	}
+	model.Add(runTests("c5"), dashitest.Reply("Giving up."))
+	out = run(t, &turnwatch.Watcher{Client: client}, model, stored, dashi.Continue{ModelCalls: 6})
+	if out.Stop.Kind != dashi.StopCompleted || len(srv.Requests()) != 2 {
+		t.Fatalf("stop %s, %d Decide requests; want completed, still 2",
+			out.Stop.Kind, len(srv.Requests()))
+	}
+	if r := watcherResults(out.Turn); len(r) != 2 {
+		t.Fatalf("hook results = %+v", r)
+	}
+	last := model.Inputs()[5]
+	if n := len(reminders(last)); n != 2 {
+		t.Fatalf("last call saw %d reminders, want 2", n)
+	}
+}
+
+// steerInbox is an Inbox that reports when the run fetched its steers, so
+// a hook can send an urgent steer and know the run saw it.
+type steerInbox struct {
+	*dashi.Inbox
+	fetched chan struct{}
+}
+
+func (s *steerInbox) Steers(ctx context.Context, turnID string) ([]dashi.Steer, error) {
+	steers, err := s.Inbox.Steers(ctx, turnID)
+	select {
+	case s.fetched <- struct{}{}:
+	default:
+	}
+	return steers, err
+}
+
+// TestUrgentSteerRetryNotCheckedTwice sends an urgent steer after the
+// watcher reminded, so Dashi asks the hooks again for the same model call.
+// The second pass sees its reminder and does not ask Decide again.
+func TestUrgentSteerRetryNotCheckedTwice(t *testing.T) {
+	srv, client := judge(t, 0.95, 0.05)
+	var seen checks
+	w := &turnwatch.Watcher{Client: client, OnCheck: seen.add}
+	inbox := &steerInbox{Inbox: dashi.NewInbox(), fetched: make(chan struct{}, 1)}
+	steered, passes := false, 0
+	steer := dashi.ModelHook{Name: "steer", Func: func(
+		context.Context, dashi.ModelPlan) (dashi.ModelDecision, error) {
+		passes++
+		if steered || len(seen.all()) == 0 {
+			return dashi.ModelDecision{}, nil
+		}
+		steered = true
+		for len(inbox.fetched) > 0 {
+			<-inbox.fetched
+		}
+		if _, err := inbox.SendUrgent("Run only the parser tests."); err != nil {
+			return dashi.ModelDecision{}, err
+		}
+		select {
+		case <-inbox.fetched:
+		case <-time.After(5 * time.Second):
+			t.Error("the run never fetched the urgent steer")
+		}
+		return dashi.ModelDecision{}, nil
+	}}
+	model := dashitest.NewClient(runTests("c1"), runTests("c2"), dashitest.Reply("Done."))
+	runner := dashi.Runner{
+		Client: model,
+		Tools:  tools(),
+		Hooks:  dashi.JoinHooks(w.Hook(), steer),
+	}
+	out, err := runner.Run(t.Context(), dashi.Turn{ID: "t1"}, start(dashi.Agent{}),
+		dashi.WithSteering(inbox))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Three model calls, and one pass the steer sent back.
+	if !steered || passes != 4 || out.Stop.Kind != dashi.StopCompleted {
+		t.Fatalf("steered %v, %d hook passes, stop %+v", steered, passes, out.Stop)
+	}
+	if len(srv.Requests()) != 1 || len(seen.all()) != 1 {
+		t.Fatalf("%d Decide requests, %d checks; want 1 each",
+			len(srv.Requests()), len(seen.all()))
+	}
+	if r := watcherResults(out.Turn); len(r) != 1 {
+		t.Fatalf("hook results = %+v", r)
+	}
+	last := model.Inputs()[2]
+	if n := len(reminders(last)); n != 1 {
+		t.Fatalf("the call saw %d reminders, want 1", n)
+	}
+	if !strings.Contains(messagesText(last), "Run only the parser tests.") {
+		t.Fatal("the steer did not reach the call")
+	}
+}
+
+func messagesText(in llm.Input) string {
+	var b strings.Builder
+	for _, m := range in.Messages {
+		b.WriteString(m.Text())
+	}
+	return b.String()
+}
+
+func TestDecideFailureWarns(t *testing.T) {
+	srv, client := judge(t, 0.95, 0.95)
+	srv.FailNext(500)
+	var seen checks
+	w := &turnwatch.Watcher{Client: client, OnCheck: seen.add}
+	model := dashitest.NewClient(runTests("c1"), runTests("c2"), dashitest.Reply("Stuck."))
+	out := run(t, w, model, dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
+	if out.Stop.Kind != dashi.StopCompleted {
+		t.Fatalf("stop = %+v", out.Stop)
+	}
+	results := watcherResults(out.Turn)
+	if len(results) != 1 || results[0].Verdict != dashi.VerdictFailed || results[0].Error == "" {
+		t.Fatalf("hook results = %+v", results)
+	}
+	warned := slices.ContainsFunc(out.Warnings, func(w dashi.Warning) bool {
+		return w.Code == dashi.WarningHookFailed
+	})
+	if !warned {
+		t.Fatalf("warnings = %+v", out.Warnings)
+	}
+	if n := len(reminders(model.Inputs()[2])); n != 0 {
+		t.Fatalf("%d reminders after a failed check", n)
+	}
+	if all := seen.all(); len(all) != 1 || all[0].Err == nil || all[0].Action != turnwatch.ActionNone {
+		t.Fatalf("checks = %+v", all)
+	}
+}
+
+func TestNoClientWarns(t *testing.T) {
+	// A nil Client reads the environment, once per process; no other test
+	// here leaves Client nil and asks Decide.
+	t.Setenv("TYPESAFE_API_KEY", "")
+	model := dashitest.NewClient(runTests("c1"), runTests("c2"), dashitest.Reply("Stuck."))
+	out := run(t, &turnwatch.Watcher{}, model, dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
+	results := watcherResults(out.Turn)
+	if out.Stop.Kind != dashi.StopCompleted || len(results) != 1 ||
+		results[0].Verdict != dashi.VerdictFailed {
+		t.Fatalf("stop %s, hook results %+v", out.Stop.Kind, results)
+	}
+}
+
+func TestHeuristicOnly(t *testing.T) {
+	var seen checks
+	w := &turnwatch.Watcher{MinProbability: -1, CheckEvery: 1, OnCheck: seen.add}
+	model := dashitest.NewClient(
+		dashitest.CallTool("c0", "read_file", `{"path":"a.go"}`),
+		runTests("c1"), runTests("c2"), dashitest.Reply("Stuck."))
+	out := run(t, w, model, dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
+	results := watcherResults(out.Turn)
+	if len(results) != 1 || results[0].Reason != "failed_again: run_tests, 2 times" ||
+		results[0].RulesVersion != "" {
+		t.Fatalf("hook results = %+v", results)
+	}
+	got := reminders(model.Inputs()[3])
+	if len(got) != 1 || !strings.HasPrefix(got[0].Content, "A call you made keeps failing") {
+		t.Fatalf("reminders = %+v", got)
+	}
+	// CheckEvery is ignored: the only check is the failed_again trigger.
+	all := seen.all()
+	if len(all) != 1 || all[0].Trigger != turnwatch.TriggerFailedAgain ||
+		all[0].Action != turnwatch.ActionRemind || all[0].Model != "" {
+		t.Fatalf("checks = %+v", all)
+	}
+}
+
+func TestNegativeMaxRemindersOnlyReports(t *testing.T) {
+	_, client := judge(t, 0.95, 0.05)
+	var seen checks
+	w := &turnwatch.Watcher{Client: client, MaxReminders: -1, OnCheck: seen.add}
+	model := dashitest.NewClient(runTests("c1"), runTests("c2"), runTests("c3"), dashitest.Reply("Stuck."))
+	out := run(t, w, model, dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
+	if r := watcherResults(out.Turn); len(r) != 0 {
+		t.Fatalf("hook results = %+v", r)
+	}
+	all := seen.all()
+	if len(all) != 2 || all[0].Action != turnwatch.ActionNone || all[1].Action != turnwatch.ActionNone {
+		t.Fatalf("checks = %+v", all)
+	}
+}
+
+func TestChildTurnSkipped(t *testing.T) {
+	srv, client := judge(t, 0.95, 0.95)
+	w := &turnwatch.Watcher{Client: client, MinProbability: 0}
+	model := dashitest.NewClient(runTests("c1"), runTests("c2"), dashitest.Reply("Stuck."))
+	cmd := start(dashi.Agent{})
+	cmd.Parent = &dashi.CallRef{TurnID: "parent", CallID: "task-1"}
+	out := run(t, w, model, dashi.Turn{ID: "child"}, cmd)
+	if len(srv.Requests()) != 0 || len(watcherResults(out.Turn)) != 0 {
+		t.Fatalf("%d Decide requests, results %+v; want none",
+			len(srv.Requests()), watcherResults(out.Turn))
+	}
+}
+
+// TestReplayAsksNothing reloads a finished turn's view: replay never runs
+// hooks, so the reminder and its reason come from the record.
+func TestReplayAsksNothing(t *testing.T) {
+	srv, client := judge(t, 0.95, 0.05)
+	model := dashitest.NewClient(runTests("c1"), runTests("c2"), dashitest.Reply("Stuck."))
+	out := run(t, &turnwatch.Watcher{Client: client}, model, dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
+	view, err := out.Turn.View()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := view.Context(dashi.ContextRuntime, turnwatch.Name); !ok {
+		t.Fatal("the replayed view has no reminder")
+	}
+	if len(srv.Requests()) != 1 {
+		t.Fatalf("%d Decide requests, want 1", len(srv.Requests()))
+	}
+}
