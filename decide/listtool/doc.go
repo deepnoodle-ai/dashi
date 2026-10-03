@@ -1,7 +1,7 @@
-// Package listtool gives an agent tools for a host list too long to read,
-// such as 300 open tickets: judge_items hands the reading to a decision
-// model, such as TypeSafe's Jev, through the Decide library, so no LLM
-// reads every item.
+// Package listtool gives an agent two tools for a host list too long to
+// read, such as 300 open tickets or 40 contacts: judge_items and pick_item.
+// Both hand the reading to a decision model, such as TypeSafe's Jev,
+// through the Decide library, so no LLM reads every item.
 //
 // A host defines each list once, as a List: a name, a description the
 // model reads, an Items function that returns the items for a query, and
@@ -15,10 +15,12 @@
 //		ID:          func(t Ticket) string { return t.ID },
 //		Text:        func(t Ticket) string { return t.Subject + "\n" + t.Body },
 //	}
-//	cfg := listtool.Config{Lists: []listtool.AnyList{tickets}}
+//	cfg := listtool.Config{Lists: []listtool.AnyList{tickets, contacts}}
 //	judge, err := listtool.JudgeItems(cfg)
 //	// handle err
-//	runner.Tools = tool.List{judge, readTicket}
+//	pick, err := listtool.PickItem(cfg)
+//	// handle err
+//	runner.Tools = tool.List{judge, pick, sendEmail}
 //
 // judge_items asks the same questions, yes_no or choice, about every item a
 // query returns, one Decide request per item. It returns counts of each
@@ -29,9 +31,17 @@
 // spends anything; a call over a limit fails at once and says why, so the
 // model narrows its query.
 //
-// The tool is read-only. When Decide fails, a call returns an ordinary
+// pick_item finds one item from a description, such as "Sam from the
+// design review", and returns the most likely items with their IDs. By
+// default the model chooses from them; a host that has calibrated sets
+// MinProbability and MinMargin to let the tool pick. The ID it returns is
+// the host's own, so the action tool checks it as it always does, and
+// approvals and BeforeTool hooks still guard the action. Model advice
+// never grants permission.
+//
+// Both tools are read-only. When Decide fails, a call returns an ordinary
 // failed result that tells the model to use its other tools or ask the
-// user; it never guesses and never stops the turn. Each result
+// user; it never guesses an item and never stops the turn. Each result
 // stays under the turn's tool result limit, so Dashi keeps its
 // Outcome.Data: the list, query, model, request count, token usage, and
 // every item's answers. With Price set, Outcome.Cost carries the spend,
@@ -39,6 +49,8 @@
 // receives every call's full Result, also when the call is cancelled and
 // Dashi records no Cost.
 //
-// The tool claims no accuracy: an answer counts when its probability is
-// above 0.5. Pin the model with decide.WithModel.
+// The tools claim no accuracy. A judge_items answer counts when its
+// probability is above 0.5, and pick_item acts on nothing by default.
+// Tune MinProbability and MinMargin on your own data with Decide's
+// calibrate pattern, and pin the model with decide.WithModel.
 package listtool

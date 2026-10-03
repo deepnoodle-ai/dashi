@@ -78,6 +78,7 @@ func TestConstructorsRefuseBadConfig(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, build := range []func(Config) error{
 				func(c Config) error { _, err := JudgeItems(c); return err },
+				func(c Config) error { _, err := PickItem(c); return err },
 			} {
 				err := build(tc.cfg)
 				if err == nil || !strings.Contains(err.Error(), tc.want) {
