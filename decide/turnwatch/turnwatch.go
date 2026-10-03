@@ -254,7 +254,9 @@ func remindersSent(turn dashi.TurnView) int {
 }
 
 // sinceLastReply returns the tool call IDs of the latest assistant message
-// in messages, and whether a watcher reminder follows it.
+// in messages, and whether a watcher reminder follows it. With no assistant
+// message, such as after a summary replaced them all, it returns no calls
+// and whether any message is a watcher reminder.
 func sinceLastReply(messages []llm.Message) (calls []string, reminded bool) {
 	last := -1
 	for i := len(messages) - 1; i >= 0; i-- {
@@ -263,13 +265,13 @@ func sinceLastReply(messages []llm.Message) (calls []string, reminded bool) {
 			break
 		}
 	}
-	if last < 0 {
-		return nil, false
-	}
 	for _, m := range messages[last+1:] {
 		if isReminder(m) {
 			reminded = true
 		}
+	}
+	if last < 0 {
+		return nil, reminded
 	}
 	for _, part := range messages[last].Content {
 		if part.Kind == llm.ContentToolCall && part.ToolCall != nil {

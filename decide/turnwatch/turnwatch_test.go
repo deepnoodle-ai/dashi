@@ -3,6 +3,7 @@ package turnwatch_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -545,20 +546,165 @@ func TestHealthyLoopAsksNothing(t *testing.T) {
 	}
 }
 
-// TestReplayAsksNothing reloads a finished turn's view: replay never runs
-// hooks, so the reminder and its reason come from the record.
-func TestReplayAsksNothing(t *testing.T) {
-	srv, client := judge(t, 0.95, 0.05)
+// TestTimeoutWarns gives Decide more time than Timeout allows: the check
+// fails open quickly with a hook_failed warning and no reminder.
+func TestTimeoutWarns(t *testing.T) {
+	srv, client := judge(t, 0.95, 0.95)
+	srv.SetLatency(2 * time.Second)
+	var seen checks
+	w := &turnwatch.Watcher{Client: client, Timeout: 100 * time.Millisecond, OnCheck: seen.add}
 	model := dashitest.NewClient(runTests("c1"), runTests("c2"), dashitest.Reply("Stuck."))
-	out := run(t, &turnwatch.Watcher{Client: client}, model, dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
-	view, err := out.Turn.View()
+	began := time.Now()
+	out := run(t, w, model, dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
+	if took := time.Since(began); took > time.Second {
+		t.Fatalf("the turn took %s; the timeout did not hold", took)
+	}
+	results := watcherResults(out.Turn)
+	if out.Stop.Kind != dashi.StopCompleted || len(results) != 1 ||
+		results[0].Verdict != dashi.VerdictFailed {
+		t.Fatalf("stop %s, hook results %+v", out.Stop.Kind, results)
+	}
+	warned := slices.ContainsFunc(out.Warnings, func(w dashi.Warning) bool {
+		return w.Code == dashi.WarningHookFailed
+	})
+	if !warned {
+		t.Fatalf("warnings = %+v", out.Warnings)
+	}
+	if n := len(reminders(model.Inputs()[2])); n != 0 {
+		t.Fatalf("%d reminders after a timed-out check", n)
+	}
+	all := seen.all()
+	if len(all) != 1 || !errors.Is(all[0].Err, context.DeadlineExceeded) {
+		t.Fatalf("checks = %+v", all)
+	}
+}
+
+// TestContinueAfterSavedReminder stops the turn after the reminder is
+// saved but before the model call is sent: a BeforeSend hook denies that
+// call once. Continue asks the hooks again for the same model call; the
+// watcher sees its reminder and does not ask Decide again.
+func TestContinueAfterSavedReminder(t *testing.T) {
+	srv, client := judge(t, 0.95, 0.05)
+	var seen checks
+	w := &turnwatch.Watcher{Client: client, OnCheck: seen.add}
+	denied := false
+	deny := dashi.SendHook{Name: "deny-once", Func: func(
+		_ context.Context, p dashi.SendPlan) (dashi.SendDecision, error) {
+		// The third model call is the one the reminder is for.
+		if p.Turn.ModelCalls == 2 && !denied {
+			denied = true
+			return dashi.SendDecision{Deny: true, Reason: "paused for review"}, nil
+		}
+		return dashi.SendDecision{}, nil
+	}}
+	model := dashitest.NewClient(runTests("c1"), runTests("c2"), dashitest.Reply("Done."))
+	runner := dashi.Runner{
+		Client: model,
+		Tools:  tools(),
+		Hooks:  dashi.JoinHooks(w.Hook(), deny),
+	}
+	out, err := runner.Run(t.Context(), dashi.Turn{ID: "t1"}, start(dashi.Agent{}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := view.Context(dashi.ContextRuntime, turnwatch.Name); !ok {
-		t.Fatal("the replayed view has no reminder")
+	if !denied || out.Stop.Kind != dashi.StopRefused || len(srv.Requests()) != 1 {
+		t.Fatalf("denied %v, stop %+v, %d Decide requests", denied, out.Stop, len(srv.Requests()))
 	}
-	if len(srv.Requests()) != 1 {
-		t.Fatalf("%d Decide requests, want 1", len(srv.Requests()))
+
+	out, err = runner.Run(t.Context(), out.Turn, dashi.Continue{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != dashi.StopCompleted {
+		t.Fatalf("stop = %+v", out.Stop)
+	}
+	if len(srv.Requests()) != 1 || len(seen.all()) != 1 {
+		t.Fatalf("%d Decide requests, %d checks; want 1 each",
+			len(srv.Requests()), len(seen.all()))
+	}
+	if r := watcherResults(out.Turn); len(r) != 1 {
+		t.Fatalf("hook results = %+v", r)
+	}
+	inputs := model.Inputs()
+	if n := len(reminders(inputs[len(inputs)-1])); n != 1 {
+		t.Fatalf("the call after Continue saw %d reminders, want 1", n)
+	}
+}
+
+// sizedClient reports the request body's real size, so active compaction
+// can size it.
+type sizedClient struct{ *dashitest.Client }
+
+func (c sizedClient) Prepare(ctx context.Context, in llm.Input) (llm.Request, error) {
+	req, err := c.Client.Prepare(ctx, in)
+	if err != nil {
+		return llm.Request{}, err
+	}
+	snapshot := req.Snapshot()
+	if snapshot.Body, err = json.Marshal(in); err != nil {
+		return llm.Request{}, err
+	}
+	return llm.NewRequest(snapshot)
+}
+
+// TestActiveCompaction runs a turn whose large, identical failures fill
+// the context window. The watcher reminds before the third model call,
+// then a summary replaces every assistant message, and the hooks run again
+// for that call with the summary call counted, so CheckEvery triggers. The
+// watcher still finds its reminder and does not check that call twice. A
+// later identical failure, after the summary, is counted from the record
+// and triggers the second check.
+func TestActiveCompaction(t *testing.T) {
+	srv, client := judge(t, 0.95, 0.05)
+	var seen checks
+	w := &turnwatch.Watcher{Client: client, CheckEvery: 3, OnCheck: seen.add}
+	huge := strings.Repeat("FAIL TestParse: got 4 tokens, want 3\n", 250)
+	big := tool.MustFunc("run_tests", "Runs the tests of a package.",
+		func(context.Context, tool.Call, testArgs) (tool.Outcome, error) {
+			return tool.Failed(huge), nil
+		})
+	model := dashitest.NewClient(
+		runTests("c1"),
+		runTests("c2"),
+		dashitest.Reply("<summary>The parser tests failed twice the same way.</summary>"),
+		runTests("c3"),
+		dashitest.Reply("Stuck."),
+	)
+	runner := dashi.Runner{Client: sizedClient{model}, Tools: tool.List{big}, Hooks: w.Hook().Hooks()}
+	agent := dashi.Agent{
+		Model:            dashitest.Model,
+		Settings:         llm.Settings{MaxTokens: 256},
+		ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256},
+	}
+	out, err := runner.Run(t.Context(), dashi.Turn{ID: "t1"}, dashi.Start{
+		Agent: agent,
+		Input: []llm.Message{llm.UserMessage(llm.Text(request))},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != dashi.StopCompleted || len(out.ContextCompactions) != 1 {
+		t.Fatalf("stop %s, %d compactions", out.Stop.Kind, len(out.ContextCompactions))
+	}
+	all := seen.all()
+	if len(srv.Requests()) != 2 || len(all) != 2 ||
+		all[0].Trigger != turnwatch.TriggerFailedAgain || all[0].Action != turnwatch.ActionRemind ||
+		all[1].Trigger != turnwatch.TriggerFailedAgain || all[1].Action != turnwatch.ActionRemind {
+		t.Fatalf("%d Decide requests, checks %+v; want 2 reminders",
+			len(srv.Requests()), all)
+	}
+	// Inputs: c1, c2, the summary, the third call, the last call.
+	inputs := model.Inputs()
+	if len(inputs) != 5 {
+		t.Fatalf("%d model calls, want 5", len(inputs))
+	}
+	if n := len(reminders(inputs[3])); n != 1 {
+		t.Fatalf("the call after the summary saw %d reminders, want 1", n)
+	}
+	if n := len(reminders(inputs[4])); n != 2 {
+		t.Fatalf("the last call saw %d reminders, want 2", n)
+	}
+	if r := watcherResults(out.Turn); len(r) != 2 {
+		t.Fatalf("hook results = %+v", r)
 	}
 }

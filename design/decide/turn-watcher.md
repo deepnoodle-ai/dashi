@@ -41,7 +41,8 @@ passes, so it triggers nothing.
 
 The checks read `TurnView.Tools` and `TurnView.ModelCalls`. A trigger is
 skipped when a watcher reminder already follows the triggering result, so a
-model call that Dashi retries is not checked twice.
+model call that Dashi asks the hooks about again (after an urgent steer, a
+`Continue`, or a mid-turn summary) is not checked twice.
 
 **3. What Decide is asked.** One request, two yes-or-no questions:
 
@@ -158,8 +159,10 @@ listed there.
 A keyless test scripts a `run_tests` tool that fails three times with the same
 arguments while `decidetest` answers `repeating` 0.95, and checks the
 reminder, its `HookResult`, and the next model request. Variants cover a "no"
-answer, a Decide failure, the cap, a child turn, heuristic-only mode, a
-healthy edit-and-test loop (zero Decide requests), and replay;
+answer, a Decide failure and a timeout, the cap across a resume, a child
+turn, heuristic-only mode, a healthy edit-and-test loop (zero Decide
+requests), and the hooks asked again for one model call: after an urgent
+steer, after `Continue` past a denied send, and after a mid-turn summary.
 `ExampleWatcher` runs keyless.
 
 ## Alternatives
