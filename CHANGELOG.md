@@ -109,6 +109,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`compaction.IsSummary` reports whether a message is a compaction
   summary,** from the package's `Compactor` or from `Agent.ActiveCompaction`,
   so other packages need not match the frame text.
+- **A `decide` module for decision models,** at
+  `github.com/deepnoodle-ai/dashi/decide`. It needs Go 1.27, so the root
+  module and the others stay on Go 1.26. It holds shared internal helpers so
+  far; its packages follow.
 
 ### Fixed
 

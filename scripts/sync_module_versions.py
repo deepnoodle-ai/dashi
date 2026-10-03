@@ -39,6 +39,7 @@ VERSION_RE = re.compile(r"^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 SUB_MODULES = (
     "mcp",
     "providers/google/gemini",
+    "decide",
     "cmd/dashi",
 )
 

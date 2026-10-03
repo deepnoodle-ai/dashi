@@ -45,6 +45,9 @@ other.
 - `mcp`: Tools from local and remote MCP servers as a `tool.Toolset`, with
   approval for project servers. This is a separate module; add it with
   `go get github.com/deepnoodle-ai/dashi/mcp`. See [MCP](mcp.md).
+- `decide`: Decision models, through the Decide library, in hooks, tools, and
+  compaction. This is a separate module that needs Go 1.27; add it with
+  `go get github.com/deepnoodle-ai/dashi/decide`.
 - `providers/grok/imagine`: xAI image generation and editing, and video jobs.
 - `providers/deepinfra`, `mistral`, `openrouter`: configured Chat Completions
   destinations.
