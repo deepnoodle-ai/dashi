@@ -194,6 +194,9 @@ const (
 	// settings or added messages, or a stop.
 	VerdictChange HookVerdict = "change"
 	VerdictStop   HookVerdict = "stop"
+	// VerdictNoChange is a BeforeModel answer that changed nothing but
+	// carried a Reason or RulesVersion, so the record shows the hook ran.
+	VerdictNoChange HookVerdict = "no_change"
 	// VerdictReserve and VerdictLimit are BeforeSend answers: reservation
 	// terms, or a denial with a limit. VerdictDeny is also a BeforeTool answer.
 	VerdictReserve HookVerdict = "reserve"

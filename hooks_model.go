@@ -90,6 +90,17 @@ func (r *runtime) beforeModel(
 		r.pendingWarnings = append(r.pendingWarnings, warnings...)
 		hid := len(candidateHidden) > len(hidden)
 		if d.Settings == nil && len(d.AddMessages) == 0 && !hid {
+			if d.Reason != "" || d.RulesVersion != "" {
+				// A hook that looked and changed nothing can still leave
+				// a record, so it knows on a retried call that it ran.
+				r.addHookResult(HookResult{
+					Point:        HookBeforeModel,
+					Name:         h.Name,
+					Verdict:      VerdictNoChange,
+					RulesVersion: d.RulesVersion,
+					Reason:       d.Reason,
+				})
+			}
 			continue
 		}
 		input.Settings = candidate.Settings

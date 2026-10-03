@@ -21,7 +21,7 @@ func recordsActiveHooks(step Step) bool {
 
 // hookVerdicts lists the verdicts each hook point can record.
 var hookVerdicts = map[HookPoint][]HookVerdict{
-	HookBeforeModel: {VerdictChange, VerdictStop, VerdictFailed},
+	HookBeforeModel: {VerdictChange, VerdictNoChange, VerdictStop, VerdictFailed},
 	HookBeforeSend:  {VerdictReserve, VerdictDeny, VerdictLimit, VerdictFailed},
 	HookBeforeTool: {
 		VerdictAllow,

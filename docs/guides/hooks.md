@@ -30,7 +30,10 @@ A tool hook that returns `dashi.Allow(reason)` leaves an audit record naming
 it; one with no opinion leaves none. `ToolDecision`, `ModelDecision`, and
 `ResultDecision` each carry a `Reason` and a `RulesVersion`, recorded in the
 hook's `HookResult` with any answer other than no opinion: say why, and name
-the policy or decision model version that decided. Only a `BeforeTool`
+the policy or decision model version that decided. A `BeforeModel` decision
+that changes nothing but carries a `Reason` or `RulesVersion` is recorded as
+`VerdictNoChange`, so `HookActed` tells a retried call that the hook already
+ran. Only a `BeforeTool`
 denial's reason reaches the model. When a `BeforeTool` hook fails, the model
 sees its name, so keep private details out of hook names. A hook that stops
 the turn with a cost or token limit resumes like the turn's own caps, with a
