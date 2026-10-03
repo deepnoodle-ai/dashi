@@ -91,14 +91,14 @@ func TestStartKeepsNeededSegments(t *testing.T) {
 		t.Errorf("summary request covers a kept message:\n%s", request)
 	}
 
-	if len(sel.Requests) == 0 || sel.Usage.InputTokens == 0 ||
+	if len(sel.RequestIDs) == 0 || sel.Usage.InputTokens == 0 ||
 		!reflect.DeepEqual(sel.Models, []string{"jev-1.13.0"}) {
-		t.Fatalf("selection spend = %+v %+v %v", sel.Usage, sel.Requests, sel.Models)
+		t.Fatalf("selection spend = %+v %+v %v", sel.Usage, sel.RequestIDs, sel.Models)
 	}
-	if len(sel.Requests) != len(srv.Requests()) {
-		t.Fatalf("%d request IDs for %d requests", len(sel.Requests), len(srv.Requests()))
+	if len(sel.RequestIDs) != len(srv.Requests()) {
+		t.Fatalf("%d request IDs for %d requests", len(sel.RequestIDs), len(srv.Requests()))
 	}
-	if s := sel.Segments[1]; !reflect.DeepEqual(s.Messages, []int{4, 5}) ||
+	if s := sel.Segments[1]; !reflect.DeepEqual(s.MessageIndexes, []int{4, 5}) ||
 		s.Scores.Needed != 0.9 || s.Size == 0 {
 		t.Fatalf("segment 1 = %+v", s)
 	}
@@ -326,6 +326,24 @@ func TestFallbacks(t *testing.T) {
 			want: "lose its result",
 		},
 		{
+			name: "negative OlderFraction turns selection off",
+			setup: func(t *testing.T) *Compactor {
+				_, client := judge(t, nil)
+				return &Compactor{Base: smallWindow(), Client: client, OlderFraction: -1}
+			},
+			want: "OlderFraction is negative",
+		},
+		{
+			name: "negative Base.TailFraction keeps nothing word for word",
+			setup: func(t *testing.T) *Compactor {
+				_, client := judge(t, nil)
+				base := smallWindow()
+				base.TailFraction = -1
+				return &Compactor{Base: base, Client: client}
+			},
+			want: "TailFraction is negative",
+		},
+		{
 			name: "no older segments",
 			setup: func(t *testing.T) *Compactor {
 				_, client := judge(t, nil)
@@ -432,8 +450,8 @@ func TestLongLastTurnKeptWhole(t *testing.T) {
 		t.Fatalf("fell back: %s", sel.Fallback)
 	}
 	for _, s := range sel.Segments {
-		if slices.ContainsFunc(s.Messages, func(i int) bool { return i >= 7 }) {
-			t.Fatalf("judged a message of the last turn: %+v", s.Messages)
+		if slices.ContainsFunc(s.MessageIndexes, func(i int) bool { return i >= 7 }) {
+			t.Fatalf("judged a message of the last turn: %+v", s.MessageIndexes)
 		}
 	}
 	f := st.Compaction

@@ -120,7 +120,7 @@ equals the winning `CompactionFact.Hash`. The record needs no new field:
 type Compactor struct {
     Base          compaction.Compactor // when to compact, window, total size, summary model
     Client        *decide.Client       // nil: decide.NewClient() from the environment
-    OlderFraction float64              // window share for older segments; zero: 0.15
+    OlderFraction float64              // window share for older segments; zero: 0.15; negative: off
     MinNeeded     float64              // zero: P(needed) above 0.5; negative: rank only
     MinVerbatim   float64              // zero: P(exact text) above 0.5; negative: always whole
     MaxRequests   int                  // concurrent Decide requests; zero: 4
@@ -134,12 +134,12 @@ func (c *Compactor) Needed(messages []llm.Message, last llm.Usage) bool
 func (c *Compactor) Start(ctx context.Context, messages []llm.Message) (dashi.Start, error)
 
 type Selection struct {
-    Hash     string          // history hash, as in CompactionFact.Hash
-    Segments []SegmentChoice // messages, action, probabilities, size
-    Usage    decide.Usage
-    Requests []string        // Decide request IDs
-    Models   []string        // resolved decision model versions
-    Fallback string          // why stock ran; empty if selective ran
+    Hash       string          // history hash, as in CompactionFact.Hash
+    Segments   []SegmentChoice // message indexes, action, probabilities, size
+    Usage      decide.Usage
+    RequestIDs []string        // Decide request IDs
+    Models     []string        // resolved decision model versions
+    Fallback   string          // why stock ran; empty if selective ran
 }
 ```
 

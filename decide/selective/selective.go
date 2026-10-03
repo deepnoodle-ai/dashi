@@ -52,7 +52,9 @@ const (
 type Compactor struct {
 	// Base says when to compact, the window, the total size kept, and the
 	// summary model. Its TailFraction (0.25 of the window by default) is the
-	// total share kept: the tail and the older segments together.
+	// total share kept: the tail and the older segments together. A
+	// negative TailFraction keeps nothing word for word, so Start returns
+	// Base's Start.
 	Base compaction.Compactor
 
 	// Client asks Decide. Nil means decide.NewClient() from the
@@ -62,7 +64,8 @@ type Compactor struct {
 	// OlderFraction is the share of the window for older segments, taken
 	// from Base's total, so the tail is cut later. Zero means
 	// DefaultOlderFraction. Older segments fill whatever room the tail
-	// leaves. The tail never starts after the user's latest own words while
+	// leaves. A negative value turns selection off: Start returns Base's
+	// Start, and Selection.Fallback says why. The tail never starts after the user's latest own words while
 	// Base's tail would keep them: a current turn larger than the tail
 	// share is kept whole, as Base keeps it, and leaves less room for older
 	// segments.
@@ -114,8 +117,8 @@ type Selection struct {
 	// Usage is the token usage of every Decide request.
 	Usage decide.Usage
 
-	// Requests holds the Decide request IDs.
-	Requests []string
+	// RequestIDs holds the Decide request IDs.
+	RequestIDs []string
 
 	// Models holds the resolved decision model versions, such as
 	// jev-1.13.0, sorted and without repeats.
@@ -141,9 +144,9 @@ const (
 
 // SegmentChoice is the choice for one segment.
 type SegmentChoice struct {
-	// Messages holds the indexes of the segment's messages in the history
-	// Start was given.
-	Messages []int
+	// MessageIndexes holds the indexes of the segment's messages in the
+	// history Start was given.
+	MessageIndexes []int
 
 	// Action is what compaction did with the segment. It is empty when
 	// Start stopped before selection.
@@ -221,8 +224,11 @@ func (c *Compactor) selective(ctx context.Context, messages []llm.Message, sel *
 	if older == 0 {
 		older = DefaultOlderFraction
 	}
-	if total <= 0 || older <= 0 {
-		return dashi.Start{}, errors.New("selective: no room for older segments")
+	switch {
+	case total < 0:
+		return dashi.Start{}, errors.New("selective: Base.TailFraction is negative, so nothing is kept word for word")
+	case older < 0:
+		return dashi.Start{}, errors.New("selective: OlderFraction is negative, so selection is off")
 	}
 	older = min(older, total)
 	budget := int(total * float64(window))
@@ -248,9 +254,9 @@ func (c *Compactor) selective(ctx context.Context, messages []llm.Message, sel *
 	sel.Segments = make([]SegmentChoice, len(p.segments))
 	for i, s := range p.segments {
 		sel.Segments[i] = SegmentChoice{
-			Messages:  slices.Clone(s.indexes),
-			Size:      s.size,
-			ShortSize: s.shortSize,
+			MessageIndexes: slices.Clone(s.indexes),
+			Size:           s.size,
+			ShortSize:      s.shortSize,
 		}
 	}
 

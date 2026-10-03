@@ -111,7 +111,7 @@ func (q questions) ask(
 			sel.Usage.InputTokens += r.Response.Usage.InputTokens
 			sel.Usage.OutputTokens += r.Response.Usage.OutputTokens
 			if r.Response.RequestID != "" {
-				sel.Requests = append(sel.Requests, r.Response.RequestID)
+				sel.RequestIDs = append(sel.RequestIDs, r.Response.RequestID)
 			}
 			if r.Response.Model != "" {
 				models[r.Response.Model] = true
