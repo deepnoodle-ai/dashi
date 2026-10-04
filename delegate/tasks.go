@@ -51,12 +51,20 @@ const (
 	// TaskEnded means a child turn reached a state other than running and
 	// Close did not cause it.
 	TaskEnded TaskEventKind = "ended"
+	// TaskMessage means a task sent its parent a message with
+	// message_parent. TaskEvent.Message holds it.
+	TaskMessage TaskEventKind = "message"
 )
 
 // TaskEvent is one change of a task, for Config.OnTask.
 type TaskEvent struct {
 	Kind TaskEventKind
+	// Task is the task; in a TaskMessage event, at the turn that sent it.
 	Task TaskView
+	// Message is the message of a TaskMessage event, and nil otherwise.
+	// Without Config.Session, the host delivers it to the parent: with
+	// SteerItem(ctx, e.Message.Steer()) or EnqueueItem(ctx, e.Message.Item()).
+	Message *Message
 }
 
 // TaskView is a copy of the state of one task. A task runs in a child
@@ -135,6 +143,10 @@ type Tasks struct {
 	reports int           // reports finished
 	waited  int           // reports that Wait has returned for
 	wg      sync.WaitGroup
+	// parentKnown holds the IDs of the messages to the parent that its
+	// record holds (read by Recover), or that Tasks sent or holds for a
+	// notice in this process.
+	parentKnown map[string]bool
 }
 
 // task is the mutable record of one child session. Tasks.mu guards every
@@ -172,6 +184,9 @@ type task struct {
 	// droppedMu guards it, not Tasks.mu.
 	droppedMu sync.Mutex
 	dropped   map[string]bool
+	// steers logs the steer messages the task sent its parent, in order,
+	// for waits.
+	steers []parentSteer
 }
 
 // childTurn is one turn of a child session.
@@ -202,6 +217,11 @@ type childTurn struct {
 	// or the sender of the first message in a queue turn's key. It is zero
 	// when the turn's first step names neither.
 	origin dashi.CallRef
+	// woke is set once a message of the turn found the parent idle and
+	// went to its queue. later holds its messages that found the parent
+	// idle after that; they join the turn's notice.
+	woke  bool
+	later []Message
 }
 
 // unrecorded reports whether Tasks started the turn and the child's record
@@ -245,8 +265,9 @@ func (c *childTurn) view() dashi.TurnView {
 
 // NewTasks returns an empty Tasks. A Recorder in cfg.Runner that does not
 // implement dashi.Loader logs one warning. When cfg.Session has no
-// Delivered function, NewTasks sets it to DeliveredNotices, so a queue turn
-// never carries a result that the agent already read.
+// Delivered function, NewTasks sets it to the union of DeliveredNotices and
+// DeliveredMessages, so a queue turn never carries a result or a message
+// that the agent already read.
 func NewTasks(cfg Config) *Tasks {
 	catalog := cfg.Subagents
 	if len(catalog) == 0 {
@@ -257,12 +278,14 @@ func NewTasks(cfg Config) *Tasks {
 		catalog: slices.Clone(catalog),
 		tasks:   map[string]*task{},
 		changed: make(chan struct{}),
+
+		parentKnown: map[string]bool{},
 	}
 	if cfg.Runner.Recorder != nil && !loads(cfg.Runner.Recorder) {
 		t.warnNoLoader()
 	}
 	if s := cfg.Session; s != nil && s.Delivered == nil {
-		s.Delivered = DeliveredNotices
+		s.Delivered = deliveredToParent
 	}
 	return t
 }
@@ -334,8 +357,8 @@ func (ts *Tasks) stop(ctx context.Context, id string) error {
 // returned for its end, so a host that sends the notice from OnTask sees it
 // in its inbox by the time Wait says there is nothing pending.
 //
-// Wait returns false as soon as one more turn has been reported since the
-// last return. It returns true when no turn is pending. A host loop reads
+// Wait returns false as soon as one more turn, or a message to the parent,
+// has been reported since the last return. It returns true when no turn is pending. A host loop reads
 // its inbox after every return. It stops when Wait returns true and the
 // inbox holds nothing to deliver. Wait serves one caller at a time. It
 // returns the error of ctx if that ends first.
@@ -442,8 +465,11 @@ func (ts *Tasks) Close(ctx context.Context) error {
 // reported once. It restores every task and reports the ended turns before
 // it resumes any turn.
 //
-// Then it delivers again each message of a finished task_send call that the
-// child's record lacks, as task_send would, once the resumed turns run. A
+// It sends the parent again each message of a finished message_parent call
+// that the parent turns lack, before the notices, so they arrive together. A
+// rerun message_parent call in a resumed turn finds the IDs the parent turns
+// hold and sends nothing. Then it delivers again each message of a finished
+// task_send call that the child's record lacks, as task_send would, once the resumed turns run. A
 // message that cannot be read, because the turn it steered into stopped
 // waiting, result_unknown, or canceled, or because the child now waits or
 // holds a call whose result is unknown, is not sent: the notice of that turn
@@ -464,6 +490,9 @@ func (ts *Tasks) Recover(
 		)
 	}
 	delivered := DeliveredNotices(turns)
+	ts.mu.Lock()
+	maps.Copy(ts.parentKnown, DeliveredMessages(turns))
+	ts.mu.Unlock()
 	var errs []error
 	var adopted, resumed []*task
 	var sends []sentMessage
@@ -498,7 +527,9 @@ func (ts *Tasks) Recover(
 	// unread one counts on its turn's notice.
 	ts.mu.Lock()
 	again := ts.sortSentLocked(sends, callOrder(turns))
+	unsent := ts.unsentToParentLocked(adopted)
 	ts.mu.Unlock()
+	ts.redeliverToParent(ctx, unsent)
 	// Report the ended turns nobody has heard of, whether the task is new
 	// here or known in this process. Then resume the unfinished turns, with
 	// their missing messages, and send the others' missing messages again.
@@ -1133,6 +1164,7 @@ func (ts *Tasks) notifyEnded(t *task, delivered map[string]bool) {
 		c.notified = true
 		v := ts.viewLocked(t, c)
 		ts.mu.Unlock()
+		ts.flushLater(c)
 		ts.toParent(v.Notice().Steer())
 		ts.onTask(TaskEnded, v)
 		ts.mu.Lock()
@@ -1150,13 +1182,9 @@ func (ts *Tasks) toParent(steer dashi.Steer) {
 	if s == nil {
 		return
 	}
-	ctx := context.Background()
-	_, err := s.SteerItem(ctx, steer)
-	if err != nil && refusesSteers(s, err) {
-		_, err = s.EnqueueItem(ctx, steer.Item)
-	}
+	_, err := putOnParent(context.Background(), s, DeliverSteer, steer.Item)
 	if err != nil {
-		slog.Warn("delegate: could not deliver a notice to the parent session",
+		slog.Warn("delegate: could not deliver a notice or message to the parent session",
 			"item", steer.Item.ID, "error", err)
 	}
 }
@@ -1307,7 +1335,7 @@ func (ts *Tasks) startTask(
 	var start dashi.Start
 	if !found {
 		var err error
-		agent, err = childAgent(ctx, sub, parentAgent, parent.Tools)
+		agent, err = childAgent(ctx, sub, parentAgent, parent.Tools, ts.reachesParent())
 		if err != nil {
 			return TaskView{}, fmt.Errorf("delegate: resolve child tools: %w", err)
 		}
@@ -1393,12 +1421,14 @@ func (ts *Tasks) startTask(
 // that may use every tool, and not ReadOnly), Tools stays empty, so the child
 // may use every tool, as the parent may. A named tool that parent lacks now stays in the list, so
 // the child warns that it is not offered, unless ReadOnly makes its effect
-// unknown. An empty result sets NoTools, since empty Tools means every tool.
+// unknown. With messages set, a restricted list ends with message_parent.
+// An empty result sets NoTools, since empty Tools means every tool.
 func childAgent(
 	ctx context.Context,
 	sub Subagent,
 	parentAgent dashi.Agent,
 	parent tool.Toolset,
+	messages bool,
 ) (dashi.Agent, error) {
 	agent := sub.Agent
 	if agent.Model == "" && agent.Provider == "" && agent.API == "" {
@@ -1450,14 +1480,22 @@ func childAgent(
 			}
 		}
 	}
+	// A child that may use tools may message its parent, when a message
+	// can reach it.
+	if messages {
+		names = append(names, MessageParentToolName)
+	}
 	agent.Tools = names
 	agent.NoTools = len(names) == 0
 	return agent, nil
 }
 
+// isTaskTool reports whether name is a tool of delegate: a parent tool, or
+// message_parent, which a child gets from delegate alone.
 func isTaskTool(name string) bool {
 	return name == ToolName || name == StatusToolName ||
-		name == StopToolName || name == SendToolName
+		name == StopToolName || name == SendToolName ||
+		name == MessageParentToolName
 }
 
 // childSession returns the handle that drives a task's child session. Tasks
@@ -1477,8 +1515,9 @@ func childSession(t *task, runner dashi.Runner, create bool) *session.Session {
 
 // childRunner builds the runner for one child session. It starts from the
 // runner that runs the task call, applies the host's overrides, and replaces
-// the tools with the parent's less the task tools. The child's recorded
-// Agent.Tools selects from them.
+// the tools with the parent's less the task tools, plus message_parent when
+// a message can reach the parent. The child's recorded Agent.Tools selects
+// from them.
 func (ts *Tasks) childRunner(
 	sub Subagent,
 	ref dashi.CallRef,
@@ -1495,7 +1534,11 @@ func (ts *Tasks) childRunner(
 	// Close interrupts and Stop cancels by ending the child's context, and a
 	// resume must find an interrupted record, not a final one.
 	runner.OnContextDone = dashi.ContextInterrupt
-	runner.Tools = withoutTaskTools{parent.Tools}
+	runner.Tools = childTools{
+		parent: parent.Tools,
+		ts:     ts,
+		taskID: TaskID(ChildID(ref.TurnID, ref.CallID)),
+	}
 	template := over.Observer
 	onChild := ts.cfg.OnChild
 	runner.Observer = nil

@@ -6,14 +6,16 @@ background: the parent gets a task ID at once and keeps working. The result
 comes later, as a message, or when the parent asks for it. A long search does
 not stop the parent, and it does not fill the parent's context.
 
-The `delegate` package provides four tools:
+The `delegate` package provides four tools to the parent and one to each
+child:
 
 | Tool | What it does |
 | --- | --- |
-| `task` | Starts a subagent. Returns `Started task t_k3f2 ...` at once. |
-| `task_status` | Gives the state of a task, or its reply when it ended. `wait_seconds` (0 to 60) waits for the end. Without `task_id`, it lists all tasks. |
+| `task` | Starts a subagent. Returns `Started task t_k3f2 ...` at once, or after up to `wait_seconds` (0 to 60). |
+| `task_status` | Gives the state of a task, or its reply when it ended. `wait_seconds` (0 to 60) waits for the end or a message. Without `task_id`, it lists all tasks. |
 | `task_send` | Sends a task a message: a correction while it runs, or a follow-up after it ended. |
 | `task_stop` | Stops a running task. |
+| `message_parent` | The child's tool: sends the parent a finding, a blocker, or a question it can work around. |
 
 A `Tasks` value owns the running children. The host makes one for each
 conversation, usually a [session](sessions.md). The wiring is short:
@@ -61,7 +63,10 @@ and a tool a dynamic toolset adds after the child starts is not offered to it.
 A child with no rule (no named tools, a parent that may use every tool, and
 not `ReadOnly`) records empty `Agent.Tools`, so, like the parent, it may use
 every tool, including one a toolset adds later. A child never receives the
-task tools, so a child cannot start a child. It sees only its prompt, so
+task tools, so a child cannot start a child. It gets `message_parent` (a
+restricted list names it too) unless its subagent sets `NoTools` or nothing
+can deliver a message: with neither `Config.Session` nor `Config.OnTask` set,
+children do not get the tool. It sees only its prompt, so
 the model must put every fact in the prompt.
 
 ## The link between parent and child
@@ -100,6 +105,31 @@ child that cannot read it.
 10); past either, `task_send` is a tool error. With a recorder that loads
 turns, `task_send` is idempotent: a message is delivered once the child's
 record holds its ID, and a rerun call that finds it there sends nothing.
+
+## Messages from a task
+
+`message_parent` takes `message` and `deliver`. The tool is bound to its
+task, so the parent reads an `agent-message` reminder from
+`task t_k3f2 (explore)`, whatever the text says. A child that cannot go on
+without an answer ends its turn with the question; the notice says the task
+takes a follow-up, and the parent's `task_send` reply starts its next turn.
+
+With `Config.Session`, `Tasks` delivers the message. A steer reaches a
+running parent turn before its next model call; `queue` waits for that turn
+to end and runs as a queue turn. When the parent is idle, a child turn's
+first message starts a parent queue turn; its later messages wait and arrive
+with its notice, so one child turn wakes an idle parent at most once.
+Without `Config.Session`, `OnTask` gets a `TaskMessage` event with
+`TaskEvent.Message`, and the host sends `Message.Steer()` or
+`Message.Item()` to the conversation. With neither, children do not get
+`message_parent`, and a call that arrives anyway is a tool error that tells
+the child to put the message in its answer. `Config.MaxMessages` (default 8) caps
+the messages of one child turn as well.
+
+A message is delivered once the parent's record holds its ID
+(`msg:<child turn>/<call>`), which `delegate.DeliveredMessages(turns)`
+reports. A rerun call finds it there and sends nothing, and `Recover` sends
+again each message of a finished call that the parent's record lacks.
 
 ## When a result arrives
 
@@ -151,8 +181,16 @@ with the last turn's result, or when a turn stops with anything but
 `NextNone`, which needs the host first. The same `Send` also runs a queue turn
 by itself when a notice arrives before its turn ends.
 
-Underneath, `tasks.Wait(ctx)` blocks until a child turn has been reported
-through `OnTask` (it returns false) or nothing is pending (it returns true). A
+Inside a turn, `wait_seconds` on `task` or `task_status` waits for the
+task's answer or a steer message from it. A message that `Tasks` steered
+into the running turn shows as "A message from task t_k3f2 (explore)
+follows."; otherwise the result holds its text, and its record marks the
+message delivered. A `task` call that waited for the answer marks the notice
+delivered, as a `task_status` read does.
+
+Underneath, `tasks.Wait(ctx)` blocks until a child turn or a message has
+been reported through `OnTask` (it returns false) or nothing is pending (it
+returns true). A
 turn is pending until `OnTask` returns for its end, so a notice that `Tasks`
 or `OnTask` puts on the session is there when `Wait` returns. One goroutine
 calls `Wait`.
@@ -173,6 +211,7 @@ session's `s.Turns(ctx)` yields:
 | Ended, and the record holds no notice | `OnTask` gets `TaskEnded`, once for each such turn. |
 | Ended, and the record holds the notice | Nothing. |
 | Canceled | Not resumed. |
+| Holds a finished `message_parent` the parent's turns lack | Sends it again, before the notices. |
 | Lacks a message a finished `task_send` sent | Sends it again, after resuming, unless the turn it steered into stopped `waiting`, `result_unknown`, or `canceled`, or the child waits now: then the notice says it was not read. |
 
 `Recover` needs a recorder that implements `dashi.Loader` (`MemoryRecorder`

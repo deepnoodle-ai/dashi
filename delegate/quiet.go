@@ -7,8 +7,9 @@ import (
 	"github.com/deepnoodle-ai/dashi/session"
 )
 
-// RunUntilQuiet runs the session's queue and waits while tasks run. It
-// returns when no task is pending and the queue is empty, with the result
+// RunUntilQuiet runs the session's queue and waits while tasks run. A
+// notice or a task's message that reaches the idle session starts a queue
+// turn. It returns when no task is pending and the queue is empty, with the result
 // of the last turn it ran, or of the session's last turn when it ran none.
 // It also returns when a turn stops with anything but dashi.NextNone, since
 // that turn needs the host first; its queued items wait
@@ -21,6 +22,8 @@ import (
 // SteerItem(ctx, e.Task.Notice().Steer()), which reaches a running turn, or
 // EnqueueItem(ctx, e.Task.Notice().Item()), which waits for the next one.
 // Either way a notice that arrives while no turn runs starts a queue turn.
+// The same holds for TaskMessage events, with e.Message.Steer() and
+// e.Message.Item().
 // One Tasks serves one session.
 func RunUntilQuiet(
 	ctx context.Context,

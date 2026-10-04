@@ -37,18 +37,21 @@ const (
 	// maxMessageText is the byte limit of one message's text.
 	maxMessageText = 16 << 10
 	// defaultMaxMessages bounds the messages of one sending turn to one
-	// task when Config.MaxMessages is zero.
+	// recipient when Config.MaxMessages is zero.
 	defaultMaxMessages = 8
 )
 
 // Message is an agent message: text that a parent sends to one of its
-// tasks.
+// tasks (task_send), or that a task sends to its parent (message_parent).
 type Message struct {
 	// ID is MessageID of the sending call. The recipient's record holds it
 	// once the message is delivered.
 	ID string
-	// From and To are "parent" or a task ID.
-	From, To string
+	// From is the sender as the recipient reads it: "parent", or the task,
+	// such as "task t_k3f2 (explore)".
+	From string
+	// To is "parent" or a task ID.
+	To       string
 	Text     string
 	Delivery Delivery
 }
@@ -497,22 +500,30 @@ func checkSendArgs(raw []byte) (sendArgs, error) {
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return args, fmt.Errorf("delegate: read arguments: %w", err)
 	}
+	var err error
+	args.Deliver, err = checkMessage(args.Message, args.Deliver)
+	return args, err
+}
+
+// checkMessage checks the text and delivery of a message and returns the
+// delivery, steer when it is empty.
+func checkMessage(text string, d Delivery) (Delivery, error) {
 	switch {
-	case strings.TrimSpace(args.Message) == "":
-		return args, errors.New("delegate: message is required")
-	case len(args.Message) > maxMessageText:
-		return args, fmt.Errorf(
+	case strings.TrimSpace(text) == "":
+		return d, errors.New("delegate: message is required")
+	case len(text) > maxMessageText:
+		return d, fmt.Errorf(
 			"delegate: message is %d bytes, over the limit of %d; shorten it",
-			len(args.Message), maxMessageText,
+			len(text), maxMessageText,
 		)
-	case args.Deliver == "":
-		args.Deliver = DeliverSteer
-	case args.Deliver != DeliverSteer && args.Deliver != DeliverQueue:
-		return args, fmt.Errorf(
+	case d == "":
+		return DeliverSteer, nil
+	case d != DeliverSteer && d != DeliverQueue:
+		return d, fmt.Errorf(
 			"delegate: deliver must be %q or %q", DeliverSteer, DeliverQueue,
 		)
 	}
-	return args, nil
+	return d, nil
 }
 
 func (ts *Tasks) execSend(
