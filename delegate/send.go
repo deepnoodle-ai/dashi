@@ -96,6 +96,9 @@ type sendResult struct {
 	// target is the running child turn the message steered into; empty
 	// when it started a turn or waits for the next one.
 	target string
+	// after is the child's last turn when the message arrived while a
+	// goroutine drove the child; empty when the message started a turn.
+	after string
 	// turn is the number of the turn the message started; 0 when it
 	// started none.
 	turn int
@@ -112,6 +115,10 @@ type sendData struct {
 	// TargetTurnID is the running child turn the message steered into;
 	// empty when it started a turn or waited for the next one.
 	TargetTurnID string `json:"target_turn_id,omitempty"`
+	// LastTurnID is the child's last turn when the message arrived while
+	// the child ran, so the message waited on that turn; empty when the
+	// message started a turn.
+	LastTurnID string `json:"last_turn_id,omitempty"`
 }
 
 // deliver puts a message on a child. While a goroutine drives the child
@@ -174,6 +181,13 @@ func (ts *Tasks) deliverLocked(
 			"delegate: the host is resolving task %s; try again later", t.id,
 		)
 	}
+	if t.stopping {
+		// The canceled turn has dropped its mail, and the goroutine that is
+		// exiting would start no turn for this message.
+		return sendResult{}, nil, fmt.Errorf(
+			"delegate: task %s is stopping; try again", t.id,
+		)
+	}
 	if err := ts.acceptsLocked(t, call.TurnID, redelivery); err != nil {
 		return sendResult{}, nil, err
 	}
@@ -197,6 +211,7 @@ func (ts *Tasks) deliverLocked(
 		// A steer that finds no turn running goes to the queue. The goroutine
 		// runs it after the turn, or passOnLocked does when it exits.
 		out.target = q.TurnID
+		out.after = t.last().id
 	case out.state == TaskRunning:
 		// Recover has not resumed the turn yet.
 		return sendResult{}, nil, fmt.Errorf(
@@ -512,7 +527,11 @@ func (ts *Tasks) execSend(
 		return tool.Outcome{}, err
 	}
 	out := tool.Succeeded(sendText(t.id, m.Delivery, r))
-	out.Data, err = json.Marshal(sendData{SessionID: t.sessionID, TargetTurnID: r.target})
+	out.Data, err = json.Marshal(sendData{
+		SessionID:    t.sessionID,
+		TargetTurnID: r.target,
+		LastTurnID:   r.after,
+	})
 	if err != nil {
 		return tool.Outcome{}, err
 	}
@@ -582,10 +601,12 @@ func sentMessages(turnID string, view dashi.TurnView) []sentMessage {
 }
 
 // sortSentLocked sorts the finished sends of the parent turns that the
-// children's records lack. A message is undeliverable when its target turn
-// stopped where it could not read it (waiting, result_unknown, or
-// canceled), or when the child now stops that way: it counts on that turn,
-// so the notice says it was not read, and is never sent. The rest are
+// children's records lack. A message is undeliverable when its target turn,
+// or a turn from the one it waited on, stopped where it could not read it
+// (waiting, result_unknown, or canceled), or when the child now waits or
+// holds a call whose result is unknown: it counts on that turn, so the
+// notice says it was not read, and is never sent. So a message never starts
+// a turn of a child that Stop canceled before it read it. The rest are
 // returned, to deliver again once the children resume. The caller holds
 // ts.mu.
 func (ts *Tasks) sortSentLocked(sends []sentMessage) []sentMessage {
@@ -600,9 +621,18 @@ func (ts *Tasks) sortSentLocked(sends []sentMessage) []sentMessage {
 		if c := t.find(s.data.TargetTurnID); c != nil && dropOnStop(c.state) {
 			unread = c
 		}
-		if last := t.last(); unread == nil &&
-			(last.state == TaskState(dashi.StopWaiting) ||
-				last.state == TaskState(dashi.StopResultUnknown)) {
+		if unread == nil && s.data.LastTurnID != "" {
+			unread = t.droppedFrom(s.data.LastTurnID)
+		}
+		last := t.last()
+		switch {
+		case unread != nil:
+		case last.state == TaskState(dashi.StopWaiting),
+			last.state == TaskState(dashi.StopResultUnknown):
+			unread = last
+		case last.state == TaskState(dashi.StopCanceled) && s.data.SessionID == "":
+			// Without the call's data, the message may have waited on the
+			// canceled turn; it must not restart the child.
 			unread = last
 		}
 		if unread == nil {
@@ -615,6 +645,22 @@ func (ts *Tasks) sortSentLocked(sends []sentMessage) []sentMessage {
 		t.droppedMu.Unlock()
 	}
 	return again
+}
+
+// droppedFrom returns the first turn, from turn id on, that stopped where
+// it drops its mail, or nil. When no turn has that ID, it checks only the
+// last turn. The caller holds ts.mu.
+func (t *task) droppedFrom(id string) *childTurn {
+	i := slices.IndexFunc(t.turns, func(c *childTurn) bool { return c.id == id })
+	if i < 0 {
+		i = len(t.turns) - 1
+	}
+	for _, c := range t.turns[i:] {
+		if dropOnStop(c.state) {
+			return c
+		}
+	}
+	return nil
 }
 
 // redeliver sends again each message Recover found missing, through

@@ -117,7 +117,10 @@ runs one twice. When the session's queue does not follow a turn (it failed or
 was limited), `Tasks` starts the next turn with the first pending message once
 the child's goroutine exits. A message that starts a turn returns once the
 child's record holds that turn, as `task` does; a turn that fails before the
-record holds it is no turn, and `task_send` returns the error.
+record holds it is no turn, and `task_send` returns the error. Only that
+message is dropped: mail that other calls sent while the turn was starting
+stays pending and starts the next turn. A child that `Tasks.Stop` is stopping
+refuses messages until it has stopped.
 
 | Recipient | `steer` | `queue` |
 | --- | --- | --- |
@@ -221,10 +224,12 @@ IDs, the message ID.
   queue), and the tool treats it as sent. The set, not the session's
   in-memory queue, is what survives a restart.
 - **Target turn.** A finished send records, in its `tool.Outcome.Data`
-  (`session_id`, `target_turn_id`), the recipient turn it steered into, or
-  none when it started or queued a turn. A message whose target turn has
-  ended without its ID, and stopped `waiting`, `result_unknown`, or
-  `canceled`, is undeliverable. Ended turns never change, so every reader and
+  (`session_id`, `target_turn_id`, `last_turn_id`), the recipient turn it
+  steered into, or none when it started or queued a turn, and the child's
+  last turn when it arrived while the child ran. A message whose target turn,
+  or a turn from its last turn on, has ended without its ID, and stopped
+  `waiting`, `result_unknown`, or `canceled`, is undeliverable. So a queue
+  message never restarts a child that `Tasks.Stop` canceled before reading it. Ended turns never change, so every reader and
   every restart reaches the same result. A hook that replaces the result drops
   the `Data`; `Recover` then finds the task by `task_id`, and `Report` misses
   that session unless a `task` call of the same parent turn names it.

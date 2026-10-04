@@ -109,7 +109,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   its next turn, with its history. The message is an `agent-message`
   reminder from `parent` with origin `ContextAgent`; `delegate.Message`,
   `MessageID`, and `Delivery` describe it. A waiting or `result_unknown` task
-  refuses mail with a tool error. `Config.MaxMessages` (default 8 per parent
+  refuses mail with a tool error, as does a task that `task_stop` is
+  stopping, until it has stopped. `Config.MaxMessages` (default 8 per parent
   turn and task) and `Config.MaxTaskTurns` bound the cost. Each message is
   delivered once: the child's record holds its ID (`msg:<turn>/<call>`), a
   rerun call sends nothing, and `Recover` sends again a message from a

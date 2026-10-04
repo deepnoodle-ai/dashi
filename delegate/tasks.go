@@ -195,6 +195,9 @@ type childTurn struct {
 	// start, such as a queue turn.
 	recorded chan struct{}
 	startErr error
+	// start is the command ID of the Start that began the turn, when
+	// startTurnLocked started it.
+	start string
 }
 
 // markRecorded closes recorded once.
@@ -778,6 +781,7 @@ func (ts *Tasks) startTurnLocked(
 		id:       session.TurnID(t.sessionID, len(t.turns)+1),
 		state:    TaskRunning,
 		recorded: make(chan struct{}),
+		start:    start.CommandID,
 	})
 	ts.launchLocked(ctx, t, start)
 	return nil
@@ -974,23 +978,24 @@ func (ts *Tasks) endTurn(t *task, id string, out dashi.RunResult, err error) {
 // dropUnrecordedLocked removes a later turn of t that failed before the
 // child's record held it, such as one whose Start the recorder refused: it
 // is no turn, so nothing reports it, and the session numbers the next turn
-// as this one. The mail it would have carried is dropped too, so it starts
-// no turn in a loop; deliver tells the model the message was not sent, and
-// after a restart Recover sends a finished send again. It reports whether
-// c was such a turn. The first turn is the task tool's (see startTask). The
-// caller holds ts.mu.
+// as this one. The message that started it is dropped too, so it starts no
+// turn in a loop; deliver tells the model the message was not sent, and
+// after a restart Recover sends a finished send again. Other mail, which
+// other calls sent with success, stays: passOnLocked starts the next turn
+// with it once the goroutine exits. It reports whether c was such a turn.
+// The first turn is the task tool's (see startTask). The caller holds
+// ts.mu.
 func (ts *Tasks) dropUnrecordedLocked(t *task, c *childTurn, err error) bool {
 	i := slices.Index(t.turns, c)
 	if i <= 0 || len(c.steps) > 0 || c.final != nil {
 		return false
 	}
-	if n := len(t.mail); n > 1 {
-		slog.Warn("delegate: a task turn failed to start; its messages were not sent",
-			"task", t.id, "count", n, "error", err)
-	}
+	slog.Warn("delegate: a task turn failed to start; its message was not sent",
+		"task", t.id, "message", c.start, "error", err)
 	t.turns = slices.Delete(t.turns, i, i+1)
-	clear(t.mail)
-	t.mail = nil
+	t.mail = slices.DeleteFunc(t.mail, func(m *mail) bool {
+		return m.msg.ID == c.start
+	})
 	c.startErr = err
 	c.markRecorded()
 	return true
