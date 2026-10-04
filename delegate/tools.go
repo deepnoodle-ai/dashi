@@ -17,15 +17,16 @@ import (
 // maxWaitSeconds is the longest a task_status call waits.
 const maxWaitSeconds = 60
 
-// Tools returns the toolset that holds task, task_status, and task_stop.
-// Join it with the tools the agent already has. Children draw from the tools
-// of the runner that runs the call, filtered by each Subagent; they never
-// receive these three tools, so a child cannot start a child.
+// Tools returns the toolset that holds task, task_status, task_send, and
+// task_stop. Join it with the tools the agent already has. Children draw
+// from the tools of the runner that runs the call, filtered by each
+// Subagent; they never receive these tools, so a child cannot start a child.
 //
-// The task tool is marked idempotent when the recorder can load turns. After
-// a crash, the runner runs the call again, and the same child continues from
-// its record. Without such a recorder, a resumed parent reports the call as
-// result_unknown and starts no second child.
+// The task and task_send tools are marked idempotent when the recorder can
+// load turns. After a crash, the runner runs the call again: the same child
+// continues from its record, and a message the child's record holds is not
+// sent twice. Without such a recorder, a resumed parent reports the call as
+// result_unknown and sends nothing twice.
 func (ts *Tasks) Tools() tool.Toolset {
 	return taskTools{ts}
 }
@@ -64,7 +65,8 @@ func (t taskTools) Tools(ctx context.Context) ([]tool.Tool, error) {
 			"background and this call returns at once with a task ID. Keep " +
 			"working. A message arrives when the task ends. The subagent " +
 			"starts with no memory of this conversation and returns one " +
-			"answer. Subagents:" + list.String(),
+			"answer; task_send gives it a correction or a follow-up. " +
+			"Subagents:" + list.String(),
 		Schema: mustSchema(map[string]any{
 			"subagent": map[string]any{
 				"type":        "string",
@@ -121,9 +123,40 @@ func (t taskTools) Tools(ctx context.Context) ([]tool.Tool, error) {
 		Kind: tool.KindLocal,
 	}
 	stop.Annotations.Idempotent = new(true)
+	send := tool.Definition{
+		Name: SendToolName,
+		Description: "Send a message to a task you started. A running task " +
+			"reads it before its next model call (deliver \"steer\", the " +
+			"default), or starts a new turn with it after its current turn " +
+			"(\"queue\"). A task that ended starts a new turn with it and " +
+			"keeps its memory, so use this for a follow-up instead of a new " +
+			"task. Its reply arrives as a message that starts with \"[task\". " +
+			"Each message may start a paid turn: send only what changes its work.",
+		Schema: mustSchema(map[string]any{
+			"task_id": map[string]any{
+				"type":        "string",
+				"description": "The task ID that the task tool returned.",
+			},
+			"message": map[string]any{
+				"type":        "string",
+				"description": "What the task should know or do next.",
+			},
+			"deliver": map[string]any{
+				"type": "string",
+				"enum": []string{string(DeliverSteer), string(DeliverQueue)},
+				"description": "steer (default): before its next model call. " +
+					"queue: as a new turn after its current turn ends.",
+			},
+		}, "task_id", "message"),
+		Kind: tool.KindLocal,
+	}
+	if t.resumable(ctx) {
+		send.Annotations.Idempotent = new(true)
+	}
 	return []tool.Tool{
 		{Definition: start, Executor: executor(t.ts.execStart)},
 		{Definition: status, Executor: executor(t.ts.execStatus)},
+		{Definition: send, Executor: executor(t.ts.execSend)},
 		{Definition: stop, Executor: executor(t.ts.execStop)},
 	}, nil
 }

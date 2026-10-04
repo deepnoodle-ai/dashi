@@ -94,7 +94,7 @@ func MessageID(turnID, callID string) string // "msg:" + turnID + "/" + callID
 func (m Message) Item() dashi.ContextItem    // origin ContextAgent, a reminder
 func (m Message) Steer() dashi.Steer         // never Urgent
 
-const TaskMessage TaskEventKind = "message" // TaskEvent.Message is set
+const TaskMessage TaskEventKind = "message" // track 4; TaskEvent.Message is set
 
 type Config struct {
     // existing fields
@@ -108,8 +108,16 @@ type Config struct {
 IDs (see "Delivery once"). To the parent, it calls `SteerItem(m.Steer())` or
 `EnqueueItem(m.Item())` on `Config.Session`, as notices do. To a child, it
 calls `SteerItem` on a running turn, and otherwise starts the next turn with
-the `Start` above; a queue message to a running child waits in `Tasks` until
-that turn ends, then starts the next one. Further messages steer into it.
+the `Start` above. A queue message to a running child goes to the child
+session's own queue (`EnqueueItem`), which runs it after the turn as a queue
+turn; further messages steer into that turn. The child session's steering
+source is a `*dashi.Inbox` that `Tasks` owns, and its `Delivered` names the
+message IDs its record holds and those `Tasks` dropped, so its queue never
+runs one twice. When the session's queue does not follow a turn (it failed or
+was limited), `Tasks` starts the next turn with the first pending message once
+the child's goroutine exits. A message that starts a turn returns once the
+child's record holds that turn, as `task` does; a turn that fails before the
+record holds it is no turn, and `task_send` returns the error.
 
 | Recipient | `steer` | `queue` |
 | --- | --- | --- |
@@ -117,13 +125,18 @@ that turn ends, then starts the next one. Further messages steer into it.
 | Idle or ended | Starts a turn (`StartScheduled`) | Same |
 | Waiting, result unknown | Tool error; not sent | Same |
 
+`MaxTaskTurns` applies to every `task_send`, a steer into a running turn
+included, since a steer that misses that turn starts one more.
+
 Without `Config.Session`, `OnTask` gets `TaskMessage` and `TaskEnded` events,
 and the host calls the same two methods. A `Config.Session` that refuses a steer
 (a host `Session.Steering`, or a compaction turn) gets the item on its queue. A
 message is pending until delivered, so `Tasks.Wait` and `RunUntilQuiet` wake on
 it. Mail is never held for a recipient that cannot read it. A steer accepted
 while a child ran, whose turn then stops `waiting` or `result_unknown` before it
-reads the steer, is **undeliverable**: a final state, not pending mail. The
+reads the steer, is **undeliverable**: a final state, not pending mail. So
+is one whose turn `Tasks.Stop` canceled, since a stop should not restart the
+child; `TaskView.UnreadMessages` counts them. The
 notice for that turn says "your message was not read", and the parent may send
 it again once the child can take it.
 
@@ -207,12 +220,17 @@ IDs, the message ID.
   builds the same ID, finds it in this set (or in the in-memory inbox or
   queue), and the tool treats it as sent. The set, not the session's
   in-memory queue, is what survives a restart.
-- **Target turn.** A finished send records, in its tool result's details, the
-  recipient turn it steered into, or none when it started or queued a turn.
-  A message whose target turn has ended without its ID, and stopped
-  `waiting` or `result_unknown`, is undeliverable. Ended turns never change, so
-  every reader and every restart reaches the same result.
-- `Recover(ctx, runner, turns)` runs in this order: build the delivered-ID
+- **Target turn.** A finished send records, in its `tool.Outcome.Data`
+  (`session_id`, `target_turn_id`), the recipient turn it steered into, or
+  none when it started or queued a turn. A message whose target turn has
+  ended without its ID, and stopped `waiting`, `result_unknown`, or
+  `canceled`, is undeliverable. Ended turns never change, so every reader and
+  every restart reaches the same result. A hook that replaces the result drops
+  the `Data`; `Recover` then finds the task by `task_id`, and `Report` misses
+  that session unless a `task` call of the same parent turn names it.
+- `Recover(ctx, runner, turns)` runs in this order (as built, notices come
+  before the resume, as they did before track 3, and undeliverable messages
+  are sorted out first so the notice can name them): build the delivered-ID
   sets from the parent turns and each child session; then resume interrupted
   child turns, whose rerun sends now see those sets; then for each finished
   `task_send` in the parent turns, redeliver it if the child lacks its ID;

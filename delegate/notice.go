@@ -64,6 +64,14 @@ func (n Notice) Text() string {
 	if v.Reason != "" {
 		sb.WriteString("\nReason: " + v.Reason)
 	}
+	switch n := v.UnreadMessages; {
+	case n == 1:
+		sb.WriteString("\nYour message was not read. Send it again if it " +
+			"still matters.")
+	case n > 1:
+		fmt.Fprintf(&sb, "\nYour %d messages were not read. Send them "+
+			"again if they still matter.", n)
+	}
 	return sb.String()
 }
 

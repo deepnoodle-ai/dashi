@@ -2,8 +2,10 @@
 // the background. The model calls the "task" tool with a subagent name and a
 // prompt. The call returns at once with a task ID, and the agent keeps
 // working. The model can later call "task_status" to read the state or the
-// reply, and "task_stop" to end a task. When a turn of a task ends, the
-// agent gets a notice: Tasks puts it on Config.Session, or the host routes
+// reply, "task_send" to send the task a message, and "task_stop" to end a
+// task. A message steers into the task's running turn, or starts its next
+// turn, so a finished task takes a follow-up with its memory. When a turn of
+// a task ends, the agent gets a notice: Tasks puts it on Config.Session, or the host routes
 // it from Config.OnTask. A notice whose result a recorded task_status call
 // already returned is not delivered again (see DeliveredNotices).
 //
@@ -31,9 +33,11 @@ package delegate
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/session"
@@ -48,6 +52,8 @@ const (
 	StatusToolName = "task_status"
 	// StopToolName stops a task.
 	StopToolName = "task_stop"
+	// SendToolName sends a message to a task.
+	SendToolName = "task_send"
 )
 
 // Subagent is a kind of child that the model can choose.
@@ -148,8 +154,11 @@ type Config struct {
 	// shows delivered. Nil means the host routes notices from OnTask.
 	Session *session.Session
 	// MaxTaskTurns bounds the turns of one child session. Zero means 10; a
-	// negative value means no bound.
+	// negative value means no bound. Past it, task_send refuses.
 	MaxTaskTurns int
+	// MaxMessages bounds the messages that one parent turn sends to one
+	// task. Zero means 8; a negative value means no bound.
+	MaxMessages int
 	// PrepareStart may append checked evidence and pin generation settings,
 	// active compaction, and the agent version before a new child is recorded.
 	// It receives an owned Start outside the task lock. It cannot change the
@@ -202,34 +211,69 @@ func ChildID(parentTurnID, callID string) string {
 }
 
 // Report sums the spend of parent and of the child turns its calls started.
-// It finds the child sessions of the parent's task calls, by ChildID, and
-// counts each child turn whose starting call, its recorded Parent, is a call
-// of parent. So a child turn that another parent turn started counts there,
-// not here. A child session that a host started with its own ID is not
-// counted. Each child turn counts once, however many times it resumed.
-// Parent comes from parent.Spend, which never holds child spend.
+// It finds the child sessions that the parent's task calls start (ChildID)
+// and that its finished task_send calls name, and counts each child turn
+// whose starting call is a call of parent: its recorded Parent, or, for a
+// queue turn that messages started, the call that sent the first message
+// in its key. So a child turn that another parent turn started counts
+// there, not here. A child session that a host started with its own ID is
+// not counted, nor one that only a task_send call whose result a hook
+// replaced names. Each child turn counts once, however many times it
+// resumed. Parent comes from parent.Spend, which never holds child spend.
 func Report(
 	ctx context.Context,
 	r dashi.Loader,
 	parent dashi.TurnView,
 ) (SpendReport, error) {
 	report := SpendReport{Parent: parent.Spend.Clone()}
+	var sessions []string
 	for _, callID := range slices.Sorted(maps.Keys(parent.Tools)) {
-		if parent.Tools[callID].Call.Name != ToolName {
-			continue
+		id := ""
+		switch tv := parent.Tools[callID]; tv.Call.Name {
+		case ToolName:
+			id = ChildID(parent.ID, callID)
+		case SendToolName:
+			var d sendData
+			if tv.Outcome != nil && len(tv.Outcome.Data) > 0 &&
+				json.Unmarshal(tv.Outcome.Data, &d) == nil {
+				id = d.SessionID
+			}
 		}
-		rec, err := loadRecord(ctx, r, ChildID(parent.ID, callID))
+		if id != "" && !slices.Contains(sessions, id) {
+			sessions = append(sessions, id)
+		}
+	}
+	for _, id := range sessions {
+		rec, err := loadRecord(ctx, r, id)
 		if err != nil {
 			return SpendReport{}, fmt.Errorf("delegate: load child: %w", err)
 		}
-		for _, view := range rec.views {
-			if view.Parent != nil && view.Parent.TurnID == parent.ID {
+		for i, view := range rec.views {
+			if startedIn(rec.turns[i], view, parent.ID) {
 				report.Children = report.Children.Add(view.Spend)
 			}
 		}
 	}
 	report.Inclusive = report.Parent.Add(report.Children)
 	return report, nil
+}
+
+// startedIn reports whether a call of parent turn parentID started a child
+// turn: its recorded Parent, or, for a queue turn, the call that sent the
+// first message in its key.
+func startedIn(turn dashi.Turn, view dashi.TurnView, parentID string) bool {
+	if view.Parent != nil {
+		return view.Parent.TurnID == parentID
+	}
+	if len(turn.Steps) == 0 {
+		return false
+	}
+	for _, id := range queueKeyIDs(turn.Steps[0].CommandID) {
+		if strings.HasPrefix(id, messagePrefix) {
+			return strings.HasPrefix(id, MessageID(parentID, ""))
+		}
+	}
+	return false
 }
 
 // withoutTaskTools is the parent toolset less the task tools, so a child

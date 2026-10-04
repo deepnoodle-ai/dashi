@@ -6,12 +6,13 @@ background: the parent gets a task ID at once and keeps working. The result
 comes later, as a message, or when the parent asks for it. A long search does
 not stop the parent, and it does not fill the parent's context.
 
-The `delegate` package provides three tools:
+The `delegate` package provides four tools:
 
 | Tool | What it does |
 | --- | --- |
 | `task` | Starts a subagent. Returns `Started task t_k3f2 ...` at once. |
 | `task_status` | Gives the state of a task, or its reply when it ended. `wait_seconds` (0 to 60) waits for the end. Without `task_id`, it lists all tasks. |
+| `task_send` | Sends a task a message: a correction while it runs, or a follow-up after it ended. |
 | `task_stop` | Stops a running task. |
 
 A `Tasks` value owns the running children. The host makes one for each
@@ -60,7 +61,7 @@ and a tool a dynamic toolset adds after the child starts is not offered to it.
 A child with no rule (no named tools, a parent that may use every tool, and
 not `ReadOnly`) records empty `Agent.Tools`, so, like the parent, it may use
 every tool, including one a toolset adds later. A child never receives the
-three task tools, so a child cannot start a child. It sees only its prompt, so
+task tools, so a child cannot start a child. It sees only its prompt, so
 the model must put every fact in the prompt.
 
 ## The link between parent and child
@@ -71,6 +72,34 @@ ID comes from `delegate.ChildID(parentTurnID, callID)`, and its turns are
 `dashi.Start.Parent` names the parent turn and tool call that started it, and
 `TurnView.Parent` shows it. The task ID (`delegate.TaskID`) is a fixed
 function of the session ID, so it is the same after a reopen.
+
+## Sending a message to a task
+
+`task_send` takes `task_id`, `message` (up to 16 KiB), and `deliver`. The
+message reaches the child as an `agent-message` reminder from `parent`, with
+origin `ContextAgent` and the ID `msg:<parent turn>/<call>`
+(`delegate.MessageID`). `Message.Item()` and `Message.Steer()` build it.
+
+| The child | `steer` (default) | `queue` |
+| --- | --- | --- |
+| Runs a turn | Read before its next model call | Starts its next turn after this one |
+| Is idle or ended (completed, failed, limited, canceled) | Starts its next turn, with its history | Same |
+| Waits for an approval, or has a call whose result is unknown | Tool error; not sent | Same |
+
+A turn that a message starts records the message ID as its command ID and
+the sending call as its `Parent`. A steer that misses the turn it was sent to
+runs as the next turn (a queue turn `queue:["msg:…"]`, or a turn `Tasks`
+starts when the session's queue does not follow a failed turn). If that turn
+instead stops `waiting`, `result_unknown`, or `canceled`, the message is
+**not read**: `Tasks` drops it, `TaskView.UnreadMessages` counts it, and the
+notice says so, so the parent can send it again. Mail is never held for a
+child that cannot read it.
+
+`Config.MaxMessages` caps the messages one parent turn sends to one task
+(default 8), and `Config.MaxTaskTurns` caps the turns of one task (default
+10); past either, `task_send` is a tool error. With a recorder that loads
+turns, `task_send` is idempotent: a message is delivered once the child's
+record holds its ID, and a rerun call that finds it there sends nothing.
 
 ## When a result arrives
 
@@ -144,6 +173,7 @@ session's `s.Turns(ctx)` yields:
 | Ended, and the record holds no notice | `OnTask` gets `TaskEnded`, once for each such turn. |
 | Ended, and the record holds the notice | Nothing. |
 | Canceled | Not resumed. |
+| Lacks a message a finished `task_send` sent | Sends it again, after resuming, unless the turn it steered into stopped `waiting`, `result_unknown`, or `canceled`, or the child waits now: then the notice says it was not read. |
 
 `Recover` needs a recorder that implements `dashi.Loader` (`MemoryRecorder`
 and `filerecorder` do). Without one it returns an error, and the tool logs a
@@ -155,7 +185,8 @@ matter: a rerun `task` call that finds an ended child reports it too, once.
 
 The `task` call returns only after the record holds the child. A parent that
 crashes inside the call finds the same child when the runner runs the call
-again, so a rerun starts no second child.
+again, so a rerun starts no second child. A `task_send` that starts a turn
+likewise returns once the record holds that turn.
 
 ## Stop and cancel
 
@@ -182,9 +213,10 @@ fmt.Println(report.Inclusive.Cost, report.Children.Cost) // maps by currency
 ```
 
 `Spend.Add` keeps `Cost` and `ToolCost` separate, and a resumed child turn
-counts once. A child turn counts under the parent turn whose call started it
-(its `Parent`). `TaskView.Spend` sums every turn of the task. A queue turn is
-an ordinary turn with its own spend.
+counts once. A child turn counts under the parent turn whose call started it:
+its `Parent`, the `task` or `task_send` call, or, for a child queue turn, the
+call that sent the first message in its key. `TaskView.Spend` sums every turn
+of the task. A queue turn is an ordinary turn with its own spend.
 
 ## Approvals for child tool calls
 

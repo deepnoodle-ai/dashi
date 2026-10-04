@@ -88,6 +88,11 @@ type TaskView struct {
 	Reply string
 	// Reason says why that turn stopped, when it did not complete.
 	Reason string
+	// UnreadMessages counts the messages sent to that turn that it stopped
+	// before reading: it waits for an approval, holds a call whose result is
+	// unknown, or was stopped. Tasks dropped them; the parent may send them
+	// again.
+	UnreadMessages int
 }
 
 // Running reports whether a turn of the task is working.
@@ -154,6 +159,19 @@ type task struct {
 	// pending fences an unacknowledged explicit command until record reload.
 	pending     *pendingTaskCommand
 	controlling bool
+
+	// inbox is the child session's steering source.
+	inbox *dashi.Inbox
+	// held holds the message IDs the child's record holds.
+	held map[string]bool
+	// mail holds the messages accepted for the child that its record does
+	// not hold yet, in the order they were sent.
+	mail []*mail
+	// dropped holds the IDs of messages dropped unread. The child
+	// session's Delivered function reads it under the session's lock, so
+	// droppedMu guards it, not Tasks.mu.
+	droppedMu sync.Mutex
+	dropped   map[string]bool
 }
 
 // childTurn is one turn of a child session.
@@ -170,6 +188,25 @@ type childTurn struct {
 	deferred           bool
 	// suppressed distinguishes Close interruption from acknowledged notices.
 	suppressed bool
+	// unread counts the messages sent to the turn that it never read.
+	unread int
+	// recorded closes once the child's record holds the turn, or the turn
+	// failed first, with startErr set. It is nil for a turn Tasks did not
+	// start, such as a queue turn.
+	recorded chan struct{}
+	startErr error
+}
+
+// markRecorded closes recorded once.
+func (c *childTurn) markRecorded() {
+	if c.recorded == nil {
+		return
+	}
+	select {
+	case <-c.recorded:
+	default:
+		close(c.recorded)
+	}
 }
 
 // view returns the turn's view: final, or built from the observed steps.
@@ -313,10 +350,15 @@ func (ts *Tasks) Wait(ctx context.Context) (idle bool, err error) {
 }
 
 // pendingLocked counts the child turns that are running or whose end
-// OnTask has not yet reported. A turn that Close interrupted is not pending.
+// OnTask has not yet reported, and the children whose goroutine has not
+// exited or that hold mail, since either may start a turn. A turn that Close
+// interrupted is not pending.
 func (ts *Tasks) pendingLocked() int {
 	n := 0
 	for _, t := range ts.tasks {
+		if t.cancel != nil || len(t.mail) > 0 && !ts.closed {
+			n++
+		}
 		for _, c := range t.turns {
 			if !c.reported {
 				n++
@@ -377,7 +419,14 @@ func (ts *Tasks) Close(ctx context.Context) error {
 // Config.Session, unless the record holds that turn's notice (see NoticeID)
 // or an earlier call already reported the turn. So each ended turn is
 // reported once. It restores every task and reports the ended turns before
-// it resumes any turn. The runner is the one the host uses for the
+// it resumes any turn.
+//
+// Then it delivers again each message of a finished task_send call that the
+// child's record lacks, as task_send would, once the resumed turns run. A
+// message that cannot be read, because the turn it steered into stopped
+// waiting, result_unknown, or canceled, or because the child now waits or
+// holds a call whose result is unknown, is not sent: the notice of that turn
+// says it was not read. The runner is the one the host uses for the
 // conversation. It needs a recorder that implements dashi.Loader and
 // returns an error that says so if it does not. It skips a child whose subagent the catalog
 // no longer holds and returns an error for it after the rest.
@@ -396,6 +445,7 @@ func (ts *Tasks) Recover(
 	delivered := DeliveredNotices(turns)
 	var errs []error
 	var adopted, resumed []*task
+	var sends []sentMessage
 	// Restore every task before any turn runs, so a resumed turn that ends
 	// early finds each delivered turn marked and never reports it again.
 	for _, turn := range turns {
@@ -404,6 +454,7 @@ func (ts *Tasks) Recover(
 			errs = append(errs, fmt.Errorf("delegate: replay %s: %w", turn.ID, err))
 			continue
 		}
+		sends = append(sends, sentMessages(turn.ID, view)...)
 		for _, callID := range slices.Sorted(maps.Keys(view.Tools)) {
 			call := view.Tools[callID].Call
 			if call.Name != ToolName {
@@ -422,14 +473,21 @@ func (ts *Tasks) Recover(
 			}
 		}
 	}
+	// Every child record is loaded: sort out the messages they lack, so an
+	// unread one counts on its turn's notice.
+	ts.mu.Lock()
+	again := ts.sortSentLocked(sends)
+	ts.mu.Unlock()
 	// Report the ended turns nobody has heard of, whether the task is new
-	// here or known in this process. Then resume the unfinished turns.
+	// here or known in this process. Then resume the unfinished turns, and
+	// send the missing messages again.
 	for _, t := range adopted {
 		ts.notifyEnded(t, delivered)
 	}
 	for _, t := range resumed {
 		ts.resume(ctx, t)
 	}
+	ts.redeliver(ctx, again)
 	return errors.Join(errs...)
 }
 
@@ -563,6 +621,9 @@ func (ts *Tasks) restoreLocked(
 ) bool {
 	resume := false
 	for i, turn := range rec.turns {
+		for _, step := range turn.Steps {
+			t.heldLocked(step)
+		}
 		c := &childTurn{id: turn.ID}
 		if len(rec.deferred) > i {
 			c.deferred = rec.deferred[i]
@@ -595,6 +656,9 @@ func newTask(sub Subagent, ref dashi.CallRef, description string) *task {
 		sub:         sub,
 		description: description,
 		started:     make(chan struct{}),
+		inbox:       dashi.NewInbox(),
+		held:        map[string]bool{},
+		dropped:     map[string]bool{},
 	}
 }
 
@@ -622,13 +686,21 @@ func (t *task) state() TaskState {
 	return TaskRunning
 }
 
-// turn returns the task's turn with id, adding it as running when the task
-// has none.
-func (t *task) turn(id string) *childTurn {
+// find returns the task's turn with id, or nil.
+func (t *task) find(id string) *childTurn {
 	for _, c := range slices.Backward(t.turns) {
 		if c.id == id {
 			return c
 		}
+	}
+	return nil
+}
+
+// turn returns the task's turn with id, adding it as running when the task
+// has none.
+func (t *task) turn(id string) *childTurn {
+	if c := t.find(id); c != nil {
+		return c
 	}
 	c := &childTurn{id: id, state: TaskRunning}
 	t.turns = append(t.turns, c)
@@ -703,8 +775,9 @@ func (ts *Tasks) startTurnLocked(
 		return err
 	}
 	t.turns = append(t.turns, &childTurn{
-		id:    session.TurnID(t.sessionID, len(t.turns)+1),
-		state: TaskRunning,
+		id:       session.TurnID(t.sessionID, len(t.turns)+1),
+		state:    TaskRunning,
+		recorded: make(chan struct{}),
 	})
 	ts.launchLocked(ctx, t, start)
 	return nil
@@ -727,7 +800,8 @@ func (ts *Tasks) launchLocked(
 }
 
 // run ranges over the child session's Stream. Each turn's RunResult event ends
-// that turn; the goroutine exits when the call returns.
+// that turn; the goroutine exits when the call returns. Mail that no turn
+// read then starts the next turn (see passOnLocked).
 func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 	defer ts.wg.Done()
 	ts.mu.Lock()
@@ -735,12 +809,20 @@ func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 	started := ts.viewLocked(t, nil)
 	ts.mu.Unlock()
 	ts.onTask(TaskStarted, started)
+	// A Start's turn is the first turn the Stream starts. The session numbers
+	// it, so its ID replaces the one startTurnLocked expected.
+	_, named := cmd.(dashi.Continue)
 	var runErr error
 	for ev, err := range t.session.Stream(ctx, cmd) {
 		switch {
 		case ev.Result != nil:
 			out := *ev.Result
 			id := cmp.Or(out.Turn.ID, current)
+			if ts.ended(t, id) {
+				// A Start closed the stopped turn before it; that turn
+				// already ended here.
+				continue
+			}
 			if ts.isStopping(t) {
 				out, err = ts.recordCancel(t, id, out, err)
 			}
@@ -749,18 +831,28 @@ func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 			runErr = err
 		case ev.Step != nil:
 			if ev.Step.Kind == dashi.StepTurnStarted && ev.TurnID != current {
-				// A later turn of the same call, such as a queue turn.
-				current = ev.TurnID
 				ts.mu.Lock()
-				v := ts.viewLocked(t, t.turn(current))
-				ts.mu.Unlock()
-				ts.onTask(TaskStarted, v)
+				if c := t.find(current); !named && c != nil &&
+					len(c.steps) == 0 && c.final == nil {
+					c.id, current = ev.TurnID, ev.TurnID
+					ts.mu.Unlock()
+				} else {
+					// A later turn of the same call, such as a queue turn.
+					current = ev.TurnID
+					v := ts.viewLocked(t, t.turn(current))
+					ts.mu.Unlock()
+					ts.onTask(TaskStarted, v)
+				}
+			}
+			if ev.Step.Kind == dashi.StepTurnStarted {
+				named = true
 			}
 			ts.observe(t, *ev.Step)
 		}
 	}
 	ts.mu.Lock()
-	unended := t.turn(current).state == TaskRunning
+	c := t.find(current)
+	unended := c != nil && c.state == TaskRunning
 	ts.mu.Unlock()
 	if unended {
 		// The session failed before the turn recorded a result.
@@ -775,8 +867,17 @@ func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 	t.cancel()
 	t.cancel, t.stopping = nil, false
 	close(t.done)
+	ts.passOnLocked(ctx, t)
 	ts.changedLocked()
 	ts.mu.Unlock()
+}
+
+// ended reports whether turn id of t has already ended here.
+func (ts *Tasks) ended(t *task, id string) bool {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	c := t.find(id)
+	return c != nil && c.state != TaskRunning
 }
 
 // errNoOutcome marks a run that ended without a result or an error.
@@ -831,6 +932,11 @@ func (ts *Tasks) endTurn(t *task, id string, out dashi.RunResult, err error) {
 	deferred := ts.deferNotice(out.Turn)
 	ts.mu.Lock()
 	c := t.turn(id)
+	if err != nil && ts.dropUnrecordedLocked(t, c, err) {
+		ts.changedLocked()
+		ts.mu.Unlock()
+		return
+	}
 	c.deferred = deferred
 	switch {
 	case errors.Is(err, errCanceled):
@@ -846,7 +952,13 @@ func (ts *Tasks) endTurn(t *task, id string, out dashi.RunResult, err error) {
 		c.state, c.answer, c.reason = endState(ts, out.Stop, view)
 	}
 	t.setStarted()
+	c.markRecorded()
 	interrupted := c.state == TaskState(dashi.StopInterrupted)
+	if c == t.last() && dropOnStop(c.state) {
+		// No later turn of this run will read the mail, and the next one
+		// must not.
+		t.dropMailLocked(c, out.Turn)
+	}
 	if interrupted {
 		// Close is not an end: nothing will be reported.
 		c.suppressed = !c.reported
@@ -857,6 +969,31 @@ func (ts *Tasks) endTurn(t *task, id string, out dashi.RunResult, err error) {
 	if !interrupted {
 		ts.notifyEnded(t, nil)
 	}
+}
+
+// dropUnrecordedLocked removes a later turn of t that failed before the
+// child's record held it, such as one whose Start the recorder refused: it
+// is no turn, so nothing reports it, and the session numbers the next turn
+// as this one. The mail it would have carried is dropped too, so it starts
+// no turn in a loop; deliver tells the model the message was not sent, and
+// after a restart Recover sends a finished send again. It reports whether
+// c was such a turn. The first turn is the task tool's (see startTask). The
+// caller holds ts.mu.
+func (ts *Tasks) dropUnrecordedLocked(t *task, c *childTurn, err error) bool {
+	i := slices.Index(t.turns, c)
+	if i <= 0 || len(c.steps) > 0 || c.final != nil {
+		return false
+	}
+	if n := len(t.mail); n > 1 {
+		slog.Warn("delegate: a task turn failed to start; its messages were not sent",
+			"task", t.id, "count", n, "error", err)
+	}
+	t.turns = slices.Delete(t.turns, i, i+1)
+	clear(t.mail)
+	t.mail = nil
+	c.startErr = err
+	c.markRecorded()
+	return true
 }
 
 // endState maps a child turn's stop to its state, reply, and reason.
@@ -964,6 +1101,7 @@ func (ts *Tasks) viewLocked(t *task, c *childTurn) TaskView {
 	}
 	if c != nil {
 		v.TurnID, v.State, v.Reply, v.Reason = c.id, c.state, c.answer, c.reason
+		v.UnreadMessages = c.unread
 	}
 	for _, c := range t.turns {
 		tv := c.view()
@@ -980,7 +1118,9 @@ func (ts *Tasks) observe(t *task, step dashi.Step) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	t.setStarted()
+	t.heldLocked(step)
 	c := t.turn(step.TurnID)
+	c.markRecorded()
 	if c.final != nil {
 		return
 	}
@@ -1219,17 +1359,22 @@ func childAgent(
 }
 
 func isTaskTool(name string) bool {
-	return name == ToolName || name == StatusToolName || name == StopToolName
+	return name == ToolName || name == StatusToolName ||
+		name == StopToolName || name == SendToolName
 }
 
 // childSession returns the handle that drives a task's child session. Tasks
-// is its only driver, so it is Exclusive. create sets New, for turn 1.
+// is its only driver, so it is Exclusive. create sets New, for turn 1. Its
+// steering source is the task's inbox, and its queue drops the messages the
+// record holds or Tasks dropped.
 func childSession(t *task, runner dashi.Runner, create bool) *session.Session {
 	return &session.Session{
 		ID:        t.sessionID,
 		New:       create,
 		Runner:    runner,
+		Steering:  t.inbox,
 		Exclusive: true,
+		Delivered: t.deliveredMail,
 	}
 }
 
