@@ -150,6 +150,8 @@ The archive holds client code and probably secrets from tool output.
 - It stays local: never in this repo, a hosted database, or a synced folder.
   The archive is `0700` and files `0600`; `copy` fixes looser permissions
   and warns.
+- No backup for now: the archive shares one disk with the originals. Curtis
+  accepted this risk on 2026-10-03.
 - Test fixtures are hand-written, never cut from real sessions.
 - Committed docs and eval results name fields and give totals only: no
   needle text, paths, session ids, or project names from real sessions.
@@ -189,15 +191,6 @@ What the parsers must handle, each with a hand-written fixture:
 - **Session stats:** tool error rates, cost per project (`git_remote_url`,
   else `working_dir`), compaction frequency.
 
-Before session text goes to a model, a run names its projects (an
-allowlist), and a secret scan drops matching lines.
-
-## Open questions
-
-1. **Backup.** This Mac has no Time Machine destination, so the archive is
-   on one disk, and "local only" rules out a cloud copy. Recommendation: an
-   encrypted external disk (or another encrypted backup Curtis controls),
-   synced after each daily copy. Or accept the risk in writing.
-2. **Which models may phase 3 send session text to?** Proposed: only the
-   provider that already saw that session, for allowlisted projects;
-   Decide's providers need an explicit flag per run.
+Which projects a run may send to a model, and to which providers, is a
+setting. A run that sends a session to a provider other than the one that
+wrote it prints a warning and continues.
