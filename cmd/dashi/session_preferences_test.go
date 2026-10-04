@@ -58,19 +58,19 @@ func TestSessionPickerRestoresPreferencesAndDispatchesSelectedRoute(t *testing.T
 				t.Fatal(err)
 			}
 			o := Options{}
-			environment := map[string]string{}
 			if mode == "flags" {
 				o.Provider = "one"
 				o.Controls.Temperature = preferenceField[float64]{Set: true, Value: 0}
 			}
 			if mode == "environment" {
-				environment["DASHI_PROVIDER"] = "one"
-				environment["DASHI_TEMPERATURE"] = "0.5"
+				// The command line read DASHI_PROVIDER=one and DASHI_TEMPERATURE=0.5.
+				o.Provider = "one"
+				o.Controls.Temperature = preferenceField[float64]{Set: true, Value: 0.5}
 			}
 			user := preferenceFile{modelSelection: modelSelection{Provider: "one", Model: "same/model"}, Source: "user settings"}
-			lookup := func(name string) (string, bool) { v, ok := environment[name]; return v, ok }
+			lookup := func(string) (string, bool) { return "", false }
 			p.resolveSession = func(reopened preferenceFile) (launchPreferences, error) {
-				return resolveLaunchPreferences(o, p.routes.registry, p.routes.registry, user, preferenceFile{}, reopened, lookup, nil)
+				return resolveLaunchPreferences(o, p.routes.registry, p.routes.registry, user, preferenceFile{}, reopened, lookup)
 			}
 			p.launch, err = p.resolveSession(preferenceFile{})
 			if err != nil {

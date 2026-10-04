@@ -80,5 +80,5 @@ Incomplete or estimated usage has no exact percentage. Concurrent work can
 advance after a displayed snapshot.
 
 These commands require interactive or `--plain` line input. A command-only
-`-p` invocation supports `/help` and quit aliases; other slash commands receive
+`dashi run` invocation supports `/help` and quit aliases; other slash commands receive
 an actionable rejection before any provider request is sent.

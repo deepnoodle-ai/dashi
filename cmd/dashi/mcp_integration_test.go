@@ -111,7 +111,7 @@ func TestMCPPrintAndPipedModesStartupBeforePrompt(t *testing.T) {
 			defer func() { isTerminal = old }()
 			code := 0
 			if mode == "print" {
-				code = runPrint(t.Context(), cfg, Options{Print: "work", PrintSet: true, Yes: true}, &out, &stderr)
+				code = runPrint(t.Context(), cfg, Options{Prompt: "work", Run: true, Yes: true}, &out, &stderr)
 			} else {
 				code = runLines(t.Context(), cfg, Options{Plain: true}, strings.NewReader("work\n/quit\n"), &out, &stderr)
 			}

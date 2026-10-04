@@ -313,7 +313,7 @@ func TestComposerPrintCommandsNeverStartProviderWork(t *testing.T) {
 		t.Run(scenario.input, func(t *testing.T) {
 			cfg := testConfig(t)
 			var out, diag bytes.Buffer
-			code := runPrint(t.Context(), cfg, Options{Print: scenario.input, PrintSet: true}, &out, &diag)
+			code := runPrint(t.Context(), cfg, Options{Prompt: scenario.input, Run: true}, &out, &diag)
 			if code != scenario.code || !strings.Contains(out.String()+diag.String(), scenario.output) || cfg.Client.(*fakeClient).sends != 0 {
 				t.Fatalf("code=%d out=%s diag=%s", code, &out, &diag)
 			}
@@ -324,7 +324,7 @@ func TestComposerPrintCommandsNeverStartProviderWork(t *testing.T) {
 func TestComposerPrintSlashControlsStayPrintable(t *testing.T) {
 	cfg := testConfig(t)
 	var out, diag bytes.Buffer
-	code := runPrint(t.Context(), cfg, Options{Print: "/unknown\x1b]52;c;Y2xpcGJvYXJk\x07\x1b[2J", PrintSet: true}, &out, &diag)
+	code := runPrint(t.Context(), cfg, Options{Prompt: "/unknown\x1b]52;c;Y2xpcGJvYXJk\x07\x1b[2J", Run: true}, &out, &diag)
 	if code != 2 || cfg.Client.(*fakeClient).sends != 0 {
 		t.Fatalf("code=%d", code)
 	}

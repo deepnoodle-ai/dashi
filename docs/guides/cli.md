@@ -19,6 +19,16 @@ While the repository is private, `go install` needs
 `go install ./cmd/dashi` builds the working tree instead;
 the repository's `go.work` points it at the local library modules.
 
+The command line has three commands; `dashi --help` and `dashi COMMAND --help`
+describe every flag, and `dashi completion bash|zsh|fish` prints a completion
+script.
+
+```text
+dashi [flags]               start an interactive session
+dashi run [flags] [prompt]  send one request and print the reply
+dashi models [--available]  list destinations and their exact model IDs
+```
+
 Use `dashi models --available` to list configured destinations and exact model
 IDs. Choose a pair with `--provider ID --model NAME`, or use `/model` for the
 next turn. With no saved selection, Dashi detects configured vendor keys; its
@@ -74,7 +84,7 @@ for keyboard behavior, private history, editor selection, and exit protection.
 
 Attach a screenshot, PDF, or text file with `/attach PATH` or `@path`.
 Explicit mentions show a preview on the first Enter and send on the second.
-Use repeatable `--attach PATH` with `-p`. See [attachments](attachments.md) for
+Use repeatable `--attach PATH` with `dashi run`. See [attachments](attachments.md) for
 selection limits, failure recovery, and immutable snapshots.
 
 ## Commands
@@ -134,9 +144,9 @@ nothing behind. Attachment publication can retain snapshots and a discovery
 header before Start. That header is not proof of a recorded request or completed
 work; ordinary session lists still require a Turn.
 
-- `dashi -c` (or `--resume`) reopens the newest session of this directory
+- `dashi -c` (or `--continue`) reopens the newest session of this directory
   that has a turn. It shows the full scrollback.
-- `dashi --resume ID` reopens one session.
+- `dashi -r ID` (or `--resume ID`) reopens one session.
 - If the last turn did not finish, the screen says so. Press Enter to
   continue it, or type a new prompt to cancel it.
 - If dashi exited while a command ran, the command may still be running:
@@ -144,9 +154,9 @@ work; ordinary session lists still require a Turn.
   finished, or `/discard` to discard the turn; the record keeps the cancel.
 - A second `dashi` cannot open a session that is open in another terminal.
 
-`dashi -p "prompt"` runs one request and prints its last parent reply.
-Redirected stdin supplies one literal payload. Explicit `--output-format
-text|json|jsonl` selects response-only output. See [script input, response formats,
+`dashi run "prompt"` runs one request and prints its last parent reply.
+Redirected stdin supplies one literal payload. `--output-format
+text|json|jsonl` (`-o`) selects the output format. See [script input, response formats,
 resuming, and exit codes](cli-automation.md), including a CI example that keeps
 the build's exit status.
 
@@ -211,8 +221,8 @@ Enter to continue the turn. The prompt shows again.
 Text from the model is shown safely. Control characters, such as ESC and
 carriage return, appear as visible marks.
 
-In `-p` mode nobody can answer, so every call that needs approval is refused.
-Add `--yes` to approve all of them. Use `--yes` only in a repository that you
+In `dashi run` nobody can answer, so every call that needs approval is refused.
+Add `--yes` (`-y`) to approve all of them. Use `--yes` only in a repository that you
 can restore.
 
 ## Line mode

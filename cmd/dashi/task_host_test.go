@@ -392,7 +392,7 @@ func TestTaskPrintQuietAndPipeAttentionHaveCleanExit(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Client = &taskFixtureClient{}
 	var out, notice bytes.Buffer
-	if code := runPrint(t.Context(), cfg, Options{Print: "delegate", PrintSet: true, Yes: true}, &out, &notice); code != 0 {
+	if code := runPrint(t.Context(), cfg, Options{Prompt: "delegate", Run: true, Yes: true}, &out, &notice); code != 0 {
 		t.Fatalf("print code=%d stderr=%s", code, notice.String())
 	}
 	if out.String() != "Task result received.\n" {
@@ -406,7 +406,7 @@ func TestTaskPrintQuietAndPipeAttentionHaveCleanExit(t *testing.T) {
 	cfg.Client = &taskFixtureClient{effect: true}
 	out.Reset()
 	notice.Reset()
-	if code := runPrint(t.Context(), cfg, Options{Print: "delegate", PrintSet: true, Yes: true}, &out, &notice); code != 3 || out.String() != "Parent remains available.\n" {
+	if code := runPrint(t.Context(), cfg, Options{Prompt: "delegate", Run: true, Yes: true}, &out, &notice); code != 3 || out.String() != "Parent remains available.\n" {
 		t.Fatalf("unresolved print code=%d stdout=%q stderr=%s", code, out.String(), notice.String())
 	}
 	mustHave(t, notice.String(), "need attention")

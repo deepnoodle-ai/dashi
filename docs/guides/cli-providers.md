@@ -107,8 +107,9 @@ variable from the table above, including optional `OLLAMA_API_KEY`:
 ## Precedence, persistence, and continuation
 
 Startup chooses the destination/model pair from the first tier containing either
-selector: flags; `DASHI_PROVIDER`/`DASHI_MODEL`; reopened-session preferences;
-workspace settings; user settings; credential detection/default. It never fills a
+selector: the command line (a flag, or else its `DASHI_PROVIDER`/`DASHI_MODEL`
+variable); reopened-session preferences; workspace settings; user settings;
+credential detection/default. It never fills a
 missing selector from a lower tier. Provider-only uses its configured default;
 model-only requires one exact match. Controls resolve independently by field
 through the same tiers.
@@ -122,7 +123,7 @@ Interactive changes win until exit and save next-turn session and user
 preferences. Writes preserve unrelated user fields and never edit workspace
 settings. A save failure reports that the live choice remains active. Selecting a session
 through `/sessions` resolves its saved next-turn preferences through the same
-tiers. Flags, environment settings, and live interactive changes retain priority.
+tiers. Flags, `DASHI_*` variables, and live interactive changes retain priority.
 
 Continuing an open turn uses its recorded destination, controls, and instructions.
 Changing preferences cannot change that work. Removing a destination or changing
@@ -178,7 +179,9 @@ variables win, including empty values. Among named files, the first value wins.
 Environment files support comments, quoted values, `export`, and `=`/`:`
 separators. Malformed lines and invalid variable names are silently skipped.
 Duplicate entries within a file use the last value. Shell commands and variable
-substitution never execute. Missing/unreadable files stop startup.
+substitution never execute. Missing/unreadable files stop startup. Files load
+after the command line is read, so a `DASHI_*` setting in one has no effect and
+draws a warning; set it in the shell or use its flag.
 
 `--system-prompt` requires nonempty text and replaces built-in coding guidance
 for this invocation. Workspace facts and contextual instructions remain. It

@@ -113,7 +113,7 @@ func (c *Controller) commands() []commandEntry {
 				if u, ok := c.ui.(attachmentUI); ok {
 					u.AttachmentCommand(entry.name, arg)
 				} else {
-					c.notice("%s requires an interactive composer or --plain; -p uses --attach.", entry.name)
+					c.notice("%s requires an interactive composer or --plain; dashi run uses --attach.", entry.name)
 				}
 			}
 			command := commandEntry{name: entry.name, group: "Attachments", usage: entry.usage, description: entry.description, run: action}
@@ -336,7 +336,7 @@ func (c *Controller) printCommand(line string, stdout, stderr io.Writer) (bool, 
 		case "/help":
 			fmt.Fprintln(stdout, workspace.PrintableText(c.commandHelp()))
 			fmt.Fprintln(stdout)
-			fmt.Fprintln(stdout, workspace.PrintableText("With -p, only /help and /quit aliases run. Use --plain or interactive mode for other commands."))
+			fmt.Fprintln(stdout, workspace.PrintableText("With dashi run, only /help and /quit aliases run. Use --plain or interactive mode for other commands."))
 			return true, 0
 		case "/quit":
 			return true, 0
@@ -345,6 +345,6 @@ func (c *Controller) printCommand(line string, stdout, stderr io.Writer) (bool, 
 			return true, 2
 		}
 	}
-	fmt.Fprintln(stderr, workspace.PrintableText(fmt.Sprintf("dashi: unknown command %s. Use -p /help for available commands.", name)))
+	fmt.Fprintln(stderr, workspace.PrintableText(fmt.Sprintf("dashi: unknown command %s. Use dashi run /help for available commands.", name)))
 	return true, 2
 }

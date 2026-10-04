@@ -32,7 +32,7 @@ Tab/Down advance candidates. Shift+Tab/Up reverse them. Escape restores the
 original draft. Enter submits the displayed input. Command arguments remain
 unchanged. `/help` and `/?` list implemented commands, their availability, and
 composer controls. Unknown slash input reports an error. Start a request with
-ordinary text when referring to a path such as `/etc/hosts`. With `-p`, `/help`
+ordinary text when referring to a path such as `/etc/hosts`. With `dashi run`, `/help`
 and quit aliases run without provider work. Other slash commands require
 `--plain` or interactive mode and report that they were not sent.
 

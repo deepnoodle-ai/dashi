@@ -23,7 +23,7 @@ line, to confirm. Removing the last selection keeps the request text; a blank
 line still sends that retained request. Print mode needs no second Enter:
 
 ```sh
-dashi -p 'Compare @notes.txt with the screenshot' --attach screen.png
+dashi run 'Compare @notes.txt with the screenshot' --attach screen.png
 ```
 
 Repeat `--attach` for more files; flags precede prompt mentions in selection

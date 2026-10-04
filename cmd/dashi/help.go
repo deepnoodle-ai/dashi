@@ -120,7 +120,7 @@ func (r helpRow) head() string {
 	return r.Name + " " + r.Usage
 }
 
-// String is the plain layout for line mode, -p, and copying.
+// String is the plain layout for line mode, the run command, and copying.
 func (h helpDoc) String() string {
 	var out strings.Builder
 	for i, line := range h.lines() {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/dashi/workspace"
+	"github.com/deepnoodle-ai/wonton/cli"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
@@ -21,21 +22,33 @@ func main() {
 	))
 }
 
-// run is main without the process: it returns the exit code.
+// run is main without the process: it returns the exit code. A command-line
+// error exits 2.
 func run(
 	ctx context.Context,
 	args []string,
 	stdin io.Reader,
 	stdout, stderr io.Writer,
 ) int {
-	o, err := parseArgs(args, stdout)
-	if err != nil {
+	code := 0
+	app := newApp(stdout, stderr, func(o Options) error {
+		code = runOptions(ctx, o, stdin, stdout, stderr)
+		return nil
+	})
+	if err := app.ExecuteContext(ctx, args); err != nil && !cli.IsHelpRequested(err) {
 		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 2
 	}
-	if o.Help {
-		return 0
-	}
+	return code
+}
+
+// runOptions runs the command that o describes and returns its exit code.
+func runOptions(
+	ctx context.Context,
+	o Options,
+	stdin io.Reader,
+	stdout, stderr io.Writer,
+) int {
 	dir, err := workDir()
 	if err != nil {
 		if automationOneShot(o, stdin) {
@@ -81,7 +94,7 @@ func run(
 	return runScreen(ctx, cfg, o, stdout, stderr)
 }
 
-// runPrint keeps the fixture/embedding entry point for a prompt-only request.
+// runPrint runs the run command against a prepared configuration, for tests.
 func runPrint(ctx context.Context, cfg appConfig, o Options, stdout, stderr io.Writer) int {
 	return runAutomation(ctx, o, nil, stdout, stderr, cfg.Dir, cfg.HomeDir, cfg.Store, func() (appConfig, error) { return cfg, nil })
 }
@@ -265,21 +278,22 @@ func loadCLIConfig(o Options, home, dir, invocation string, stdin io.Reader, std
 		return appConfig{}, err
 	}
 	warnPreferenceSources(stderr, user, project)
+	warnEnvironmentSettings(stderr, origins)
 	store := sessionstore.NewStore(filepath.Join(home, ".dashi", "sessions"))
 	reopened, err := loadReopenedPreferences(store, dir, o)
 	if err != nil {
 		return appConfig{}, err
 	}
-	launch, err := resolveLaunchPreferences(o, registry, trusted, user, project, reopened, os.LookupEnv, origins)
+	launch, err := resolveLaunchPreferences(o, registry, trusted, user, project, reopened, os.LookupEnv)
 	if err != nil {
 		return appConfig{}, err
 	}
 	if launch.SelectionError == "" {
 		registry[launch.Selection.Destination.ID] = launch.Selection.Destination
 	}
-	preferences := &cliPreferences{launch: launch, routes: newRouteClients(registry, trusted, os.LookupEnv), client: newTurnClient(nil), writer: userPreferenceWriter{path: filepath.Join(home, ".dashi", "settings.json")}, interactive: !o.PrintSet && !o.OutputFormatSet && !automationRedirected(stdin), guidance: o.SystemPrompt, guidanceSet: o.SystemPromptSet, environmentOrigins: origins, environmentFiles: namedEnvironmentPaths(invocation, o.EnvFiles)}
+	preferences := &cliPreferences{launch: launch, routes: newRouteClients(registry, trusted, os.LookupEnv), client: newTurnClient(nil), writer: userPreferenceWriter{path: filepath.Join(home, ".dashi", "settings.json")}, interactive: !o.Run && !automationRedirected(stdin), guidance: o.SystemPrompt, guidanceSet: o.SystemPrompt != "", environmentOrigins: origins, environmentFiles: namedEnvironmentPaths(invocation, o.EnvFiles)}
 	preferences.resolveSession = func(saved preferenceFile) (launchPreferences, error) {
-		return resolveLaunchPreferences(o, registry, trusted, user, project, saved, os.LookupEnv, origins)
+		return resolveLaunchPreferences(o, registry, trusted, user, project, saved, os.LookupEnv)
 	}
 	cfg := appConfig{Dir: dir, HomeDir: home, InvocationDir: invocation, MCPFiles: o.MCPFiles, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences}
 	return cfg, nil

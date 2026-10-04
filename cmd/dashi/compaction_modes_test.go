@@ -112,7 +112,7 @@ func TestCompactionPrintAndPlainOutputBoundaries(t *testing.T) {
 			opts := Options{Resume: true}
 			var code int
 			if mode == "print" {
-				opts.Print, opts.PrintSet = "actual request", true
+				opts.Prompt, opts.Run = "actual request", true
 				code = runPrint(t.Context(), cfg, opts, &out, &diagnostics)
 				if out.String() != "Visible answer.\n" {
 					t.Fatalf("print stdout contains internal output: %q", out.String())

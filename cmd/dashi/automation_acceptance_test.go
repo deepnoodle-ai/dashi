@@ -69,7 +69,7 @@ func TestAutomationWholeInputOneLiteralRequest(t *testing.T) {
 	literal := "日本\tline\n\n/quit\nyes\n@missing-file.txt\n"
 	for _, format := range []string{"text", "json", "jsonl"} {
 		cfg := testConfig(t, say("first\nlast\t日本\u2028\u2029\x1b[31m"))
-		code, out, diag := runAutomationFixture(t, cfg, Options{Print: "Explain exactly ", PrintSet: true, OutputFormat: format, OutputFormatSet: true}, literal)
+		code, out, diag := runAutomationFixture(t, cfg, Options{Prompt: "Explain exactly ", Run: true, OutputFormat: format}, literal)
 		if code != 0 {
 			t.Fatalf("%s code=%d %s", format, code, diag)
 		}
@@ -103,7 +103,7 @@ func TestAutomationPreflightDoesNotBuildLiveApp(t *testing.T) {
 	}
 	cfg := testConfig(t)
 	for _, prompt := range []string{"/help", "/quit", "/model other"} {
-		code, out, _ := runAutomationFixture(t, cfg, Options{Print: prompt, PrintSet: true, OutputFormat: "json"}, "")
+		code, out, _ := runAutomationFixture(t, cfg, Options{Prompt: prompt, Run: true, OutputFormat: "json"}, "")
 		want := 0
 		if prompt == "/model other" {
 			want = 2
@@ -112,7 +112,7 @@ func TestAutomationPreflightDoesNotBuildLiveApp(t *testing.T) {
 			t.Fatalf("%s %d %s", prompt, code, out)
 		}
 	}
-	code, _, _ := runAutomationFixture(t, cfg, Options{Print: "/help", PrintSet: true, OutputFormat: "json"}, "data")
+	code, _, _ := runAutomationFixture(t, cfg, Options{Prompt: "/help", Run: true, OutputFormat: "json"}, "data")
 	if code != 2 || cfg.Client.(*fakeClient).sends != 0 {
 		t.Fatal("mixed command dispatched")
 	}
@@ -122,7 +122,7 @@ func TestAutomationParentNoticeOrderAndKeylessSavedRead(t *testing.T) {
 		cfg := testConfig(t)
 		client := &taskFixtureClient{}
 		cfg.Client = client
-		code, out, diag := runAutomationFixture(t, cfg, Options{Print: "delegate", PrintSet: true, Yes: true, OutputFormat: format}, "")
+		code, out, diag := runAutomationFixture(t, cfg, Options{Prompt: "delegate", Run: true, Yes: true, OutputFormat: format}, "")
 		if code != 0 {
 			t.Fatalf("code=%d %s", code, diag)
 		}
@@ -161,12 +161,12 @@ func TestAutomationEmptySavedAnswerNeverBorrowsHistory(t *testing.T) {
 		}}}}}, nil
 	})
 	cfg := testConfig(t, say("old"), say(""))
-	code, _, diag := runAutomationFixture(t, cfg, Options{Print: "first", PrintSet: true, OutputFormat: "json"}, "")
+	code, _, diag := runAutomationFixture(t, cfg, Options{Prompt: "first", Run: true, OutputFormat: "json"}, "")
 	if code != 0 {
 		t.Fatal(diag)
 	}
 	saved, _ := cfg.Store.Latest(cfg.Dir)
-	code, out, diag := runAutomationFixture(t, cfg, Options{Resume: true, ResumeID: saved.ID, Print: "new", PrintSet: true, OutputFormat: "json"}, "")
+	code, out, diag := runAutomationFixture(t, cfg, Options{Resume: true, ResumeID: saved.ID, Prompt: "new", Run: true, OutputFormat: "json"}, "")
 	if code != 0 || out != "{\"messages\":[]}\n" {
 		t.Fatalf("new %d %s %s", code, out, diag)
 	}
@@ -182,7 +182,7 @@ func TestAutomationBlockedSavedContentAndEveryTarget(t *testing.T) {
 	installTaskEffect(t, &runs, true)
 	cfg := testConfig(t)
 	cfg.Client = &taskFixtureClient{effect: true}
-	code, out, diag := runAutomationFixture(t, cfg, Options{Print: "delegate", PrintSet: true, Yes: true, OutputFormat: "json"}, "")
+	code, out, diag := runAutomationFixture(t, cfg, Options{Prompt: "delegate", Run: true, Yes: true, OutputFormat: "json"}, "")
 	if code != 3 || len(decodeResponses(t, "json", out)) != 1 || !strings.Contains(diag, "task ") || !strings.Contains(diag, "call effect-call") {
 		t.Fatalf("%d %s %s", code, out, diag)
 	}
@@ -205,9 +205,9 @@ func responseContentFromJSON(t *testing.T, data string) string {
 }
 func TestAutomationCorruptLatestAndAnotherOwnerFailWithoutFallback(t *testing.T) {
 	cfg := testConfig(t, say("older answer"), say("latest answer"))
-	runAutomationFixture(t, cfg, Options{Print: "one", PrintSet: true}, "")
+	runAutomationFixture(t, cfg, Options{Prompt: "one", Run: true}, "")
 	saved, _ := cfg.Store.Latest(cfg.Dir)
-	runAutomationFixture(t, cfg, Options{Print: "two", PrintSet: true, Resume: true, ResumeID: saved.ID}, "")
+	runAutomationFixture(t, cfg, Options{Prompt: "two", Run: true, Resume: true, ResumeID: saved.ID}, "")
 	unlock, err := cfg.Store.Lock(saved)
 	if err != nil {
 		t.Fatal(err)
@@ -303,12 +303,12 @@ func TestAutomationOutputFailureCancelsOwnedExecution(t *testing.T) {
 	}
 }
 func TestAutomationFormatsAndRoutes(t *testing.T) {
-	for _, args := range [][]string{{"--output-format", "JSON"}, {"--output-format", "json", "--plain"}, {"--output-format", "text", "--inline"}, {"models", "--output-format", "json"}} {
+	for _, args := range [][]string{{"run", "--output-format", "JSON"}, {"run", "--output-format", "json", "--plain"}, {"run", "-o", "text", "--inline"}, {"--output-format", "json"}, {"models", "--output-format", "json"}} {
 		if _, err := parseArgs(args, io.Discard); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
 	}
-	if !automationOneShot(Options{}, strings.NewReader("data")) || automationOneShot(Options{Plain: true}, strings.NewReader("data")) || !automationOneShot(Options{OutputFormatSet: true}, nil) {
+	if !automationOneShot(Options{}, strings.NewReader("data")) || automationOneShot(Options{Plain: true}, strings.NewReader("data")) || !automationOneShot(Options{Run: true}, nil) {
 		t.Fatal("wrong route")
 	}
 }
@@ -318,7 +318,7 @@ func TestAutomationRunProcessFixture(t *testing.T) {
 		return
 	}
 	cfg := testConfig(t, say("The test failed: expected 3, got 4.\n日本\u2028"))
-	args := Options{Print: "Explain the failure", PrintSet: true, OutputFormat: mode}
+	args := Options{Prompt: "Explain the failure", Run: true, OutputFormat: mode}
 	if mode == "signal-input" {
 		args.OutputFormat = "json"
 		fmt.Fprintln(os.Stderr, "ready")
@@ -357,7 +357,7 @@ func TestAutomationPartialParentAnswerAndSafeBlockedResume(t *testing.T) {
 		return result, err
 	}
 	cfg := testConfig(t, response)
-	code, out, diag := runAutomationFixture(t, cfg, Options{Print: "start", PrintSet: true, Yes: true, OutputFormat: "jsonl"}, "")
+	code, out, diag := runAutomationFixture(t, cfg, Options{Prompt: "start", Run: true, Yes: true, OutputFormat: "jsonl"}, "")
 	if code != 3 || len(decodeResponses(t, "jsonl", out)) != 1 || !strings.Contains(diag, "waiting") {
 		t.Fatalf("%d %s %s", code, out, diag)
 	}
@@ -371,7 +371,7 @@ func TestAutomationPartialParentAnswerAndSafeBlockedResume(t *testing.T) {
 	if effects.Load() != 1 || cfg.Client.(*fakeClient).sends != 1 {
 		t.Fatal("blocked read retried effect")
 	}
-	code, out, _ = runAutomationFixture(t, cfg, Options{Resume: true, ResumeID: saved.ID, Print: "new request", PrintSet: true, OutputFormat: "json"}, "")
+	code, out, _ = runAutomationFixture(t, cfg, Options{Resume: true, ResumeID: saved.ID, Prompt: "new request", Run: true, OutputFormat: "json"}, "")
 	if code != 3 || len(decodeResponses(t, "json", out)) != 0 || effects.Load() != 1 {
 		t.Fatal("new payload closed pending work")
 	}
@@ -386,7 +386,7 @@ func TestAutomationInterruptedParentContinuesWithoutRepeatingEffect(t *testing.T
 	done := make(chan int, 1)
 	var out, diag bytes.Buffer
 	go func() {
-		done <- runAutomation(ctx, Options{Print: "run", PrintSet: true, Yes: true, OutputFormat: "json"}, nil, &out, &diag, cfg.Dir, cfg.HomeDir, cfg.Store, func() (appConfig, error) { return cfg, nil })
+		done <- runAutomation(ctx, Options{Prompt: "run", Run: true, Yes: true, OutputFormat: "json"}, nil, &out, &diag, cfg.Dir, cfg.HomeDir, cfg.Store, func() (appConfig, error) { return cfg, nil })
 	}()
 	select {
 	case <-started:
@@ -405,7 +405,7 @@ func TestAutomationInterruptedParentContinuesWithoutRepeatingEffect(t *testing.T
 }
 func TestAutomationMachineActiveCompactionExcludesPrivateSummary(t *testing.T) {
 	cfg, client := activeFixtureConfig(t, false)
-	code, out, diag := runAutomationFixture(t, cfg, Options{Print: activeObjective, PrintSet: true, Yes: true, OutputFormat: "json"}, "")
+	code, out, diag := runAutomationFixture(t, cfg, Options{Prompt: activeObjective, Run: true, Yes: true, OutputFormat: "json"}, "")
 	if code != 0 || client.summaries < 2 {
 		t.Fatalf("%d %s", code, diag)
 	}
@@ -422,7 +422,7 @@ func TestAutomationFailedBuildFixture(t *testing.T) {
 
 func TestAutomationWorkspacePreflightStillHasEmptyMachineOutput(t *testing.T) {
 	var out, diag bytes.Buffer
-	code := run(t.Context(), []string{"--workspace", filepath.Join(t.TempDir(), "missing"), "--output-format", "json"}, strings.NewReader("data"), &out, &diag)
+	code := run(t.Context(), []string{"run", "--workspace", filepath.Join(t.TempDir(), "missing"), "--output-format", "json"}, strings.NewReader("data"), &out, &diag)
 	if code != 1 || out.String() != "{\"messages\":[]}\n" {
 		t.Fatalf("%d %q %s", code, out.String(), diag.String())
 	}
@@ -434,7 +434,7 @@ func TestAutomationAttachmentOnlyNewAndResumedRequests(t *testing.T) {
 	if err := os.WriteFile(path, []byte("selected bytes"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	o := Options{PrintSet: true, AttachFiles: []string{path}, OutputFormat: "json"}
+	o := Options{Run: true, AttachFiles: []string{path}, OutputFormat: "json"}
 	for _, want := range []string{"first file", "second file"} {
 		code, out, diag := runAutomationFixture(t, cfg, o, "")
 		if code != 0 || !reflect.DeepEqual(decodeResponses(t, "json", out), []responseMessage{{want}}) {

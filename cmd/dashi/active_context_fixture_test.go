@@ -190,7 +190,7 @@ func TestActiveContextCLIPrintAndLineCompleteLongLoop(t *testing.T) {
 			var diagnostics bytes.Buffer
 			var code int
 			if mode == "print" {
-				code = runPrint(t.Context(), cfg, Options{Print: activeObjective, PrintSet: true, Yes: true}, &out, &diagnostics)
+				code = runPrint(t.Context(), cfg, Options{Prompt: activeObjective, Run: true, Yes: true}, &out, &diagnostics)
 			} else {
 				reader, writer := io.Pipe()
 				go func() {

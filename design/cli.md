@@ -62,12 +62,13 @@ The test expects "1,2" to give two items. Parse drops the last one.
 | `/quit` | Saves and exits. Ctrl-D does the same. |
 
 A slash command typed during a turn is not a steer. It waits, and the screen
-says so. Flags: `-c` or `--resume` reopens the last session of this
-directory that has a turn. `--resume ID` reopens session `ID`. `-p "prompt"`
-runs one turn without a UI and prints the reply. `--model NAME` sets the
-model. The order for the model is flag, `DASHI_MODEL`, settings file, then
-`gpt-6-luna`. Settings are in `~/.dashi/settings.json`, overridden by
-`.dashi/settings.json` in the repository.
+says so. Flags: `-c` or `--continue` reopens the last session of this
+directory that has a turn. `-r ID` or `--resume ID` reopens session `ID`.
+`dashi run "prompt"` runs one turn without a UI and prints the reply.
+`--model NAME` sets the model. The order for the model is flag, `DASHI_MODEL`,
+reopened session, settings file, then detection or `gpt-6-luna`. Settings are
+in `~/.dashi/settings.json`, overridden by `.dashi/settings.json` in the
+repository.
 
 | Mode | Typed text | Ctrl-C |
 | --- | --- | --- |
@@ -118,9 +119,9 @@ turn by which logs exist, so a damaged log is skipped with a warning instead of
 hiding later turns; under `Exclusive`, a damaged last turn is left out and a new
 prompt runs the next turn. A turn left with a started command refuses a new
 prompt until `/done` or `/discard`. A session is written when its first turn
-records. A launch that runs no turn leaves nothing behind. `-p` sessions are
-saved like any other. `-c` picks the newest session with a turn, so `dashi -c -p
-"..."` adds to the last session. `/sessions` lists this directory only. A lock
+records. A launch that runs no turn leaves nothing behind. `dashi run` sessions
+are saved like any other. `-c` picks the newest session with a turn, so
+`dashi run -c "..."` adds to the last session. `/sessions` lists this directory only. A lock
 file keeps a second `dashi` out of an open session.
 
 ## Wiring
@@ -142,8 +143,8 @@ The CLI uses the `workspace` approval types directly. It owns no policy.
 ## Requirements
 
 - FR-1: The screen shows text, each tool call, each stop reason, and a footer.
-- FR-2: The screen, line mode, and `-p` use one renderer.
-- FR-3: `-c` and `--resume` reopen a session with full scrollback. A follow-up
+- FR-2: The screen, line mode, and `dashi run` use one renderer.
+- FR-3: `-c` and `-r` reopen a session with full scrollback. A follow-up
   sends the history from `History`.
 - FR-4: An unreadable turn gives a warning and does not stop the session.
 - FR-5: Lines typed during a turn are steers. `!` makes one urgent.
@@ -164,7 +165,7 @@ providers.
 | Risk | Mitigation |
 | --- | --- |
 | Live `gpt-6-luna` differs from fakes | A live pass is recorded in the PR |
-| Screen bugs hide in a terminal | Line mode and `-p` run the same loop; the Controller has tests |
+| Screen bugs hide in a terminal | Line mode and `dashi run` run the same loop; the Controller has tests |
 
 ## Decisions
 
@@ -182,12 +183,12 @@ providers.
 10. **The limit stop does not end the turn** (library decision 34). The same
     turn continues with a raised limit, doubling each time (40, 80, 160).
 11. **The `Controller` holds modes and commands.** The screen, line mode, and
-    `-p` are thin `UI` values, so tests drive every mode without a terminal.
+    `dashi run` are thin `UI` values, so tests drive every mode without a terminal.
 12. **Line mode** runs when stdin or stdout is not a terminal, or with
-    `--plain`. Piped input runs one line at a time. `-p` denies approvals
+    `--plain`. Piped input runs one line at a time. `dashi run` denies approvals
     unless `--yes` is set.
-13. **`-p` sessions are saved, and `-c` picks the newest session with a
-    turn.** The launch that runs no turn is never saved, so it cannot hide
-    real work. A `-p` run without `-c` starts its own session.
+13. **`dashi run` sessions are saved, and `-c` picks the newest session with
+    a turn.** The launch that runs no turn is never saved, so it cannot hide
+    real work. A `dashi run` without `-c` starts its own session.
 14. **The full screen prints the plain transcript on exit**, because the
     alternate screen leaves no scrollback.

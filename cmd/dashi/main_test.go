@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"os"
-	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -30,14 +28,14 @@ func testConfig(t *testing.T, script ...reply) appConfig {
 	}
 }
 
-// -p prints only the answer to stdout. The steps go to stderr.
+// The run command prints only the answer to stdout. The steps go to stderr.
 func TestPrintModePrintsOnlyTheAnswer(t *testing.T) {
 	cfg := testConfig(t,
 		callTool("c1", "list_directory", `{}`),
 		say("The answer."),
 	)
 	var stdout, stderr bytes.Buffer
-	code := runPrint(t.Context(), cfg, Options{Print: "go", PrintSet: true}, &stdout, &stderr)
+	code := runPrint(t.Context(), cfg, Options{Prompt: "go", Run: true}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())
 	}
@@ -59,7 +57,7 @@ func TestPrintModeDeniesApprovalUnlessYes(t *testing.T) {
 	}
 	cfg := testConfig(t, script...)
 	var stdout, stderr bytes.Buffer
-	runPrint(t.Context(), cfg, Options{Print: "go", PrintSet: true}, &stdout, &stderr)
+	runPrint(t.Context(), cfg, Options{Prompt: "go", Run: true}, &stdout, &stderr)
 	if runs.Load() != 0 || !strings.Contains(stderr.String(), "denied") {
 		t.Fatalf("runs=%d stderr=%q", runs.Load(), stderr.String())
 	}
@@ -67,7 +65,7 @@ func TestPrintModeDeniesApprovalUnlessYes(t *testing.T) {
 	cfg = testConfig(t, script...)
 	stdout.Reset()
 	stderr.Reset()
-	runPrint(t.Context(), cfg, Options{Print: "go", PrintSet: true, Yes: true}, &stdout, &stderr)
+	runPrint(t.Context(), cfg, Options{Prompt: "go", Run: true, Yes: true}, &stdout, &stderr)
 	if runs.Load() != 1 {
 		t.Fatalf("--yes did not approve: runs=%d", runs.Load())
 	}
@@ -77,7 +75,7 @@ func TestPrintModeExitsNonzeroOnLimit(t *testing.T) {
 	cfg := testConfig(t, callTool("c1", "list_directory", `{}`), say("Partial."))
 	cfg.ModelCalls = 2
 	var stdout, stderr bytes.Buffer
-	code := runPrint(t.Context(), cfg, Options{Print: "go", PrintSet: true}, &stdout, &stderr)
+	code := runPrint(t.Context(), cfg, Options{Prompt: "go", Run: true}, &stdout, &stderr)
 	if code != 4 || !strings.Contains(stderr.String(), "limited") {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
@@ -101,7 +99,7 @@ func TestPrintLocalCommandsIgnoreBusyResumeSession(t *testing.T) {
 			defer unlock()
 			var stdout, stderr bytes.Buffer
 			code := runPrint(t.Context(), cfg, Options{
-				Print: input, PrintSet: true, Resume: true, ResumeID: saved.ID,
+				Prompt: input, Run: true, Resume: true, ResumeID: saved.ID,
 			}, &stdout, &stderr)
 			if code != 0 || stderr.Len() != 0 || cfg.Client.(*fakeClient).sends != 0 {
 				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
@@ -264,54 +262,4 @@ func safeString(b *bytes.Buffer, ui *lineUI) string {
 	ui.mu.Lock()
 	defer ui.mu.Unlock()
 	return b.String()
-}
-
-func TestModelChoiceOrder(t *testing.T) {
-	env := func(m map[string]string) func(string) string {
-		return func(k string) string { return m[k] }
-	}
-	s := Settings{Model: "from-settings"}
-	tests := []struct {
-		flag string
-		env  map[string]string
-		s    Settings
-		want string
-	}{
-		{"flag", map[string]string{"DASHI_MODEL": "env"}, s, "flag"},
-		{"", map[string]string{"DASHI_MODEL": "env"}, s, "env"},
-		{"", nil, s, "from-settings"},
-		{"", nil, Settings{}, "gpt-6-luna"},
-	}
-	for _, tt := range tests {
-		if got := chooseModel(tt.flag, env(tt.env), tt.s); !reflect.DeepEqual(got, tt.want) {
-			t.Errorf("got %q, want %q", got, tt.want)
-		}
-	}
-}
-
-func TestSettingsRepositoryFileWins(t *testing.T) {
-	home, dir := t.TempDir(), t.TempDir()
-	write := func(root, body string) {
-		p := filepath.Join(root, ".dashi")
-		if err := os.MkdirAll(p, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(p, "settings.json"), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write(home, `{"model":"user"}`)
-	s, warns := loadSettings(home, dir)
-	if s.Model != "user" || len(warns) != 0 {
-		t.Fatalf("s=%+v warns=%v", s, warns)
-	}
-	write(dir, `{"model":"repo"}`)
-	if s, _ := loadSettings(home, dir); s.Model != "repo" {
-		t.Fatalf("s=%+v", s)
-	}
-	write(dir, `{bad json`)
-	s, warns = loadSettings(home, dir)
-	if s.Model != "user" || len(warns) != 1 {
-		t.Fatalf("s=%+v warns=%v", s, warns)
-	}
 }

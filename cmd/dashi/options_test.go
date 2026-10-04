@@ -3,29 +3,53 @@ package main
 import (
 	"bytes"
 	"io"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 )
 
+// parseArgs runs the command line without running a command. It returns
+// zero Options when the command line wrote help or the version instead.
+func parseArgs(args []string, out io.Writer) (Options, error) {
+	var o Options
+	app := newApp(out, io.Discard, func(got Options) error {
+		o = got
+		return nil
+	})
+	return o, app.ExecuteArgs(args)
+}
+
+// unsetSettingsVariables removes the DASHI_* variables bound to flags.
+func unsetSettingsVariables(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"DASHI_PROVIDER", "DASHI_MODEL", "DASHI_THINKING_EFFORT", "DASHI_SHOW_THINKING", "DASHI_TEMPERATURE", "DASHI_MAX_TOKENS"} {
+		t.Setenv(name, "")
+		os.Unsetenv(name)
+	}
+}
+
 func TestParseArgs(t *testing.T) {
+	unsetSettingsVariables(t)
 	tests := []struct {
 		args []string
 		want Options
 	}{
 		{nil, Options{}},
 		{[]string{"-c"}, Options{Resume: true}},
-		{[]string{"--resume"}, Options{Resume: true}},
-		{[]string{"--resume", "abc"}, Options{Resume: true, ResumeID: "abc"}},
-		{[]string{"--resume=abc"}, Options{Resume: true, ResumeID: "abc"}},
-		{[]string{"--resume", "--model", "m"}, Options{Resume: true, Model: "m"}},
-		{[]string{"-p", "hi there", "--yes"}, Options{Print: "hi there", PrintSet: true, Yes: true}},
-		{[]string{"-p=hi", "--print", "-5"}, Options{Print: "-5", PrintSet: true}},
-		{[]string{"-p=a=b"}, Options{Print: "a=b", PrintSet: true}},
+		{[]string{"--continue"}, Options{Resume: true}},
+		{[]string{"-r", "abc"}, Options{Resume: true, ResumeID: "abc"}},
+		{[]string{"--resume=abc", "--model", "m"}, Options{Resume: true, ResumeID: "abc", Model: "m"}},
 		{[]string{"--model=gpt-6-luna"}, Options{Model: "gpt-6-luna"}},
-		{[]string{"--plain", "-h"}, Options{Help: true}},
-		{[]string{"--help"}, Options{Help: true}},
 		{[]string{"--inline"}, Options{Inline: true}},
+		{[]string{"--plain", "--workspace", "w"}, Options{Plain: true, Workspace: "w"}},
+		{[]string{"run", "hi there", "--yes"}, Options{Run: true, Prompt: "hi there", OutputFormat: "text", Yes: true}},
+		{[]string{"run"}, Options{Run: true, OutputFormat: "text"}},
+		{[]string{"run", "-c", "-o", "json"}, Options{Run: true, Resume: true, OutputFormat: "json"}},
+		{[]string{"run", "--", "-5"}, Options{Run: true, Prompt: "-5", OutputFormat: "text"}},
+		{[]string{"-c", "run", "go"}, Options{Run: true, Prompt: "go", Resume: true, OutputFormat: "text"}},
+		{[]string{"models"}, Options{Models: true}},
+		{[]string{"models", "--available", "--workspace", "w", "--env-file=e"}, Options{Models: true, Available: true, Workspace: "w", EnvFiles: []string{"e"}}},
 	}
 	for _, tt := range tests {
 		got, err := parseArgs(tt.args, io.Discard)
@@ -33,48 +57,30 @@ func TestParseArgs(t *testing.T) {
 			t.Errorf("parseArgs(%v)=%+v, %v; want %+v", tt.args, got, err, tt.want)
 		}
 	}
-	for _, bad := range [][]string{{"--nope"}, {"-p"}, {"--model"}, {"--plain", "--inline"}, {"stray"}} {
+	for _, bad := range [][]string{
+		{"--nope"}, {"stray"}, {"-r"}, {"--model"}, {"--plain", "--inline"},
+		{"-c", "-r", "abc"}, {"--resume="}, {"run", "a", "b"}, {"run", "--plain"},
+		{"run", "-o", "xml"}, {"--yes"}, {"--attach", "a.go"}, {"--output-format", "json"},
+		{"--available"}, {"models", "extra"}, {"models", "--model", "m"}, {"models", "-c"},
+	} {
 		if _, err := parseArgs(bad, io.Discard); err == nil {
 			t.Errorf("parseArgs(%v) succeeded", bad)
 		}
 	}
 }
 
-// --resume takes an optional session ID: the next argument, unless it is a
-// flag. -c never takes one.
-func TestParseArgsResumeOptionalID(t *testing.T) {
-	tests := []struct {
-		args []string
-		id   string
-	}{
-		{[]string{"--resume", "-p", "go"}, ""},
-		{[]string{"-p", "go", "--resume"}, ""},
-		{[]string{"--resume=", "-p", "go"}, ""},
-		{[]string{"--resume", "models"}, "models"},
-		{[]string{"-c", "-p", "go"}, ""},
-	}
-	for _, tt := range tests {
-		got, err := parseArgs(tt.args, io.Discard)
-		if err != nil || !got.Resume || got.ResumeID != tt.id {
-			t.Errorf("parseArgs(%v)=%+v, %v; want resume %q", tt.args, got, err, tt.id)
-		}
-	}
-	if _, err := parseArgs([]string{"-c", "abc"}, io.Discard); err == nil {
-		t.Error("-c accepted a session ID")
-	}
-}
-
-// A flag value that names a command stays a value.
-func TestParseArgsValueNamedLikeCommand(t *testing.T) {
-	for _, prompt := range []string{"help", "models", "version"} {
-		got, err := parseArgs([]string{"-p", prompt}, io.Discard)
-		if err != nil || got.Print != prompt || got.Help || got.Models {
-			t.Errorf("-p %s: %+v, %v", prompt, got, err)
+// A run prompt that names a command stays the prompt.
+func TestParseArgsPromptNamedLikeCommand(t *testing.T) {
+	for _, prompt := range []string{"help", "models", "version", "run"} {
+		got, err := parseArgs([]string{"run", prompt}, io.Discard)
+		if err != nil || got.Prompt != prompt || !got.Run {
+			t.Errorf("run %s: %+v, %v", prompt, got, err)
 		}
 	}
 }
 
 func TestParseArgsShowThinking(t *testing.T) {
+	unsetSettingsVariables(t)
 	tests := []struct {
 		args []string
 		want preferenceField[bool]
@@ -96,6 +102,7 @@ func TestParseArgsShowThinking(t *testing.T) {
 }
 
 func TestParseArgsControls(t *testing.T) {
+	unsetSettingsVariables(t)
 	got, err := parseArgs([]string{"--thinking-effort", "omit", "--temperature=omit", "--max-tokens", "default"}, io.Discard)
 	want := generationPreferences{
 		Effort:      preferenceField[string]{Set: true},
@@ -105,7 +112,7 @@ func TestParseArgsControls(t *testing.T) {
 	if err != nil || got.Controls != want {
 		t.Fatalf("got %+v, %v", got.Controls, err)
 	}
-	got, err = parseArgs([]string{"--thinking-effort=high", "--temperature", "0.5", "--max-tokens=800"}, io.Discard)
+	got, err = parseArgs([]string{"run", "--thinking-effort=high", "--temperature", "0.5", "--max-tokens=800"}, io.Discard)
 	want = generationPreferences{
 		Effort:      preferenceField[string]{Set: true, Value: "high"},
 		Temperature: preferenceField[float64]{Set: true, Value: 0.5},
@@ -114,16 +121,57 @@ func TestParseArgsControls(t *testing.T) {
 	if err != nil || got.Controls != want {
 		t.Fatalf("got %+v, %v", got.Controls, err)
 	}
-	for _, bad := range [][]string{{"--temperature", "hot"}, {"--temperature=-1"}, {"--max-tokens", "many"}, {"--max-tokens=-5"}, {"--thinking-effort", " high"}} {
-		if _, err := parseArgs(bad, io.Discard); err == nil {
-			t.Errorf("parseArgs(%v) succeeded", bad)
+	for _, tt := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--temperature", "hot"}, "invalid value for --temperature: use a number of 0 or more, or omit"},
+		{[]string{"--temperature=-1"}, "invalid value for --temperature: use a number of 0 or more, or omit"},
+		{[]string{"--max-tokens", "many"}, "invalid value for --max-tokens: use a whole number of 0 or more, or default"},
+		{[]string{"--max-tokens=-5"}, "invalid value for --max-tokens: use a whole number of 0 or more, or default"},
+		{[]string{"--thinking-effort", " high"}, "invalid value for --thinking-effort: use a level, such as high, or omit"},
+	} {
+		if _, err := parseArgs(tt.args, io.Discard); err == nil || !strings.HasPrefix(err.Error(), tt.want) {
+			t.Errorf("parseArgs(%v) error %v; want %q", tt.args, err, tt.want)
 		}
 	}
 }
 
+// The DASHI_* variables fill the flags they are bound to, and a flag wins
+// over its variable.
+func TestParseArgsSettingsVariables(t *testing.T) {
+	unsetSettingsVariables(t)
+	t.Setenv("DASHI_PROVIDER", "local")
+	t.Setenv("DASHI_MODEL", "from-variable")
+	t.Setenv("DASHI_TEMPERATURE", "0.3")
+	t.Setenv("DASHI_SHOW_THINKING", "false")
+	got, err := parseArgs([]string{"run", "--model", "from-flag"}, io.Discard)
+	want := generationPreferences{
+		ShowThinking: preferenceField[bool]{Set: true},
+		Temperature:  preferenceField[float64]{Set: true, Value: 0.3},
+	}
+	if err != nil || got.Provider != "local" || got.Model != "from-flag" || got.Controls != want {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	// An empty variable sets nothing.
+	t.Setenv("DASHI_TEMPERATURE", "")
+	t.Setenv("DASHI_MODEL", "")
+	if got, err = parseArgs(nil, io.Discard); err != nil || got.Controls.Temperature.Set || got.Model != "" {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	t.Setenv("DASHI_TEMPERATURE", "hot")
+	if _, err = parseArgs(nil, io.Discard); err == nil || !strings.HasPrefix(err.Error(), "invalid DASHI_TEMPERATURE: use a number") {
+		t.Fatalf("invalid variable: %v", err)
+	}
+	if _, err = parseArgs([]string{"models"}, io.Discard); err != nil {
+		t.Fatalf("models read an agent variable: %v", err)
+	}
+}
+
 func TestParseArgsRepeatableFlags(t *testing.T) {
+	unsetSettingsVariables(t)
 	got, err := parseArgs([]string{
-		"-p", "go",
+		"run", "go",
 		"--attach", "a.go", "--attach=b.go",
 		"--env-file", "one.env", "--env-file", "two.env",
 		"--mcp-config", "one.json", "--mcp-config=two.json",
@@ -134,80 +182,27 @@ func TestParseArgsRepeatableFlags(t *testing.T) {
 		!reflect.DeepEqual(got.MCPFiles, []string{"one.json", "two.json"}) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
-	for _, bad := range [][]string{{"-p", "go", "--attach="}, {"-p", "go", "--attach", " "}, {"--env-file="}, {"--mcp-config", ""}} {
+	for _, bad := range [][]string{{"run", "go", "--attach="}, {"run", "go", "--attach", " "}, {"--env-file="}, {"models", "--env-file", ""}, {"--mcp-config", ""}} {
 		if _, err := parseArgs(bad, io.Discard); err == nil {
 			t.Errorf("parseArgs(%v) succeeded", bad)
 		}
 	}
 }
 
-func TestParseArgsModels(t *testing.T) {
-	tests := []struct {
-		args []string
-		want Options
-	}{
-		{[]string{"models"}, Options{Models: true}},
-		{[]string{"models", "--available"}, Options{Models: true, Available: true}},
-		{[]string{"models", "--available", "--workspace", "w", "--env-file=e"}, Options{Models: true, Available: true, Workspace: "w", EnvFiles: []string{"e"}}},
-		{[]string{"models", "-h"}, Options{Help: true}},
-	}
-	for _, tt := range tests {
-		got, err := parseArgs(tt.args, io.Discard)
-		if err != nil || !reflect.DeepEqual(got, tt.want) {
-			t.Errorf("parseArgs(%v)=%+v, %v; want %+v", tt.args, got, err, tt.want)
-		}
-	}
-	for _, bad := range [][]string{{"--available"}, {"models", "--plain"}, {"models", "--output-format", "json"}, {"models", "extra"}, {"models", "--workspace="}} {
-		if _, err := parseArgs(bad, io.Discard); err == nil {
-			t.Errorf("parseArgs(%v) succeeded", bad)
-		}
-	}
-}
-
-func TestParseArgsCrossFlagErrors(t *testing.T) {
-	tests := []struct {
-		args []string
-		want string
-	}{
-		{[]string{"--output-format", "json", "--plain"}, "--output-format cannot be combined with --plain, --inline, or models"},
-		{[]string{"--output-format", "text", "--inline"}, "--output-format cannot be combined with --plain, --inline, or models"},
-		{[]string{"--attach", "a.go"}, "--attach requires -p; use /attach or @file interactively"},
-		{[]string{"--plain", "--inline"}, "--plain and --inline cannot be combined"},
-		{[]string{"--model", " "}, "--model needs a nonempty exact model ID"},
-		{[]string{"--provider="}, "--provider needs a nonempty value"},
-		{[]string{"--system-prompt", ""}, "--system-prompt needs nonempty text"},
-		{[]string{"--temperature", "hot"}, "invalid --temperature"},
-		{[]string{"--max-tokens=-5"}, "invalid max_tokens"},
-	}
-	for _, tt := range tests {
-		_, err := parseArgs(tt.args, io.Discard)
-		if err == nil || !strings.HasPrefix(err.Error(), tt.want+"\n\nRun 'dashi --help'") {
-			t.Errorf("parseArgs(%v) error %v; want %q", tt.args, err, tt.want)
-		}
-	}
-	// --attach is allowed with --output-format, which also runs one request.
-	if _, err := parseArgs([]string{"--output-format", "json", "--attach", "a.go"}, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestHelpCoversFlagsAndSettings(t *testing.T) {
+func TestHelp(t *testing.T) {
 	var out bytes.Buffer
 	o, err := parseArgs([]string{"--help"}, &out)
-	if err != nil || !o.Help {
+	if err == nil || !reflect.DeepEqual(o, Options{}) {
 		t.Fatalf("o=%+v err=%v", o, err)
 	}
 	help := out.String()
 	for _, want := range []string{
-		"A terminal coding agent.",
-		"dashi [flags]",
-		"models",
-		"-p, --print", "PROMPT",
-		"--output-format", "text|json|jsonl",
-		"-c, --resume", "session ID",
-		"--provider", "--model", "--api-endpoint", "--mcp-config", "--attach",
+		"A terminal coding agent",
+		"dashi [flags]", "run", "models",
+		"-c, --continue", "-r, --resume",
+		"--provider", "--model", "--api-endpoint", "--mcp-config",
 		"--workspace", "--env-file", "--system-prompt", "--thinking-effort",
-		"--show-thinking=false", "--temperature", "--max-tokens", "--yes", "--plain", "--inline",
+		"--show-thinking=false", "--temperature", "--max-tokens", "--plain", "--inline",
 		"DASHI_PROVIDER, DASHI_MODEL", "~/.dashi/settings.json", "workspace .dashi/settings.json",
 	} {
 		if !strings.Contains(help, want) {
@@ -215,12 +210,16 @@ func TestHelpCoversFlagsAndSettings(t *testing.T) {
 		}
 	}
 	out.Reset()
-	if _, err := parseArgs([]string{"models", "--help"}, &out); err != nil || !strings.Contains(out.String(), "--available") || strings.Contains(out.String(), "--print") {
+	if _, err := parseArgs([]string{"run", "--help"}, &out); err == nil || !strings.Contains(out.String(), "text|json|jsonl") || !strings.Contains(out.String(), "--attach") || strings.Contains(out.String(), "--plain") {
+		t.Fatalf("run help: %v\n%s", err, out.String())
+	}
+	out.Reset()
+	if _, err := parseArgs([]string{"models", "-h"}, &out); err == nil || !strings.Contains(out.String(), "--available") || strings.Contains(out.String(), "--model") {
 		t.Fatalf("models help: %v\n%s", err, out.String())
 	}
 }
 
-func TestRunFlagErrorsExitTwo(t *testing.T) {
+func TestRunCommandLineErrorsExitTwo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run(t.Context(), []string{"--nope"}, strings.NewReader(""), &stdout, &stderr)
 	if code != 2 || stdout.Len() != 0 || !strings.HasPrefix(stderr.String(), "dashi: unknown flag: --nope") {
@@ -228,7 +227,7 @@ func TestRunFlagErrorsExitTwo(t *testing.T) {
 	}
 	stderr.Reset()
 	code = run(t.Context(), []string{"-h"}, strings.NewReader(""), &stdout, &stderr)
-	if code != 0 || !strings.Contains(stdout.String(), "--print") || stderr.Len() != 0 {
+	if code != 0 || !strings.Contains(stdout.String(), "--continue") || stderr.Len() != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }

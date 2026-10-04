@@ -85,16 +85,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   t_k3f2 to inspect`, in the tool line colors. It replaces the separate block
   that repeated the task ID, description, counts, and raw spend. `/tasks`
   prints one line per task in the same words, and counts are pluralized.
-- **`dashi` parses its command line with Wonton's `cli` package.** Flags,
-  values, and exit codes are unchanged. `dashi --help` and the new
-  `dashi models --help` are generated, in color on a terminal. A flag error
-  prints the error and a pointer to `--help` instead of the whole usage.
-  `dashi help`, `dashi --version` (for a build with a module version), and
-  `--no-color` now work. Flags may come before `models`, and `models` rejects
-  flags it does not use; it accepts `--available`, `--workspace`, and
-  `--env-file`. A flag value that starts with `-` needs the `--flag=value`
-  form, and `--show-thinking=` takes `yes`/`no`/`on`/`off` as well as
-  `true`/`false`.
+- **Breaking: a new `dashi` command line, built on Wonton's `cli` package.**
+  `dashi` starts a session; `-c`/`--continue` reopens the last one here and
+  `-r`/`--resume ID` a named one. `dashi run [PROMPT]` replaces `-p` and owns
+  `-o`/`--output-format`, `--attach`, and `-y`/`--yes`. `dashi models
+  [--available]` and `dashi completion bash|zsh|fish` complete the set. Help
+  is generated per command. `DASHI_PROVIDER`, `DASHI_MODEL`, and the control
+  variables are bound to their flags: a flag wins over its variable, which
+  wins over a reopened session, then workspace and user settings. An empty
+  variable sets nothing. `--env-file` loads after the command line, so it
+  supplies credentials only; a `DASHI_*` line in it draws a warning.
 
 ### Added
 

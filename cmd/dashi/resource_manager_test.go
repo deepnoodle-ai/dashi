@@ -54,7 +54,7 @@ func TestResourcePrintStartupNoticeUsesStderr(t *testing.T) {
 	cfg := testConfig(t, say("only answer"))
 	putResource(t, filepath.Join(cfg.Dir, "AGENTS.md"), "private-instruction-body")
 	var out, errOut bytes.Buffer
-	if code := runPrint(t.Context(), cfg, Options{Print: "start", PrintSet: true}, &out, &errOut); code != 0 {
+	if code := runPrint(t.Context(), cfg, Options{Prompt: "start", Run: true}, &out, &errOut); code != 0 {
 		t.Fatal(errOut.String())
 	}
 	if out.String() != "only answer\n" || !strings.Contains(errOut.String(), "AGENTS.md") || strings.Contains(errOut.String(), "private-instruction-body") {

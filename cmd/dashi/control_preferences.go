@@ -115,7 +115,7 @@ func (c *Controller) generationControl(ctx context.Context, command, value strin
 	}
 	var parsed generationPreferences
 	if err := parsed.setControl(flag, value); err != nil {
-		c.emit(warnBlock("%v. Keeping the previous preference.", err))
+		c.emit(warnBlock("Invalid %s: %v. Keeping the previous preference.", command, err))
 		return
 	}
 	p.mu.RLock()

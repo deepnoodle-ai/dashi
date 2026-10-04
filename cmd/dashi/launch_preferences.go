@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
-	"strings"
 )
 
 // launchPreferences resolves convenience defaults only. Recorded Agent data
@@ -16,30 +16,13 @@ type launchPreferences struct {
 	Controls       resolvedControls
 }
 
-func resolveLaunchPreferences(o Options, registry, trusted map[string]configuredDestination, user, project, reopened preferenceFile, lookup func(string) (string, bool), origins map[string]string) (launchPreferences, error) {
-	source := func(name string) string {
-		if path := origins[name]; path != "" {
-			return "environment file " + path + ": " + name
-		}
-		return "process environment: " + name
-	}
-	environment := modelSelection{}
-	var environmentSources []string
-	for _, name := range []string{"DASHI_PROVIDER", "DASHI_MODEL"} {
-		value, present := lookup(name)
-		if !present || value == "" {
-			continue
-		}
-		if name == "DASHI_PROVIDER" {
-			environment.Provider = value
-		} else {
-			environment.Model = value
-		}
-		environmentSources = append(environmentSources, source(name))
-	}
+// commandLineSource names the tier of flags and the DASHI_* variables bound
+// to them. The command line resolves a flag over its variable.
+const commandLineSource = "flags or DASHI_* variables"
+
+func resolveLaunchPreferences(o Options, registry, trusted map[string]configuredDestination, user, project, reopened preferenceFile, lookup func(string) (string, bool)) (launchPreferences, error) {
 	selectionTiers := []selectionTier{
-		{modelSelection: modelSelection{Provider: o.Provider, Model: o.Model}, Source: "flags"},
-		{modelSelection: environment, Source: strings.Join(environmentSources, "; ")},
+		{modelSelection: modelSelection{Provider: o.Provider, Model: o.Model}, Source: commandLineSource},
 		{modelSelection: reopened.modelSelection, Source: "reopened session"},
 		{modelSelection: project.modelSelection, Source: project.Source},
 		{modelSelection: user.modelSelection, Source: user.Source},
@@ -49,7 +32,7 @@ func resolveLaunchPreferences(o Options, registry, trusted map[string]configured
 		selected = selected || tier.Provider != "" || tier.Model != ""
 	}
 	selectionError := ""
-	if (user.LoadError != "" || project.LoadError != "") && o.Provider == "" && o.Model == "" && environment.Provider == "" && environment.Model == "" && reopened.Provider == "" && reopened.Model == "" {
+	if (user.LoadError != "" || project.LoadError != "") && o.Provider == "" && o.Model == "" && reopened.Provider == "" && reopened.Model == "" {
 		selectionError = "settings source unavailable; select an explicit destination with --provider, --model, or /model DESTINATION MODEL before work"
 	}
 	if !selected && selectionError == "" {
@@ -81,29 +64,12 @@ func resolveLaunchPreferences(o Options, registry, trusted map[string]configured
 			return launchPreferences{}, err
 		}
 	}
-	tiers := []generationTier{{generationPreferences: o.Controls, Source: "flags"}}
-	for _, control := range []struct{ name, flag string }{
-		{"DASHI_THINKING_EFFORT", "--thinking-effort"},
-		{"DASHI_SHOW_THINKING", "--show-thinking"},
-		{"DASHI_TEMPERATURE", "--temperature"},
-		{"DASHI_MAX_TOKENS", "--max-tokens"},
-	} {
-		value, present := lookup(control.name)
-		if !present {
-			continue
-		}
-		// The variable shares the flag's syntax, including omission.
-		var parsed generationPreferences
-		if err := parsed.setControl(control.flag, value); err != nil {
-			return launchPreferences{}, fmt.Errorf("invalid %s", control.name)
-		}
-		tiers = append(tiers, generationTier{generationPreferences: parsed, Source: source(control.name)})
+	tiers := []generationTier{
+		{generationPreferences: o.Controls, Source: commandLineSource},
+		{generationPreferences: reopened.generationPreferences, Source: "reopened session"},
+		{generationPreferences: project.generationPreferences, Source: project.Source},
+		{generationPreferences: user.generationPreferences, Source: user.Source},
 	}
-	tiers = append(tiers,
-		generationTier{generationPreferences: reopened.generationPreferences, Source: "reopened session"},
-		generationTier{generationPreferences: project.generationPreferences, Source: project.Source},
-		generationTier{generationPreferences: user.generationPreferences, Source: user.Source},
-	)
 	controls, err := resolveControls(tiers)
 	if err != nil {
 		return launchPreferences{}, err
