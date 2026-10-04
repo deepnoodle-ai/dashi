@@ -301,6 +301,30 @@ width. `(queued)` marks a queue message. A child turn after the first shows
 `/tasks t_k3f2` prints each turn's reply with the messages between them.
 This rides on the pending CLI task wiring (item 13).
 
+As built: the CLI keeps its existing task lines, so the start and end lines
+are the `task` tool line and its `⎿` status line, not `▸` and `◂`. A later
+turn's status line reads `↳ task t_k3f2 (explore) turn 2 …`. The marker sits
+after the task ID: `→ t_k3f2 (queued)  …`, so the terminal edge never cuts
+it. Message lines come from the parent's record, so a reopened session shows
+the same lines: `→` replaces the tool line of a `task_send` that succeeded,
+and `←` shows where the parent got the message, in a steer or a queue turn's
+start. A `←` line has no `(queued)`; the parent's record does not say how it
+was sent. `/tasks t_k3f2` shows it.
+
+```text
+  ✓ task  general · Check the exact effect · t_r4eigy             ok  0.0s
+    ⎿  completed · 2 model calls · 1 tool call · /task t_r4eigy to inspect
+  → t_r4eigy (queued)  Yes, check env overrides too
+  ↳ task t_r4eigy (general) turn 2 completed · 3 model calls · …
+  ← t_r4eigy  Parse is in config/load.go; env overrides too?
+```
+
+The CLI routes `OnTask` messages (it sets no `Config.Session`): it holds each
+with the notices and enqueues it once the parent is idle, unless the parent's
+record shows it delivered (`DeliveredMessages`). It never steers one into a
+running parent turn: a `task_status` wait returns the text of a steer that
+`Tasks` did not put on the session, so a steer as well would deliver it twice.
+
 ## Alternatives considered
 
 - **Tasks holds child `Inbox`es and runs single turns** (no child sessions).

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,8 +19,9 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// taskHost retains notice delivery candidates; only the parent Engine driver
-// changes the session queue. Child observer callbacks never drive a parent.
+// taskHost retains notice and message delivery candidates; only the parent
+// Engine driver changes the session queue. Child observer callbacks never
+// drive a parent.
 type taskHost struct {
 	tasks        *delegate.Tasks
 	inputs       *taskInputs
@@ -29,13 +31,15 @@ type taskHost struct {
 	recoveryErr  error
 	inventoryErr error
 	deliveryErr  error
-	notices      map[string]dashi.ContextItem
-	queued       map[string]bool
-	rescan       bool
-	recorded     map[string]taskSnapshot
-	problems     map[string]string
-	wake         func()
-	observedSeq  map[string]int64
+	// notices holds the task notices and the tasks' messages that wait
+	// for the parent, by item ID.
+	notices     map[string]dashi.ContextItem
+	queued      map[string]bool
+	rescan      bool
+	recorded    map[string]taskSnapshot
+	problems    map[string]string
+	wake        func()
+	observedSeq map[string]int64
 }
 
 func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentResolver) *taskHost {
@@ -85,23 +89,40 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 			}
 		},
 		OnTask: func(event delegate.TaskEvent) {
-			e.cfg.Emit(taskStatusBlock(event.Task))
-			if event.Kind == delegate.TaskEnded {
-				item := event.Task.Notice().Item()
-				host.mu.Lock()
-				if len(host.notices) < 128 {
-					host.notices[item.ID] = item
-				} else {
-					host.rescan = true
+			var item dashi.ContextItem
+			switch event.Kind {
+			case delegate.TaskMessage:
+				// A task's message waits with the notices and reaches the
+				// parent the same way: in a queue turn once the parent is
+				// idle, or in a task_status read before that. Steering it
+				// into a running parent turn could deliver it twice, since
+				// such a read also returns its text.
+				if event.Message == nil {
+					return
 				}
-				wake := host.wake
-				if wake == nil {
-					wake = e.taskWake
-				}
-				host.mu.Unlock()
-				if wake != nil {
-					go wake()
-				}
+				item = event.Message.Item()
+			case delegate.TaskEnded:
+				e.cfg.Emit(taskStatusBlock(event.Task))
+				item = event.Task.Notice().Item()
+			default:
+				e.cfg.Emit(taskStatusBlock(event.Task))
+				return
+			}
+			host.mu.Lock()
+			// Messages are few (delegate bounds them per turn), so the cap
+			// is on notices, which a rescan can rebuild.
+			if len(host.notices) < 128 || event.Kind == delegate.TaskMessage {
+				host.notices[item.ID] = item
+			} else {
+				host.rescan = true
+			}
+			wake := host.wake
+			if wake == nil {
+				wake = e.taskWake
+			}
+			host.mu.Unlock()
+			if wake != nil {
+				go wake()
 			}
 		},
 	})
@@ -273,11 +294,12 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 		return fmt.Errorf("task notice delivery incomplete: %w", incomplete)
 	}
 	delivered := delegate.DeliveredNotices(turns)
+	maps.Copy(delivered, delegate.DeliveredMessages(turns))
 	host.mu.Lock()
 	defer host.mu.Unlock()
 	for id := range delivered {
 		// The record shows the delivery, by a queue turn or by a
-		// task_status read, so the held notice is not sent.
+		// task_status read, so the held notice or message is not sent.
 		delete(host.notices, id)
 		delete(host.queued, id)
 	}
@@ -516,7 +538,10 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 					problems[id] = err.Error()
 					break
 				}
-				if state.Parent == nil || *state.Parent != ref {
+				// The task call starts turn 1. A message starts a later
+				// turn, with the task_send call as its parent, or with
+				// none for a queue turn.
+				if n == 1 && (state.Parent == nil || *state.Parent != ref) {
 					problems[id] = "child parent differs"
 					break
 				}
@@ -565,6 +590,36 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 		host.mu.Unlock()
 	}
 	return err
+}
+
+// taskConversation loads the turns of task id and returns what /tasks ID
+// prints (see taskConversation).
+func (e *Engine) taskConversation(ctx context.Context, id string) (string, error) {
+	host := e.taskHost()
+	if host == nil {
+		return "", errors.New("no task host is open")
+	}
+	if host.inputs.loader == nil {
+		return "", errors.New("task recorder cannot load records")
+	}
+	for _, task := range host.list() {
+		if task.ID != id {
+			continue
+		}
+		var turns []dashi.Turn
+		for n := 1; n <= max(task.Turns, 1); n++ {
+			turn, err := host.inputs.loader.Load(ctx, session.TurnID(task.SessionID, n))
+			if errors.Is(err, dashi.ErrTurnNotFound) {
+				break
+			}
+			if err != nil {
+				return "", err
+			}
+			turns = append(turns, turn)
+		}
+		return taskConversation(task, turns), nil
+	}
+	return "", delegate.ErrUnknownTask
 }
 
 func (host *taskHost) list() []delegate.TaskView {

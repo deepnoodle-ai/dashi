@@ -38,6 +38,10 @@ type taskFixtureClient struct {
 	statusRead    bool
 	beforeStatus  func()
 	parentNotices int
+	// messageParent is the text the child's first model call sends its
+	// parent with message_parent. sendQueue is the text the parent's
+	// second model call sends the task with task_send, as a queue message.
+	messageParent, sendQueue string
 }
 
 // startedTaskID returns the task ID that a task tool result in the request
@@ -115,6 +119,9 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 		if n < c.loopUntil {
 			return callTool("read-loop-"+string(rune('A'+n)), "list_directory", `{}`)(ctx, call)
 		}
+		if c.messageParent != "" && n == 0 {
+			return callTool("message-call", "message_parent", `{"message":"`+c.messageParent+`"}`)(ctx, call)
+		}
 		if c.effect && n == 0 {
 			return callTool("effect-call", "external_effect", `{"target":"once"}`)(ctx, call)
 		}
@@ -133,6 +140,9 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 			c.beforeStatus()
 		}
 		return callTool("status-call", "task_status", `{"task_id":"`+startedTaskID(in)+`","wait_seconds":30}`)(ctx, call)
+	}
+	if n == 1 && c.sendQueue != "" {
+		return callTool("send-call", "task_send", `{"task_id":"`+startedTaskID(in)+`","message":"`+c.sendQueue+`","deliver":"queue"}`)(ctx, call)
 	}
 	if n == 2 && c.statusRead {
 		return say("Parent read the result.")(ctx, call)

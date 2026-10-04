@@ -1,6 +1,8 @@
 package main
 
 import (
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -108,5 +110,90 @@ func TestTaskStatusReadDeliversTheResultWithoutAnotherTurn(t *testing.T) {
 				t.Fatalf("after reopen parent calls=%d turns=%d", again, parentTurnCount(t, b.eng))
 			}
 		})
+	}
+}
+
+// messageLines returns the plain message lines among blocks.
+func messageLines(blocks []Block) []string {
+	var out []string
+	for _, b := range blocks {
+		if b.Kind == KindTaskMessage {
+			out = append(out, FormatBlock(b))
+		}
+	}
+	return out
+}
+
+// A task's message_parent message reaches the parent agent once, and the
+// parent's task_send message starts the task's next turn. Both show as
+// message lines, live and replayed, and /tasks ID shows each turn's reply
+// with the messages between them.
+func TestTaskMessagesReachTheParentAndShowLiveAndReplayed(t *testing.T) {
+	const up, down = "Parse is in config/load.go; env overrides too?", "Yes, check env overrides too"
+	client := &taskFixtureClient{messageParent: up, sendQueue: down}
+	ui := newRecorderUI()
+	a, _ := taskTestApp(t, client, ui)
+	result, err := a.eng.Prompt(t.Context(), "Delegate this job")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = a.eng.QuietTasks(t.Context(), result); err != nil {
+		t.Fatal(err)
+	}
+	task := waitTask(t, a, func(v delegate.TaskView) bool { return v.Turns == 2 && !v.Running() })
+
+	// The parent's record holds the task's message.
+	var turns []dashi.Turn
+	for turn, err := range a.eng.handle().Turns(t.Context()) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		turns = append(turns, turn)
+	}
+	if got := delegate.DeliveredMessages(turns); len(got) != 1 {
+		t.Fatalf("parent holds messages %v, want the task's one", got)
+	}
+
+	want := []string{
+		"  → " + task.ID + " (queued)  " + down,
+		"  ← " + task.ID + "  " + up,
+	}
+	ui.mu.Lock()
+	live := messageLines(ui.tr.Blocks)
+	var turnTwo bool
+	for _, b := range ui.log {
+		turnTwo = turnTwo || b.Kind == KindTaskStatus && strings.HasPrefix(FormatBlock(b), "  ↳ task "+task.ID+" (general) turn 2 ")
+	}
+	ui.mu.Unlock()
+	replay := messageLines(a.eng.Scrollback(t.Context()))
+	if !slices.Equal(live, want) || !slices.Equal(replay, want) {
+		t.Fatalf("live=%q\nreplay=%q\nwant=%q", live, replay, want)
+	}
+	if !turnTwo {
+		t.Fatal("no status line for turn 2")
+	}
+
+	got, err := a.eng.taskConversation(t.Context(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText := "Task " + task.ID + " · general · Check the exact effect\n" +
+		"Turn 1 · completed\n" +
+		"  ← " + up + "\n" +
+		"  Reply:\n" +
+		"    Child result, recorded once.\n" +
+		"Turn 2 · completed\n" +
+		"  → " + down + "\n" +
+		"  Reply:\n" +
+		"    Child result, recorded once.\n"
+	if got != wantText {
+		t.Fatalf("conversation=\n%s\nwant\n%s", got, wantText)
+	}
+	a.ctrl.Input("/tasks " + task.ID)
+	a.ctrl.Wait()
+	ui.mu.Lock()
+	defer ui.mu.Unlock()
+	if last := ui.log[len(ui.log)-1]; last.Kind != KindNotice || last.Text != wantText {
+		t.Fatalf("/tasks ID printed %+v", last)
 	}
 }

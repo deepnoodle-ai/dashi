@@ -131,6 +131,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   across crashes and `Recover`; `DeliveredMessages` reads the IDs a record
   holds. `Tasks.Wait` and `RunUntilQuiet` wake on messages. A notice of a
   completed turn says the task takes a follow-up.
+- **The CLI shows messages between the agent and its tasks.** A `task_send`
+  shows as `→ t_k3f2  Skip vendor/`, with `(queued)` for a queue message,
+  and a task's `message_parent` message shows as `← t_k3f2  …` where the
+  agent got it. Each is one line, cut at the terminal edge, and a reopened
+  session shows the same lines. A task's later turns show as `↳ task t_k3f2
+  (explore) turn 2 …`, and `/tasks ID` prints each turn's reply with the
+  messages between them.
 - **`wait_seconds` on `task`.** The call waits up to 60 seconds for the
   task's answer or a message from it. `task_status` waits also end on a
   message. When the message reached the running parent turn, the result says
@@ -190,6 +197,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **A task's message reaches the agent in the CLI.** The CLI dropped the
+  `TaskMessage` events of `message_parent`, so the agent saw a task's
+  message only if a `task_status` wait returned it. The CLI now holds each
+  message with the task notices and sends it in the next queue turn, unless
+  the record already shows it delivered. A task with a second turn no longer
+  stops task delivery, `/tasks`, and reopening with "child parent
+  differs": only a task's first turn has the `task` call as its parent.
 - **The CLI scrolls up when a mouse selection is dragged to the top row.** In
   fullscreen mode, holding a selection drag on the transcript's top row now
   scrolls up and extends the selection, as dragging below the transcript

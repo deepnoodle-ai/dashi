@@ -21,8 +21,25 @@ func (c *Controller) taskInput(line string) bool {
 		return false
 	}
 	if name == "/tasks" {
+		if strings.ContainsAny(arg, " \t") {
+			c.notice("Usage: /tasks [ID]")
+			return true
+		}
 		if arg != "" {
-			c.notice("Usage: /tasks")
+			// One task's turns, with the messages between them.
+			show := func(ctx context.Context) {
+				text, err := c.eng.taskConversation(ctx, arg)
+				if err != nil {
+					c.notice("Task %s unavailable: %v", arg, err)
+					return
+				}
+				c.notice("%s", text)
+			}
+			if c.Mode() == ModeIdle {
+				c.async(show)
+			} else {
+				c.goWork(func() { show(c.base) })
+			}
 			return true
 		}
 		host := c.eng.taskHost()
@@ -50,7 +67,7 @@ func (c *Controller) taskInput(line string) bool {
 			}
 			lines = append(lines, "  "+taskSummary(task))
 		}
-		lines = append(lines, "/task ID shows details.")
+		lines = append(lines, "/tasks ID shows its turns and messages; /task ID shows details.")
 		c.notice("%s", strings.Join(lines, "\n"))
 		c.goWork(c.taskSpend)
 		return true

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
+	"github.com/deepnoodle-ai/dashi/tool"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
@@ -151,8 +153,10 @@ func TestTaskStatusLineCountsAndCost(t *testing.T) {
 	if b = taskStatusBlock(v); b.State != StateFailed || b.Text != "/task t_u6d77c to inspect" {
 		t.Fatalf("unavailable=%+v", b)
 	}
-	v.Turns = 2 // A later turn of the task has no tool line to sit under.
-	if b = taskStatusBlock(v); b.Parent != "" || !strings.HasPrefix(FormatBlock(b), "  ↳ task t_u6d77c (explore) record unavailable") {
+	// A later turn of the task has no tool line to sit under, and says
+	// which turn it is.
+	v.Turns, v.TurnID = 2, "child-2"
+	if b = taskStatusBlock(v); b.Parent != "" || !strings.HasPrefix(FormatBlock(b), "  ↳ task t_u6d77c (explore) turn 2 record unavailable") {
 		t.Fatalf("later turn=%q", FormatBlock(b))
 	}
 	if got, want := taskSummary(completedTaskView()), "t_u6d77c · explore · messaging test wait · completed · 1 model call · $0.0069"; got != want {
@@ -204,6 +208,78 @@ func TestLineUIPrintsTaskStatusOncePerState(t *testing.T) {
 	ui.Emit(taskStatusBlock(v))
 	if got, want := out.String(), "  ↳ task t_u6d77c (explore) completed · 2 model calls · $0.0069 · /task t_u6d77c to inspect\n"; got != want {
 		t.Fatalf("plain=%q want %q", got, want)
+	}
+}
+
+// sendStep is a step of a task_send call that sends text to t_k3f2.
+func sendStep(kind dashi.StepKind, deliver string, out *tool.Outcome) dashi.Step {
+	return dashi.Step{TurnID: "p-2", Kind: kind, Tool: &dashi.ToolFact{
+		Call: tool.Call{ID: "send-1", Name: delegate.SendToolName, Args: json.RawMessage(
+			`{"task_id":"t_k3f2","message":"Skip vendor/; the parser is in config/\nmore","deliver":"` + deliver + `"}`)},
+		Outcome: out,
+	}}
+}
+
+// A task_send call shows as a tool line while it runs or when it fails, and
+// as a message line once it sent its message.
+func TestTaskSendShowsAMessageLine(t *testing.T) {
+	r := NewRenderer(2, "m", "/repo")
+	running := onlyBlock(t, r.Event(stepEvent(sendStep(dashi.StepToolStarted, "queue", nil))))
+	if running.Kind != KindTool || running.Arg != "t_k3f2 · Skip vendor/; the parser is in config/ ..." {
+		t.Fatalf("running=%+v", running)
+	}
+	ok := tool.Succeeded("Sent to task t_k3f2 (running).")
+	sent := onlyBlock(t, r.Event(stepEvent(sendStep(dashi.StepToolFinished, "queue", &ok))))
+	if sent.Kind != KindTaskMessage || sent.ID != running.ID {
+		t.Fatalf("sent=%+v", sent)
+	}
+	if got, want := FormatBlock(sent), "  → t_k3f2 (queued)  Skip vendor/; the parser is in config/ ..."; got != want {
+		t.Fatalf("plain=%q want %q", got, want)
+	}
+	steer := onlyBlock(t, NewRenderer(2, "m", "/repo").Event(stepEvent(sendStep(dashi.StepToolFinished, "steer", &ok))))
+	if got, want := FormatBlock(steer), "  → t_k3f2  Skip vendor/; the parser is in config/ ..."; got != want {
+		t.Fatalf("steer=%q want %q", got, want)
+	}
+	failed := tool.Failed("unknown task t_k3f2")
+	bad := onlyBlock(t, NewRenderer(2, "m", "/repo").Event(stepEvent(sendStep(dashi.StepToolFinished, "steer", &failed))))
+	if bad.Kind != KindTool || bad.State != StateFailed {
+		t.Fatalf("failed=%+v", bad)
+	}
+}
+
+// A task's message shows as a message line where the parent got it: in a
+// steer, or in the queue turn it started, before the task's result marker.
+func TestTaskMessageReminderShowsAMessageLine(t *testing.T) {
+	msg := delegate.Message{ID: "msg:c-1/m1", From: "task t_k3f2 (explore)", To: "parent", Text: "Parse is in config/load.go; env overrides too?"}
+	steered := onlyBlock(t, NewRenderer(2, "m", "/repo").Event(stepEvent(dashi.Step{
+		Kind:    dashi.StepMessagesAdded,
+		Context: &dashi.ContextFact{Steering: true, Items: []dashi.ContextItem{msg.Item()}},
+	})))
+	want := "  ← t_k3f2  Parse is in config/load.go; env overrides too?"
+	if steered.Kind != KindTaskMessage || FormatBlock(steered) != want {
+		t.Fatalf("steered=%q %+v", FormatBlock(steered), steered)
+	}
+	blocks := NewRenderer(2, "m", "/repo").Event(stepEvent(startedStep(dashi.StartScheduled,
+		msg.Item().Message, completedTaskView().Notice().Item().Message)))
+	if len(blocks) != 2 || FormatBlock(blocks[0]) != want || blocks[1].Kind != KindTaskResult || blocks[0].ID == blocks[1].ID {
+		t.Fatalf("queue turn=%+v", blocks)
+	}
+}
+
+// On screen a message line keeps to one row: the terminal edge cuts the
+// text, and the arrow and the queued mark stay.
+func TestTaskMessageLineKeepsToOneRow(t *testing.T) {
+	b := taskMessageBlock("m", MessageToTask, "t_k3f2", strings.Repeat("word ", 40), true)
+	for w := 30; w <= 120; w += 10 {
+		screen := tui.SprintScreen(blockView(b), tui.WithWidth(w), tui.WithHeight(4)).Text()
+		lines := strings.Split(strings.TrimRight(screen, "\n "), "\n")
+		if len(lines) != 1 || !strings.HasPrefix(lines[0], "  → t_k3f2 (queued)  word word") {
+			t.Fatalf("width %d:\n%s", w, screen)
+		}
+	}
+	styled := tui.Sprint(blockView(b), tui.WithWidth(80), tui.WithColor(true))
+	if !strings.Contains(styled, "\x1b[0;36m  → ") {
+		t.Fatalf("arrow color=%q", styled)
 	}
 }
 

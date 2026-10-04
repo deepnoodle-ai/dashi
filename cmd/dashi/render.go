@@ -42,6 +42,10 @@ const (
 	// KindTaskResult marks a task result that reached the parent agent. It
 	// takes the place of the user line of a turn that the result started.
 	KindTaskResult BlockKind = "task-result"
+	// KindTaskMessage is a message between the parent agent and a task:
+	// one the parent sent with task_send, or one a task sent with
+	// message_parent that reached the parent. State holds its direction.
+	KindTaskMessage BlockKind = "task-message"
 )
 
 // Tool line states.
@@ -73,7 +77,7 @@ type Block struct {
 	// Name and Arg describe a tool call: its name and its main argument.
 	Name string
 	Arg  string
-	// State is the tool or steer state.
+	// State is the tool or steer state, or a message line's direction.
 	State   string
 	Elapsed time.Duration
 	// Lines holds detail lines: the last output of a running tool, the
@@ -367,8 +371,11 @@ func (r *Renderer) toolCall(s dashi.Step) *callState {
 	}
 	c.name = call.Name
 	c.arg = mainArg(call.Args, r.Dir)
-	if call.Name == delegate.ToolName {
+	switch call.Name {
+	case delegate.ToolName:
 		c.arg = taskToolArg(call.Args, s.TurnID, call.ID)
+	case delegate.SendToolName:
+		c.arg = taskSendArg(call.Args)
 	}
 	return c
 }
@@ -405,6 +412,10 @@ func (r *Renderer) toolFinished(s dashi.Step) []Block {
 		case tool.StateWaiting, tool.StateDetached:
 			state = StateWaiting
 		}
+	}
+	// A sent message shows as a message line, not a tool line.
+	if c.name == delegate.SendToolName && state == StateOK {
+		return []Block{taskSendBlock(id, s.Tool.Call.Args)}
 	}
 	b := r.toolBlock(id, c, state)
 	// A started task's output only instructs the model. The status line
@@ -714,6 +725,8 @@ func FormatBlock(b Block) string {
 		return "  " + strings.ReplaceAll(b.Text, "\n", "\n  ")
 	case KindTaskStatus, KindTaskResult:
 		return taskLineText(b)
+	case KindTaskMessage:
+		return taskMessageText(b)
 	}
 	return b.Text
 }

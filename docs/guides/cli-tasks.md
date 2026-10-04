@@ -5,8 +5,9 @@ for work that can require effects. The parent receives a stable task ID and
 continues. A child's text does not stream into the parent's reply.
 
 Use `/tasks` during foreground work or while idle. A row shows the task,
-subagent, state, **model calls**, tool calls, and child spend. Model calls
-count calls that were started; they do not prove a provider request was sent.
+subagent, state, turns (once it has more than one), **model calls**, tool
+calls, and child spend. Model calls count calls that were started; they do
+not prove a provider request was sent.
 `/task ID` shows the recorded child Turn, parent call, accepted
 evidence/resource identities, destination, limits, stop, ordinary messages,
 and tool results. It counts model calls confirmed sent apart from started
@@ -46,6 +47,17 @@ that original call; remembered grants keep their existing run scope.
   tasks, and competing actions reject; none implicitly selects a different
   target. Parent `/done`, `/discard`, and empty Enter retain their parent
   target.
+
+The agent and its tasks can message each other. A message shows as one line,
+cut at the terminal edge: `→ t_k3f2  Skip vendor/` for one the agent sent
+with `task_send` (`(queued)` after the ID when it waits for the task's turn
+to end), and `← t_k3f2  Parse is in config/load.go` where the agent got one a
+task sent with `message_parent`. A message can start a task's next turn,
+whose status line reads `↳ task t_k3f2 (explore) turn 2 …`. `/tasks ID`
+prints each turn of that task with the messages it got and sent, in order,
+and its reply. A task's message reaches the agent the way its result does:
+in the next queue Turn once the agent is idle, or sooner when a
+`task_status` wait returns it.
 
 A completed child's result reaches the parent through its recorded notice ID.
 Inspection does not consume it. An idle parent receives it in a scheduled queue
