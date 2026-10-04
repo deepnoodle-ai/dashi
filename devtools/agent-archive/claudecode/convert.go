@@ -42,7 +42,7 @@ func Convert(copies []sessionfile.Copy, agentID string) (sessionfile.Transcript,
 	counted := map[string]bool{}
 	for _, p := range cls[:idx] {
 		for _, mc := range modelCalls(p) {
-			counted[mc.ID] = mc.ID != ""
+			claimUsage(mc, counted)
 		}
 	}
 	cv := &converter{t: &t, changed: sessionfile.Counts(t.ChangedBlocks), counted: counted}

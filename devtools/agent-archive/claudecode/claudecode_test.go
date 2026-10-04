@@ -335,3 +335,24 @@ func TestUnreadableCopy(t *testing.T) {
 		t.Fatal("want an error")
 	}
 }
+
+// TestUsageOnLaterCopy checks that a model call whose line has no usage on
+// an earlier copy keeps its usage on the later copy that has it, in Parse
+// and in Convert alike.
+func TestUsageOnLaterCopy(t *testing.T) {
+	root := fixtureBytes(t, 1, "", "later/root.jsonl", []byte(`{"type":"user","uuid":"u1","parentUuid":null,"sessionId":"s-later","timestamp":"2026-09-06T08:00:00.000Z","message":{"role":"user","content":"Start."}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","sessionId":"s-later","timestamp":"2026-09-06T08:00:01.000Z","message":{"id":"msg_l1","role":"assistant","model":"claude-opus-5-5","content":[{"type":"text","text":"Partial."}]}}
+`))
+	agent := fixtureBytes(t, 2, "al", "later/agent-al.jsonl", []byte(`{"type":"user","uuid":"lu1","parentUuid":null,"isSidechain":true,"agentId":"al","sessionId":"s-later","timestamp":"2026-09-06T08:00:02.000Z","message":{"role":"user","content":"Start."}}
+{"type":"assistant","uuid":"la1","parentUuid":"lu1","isSidechain":true,"agentId":"al","sessionId":"s-later","timestamp":"2026-09-06T08:00:03.000Z","message":{"id":"msg_l1","role":"assistant","model":"claude-opus-5-5","content":[{"type":"text","text":"Partial."}],"usage":{"input_tokens":2,"output_tokens":4}}}
+`))
+	ps := parseOne(t, root, agent)
+	check(t, "root usage", len(ps[0].Usage), 0)
+	check(t, "agent usage", len(ps[1].Usage), 1)
+
+	tr := convert(t, "al", root, agent)
+	check(t, "messages", shape(tr), []string{
+		"user text:Start. @1",
+		"assistant text:Partial. @2 usage",
+	})
+}

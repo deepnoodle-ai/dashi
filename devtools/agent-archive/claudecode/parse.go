@@ -233,20 +233,30 @@ func mergeUsage(mc *modelCall, m *message) {
 func usageRows(cl *copyLines, counted map[string]bool) []sessionfile.Usage {
 	var out []sessionfile.Usage
 	for _, mc := range modelCalls(cl) {
-		if !hasLineUsage(mc) {
+		if !claimUsage(mc, counted) {
 			continue
-		}
-		if mc.ID != "" {
-			if counted[mc.ID] {
-				continue
-			}
-			counted[mc.ID] = true
 		}
 		out = append(out, sessionfile.Usage{
 			Line: mc.Lines[0].N, ModelCallID: mc.ID, Model: mc.Model, Usage: mc.Usage, Speed: mc.Speed,
 		})
 	}
 	return out
+}
+
+// claimUsage reports whether a copy owns the usage of mc: mc has usage
+// and no earlier copy owns it. A call with an id is marked counted. Parse
+// and Convert both use it, so they give usage to the same copy.
+func claimUsage(mc *modelCall, counted map[string]bool) bool {
+	if !hasLineUsage(mc) {
+		return false
+	}
+	if mc.ID != "" {
+		if counted[mc.ID] {
+			return false
+		}
+		counted[mc.ID] = true
+	}
+	return true
 }
 
 func hasLineUsage(mc *modelCall) bool {
