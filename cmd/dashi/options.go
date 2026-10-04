@@ -65,10 +65,29 @@ var controlFlags = []struct{ flag, env string }{
 	{"max-tokens", "DASHI_MAX_TOKENS"},
 }
 
+// settingsVariables are the DASHI_* variables bound to flags.
+var settingsVariables = []string{
+	"DASHI_PROVIDER", "DASHI_MODEL", "DASHI_THINKING_EFFORT",
+	"DASHI_SHOW_THINKING", "DASHI_TEMPERATURE", "DASHI_MAX_TOKENS",
+}
+
+// clearEmptySettings unsets each empty settings variable, so it sets
+// nothing. Wonton reads a set variable as a value: an empty
+// DASHI_SHOW_THINKING would turn thinking summaries off and hide a saved
+// choice.
+func clearEmptySettings() {
+	for _, name := range settingsVariables {
+		if value, ok := os.LookupEnv(name); ok && value == "" {
+			os.Unsetenv(name)
+		}
+	}
+}
+
 // newApp returns the dashi command line. Each command's handler reads its
 // flags and arguments into Options and passes them to start, which does
 // the work.
 func newApp(stdout, stderr io.Writer, start func(Options) error) *cli.App {
+	clearEmptySettings()
 	app := cli.New("dashi").
 		Description("A terminal coding agent").
 		Version(buildVersion()).

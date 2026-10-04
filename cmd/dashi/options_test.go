@@ -23,7 +23,7 @@ func parseArgs(args []string, out io.Writer) (Options, error) {
 // unsetSettingsVariables removes the DASHI_* variables bound to flags.
 func unsetSettingsVariables(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"DASHI_PROVIDER", "DASHI_MODEL", "DASHI_THINKING_EFFORT", "DASHI_SHOW_THINKING", "DASHI_TEMPERATURE", "DASHI_MAX_TOKENS"} {
+	for _, name := range settingsVariables {
 		t.Setenv(name, "")
 		os.Unsetenv(name)
 	}
@@ -153,10 +153,16 @@ func TestParseArgsSettingsVariables(t *testing.T) {
 	if err != nil || got.Provider != "local" || got.Model != "from-flag" || got.Controls != want {
 		t.Fatalf("got %+v, %v", got, err)
 	}
-	// An empty variable sets nothing.
+	// An empty variable sets nothing, so a saved choice still applies.
 	t.Setenv("DASHI_TEMPERATURE", "")
 	t.Setenv("DASHI_MODEL", "")
-	if got, err = parseArgs(nil, io.Discard); err != nil || got.Controls.Temperature.Set || got.Model != "" {
+	t.Setenv("DASHI_SHOW_THINKING", "")
+	if got, err = parseArgs(nil, io.Discard); err != nil || got.Controls.Temperature.Set || got.Controls.ShowThinking.Set || got.Model != "" {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	// A flag still turns thinking summaries off.
+	t.Setenv("DASHI_SHOW_THINKING", "")
+	if got, err = parseArgs([]string{"--show-thinking=false"}, io.Discard); err != nil || got.Controls.ShowThinking != (preferenceField[bool]{Set: true}) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 	t.Setenv("DASHI_TEMPERATURE", "hot")
