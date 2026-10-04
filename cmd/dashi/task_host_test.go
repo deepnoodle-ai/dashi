@@ -45,6 +45,9 @@ type taskFixtureClient struct {
 	// messageDeliver is the deliver argument of that message_parent call;
 	// empty means the default, steer.
 	messageDeliver string
+	// replyHold, when set, holds the child's model call after its
+	// message_parent call until it closes.
+	replyHold <-chan struct{}
 	// parentMessageCalls lists the parent model calls, counting from 0,
 	// whose request holds a task's message.
 	parentMessageCalls []int
@@ -127,6 +130,13 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 		}
 		if n < c.loopUntil {
 			return callTool("read-loop-"+string(rune('A'+n)), "list_directory", `{}`)(ctx, call)
+		}
+		if c.replyHold != nil && c.messageParent != "" && n == 1 {
+			select {
+			case <-c.replyHold:
+			case <-ctx.Done():
+				return llm.Result{}, ctx.Err()
+			}
 		}
 		if c.messageParent != "" && n == 0 {
 			args := `{"message":"` + c.messageParent + `"`

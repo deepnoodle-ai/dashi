@@ -198,14 +198,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 
 - **A task's message reaches the agent in the CLI.** The CLI dropped the
-  `TaskMessage` events of `message_parent`, so the agent saw a task's
-  message only if a `task_status` wait returned it. The CLI now steers a
-  steer message into the running agent turn, before its next model call,
-  and holds any other message with the task notices for the next queue
-  turn. A message reaches the agent once, also when a `task_status` wait
-  returns it, and no held message is lost past the 128-message bound. A task with a second turn no longer
-  stops task delivery, `/tasks`, and reopening with "child parent
-  differs": only a task's first turn has the `task` call as its parent.
+  `TaskMessage` events of `message_parent`, so the agent saw a task's message
+  only if a `task_status` wait returned it. The CLI now steers a steer message
+  into the running agent turn, before its next model call, and holds any other
+  message with the task notices for the next queue turn. A message reaches the
+  agent once: a `task` or `task_status` wait that ends on a steer message
+  already on its way names only the sender, as with `Config.Session`. At most
+  128 messages wait in memory, steer messages included; past that, the CLI
+  reads them from the tasks' records, so none is lost. A task with a second
+  turn no longer stops task delivery, `/tasks`, and reopening with "child
+  parent differs": only a task's first turn has the `task` call as its parent.
 - **The CLI scrolls up when a mouse selection is dragged to the top row.** In
   fullscreen mode, holding a selection drag on the transcript's top row now
   scrolls up and extends the selection, as dragging below the transcript

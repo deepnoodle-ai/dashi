@@ -94,46 +94,28 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 			}
 		},
 		OnTask: func(event delegate.TaskEvent) {
-			var item dashi.ContextItem
 			switch event.Kind {
 			case delegate.TaskMessage:
-				// A steer message goes into the running parent turn. Any
-				// other message waits with the notices and reaches the
-				// parent the same way: in a queue turn once the parent is
-				// idle, or in a task or task_status wait before that.
-				if event.Message == nil {
-					return
-				}
-				item = event.Message.Item()
-				if event.Message.Delivery == delegate.DeliverSteer && steerToParent(chat, item) {
-					// The session has it; hold it, unsent, until the
-					// record shows it delivered.
-					host.mu.Lock()
-					host.notices[item.ID] = item
-					host.queued[item.ID] = true
-					host.mu.Unlock()
+				if event.Message == nil || host.holdMessage(chat, *event.Message) {
 					return
 				}
 			case delegate.TaskEnded:
 				e.cfg.Emit(taskStatusBlock(event.Task))
-				item = event.Task.Notice().Item()
+				item := event.Task.Notice().Item()
+				host.mu.Lock()
+				// Past a cap, a notice stays in the records only, and a
+				// rescan reads it from there.
+				if len(host.notices) < 128 {
+					host.notices[item.ID] = item
+				} else {
+					host.rescan = true
+				}
+				host.mu.Unlock()
 			default:
 				e.cfg.Emit(taskStatusBlock(event.Task))
 				return
 			}
 			host.mu.Lock()
-			// Past a cap, an item stays in the records only, and a rescan
-			// reads it from there.
-			switch {
-			case event.Kind == delegate.TaskMessage && host.heldMessagesLocked() < maxHeldMessages:
-				host.notices[item.ID] = item
-			case event.Kind == delegate.TaskMessage:
-				host.messageRescan = true
-			case len(host.notices) < 128:
-				host.notices[item.ID] = item
-			default:
-				host.rescan = true
-			}
 			wake := host.wake
 			if wake == nil {
 				wake = e.taskWake
@@ -144,69 +126,165 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 			}
 		},
 	})
-	inbox, _ := chat.Steering.(*dashi.Inbox)
-	chat.Runner.Tools = tool.Join(chat.Runner.Tools, readMessageTools{host.tasks.Tools(), inbox})
+	// Before a queue turn, the session drops the items its record shows
+	// delivered, as it does when delegate.Config.Session is set.
+	chat.Delivered = func(turns []dashi.Turn) map[string]bool {
+		out := delegate.DeliveredNotices(turns)
+		maps.Copy(out, delegate.DeliveredMessages(turns))
+		return out
+	}
+	chat.Runner.Tools = tool.Join(chat.Runner.Tools, followTools{host.tasks.Tools(), host})
 	return host
 }
 
-// maxHeldMessages bounds the tasks' messages that wait for the parent. Past
-// it, a message stays in the task's record only, and flushTaskNotices reads
-// it from there once the held ones are delivered.
+// maxHeldMessages bounds the tasks' messages that wait for the parent,
+// steer messages in the parent session included. Past it, a message stays
+// in the task's record only, and flushTaskNotices reads it from there once
+// the held ones are delivered.
 const maxHeldMessages = 128
+
+// holdMessage holds a task's message for the parent and reports whether it
+// went into the running parent turn, so no wake is needed. A steer message
+// goes to the parent session while a parent turn runs; the session keeps it
+// until a turn records it. Any other message waits for flushTaskNotices.
+// Past maxHeldMessages, the message is not held: rescanMessages reads it
+// from the task's record later.
+func (host *taskHost) holdMessage(chat *session.Session, m delegate.Message) bool {
+	host.mu.Lock()
+	defer host.mu.Unlock()
+	if host.heldMessagesLocked() >= maxHeldMessages {
+		host.messageRescan = true
+		return false
+	}
+	item := m.Item()
+	host.notices[item.ID] = item
+	if m.Delivery != delegate.DeliverSteer {
+		return false
+	}
+	q, ok := steerToParent(chat, item)
+	if !ok {
+		return false
+	}
+	// The session has it. Hold it, not sent again, until the record shows
+	// it delivered.
+	host.queued[item.ID] = true
+	// An empty TurnID means the turn ended first and the item went to the
+	// session's queue, which needs a wake like any queued item.
+	return q.TurnID != ""
+}
+
+// beforeSteer, when set by a test, runs between steerToParent's check that
+// a parent turn runs and its SteerItem call.
+var beforeSteer func()
 
 // steerToParent puts a steer message into the running parent turn, which
 // gives it to the model before its next model call, as the message_parent
 // tool tells the task. If that turn has just ended, SteerItem puts it on the
-// session's queue instead. It reports false, and does nothing, when no
-// parent turn runs or the session refuses steers now.
-func steerToParent(chat *session.Session, item dashi.ContextItem) bool {
+// session's queue instead, and Queued.TurnID is empty. It reports false,
+// and does nothing, when no parent turn runs or the session refuses steers
+// now.
+func steerToParent(chat *session.Session, item dashi.ContextItem) (session.Queued, bool) {
 	ctx := context.Background()
 	if state, err := chat.Open(ctx); err != nil || state.Next != dashi.NextRunning {
-		return false
+		return session.Queued{}, false
 	}
-	_, err := chat.SteerItem(ctx, dashi.Steer{Item: item})
-	return err == nil
+	if beforeSteer != nil {
+		beforeSteer()
+	}
+	q, err := chat.SteerItem(ctx, dashi.Steer{Item: item})
+	return q, err == nil
 }
 
-// readMessageTools wraps the task tools. When a task or task_status wait
-// returns a message's text, its result records the message ID, and the
-// message's steer leaves the inbox, so the next model call does not get it
-// twice. With Config.Session, delegate avoids this the other way round: the
-// wait names only the sender of a message it steered.
-type readMessageTools struct {
+// followTools wraps the task tools. Without Config.Session, a task or
+// task_status wait returns the text of each steer message it ended on and
+// records its ID. For a message the parent session already holds, the
+// wrapper puts back what delegate writes with Config.Session: the wait
+// names only the sender, and the message follows in the next model call.
+// So the model gets it once, and the session delivers it whatever becomes
+// of the wait's result.
+type followTools struct {
 	tools tool.Toolset
-	inbox *dashi.Inbox
+	host  *taskHost
 }
 
-func (r readMessageTools) Tools(ctx context.Context) ([]tool.Tool, error) {
-	tools, err := r.tools.Tools(ctx)
-	if err != nil || r.inbox == nil {
+func (f followTools) Tools(ctx context.Context) ([]tool.Tool, error) {
+	tools, err := f.tools.Tools(ctx)
+	if err != nil {
 		return tools, err
 	}
 	for i := range tools {
 		if next := tools[i].Executor; next != nil {
-			tools[i].Executor = readMessages{next: next, inbox: r.inbox}
+			tools[i].Executor = followSteers{next: next, host: f.host}
 		}
 	}
 	return tools, nil
 }
 
-type readMessages struct {
-	next  tool.Executor
-	inbox *dashi.Inbox
+type followSteers struct {
+	next tool.Executor
+	host *taskHost
 }
 
-func (r readMessages) Execute(ctx context.Context, call tool.Call) (tool.Outcome, error) {
-	out, err := r.next.Execute(ctx, call)
-	var data struct {
-		DeliveredMessageIDs []string `json:"delivered_message_ids"`
+func (f followSteers) Execute(ctx context.Context, call tool.Call) (tool.Outcome, error) {
+	out, err := f.next.Execute(ctx, call)
+	if err != nil {
+		return out, err
 	}
-	if err == nil && len(out.Data) > 0 && json.Unmarshal(out.Data, &data) == nil {
-		for _, id := range data.DeliveredMessageIDs {
-			r.inbox.Cancel(id)
+	return f.host.followSteered(out), nil
+}
+
+// followSteered rewrites a wait's result for the steer messages that the
+// parent session holds (see followTools). A message whose line it cannot
+// find keeps its text and ID: the model may then get it twice, but never
+// loses it.
+func (host *taskHost) followSteered(out tool.Outcome) tool.Outcome {
+	var data map[string]json.RawMessage
+	var ids []string
+	if out.Output == nil || json.Unmarshal(out.Data, &data) != nil ||
+		json.Unmarshal(data["delivered_message_ids"], &ids) != nil || len(ids) == 0 {
+		return out
+	}
+	lines := map[string][2]string{}
+	host.mu.Lock()
+	for _, id := range ids {
+		if r := reminderOf(host.notices[id].Message); host.queued[id] && r != nil {
+			// The line delegate writes for a message it did not steer,
+			// and the one it writes for a message it did.
+			lines[id] = [2]string{
+				fmt.Sprintf("Message from %s:\n%s", r.From, r.Content),
+				fmt.Sprintf("A message from %s follows.", r.From),
+			}
 		}
 	}
-	return out, err
+	host.mu.Unlock()
+	if len(lines) == 0 {
+		return out
+	}
+	found := map[string]bool{}
+	output := out.Output.MapText(func(text string) string {
+		for id, line := range lines {
+			if !found[id] && strings.Contains(text, line[0]) {
+				text = strings.Replace(text, line[0], line[1], 1)
+				found[id] = true
+			}
+		}
+		return text
+	})
+	keep := slices.DeleteFunc(slices.Clone(ids), func(id string) bool { return found[id] })
+	if len(keep) == len(ids) {
+		return out
+	}
+	if len(keep) == 0 {
+		delete(data, "delivered_message_ids")
+	} else {
+		data["delivered_message_ids"], _ = json.Marshal(keep)
+	}
+	out.Output = &output
+	out.Data = nil
+	if len(data) > 0 {
+		out.Data, _ = json.Marshal(data)
+	}
+	return out
 }
 
 // pendingLocked reports whether notices or messages wait for the parent.
@@ -273,12 +351,20 @@ func (host *taskHost) rescanMessages(ctx context.Context, delivered map[string]b
 
 // reminderFrom returns the sender of the reminder in m.
 func reminderFrom(m llm.Message) string {
-	for _, c := range m.Content {
-		if c.Reminder != nil {
-			return c.Reminder.From
-		}
+	if r := reminderOf(m); r != nil {
+		return r.From
 	}
 	return ""
+}
+
+// reminderOf returns the reminder in m, or nil.
+func reminderOf(m llm.Message) *llm.Reminder {
+	for _, c := range m.Content {
+		if c.Reminder != nil {
+			return c.Reminder
+		}
+	}
+	return nil
 }
 func taskNoticeReady(v dashi.TurnView) bool {
 	return v.Stop.Ended || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
@@ -453,6 +539,22 @@ func (e *Engine) flushTaskNotices(ctx context.Context) error {
 		// task_status read, so the held notice or message is not sent.
 		delete(host.notices, id)
 		delete(host.queued, id)
+	}
+	// An item handed to the session waits in its inbox or queue until a
+	// turn records it. One that is in neither, and not in the record,
+	// is sent again, so nothing waits forever. The session drops a copy
+	// that a turn recorded meanwhile (see Session.Delivered).
+	if len(host.queued) > 0 {
+		state, err := chat.Open(ctx)
+		if err != nil && !errors.Is(err, session.ErrNotFound) {
+			return err
+		}
+		inbox, _ := chat.Steering.(*dashi.Inbox)
+		for id := range host.queued {
+			if state.Queued == 0 && (inbox == nil || !inbox.Has(id)) {
+				delete(host.queued, id)
+			}
+		}
 	}
 	if host.rescan {
 		for _, view := range host.tasks.List() {

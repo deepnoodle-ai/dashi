@@ -58,8 +58,9 @@ prints each turn of that task with the messages it got and sent, in order,
 and its reply. A steer message from a task (the default) reaches a running
 agent Turn before its next model call. A queue message, or any message while
 the agent is idle, reaches it the way a result does: in the next queue Turn,
-or sooner when a `task_status` wait returns it. Either way the agent gets it
-once.
+or sooner when a `task_status` wait returns it. A wait that ends on a steer
+message already on its way names only the sender, and the message follows in
+the next model call. Either way the agent gets it once.
 
 A completed child's result reaches the parent through its recorded notice ID.
 Inspection does not consume it. An idle parent receives it in a scheduled queue
