@@ -26,6 +26,12 @@ class ModuleListTest(unittest.TestCase):
         # or kept in sync, so adding one must also mean listing it.
         self.assertEqual(sorted(sync.SUB_MODULES), sync.tracked_modules())
 
+    def test_examples_and_devtools_are_not_tracked(self) -> None:
+        listed = "go.mod\nmcp/go.mod\nexamples/decide/go.mod\ndevtools/agent-archive/go.mod\n"
+        result = subprocess.CompletedProcess(args=[], returncode=0, stdout=listed, stderr="")
+        with mock.patch.object(sync.subprocess, "run", return_value=result):
+            self.assertEqual(sync.tracked_modules(), ["mcp"])
+
     def test_root_is_not_a_sub_module(self) -> None:
         self.assertNotIn(".", sync.SUB_MODULES)
         self.assertNotIn("", sync.SUB_MODULES)

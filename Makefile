@@ -10,6 +10,10 @@ GO_SOURCES := git ls-files '*.go'
 SUB_MODULES := $(shell python3 scripts/sync_module_versions.py --list)
 GO_MODULES := . $(SUB_MODULES)
 
+# Untagged modules: tools for working on Dashi, each with its own go.mod and
+# go.work. They are tested and vetted here but never tagged or released.
+UNTAGGED_MODULES := devtools/agent-archive
+
 help:
 	@echo "Available targets:"
 	@echo "  make test        - Run tests in every module"
@@ -30,13 +34,13 @@ help:
 	@echo "  make check       - Run script tests, fmt-check, vet, and test"
 
 test:
-	@for dir in $(GO_MODULES); do \
+	@for dir in $(GO_MODULES) $(UNTAGGED_MODULES); do \
 		echo "==> $$dir"; \
 		(cd $$dir && go test ./...) || exit 1; \
 	done
 
 test-race:
-	@for dir in $(GO_MODULES); do \
+	@for dir in $(GO_MODULES) $(UNTAGGED_MODULES); do \
 		echo "==> $$dir"; \
 		(cd $$dir && go test -race ./...) || exit 1; \
 	done
@@ -58,7 +62,7 @@ fmt-check:
 		gofmt -l $$($(GO_SOURCES)) && exit 1)
 
 vet:
-	@for dir in $(GO_MODULES); do \
+	@for dir in $(GO_MODULES) $(UNTAGGED_MODULES); do \
 		echo "==> $$dir"; \
 		(cd $$dir && go vet ./... && go vet -tags live ./...) || exit 1; \
 	done

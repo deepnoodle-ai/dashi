@@ -37,4 +37,5 @@ profile.cov
 
 # Built by make build
 /cmd/dashi/dashi
+/devtools/agent-archive/agent-archive
 __pycache__/
