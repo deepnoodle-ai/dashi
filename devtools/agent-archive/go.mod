@@ -3,7 +3,7 @@ module github.com/deepnoodle-ai/dashi/devtools/agent-archive
 go 1.26.0
 
 require (
-	github.com/deepnoodle-ai/wonton v0.6.0
+	github.com/deepnoodle-ai/wonton v0.7.0
 	modernc.org/sqlite v1.60.1
 )
 
