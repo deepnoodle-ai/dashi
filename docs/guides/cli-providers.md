@@ -22,10 +22,10 @@ dashi --provider anthropic
 dashi --provider openai --model gpt-6-luna
 ```
 
-Listings use offline catalog facts and your registrations. Each destination
-gets a status line (`ready`, or what it still needs, such as a credential
-variable) and a table of its models with their context and output limits in
-tokens and whether they take a reasoning effort. Missing facts show `?`.
+Listings use offline catalog facts and your registrations. One table shows
+each destination's models, their context and output limits in tokens, whether
+they take a reasoning effort, and a status: `ready`, or what the destination
+still needs, such as a credential variable. Missing facts show `?`.
 `--available` lists only `ready` destinations: configured credentials and any
 required binding trust are present. It makes no network probe or paid request,
 and does not establish authentication or server health.

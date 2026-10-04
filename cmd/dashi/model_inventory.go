@@ -9,19 +9,18 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/workspace"
+	"github.com/deepnoodle-ai/wonton/runewidth"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
 // modelInventory is an offline listing. It constructs no provider client
 // and probes no endpoint. Project bindings need trust before key lookup.
-// Each destination gets a status line and a table of its models.
 func modelInventory(registry, user map[string]configuredDestination, lookup func(string) (string, bool), availableOnly bool, out io.Writer) error {
-	columns := []tui.TableColumn{{Title: "MODEL"}, {Title: "CONTEXT"}, {Title: "OUTPUT"}, {Title: "REASONING"}}
-	first := true
+	columns := []tui.TableColumn{{Title: "DESTINATION"}, {Title: "MODEL"}, {Title: "CONTEXT"}, {Title: "OUTPUT"}, {Title: "REASONING"}, {Title: "STATUS"}}
+	var rows [][]string
 	for _, id := range slices.Sorted(slices.Values(mapKeys(registry))) {
 		d := registry[id]
 		status := "needs model registration"
@@ -35,22 +34,16 @@ func modelInventory(registry, user map[string]configuredDestination, lookup func
 					return err
 				}
 				if key == "" && (d.Definition.CredentialEnv != "" || len(d.BuiltinAliases) != 0) && d.ID != "ollama" {
-					status = "needs " + strings.Join(credentialNames(d), " or ")
+					status = "needs " + credentialNames(d)[0]
 				}
 			}
 		}
 		if availableOnly && status != "ready" {
 			continue
 		}
-		if !first {
-			fmt.Fprintln(out)
-		}
-		first = false
-		fmt.Fprintf(out, "%s: %s\n", id, status)
 		if len(d.Definition.Models) == 0 {
-			continue
+			rows = append(rows, []string{id, "—", "?", "?", "?", status})
 		}
-		var rows [][]string
 		for _, model := range slices.Sorted(slices.Values(d.Definition.Models)) {
 			info, known := d.modelInfo(model)
 			context, output, reasoning := "?", "?", "?"
@@ -58,13 +51,21 @@ func modelInventory(registry, user map[string]configuredDestination, lookup func
 				context, output = tokenCount(info.Capabilities.ContextWindow), tokenCount(info.Capabilities.MaxOutputTokens)
 				reasoning = supportWord(info.Capabilities.Features[llm.FeatureReasoningEffort])
 			}
-			rows = append(rows, []string{model, context, output, reasoning})
-		}
-		if err := tui.Fprintln(out, tui.Table(columns, nil).Rows(rows)); err != nil {
-			return err
+			rows = append(rows, []string{id, model, context, output, reasoning, status})
 		}
 	}
-	return nil
+	// Print at the table's full width so no model ID is cut short. Wonton
+	// pads each column by two spaces, which also separates them.
+	width := 0
+	for i, c := range columns {
+		widest := runewidth.StringWidth(c.Title)
+		for _, row := range rows {
+			widest = max(widest, runewidth.StringWidth(row[i]))
+		}
+		width += widest + 2
+	}
+	table := tui.Table(columns, nil).Rows(rows).ColumnGap(0)
+	return tui.Fprintln(out, table, tui.WithWidth(width))
 }
 
 // credentialNames are the variables that can hold d's credential.

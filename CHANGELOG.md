@@ -96,9 +96,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   variable sets nothing. `--env-file` loads after the command line, so it
   supplies credentials only; a `DASHI_*` line in it draws a warning.
   With `NO_COLOR` set, text printed to native scrollback is plain.
-  `dashi models` groups models by destination under a status line (`ready`
-  or what is missing) and shows only context, output, and reasoning, with
-  limits such as `200K` and `1M`.
+  `dashi models` prints one table of destination, model, context, output,
+  reasoning, and status (`ready` or what is missing), with limits such as
+  `200K` and `1M`.
 
 ### Added
 
