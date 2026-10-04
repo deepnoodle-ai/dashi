@@ -45,8 +45,12 @@ passes, so it triggers nothing.
 The checks read `TurnView.Tools` and `TurnView.ModelCalls`. A trigger is
 skipped when a watcher reminder already follows the triggering result, so a
 model call that Dashi asks the hooks about again (after an urgent steer, a
-`Continue`, or a mid-turn summary) is not checked twice. A check that added
-no reminder leaves no such mark, so it can run again (open question 4).
+`Continue`, or a mid-turn summary) is not checked twice. A check that Decide
+answered "no" adds nothing and leaves no mark, so it runs again on the next
+pass. That is intended: after an urgent steer the next pass sees the steer,
+after a denied send `Continue` may come much later, and Dashi keeps no record
+of a pass that added nothing and sent no request. The cost is one Decide
+request.
 
 **3. What Decide is asked.** One request, two yes-or-no questions:
 
@@ -202,10 +206,3 @@ steer, after `Continue` past a denied send, and after a mid-turn summary.
 3. **Should child turns be watched?** Version 1 says no, so one loop does not
    get a reminder at every level. A host with long-running subagents may want
    it.
-4. **How should a "no" answer be checked once per model call?** When Decide
-   answers "no", the hook records nothing. After an urgent steer or a denied
-   send and `Continue`, Dashi asks the hooks again for that model call, and
-   the watcher asks Decide again: one extra request in a rare case. An exact
-   fix needs a per-model-call hook record in `TurnView` and must keep a
-   reason-only (`no_change`) result on the urgent-steer path. See
-   [#182](https://github.com/deepnoodle-ai/dashi/issues/182).

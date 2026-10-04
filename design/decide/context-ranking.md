@@ -164,9 +164,11 @@ kept tail stay present.
   untrusted or code sources.
 
 A turn ranks again only when its ranking failed, when it crashes before Dashi
-commits the step after the hook, or when an urgent steer sends the run back
-before the request, since Dashi drops that pass's hook results. That costs one
-more Decide request and never adds an item twice.
+commits the step after the hook, or when it chose nothing and an urgent steer
+then sends the run back before the request. Chosen items are committed before
+the request, so a go-back keeps them. A pass that added nothing leaves no
+record, and ranking again with the steer in view is intended. A rerun costs
+one more Decide request and never adds an item twice.
 
 ## Tests and keyless example
 
