@@ -90,17 +90,17 @@ func (a *archive) copyOriginal(o original, prev *copyRow) (copyOutcome, error) {
 		}); err != nil {
 			return 0, fatal(err)
 		}
-		return outcome, fatal(a.recordWritten(o, wc.Hash, false))
+		return outcome, fatal(a.recordWritten(o, wc.Hash))
 	}
 	if err := os.Rename(wc.TempPath, dst); err != nil {
 		os.Remove(wc.TempPath)
 		return 0, err
 	}
 	syncDir(dst)
-	return outcome, fatal(a.recordWritten(o, wc.Hash, false))
+	return outcome, fatal(a.recordWritten(o, wc.Hash))
 }
 
-func (a *archive) recordWritten(o original, hash string, recovered bool) error {
+func (a *archive) recordWritten(o original, hash string) error {
 	size, t := o.Size, o.ModifiedAt
 	return a.record(logEvent{
 		Event:         eventCopyWritten,
@@ -111,7 +111,6 @@ func (a *archive) recordWritten(o original, hash string, recovered bool) error {
 		OriginalBytes: &size,
 		ModifiedAt:    &t,
 		Hash:          hash,
-		Recovered:     recovered,
 	})
 }
 

@@ -35,7 +35,7 @@ type archive struct {
 // openArchive creates the archive directory if needed, takes the lock,
 // tightens loose permissions, drops a torn last log line, and applies log
 // events the database has not seen. Those are the first two recovery
-// rules; recover handles the rest once the run has started.
+// rules; deleteTempFiles handles the last once the run has started.
 func openArchive(dir string) (*archive, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
@@ -85,47 +85,6 @@ func openArchive(dir string) (*archive, error) {
 		}
 	}
 	a.logEnd = validEnd
-	for _, ev := range events {
-		if err := applyEvent(a.DB, ev); err != nil {
-			return nil, err
-		}
-	}
-	ok = true
-	return a, nil
-}
-
-// openArchiveToRead opens an existing archive for a command that only
-// reads it, such as verify. It takes the lock, so it never reads while a
-// copy run writes, and applies log events the database has not seen. Unlike
-// openArchive it changes nothing else: a torn last log line is left for the
-// next copy run to drop, and permissions are left as they are.
-func openArchiveToRead(dir string) (*archive, error) {
-	if _, err := os.Stat(filepath.Join(dir, databaseName)); err != nil {
-		return nil, fmt.Errorf("no database at %s; run agent-archive copy first",
-			filepath.Join(dir, databaseName))
-	}
-	a := &archive{Dir: dir}
-	ok := false
-	defer func() {
-		if !ok {
-			a.Close()
-		}
-	}()
-	var err error
-	if a.lock, err = lockArchive(dir); err != nil {
-		return nil, err
-	}
-	if a.DB, err = openDatabase(filepath.Join(dir, databaseName)); err != nil {
-		return nil, err
-	}
-	from, err := appliedBytes(a.DB)
-	if err != nil {
-		return nil, err
-	}
-	events, _, err := readLog(filepath.Join(dir, copyLogName), from)
-	if err != nil {
-		return nil, err
-	}
 	for _, ev := range events {
 		if err := applyEvent(a.DB, ev); err != nil {
 			return nil, err

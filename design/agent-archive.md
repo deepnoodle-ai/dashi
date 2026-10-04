@@ -65,6 +65,8 @@ gone; only their typed prompts survive in its `history.jsonl`.
    When an original disappears, keep the copy and record when.
 5. **A copy is identified by its archive path,** not its original path,
    because Codex moves files between `sessions/` and `archived_sessions/`.
+   `original_path` is the original's path when it was last copied; Codex
+   may later move it to `archived_sessions/`.
 6. **A copy log keeps what copies can't.** `copy-log.jsonl`, append-only,
    beside the copies, holds every fact about an original or a run; the
    database is built from it plus the copies. One event per line, each with
@@ -88,9 +90,9 @@ gone; only their typed prompts survive in its `history.jsonl`.
    - A torn last log line (crash mid-append) is dropped.
    - Log events past the database's position are applied.
    - A leftover temporary file is deleted.
-   - A copy file the log doesn't know (crash between rename and append) is
-     hashed and logged with `recovered: true`; a renamed old copy is logged
-     as superseded.
+
+   A crash between rename and append just means the next run copies the
+   original again.
 7. **Retire the snapshot by verifying it.** Every snapshot file still has
    its original, so the first daily copy captures everything.
    `verify -snapshot <dir>` accepts a snapshot file when a copy, current or

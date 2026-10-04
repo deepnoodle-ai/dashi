@@ -252,15 +252,3 @@ func classify(app, rel string) string {
 	}
 	return kindOther
 }
-
-// classifyCopyPath gives the app and kind of an archive path, or ok false
-// when the path is not inside an app folder.
-func classifyCopyPath(copyPath string) (app, kind string, ok bool) {
-	for a, folder := range appFolders {
-		if rel, found := strings.CutPrefix(copyPath, folder+"/"); found {
-			rel = strings.TrimSuffix(rel, ".gz")
-			return a, classify(a, rel), true
-		}
-	}
-	return "", "", false
-}

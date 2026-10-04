@@ -42,9 +42,6 @@ type logEvent struct {
 	OriginalBytes *int64     `json:"original_bytes,omitempty"`
 	ModifiedAt    *time.Time `json:"modified_at,omitempty"` // also modified_at_updated
 	Hash          string     `json:"hash,omitempty"`
-	// copy_written and copy_superseded found by recovery rather than
-	// written by a run.
-	Recovered bool `json:"recovered,omitempty"`
 
 	// run_ended
 	OriginalsSeen   *int      `json:"originals_seen,omitempty"`

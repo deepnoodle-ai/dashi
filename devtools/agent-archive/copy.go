@@ -35,16 +35,12 @@ func runCopy(o options) (copySummary, error) {
 
 	apps := []struct{ app, dir string }{{appClaudeCode, o.ClaudeDir}, {appCodex, o.CodexDir}}
 	lists := map[string]listResult{}
-	byCopyPath := map[string]original{}
 	for _, s := range apps {
 		l := listOriginals(s.app, s.dir)
 		lists[s.app] = l
 		a.Warnings = append(a.Warnings, l.Warnings...)
-		for _, org := range l.Originals {
-			byCopyPath[org.CopyPath] = org
-		}
 	}
-	if err := a.recoverCopies(byCopyPath); err != nil {
+	if err := a.deleteTempFiles(); err != nil {
 		return sum, err
 	}
 	current, err := currentCopies(a.DB)

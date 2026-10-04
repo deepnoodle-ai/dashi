@@ -393,11 +393,6 @@ func TestSnapshotsAreNotCopies(t *testing.T) {
 	if n := e.countCopies("copy_path LIKE 'snapshots/%'"); n != 0 {
 		t.Fatal("a snapshot file was treated as a copy")
 	}
-	for _, ev := range e.events() {
-		if ev.Recovered {
-			t.Fatal("a snapshot file was recovered as a copy")
-		}
-	}
 	if _, err := os.Stat(snap); err != nil {
 		t.Fatal("snapshot file was touched")
 	}
@@ -444,7 +439,7 @@ func TestMissingNewestCopyIsCopiedAgain(t *testing.T) {
 			}
 			evs := e.events()
 			written := eventsOf(evs, n, eventCopyWritten)
-			if len(written) != 1 || written[0].CopyPath != cp || written[0].Recovered {
+			if len(written) != 1 || written[0].CopyPath != cp {
 				t.Fatalf("copy_written events: %+v", written)
 			}
 			if len(eventsOf(evs, n, eventCopySuperseded)) != 0 {

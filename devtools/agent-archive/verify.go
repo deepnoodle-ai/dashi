@@ -64,11 +64,15 @@ var snapshotFolders = map[string]string{
 }
 
 // runVerify re-hashes every copy, current and superseded, against the
-// database, and with snapshotDir also checks a snapshot. It changes
-// nothing in the archive or the snapshot.
+// database, and with snapshotDir also checks a snapshot. It changes no
+// copy and nothing in the snapshot; opening the archive may apply its
+// first two recovery rules and tighten permissions.
 func runVerify(archiveDir, snapshotDir string) (verifyResult, error) {
 	var res verifyResult
-	a, err := openArchiveToRead(archiveDir)
+	if _, err := os.Stat(filepath.Join(archiveDir, databaseName)); err != nil {
+		return res, fmt.Errorf("no database in %s; run agent-archive copy first", archiveDir)
+	}
+	a, err := openArchive(archiveDir)
 	if err != nil {
 		return res, err
 	}

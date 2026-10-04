@@ -213,21 +213,3 @@ func currentCopies(db *sql.DB) (map[string]copyRow, error) {
 	}
 	return out, rows.Err()
 }
-
-// allCopyPaths returns the path of every copy, current or superseded.
-func allCopyPaths(db *sql.DB) (map[string]bool, error) {
-	rows, err := db.Query(`SELECT copy_path FROM copies`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[string]bool{}
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
-			return nil, err
-		}
-		out[p] = true
-	}
-	return out, rows.Err()
-}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"compress/gzip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,94 +100,5 @@ func TestRecoveryDeletesLeftoverTempFile(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(sum.Warnings, "\n"), "temporary file") {
 		t.Fatalf("warnings %v", sum.Warnings)
-	}
-}
-
-func gzipBytes(s string) []byte {
-	var b bytes.Buffer
-	w := gzip.NewWriter(&b)
-	w.Write([]byte(s))
-	w.Close()
-	return b.Bytes()
-}
-
-func TestRecoveryLogsUnknownCopy(t *testing.T) {
-	e := newEnv(t)
-	const cp = "claude-code/projects/p/s.jsonl.gz"
-	e.claude("projects/p/other.jsonl", claudeRootSession, baseTime)
-	e.copy()
-	// A crash after renaming a first copy into place, before logging it.
-	e.claude("projects/p/s.jsonl", claudeSubagent, baseTime)
-	full := e.archivePath(cp)
-	os.WriteFile(full, gzipBytes(claudeSubagent), 0o600)
-	e.touch(full, baseTime)
-	n := len(e.events())
-	sum := e.copy()
-	written := eventsOf(e.events(), n, eventCopyWritten)
-	if len(written) != 1 || written[0].CopyPath != cp || !written[0].Recovered || written[0].Hash != sha(claudeSubagent) {
-		t.Fatalf("recovered events: %+v", written)
-	}
-	if sum.OriginalsCopied != 0 {
-		t.Fatal("the original was copied again after recovery")
-	}
-	row, _ := e.copyRowAt(cp)
-	if row.OriginalPath == "" || row.OriginalBytes != int64(len(claudeSubagent)) {
-		t.Fatalf("recovered row: %+v", row)
-	}
-}
-
-func TestRecoveryLogsRenamedOldCopy(t *testing.T) {
-	e := newEnv(t)
-	const cp = "claude-code/paste-cache/p1.txt"
-	e.claude("paste-cache/p1.txt", "pasted", baseTime)
-	e.copy()
-	// A crash mid-supersede: the old copy was renamed and the new copy put
-	// in its place, but neither was logged.
-	renamedAt := time.Date(2026, 9, 3, 4, 5, 6, 0, time.UTC)
-	old := supersededPath(cp, renamedAt, 0)
-	if err := os.Rename(e.archivePath(cp), e.archivePath(old)); err != nil {
-		t.Fatal(err)
-	}
-	mtime := baseTime.Add(time.Hour)
-	e.claude("paste-cache/p1.txt", "PASTED", mtime)
-	os.WriteFile(e.archivePath(cp), []byte("PASTED"), 0o600)
-	e.touch(e.archivePath(cp), mtime)
-	n := len(e.events())
-	sum := e.copy()
-	evs := e.events()
-	sup := eventsOf(evs, n, eventCopySuperseded)
-	if len(sup) != 1 || sup[0].CopyPath != cp || sup[0].SupersededPath != old || !sup[0].Recovered || !sup[0].Time.Equal(renamedAt) {
-		t.Fatalf("superseded events: %+v", sup)
-	}
-	written := eventsOf(evs, n, eventCopyWritten)
-	if len(written) != 1 || !written[0].Recovered || written[0].Hash != sha("PASTED") {
-		t.Fatalf("written events: %+v", written)
-	}
-	if sum.OriginalsCopied != 0 {
-		t.Fatal("the original was copied again after recovery")
-	}
-	oldRow, oldSup := e.copyRowAt(old)
-	if !oldSup.Valid || oldRow.Hash != sha("pasted") {
-		t.Fatal("the renamed old copy is not recorded as superseded")
-	}
-}
-
-func TestRecoveryAfterRenameOfOldCopyOnly(t *testing.T) {
-	e := newEnv(t)
-	const cp = "claude-code/paste-cache/p1.txt"
-	e.claude("paste-cache/p1.txt", "pasted", baseTime)
-	e.copy()
-	old := supersededPath(cp, time.Now(), 0)
-	os.Rename(e.archivePath(cp), e.archivePath(old))
-	e.claude("paste-cache/p1.txt", "PASTED", baseTime.Add(time.Hour))
-	sum := e.copy()
-	if sum.OriginalsCopied != 1 {
-		t.Fatalf("copied %d, want 1", sum.OriginalsCopied)
-	}
-	if e.readCopy(cp) != "PASTED" || e.readCopy(old) != "pasted" {
-		t.Fatal("copies wrong after recovery")
-	}
-	if e.countCopies("superseded_at IS NOT NULL") != 1 || e.countCopies("superseded_at IS NULL") != 1 {
-		t.Fatal("want one superseded and one current copy")
 	}
 }
