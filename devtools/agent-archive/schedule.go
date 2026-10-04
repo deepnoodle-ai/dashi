@@ -117,22 +117,27 @@ func (s scheduler) install(o options, w io.Writer) error {
 	return nil
 }
 
-// remove unloads the LaunchAgent and deletes its plist.
+// remove unloads the LaunchAgent and deletes its plist. If the agent is
+// loaded and will not unload, it keeps the plist and returns an error, so
+// it never reports a removal while the job still runs.
 func (s scheduler) remove(w io.Writer) error {
 	if err := s.checkOS(); err != nil {
 		return err
 	}
-	out, bootoutErr := s.Launchctl("bootout", s.domain()+"/"+scheduleLabel)
+	service := s.domain() + "/" + scheduleLabel
+	// launchctl print fails when the agent is not loaded.
+	if _, err := s.Launchctl("print", service); err == nil {
+		if out, err := s.Launchctl("bootout", service); err != nil {
+			return fmt.Errorf("launchctl bootout: %v: %s (kept %s; try again)", err, out, s.PlistPath)
+		}
+	}
 	err := os.Remove(s.PlistPath)
-	switch {
-	case errors.Is(err, fs.ErrNotExist) && bootoutErr != nil:
+	if errors.Is(err, fs.ErrNotExist) {
 		fmt.Fprintln(w, "no schedule is installed")
 		return nil
-	case err != nil && !errors.Is(err, fs.ErrNotExist):
-		return err
 	}
-	if bootoutErr != nil {
-		fmt.Fprintf(w, "launchctl bootout: %v: %s (it was probably not loaded)\n", bootoutErr, out)
+	if err != nil {
+		return err
 	}
 	fmt.Fprintf(w, "removed %s\n", s.PlistPath)
 	return nil

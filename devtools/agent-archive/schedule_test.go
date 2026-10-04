@@ -167,17 +167,50 @@ func TestScheduleRemove(t *testing.T) {
 	if err := s.remove(&out); err != nil {
 		t.Fatal(err)
 	}
-	if !equalCalls(f.calls, [][]string{{"bootout", "gui/501/ai.deepnoodle.agent-archive"}}) {
+	if !equalCalls(f.calls, [][]string{
+		{"print", "gui/501/ai.deepnoodle.agent-archive"},
+		{"bootout", "gui/501/ai.deepnoodle.agent-archive"},
+	}) {
 		t.Fatalf("calls %v", f.calls)
 	}
 	if _, err := os.Stat(s.PlistPath); !os.IsNotExist(err) {
 		t.Fatal("plist not deleted")
 	}
 	// Removing again: nothing is loaded and there is no plist.
-	f.fail["bootout"] = true
+	f.fail["print"] = true
 	out.Reset()
 	if err := s.remove(&out); err != nil || !strings.Contains(out.String(), "no schedule is installed") {
 		t.Fatalf("second remove: %v %q", err, out.String())
+	}
+}
+
+func TestScheduleRemoveKeepsPlistWhenUnloadFails(t *testing.T) {
+	s, f := testScheduler(t, "darwin")
+	if err := s.install(options{ArchiveDir: t.TempDir()}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	f.fail["bootout"] = true
+	if err := s.remove(&bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "launchctl bootout") {
+		t.Fatalf("err %v", err)
+	}
+	if _, err := os.Stat(s.PlistPath); err != nil {
+		t.Fatalf("plist not kept: %v", err)
+	}
+}
+
+func TestScheduleRemoveWhenNotLoaded(t *testing.T) {
+	s, f := testScheduler(t, "darwin")
+	if err := s.install(options{ArchiveDir: t.TempDir()}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	f.calls = nil
+	f.fail["print"] = true
+	var out bytes.Buffer
+	if err := s.remove(&out); err != nil || !strings.Contains(out.String(), "removed") {
+		t.Fatalf("remove: %v %q", err, out.String())
+	}
+	if !equalCalls(f.calls, [][]string{{"print", "gui/501/ai.deepnoodle.agent-archive"}}) {
+		t.Fatalf("calls %v", f.calls)
 	}
 }
 
@@ -212,7 +245,7 @@ func TestScheduleCommandLine(t *testing.T) {
 	if r := runCLI(t, "schedule", "remove"); r.ExitCode != 0 || !r.Contains("removed "+s.PlistPath) {
 		t.Fatalf("remove exit %d: %v", r.ExitCode, r.Err)
 	}
-	if len(f.calls) != 3 {
+	if len(f.calls) != 4 {
 		t.Fatalf("calls %v", f.calls)
 	}
 	for _, args := range [][]string{{"schedule"}, {"schedule", "start"}, {"schedule", "remove", "--archive", archive}} {
