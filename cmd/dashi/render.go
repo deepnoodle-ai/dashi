@@ -96,9 +96,9 @@ type Block struct {
 	Task *Block
 }
 
-// Renderer turns Dashi events into blocks. The screen, line mode, and -p use
-// it, and a resumed session replays step events through it, so the scrollback
-// of a reopened session equals what the live run showed.
+// Renderer turns Dashi events into blocks. The screen, line mode, and the run
+// command use it, and a resumed session replays step events through it, so
+// the scrollback of a reopened session equals what the live run showed.
 type Renderer struct {
 	// Turn is the turn number shown in the footer.
 	Turn int
@@ -678,7 +678,7 @@ func (t *Transcript) Apply(b Block) int {
 }
 
 // FormatBlock returns the plain-text form of a block, without color, for line
-// mode, -p, and tests. Multi-line blocks join with newlines.
+// mode, the run command, and tests. Multi-line blocks join with newlines.
 func FormatBlock(b Block) string {
 	switch b.Kind {
 	case KindUser:

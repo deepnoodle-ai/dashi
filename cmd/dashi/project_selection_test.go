@@ -36,7 +36,7 @@ func TestProjectSelectionStaysWorkspaceScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = resolveLaunchPreferences(Options{}, p.routes.user, p.routes.user, user, preferenceFile{}, preferenceFile{}, func(string) (string, bool) { return "", false }, nil)
+	_, err = resolveLaunchPreferences(Options{}, p.routes.user, p.routes.user, user, preferenceFile{}, preferenceFile{}, func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatalf("workspace B startup failed: %v", err)
 	}

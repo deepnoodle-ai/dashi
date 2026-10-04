@@ -113,9 +113,9 @@ func (c *Controller) generationControl(ctx context.Context, command, value strin
 		c.notice("%s needs a value. Use /settings to inspect controls.", command)
 		return
 	}
-	parsed, err := parseArgs([]string{flag + "=" + value})
-	if err != nil {
-		c.emit(warnBlock("%v. Keeping the previous preference.", err))
+	var parsed generationPreferences
+	if err := parsed.setControl(flag, value); err != nil {
+		c.emit(warnBlock("Invalid %s: %v. Keeping the previous preference.", command, err))
 		return
 	}
 	p.mu.RLock()
@@ -126,7 +126,7 @@ func (c *Controller) generationControl(ctx context.Context, command, value strin
 		c.emit(warnBlock("%v.", err))
 		return
 	}
-	controls, err := resolveControls([]generationTier{{generationPreferences: parsed.Controls, Source: "session change"}, {generationPreferences: base.generationPreferences, Source: "current session"}})
+	controls, err := resolveControls([]generationTier{{generationPreferences: parsed, Source: "session change"}, {generationPreferences: base.generationPreferences, Source: "current session"}})
 	if err != nil {
 		c.emit(warnBlock("%v.", err))
 		return
@@ -171,15 +171,15 @@ func (c *Controller) generationControl(ctx context.Context, command, value strin
 	var saved any
 	switch field {
 	case "thinking_effort":
-		saved = parsed.Controls.Effort.Value
+		saved = parsed.Effort.Value
 	case "show_thinking":
-		saved = parsed.Controls.ShowThinking.Value
+		saved = parsed.ShowThinking.Value
 	case "temperature":
-		if !parsed.Controls.Temperature.Null {
-			saved = parsed.Controls.Temperature.Value
+		if !parsed.Temperature.Null {
+			saved = parsed.Temperature.Value
 		}
 	case "max_tokens":
-		saved = parsed.Controls.MaxTokens.Value
+		saved = parsed.MaxTokens.Value
 	}
 	if err := p.writer.update(map[string]json.RawMessage{field: preferenceJSON(saved)}); err != nil {
 		c.emit(warnBlock("Preference is active, but user preferences were not saved: %v.", err))

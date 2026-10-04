@@ -76,7 +76,7 @@ func TestHelpBlockRendersStyledWithPlainSource(t *testing.T) {
 	if FormatBlock(b) != "Session\n  • /status [ID]  inspect\n\n  • legend" {
 		t.Fatalf("plain = %q", FormatBlock(b))
 	}
-	styled, ok := nativeBlockText(b, 80)
+	styled, ok := nativeBlockText(b, 80, true)
 	if !ok {
 		t.Fatal("no native text")
 	}
@@ -84,6 +84,9 @@ func TestHelpBlockRendersStyledWithPlainSource(t *testing.T) {
 		if !strings.Contains(styled, want) {
 			t.Fatalf("missing %q in %q", want, styled)
 		}
+	}
+	if plain, _ := nativeBlockText(b, 80, false); strings.Contains(plain, "\x1b[") || !strings.Contains(plain, "/status [ID]") {
+		t.Fatalf("no-color text = %q", plain)
 	}
 	if got := tui.SprintScreen(blockView(b), tui.WithWidth(40)).Text(); !strings.Contains(got, "  • /status [ID]  inspect\n\n  • legend") {
 		t.Fatalf("screen = %q", got)

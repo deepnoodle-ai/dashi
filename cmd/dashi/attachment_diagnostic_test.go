@@ -13,7 +13,7 @@ func TestAttachmentOversizeDiagnosticBoundaryAndNoDispatch(t *testing.T) {
 			cfg := testConfig(t, say("boundary accepted"))
 			fixtureSelectedText(t, cfg.Dir, "requirements.txt", strings.Repeat("x", size))
 			var stdout, stderr bytes.Buffer
-			code := runPrint(t.Context(), cfg, Options{Print: "inspect", PrintSet: true, AttachFiles: []string{"requirements.txt"}}, &stdout, &stderr)
+			code := runPrint(t.Context(), cfg, Options{Prompt: "inspect", Run: true, AttachFiles: []string{"requirements.txt"}}, &stdout, &stderr)
 			if size == 262144 {
 				if code != 0 || cfg.Client.(*fakeClient).sends != 1 {
 					t.Fatalf("boundary rejected: code=%d %s", code, stderr.String())

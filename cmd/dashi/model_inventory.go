@@ -4,58 +4,100 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
-	"text/tabwriter"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/workspace"
+	"github.com/deepnoodle-ai/wonton/runewidth"
+	"github.com/deepnoodle-ai/wonton/tui"
 )
 
 // modelInventory is an offline listing. It constructs no provider client
 // and probes no endpoint. Project bindings need trust before key lookup.
 func modelInventory(registry, user map[string]configuredDestination, lookup func(string) (string, bool), availableOnly bool, out io.Writer) error {
-	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "DESTINATION\tMODEL\tAVAILABILITY\tCONTEXT\tOUTPUT\tTOOLS\tREASONING\tSUMMARY\tEVIDENCE")
+	columns := []tui.TableColumn{{Title: "DESTINATION"}, {Title: "MODEL"}, {Title: "CONTEXT"}, {Title: "OUTPUT"}, {Title: "REASONING"}, {Title: "STATUS"}}
+	var rows [][]string
 	for _, id := range slices.Sorted(slices.Values(mapKeys(registry))) {
 		d := registry[id]
-		availability := "needs model registration"
-		if len(d.Definition.Models) != 0 {
-			availability = "configured"
-			if !d.trustedBy(user) {
-				availability = "needs project binding trust"
-			} else {
-				key, err := d.credential(lookup, true)
-				if err != nil {
-					return err
-				}
-				if key == "" && (d.Definition.CredentialEnv != "" || len(d.BuiltinAliases) != 0) && d.ID != "ollama" {
-					availability = "needs credential"
-				}
+		if len(d.Definition.Models) == 0 {
+			continue // nothing to list until models are registered
+		}
+		status := "ready"
+		if !d.trustedBy(user) {
+			status = "needs project binding trust"
+		} else {
+			key, err := d.credential(lookup, true)
+			if err != nil {
+				return err
+			}
+			if key == "" && (d.Definition.CredentialEnv != "" || len(d.BuiltinAliases) != 0) && d.ID != "ollama" {
+				status = "needs " + credentialNames(d)[0]
 			}
 		}
-		if availableOnly && availability != "configured" {
+		if availableOnly && status != "ready" {
 			continue
-		}
-		if len(d.Definition.Models) == 0 {
-			fmt.Fprintf(w, "%s\t—\t%s\tunknown\tunknown\tunknown\tunknown\tunknown\tunknown\n", id, availability)
 		}
 		for _, model := range slices.Sorted(slices.Values(d.Definition.Models)) {
 			info, known := d.modelInfo(model)
-			context, output, tools, reasoning, summary, evidence := "unknown", "unknown", "unknown", "unknown", "unknown", "unknown"
+			context, output, reasoning := "?", "?", "?"
 			if known {
-				context, output = knownLimit(info.Capabilities.ContextWindow), knownLimit(info.Capabilities.MaxOutputTokens)
-				tools, reasoning = knownSupport(info.Capabilities.Features[llm.FeatureTools]), knownSupport(info.Capabilities.Features[llm.FeatureReasoningEffort])
-				summary = knownSupport(info.Capabilities.Features[llm.FeatureReasoningSummary])
-				evidence = info.Evidence.Source + " (" + info.Evidence.QualifiedAt.Format("2006-01-02") + ")"
+				context, output = tokenCount(info.Capabilities.ContextWindow), tokenCount(info.Capabilities.MaxOutputTokens)
+				reasoning = supportWord(info.Capabilities.Features[llm.FeatureReasoningEffort])
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", id, model, availability, context, output, tools, reasoning, summary, evidence)
+			rows = append(rows, []string{id, model, context, output, reasoning, status})
 		}
 	}
-	return w.Flush()
+	// Print at the table's full width so no model ID is cut short. Wonton
+	// pads each column by two spaces, which also separates them.
+	width := 0
+	for i, c := range columns {
+		widest := runewidth.StringWidth(c.Title)
+		for _, row := range rows {
+			widest = max(widest, runewidth.StringWidth(row[i]))
+		}
+		width += widest + 2
+	}
+	table := tui.Table(columns, nil).Rows(rows).ColumnGap(0)
+	return tui.Fprintln(out, table, tui.WithWidth(width))
 }
+
+// credentialNames are the variables that can hold d's credential.
+func credentialNames(d configuredDestination) []string {
+	if len(d.BuiltinAliases) != 0 {
+		return d.BuiltinAliases
+	}
+	return []string{d.Definition.CredentialEnv}
+}
+
+// tokenCount writes a token limit short, such as 200K or 1M, or ? when it
+// is unknown.
+func tokenCount(n int) string {
+	switch {
+	case n == 0:
+		return "?"
+	case n >= 1_000_000:
+		return strconv.FormatFloat(math.Round(float64(n)/100_000)/10, 'f', -1, 64) + "M"
+	case n >= 1_000:
+		return strconv.Itoa(int(math.Round(float64(n)/1_000))) + "K"
+	}
+	return strconv.Itoa(n)
+}
+
+// supportWord writes a feature's support as yes, no, or ? when unknown.
+func supportWord(s llm.Support) string {
+	switch s {
+	case llm.SupportSupported:
+		return "yes"
+	case llm.SupportUnsupported:
+		return "no"
+	}
+	return "?"
+}
+
 func mapKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
 	for key := range m {

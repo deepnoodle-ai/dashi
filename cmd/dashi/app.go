@@ -150,7 +150,7 @@ func (a *app) openSession(
 		if err != nil {
 			return "", err
 		}
-	} else if a.eng.cfg.Preferences == nil && s.Model != "" && o.Model == "" && os.Getenv("DASHI_MODEL") == "" {
+	} else if a.eng.cfg.Preferences == nil && s.Model != "" && o.Model == "" {
 		a.eng.SetModel(s.Model)
 	}
 	if err := a.eng.Open(s); err != nil {

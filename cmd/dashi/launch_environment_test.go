@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -45,5 +46,13 @@ func TestWorkspaceCanonicalizesBeforeUsingProjectFiles(t *testing.T) {
 	}
 	if _, err := canonicalWorkspace(dir, "missing"); err == nil {
 		t.Fatal("missing workspace accepted")
+	}
+}
+
+func TestEnvironmentFileSettingsWarn(t *testing.T) {
+	var out strings.Builder
+	warnEnvironmentSettings(&out, map[string]string{"OPENAI_API_KEY": "/a.env", "DASHI_MODEL": "/a.env"})
+	if out.String() != "dashi: warning: DASHI_MODEL in /a.env has no effect; set it in the shell or use its flag.\n" {
+		t.Fatalf("warning=%q", out.String())
 	}
 }

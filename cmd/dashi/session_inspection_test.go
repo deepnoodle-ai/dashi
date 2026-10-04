@@ -353,7 +353,7 @@ func TestSessionLineCardsAndPrintCommandBoundary(t *testing.T) {
 		t.Fatal(out.String())
 	}
 	var stdout, stderr bytes.Buffer
-	code := runPrint(t.Context(), cfg, Options{Print: "/status " + saved.ID, PrintSet: true}, &stdout, &stderr)
+	code := runPrint(t.Context(), cfg, Options{Prompt: "/status " + saved.ID, Run: true}, &stdout, &stderr)
 	if code != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "requires --plain") || cfg.Client.(*fakeClient).sends != 0 {
 		t.Fatalf("code %d: %s %s", code, &stdout, &stderr)
 	}

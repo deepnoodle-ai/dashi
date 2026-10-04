@@ -1,226 +1,340 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
+
+	"github.com/deepnoodle-ai/wonton/cli"
+	"github.com/deepnoodle-ai/wonton/color"
 )
 
-// Options are the parsed command-line flags.
+// Options are what the command line asked for.
 type Options struct {
-	// Resume is true for --resume or -c.
-	Resume bool
-	// ResumeID names the session for --resume ID; empty means the last one.
-	ResumeID string
-	// Print is the prompt of -p; PrintSet tells an empty prompt from none.
-	Print           string
-	PrintSet        bool
-	OutputFormat    string
-	OutputFormatSet bool
-	Model           string
-	Provider        string
-	APIEndpoint     string
-	Workspace       string
-	EnvFiles        []string
-	MCPFiles        []string
-	AttachFiles     []string
-	SystemPrompt    string
-	SystemPromptSet bool
-	Models          bool
-	Available       bool
-	Controls        generationPreferences
-
-	// Yes approves every tool call, for -p.
+	// Run is true for the run command, which sends one request without a
+	// screen.
+	Run bool
+	// Prompt is the run command's prompt. Redirected standard input is
+	// added after it.
+	Prompt       string
+	OutputFormat string
+	AttachFiles  []string
+	// Yes approves every tool call, for the run command.
 	Yes bool
+
+	// Resume reopens a saved session: ResumeID, or the last session of this
+	// directory when ResumeID is empty.
+	Resume   bool
+	ResumeID string
+
+	Model        string
+	Provider     string
+	APIEndpoint  string
+	Workspace    string
+	EnvFiles     []string
+	MCPFiles     []string
+	SystemPrompt string
+	Controls     generationPreferences
+
 	// Plain turns off the full screen and uses line mode.
 	Plain bool
 	// Inline uses Wonton in the terminal's native scrollback.
 	Inline bool
-	Help   bool
+
+	// Models is true for the models command.
+	Models    bool
+	Available bool
 }
 
-// parseArgs reads the flags. --resume takes an optional session ID, which the
-// standard flag package cannot express.
-func parseArgs(args []string) (Options, error) {
-	var o Options
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		name, inline, hasInline := strings.Cut(a, "=")
-		value := func() (string, error) {
-			if hasInline {
-				return inline, nil
-			}
-			if i+1 >= len(args) {
-				return "", fmt.Errorf("%s needs a value", a)
-			}
-			i++
-			return args[i], nil
-		}
-		switch name {
-		case "-c":
-			o.Resume = true
-		case "--resume":
-			o.Resume = true
-			if hasInline {
-				o.ResumeID = inline
-			} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				i++
-				o.ResumeID = args[i]
-			}
-		case "-p", "--print":
-			v, err := value()
-			if err != nil {
-				return o, err
-			}
-			o.Print, o.PrintSet = v, true
-		case "--output-format":
-			v, err := value()
-			if err != nil {
-				return o, err
-			}
-			if v != "text" && v != "json" && v != "jsonl" {
-				return o, fmt.Errorf("--output-format needs text, json, or jsonl")
-			}
-			o.OutputFormat, o.OutputFormatSet = v, true
-		case "--attach":
-			v, err := value()
-			if err != nil {
-				return o, err
-			}
-			if strings.TrimSpace(v) == "" {
-				return o, fmt.Errorf("--attach needs a path")
-			}
-			o.AttachFiles = append(o.AttachFiles, v)
-		case "--model":
-			v, err := value()
-			if err != nil {
-				return o, err
-			}
-			if strings.TrimSpace(v) == "" {
-				return o, fmt.Errorf("--model needs a nonempty exact model ID")
-			}
-			o.Model = v
-		case "models":
-			if i != 0 {
-				return o, fmt.Errorf("models must be the first argument")
-			}
-			o.Models = true
-		case "--available":
-			o.Available = true
-		case "--provider", "--api-endpoint", "--workspace", "--env-file", "--mcp-config", "--system-prompt", "--thinking-effort", "--temperature", "--max-tokens":
-			v, err := value()
-			if err != nil {
-				return o, err
-			}
-			if (name == "--provider" || name == "--api-endpoint" || name == "--workspace" || name == "--env-file" || name == "--mcp-config") && strings.TrimSpace(v) == "" {
-				return o, fmt.Errorf("%s needs a nonempty value", name)
-			}
-			switch name {
-			case "--provider":
-				o.Provider = v
-			case "--api-endpoint":
-				o.APIEndpoint = v
-			case "--workspace":
-				o.Workspace = v
-			case "--env-file":
-				o.EnvFiles = append(o.EnvFiles, v)
-			case "--mcp-config":
-				o.MCPFiles = append(o.MCPFiles, v)
-			case "--system-prompt":
-				if strings.TrimSpace(v) == "" {
-					return o, fmt.Errorf("--system-prompt needs nonempty text")
-				}
-				o.SystemPrompt, o.SystemPromptSet = v, true
-			case "--thinking-effort":
-				if v == "omit" {
-					v = ""
-				}
-				o.Controls.Effort = preferenceField[string]{Set: true, Value: v}
-			case "--temperature":
-				field := preferenceField[float64]{Set: true, Null: v == "omit"}
-				if !field.Null {
-					field.Value, err = strconv.ParseFloat(v, 64)
-					if err != nil {
-						return o, fmt.Errorf("invalid --temperature")
-					}
-				}
-				o.Controls.Temperature = field
-			case "--max-tokens":
-				n := 0
-				if v != "default" {
-					n, err = strconv.Atoi(v)
-					if err != nil {
-						return o, fmt.Errorf("invalid --max-tokens")
-					}
-				}
-				o.Controls.MaxTokens = preferenceField[int]{Set: true, Value: n}
-			}
-		case "--show-thinking":
-			v := true
-			if hasInline {
-				var err error
-				v, err = strconv.ParseBool(inline)
-				if err != nil {
-					return o, fmt.Errorf("invalid --show-thinking")
-				}
-			}
-			o.Controls.ShowThinking = preferenceField[bool]{Set: true, Value: v}
-		case "--yes":
-			o.Yes = true
-		case "--plain":
-			o.Plain = true
-		case "--inline":
-			o.Inline = true
-		case "-h", "--help":
-			o.Help = true
-		default:
-			return o, fmt.Errorf("unknown flag %s", a)
-		}
-	}
-	if o.OutputFormatSet && (o.Plain || o.Inline || o.Models) {
-		return o, fmt.Errorf("--output-format cannot be combined with --plain, --inline, or models")
-	}
-	if len(o.AttachFiles) > 0 && !o.PrintSet && !o.OutputFormatSet {
-		return o, fmt.Errorf("--attach requires -p; use /attach or @file interactively")
-	}
-	if o.Plain && o.Inline {
-		return o, fmt.Errorf("--plain and --inline cannot be combined")
-	}
-	if o.Available && !o.Models {
-		return o, fmt.Errorf("--available requires models")
-	}
-	if err := o.Controls.validate(); err != nil {
-		return o, err
-	}
-	return o, nil
+// settingsHelp is the long help of the app: where settings come from.
+const settingsHelp = `Settings: a flag wins over its DASHI_* variable (DASHI_PROVIDER, DASHI_MODEL,
+DASHI_THINKING_EFFORT, DASHI_SHOW_THINKING, DASHI_TEMPERATURE, DASHI_MAX_TOKENS).
+Then come a reopened session's own choices, the workspace .dashi/settings.json,
+~/.dashi/settings.json, and the defaults. --env-file is read after the command
+line, so it supplies credentials but not DASHI_* settings.`
+
+// controlFlags maps each generation control flag to its variable.
+var controlFlags = []struct{ flag, env string }{
+	{"thinking-effort", "DASHI_THINKING_EFFORT"},
+	{"show-thinking", "DASHI_SHOW_THINKING"},
+	{"temperature", "DASHI_TEMPERATURE"},
+	{"max-tokens", "DASHI_MAX_TOKENS"},
 }
 
-const usage = `Usage: dashi [flags]
-       dashi models [--available]
+// settingsVariables are the DASHI_* variables bound to flags.
+var settingsVariables = []string{
+	"DASHI_PROVIDER", "DASHI_MODEL", "DASHI_THINKING_EFFORT",
+	"DASHI_SHOW_THINKING", "DASHI_TEMPERATURE", "DASHI_MAX_TOKENS",
+}
 
-A terminal coding agent.
+// clearEmptySettings unsets each empty settings variable, so it sets
+// nothing. Wonton reads a set variable as a value: an empty
+// DASHI_SHOW_THINKING would turn thinking summaries off and hide a saved
+// choice.
+func clearEmptySettings() {
+	for _, name := range settingsVariables {
+		if value, ok := os.LookupEnv(name); ok && value == "" {
+			os.Unsetenv(name)
+		}
+	}
+}
 
-Flags:
-  -p, --print PROMPT   run one turn without a screen and print the reply
-      --output-format text|json|jsonl  run one request with response-only output
-  -c, --resume [ID]    reopen the last session of this directory, or session ID
-      --provider ID    choose a configured destination
-      --model NAME     choose an exact registered model ID
-      --api-endpoint URL  override a custom destination endpoint
-      --mcp-config FILE  add a trusted MCP configuration (repeatable)
-      --attach PATH     select a file for -p (repeatable, before mentions)
-      --workspace DIR  use an existing workspace directory
-      --env-file PATH  load an explicit literal environment file
-      --system-prompt TEXT  replace built-in coding guidance
-      --thinking-effort LEVEL|omit  set reasoning effort
-      --show-thinking[=false]  request and display public summaries
-      --temperature N|omit  set or omit sampling temperature
-      --max-tokens N|default  set the output limit
-      --yes            approve every tool call (for -p)
-      --plain          use line mode instead of the full screen
-      --inline         use interactive controls in native terminal scrollback
-  -h, --help           show this help
+// newApp returns the dashi command line. Each command's handler reads its
+// flags and arguments into Options and passes them to start, which does
+// the work.
+func newApp(stdout, stderr io.Writer, start func(Options) error) *cli.App {
+	clearEmptySettings()
+	app := cli.New("dashi").
+		Description("A terminal coding agent").
+		Version(buildVersion()).
+		Long(settingsHelp).
+		Examples(
+			cli.NewExample("Start a session in this directory", "dashi"),
+			cli.NewExample("Reopen the last session of this directory", "dashi -c"),
+			cli.NewExample("Send one request and print the reply", `dashi run "explain main.go"`),
+			cli.NewExample("List the models you have credentials for", "dashi models --available"),
+		).
+		SetStdout(stdout).
+		SetStderr(stderr).
+		SetColorEnabled(colorFor(stdout)).
+		GlobalFlags(
+			cli.String("workspace").ValidateWith(needsValue).
+				Help("work in this existing directory instead of the current one"),
+			cli.Strings("env-file").
+				Help("load variables, such as API keys, from this file; repeatable"),
+		)
 
-Settings: DASHI_PROVIDER, DASHI_MODEL, matching DASHI_* controls,
-~/.dashi/settings.json, and workspace .dashi/settings.json.
-`
+	app.Main().
+		UsageSummary("Start an interactive session").
+		Flags(append(agentFlags(),
+			cli.Bool("plain").Help("use line mode instead of the full screen"),
+			cli.Bool("inline").Help("keep the conversation in the terminal's scrollback"),
+		)...).
+		Validate(func(ctx *cli.Context) error {
+			if ctx.Bool("plain") && ctx.Bool("inline") {
+				return errors.New("--plain and --inline cannot be combined")
+			}
+			return validateAgent(ctx)
+		}).
+		Run(func(ctx *cli.Context) error {
+			o := agentOptions(ctx)
+			o.Plain = ctx.Bool("plain")
+			o.Inline = ctx.Bool("inline")
+			return start(o)
+		})
+
+	app.Command("run").
+		Description("Send one request and print the reply").
+		Long("The request is the prompt, then any redirected standard input. With\n" +
+			"--continue or --resume and no request, it prints the saved reply.").
+		AddArg(&cli.Arg{Name: "prompt", Description: "the request; a /command runs that command"}).
+		Flags(append(agentFlags(),
+			cli.String("output-format", "o").Default("text").Enum("text", "json", "jsonl").
+				Help("how to print the reply"),
+			cli.Strings("attach").Help("attach this file to the request; repeatable"),
+			cli.Bool("yes", "y").Help("approve every tool call"),
+		)...).
+		Validate(func(ctx *cli.Context) error {
+			if err := validateAgent(ctx); err != nil {
+				return err
+			}
+			return needsValues(ctx, "attach")
+		}).
+		Run(func(ctx *cli.Context) error {
+			o := agentOptions(ctx)
+			o.Run = true
+			o.Prompt = ctx.Arg(0)
+			o.OutputFormat = ctx.String("output-format")
+			o.AttachFiles = ctx.Strings("attach")
+			o.Yes = ctx.Bool("yes")
+			return start(o)
+		})
+
+	app.Command("models").
+		Description("List destinations and their exact model IDs").
+		Flags(cli.Bool("available").Help("list only destinations with configured credentials")).
+		Validate(func(ctx *cli.Context) error { return needsValues(ctx, "env-file") }).
+		Run(func(ctx *cli.Context) error {
+			return start(Options{
+				Models:    true,
+				Available: ctx.Bool("available"),
+				Workspace: ctx.String("workspace"),
+				EnvFiles:  ctx.Strings("env-file"),
+			})
+		})
+
+	app.AddCompletionCommand()
+	return app
+}
+
+// agentFlags are the flags of the commands that run the agent: the
+// interactive session and run.
+func agentFlags() []cli.Flag {
+	return []cli.Flag{
+		cli.Bool("continue", "c").Help("reopen the last session of this directory"),
+		cli.String("resume", "r").ValidateWith(needsValue).Help("reopen the session with this ID"),
+		cli.String("provider").Env("DASHI_PROVIDER").ValidateWith(needsValue).
+			Help("use this configured destination"),
+		cli.String("model").Env("DASHI_MODEL").ValidateWith(needsValue).
+			Help("use this exact registered model ID"),
+		cli.String("api-endpoint").ValidateWith(needsValue).
+			Help("send requests to this URL; needs --provider naming a custom destination"),
+		cli.Strings("mcp-config").Help("add a trusted MCP configuration file; repeatable"),
+		cli.String("system-prompt").ValidateWith(needsValue).
+			Help("replace the built-in coding guidance with this text"),
+		cli.String("thinking-effort").Env("DASHI_THINKING_EFFORT").ValidateWith(controlSyntax("--thinking-effort")).
+			Help("reasoning effort, such as high, or omit to send none"),
+		cli.Bool("show-thinking").Env("DASHI_SHOW_THINKING").
+			Help("request and show thinking summaries; --show-thinking=false turns them off"),
+		cli.String("temperature").Env("DASHI_TEMPERATURE").ValidateWith(controlSyntax("--temperature")).
+			Help("sampling temperature, or omit to send none"),
+		cli.String("max-tokens").Env("DASHI_MAX_TOKENS").ValidateWith(controlSyntax("--max-tokens")).
+			Help("output token limit, or default"),
+	}
+}
+
+// validateAgent checks the rules that span the agent flags, and the
+// controls that came from DASHI_* variables, which Wonton does not pass to
+// a flag's own validator.
+func validateAgent(ctx *cli.Context) error {
+	if ctx.Bool("continue") && ctx.IsSet("resume") {
+		return errors.New("--continue and --resume cannot be combined")
+	}
+	if _, err := controls(ctx); err != nil {
+		return err
+	}
+	return needsValues(ctx, "env-file", "mcp-config")
+}
+
+// agentOptions reads the agent flags. validateAgent has checked them.
+func agentOptions(ctx *cli.Context) Options {
+	o := Options{
+		Resume:       ctx.Bool("continue") || ctx.IsSet("resume"),
+		ResumeID:     ctx.String("resume"),
+		Model:        ctx.String("model"),
+		Provider:     ctx.String("provider"),
+		APIEndpoint:  ctx.String("api-endpoint"),
+		SystemPrompt: ctx.String("system-prompt"),
+		Workspace:    ctx.String("workspace"),
+		EnvFiles:     ctx.Strings("env-file"),
+		MCPFiles:     ctx.Strings("mcp-config"),
+	}
+	o.Controls, _ = controls(ctx)
+	return o
+}
+
+// controls reads the generation control flags. A flag's value has passed
+// its validator, so an invalid value here came from its variable. An empty
+// variable sets nothing.
+func controls(ctx *cli.Context) (generationPreferences, error) {
+	var p generationPreferences
+	for _, c := range controlFlags {
+		value := ctx.String(c.flag)
+		if !ctx.IsSet(c.flag) || value == "" {
+			continue
+		}
+		if err := p.setControl("--"+c.flag, value); err != nil {
+			return p, fmt.Errorf("invalid %s: %v", c.env, err)
+		}
+	}
+	return p, nil
+}
+
+// needsValue rejects a blank flag value.
+func needsValue(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return errors.New("needs a value")
+	}
+	return nil
+}
+
+// needsValues rejects a blank value of each named repeatable flag.
+func needsValues(ctx *cli.Context, names ...string) error {
+	for _, name := range names {
+		for _, v := range ctx.Strings(name) {
+			if err := needsValue(v); err != nil {
+				return fmt.Errorf("invalid value for --%s: %v", name, err)
+			}
+		}
+	}
+	return nil
+}
+
+// controlSyntax returns a validator for one generation control flag.
+func controlSyntax(flag string) func(string) error {
+	return func(value string) error {
+		var p generationPreferences
+		return p.setControl(flag, value)
+	}
+}
+
+// setControl parses one generation control in its flag syntax, which the
+// matching DASHI_* variable and slash command share. flag is the flag with
+// its dashes, such as "--temperature". An error says what the value should
+// be.
+func (p *generationPreferences) setControl(flag, value string) error {
+	var syntax error
+	switch flag {
+	case "--thinking-effort":
+		syntax = errors.New("use a level, such as high, or omit")
+		if value == "omit" {
+			value = ""
+		}
+		p.Effort = preferenceField[string]{Set: true, Value: value}
+	case "--show-thinking":
+		syntax = errors.New("use true or false")
+		v, err := strconv.ParseBool(value)
+		if err != nil {
+			return syntax
+		}
+		p.ShowThinking = preferenceField[bool]{Set: true, Value: v}
+	case "--temperature":
+		syntax = errors.New("use a number of 0 or more, or omit")
+		field := preferenceField[float64]{Set: true, Null: value == "omit"}
+		if !field.Null {
+			var err error
+			field.Value, err = strconv.ParseFloat(value, 64)
+			if err != nil {
+				return syntax
+			}
+		}
+		p.Temperature = field
+	case "--max-tokens":
+		syntax = errors.New("use a whole number of 0 or more, or default")
+		n := 0
+		if value != "default" {
+			var err error
+			n, err = strconv.Atoi(value)
+			if err != nil {
+				return syntax
+			}
+		}
+		p.MaxTokens = preferenceField[int]{Set: true, Value: n}
+	default:
+		return fmt.Errorf("unknown flag %s", flag)
+	}
+	if p.validate() != nil {
+		return syntax
+	}
+	return nil
+}
+
+// colorFor reports whether help written to w should use color.
+func colorFor(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && color.ShouldColorize(f)
+}
+
+// buildVersion is the module version Go recorded in the binary, without
+// its leading "v", or empty for a build without one.
+func buildVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return ""
+	}
+	return strings.TrimPrefix(info.Main.Version, "v")
+}

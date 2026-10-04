@@ -217,7 +217,7 @@ func (s *screen) showNativeScrollback(raw bool) {
 				if view == nil {
 					continue
 				}
-				text, _ = nativeBlockText(b, max(1, s.width))
+				text, _ = nativeBlockText(b, max(1, s.width), !s.noColor)
 			}
 			fmt.Fprintln(s.clipboardOut, text)
 		}

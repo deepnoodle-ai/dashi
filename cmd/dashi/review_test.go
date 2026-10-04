@@ -44,7 +44,7 @@ func TestResumeSkipsEmptySessions(t *testing.T) {
 	// A print run with -c adds to the same session.
 	var out, errOut bytes.Buffer
 	code := runPrint(t.Context(), h.config(),
-		Options{Resume: true, Print: "again", PrintSet: true}, &out, &errOut)
+		Options{Resume: true, Prompt: "again", Run: true}, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("code=%d %s", code, errOut.String())
 	}
@@ -56,7 +56,7 @@ func TestResumeSkipsEmptySessions(t *testing.T) {
 	// A print run without -c makes its own saved session. The rule: it is
 	// saved, and -c picks the newest session that has a turn.
 	code = runPrint(t.Context(), h.config(),
-		Options{Print: "solo", PrintSet: true}, &out, &errOut)
+		Options{Prompt: "solo", Run: true}, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("code=%d %s", code, errOut.String())
 	}

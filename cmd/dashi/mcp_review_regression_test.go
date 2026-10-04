@@ -79,7 +79,7 @@ func mcpRunEnvironment(t *testing.T, home, dir string) {
 	for _, name := range []string{"DASHI_PROVIDER", "DASHI_MODEL", "DASHI_THINKING_EFFORT", "DASHI_SHOW_THINKING", "DASHI_TEMPERATURE", "DASHI_MAX_TOKENS"} {
 		t.Setenv(name, "")
 	}
-	// Controls treat a present empty value as invalid, so retain no override.
+	// An empty DASHI_SHOW_THINKING would mean false, so retain no control variable.
 	for _, name := range []string{"DASHI_THINKING_EFFORT", "DASHI_SHOW_THINKING", "DASHI_TEMPERATURE", "DASHI_MAX_TOKENS"} {
 		os.Unsetenv(name)
 	}
@@ -145,7 +145,7 @@ func TestMCPFailedProjectPreferencesRequireExplicitRouteButAllowValidDispatch(t 
 	extra := filepath.Join(dir, "tools.json")
 	writeMCPConfig(t, extra, map[string]any{"docs": docs})
 	var out, stderr bytes.Buffer
-	code := run(t.Context(), []string{"-p", "work", "--mcp-config", extra}, strings.NewReader(""), &out, &stderr)
+	code := run(t.Context(), []string{"run", "work", "--mcp-config", extra}, strings.NewReader(""), &out, &stderr)
 	if code != 1 || sends.Load() != 0 || !strings.Contains(stderr.String(), "select an explicit destination") {
 		t.Fatalf("default silently resumed: code=%d sends=%d err=%s", code, sends.Load(), stderr.String())
 	}
@@ -153,14 +153,14 @@ func TestMCPFailedProjectPreferencesRequireExplicitRouteButAllowValidDispatch(t 
 	for _, selector := range [][]string{{"--provider", "local"}, {"--model", "fixture-model"}} {
 		out.Reset()
 		stderr.Reset()
-		args := append([]string{"-p", "work", "--mcp-config", extra}, selector...)
+		args := append([]string{"run", "work", "--mcp-config", extra}, selector...)
 		if code = run(t.Context(), args, strings.NewReader(""), &out, &stderr); code != 0 || !strings.Contains(out.String(), "Valid route dispatched.") {
 			t.Fatalf("code=%d out=%s err=%s", code, out.String(), stderr.String())
 		}
 	}
 	out.Reset()
 	stderr.Reset()
-	if code = run(t.Context(), []string{"--resume", "-p", "work", "--mcp-config", extra}, strings.NewReader(""), &out, &stderr); code != 0 || !strings.Contains(out.String(), "Valid route dispatched.") {
+	if code = run(t.Context(), []string{"run", "-c", "work", "--mcp-config", extra}, strings.NewReader(""), &out, &stderr); code != 0 || !strings.Contains(out.String(), "Valid route dispatched.") {
 		t.Fatalf("recorded valid route unavailable: code=%d out=%s err=%s", code, out.String(), stderr.String())
 	}
 	if sends.Load() != 3 {
@@ -168,7 +168,7 @@ func TestMCPFailedProjectPreferencesRequireExplicitRouteButAllowValidDispatch(t 
 	}
 	out.Reset()
 	stderr.Reset()
-	code = run(t.Context(), []string{"-p", "/help", "--provider", "unknown"}, strings.NewReader(""), &out, &stderr)
+	code = run(t.Context(), []string{"run", "/help", "--provider", "unknown"}, strings.NewReader(""), &out, &stderr)
 	if code != 0 || !strings.Contains(out.String(), "also works while a turn runs") || sends.Load() != 3 {
 		t.Fatal("local help attempted live route setup")
 	}
@@ -186,7 +186,7 @@ func TestMCPIsolationRetainsStrictDestinationAndControlValidation(t *testing.T) 
 			extra := filepath.Join(dir, "tools.json")
 			writeMCPConfig(t, extra, map[string]any{"docs": docs})
 			var out, stderr bytes.Buffer
-			code := run(t.Context(), []string{"--provider", "openai", "-p", "work", "--mcp-config", extra}, strings.NewReader(""), &out, &stderr)
+			code := run(t.Context(), []string{"run", "--provider", "openai", "work", "--mcp-config", extra}, strings.NewReader(""), &out, &stderr)
 			if code != 1 || strings.Contains(stderr.String(), "SECRET") || strings.Contains(stderr.String(), "source ignored") {
 				t.Fatalf("invalid provider/control ignored: code=%d err=%s", code, stderr.String())
 			}

@@ -281,7 +281,7 @@ func (u *lineUI) serveLines(in io.Reader, sequential bool) error {
 
 var errNoApprover = errors.New("no one can approve this call")
 
-// printUI is the UI for -p. Only the reply goes to stdout; steps go to
+// printUI is the UI for the run command. Only the reply goes to stdout; steps go to
 // stderr. It approves every call when yes is set and denies them otherwise.
 type printUI struct {
 	err io.Writer
@@ -333,7 +333,7 @@ func (u *printUI) Approve(context.Context, toolApproval) (Approval, error) {
 	}
 	return Approval{Reason: "No one can approve this call in a " +
 		"non-interactive run. Do not retry it. Tell the user to run again " +
-		"with --yes, or to use the interactive screen."}, nil
+		"with dashi run --yes, or to use the interactive screen."}, nil
 }
 
 func (u *printUI) Ask(context.Context, taskQuestion) (questionAnswer, error) {

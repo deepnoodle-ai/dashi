@@ -166,7 +166,7 @@ func (st *Store) List(dir string) ([]Session, error) {
 }
 
 // Latest returns the most recently updated session of dir that has a turn.
-// It counts a session made by a print run (-p) like any other, so a follow-up
+// It counts a session made by dashi run like any other, so a follow-up
 // can build on it.
 func (st *Store) Latest(dir string) (*Session, error) {
 	all, err := st.List(dir)

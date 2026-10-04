@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
+	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/env"
 )
 
@@ -74,4 +77,21 @@ func namedEnvironmentPaths(invocation string, files []string) []string {
 		paths[i] = filepath.Clean(path)
 	}
 	return paths
+}
+
+// warnEnvironmentSettings warns about DASHI_* variables that an environment
+// file set. The command line, which reads them, was parsed before the files
+// were loaded, so they have no effect.
+func warnEnvironmentSettings(w io.Writer, origins map[string]string) {
+	names := make([]string, 0, len(origins))
+	for name := range origins {
+		if strings.HasPrefix(name, "DASHI_") {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		fmt.Fprintf(w, "dashi: warning: %s in %s has no effect; set it in the shell or use its flag.\n",
+			name, workspace.PrintableText(origins[name]))
+	}
 }

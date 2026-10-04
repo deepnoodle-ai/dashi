@@ -37,7 +37,7 @@ func Example_mcpDocumentation() {
 	client := &fakeClient{script: []reply{callTool("read-guide", "mcp__docs__fetch", `{"path":"guide.md"}`), say("Guide fetched.")}}
 	cfg := appConfig{Dir: dir, HomeDir: dir, InvocationDir: dir, MCPFiles: []string{"tools.json"}, Model: "fixture", Client: client, Store: sessionstore.NewStore(filepath.Join(dir, "sessions"))}
 	var stdout, stderr bytes.Buffer
-	code := runPrint(context.Background(), cfg, Options{Print: "Read the recovery guide.", PrintSet: true, Yes: true}, &stdout, &stderr)
+	code := runPrint(context.Background(), cfg, Options{Prompt: "Read the recovery guide.", Run: true, Yes: true}, &stdout, &stderr)
 	if code != 0 {
 		panic(stderr.String())
 	}

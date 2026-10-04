@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 func TestExplicitEmptySelectorsCannotDispatchDefaults(t *testing.T) {
 	for _, flag := range []string{"--model", "--provider", "--api-endpoint", "--workspace", "--env-file"} {
 		for _, args := range [][]string{{flag + "="}, {flag, ""}, {flag, " "}} {
-			if _, err := parseArgs(args); err == nil {
+			if _, err := parseArgs(args, io.Discard); err == nil {
 				t.Fatalf("empty explicit %s accepted", flag)
 			}
 		}
@@ -31,7 +32,7 @@ func TestNativeGeminiFactsAgreeAcrossCLISurfaces(t *testing.T) {
 	if err := modelInventory(map[string]configuredDestination{"google": d}, nil, func(string) (string, bool) { return "fixture", true }, false, &inventory); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(inventory.String(), expected.Evidence.Source) || !strings.Contains(inventory.String(), knownLimit(expected.Capabilities.ContextWindow)) {
+	if !strings.Contains(inventory.String(), tokenCount(expected.Capabilities.ContextWindow)) {
 		t.Fatalf("inventory=%s", inventory.String())
 	}
 	e, p := routedTestEngine(t, func(string) (int, string) { t.Fatal("inspection dispatched"); return 0, "" })

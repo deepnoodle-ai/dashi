@@ -30,7 +30,7 @@ func automationRedirected(in io.Reader) bool {
 	return true
 }
 func automationOneShot(o Options, in io.Reader) bool {
-	return o.PrintSet || o.OutputFormatSet || !o.Plain && automationRedirected(in)
+	return o.Run || !o.Plain && automationRedirected(in)
 }
 
 // Live setup stays lazy. Completed and blocked saved-response reads use no
@@ -133,18 +133,18 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 		}
 		return 2
 	}
-	payload, err := combineAutomationInput(o.Print, literal, o.Resume || len(o.AttachFiles) > 0)
+	payload, err := combineAutomationInput(o.Prompt, literal, o.Resume || len(o.AttachFiles) > 0)
 	if err != nil {
 		diagnostic(err.Error())
 		return 2
 	}
-	if strings.HasPrefix(strings.TrimSpace(o.Print), "/") {
+	if strings.HasPrefix(strings.TrimSpace(o.Prompt), "/") {
 		c := &Controller{eng: NewEngine(EngineConfig{Dir: dir}), ui: &printUI{err: stderr}}
 		commandOut := stdout
 		if format != "text" {
 			commandOut = stderr
 		}
-		if handled, code := c.printCommand(o.Print, commandOut, stderr); handled {
+		if handled, code := c.printCommand(o.Prompt, commandOut, stderr); handled {
 			return code
 		}
 	}
@@ -200,8 +200,8 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 		return 4
 	}
 	var selected *submittedInput
-	if len(o.AttachFiles) > 0 || len(attachmentPaths(o.Print)) > 0 {
-		selected, err = printAttachmentInput(execCtx, dir, o.Print, o.AttachFiles)
+	if len(o.AttachFiles) > 0 || len(attachmentPaths(o.Prompt)) > 0 {
+		selected, err = printAttachmentInput(execCtx, dir, o.Prompt, o.AttachFiles)
 		if err != nil {
 			diagnostic(err.Error())
 			return 1

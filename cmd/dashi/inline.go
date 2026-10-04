@@ -110,7 +110,7 @@ func (i *inlineScreen) flushCompleted() {
 }
 
 func (i *inlineScreen) printCompletedBlock(b Block) {
-	if text, ok := nativeBlockText(b, max(80, i.width)); ok {
+	if text, ok := nativeBlockText(b, max(80, i.width), !i.noColor); ok {
 		i.runner.PrintRaw([]byte(strings.ReplaceAll(text, "\n", "\r\n") + "\r\n"))
 	}
 }
@@ -134,7 +134,7 @@ func (i *inlineScreen) showScrollback(raw bool) {
 		if raw {
 			i.runner.PrintRaw([]byte(strings.ReplaceAll(FormatBlock(b), "\n", "\r\n") + "\r\n"))
 		} else {
-			if text, ok := nativeBlockText(b, max(80, i.width)); ok {
+			if text, ok := nativeBlockText(b, max(80, i.width), !i.noColor); ok {
 				i.runner.PrintRaw([]byte(strings.ReplaceAll(text, "\n", "\r\n") + "\r\n"))
 			}
 		}

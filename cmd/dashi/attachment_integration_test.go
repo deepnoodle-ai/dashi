@@ -49,7 +49,7 @@ func TestAttachmentPrintFlagsMentionsAndRecordedRefs(t *testing.T) {
 	fixtureSelectedText(t, cfg.Dir, "first.txt", "flag first")
 	fixtureSelectedText(t, cfg.Dir, "second.txt", "mention second")
 	var stdout, stderr bytes.Buffer
-	code := runPrint(t.Context(), cfg, Options{Print: "explain @second.txt @first.txt", PrintSet: true, AttachFiles: []string{"first.txt"}}, &stdout, &stderr)
+	code := runPrint(t.Context(), cfg, Options{Prompt: "explain @second.txt @first.txt", Run: true, AttachFiles: []string{"first.txt"}}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("%d %s", code, stderr.String())
 	}
@@ -86,7 +86,7 @@ func TestAttachmentPrintFailureStartsNoWork(t *testing.T) {
 	cfg := testConfig(t, say("must not run"))
 	fixtureSelectedText(t, cfg.Dir, "valid.txt", "evidence")
 	var stdout, stderr bytes.Buffer
-	if code := runPrint(t.Context(), cfg, Options{Print: "go @missing.txt", PrintSet: true, AttachFiles: []string{"valid.txt"}}, &stdout, &stderr); code != 1 {
+	if code := runPrint(t.Context(), cfg, Options{Prompt: "go @missing.txt", Run: true, AttachFiles: []string{"valid.txt"}}, &stdout, &stderr); code != 1 {
 		t.Fatal(code)
 	}
 	if cfg.Client.(*fakeClient).sends != 0 || stdout.Len() != 0 {
@@ -318,7 +318,7 @@ func TestAttachmentRealisticMediaKnownWindowCheck(t *testing.T) {
 					t.Fatal(err)
 				}
 				var stdout, stderr bytes.Buffer
-				if code := runPrint(t.Context(), cfg, Options{Print: "read evidence", PrintSet: true, AttachFiles: []string{path}}, &stdout, &stderr); code != 0 {
+				if code := runPrint(t.Context(), cfg, Options{Prompt: "read evidence", Run: true, AttachFiles: []string{path}}, &stdout, &stderr); code != 0 {
 					t.Fatalf("%d: %s", code, stderr.String())
 				}
 				if c.sends != 1 {
@@ -566,24 +566,24 @@ func TestAttachmentLinePrintEvidenceChild(t *testing.T) {
 	fixtureSelectedText(t, cfg.Dir, "mention.txt", "mention second")
 	stdout.Reset()
 	stderr.Reset()
-	code = runPrint(t.Context(), cfg, Options{Print: "compare @mention.txt", PrintSet: true, AttachFiles: []string{"flag.txt"}}, &stdout, &stderr)
+	code = runPrint(t.Context(), cfg, Options{Prompt: "compare @mention.txt", Run: true, AttachFiles: []string{"flag.txt"}}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatal(code, stderr.String())
 	}
 	if strings.Contains(stderr.String(), "unavailable for media") {
 		t.Fatal("plain text emitted media warning", stderr.String())
 	}
-	text = fmt.Sprintf("full prepared JSON; pinned window=128000; Send=1; text media warnings=0\narguments: -p 'compare @mention.txt' --attach flag.txt\nstdout:\n%s\nstderr:\n%s\nexit: %d\n", stdout.String(), stderr.String(), code)
+	text = fmt.Sprintf("full prepared JSON; pinned window=128000; Send=1; text media warnings=0\narguments: run 'compare @mention.txt' --attach flag.txt\nstdout:\n%s\nstderr:\n%s\nexit: %d\n", stdout.String(), stderr.String(), code)
 	if err := os.WriteFile(filepath.Join(dir, "print-transcript.txt"), []byte(text), 0600); err != nil {
 		t.Fatal(err)
 	}
 	stdout.Reset()
 	stderr.Reset()
-	code = runPrint(t.Context(), cfg, Options{Print: "inspect @missing.txt", PrintSet: true}, &stdout, &stderr)
+	code = runPrint(t.Context(), cfg, Options{Prompt: "inspect @missing.txt", Run: true}, &stdout, &stderr)
 	if code != 1 || stdout.Len() != 0 {
 		t.Fatal("failed print selection output", code, stdout.String())
 	}
-	text = fmt.Sprintf("arguments: -p 'inspect @missing.txt'\nstdout:\n%s\nstderr:\n%s\nexit: %d\n", stdout.String(), stderr.String(), code)
+	text = fmt.Sprintf("arguments: run 'inspect @missing.txt'\nstdout:\n%s\nstderr:\n%s\nexit: %d\n", stdout.String(), stderr.String(), code)
 	if err := os.WriteFile(filepath.Join(dir, "print-failure-transcript.txt"), []byte(text), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -595,7 +595,7 @@ func TestAttachmentSelectionDoesNotGrantToolAccess(t *testing.T) {
 	cfg := testConfig(t, callTool("outside", "read_file", string(args)), callTool("write", "write_file", `{"path":"protected.txt","content":"changed"}`), say("Finished with denied tool access."))
 	path := fixtureSelectedText(t, cfg.Dir, "protected.txt", "original")
 	var stdout, stderr bytes.Buffer
-	if code := runPrint(t.Context(), cfg, Options{Print: "inspect selected note", PrintSet: true, AttachFiles: []string{outside}}, &stdout, &stderr); code != 0 {
+	if code := runPrint(t.Context(), cfg, Options{Prompt: "inspect selected note", Run: true, AttachFiles: []string{outside}}, &stdout, &stderr); code != 0 {
 		t.Fatal(code, stderr.String())
 	}
 	client := cfg.Client.(*fakeClient)

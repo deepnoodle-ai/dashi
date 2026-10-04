@@ -71,7 +71,7 @@ func transcriptRow(t *testing.T, frame, text string) int {
 func TestNativeMarkdownRetainsLongCodeAndSanitizesDecodedControls(t *testing.T) {
 	code := strings.Repeat("long", 120) + " FINAL-CODE-LINE"
 	for _, language := range []string{"", "go"} {
-		text, ok := nativeBlockText(Block{Kind: KindAssistant, Text: "```" + language + "\n" + code + "\n```\n&#27;[2J"}, 80)
+		text, ok := nativeBlockText(Block{Kind: KindAssistant, Text: "```" + language + "\n" + code + "\n```\n&#27;[2J"}, 80, true)
 		plain := regexp.MustCompile(`\[[0-9;]*m`).ReplaceAllString(text, "")
 		if !ok || !strings.Contains(plain, "FINAL-CODE-LINE") || strings.Contains(text, "\x1b[2J") {
 			t.Fatalf("clipped code or executable entity: %q", text)
