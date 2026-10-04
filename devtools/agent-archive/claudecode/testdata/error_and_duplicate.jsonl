@@ -1,0 +1,5 @@
+{"type":"user","uuid":"u1","parentUuid":null,"isSidechain":false,"sessionId":"s-err","timestamp":"2026-09-04T08:00:00.000Z","message":{"role":"user","content":"Try again."}}
+{"type":"user","uuid":"u1","parentUuid":null,"isSidechain":false,"sessionId":"s-err","timestamp":"2026-09-04T08:00:00.000Z","message":{"role":"user","content":"Try again."}}
+{"type":"assistant","uuid":"e1","parentUuid":"u1","isSidechain":false,"sessionId":"s-err","timestamp":"2026-09-04T08:00:01.000Z","isApiErrorMessage":true,"error":"server_error","message":{"id":"0b6f6c3e-0000-4000-8000-000000000001","role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"API Error: 500"}],"usage":{"input_tokens":0,"output_tokens":0}}}
+{"type":"assistant","uuid":"a1","parentUuid":"e1","isSidechain":false,"sessionId":"s-err","timestamp":"2026-09-04T08:00:05.000Z","message":{"id":"msg_e1","role":"assistant","model":"claude-opus-5-5","content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":3,"output_tokens":2}}}
+not json

@@ -121,6 +121,7 @@ func (e *testEnv) dump() string {
 	for _, q := range []string{
 		`SELECT * FROM copies ORDER BY copy_id`,
 		`SELECT * FROM sessions ORDER BY copy_id`,
+		`SELECT * FROM usage ORDER BY copy_id, line`,
 		`SELECT * FROM copy_runs ORDER BY run_id`,
 		`SELECT * FROM log_position`,
 	} {

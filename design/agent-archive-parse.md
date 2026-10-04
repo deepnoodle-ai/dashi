@@ -1,6 +1,6 @@
 # Agent archive, phase 2: parse and convert
 
-**Status:** Proposed · **Date:** 2026-10-04 · **Owner:** Curtis
+**Status:** Built (see "As built") · **Date:** 2026-10-04 · **Owner:** Curtis
 
 Phase 1 ([agent-archive.md](agent-archive.md)) copies every Claude Code and
 Codex session file. Phase 2 reads them: it fills the rest of `sessions`, adds
@@ -48,8 +48,9 @@ Phase 1's words hold. New ones:
    (decision 6), and the reports on stderr.
 5. **Packages.** `claudecode` and `codex`, one per app, and `sessionfile` for
    the types both share. Each app package has the two functions below; both
-   take every current copy of one session. `Copy` is a `CopyID` and an `Open`
-   function that yields its uncompressed lines. `ParsedCopy` is one copy's new
+   take every current copy of one session. `Copy` is a `CopyID`, its
+   `agent_id` and `started_at` from pass 1, a Claude Code subagent's
+   `.meta.json`, and an `Open` function that yields its uncompressed lines. `ParsedCopy` is one copy's new
    `sessions` columns, its `usage` rows, and its skipped-lines report.
    `Convert` returns one agent (`agentID` empty for the root). The error is
    only for a copy that cannot be read.
@@ -106,7 +107,7 @@ lists them). "Meta" is the subagent's `.meta.json`.
 | `git_branch`, `git_remote_url` | `gitBranch`, last `pr-link` repository / `git.branch`, `git.repository_url` |
 | `title` | last `custom-title`, else `ai-title`; meta `description` / `session_index.jsonl` `thread_name` |
 | `ended_at` | timestamp of the last line |
-| `user_prompts` | `user` text lines on the final path, minus slash-command wrappers, local command output, and interrupt markers / `UserMessage` items, else user messages minus injected context |
+| `user_prompts` | `user` text lines on the final path, minus slash-command wrappers, local command output, interrupt markers, and task notifications / `UserMessage` items, else user messages minus injected context |
 | `tool_calls`, `tool_errors` | `tool_use`, `is_error` results / calls, outputs with a nonzero exit code |
 | `compactions` | `compact_boundary` lines / own `compacted` lines |
 | `app_cost_usd` | last `cost-state.totalCostUSD` (root file) / empty |
@@ -159,7 +160,7 @@ tree by `parent_agent_id`.
 | adjacent `reasoning`, assistant `message`, `*_call` items | one message; `summary` as `llm.Reasoning`; web search as `llm.ProviderToolUse` |
 | `*_output` items | `llm.ToolResult`, `IsError` on a nonzero exit code |
 | `agent_message` | user `llm.Reminder` named `agent-message`, `From` the author |
-| `compacted` | user text of its `message`, `CompactionSummary` |
+| `compacted` | user text of its `message`, `CompactionSummary`; an empty one (3,574 of 3,576) gives a message with no content, kept as the marker |
 | `event_msg`, `turn_context`, and the rest | `ignored:<type>` |
 
 Lossy by design: Claude Code thinking text is empty in 60,249 of 62,496
@@ -186,23 +187,35 @@ blocks; Codex reasoning is encrypted in all 353,340 items and summarized in
 | Codex tool errors | 9,840 nonzero exits | No error flag; read the exit code from output text or JSON `metadata`. |
 | Codex subagent link | 72 by id, 623 by path | The output of the tool call that started it gives `agent_id` (older) or `task_name`, equal to the child's `agent_path`. |
 
-## Open questions
+## Resolved questions
 
-1. **Claude Code `git_remote_url`.** Lines carry no remote; only 164 files
-   have a `pr-link`. Recommendation: leave the rest empty and let phase 3
-   group by `working_dir`, rather than run `git` in folders that may have
-   changed. Phase 3 must merge worktree paths (`.claude/worktrees/<name>`)
-   into their project when grouping.
-2. **List-price cost.** Codex has no `app_cost_usd`. Recommendation: phase 3
-   prices each `usage` row with Dashi's catalog, checking against
-   `app_cost_usd`; not stored here.
-3. **Inline `tool-results/` files?** 741 Claude Code results point there.
-   Recommendation: no; the pointer text is what the model saw. Add a `convert`
-   flag if phase 3 needs the full text.
-4. **Codex tool-error heuristic.** It reads text; a format change would
-   silently zero `tool_errors`. Recommendation: accept it, and have `status`
-   warn when a Codex version shows calls but no exit codes.
-5. **Tool definitions.** A transcript has tool calls but no tool list or
-   system prompt, and some APIs reject tool history without tool definitions.
-   Recommendation: phase 3 builds definitions from the calls seen (or from the
-   app's known tool set); `Transcript` stays as is.
+Each followed its recommendation.
+
+1. **Claude Code `git_remote_url`** comes only from `pr-link`; phase 3
+   groups the rest by `working_dir`, merging `.claude/worktrees/<name>` paths.
+2. **List-price cost** is phase 3's: it prices `usage` rows with Dashi's
+   catalog. Nothing is stored here.
+3. **`tool-results/` files** are not inlined: the pointer text is what the
+   model saw.
+4. **Codex tool errors** come from exit codes in output text. `status` warns
+   when a Codex version has 200 or more tool calls and no tool errors.
+5. **Tool definitions** are phase 3's, built from the calls seen.
+
+## As built
+
+- Pass 1 stores a Codex subagent's parent thread in `parent_agent_id`; the
+  link step walks it to the root, and pass 2 rewrites it. Pass 2 sets
+  `parser_version`, so a crash between passes parses the session again.
+- One message per line, except a model call's lines. Adjacent tool results
+  are not merged.
+- Every Claude Code token count of a split call takes its maximum, not only
+  `output_tokens` and `thinking_tokens`. `git_branch` is the first seen.
+- A fork by reference leaves out parent lines written after its fork point.
+- Codex can write a reply's token line after its tool outputs, so a token
+  line's usage goes to the last reply since the previous token line.
+- Codex tool names join an MCP namespace and name with `__`; a custom tool's
+  input becomes a JSON string; `tool_search_call` is a call named
+  `tool_search`. `tool_calls` leaves out `web_search_call`, which the
+  provider runs.
+- `rewound` also counts attachments on a rewound branch: 741 lines in 183
+  files, of which 415 are `user` or `assistant` (the survey's 401).

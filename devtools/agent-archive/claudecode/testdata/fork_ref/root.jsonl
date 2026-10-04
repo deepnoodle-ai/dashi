@@ -1,0 +1,3 @@
+{"type":"user","uuid":"u1","parentUuid":null,"isSidechain":false,"sessionId":"s-ref","timestamp":"2026-09-07T08:00:00.000Z","message":{"role":"user","content":"Fork a helper by reference."}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","isSidechain":false,"sessionId":"s-ref","timestamp":"2026-09-07T08:00:01.000Z","message":{"id":"msg_x1","role":"assistant","model":"claude-opus-5-5","content":[{"type":"tool_use","id":"toolu_x","name":"Agent","input":{"prompt":"Placeholder."}}],"usage":{"input_tokens":2,"output_tokens":8}}}
+{"type":"user","uuid":"r1","parentUuid":"a1","isSidechain":false,"sessionId":"s-ref","timestamp":"2026-09-07T08:00:20.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_x","content":"Done by reference."}]}}

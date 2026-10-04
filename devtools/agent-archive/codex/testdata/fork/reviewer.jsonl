@@ -1,0 +1,4 @@
+{"timestamp":"2026-07-10T06:00:03.900Z","ordinal":0,"type":"session_meta","payload":{"session_id":"r-root","id":"r-guard","parent_thread_id":"r-root","timestamp":"2026-07-10T06:00:03.900Z","cwd":"/work/demo","originator":"Codex Desktop","cli_version":"0.147.0","source":{"subagent":{"other":"guardian"}},"subagent_history_start_ordinal":2}}
+{"timestamp":"2026-07-10T06:00:04.000Z","ordinal":1,"type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"Placeholder reviewer policy."}]}}
+{"timestamp":"2026-07-10T06:00:04.100Z","ordinal":2,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"May this command run?"}]}}
+{"timestamp":"2026-07-10T06:00:04.200Z","ordinal":3,"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Yes."}]}}

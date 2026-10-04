@@ -1,0 +1,8 @@
+{"timestamp":"2026-07-10T06:00:00.000Z","ordinal":0,"type":"session_meta","payload":{"session_id":"r-root","id":"r-root","timestamp":"2026-07-10T06:00:00.000Z","cwd":"/work/demo","originator":"Codex Desktop","cli_version":"0.144.0","source":"vscode"}}
+{"timestamp":"2026-07-10T06:00:00.100Z","ordinal":1,"type":"turn_context","payload":{"model":"gpt-5.5"}}
+{"timestamp":"2026-07-10T06:00:01.000Z","ordinal":2,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Spread the work."}]}}
+{"timestamp":"2026-07-10T06:00:02.000Z","ordinal":3,"type":"response_item","payload":{"type":"function_call","name":"spawn_agent","namespace":"collaboration","arguments":"{\"task_name\":\"helper\",\"fork_context\":true}","call_id":"call_sp"}}
+{"timestamp":"2026-07-10T06:00:02.100Z","ordinal":4,"type":"token_usage_record","payload":{"response_id":"resp_r1","usage":{"input_tokens":30,"cached_input_tokens":0,"output_tokens":4,"reasoning_output_tokens":0,"total_tokens":34}}}
+{"timestamp":"2026-07-10T06:00:03.000Z","ordinal":5,"type":"response_item","payload":{"type":"function_call_output","call_id":"call_sp","output":"{\"task_name\":\"/root/helper\"}"}}
+{"timestamp":"2026-07-10T06:00:04.000Z","ordinal":6,"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Helper started."}]}}
+{"timestamp":"2026-07-10T06:00:04.100Z","ordinal":7,"type":"token_usage_record","payload":{"response_id":"resp_r2","usage":{"input_tokens":40,"cached_input_tokens":30,"output_tokens":3,"reasoning_output_tokens":0,"total_tokens":43}}}

@@ -94,6 +94,45 @@ func newApp() *cli.App {
 			return nil
 		})
 
+	app.Command("parse").
+		Description("Parse session files that need it: the sessions and usage tables").
+		Long("Parse every copy not yet parsed by this version of agent-archive. copy and "+
+			"rebuild also do this; --all parses every copy again.").
+		Flags(
+			archiveFlag(),
+			cli.Bool("all").Help("parse every copy again"),
+		).
+		Run(func(ctx *cli.Context) error {
+			o, err := directories(ctx)
+			if err != nil {
+				return err
+			}
+			sum, err := runParse(o.ArchiveDir, ctx.Bool("all"))
+			if err != nil {
+				return err
+			}
+			printParseSummary(ctx.Stdout(), sum)
+			return nil
+		})
+
+	app.Command("convert").
+		Description("Print one agent of a session as Dashi messages, one JSON line each").
+		Long("Each line holds a message and its ref: the copy and lines it came from, whether it "+
+			"was inherited, and the model and usage of an assistant message. Counts of skipped "+
+			"lines and changed blocks go to stderr.").
+		Flags(
+			archiveFlag(),
+			cli.String("session", "").Required().Help("session_id of the session"),
+			cli.String("agent", "").Help("agent_id of a subagent; empty for the root"),
+		).
+		Run(func(ctx *cli.Context) error {
+			o, err := directories(ctx)
+			if err != nil {
+				return err
+			}
+			return runConvert(o.ArchiveDir, ctx.String("session"), ctx.String("agent"), ctx.Stdout(), ctx.Stderr())
+		})
+
 	app.Command("status").
 		Description("Show the last copy run, counts, warnings, and failed files").
 		Flags(archiveFlag()).

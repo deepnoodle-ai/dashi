@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -41,6 +42,22 @@ CREATE TABLE IF NOT EXISTS sessions (
 	app_version TEXT
 );
 CREATE INDEX IF NOT EXISTS sessions_session_id ON sessions (session_id);
+-- One row per model call; see design/agent-archive-parse.md.
+CREATE TABLE IF NOT EXISTS usage (
+	copy_id                        INTEGER NOT NULL REFERENCES copies (copy_id),
+	line                           INTEGER NOT NULL,
+	model_call_id                  TEXT NOT NULL,
+	model                          TEXT NOT NULL,
+	input_tokens                   INTEGER NOT NULL,
+	cache_read_input_tokens        INTEGER NOT NULL,
+	cache_creation_input_tokens    INTEGER NOT NULL,
+	cache_creation_1h_input_tokens INTEGER NOT NULL,
+	output_tokens                  INTEGER NOT NULL,
+	reasoning_tokens               INTEGER NOT NULL,
+	web_search_requests            INTEGER NOT NULL,
+	speed                          TEXT NOT NULL,
+	PRIMARY KEY (copy_id, line)
+);
 CREATE TABLE IF NOT EXISTS copy_runs (
 	run_id           TEXT PRIMARY KEY,
 	started_at       TEXT NOT NULL,
@@ -69,12 +86,66 @@ func openDatabase(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
+	if err := addSessionColumns(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
 	// SQLite gives its -wal and -shm files the database file's mode.
 	if err := os.Chmod(path, 0o600); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return db, nil
+}
+
+// sessionColumns are the sessions columns phase 2 parsing fills. A
+// database made before phase 2 gets them added, and the parser version
+// bump then fills them.
+var sessionColumns = []struct{ name, typ string }{
+	{"agent_kind", "TEXT"},
+	{"parent_agent_id", "TEXT"},
+	{"parent_tool_call_id", "TEXT"},
+	{"forked_from_session_id", "TEXT"},
+	{"entrypoint", "TEXT"},
+	{"git_branch", "TEXT"},
+	{"git_remote_url", "TEXT"},
+	{"title", "TEXT"},
+	{"ended_at", "TEXT"},
+	{"user_prompts", "INTEGER"},
+	{"tool_calls", "INTEGER"},
+	{"tool_errors", "INTEGER"},
+	{"compactions", "INTEGER"},
+	{"app_cost_usd", "REAL"},
+	{"usage_source", "TEXT"},
+	{"skipped_lines", "TEXT"},
+}
+
+func addSessionColumns(db *sql.DB) error {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info('sessions')`)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return err
+		}
+		have[n] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, c := range sessionColumns {
+		if !have[c.name] {
+			if _, err := db.Exec(`ALTER TABLE sessions ADD COLUMN ` + c.name + ` ` + c.typ); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func appliedBytes(db *sql.DB) (int64, error) {
@@ -135,7 +206,7 @@ func applyEventTx(tx *sql.Tx, ev logEvent) error {
 		}
 		// The copy was rewritten in place (its original grew); what was
 		// parsed from it is stale.
-		if _, err := tx.Exec(`DELETE FROM sessions WHERE copy_id = ?`, id); err != nil {
+		if err := deleteFacts(tx, id); err != nil {
 			return err
 		}
 		_, err = tx.Exec(`UPDATE copies SET app = ?, original_path = ?, kind = ?, original_bytes = ?, modified_at = ?, hash = ?,
@@ -145,6 +216,10 @@ func applyEventTx(tx *sql.Tx, ev logEvent) error {
 			ev.App, ev.OriginalPath, ev.Kind, *ev.OriginalBytes, formatTime(*ev.ModifiedAt), ev.Hash, at, id)
 		return err
 	case eventCopySuperseded:
+		// A superseded copy keeps only phase 1 facts.
+		if err := clearPhase2Facts(tx, ev.CopyPath); err != nil {
+			return err
+		}
 		return execOne(tx, `UPDATE copies SET copy_path = ?, superseded_at = ? WHERE copy_path = ?`,
 			ev.SupersededPath, at, ev.CopyPath)
 	case eventModifiedAtUpdated:
@@ -156,6 +231,37 @@ func applyEventTx(tx *sql.Tx, ev logEvent) error {
 		return execOne(tx, `UPDATE copies SET original_gone_at = ? WHERE copy_path = ?`, at, ev.CopyPath)
 	}
 	return fmt.Errorf("unknown event %q", ev.Event)
+}
+
+// deleteFacts deletes everything parsed from a copy.
+func deleteFacts(tx *sql.Tx, copyID int64) error {
+	if _, err := tx.Exec(`DELETE FROM usage WHERE copy_id = ?`, copyID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(`DELETE FROM sessions WHERE copy_id = ?`, copyID)
+	return err
+}
+
+// clearPhase2Facts deletes a copy's usage rows and empties its phase 2
+// sessions columns.
+func clearPhase2Facts(tx *sql.Tx, copyPath string) error {
+	var id int64
+	err := tx.QueryRow(`SELECT copy_id FROM copies WHERE copy_path = ?`, copyPath).Scan(&id)
+	if err == sql.ErrNoRows {
+		return nil // execOne reports it
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM usage WHERE copy_id = ?`, id); err != nil {
+		return err
+	}
+	set := make([]string, len(sessionColumns))
+	for i, c := range sessionColumns {
+		set[i] = c.name + " = NULL"
+	}
+	_, err = tx.Exec(`UPDATE sessions SET `+strings.Join(set, ", ")+` WHERE copy_id = ?`, id)
+	return err
 }
 
 // execOne runs an update that must touch exactly one copy.

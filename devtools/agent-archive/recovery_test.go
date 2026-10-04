@@ -79,7 +79,7 @@ func TestRecoveryFromLogAloneMatchesDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := parsePending(a.DB, a.Dir); err != nil {
+	if _, err := parsePending(a.DB, a.Dir); err != nil {
 		t.Fatal(err)
 	}
 	a.Close()

@@ -1,0 +1,3 @@
+{"type":"fork-context-ref","agentId":"ar","parentSessionId":"s-ref","parentLastUuid":"a1","contextLength":2}
+{"type":"user","uuid":"g1","parentUuid":"a1","isSidechain":true,"agentId":"ar","sessionId":"s-ref","timestamp":"2026-09-07T08:00:02.000Z","message":{"role":"user","content":"Placeholder."}}
+{"type":"assistant","uuid":"g2","parentUuid":"g1","isSidechain":true,"agentId":"ar","sessionId":"s-ref","timestamp":"2026-09-07T08:00:03.000Z","message":{"id":"msg_x2","role":"assistant","model":"claude-opus-5-5","content":[{"type":"text","text":"Done by reference."}],"usage":{"input_tokens":5,"output_tokens":4}}}
