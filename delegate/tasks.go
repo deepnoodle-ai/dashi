@@ -195,6 +195,27 @@ type childTurn struct {
 	// start, such as a queue turn.
 	recorded chan struct{}
 	startErr error
+	// start is the command ID of the Start that began the turn, when
+	// addTurnLocked added it.
+	start string
+	// origin is the parent call that started the turn: its Start's Parent,
+	// or the sender of the first message in a queue turn's key. It is zero
+	// when the turn's first step names neither.
+	origin dashi.CallRef
+}
+
+// unrecorded reports whether Tasks started the turn and the child's record
+// does not hold it yet. The caller holds ts.mu.
+func (c *childTurn) unrecorded() bool {
+	if c == nil || c.recorded == nil {
+		return false
+	}
+	select {
+	case <-c.recorded:
+		return false
+	default:
+		return true
+	}
 }
 
 // markRecorded closes recorded once.
@@ -476,18 +497,18 @@ func (ts *Tasks) Recover(
 	// Every child record is loaded: sort out the messages they lack, so an
 	// unread one counts on its turn's notice.
 	ts.mu.Lock()
-	again := ts.sortSentLocked(sends)
+	again := ts.sortSentLocked(sends, callOrder(turns))
 	ts.mu.Unlock()
 	// Report the ended turns nobody has heard of, whether the task is new
-	// here or known in this process. Then resume the unfinished turns, and
-	// send the missing messages again.
+	// here or known in this process. Then resume the unfinished turns, with
+	// their missing messages, and send the others' missing messages again.
 	for _, t := range adopted {
 		ts.notifyEnded(t, delivered)
 	}
 	for _, t := range resumed {
-		ts.resume(ctx, t)
+		errs = append(errs, ts.resume(ctx, t, again)...)
 	}
-	ts.redeliver(ctx, again)
+	errs = append(errs, ts.redeliver(ctx, again, resumed)...)
 	return errors.Join(errs...)
 }
 
@@ -560,9 +581,14 @@ func (ts *Tasks) register(
 	return t, ts.restoreLocked(t, rec, delivered), nil
 }
 
-// resume continues the unfinished last turn of a restored task. When Close
-// came first, the turn stays interrupted for the next Recover.
-func (ts *Tasks) resume(ctx context.Context, t *task) {
+// resume continues the unfinished last turn of a restored task and gives
+// it the messages of sends that are for it. It hands them over before the
+// turn can end, so the turn's end handles them as it handles any mail: the
+// turn or the next one reads them, or its notice says they were not read.
+// When Close came first, the turn stays interrupted for the next Recover,
+// which sends them then. It returns the errors of messages it could not
+// send.
+func (ts *Tasks) resume(ctx context.Context, t *task, sends []sentMessage) []error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	if ts.closed {
@@ -572,9 +598,19 @@ func (ts *Tasks) resume(ctx context.Context, t *task) {
 		c.notified, c.reported = true, true
 		t.setStarted()
 		ts.changedLocked()
-		return
+		return nil
 	}
 	ts.launchLocked(ctx, t, dashi.Continue{})
+	var errs []error
+	for _, s := range sends {
+		if s.msg.To != t.id {
+			continue
+		}
+		if _, _, err := ts.deliverLocked(ctx, t, s.msg, s.call, true); err != nil {
+			errs = append(errs, redeliveryError(t, s, err))
+		}
+	}
+	return errs
 }
 
 // record is what the recorder holds for one child session: its turns, in
@@ -625,6 +661,9 @@ func (ts *Tasks) restoreLocked(
 			t.heldLocked(step)
 		}
 		c := &childTurn{id: turn.ID}
+		if len(turn.Steps) > 0 {
+			c.origin = turnOrigin(turn.Steps[0])
+		}
 		if len(rec.deferred) > i {
 			c.deferred = rec.deferred[i]
 		}
@@ -764,22 +803,36 @@ func (ts *Tasks) checkTurnsLocked(t *task) error {
 }
 
 // startTurnLocked starts the next turn of a child session that runs none,
-// unless checkTurnsLocked refuses it. The caller holds ts.mu and has checked
-// that ts is not closed.
+// unless checkTurnsLocked refuses it and redelivery is not set. The caller
+// holds ts.mu and has checked that ts is not closed.
 func (ts *Tasks) startTurnLocked(
 	ctx context.Context,
 	t *task,
 	start dashi.Start,
+	redelivery bool,
 ) error {
-	if err := ts.checkTurnsLocked(t); err != nil {
+	if err := ts.addTurnLocked(t, start, redelivery); err != nil {
 		return err
+	}
+	ts.launchLocked(ctx, t, start)
+	return nil
+}
+
+// addTurnLocked adds the turn that start begins as the task's last, unless
+// checkTurnsLocked refuses it and redelivery is not set. The caller holds
+// ts.mu and runs start.
+func (ts *Tasks) addTurnLocked(t *task, start dashi.Start, redelivery bool) error {
+	if !redelivery {
+		if err := ts.checkTurnsLocked(t); err != nil {
+			return err
+		}
 	}
 	t.turns = append(t.turns, &childTurn{
 		id:       session.TurnID(t.sessionID, len(t.turns)+1),
 		state:    TaskRunning,
 		recorded: make(chan struct{}),
+		start:    start.CommandID,
 	})
-	ts.launchLocked(ctx, t, start)
 	return nil
 }
 
@@ -799,18 +852,42 @@ func (ts *Tasks) launchLocked(
 	go ts.run(ctx, t, cmd)
 }
 
-// run ranges over the child session's Stream. Each turn's RunResult event ends
-// that turn; the goroutine exits when the call returns. Mail that no turn
-// read then starts the next turn (see passOnLocked).
+// run drives the child session: it ranges over the Stream of cmd, and
+// then, while mail that no turn read remains, over the Stream of the turn
+// passOnLocked starts with it. Each turn's RunResult event ends that turn.
+//
+// A turn's notice waits until a later turn's record holds its first step or
+// the goroutine exits. Until then, mail may still fail to start a turn, and
+// it counts in that notice as not read (see dropUnrecordedLocked).
 func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 	defer ts.wg.Done()
+	for cmd != nil {
+		ts.stream(ctx, t, cmd)
+		ts.mu.Lock()
+		t.setStarted()
+		cmd = ts.passOnLocked(t)
+		if cmd == nil {
+			t.cancel()
+			t.cancel, t.stopping = nil, false
+			close(t.done)
+		}
+		ts.changedLocked()
+		ts.mu.Unlock()
+	}
+	// No turn of this goroutine takes mail now: a message that arrives from
+	// here on starts its own turn, and its sender waits for it.
+	ts.notifyEnded(t, nil)
+}
+
+// stream runs one command of the child session to its end.
+func (ts *Tasks) stream(ctx context.Context, t *task, cmd dashi.Command) {
 	ts.mu.Lock()
 	current := t.last().id
 	started := ts.viewLocked(t, nil)
 	ts.mu.Unlock()
 	ts.onTask(TaskStarted, started)
 	// A Start's turn is the first turn the Stream starts. The session numbers
-	// it, so its ID replaces the one startTurnLocked expected.
+	// it, so its ID replaces the one addTurnLocked expected.
 	_, named := cmd.(dashi.Continue)
 	var runErr error
 	for ev, err := range t.session.Stream(ctx, cmd) {
@@ -830,7 +907,8 @@ func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 		case err != nil:
 			runErr = err
 		case ev.Step != nil:
-			if ev.Step.Kind == dashi.StepTurnStarted && ev.TurnID != current {
+			begins := ev.Step.Kind == dashi.StepTurnStarted
+			if begins && ev.TurnID != current {
 				ts.mu.Lock()
 				if c := t.find(current); !named && c != nil &&
 					len(c.steps) == 0 && c.final == nil {
@@ -844,10 +922,15 @@ func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 					ts.onTask(TaskStarted, v)
 				}
 			}
-			if ev.Step.Kind == dashi.StepTurnStarted {
+			if begins {
 				named = true
 			}
 			ts.observe(t, *ev.Step)
+			if begins {
+				// The record holds a later turn, so no mail counts on the
+				// earlier ones any more.
+				ts.notifyEnded(t, nil)
+			}
 		}
 	}
 	ts.mu.Lock()
@@ -862,14 +945,6 @@ func (ts *Tasks) run(ctx context.Context, t *task, cmd dashi.Command) {
 		}
 		ts.endTurn(t, current, out, err)
 	}
-	ts.mu.Lock()
-	t.setStarted()
-	t.cancel()
-	t.cancel, t.stopping = nil, false
-	close(t.done)
-	ts.passOnLocked(ctx, t)
-	ts.changedLocked()
-	ts.mu.Unlock()
 }
 
 // ended reports whether turn id of t has already ended here.
@@ -927,7 +1002,8 @@ func (ts *Tasks) cancelTurn(t *task, id string) (dashi.RunResult, error) {
 // errCanceled marks a stop that the record does not show.
 var errCanceled = errors.New("stopped on request")
 
-// endTurn records the end of turn id and reports it, unless Close caused it.
+// endTurn records the end of turn id. run reports it later, unless Close
+// caused it.
 func (ts *Tasks) endTurn(t *task, id string, out dashi.RunResult, err error) {
 	deferred := ts.deferNotice(out.Turn)
 	ts.mu.Lock()
@@ -966,33 +1042,51 @@ func (ts *Tasks) endTurn(t *task, id string, out dashi.RunResult, err error) {
 	}
 	ts.changedLocked()
 	ts.mu.Unlock()
-	if !interrupted {
-		ts.notifyEnded(t, nil)
-	}
 }
 
 // dropUnrecordedLocked removes a later turn of t that failed before the
 // child's record held it, such as one whose Start the recorder refused: it
 // is no turn, so nothing reports it, and the session numbers the next turn
-// as this one. The mail it would have carried is dropped too, so it starts
-// no turn in a loop; deliver tells the model the message was not sent, and
-// after a restart Recover sends a finished send again. It reports whether
-// c was such a turn. The first turn is the task tool's (see startTask). The
-// caller holds ts.mu.
+// as this one. It reports whether c was such a turn. The first turn is the
+// task tool's (see startTask). The caller holds ts.mu.
+//
+// The turn's mail goes too, and none of it is lost without a word:
+//   - A message whose sender waits for the turn (the one that started it,
+//     and those that arrived while it started) is not sent: deliver returns
+//     the error. After a restart, Recover sends a finished send again.
+//   - The message passOnLocked started the turn with was sent with success
+//     while an earlier turn ran. It counts as not read on the turn before,
+//     whose notice run holds until now.
+//
+// Other mail stays, and passOnLocked starts the next turn with it.
 func (ts *Tasks) dropUnrecordedLocked(t *task, c *childTurn, err error) bool {
 	i := slices.Index(t.turns, c)
 	if i <= 0 || len(c.steps) > 0 || c.final != nil {
 		return false
 	}
-	if n := len(t.mail); n > 1 {
-		slog.Warn("delegate: a task turn failed to start; its messages were not sent",
-			"task", t.id, "count", n, "error", err)
-	}
 	t.turns = slices.Delete(t.turns, i, i+1)
-	clear(t.mail)
-	t.mail = nil
+	prev := t.turns[i-1]
 	c.startErr = err
 	c.markRecorded()
+	var unread int
+	t.mail = slices.DeleteFunc(t.mail, func(m *mail) bool {
+		switch {
+		case m.waits == c && m.msg.ID == c.start:
+			// Only the Start held it.
+			return true
+		case m.waits == c:
+			t.dropLocked(m)
+			return true
+		case m.msg.ID == c.start:
+			t.dropLocked(m)
+			unread++
+			return true
+		}
+		return false
+	})
+	prev.unread += unread
+	slog.Warn("delegate: a task turn failed to start; its message was not sent",
+		"task", t.id, "message", c.start, "unread", unread, "error", err)
 	return true
 }
 
@@ -1121,6 +1215,9 @@ func (ts *Tasks) observe(t *task, step dashi.Step) {
 	t.heldLocked(step)
 	c := t.turn(step.TurnID)
 	c.markRecorded()
+	if step.Kind == dashi.StepTurnStarted {
+		c.origin = turnOrigin(step)
+	}
 	if c.final != nil {
 		return
 	}
@@ -1248,7 +1345,7 @@ func (ts *Tasks) startTask(
 	endedBefore := false
 	switch {
 	case !found:
-		if err := ts.startTurnLocked(ctx, t, start); err != nil {
+		if err := ts.startTurnLocked(ctx, t, start, false); err != nil {
 			ts.mu.Unlock()
 			return TaskView{}, err
 		}

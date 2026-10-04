@@ -116,8 +116,14 @@ message IDs its record holds and those `Tasks` dropped, so its queue never
 runs one twice. When the session's queue does not follow a turn (it failed or
 was limited), `Tasks` starts the next turn with the first pending message once
 the child's goroutine exits. A message that starts a turn returns once the
-child's record holds that turn, as `task` does; a turn that fails before the
-record holds it is no turn, and `task_send` returns the error.
+child's record holds that turn, as `task` does, and so does a message that
+arrives while that turn starts. A turn that fails before the record holds it
+is no turn, and each `task_send` that waits on it returns the error. Mail
+sent with success earlier, while another turn ran, is never dropped without
+a word: when the turn it starts fails, it counts as not read on the turn it
+waited on. That turn's notice waits until the next turn's record holds its
+first step, or the child's goroutine exits, so it can say so. A child that
+`Tasks.Stop` is stopping refuses messages until it has stopped.
 
 | Recipient | `steer` | `queue` |
 | --- | --- | --- |
@@ -221,13 +227,19 @@ IDs, the message ID.
   queue), and the tool treats it as sent. The set, not the session's
   in-memory queue, is what survives a restart.
 - **Target turn.** A finished send records, in its `tool.Outcome.Data`
-  (`session_id`, `target_turn_id`), the recipient turn it steered into, or
-  none when it started or queued a turn. A message whose target turn has
-  ended without its ID, and stopped `waiting`, `result_unknown`, or
-  `canceled`, is undeliverable. Ended turns never change, so every reader and
-  every restart reaches the same result. A hook that replaces the result drops
-  the `Data`; `Recover` then finds the task by `task_id`, and `Report` misses
-  that session unless a `task` call of the same parent turn names it.
+  (`session_id`, `target_turn_id`, `last_turn_id`), the recipient turn it
+  steered into, or none when it started or queued a turn, and the child's
+  last turn when it arrived while the child ran. A message whose target turn,
+  or a turn from its last turn on, has ended without its ID, and stopped
+  `waiting`, `result_unknown`, or `canceled`, is undeliverable. So a queue
+  message never restarts a child that `Tasks.Stop` canceled before reading
+  it. Ended turns never change, so every reader and every restart reaches the
+  same result. A hook that replaces the result drops the `Data`; `Recover`
+  then finds the task by `task_id`, and takes as the last turn the last child
+  turn that a parent call before the send started (by its `Start.Parent`, or
+  the first message in a queue turn's key), by the order of the calls in the
+  parent turns. `Report` misses that session unless a `task` call of the same
+  parent turn names it.
 - `Recover(ctx, runner, turns)` runs in this order (as built, notices come
   before the resume, as they did before track 3, and undeliverable messages
   are sorted out first so the notice can name them): build the delivered-ID
@@ -236,10 +248,14 @@ IDs, the message ID.
   `task_send` in the parent turns, redeliver it if the child lacks its ID;
   for each finished `message_parent` in the child turns, redeliver it if the
   parent lacks its ID; then notices, as today. Each redelivery goes through
-  `deliver`, so it follows the table. `Recover` skips an undeliverable
-  message and never sends to a `waiting` or `result_unknown` recipient, so it
-  neither fails nor retries on one; the message appears as "not read" in
-  the notice.
+  `deliver`, so it follows the table. A resumed child gets its messages as
+  its turn resumes, before that turn can end, so the turn's end handles them
+  like any mail. `Recover` skips an undeliverable message and never sends to
+  a `waiting` or `result_unknown` recipient, so it neither fails nor retries
+  on one; the message appears as "not read" in the notice. A redelivery that
+  fails for another reason, such as a store that refuses the turn, is an
+  error that `Recover` returns after the rest; the next `Recover` tries
+  again. A redelivery passes `MaxTaskTurns`, as it passes the other caps.
 - Crash tests: before send, after send, after delivery, "delivered, call
   not finished, turn resumed" (the resumed turn reruns the call), and
   "steered into a running child that then stops `waiting` before reading

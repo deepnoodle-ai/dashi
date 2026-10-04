@@ -109,13 +109,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   its next turn, with its history. The message is an `agent-message`
   reminder from `parent` with origin `ContextAgent`; `delegate.Message`,
   `MessageID`, and `Delivery` describe it. A waiting or `result_unknown` task
-  refuses mail with a tool error. `Config.MaxMessages` (default 8 per parent
+  refuses mail with a tool error, as does a task that `task_stop` is
+  stopping, until it has stopped. `Config.MaxMessages` (default 8 per parent
   turn and task) and `Config.MaxTaskTurns` bound the cost. Each message is
   delivered once: the child's record holds its ID (`msg:<turn>/<call>`), a
   rerun call sends nothing, and `Recover` sends again a message from a
-  finished call that the child lacks. A message whose turn stopped before
-  reading it is dropped, counted in `TaskView.UnreadMessages`, and named in
-  the notice. `Report` counts the child turns a `task_send` call started
+  finished call that the child lacks, or returns an error that names it. A
+  message whose turn stopped before reading it, or whose next turn the store
+  refused to start, is dropped, counted in `TaskView.UnreadMessages`, and
+  named in the notice; a send never reports success and then vanishes.
+  `Report` counts the child turns a `task_send` call started
   under the parent turn that sent it.
 - **Decide examples.** `examples/decide` uses a decision model (Jev or Clef,
   through the Decide library) as a judge inside hooks: a risk gate on tool
