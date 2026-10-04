@@ -160,8 +160,10 @@ The archive holds client code and probably secrets from tool output.
 
 ## Phase 2: parse and convert
 
-Parsing, the `usage` table, and conversion to Dashi messages are designed in
-[agent-archive-parse.md](agent-archive-parse.md).
+Parsing, the `usage` table (one row per model call), and conversion of an
+agent to a transcript of Dashi messages are designed in
+[agent-archive-parse.md](agent-archive-parse.md). Parsing also sets a nested
+Codex subagent's `session_id` to its root's id.
 
 ## Phase 3 outline: analysis tools
 
