@@ -766,6 +766,21 @@ func (e *Engine) Queued() int {
 	return n + st.Queued
 }
 
+// queuedTaskItems counts the items on the open session's queue that did not
+// come from the user, such as task notices and messages. The user's queued
+// prompts wait for the next prompt instead.
+func (e *Engine) queuedTaskItems() int {
+	chat := e.handle()
+	if chat == nil {
+		return 0
+	}
+	st, err := chat.Open(context.Background())
+	if err != nil {
+		return 0
+	}
+	return st.Queued - st.QueuedUser
+}
+
 // finished shows the end of one turn: its footer, how to go on, the session's
 // warnings, and the steers that wait for a later turn.
 func (e *Engine) finished(r *Renderer, out dashi.RunResult) {

@@ -55,17 +55,18 @@ to end), and `← t_k3f2  Parse is in config/load.go` where the agent got one a
 task sent with `message_parent`. A message can start a task's next turn,
 whose status line reads `↳ task t_k3f2 (explore) turn 2 …`. `/tasks ID`
 prints each turn of that task with the messages it got and sent, in order,
-and its reply. A steer message from a task (the default) reaches a running
-agent Turn before its next model call. A queue message, or any message while
-the agent is idle, reaches it the way a result does: in the next queue Turn,
-or sooner when a `task_status` wait returns it. A wait that ends on a steer
-message already on its way names only the sender, and the message follows in
-the next model call. Either way the agent gets it once.
+and its reply.
 
-A completed child's result reaches the parent through its recorded notice ID.
-Inspection does not consume it. An idle parent receives it in a scheduled queue
-Turn; a pending start and a stopped parent hold the notice until they are
-resolved. Reload/callback repeats cannot add a recorded notice again.
+A task's result and its messages reach the parent the way `delegate` delivers
+them with `Config.Session`. A result or a steer message (the default) that
+arrives while the parent works reaches its running Turn before the next model
+call. A queue message, or anything that arrives while the parent is idle,
+waits on the session's queue and starts a queue Turn. Inspection does not
+consume a result. A pending start and a stopped parent hold queued results
+until they are resolved, and the record keeps a result from reaching the
+parent twice across Turns. When a `task_status` read returns a result while
+the parent works, its notice can still reach that Turn, so the model may see
+the result twice there.
 
 Quit, `/new`, and session switching interrupt children and wait for their
 records before closing pinned services and releasing session ownership. A

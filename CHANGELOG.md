@@ -138,6 +138,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   session shows the same lines. A task's later turns show as `↳ task t_k3f2
   (explore) turn 2 …`, and `/tasks ID` prints each turn's reply with the
   messages between them.
+- **`session.State.QueuedUser`** counts the queued items that came from the
+  user, so a host that holds the user's queued input for the next prompt can
+  tell it from a background task's notice or message.
 - **`wait_seconds` on `task`.** The call waits up to 60 seconds for the
   task's answer or a message from it. `task_status` waits also end on a
   message. When the message reached the running parent turn, the result says
@@ -199,15 +202,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **A task's message reaches the agent in the CLI.** The CLI dropped the
   `TaskMessage` events of `message_parent`, so the agent saw a task's message
-  only if a `task_status` wait returned it. The CLI now steers a steer message
-  into the running agent turn, before its next model call, and holds any other
-  message with the task notices for the next queue turn. A message reaches the
-  agent once: a `task` or `task_status` wait that ends on a steer message
-  already on its way names only the sender, as with `Config.Session`. At most
-  128 messages wait in memory, steer messages included; past that, the CLI
-  reads them from the tasks' records, so none is lost. A task with a second
-  turn no longer stops task delivery, `/tasks`, and reopening with "child
-  parent differs": only a task's first turn has the `task` call as its parent.
+  only if a `task_status` wait returned it. The CLI now passes its session to
+  `delegate` as `Config.Session`, like any client, and `delegate` delivers
+  task results and messages. A result or a steer message that arrives while
+  the agent works reaches its running turn before the next model call; one
+  that arrives while the agent is idle starts a queue turn. A task with a
+  second turn no longer stops task delivery, `/tasks`, and reopening with
+  "child parent differs": only a task's first turn has the `task` call as its
+  parent.
 - **The CLI scrolls up when a mouse selection is dragged to the top row.** In
   fullscreen mode, holding a selection drag on the transcript's top row now
   scrolls up and extends the selection, as dragging below the transcript

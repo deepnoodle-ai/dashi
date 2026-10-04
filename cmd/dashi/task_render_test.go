@@ -66,13 +66,16 @@ func TestTaskResultTurnShowsMarkerInsteadOfEmptyUserLine(t *testing.T) {
 }
 
 func TestTaskResultTurnHasNoEmptyUserLineLiveOrReplayed(t *testing.T) {
-	client := &taskFixtureClient{}
+	hold := make(chan struct{})
+	client := &taskFixtureClient{childHold: hold}
 	ui := newRecorderUI()
 	a, _ := taskTestApp(t, client, ui)
 	result, err := a.eng.Prompt(t.Context(), "Delegate this job")
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The task's result reaches the idle parent as a queue turn.
+	close(hold)
 	if _, err = a.eng.QuietTasks(t.Context(), result); err != nil {
 		t.Fatal(err)
 	}

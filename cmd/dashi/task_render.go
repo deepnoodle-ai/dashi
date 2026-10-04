@@ -467,9 +467,10 @@ func (c *Controller) scheduleTaskNotices() {
 		return
 	}
 	host.mu.Lock()
-	ready := host.pendingLocked() && host.deliveryErr == nil
+	paused := host.deliveryErr != nil
 	host.mu.Unlock()
-	if !ready {
+	// Tasks put their notices and messages on the session's queue.
+	if paused || c.eng.queuedTaskItems() == 0 {
 		return
 	}
 	// While a turn, dialog, or command runs, say nothing: this runs again

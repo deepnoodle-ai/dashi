@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +11,6 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/session"
-	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // parentTurnCount counts the recorded turns of the open session.
@@ -53,8 +51,10 @@ func TestUserInspectionDoesNotDeliverTheResult(t *testing.T) {
 }
 
 // When the parent reads a task's final result with task_status, the result
-// is delivered: no task-ended reminder follows and no extra turn runs, now or
-// after a reopen. Either order of the child's end and the read holds.
+// is delivered: no extra turn runs, now or after a reopen. Either order of
+// the child's end and the read holds. As with any delegate.Config.Session,
+// the result's notice may also reach the running turn, so the model may
+// see it a second time in that turn.
 func TestTaskStatusReadDeliversTheResultWithoutAnotherTurn(t *testing.T) {
 	for _, order := range []string{"read waits for the end", "child ends before the read"} {
 		t.Run(order, func(t *testing.T) {
@@ -82,7 +82,7 @@ func TestTaskStatusReadDeliversTheResultWithoutAnotherTurn(t *testing.T) {
 				t.Fatal(err)
 			}
 			parent, child := client.counts()
-			if parent != 3 || child != 1 || client.parentNotices != 0 {
+			if parent != 3 || child != 1 || client.parentNotices > 1 {
 				t.Fatalf("calls=%d/%d notices=%d: the read result was delivered again", parent, child, client.parentNotices)
 			}
 			if n := parentTurnCount(t, a.eng); n != 1 {
@@ -302,17 +302,6 @@ func TestTaskSteerMessageReachesTheRunningParentTurn(t *testing.T) {
 	}
 }
 
-// fillHeldMessages holds maxHeldMessages queue messages, so the next
-// message is past the bound.
-func fillHeldMessages(host *taskHost) {
-	host.mu.Lock()
-	defer host.mu.Unlock()
-	for i := range maxHeldMessages {
-		filler := delegate.Message{ID: delegate.MessageID("filler-"+strconv.Itoa(i), "call"), From: "task t_fill (general)", Text: "filler", Delivery: delegate.DeliverQueue}
-		host.notices[filler.ID] = filler.Item()
-	}
-}
-
 // statusResults returns the text the model saw of each task_status call in
 // the parent's first turn, and the message IDs its record names.
 func statusResults(t *testing.T, e *Engine) (string, []string) {
@@ -347,171 +336,33 @@ func statusResults(t *testing.T, e *Engine) (string, []string) {
 	return text.String(), ids
 }
 
-// A task_status wait that ends on a steer message gives the model that
-// message once, whatever becomes of the wait's result. When the parent
-// session holds the message, the wait names only its sender and the next
-// model call gets it. Past maxHeldMessages, the CLI does not steer it: the
-// wait returns its text, and if a hook replaces that result, the record
-// lacks the message and the CLI delivers it from the task's record.
+// A task_status wait that ends on a steer message names only its sender,
+// and the next model call gets the message, once.
 func TestTaskSteerMessageReadByTaskStatusIsDeliveredOnce(t *testing.T) {
 	const text = "Blocker: config/load.go is generated"
-	for _, tc := range []struct {
-		name               string
-		pastBound, replace bool
-	}{
-		{name: "steered"},
-		{name: "steered, result replaced", replace: true},
-		{name: "past the bound", pastBound: true},
-		{name: "past the bound, result replaced", pastBound: true, replace: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			childHold := make(chan struct{})
-			client := &taskFixtureClient{messageParent: text, childHold: childHold, statusRead: true}
-			client.beforeStatus = func() {
-				// Let the task send once the wait has begun.
-				time.AfterFunc(200*time.Millisecond, func() { close(childHold) })
-			}
-			a, _ := taskTestApp(t, client, newRecorderUI())
-			host := a.eng.taskHost()
-			if tc.pastBound {
-				fillHeldMessages(host)
-			}
-			if tc.replace {
-				chat := a.eng.handle()
-				chat.Runner.Hooks = dashi.JoinHooks(chat.Runner.Hooks, dashi.ResultHook{Name: "test-replace", Func: func(_ context.Context, p dashi.ResultPlan) (dashi.ResultDecision, error) {
-					if p.Call.Name != "task_status" {
-						return dashi.ResultDecision{}, nil
-					}
-					r := p.Result
-					r.Output = tool.TextOutput("The wait ended.")
-					return dashi.ResultDecision{Replace: &r}, nil
-				}})
-			}
-			result, err := a.eng.Prompt(t.Context(), "Delegate this job")
-			if err != nil {
-				t.Fatal(err)
-			}
-			task := waitTask(t, a, func(v delegate.TaskView) bool { return v.Turns == 1 && !v.Running() })
-			id := delegate.MessageID(session.TurnID(task.SessionID, 1), "message-call")
-			host.mu.Lock()
-			over, held := host.messageRescan, host.heldMessagesLocked()
-			host.mu.Unlock()
-			if over != tc.pastBound || held > maxHeldMessages {
-				t.Fatalf("past the bound = %v with %d held, want %v and at most %d", over, held, tc.pastBound, maxHeldMessages)
-			}
-			saw, ids := statusResults(t, a.eng)
-			switch {
-			case tc.replace:
-				if saw != "The wait ended." || len(ids) != 0 {
-					t.Fatalf("wait result %q with IDs %v, want the replacement and none", saw, ids)
-				}
-			case tc.pastBound:
-				if !strings.Contains(saw, text) || !slices.Equal(ids, []string{id}) {
-					t.Fatalf("wait result %q with IDs %v, want the text and %s", saw, ids, id)
-				}
-			default:
-				if strings.Contains(saw, text) || !strings.Contains(saw, "A message from task "+task.ID+" (general) follows.") || len(ids) != 0 {
-					t.Fatalf("wait result %q with IDs %v, want the sender only", saw, ids)
-				}
-			}
-			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
-			defer cancel()
-			if _, err := a.eng.QuietTasks(ctx, result); err != nil {
-				t.Fatal(err)
-			}
-			if got := messageDeliveries(t, a.eng)[id]; got != 1 {
-				t.Fatalf("message %s delivered %d times, want once", id, got)
-			}
-			host.mu.Lock()
-			defer host.mu.Unlock()
-			if host.pendingLocked() {
-				t.Fatalf("still pending: rescan=%v held=%d", host.messageRescan, len(host.notices))
-			}
-		})
-	}
-}
-
-// A steer message that finds the parent turn running, but reaches the
-// session after that turn ended, lands on the session's queue. The CLI then
-// wakes the task-notice driver, as for any queued message.
-func TestTaskSteerMessageThatMissesTheTurnWakesTheDriver(t *testing.T) {
-	childHold, parentHold, replyHold := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	// replyHold keeps the task running, so the task's end wakes nothing yet.
-	client := &taskFixtureClient{messageParent: "Blocker: config/load.go is generated", childHold: childHold, parentHold: parentHold, replyHold: replyHold}
-	t.Cleanup(func() { beforeSteer = nil })
-	a, _ := taskTestApp(t, client, newRecorderUI())
-	done := make(chan error, 1)
-	var result Result
-	beforeSteer = func() {
-		// The parent's Run ends between the check and SteerItem.
-		close(parentHold)
-		if err := <-done; err != nil {
-			t.Error(err)
-		}
-	}
-	woke := make(chan struct{}, 8)
-	host := a.eng.taskHost()
-	host.mu.Lock()
-	host.wake = func() { woke <- struct{}{} }
-	host.mu.Unlock()
-	go func() {
-		var err error
-		result, err = a.eng.Prompt(t.Context(), "Delegate this job")
-		done <- err
-	}()
-	// The parent's second model call is in flight when the task sends.
-	waitUntil(t, "the parent's second model call", func() bool { parent, _ := client.counts(); return parent == 2 })
-	close(childHold)
-	select {
-	case <-woke:
-	case <-time.After(20 * time.Second):
-		t.Fatal("no wake for the message that missed the turn")
-	}
-	if state, err := a.eng.handle().Open(t.Context()); err != nil || state.Queued != 1 {
-		t.Fatalf("session queue holds %d items (%v), want the message", state.Queued, err)
-	}
-	close(replyHold)
-	task := waitTask(t, a, func(v delegate.TaskView) bool { return v.Turns == 1 && !v.Running() })
-	if _, err := a.eng.QuietTasks(t.Context(), result); err != nil {
-		t.Fatal(err)
-	}
-	id := delegate.MessageID(session.TurnID(task.SessionID, 1), "message-call")
-	if got := messageDeliveries(t, a.eng)[id]; got != 1 {
-		t.Fatalf("message %s delivered %d times, want once", id, got)
-	}
-}
-
-// Past maxHeldMessages, a task's message is not held but not lost either:
-// once the held ones are delivered, it is read from the task's record and
-// delivered once.
-func TestTaskMessagePastTheHeldBoundIsDeliveredFromTheRecord(t *testing.T) {
 	childHold := make(chan struct{})
-	client := &taskFixtureClient{messageParent: "Parse is in config/load.go", messageDeliver: "queue", childHold: childHold}
+	client := &taskFixtureClient{messageParent: text, childHold: childHold, statusRead: true}
+	client.beforeStatus = func() {
+		// Let the task send once the wait has begun.
+		time.AfterFunc(200*time.Millisecond, func() { close(childHold) })
+	}
 	a, _ := taskTestApp(t, client, newRecorderUI())
-	host := a.eng.taskHost()
-	fillHeldMessages(host)
 	result, err := a.eng.Prompt(t.Context(), "Delegate this job")
 	if err != nil {
 		t.Fatal(err)
 	}
-	close(childHold)
 	task := waitTask(t, a, func(v delegate.TaskView) bool { return v.Turns == 1 && !v.Running() })
-	host.mu.Lock()
-	over := host.messageRescan
-	host.mu.Unlock()
-	if !over {
-		t.Fatal("the message past the bound was held")
+	id := delegate.MessageID(session.TurnID(task.SessionID, 1), "message-call")
+	saw, ids := statusResults(t, a.eng)
+	if strings.Contains(saw, text) || !strings.Contains(saw, "A message from task "+task.ID+" (general) follows.") || len(ids) != 0 {
+		t.Fatalf("wait result %q with IDs %v, want the sender only", saw, ids)
 	}
-	if _, err := a.eng.QuietTasks(t.Context(), result); err != nil {
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	if _, err := a.eng.QuietTasks(ctx, result); err != nil {
 		t.Fatal(err)
 	}
-	id := delegate.MessageID(session.TurnID(task.SessionID, 1), "message-call")
 	if got := messageDeliveries(t, a.eng)[id]; got != 1 {
 		t.Fatalf("message %s delivered %d times, want once", id, got)
-	}
-	host.mu.Lock()
-	defer host.mu.Unlock()
-	if host.pendingLocked() {
-		t.Fatalf("still pending: rescan=%v held=%d", host.messageRescan, len(host.notices))
 	}
 }

@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,9 +18,10 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// taskHost retains notice and message delivery candidates; only the parent
-// Engine driver changes the session queue. Child observer callbacks never
-// drive a parent.
+// taskHost tracks the tasks of the open session. Tasks puts each task's
+// notices and messages on the parent session (delegate.Config.Session);
+// only the parent Engine driver runs the session's queue. Child observer
+// callbacks never drive a parent.
 type taskHost struct {
 	tasks        *delegate.Tasks
 	inputs       *taskInputs
@@ -32,24 +31,15 @@ type taskHost struct {
 	recoveryErr  error
 	inventoryErr error
 	deliveryErr  error
-	// notices holds the task notices and the tasks' messages that wait
-	// for the parent, by item ID.
-	notices map[string]dashi.ContextItem
-	queued  map[string]bool
-	rescan  bool
-	// messageRescan means a task's message did not fit under
-	// maxHeldMessages; flushTaskNotices reads it again from the task's
-	// record (see rescanMessages).
-	messageRescan bool
-	recorded      map[string]taskSnapshot
-	problems      map[string]string
-	wake          func()
-	observedSeq   map[string]int64
+	recorded     map[string]taskSnapshot
+	problems     map[string]string
+	wake         func()
+	observedSeq  map[string]int64
 }
 
 func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentResolver) *taskHost {
 	loader, _ := chat.Runner.Recorder.(dashi.Loader)
-	host := &taskHost{notices: map[string]dashi.ContextItem{}, queued: map[string]bool{}, observedSeq: map[string]int64{}}
+	host := &taskHost{observedSeq: map[string]int64{}}
 	host.inputs = &taskInputs{loader: loader, parentBind: resolver.bind, clientFor: func(ctx context.Context, agent dashi.Agent) (llm.Client, error) {
 		if p := e.cfg.Preferences; p != nil {
 			return p.clientFor(ctx, agent)
@@ -65,6 +55,9 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 	host.tasks = delegate.NewTasks(delegate.Config{
 		PrepareStart: host.inputs.prepareStart, BindServices: host.inputs.bindServices,
 		NoticeReady: taskNoticeReady,
+		// Tasks delivers notices and messages to the parent session, which
+		// holds them while a turn runs or waits for the host.
+		Session: chat,
 		OnChild: func(event delegate.ChildEvent) {
 			if event.Event.Step != nil {
 				host.mu.Lock()
@@ -94,27 +87,14 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 			}
 		},
 		OnTask: func(event delegate.TaskEvent) {
-			switch event.Kind {
-			case delegate.TaskMessage:
-				if event.Message == nil || host.holdMessage(chat, *event.Message) {
-					return
-				}
-			case delegate.TaskEnded:
+			if event.Kind != delegate.TaskMessage {
 				e.cfg.Emit(taskStatusBlock(event.Task))
-				item := event.Task.Notice().Item()
-				host.mu.Lock()
-				// Past a cap, a notice stays in the records only, and a
-				// rescan reads it from there.
-				if len(host.notices) < 128 {
-					host.notices[item.ID] = item
-				} else {
-					host.rescan = true
-				}
-				host.mu.Unlock()
-			default:
-				e.cfg.Emit(taskStatusBlock(event.Task))
+			}
+			if event.Kind == delegate.TaskStarted {
 				return
 			}
+			// A notice or message that reached an idle session waits on its
+			// queue; wake the driver to run it.
 			host.mu.Lock()
 			wake := host.wake
 			if wake == nil {
@@ -126,245 +106,8 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 			}
 		},
 	})
-	// Before a queue turn, the session drops the items its record shows
-	// delivered, as it does when delegate.Config.Session is set.
-	chat.Delivered = func(turns []dashi.Turn) map[string]bool {
-		out := delegate.DeliveredNotices(turns)
-		maps.Copy(out, delegate.DeliveredMessages(turns))
-		return out
-	}
-	chat.Runner.Tools = tool.Join(chat.Runner.Tools, followTools{host.tasks.Tools(), host})
+	chat.Runner.Tools = tool.Join(chat.Runner.Tools, host.tasks.Tools())
 	return host
-}
-
-// maxHeldMessages bounds the tasks' messages that wait for the parent,
-// steer messages in the parent session included. Past it, a message stays
-// in the task's record only, and flushTaskNotices reads it from there once
-// the held ones are delivered.
-const maxHeldMessages = 128
-
-// holdMessage holds a task's message for the parent and reports whether it
-// went into the running parent turn, so no wake is needed. A steer message
-// goes to the parent session while a parent turn runs; the session keeps it
-// until a turn records it. Any other message waits for flushTaskNotices.
-// Past maxHeldMessages, the message is not held: rescanMessages reads it
-// from the task's record later.
-func (host *taskHost) holdMessage(chat *session.Session, m delegate.Message) bool {
-	host.mu.Lock()
-	defer host.mu.Unlock()
-	if host.heldMessagesLocked() >= maxHeldMessages {
-		host.messageRescan = true
-		return false
-	}
-	item := m.Item()
-	host.notices[item.ID] = item
-	if m.Delivery != delegate.DeliverSteer {
-		return false
-	}
-	q, ok := steerToParent(chat, item)
-	if !ok {
-		return false
-	}
-	// The session has it. Hold it, not sent again, until the record shows
-	// it delivered.
-	host.queued[item.ID] = true
-	// An empty TurnID means the turn ended first and the item went to the
-	// session's queue, which needs a wake like any queued item.
-	return q.TurnID != ""
-}
-
-// beforeSteer, when set by a test, runs between steerToParent's check that
-// a parent turn runs and its SteerItem call.
-var beforeSteer func()
-
-// steerToParent puts a steer message into the running parent turn, which
-// gives it to the model before its next model call, as the message_parent
-// tool tells the task. If that turn has just ended, SteerItem puts it on the
-// session's queue instead, and Queued.TurnID is empty. It reports false,
-// and does nothing, when no parent turn runs or the session refuses steers
-// now.
-func steerToParent(chat *session.Session, item dashi.ContextItem) (session.Queued, bool) {
-	ctx := context.Background()
-	if state, err := chat.Open(ctx); err != nil || state.Next != dashi.NextRunning {
-		return session.Queued{}, false
-	}
-	if beforeSteer != nil {
-		beforeSteer()
-	}
-	q, err := chat.SteerItem(ctx, dashi.Steer{Item: item})
-	return q, err == nil
-}
-
-// followTools wraps the task tools. Without Config.Session, a task or
-// task_status wait returns the text of each steer message it ended on and
-// records its ID. For a message the parent session already holds, the
-// wrapper puts back what delegate writes with Config.Session: the wait
-// names only the sender, and the message follows in the next model call.
-// So the model gets it once, and the session delivers it whatever becomes
-// of the wait's result.
-type followTools struct {
-	tools tool.Toolset
-	host  *taskHost
-}
-
-func (f followTools) Tools(ctx context.Context) ([]tool.Tool, error) {
-	tools, err := f.tools.Tools(ctx)
-	if err != nil {
-		return tools, err
-	}
-	for i := range tools {
-		if next := tools[i].Executor; next != nil {
-			tools[i].Executor = followSteers{next: next, host: f.host}
-		}
-	}
-	return tools, nil
-}
-
-type followSteers struct {
-	next tool.Executor
-	host *taskHost
-}
-
-func (f followSteers) Execute(ctx context.Context, call tool.Call) (tool.Outcome, error) {
-	out, err := f.next.Execute(ctx, call)
-	if err != nil {
-		return out, err
-	}
-	return f.host.followSteered(out), nil
-}
-
-// followSteered rewrites a wait's result for the steer messages that the
-// parent session holds (see followTools). A message whose line it cannot
-// find keeps its text and ID: the model may then get it twice, but never
-// loses it.
-func (host *taskHost) followSteered(out tool.Outcome) tool.Outcome {
-	var data map[string]json.RawMessage
-	var ids []string
-	if out.Output == nil || json.Unmarshal(out.Data, &data) != nil ||
-		json.Unmarshal(data["delivered_message_ids"], &ids) != nil || len(ids) == 0 {
-		return out
-	}
-	lines := map[string][2]string{}
-	host.mu.Lock()
-	for _, id := range ids {
-		if r := reminderOf(host.notices[id].Message); host.queued[id] && r != nil {
-			// The line delegate writes for a message it did not steer,
-			// and the one it writes for a message it did.
-			lines[id] = [2]string{
-				fmt.Sprintf("Message from %s:\n%s", r.From, r.Content),
-				fmt.Sprintf("A message from %s follows.", r.From),
-			}
-		}
-	}
-	host.mu.Unlock()
-	if len(lines) == 0 {
-		return out
-	}
-	found := map[string]bool{}
-	output := out.Output.MapText(func(text string) string {
-		for id, line := range lines {
-			if !found[id] && strings.Contains(text, line[0]) {
-				text = strings.Replace(text, line[0], line[1], 1)
-				found[id] = true
-			}
-		}
-		return text
-	})
-	keep := slices.DeleteFunc(slices.Clone(ids), func(id string) bool { return found[id] })
-	if len(keep) == len(ids) {
-		return out
-	}
-	if len(keep) == 0 {
-		delete(data, "delivered_message_ids")
-	} else {
-		data["delivered_message_ids"], _ = json.Marshal(keep)
-	}
-	out.Output = &output
-	out.Data = nil
-	if len(data) > 0 {
-		out.Data, _ = json.Marshal(data)
-	}
-	return out
-}
-
-// pendingLocked reports whether notices or messages wait for the parent.
-// The caller holds mu.
-func (host *taskHost) pendingLocked() bool {
-	return len(host.notices) > 0 || host.rescan || host.messageRescan
-}
-
-// heldMessagesLocked counts the tasks' messages among the held items. The
-// caller holds mu.
-func (host *taskHost) heldMessagesLocked() int {
-	n := 0
-	for id := range host.notices {
-		if !strings.HasPrefix(id, "task-done:") {
-			n++
-		}
-	}
-	return n
-}
-
-// rescanMessages holds again, up to maxHeldMessages, each message that a
-// task's record shows sent to the parent and that delivered does not name.
-// It reports whether none is left out: not while a task's turn runs, since
-// its message_parent call may not be recorded yet. The caller holds mu.
-func (host *taskHost) rescanMessages(ctx context.Context, delivered map[string]bool) (bool, error) {
-	done := true
-	for _, view := range host.tasks.List() {
-		done = done && !view.Running()
-		from := reminderFrom(view.Notice().Item().Message)
-		for n := 1; n <= view.Turns; n++ {
-			turn, err := host.inputs.loader.Load(ctx, session.TurnID(view.SessionID, n))
-			if err != nil {
-				return false, err
-			}
-			state, err := turn.View()
-			if err != nil {
-				return false, err
-			}
-			for _, callID := range slices.Sorted(maps.Keys(state.Tools)) {
-				call := state.Tools[callID]
-				id := delegate.MessageID(turn.ID, callID)
-				_, held := host.notices[id]
-				if call.Call.Name != delegate.MessageParentToolName || call.Outcome == nil ||
-					call.Outcome.State != tool.StateSucceeded || held || delivered[id] {
-					continue
-				}
-				var args struct {
-					Message string            `json:"message"`
-					Deliver delegate.Delivery `json:"deliver"`
-				}
-				if json.Unmarshal(call.Call.Args, &args) != nil {
-					continue
-				}
-				if host.heldMessagesLocked() >= maxHeldMessages {
-					return false, nil
-				}
-				msg := delegate.Message{ID: id, From: from, Text: args.Message, Delivery: args.Deliver}
-				host.notices[id] = msg.Item()
-			}
-		}
-	}
-	return done, nil
-}
-
-// reminderFrom returns the sender of the reminder in m.
-func reminderFrom(m llm.Message) string {
-	if r := reminderOf(m); r != nil {
-		return r.From
-	}
-	return ""
-}
-
-// reminderOf returns the reminder in m, or nil.
-func reminderOf(m llm.Message) *llm.Reminder {
-	for _, c := range m.Content {
-		if c.Reminder != nil {
-			return c.Reminder
-		}
-	}
-	return nil
 }
 func taskNoticeReady(v dashi.TurnView) bool {
 	return v.Stop.Ended || v.Stop.Kind == dashi.StopCompleted || v.Stop.Kind == dashi.StopCanceled
@@ -443,9 +186,6 @@ func (e *Engine) taskParents(ctx context.Context) ([]dashi.Turn, error) {
 	for _, snapshot := range host.recorded {
 		known = append(known, snapshot.Task)
 	}
-	for id := range host.notices {
-		notices[id] = true
-	}
 	var incomplete []error
 	var required []error
 	for parentID, err := range skipped {
@@ -505,108 +245,10 @@ func (e *Engine) closeTasks() error {
 	return nil
 }
 
-func (e *Engine) flushTaskNotices(ctx context.Context) error {
-	host := e.taskHost()
-	if host == nil {
-		return nil
-	}
-	if e.HasPending() {
-		return nil
-	}
-	host.mu.Lock()
-	pending := host.pendingLocked()
-	host.mu.Unlock()
-	if !pending {
-		return nil
-	}
-	chat := e.handle()
-	turns, err := e.taskParents(ctx)
-	if err != nil {
-		return err
-	}
-	host.mu.Lock()
-	incomplete := host.inventoryErr
-	host.mu.Unlock()
-	if incomplete != nil {
-		return fmt.Errorf("task notice delivery incomplete: %w", incomplete)
-	}
-	delivered := delegate.DeliveredNotices(turns)
-	maps.Copy(delivered, delegate.DeliveredMessages(turns))
-	host.mu.Lock()
-	defer host.mu.Unlock()
-	for id := range delivered {
-		// The record shows the delivery, by a queue turn or by a
-		// task_status read, so the held notice or message is not sent.
-		delete(host.notices, id)
-		delete(host.queued, id)
-	}
-	// An item handed to the session waits in its inbox or queue until a
-	// turn records it. One that is in neither, and not in the record,
-	// is sent again, so nothing waits forever. The session drops a copy
-	// that a turn recorded meanwhile (see Session.Delivered).
-	if len(host.queued) > 0 {
-		state, err := chat.Open(ctx)
-		if err != nil && !errors.Is(err, session.ErrNotFound) {
-			return err
-		}
-		inbox, _ := chat.Steering.(*dashi.Inbox)
-		for id := range host.queued {
-			if state.Queued == 0 && (inbox == nil || !inbox.Has(id)) {
-				delete(host.queued, id)
-			}
-		}
-	}
-	if host.rescan {
-		for _, view := range host.tasks.List() {
-			if view.Running() || delivered[delegate.NoticeID(view.TurnID)] {
-				continue
-			}
-			turn, err := host.inputs.loader.Load(ctx, view.TurnID)
-			if err != nil {
-				return err
-			}
-			state, err := turn.View()
-			if err != nil {
-				return err
-			}
-			if !taskNoticeReady(state) {
-				continue
-			}
-			item := view.Notice().Item()
-			if len(host.notices) >= 128 {
-				break
-			}
-			host.notices[item.ID] = item
-		}
-		host.rescan = len(host.notices) >= 128
-	}
-	if host.messageRescan {
-		done, err := host.rescanMessages(ctx, delivered)
-		if err != nil {
-			return err
-		}
-		host.messageRescan = !done
-	}
-	ids := make([]string, 0, len(host.notices))
-	for id := range host.notices {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		if host.queued[id] {
-			continue
-		}
-		if _, err := chat.EnqueueItem(ctx, host.notices[id]); err != nil {
-			return err
-		}
-		host.queued[id] = true // Submission is provisional; records alone remove it.
-	}
-	return nil
-}
-
-// DriveTaskNotices is called only by the Controller's parent driver. A stopped
-// parent or a parent Start whose recording is unconfirmed holds notices
-// without authorizing continuation.
+// DriveTaskNotices is called only by the Controller's parent driver. It runs
+// the session's queue, where Tasks puts task notices and messages that
+// reached an idle parent. A stopped parent or a parent Start whose recording
+// is unconfirmed holds them without authorizing continuation.
 func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error) {
 	host := e.taskHost()
 	if host != nil {
@@ -632,8 +274,14 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 	if last != nil && last.Open() {
 		return Result{}, nil
 	}
-	if err := e.flushTaskNotices(ctx); err != nil {
-		return Result{}, err
+	if host != nil {
+		// Damaged parent history may hide child work.
+		host.mu.Lock()
+		incomplete := host.inventoryErr
+		host.mu.Unlock()
+		if incomplete != nil {
+			return Result{}, fmt.Errorf("task notice delivery incomplete: %w", incomplete)
+		}
 	}
 	chat := e.configureChat()
 	state, err := chat.Open(ctx)
@@ -676,13 +324,7 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 			}
 		}
 	}
-	if err != nil {
-		return Result{Outcome: out}, err
-	}
-	if err := e.flushTaskNotices(ctx); err != nil {
-		return Result{Outcome: out}, err
-	}
-	return Result{Outcome: out}, nil
+	return Result{Outcome: out}, err
 }
 
 // QuietTasks drains permitted task notices. It never resumes a stopped parent,
@@ -721,10 +363,7 @@ func (e *Engine) QuietTasks(ctx context.Context, result Result) (Result, error) 
 		if next.Outcome.ID != "" {
 			result = next
 		}
-		host.mu.Lock()
-		pending := host.pendingLocked()
-		host.mu.Unlock()
-		if idle && !pending && e.Queued() == 0 {
+		if idle && e.Queued() == 0 {
 			return result, nil
 		}
 	}

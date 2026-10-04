@@ -386,6 +386,25 @@ func TestSessionDeliveredDropsQueuedItems(t *testing.T) {
 	}
 }
 
+// State.QueuedUser counts the queued items from the user, so a host can
+// tell them from a background task's notice.
+func TestSessionQueuedUserCountsUserItems(t *testing.T) {
+	s := handle(dashi.NewMemoryRecorder(), dashitest.NewClient())
+	s.New = true
+	if _, err := s.Enqueue(t.Context(), "later"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EnqueueItem(t.Context(), dashi.ContextItem{
+		Origin:  dashi.ContextRuntime,
+		Message: llm.UserMessage(llm.Text("task result")),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := s.Open(t.Context()); err != nil || st.Queued != 2 || st.QueuedUser != 1 {
+		t.Fatalf("state=%+v err=%v", st, err)
+	}
+}
+
 // Queued input under a durable recorder warns memory_only; the in-memory
 // recorder's queue lives as long as its record, so it does not.
 func TestSessionQueueMemoryOnly(t *testing.T) {

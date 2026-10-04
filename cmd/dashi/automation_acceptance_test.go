@@ -121,6 +121,7 @@ func TestAutomationParentNoticeOrderAndKeylessSavedRead(t *testing.T) {
 	for _, format := range []string{"json", "jsonl"} {
 		cfg := testConfig(t)
 		client := &taskFixtureClient{}
+		holdChildUntilParentStops(&cfg, client)
 		cfg.Client = client
 		code, out, diag := runAutomationFixture(t, cfg, Options{Prompt: "delegate", Run: true, Yes: true, OutputFormat: format}, "")
 		if code != 0 {
