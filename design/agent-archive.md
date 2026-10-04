@@ -158,30 +158,10 @@ The archive holds client code and probably secrets from tool output.
 - Committed docs and eval results name fields and give totals only: no
   needle text, paths, session ids, or project names from real sessions.
 
-## Phase 2 outline: parse and convert
+## Phase 2: parse and convert
 
-Parsers, one package per app, fill the rest of `sessions` (`entrypoint`,
-`git_branch`, `git_remote_url`, `title`, `models`, `user_prompts`,
-`tool_calls`, `tool_errors`, `compactions`, `app_cost_usd`), the subagent
-and fork tree (`parent_agent_id`, `parent_tool_call_id`,
-`forked_from_session_id`, kind `approval_review`), and a `usage` table by
-session and model whose columns mean what `llm.Usage` fields mean. A
-converter turns one session's copies into `[]llm.Message`, with a parallel
-slice linking each message to its line, and reports what it skipped. Once
-the module imports Dashi, its `go.work` adds `../..`.
-
-What the parsers must handle, each with a hand-written fixture:
-
-- Claude Code splits one response over several `assistant` lines sharing a
-  `message.id`. `output_tokens` grows across them; take the last line's.
-- Forked Claude Code subagents repeat the parent's lines (same `uuid` and
-  `message.id`). Count each once per session.
-- Most Codex files have `event_msg/token_count`, including every file that
-  has `token_usage_record`. Use one source per file, never both. Codex
-  counts cached input inside `input_tokens`; subtract it.
-- Some Codex sessions span two files.
-- Forked Codex files start with inherited lines, up to
-  `subagent_history_start_ordinal`, but some lines have no `ordinal`.
+Parsing, the `usage` table, and conversion to Dashi messages are designed in
+[agent-archive-parse.md](agent-archive-parse.md).
 
 ## Phase 3 outline: analysis tools
 
