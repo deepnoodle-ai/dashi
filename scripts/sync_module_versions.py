@@ -45,8 +45,9 @@ SUB_MODULES = (
 
 
 def tracked_modules() -> list[str]:
-    """Directories of every go.mod tracked by git, other than the root and
-    the example modules under examples/, which are never tagged."""
+    """Directories of every go.mod tracked by git, other than the root, the
+    example modules under examples/, and the tools under devtools/, which are
+    never tagged."""
     process = subprocess.run(
         ["git", "ls-files", "*go.mod"],
         cwd=REPO_ROOT,
@@ -59,7 +60,7 @@ def tracked_modules() -> list[str]:
         for path in process.stdout.splitlines()
         if Path(path).name == "go.mod"
         and path != "go.mod"
-        and not path.startswith("examples/")
+        and not path.startswith(("examples/", "devtools/"))
     )
 
 

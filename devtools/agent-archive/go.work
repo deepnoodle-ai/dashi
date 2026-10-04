@@ -1,0 +1,8 @@
+go 1.26.0
+
+// agent-archive is a tool for working on Dashi, not part of a release, so it
+// is never tagged and its SQLite driver stays out of the released modules.
+// This workspace keeps it apart from the root go.work, which would otherwise
+// pull it into the released modules' dependency graph. It does not import
+// Dashi yet; when it does, add ../.. here, as examples/decide does.
+use .
