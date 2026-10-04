@@ -92,7 +92,7 @@ empty. DuckDB and `zcat | jq` read the raw lines.
 
 ### Command
 
-`agentarchive`; the archive defaults to `~/agent-archive`.
+`agent-archive`; the archive defaults to `~/agent-archive`.
 
 - `copy`: copy new and changed originals and update the database.
 - `rebuild`: recreate the database from the copies and the copy log.
@@ -108,7 +108,7 @@ file is marked `failed` with its error.
 
 ### Module
 
-A new module, `devtools/agentarchive`, never tagged, so its SQLite driver
+A new module, `devtools/agent-archive`, never tagged, so its SQLite driver
 (`modernc.org/sqlite`, pure Go) stays out of released modules. Like
 `examples/decide`, it has its own `go.mod` (no `replace` lines) and
 `go.work`. Also:
