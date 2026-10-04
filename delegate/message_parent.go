@@ -27,7 +27,8 @@ import (
 // child turn starts a parent queue turn; later messages of that child turn
 // wait in Tasks and join the turn's notice, so one child turn wakes an idle
 // parent at most once. Without Config.Session, OnTask gets a TaskMessage
-// event and the host routes it.
+// event and the host routes it. With neither, children do not get the tool,
+// and a call that arrives anyway is a tool error.
 //
 // A message is delivered once the parent's record holds its ID (see
 // DeliveredMessages). Recover reads those IDs from the parent turns and
@@ -151,7 +152,8 @@ func (ts *Tasks) execMessageParent(
 // sendToParent sends a message from child turn turnID of t to the parent,
 // unless the parent's record or this process already holds it. Past
 // Config.MaxMessages for that child turn it refuses, unless redelivery is
-// set. A routed message counts as a report for Wait once OnTask has
+// set. Without Config.Session and Config.OnTask nothing can deliver it, so
+// it refuses. A routed message counts as a report for Wait once OnTask has
 // returned for it.
 func (ts *Tasks) sendToParent(
 	ctx context.Context,
@@ -160,6 +162,12 @@ func (ts *Tasks) sendToParent(
 	m Message,
 	redelivery bool,
 ) (parentResult, error) {
+	if !ts.reachesParent() {
+		return parentResult{}, errors.New(
+			"delegate: nothing can deliver a message to your parent here; " +
+				"put it in your final answer",
+		)
+	}
 	ts.mu.Lock()
 	if ts.parentKnown[m.ID] {
 		ts.mu.Unlock()
@@ -283,6 +291,13 @@ func (ts *Tasks) flushLater(c *childTurn) {
 	for _, m := range later {
 		ts.toParent(dashi.Steer{Item: m.Item()})
 	}
+}
+
+// reachesParent reports whether a message to the parent has a path:
+// Config.Session, where Tasks puts it, or Config.OnTask, where the host
+// routes it. Without one, children do not get message_parent.
+func (ts *Tasks) reachesParent() bool {
+	return ts.cfg.Session != nil || ts.cfg.OnTask != nil
 }
 
 // maxMessages returns the bound on the messages of one sending turn to one
@@ -409,7 +424,8 @@ func steerLines(steers []parentSteer) (string, []string) {
 }
 
 // childTools is the toolset of a child session: the parent's tools less the
-// task tools, plus message_parent bound to the task. It resolves the parent
+// task tools, plus message_parent bound to the task when a message can reach
+// the parent (see reachesParent). It resolves the parent
 // on every model call, so a dynamic toolset such as an MCP server keeps its
 // live behavior inside the child; the child's recorded Agent.Tools decides
 // which tools it offers.
@@ -432,5 +448,8 @@ func (c childTools) Tools(ctx context.Context) ([]tool.Tool, error) {
 			}
 		}
 	}
-	return append(out, c.ts.messageParentTool(ctx, c.taskID)), nil
+	if c.ts.reachesParent() {
+		out = append(out, c.ts.messageParentTool(ctx, c.taskID))
+	}
+	return out, nil
 }

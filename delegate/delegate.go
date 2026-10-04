@@ -6,7 +6,7 @@
 // task. A message steers into the task's running turn, or starts its next
 // turn, so a finished task takes a follow-up with its memory. A task sends
 // its parent a message with "message_parent", the one tool a child gets
-// from delegate. When a turn of a task ends, the agent gets a notice. Tasks
+// from delegate, when Config.Session or Config.OnTask can deliver it. When a turn of a task ends, the agent gets a notice. Tasks
 // puts notices and messages on Config.Session, or the host routes them from
 // Config.OnTask. A notice whose result a recorded task_status call already
 // returned is not delivered again (see DeliveredNotices).
@@ -56,7 +56,8 @@ const (
 	// SendToolName sends a message to a task.
 	SendToolName = "task_send"
 	// MessageParentToolName sends the parent a message. Only a task's child
-	// session has it, bound to that task.
+	// session has it, bound to that task, and only when Config.Session or
+	// Config.OnTask is set.
 	MessageParentToolName = "message_parent"
 )
 
@@ -146,6 +147,7 @@ type Config struct {
 	// resumes, a TaskEnded event when it ends, and a TaskMessage event when
 	// a task sends its parent a message. Without Session, the host decides
 	// how a result or a message reaches the agent (see Notice and Message).
+	// With neither OnTask nor Session, children do not get message_parent.
 	// It runs on the task's goroutine and must return promptly. TaskEnded
 	// fires once for each child turn in one process. It does not fire when
 	// Close interrupts a turn.
@@ -158,7 +160,8 @@ type Config struct {
 	// an idle session at most once by message: its later messages join its
 	// notice. NewTasks sets the session's Delivered function, so a queue
 	// turn drops a notice or message that the record shows delivered. Nil
-	// means the host routes notices and messages from OnTask.
+	// means the host routes notices and messages from OnTask; with neither,
+	// children do not get message_parent.
 	Session *session.Session
 	// MaxTaskTurns bounds the turns of one child session. Zero means 10; a
 	// negative value means no bound. Past it, task_send refuses.

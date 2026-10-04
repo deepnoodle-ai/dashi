@@ -21,7 +21,8 @@ const maxWaitSeconds = 60
 // task_stop. Join it with the tools the agent already has. Children draw
 // from the tools of the runner that runs the call, filtered by each
 // Subagent; they never receive these tools, so a child cannot start a child.
-// Each child gets message_parent instead, bound to its task.
+// Each child gets message_parent instead, bound to its task, when
+// Config.Session or Config.OnTask can deliver its messages.
 //
 // The task and task_send tools are marked idempotent when the recorder can
 // load turns. After a crash, the runner runs the call again: the same child

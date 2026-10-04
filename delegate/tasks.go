@@ -1335,7 +1335,7 @@ func (ts *Tasks) startTask(
 	var start dashi.Start
 	if !found {
 		var err error
-		agent, err = childAgent(ctx, sub, parentAgent, parent.Tools)
+		agent, err = childAgent(ctx, sub, parentAgent, parent.Tools, ts.reachesParent())
 		if err != nil {
 			return TaskView{}, fmt.Errorf("delegate: resolve child tools: %w", err)
 		}
@@ -1421,13 +1421,14 @@ func (ts *Tasks) startTask(
 // that may use every tool, and not ReadOnly), Tools stays empty, so the child
 // may use every tool, as the parent may. A named tool that parent lacks now stays in the list, so
 // the child warns that it is not offered, unless ReadOnly makes its effect
-// unknown. A restricted list always ends with message_parent, so it is never
-// empty; only a Subagent whose Agent sets NoTools gets no tools at all.
+// unknown. With messages set, a restricted list ends with message_parent.
+// An empty result sets NoTools, since empty Tools means every tool.
 func childAgent(
 	ctx context.Context,
 	sub Subagent,
 	parentAgent dashi.Agent,
 	parent tool.Toolset,
+	messages bool,
 ) (dashi.Agent, error) {
 	agent := sub.Agent
 	if agent.Model == "" && agent.Provider == "" && agent.API == "" {
@@ -1479,9 +1480,13 @@ func childAgent(
 			}
 		}
 	}
-	// A child that may use tools may always message its parent.
-	agent.Tools = append(names, MessageParentToolName)
-	agent.NoTools = false
+	// A child that may use tools may message its parent, when a message
+	// can reach it.
+	if messages {
+		names = append(names, MessageParentToolName)
+	}
+	agent.Tools = names
+	agent.NoTools = len(names) == 0
 	return agent, nil
 }
 
@@ -1510,8 +1515,9 @@ func childSession(t *task, runner dashi.Runner, create bool) *session.Session {
 
 // childRunner builds the runner for one child session. It starts from the
 // runner that runs the task call, applies the host's overrides, and replaces
-// the tools with the parent's less the task tools, plus message_parent. The
-// child's recorded Agent.Tools selects from them.
+// the tools with the parent's less the task tools, plus message_parent when
+// a message can reach the parent. The child's recorded Agent.Tools selects
+// from them.
 func (ts *Tasks) childRunner(
 	sub Subagent,
 	ref dashi.CallRef,

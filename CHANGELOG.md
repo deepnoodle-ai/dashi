@@ -121,7 +121,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `Report` counts the child turns a `task_send` call started
   under the parent turn that sent it.
 - **`message_parent`: a task can message its parent.** Every child gets the
-  tool, bound to its task, so the message is an `agent-message` reminder from
+  tool when `Config.Session` or `Config.OnTask` is set, bound to its task, so the message is an `agent-message` reminder from
   `task t_k3f2 (explore)` whatever the text says. A steer reaches a busy
   parent before its next model call; `queue` waits for its turn to end. With
   `Config.Session`, `Tasks` delivers it; without, `OnTask` gets the new

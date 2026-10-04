@@ -183,8 +183,11 @@ the parent's plan, a blocker, or a question the child can work around; all
 else goes in the reply. A question it cannot work around ends its turn with
 the question (PRD decision 7). A child gets `message_parent` and none of the
 `task*` tools; the child toolset (`childTools`) adds it, bound to that task.
-A restricted child records it in `Agent.Tools`; only a subagent with
-`NoTools` goes without. A message held for the notice returns "Sent to your
+A restricted child records it in `Agent.Tools`. A subagent with `NoTools`
+goes without, and so does every child when neither `Config.Session` nor
+`Config.OnTask` is set: nothing could deliver the message, so `Config{}`
+offers no tool that cannot work. A call that arrives with no route anyway is
+a tool error, never "Sent to your parent." A message held for the notice returns "Sent to your
 parent. It reads it with your final answer." A completed notice ends with
 "It can take a follow-up: reply with task_send." (UC-5).
 

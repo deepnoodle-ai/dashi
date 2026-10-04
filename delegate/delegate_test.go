@@ -1525,8 +1525,8 @@ func toolNames(in llm.Input) []string {
 }
 
 // TestChildToolsAreFilteredAndNeverIncludeTaskTools checks the tools a
-// child is offered: the parent's, filtered, never a task tool, and always
-// message_parent.
+// child is offered: the parent's, filtered, never a task tool, and
+// message_parent, since the harness sets Config.OnTask.
 func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -1677,6 +1677,69 @@ func TestChildRecordsItsResolvedTools(t *testing.T) {
 				got.NoTools != tc.noTools {
 				t.Fatalf("recorded tools=%v no_tools=%v, want %v",
 					got.Tools, got.NoTools, tc.want)
+			}
+			offered := toolNames(h.client.last("child"))
+			if strings.Join(offered, ",") != strings.Join(tc.offered, ",") {
+				t.Fatalf("offered=%v, want %v", offered, tc.offered)
+			}
+		})
+	}
+}
+
+// TestChildWithoutARouteGetsNoMessageParent checks that with neither
+// Config.Session nor Config.OnTask, nothing can deliver a message to the
+// parent, so no child gets message_parent: neither an inheriting child nor a
+// restricted one, whose record then names only its own tools, or sets
+// NoTools when none are left.
+func TestChildWithoutARouteGetsNoMessageParent(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		sub     func(*delegate.Subagent)
+		want    []string
+		noTools bool
+		offered []string
+	}{
+		{name: "inheriting", offered: []string{"read", "write"}},
+		{
+			name:    "read-only",
+			sub:     func(s *delegate.Subagent) { s.ReadOnly = true },
+			want:    []string{"read"},
+			offered: []string{"read"},
+		},
+		{
+			name: "nothing left",
+			sub: func(s *delegate.Subagent) {
+				s.Agent.Tools = []string{"write"}
+				s.ReadOnly = true
+			},
+			noTools: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sub := scout()
+			if tc.sub != nil {
+				tc.sub(&sub)
+			}
+			h := newHarness(t, script("x"), delegate.Config{Subagents: []delegate.Subagent{sub}}, nil)
+			h.cfg.OnTask = nil
+			h.newTasks(t)
+			if _, err := h.start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			for {
+				idle, err := h.tasks.Wait(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if idle {
+					break
+				}
+			}
+			got := h.view(t, childTurnID()).Agent
+			if strings.Join(got.Tools, ",") != strings.Join(tc.want, ",") ||
+				got.NoTools != tc.noTools {
+				t.Fatalf("recorded tools=%v no_tools=%v, want %v no_tools=%v",
+					got.Tools, got.NoTools, tc.want, tc.noTools)
 			}
 			offered := toolNames(h.client.last("child"))
 			if strings.Join(offered, ",") != strings.Join(tc.offered, ",") {

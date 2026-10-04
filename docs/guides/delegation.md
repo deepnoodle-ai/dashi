@@ -63,8 +63,10 @@ and a tool a dynamic toolset adds after the child starts is not offered to it.
 A child with no rule (no named tools, a parent that may use every tool, and
 not `ReadOnly`) records empty `Agent.Tools`, so, like the parent, it may use
 every tool, including one a toolset adds later. A child never receives the
-task tools, so a child cannot start a child. It always gets `message_parent`
-(a restricted list names it too), unless its subagent sets `NoTools`. It sees only its prompt, so
+task tools, so a child cannot start a child. It gets `message_parent` (a
+restricted list names it too) unless its subagent sets `NoTools` or nothing
+can deliver a message: with neither `Config.Session` nor `Config.OnTask` set,
+children do not get the tool. It sees only its prompt, so
 the model must put every fact in the prompt.
 
 ## The link between parent and child
@@ -119,7 +121,9 @@ first message starts a parent queue turn; its later messages wait and arrive
 with its notice, so one child turn wakes an idle parent at most once.
 Without `Config.Session`, `OnTask` gets a `TaskMessage` event with
 `TaskEvent.Message`, and the host sends `Message.Steer()` or
-`Message.Item()` to the conversation. `Config.MaxMessages` (default 8) caps
+`Message.Item()` to the conversation. With neither, children do not get
+`message_parent`, and a call that arrives anyway is a tool error that tells
+the child to put the message in its answer. `Config.MaxMessages` (default 8) caps
 the messages of one child turn as well.
 
 A message is delivered once the parent's record holds its ID
