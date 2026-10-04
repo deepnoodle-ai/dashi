@@ -2,252 +2,179 @@
 
 **Status:** Proposed · **Date:** 2026-10-03 · **Owner:** Curtis
 
-We want to study a year of real coding-agent work, from Claude Code and
-Codex, with tools built in this repo. The first use is to test selective
-compaction (`decide/selective`) on real sessions instead of generated ones.
-The work has three phases: capture everything (phase 1), convert it to
-Dashi messages (phase 2), and build analysis tools (phase 3).
+We want to study a year of real coding-agent work from Claude Code and
+Codex. The first use is to test selective compaction (`decide/selective`) on
+real sessions instead of generated ones. Phase 1 copies every session file
+into an archive we control, phase 2 parses the sessions and converts them to
+Dashi messages, and phase 3 builds analysis tools.
 
 ## Why now
 
-Claude Code deletes its transcripts after 30 days by default
-(`cleanupPeriodDays`), and on 2026-10-03 the oldest one on this machine was
-exactly 30 days old. That day we set `cleanupPeriodDays` to 3650 in
-`~/.claude/settings.json` and made a one-time copy at
-`~/agent-history/snapshots/2026-10-03/{claude,codex}`: Claude Code's
-`projects/` and `history.jsonl` (3.0 GB), and Codex's `sessions/`,
-`archived_sessions/`, `session_index.jsonl`, and `history.jsonl` (11 GB).
-Codex keeps sessions back to September 2025. Claude Code sessions before
-early September 2026 are gone; only their typed prompts survive, in Claude
-Code's `history.jsonl`.
+Claude Code deletes session files after 30 days by default
+(`cleanupPeriodDays`). On 2026-10-03 the oldest one on this machine was 30
+days old. That day we set `cleanupPeriodDays` to 3650 and took a snapshot of
+both apps' session files (3.0 GB and 11 GB) at
+`~/agent-archive/snapshots/2026-10-03/`. Older Claude Code sessions are
+gone; only their typed prompts survive in its `history.jsonl`.
 
 ## Words
 
-- *Archive*: the directory of copies plus the database, `~/agent-archive/`.
-- *Original*: a file that Claude Code or Codex writes, in place under
-  `~/.claude` or `~/.codex`.
-- *Copy*: one compressed, byte-exact version of an original in the archive.
+- *App*: Claude Code or Codex.
+- *Original*: a file an app writes under `~/.claude` or `~/.codex`.
+- *Archive*: `~/agent-archive/`, holding copies of Claude Code and Codex
+  files plus a database.
+- *Copy*: one byte-exact version of an original in the archive.
+- *Snapshot*: the one-time copy of 2026-10-03, in `snapshots/`, apart from
+  the copies.
 - *Line*: one JSON object on one line of a session file.
-- *Session*: one conversation with Claude Code or Codex, as each names it.
-  It is the same idea as a Dashi `session.Session`, so the word is kept.
-- *Database*: `archive.sqlite`, one row per session and per copy.
+- *Session*: one conversation plus every subagent it starts, as both apps
+  use the word; `session_id` is the app's id for it. Each subagent also has
+  its own *agent id*.
+- *Inherited lines*: lines a forked file repeats from its parent.
 
-Avoided: *history* (a turn's input in Dashi), *catalog* (Dashi's model
-catalog), *transcript* (Dashi's `Transcript`), *trace*, *corpus*, and
-*source* (`llm.MessageSource`).
-
-## Phase 1: capture, losing nothing
-
-### What the files look like
-
-**Claude Code.** `projects/<encoded cwd>/<session id>.jsonl`, one file per
-session; the file's `sessionId` always equals its name. A session directory
-beside it holds `subagents/agent-<id>.jsonl` (with a `.meta.json` naming the
-parent's `toolUseId`, `parentAgentId`, `spawnDepth`, `isFork`, `model`) and
-`tool-results/` (large tool outputs, images, and PDFs that the transcript
-points to). The snapshot holds 420 session files, 1,447 subagent files, and
-859 tool-result files. Lines carry `type`, `uuid`, `parentUuid`, `timestamp`,
-`cwd`, `gitBranch`, `version`, and `isSidechain`. Of about 25 `type`
-values, `attachment` (hook output, reminders) is the most common, then
-`assistant` and `user`, then state lines without timestamps (`ai-title`,
-`permission-mode`, `cost-state`). One API response is split across
-several `assistant` lines, one per content block, each repeating the same
-`message.id`, `message.model`, and `message.usage`, so usage must be counted
-once per `message.id`. Tool calls are `tool_use` blocks; results are
-`tool_result` blocks (with `is_error`) in `user` lines, plus a structured
-`toolUseResult`. Compaction appends a `system` line of subtype
-`compact_boundary` (`compactMetadata` with `trigger`, `preTokens`,
-`postTokens`) and a `user` line with `isCompactSummary`; the full earlier
-history stays in the file. Subagent lines share the parent's `sessionId` and
-add an `agentId`. No `uuid` appears in two session files, so one session does
-not span files. The snapshot spans 32 Claude Code versions in 30 days.
-
-**Codex.** `sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl`, plus a flat
-`archived_sessions/`; archiving moves a file between them, and the two sets
-share no IDs. Every line has `timestamp`, `ordinal`, `type`, and `payload`.
-`session_meta` holds `id`, `session_id` (the root of a subagent tree),
-`parent_thread_id`, `forked_from_id`, `cwd`, `git` (`branch`, `commit_hash`,
-`repository_url`), `cli_version`, `originator`, and `source`. The model is
-not there; it is in each `turn_context` line, with the approval and sandbox
-policy. About 1,000 files are approval-review subagents
-(`thread_source: guardian_review`). A forked file starts with its own
-`session_meta`, then a copy of the parent's, then the parent's history up to
-`subagent_history_start_ordinal`. Usage is in `token_usage_record` lines
-(per response, with `thread_id`) and, in older files only, running totals in
-`event_msg/token_count`; Codex counts cached input inside `input_tokens`.
-Tool calls are `response_item` `function_call` / `custom_tool_call` with a
-`call_id`, and a matching `…_output`; exit codes are in
-`event_msg/item_completed`. Compaction is a `compacted` line carrying the
-`replacement_history`; newer server-side compaction is encrypted.
-`session_index.jsonl` maps `id` to `thread_name`.
-
-**Both are append-only while a session runs.** Later the same day, every
-Claude Code original was identical to its snapshot file or a pure append
-(no Codex file had changed). Codex's state database builds its views from
-rollouts by byte offset, which assumes appends, but its
-`rollout_migration_*` tables show it may rewrite old files.
+## Phase 1: copy everything, lose nothing
 
 ### Decisions
 
-1. **Copy, don't convert.** Both formats change often, and any conversion
-   drops thinking, permission modes, Codex turn context, and UI-only events.
-   A lost original can't be recovered; a conversion can be rebuilt any time.
-2. **Archive layout mirrors the originals, plus `.gz`.**
-   `claude-code/projects/…`, `claude-code/history.jsonl.gz`,
-   `codex/rollouts/YYYY/MM/DD/<rollout name>.jsonl.gz`, and
-   `codex/{session_index,history}.jsonl.gz`. Codex rollouts go under one tree
-   by the date in their name, so archiving one never makes a second copy;
-   the database records which directory it was in. Gzip because the standard
-   library writes it and `zcat`, `jq`, and DuckDB read it; samples shrank 1.5x
-   (base64 images) to 7x.
-3. **Copy everything under `projects/`, not just `.jsonl`.** Tool-result files
-   and subagent metadata are part of the session.
-4. **Copy rule.** Skip an original whose size and modified time match its
-   copy. If it grew and its first *old size* bytes hash to the stored hash,
-   it was appended to: replace the copy. Any other change keeps the old copy
-   as `<name>.<UTC time>.jsonl.gz` and adds a new one. Copy exactly the size
-   read at the start, so a session still being written yields a clean
-   prefix; readers skip a final line with no newline. Write to a temporary
-   file, then rename; set the copy's modified time to the original's. When an
-   original disappears, keep the copy and record when.
-5. **Import the snapshot first.** `agentarchive copy -from <dir>` reads a
-   directory laid out like the snapshot. Delete the snapshot only after
-   `agentarchive verify` confirms each of its files has an identical copy.
-6. **The database is derived.** Everything in it comes from the copies and
-   their paths, so `agentarchive rebuild` can recreate it, for example after
-   a reader changes. Raw lines stay in the copies; query them with DuckDB
-   (`read_ndjson_objects('…/*.jsonl.gz')`) or `zcat | jq`.
+1. **Copy, don't convert.** A lost original can't come back; a conversion
+   can be redone any time.
+2. **What is copied.** From Claude Code: everything under `projects/`
+   (session files, `subagents/`, `tool-results/`, and memory files),
+   `history.jsonl`, `file-history/`, and `paste-cache/`. From Codex:
+   `sessions/`, `archived_sessions/`, `session_index.jsonl`,
+   `history.jsonl`, `attachments/`, `generated_images/`, and `memories/`.
+   Session lines point into these folders, and the extra folders are small
+   (about 80 MB). Not copied: Codex's SQLite files (built from the session
+   files) and its `notes/`.
+3. **Layout mirrors the originals.** `claude-code/…` follows `~/.claude`.
+   Codex session files go under `codex/sessions/YYYY/MM/DD/` by the date in
+   their name, whichever folder they are in, so archiving one in Codex never
+   makes a second copy. `.jsonl` copies are gzipped; other files are copied
+   as they are.
+4. **Copy rule.** Compare each original with its newest copy:
+   - Same size and modified time: skip.
+   - Same size and same hash (SHA-256 of the uncompressed bytes): update
+     the modified time only. Some originals change only their time.
+   - Larger, and its first *old size* bytes hash to the stored hash: it was
+     appended to. Rewrite the copy.
+   - Anything else: keep the old copy, renamed with the UTC time added,
+     mark it superseded, and write a new copy.
+
+   Copy exactly the size read at the start, so a session still being
+   written yields a clean prefix. Write to a temporary file, then rename.
+   When an original disappears, keep the copy and record when.
+5. **A copy is identified by its archive path,** not its original path,
+   because Codex moves files between `sessions/` and `archived_sessions/`.
+6. **A copy log keeps what copies can't.** `copy-log.jsonl`, append-only,
+   beside the copies, records each run, each copy written or superseded,
+   each original's path, and each original that disappeared. The database is
+   built from the copies plus this log, so `rebuild` loses nothing.
+7. **Retire the snapshot by verifying it.** Every snapshot file still has
+   its original, so the first daily copy captures everything.
+   `verify -snapshot <dir>` accepts a snapshot file when a copy, current or
+   superseded, equals it or begins with it (the original grew since).
+   Curtis may delete the snapshot once `verify` passes; files that fail are
+   listed and kept.
 
 ### Database
 
+`archive.sqlite`, built by `copy` and `rebuild`. Phase 1 reads only paths
+and the first few lines of each session file; a fact missing there stays
+empty. DuckDB and `zcat | jq` read the raw lines.
+
 | Table | One row per | Columns |
 | --- | --- | --- |
-| `files` | copy | `agent`, `original_path` (relative to `~/.claude` or `~/.codex`), `copy_path`, `kind` (session, subagent, subagent-meta, tool-output, prompt-log, index, other), `size`, `modified_at`, `hash` (SHA-256 of the uncompressed bytes), `copied_at`, `replaced_at`, `original_gone_at`, `parse_status` (parsed, unparsed, not-a-session), `parse_error`, `line_types` (JSON: type → count), `reader_version` |
-| `sessions` | session | `agent`, `session_id`, `kind` (main, subagent, review), `file_id`, `project_dir`, `git_branch`, `git_commit`, `git_remote`, `client` (cli, desktop, vscode, exec), `agent_version`, `title`, `started_at`, `ended_at`, `models` (JSON list), `user_messages`, `assistant_messages`, `tool_calls`, `tool_errors`, `compactions`, `parent_session_id`, `parent_tool_call_id`, `forked_from_id`, `spawn_depth`, `agent_cost_usd` |
-| `usage` | session and model | `model_calls`, `input_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `output_tokens`, `reasoning_tokens` |
-| `jobs` | `copy` command run | `started_at`, `finished_at`, `files_seen`, `files_copied`, `warnings` (JSON) |
+| `copies` | copy | `copy_id`, `app` (`claude_code`, `codex`), `copy_path` (unique), `original_path`, `kind` (`session`, `subagent`, `subagent_meta`, `tool_result`, `prompt_log`, `session_titles`, `file_history`, `paste`, `attachment`, `generated_image`, `memory`, `other`), `original_bytes`, `modified_at`, `hash`, `copied_at`, `superseded_at`, `original_gone_at`, `parse_status` (`parsed`, `failed`, `skipped`), `parse_error`, `parser_version`, `line_types` (JSON: type to count) |
+| `sessions` | session file | `copy_id`, `app`, `session_id`, `agent_id` (empty for the root), `working_dir`, `started_at`, `app_version` |
+| `copy_runs` | `copy` run | `started_at`, `ended_at`, `originals_seen`, `originals_copied`, `warnings` (JSON) |
 
-A view, `session_totals`, joins `sessions` with summed `usage`. Notes:
-
-- `usage` columns mean what `llm.Usage` fields mean: input excludes cache
-  reads and writes, output includes reasoning. The Codex reader subtracts
-  `cached_input_tokens` from `input_tokens`. Phase 3 prices tokens with
-  Dashi's model catalog; `agent_cost_usd` is Claude Code's own figure from
-  its last `cost-state` line, kept for comparison.
-- A Claude Code subagent's `session_id` is its `agentId`;
-  `parent_session_id` is the shared `sessionId`. Codex subagents use their
-  own `id` and `parent_thread_id`.
-- Codex counts skip lines copied in from a parent: usage records whose
-  `thread_id` is another thread, and lines before
-  `subagent_history_start_ordinal`. Claude Code's `<synthetic>` model lines
-  are not model calls.
-- `line_types` makes format drift visible in SQL: a new type shows up as a
-  new key.
-
-### Readers
-
-One package per agent, `claudecode` and `codex`. Each decodes a line into a
-small struct with only the fields above and ignores the rest. A bad line is
-counted and skipped; a file that can't be read at all is marked `unparsed`
-with the error, and the run warns and keeps going. Readers never fail a run.
+`line_types` shows format changes in SQL: a new line type is a new key.
 
 ### Command
 
-`agentarchive`, all flags optional (archive defaults to `~/agent-archive`):
+`agentarchive`; the archive defaults to `~/agent-archive`.
 
-- `copy`: copy new and changed originals, then update their database rows.
-  What the schedule runs.
-- `rebuild`: recreate the database from the copies.
-- `verify`: re-hash every copy and check it against the database (and,
-  with `-from`, against another directory).
-- `status`: last job, counts, warnings, and unparsed files.
-- `schedule install` / `schedule remove`: manage the daily job.
+- `copy`: copy new and changed originals and update the database.
+- `rebuild`: recreate the database from the copies and the copy log.
+- `verify`: re-hash every copy against the database; `-snapshot` also checks
+  a snapshot (decision 7).
+- `status`: last copy run, counts, warnings, and failed files.
+- `schedule install` / `schedule remove`: manage the daily LaunchAgent
+  (03:00, also at login; launchd runs a missed job at wake). Output goes to
+  `~/agent-archive/logs/`.
 
-### Schedule
-
-`schedule install` writes a LaunchAgent,
-`~/Library/LaunchAgents/ai.deepnoodle.agentarchive.plist`, with the binary's
-absolute path, `StartCalendarInterval` at 03:00, and
-`RunAtLoad`, then loads it with `launchctl bootstrap gui/<uid>`. launchd runs a
-job missed during sleep at wake. Output goes to `~/agent-archive/logs/`. A
-daily copy leaves 29 days of margin even if `cleanupPeriodDays` is reset.
+Parsing never fails a run: a bad line is counted and skipped; an unreadable
+file is marked `failed` with its error.
 
 ### Module
 
-A new module, `devtools/agentarchive`
-(`github.com/deepnoodle-ai/dashi/devtools/agentarchive`), never tagged or
-released, so its SQLite driver stays out of released modules. It follows
-`examples/decide`: its own `go.mod` without `replace` lines, and its own
-`go.work` (`use .`, and `../..` once phase 2 imports Dashi), because the root
-`go.work` does not list it. `scripts/sync_module_versions.py`'s
-`tracked_modules()` must skip `devtools/` as it skips `examples/`; otherwise
-its test, which compares tracked modules with the tagged list, fails
-`make check`. `make check` does not build or test the module in phase 1 (it
-imports nothing from Dashi); `fmt-check` still covers its files. The driver
-is `modernc.org/sqlite` (pure Go, no cgo, JSON functions built in; v1.60.1 is
-current, and another of our repos already uses it). If importing Claude Code
-or Codex sessions becomes a Dashi feature, the readers can move into a
-released package then.
+A new module, `devtools/agentarchive`, never tagged, so its SQLite driver
+(`modernc.org/sqlite`, pure Go) stays out of released modules. Like
+`examples/decide`, it has its own `go.mod` (no `replace` lines) and
+`go.work`. Also:
+
+- `scripts/sync_module_versions.py`'s `tracked_modules()` skips `devtools/`,
+  as it skips `examples/`.
+- The Makefile gets a separate list of untagged modules, used by `test` and
+  `vet` (not `SUB_MODULES`), so `make check` tests the copy rule: the only
+  code here that can lose data.
+- AGENTS.md's "Modules and releases" section describes `devtools/`.
 
 ### Privacy
 
 The archive holds client code and probably secrets from tool output.
 
-- It stays local: never in this repo, never in a hosted database, and not
-  under an iCloud or Dropbox folder. The archive is `0700`, files `0600`;
-  `copy` warns about and fixes looser permissions.
-- Test fixtures in `testdata/` are hand-written, never cut from real
-  sessions. Repo docs describe field names only.
-- Phase 3 tools decide per run what may reach a model (below).
+- It stays local: never in this repo, a hosted database, or a synced folder.
+  The archive is `0700` and files `0600`; `copy` fixes looser permissions
+  and warns.
+- Test fixtures are hand-written, never cut from real sessions.
+- Committed docs and eval results name fields and give totals only: no
+  needle text, paths, session ids, or project names from real sessions.
 
-## Phase 2 outline: Dashi messages
+## Phase 2 outline: parse and convert
 
-A converter turns one session's copies into `[]llm.Message`, rebuilt on
-demand. Each message links to its line (copy path and line number) in a
-parallel slice, not a new `llm.Message` field. Claude Code's per-block
-`assistant` lines merge by `message.id`; Codex calls pair with outputs by
-`call_id`; forked Codex files drop the copied-in parent history. Each
-conversion reports what it skipped, by line type. Compaction, token
-estimates, `decide/listtool`, and replay then run on real work, and each gap
-in Dashi's message types (encrypted reasoning, free-text tool input) becomes
-a note for `llm/`. Once the module imports Dashi, add it to `make check`.
+Parsers, one package per app, fill the rest of `sessions` (`entrypoint`,
+`git_branch`, `git_remote_url`, `title`, `models`, `user_prompts`,
+`tool_calls`, `tool_errors`, `compactions`, `app_cost_usd`), the subagent
+and fork tree (`parent_agent_id`, `parent_tool_call_id`,
+`forked_from_session_id`, kind `approval_review`), and a `usage` table by
+session and model whose columns mean what `llm.Usage` fields mean. A
+converter turns one session's copies into `[]llm.Message`, with a parallel
+slice linking each message to its line, and reports what it skipped. Once
+the module imports Dashi, its `go.work` adds `../..`.
+
+What the parsers must handle, each with a hand-written fixture:
+
+- Claude Code splits one response over several `assistant` lines sharing a
+  `message.id`. `output_tokens` grows across them; take the last line's.
+- Forked Claude Code subagents repeat the parent's lines (same `uuid` and
+  `message.id`). Count each once per session.
+- Most Codex files have `event_msg/token_count`, including every file that
+  has `token_usage_record`. Use one source per file, never both. Codex
+  counts cached input inside `input_tokens`; subtract it.
+- Some Codex sessions span two files.
+- Forked Codex files start with inherited lines, up to
+  `subagent_history_start_ordinal`, but some lines have no `ordinal`.
 
 ## Phase 3 outline: analysis tools
 
-Small `agentarchive` commands on top of phases 1 and 2.
+- **Selective compaction on real sessions.** Cut a session where its lines
+  fill the window. *Needles* are exact strings (paths, error text, ids) the
+  agent used next that appeared only before the cut. Score whether each arm
+  keeps each needle; the app's own summary is one more arm.
+- **Tune `decide/turnwatch` and `decide/contextrank`.**
+- **Session stats:** tool error rates, cost per project (`git_remote_url`,
+  else `working_dir`), compaction frequency.
 
-- **Selective compaction on real sessions** (`decide/selective/eval`,
-  `docs/dev/selective-compaction-eval.md`). Cut a session where its history
-  fills the window; Claude Code's `compact_boundary` marks where the real
-  agent cut. *Needles* are exact strings (paths, error text, identifiers,
-  hashes, URLs) the agent used in the next turns that appeared only in the
-  old part and that no fresh tool result supplied again. Score whether each
-  arm's output still contains each needle: free, deterministic, paired
-  across arms. The real agent's own summary (`isCompactSummary`, Codex's
-  `replacement_history`) is one more arm.
-- **Tune `decide/turnwatch`** (`SameCalls` 3, `MaxReminders` 2) from real
-  repeated failing calls, and calibrate `decide/contextrank`'s
-  `MinProbability`.
-- **Usage stats**: tool failure rates, cost per project, compaction
-  frequency; mostly SQL.
-- **Decide labels** over many sessions, such as "did the user correct the
-  agent here?"
-
-Before any session text goes to a model, a run must name its projects
-(an allowlist), and a secret scan drops matching lines.
+Before session text goes to a model, a run names its projects (an
+allowlist), and a secret scan drops matching lines.
 
 ## Open questions
 
-1. **Rename `~/agent-history` to `~/agent-archive`?** Yes, with one `mv`
-   before the first `copy`; "history" means a turn's input in Dashi.
-2. **Copy more than sessions?** Yes for Claude Code's `file-history/` and
-   `paste-cache/` and Codex's `attachments/` and `generated_images/`: small,
-   and session lines point into them. No for memory and notes folders.
-3. **Read Codex's SQLite files?** No. `thread_history_1.sqlite` and
-   `state_5.sqlite` are built from the rollouts; the only extra facts are
-   pins and sections, and `session_index.jsonl` carries thread names.
-4. **Load raw lines into SQLite?** No. It would double the storage; DuckDB
-   reads the copies directly.
-5. **Which models may phase 3 send session text to?** By default, only the
-   provider that already saw that session, and only for allowlisted
-   projects. Decide's providers need an explicit flag per run.
+1. **Backup.** This Mac has no Time Machine destination, so the archive is
+   on one disk, and "local only" rules out a cloud copy. Recommendation: an
+   encrypted external disk (or another encrypted backup Curtis controls),
+   synced after each daily copy. Or accept the risk in writing.
+2. **Which models may phase 3 send session text to?** Proposed: only the
+   provider that already saw that session, for allowlisted projects;
+   Decide's providers need an explicit flag per run.
