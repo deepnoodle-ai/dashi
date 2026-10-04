@@ -8,7 +8,7 @@ require (
 )
 
 require (
-	github.com/deepnoodle-ai/wonton v0.6.0 // indirect
+	github.com/deepnoodle-ai/wonton v0.7.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	golang.org/x/text v0.42.0 // indirect
 )

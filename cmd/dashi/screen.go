@@ -71,8 +71,10 @@ type screen struct {
 	mouseEnabled          bool
 	generation            uint64
 	nativeScrollback      func(bool)
-	clipboardOut          io.Writer
-	clipboardWrite        func(context.Context, string) (string, error)
+	// noColor makes text printed to native scrollback plain, as NO_COLOR asks.
+	noColor        bool
+	clipboardOut   io.Writer
+	clipboardWrite func(context.Context, string) (string, error)
 }
 
 // queued is one item of pending work: a block to show, or a reset.

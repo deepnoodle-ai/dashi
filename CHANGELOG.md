@@ -95,6 +95,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   wins over a reopened session, then workspace and user settings. An empty
   variable sets nothing. `--env-file` loads after the command line, so it
   supplies credentials only; a `DASHI_*` line in it draws a warning.
+  With `NO_COLOR` set, text printed to native scrollback is plain.
 
 ### Added
 

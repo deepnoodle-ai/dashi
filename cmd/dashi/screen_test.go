@@ -339,14 +339,14 @@ func TestFooterBlockRendersAsRule(t *testing.T) {
 	if got != "── turn 3 · claude-x · 2 model calls · 12,345 tokens · $0.0421 ───────" {
 		t.Fatalf("screen = %q", got)
 	}
-	styled := tui.Sprint(blockView(b), tui.WithWidth(70))
+	styled := tui.Sprint(blockView(b), tui.WithWidth(70), tui.WithColor(true))
 	for _, want := range []string{"\x1b[0;38;5;248m── turn 3 · ", "\x1b[0mclaude-x", "\x1b[0;38;5;108m$0.0421", "\x1b[0;38;5;248m───"} {
 		if !strings.Contains(styled, want) {
 			t.Fatalf("missing %q in %q", want, styled)
 		}
 	}
 	f.UsageIncomplete = true
-	if styled := tui.Sprint(blockView(b), tui.WithWidth(70)); !strings.Contains(styled, "33musage incomplete") {
+	if styled := tui.Sprint(blockView(b), tui.WithWidth(70), tui.WithColor(true)); !strings.Contains(styled, "33musage incomplete") {
 		t.Fatalf("incomplete = %q", styled)
 	}
 }

@@ -206,6 +206,7 @@ func runScreen(
 		}
 	}()
 	scr.bind(a)
+	scr.noColor = !colorFor(stdout)
 	home := cfg.HomeDir
 	if home == "" {
 		home, _ = os.UserHomeDir()

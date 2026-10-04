@@ -290,7 +290,7 @@ func saveCompactionScreen(t *testing.T, h *screenHarness, name string) {
 	h.scr.drain()
 	view := h.scr.View()
 	screen := tui.SprintScreen(view, tui.WithWidth(80), tui.WithHeight(30))
-	ansi := tui.Sprint(view, tui.WithWidth(80), tui.WithHeight(30))
+	ansi := tui.Sprint(view, tui.WithWidth(80), tui.WithHeight(30), tui.WithColor(true))
 	cells := make([][]any, 30)
 	for y := range 30 {
 		for x := range 80 {

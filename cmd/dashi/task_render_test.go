@@ -43,7 +43,7 @@ func TestTaskResultTurnShowsMarkerInsteadOfEmptyUserLine(t *testing.T) {
 	if got, want := FormatBlock(b), "↳ task t_u6d77c (explore) completed · result delivered"; got != want {
 		t.Fatalf("plain=%q want %q", got, want)
 	}
-	screen := tui.Sprint(blockView(b), tui.WithWidth(100))
+	screen := tui.Sprint(blockView(b), tui.WithWidth(100), tui.WithColor(true))
 	if !strings.Contains(screen, "\x1b[0;32m↳ ") || !strings.Contains(screen, "\x1b[0;32m completed") {
 		t.Fatalf("marker colors=%q", screen)
 	}
@@ -179,7 +179,7 @@ func TestTranscriptKeepsTaskStatusUnderItsToolLine(t *testing.T) {
 	if len(tr.Blocks) != 1 || !tr.Blocks[0].Done || tr.Blocks[0].Task.State != StateOK {
 		t.Fatalf("done=%+v", tr.Blocks)
 	}
-	screen := tui.Sprint(blockView(tr.Blocks[0]), tui.WithWidth(100))
+	screen := tui.Sprint(blockView(tr.Blocks[0]), tui.WithWidth(100), tui.WithColor(true))
 	if !strings.Contains(screen, "\x1b[0;32mcompleted") || !strings.Contains(screen, "⎿") {
 		t.Fatalf("screen=%q", screen)
 	}
@@ -310,7 +310,7 @@ func TestStoppedParentDeliveryNoticeIsPlainAndQuiet(t *testing.T) {
 	if plain := FormatBlock(b); !strings.HasPrefix(plain, "  ") {
 		t.Fatalf("plain=%q is not indented", plain)
 	}
-	styled := tui.Sprint(blockView(b), tui.WithWidth(100))
+	styled := tui.Sprint(blockView(b), tui.WithWidth(100), tui.WithColor(true))
 	text := tui.SprintScreen(blockView(b), tui.WithWidth(100), tui.WithHeight(4)).Text()
 	if !strings.Contains(styled, "38;5;248m") || !strings.HasPrefix(text, "  T") {
 		t.Fatalf("screen=%q text=%q is not muted and indented", styled, text)
