@@ -42,6 +42,12 @@ type taskFixtureClient struct {
 	// parent with message_parent. sendQueue is the text the parent's
 	// second model call sends the task with task_send, as a queue message.
 	messageParent, sendQueue string
+	// messageDeliver is the deliver argument of that message_parent call;
+	// empty means the default, steer.
+	messageDeliver string
+	// parentMessageCalls lists the parent model calls, counting from 0,
+	// whose request holds a task's message.
+	parentMessageCalls []int
 }
 
 // startedTaskID returns the task ID that a task tool result in the request
@@ -99,6 +105,9 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 				if part.Reminder != nil && part.Reminder.Name == taskNoticeName {
 					c.parentNotices++
 				}
+				if part.Reminder != nil && part.Reminder.Name == taskMessageName {
+					c.parentMessageCalls = append(c.parentMessageCalls, n)
+				}
 			}
 		}
 	}
@@ -120,7 +129,11 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 			return callTool("read-loop-"+string(rune('A'+n)), "list_directory", `{}`)(ctx, call)
 		}
 		if c.messageParent != "" && n == 0 {
-			return callTool("message-call", "message_parent", `{"message":"`+c.messageParent+`"}`)(ctx, call)
+			args := `{"message":"` + c.messageParent + `"`
+			if c.messageDeliver != "" {
+				args += `,"deliver":"` + c.messageDeliver + `"`
+			}
+			return callTool("message-call", "message_parent", args+"}")(ctx, call)
 		}
 		if c.effect && n == 0 {
 			return callTool("effect-call", "external_effect", `{"target":"once"}`)(ctx, call)

@@ -467,7 +467,7 @@ func (c *Controller) scheduleTaskNotices() {
 		return
 	}
 	host.mu.Lock()
-	ready := (len(host.notices) > 0 || host.rescan) && host.deliveryErr == nil
+	ready := host.pendingLocked() && host.deliveryErr == nil
 	host.mu.Unlock()
 	if !ready {
 		return

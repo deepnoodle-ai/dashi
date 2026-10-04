@@ -55,9 +55,11 @@ to end), and `← t_k3f2  Parse is in config/load.go` where the agent got one a
 task sent with `message_parent`. A message can start a task's next turn,
 whose status line reads `↳ task t_k3f2 (explore) turn 2 …`. `/tasks ID`
 prints each turn of that task with the messages it got and sent, in order,
-and its reply. A task's message reaches the agent the way its result does:
-in the next queue Turn once the agent is idle, or sooner when a
-`task_status` wait returns it.
+and its reply. A steer message from a task (the default) reaches a running
+agent Turn before its next model call. A queue message, or any message while
+the agent is idle, reaches it the way a result does: in the next queue Turn,
+or sooner when a `task_status` wait returns it. Either way the agent gets it
+once.
 
 A completed child's result reaches the parent through its recorded notice ID.
 Inspection does not consume it. An idle parent receives it in a scheduled queue

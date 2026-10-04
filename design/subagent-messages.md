@@ -319,11 +319,16 @@ was sent. `/tasks t_k3f2` shows it.
   ← t_r4eigy  Parse is in config/load.go; env overrides too?
 ```
 
-The CLI routes `OnTask` messages (it sets no `Config.Session`): it holds each
-with the notices and enqueues it once the parent is idle, unless the parent's
-record shows it delivered (`DeliveredMessages`). It never steers one into a
-running parent turn: a `task_status` wait returns the text of a steer that
-`Tasks` did not put on the session, so a steer as well would deliver it twice.
+The CLI routes `OnTask` messages (it sets no `Config.Session`, which would
+route notices too). A steer message goes into the running parent turn with
+`SteerItem`, so it reaches the next model call. A `task` or `task_status`
+wait also returns the text of a steer that `Tasks` did not put on the
+session, and records its ID; the CLI then cancels the steer, so the model
+gets it once. A queue message, or any message while the parent is idle,
+waits with the notices and goes in the next queue turn, unless the parent's
+record shows it delivered (`DeliveredMessages`). At most 128 messages wait
+in memory; past that, the CLI reads the rest from the tasks' records once
+the held ones are delivered.
 
 ## Alternatives considered
 
