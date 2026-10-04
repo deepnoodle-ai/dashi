@@ -4,58 +4,102 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
-	"text/tabwriter"
+	"strings"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/workspace"
+	"github.com/deepnoodle-ai/wonton/tui"
 )
 
 // modelInventory is an offline listing. It constructs no provider client
 // and probes no endpoint. Project bindings need trust before key lookup.
+// Each destination gets a status line and a table of its models.
 func modelInventory(registry, user map[string]configuredDestination, lookup func(string) (string, bool), availableOnly bool, out io.Writer) error {
-	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "DESTINATION\tMODEL\tAVAILABILITY\tCONTEXT\tOUTPUT\tTOOLS\tREASONING\tSUMMARY\tEVIDENCE")
+	columns := []tui.TableColumn{{Title: "MODEL"}, {Title: "CONTEXT"}, {Title: "OUTPUT"}, {Title: "REASONING"}}
+	first := true
 	for _, id := range slices.Sorted(slices.Values(mapKeys(registry))) {
 		d := registry[id]
-		availability := "needs model registration"
+		status := "needs model registration"
 		if len(d.Definition.Models) != 0 {
-			availability = "configured"
+			status = "ready"
 			if !d.trustedBy(user) {
-				availability = "needs project binding trust"
+				status = "needs project binding trust"
 			} else {
 				key, err := d.credential(lookup, true)
 				if err != nil {
 					return err
 				}
 				if key == "" && (d.Definition.CredentialEnv != "" || len(d.BuiltinAliases) != 0) && d.ID != "ollama" {
-					availability = "needs credential"
+					status = "needs " + strings.Join(credentialNames(d), " or ")
 				}
 			}
 		}
-		if availableOnly && availability != "configured" {
+		if availableOnly && status != "ready" {
 			continue
 		}
-		if len(d.Definition.Models) == 0 {
-			fmt.Fprintf(w, "%s\t—\t%s\tunknown\tunknown\tunknown\tunknown\tunknown\tunknown\n", id, availability)
+		if !first {
+			fmt.Fprintln(out)
 		}
+		first = false
+		fmt.Fprintf(out, "%s: %s\n", id, status)
+		if len(d.Definition.Models) == 0 {
+			continue
+		}
+		var rows [][]string
 		for _, model := range slices.Sorted(slices.Values(d.Definition.Models)) {
 			info, known := d.modelInfo(model)
-			context, output, tools, reasoning, summary, evidence := "unknown", "unknown", "unknown", "unknown", "unknown", "unknown"
+			context, output, reasoning := "?", "?", "?"
 			if known {
-				context, output = knownLimit(info.Capabilities.ContextWindow), knownLimit(info.Capabilities.MaxOutputTokens)
-				tools, reasoning = knownSupport(info.Capabilities.Features[llm.FeatureTools]), knownSupport(info.Capabilities.Features[llm.FeatureReasoningEffort])
-				summary = knownSupport(info.Capabilities.Features[llm.FeatureReasoningSummary])
-				evidence = info.Evidence.Source + " (" + info.Evidence.QualifiedAt.Format("2006-01-02") + ")"
+				context, output = tokenCount(info.Capabilities.ContextWindow), tokenCount(info.Capabilities.MaxOutputTokens)
+				reasoning = supportWord(info.Capabilities.Features[llm.FeatureReasoningEffort])
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", id, model, availability, context, output, tools, reasoning, summary, evidence)
+			rows = append(rows, []string{model, context, output, reasoning})
+		}
+		if err := tui.Fprintln(out, tui.Table(columns, nil).Rows(rows)); err != nil {
+			return err
 		}
 	}
-	return w.Flush()
+	return nil
 }
+
+// credentialNames are the variables that can hold d's credential.
+func credentialNames(d configuredDestination) []string {
+	if len(d.BuiltinAliases) != 0 {
+		return d.BuiltinAliases
+	}
+	return []string{d.Definition.CredentialEnv}
+}
+
+// tokenCount writes a token limit short, such as 200K or 1M, or ? when it
+// is unknown.
+func tokenCount(n int) string {
+	switch {
+	case n == 0:
+		return "?"
+	case n >= 1_000_000:
+		return strconv.FormatFloat(math.Round(float64(n)/100_000)/10, 'f', -1, 64) + "M"
+	case n >= 1_000:
+		return strconv.Itoa(int(math.Round(float64(n)/1_000))) + "K"
+	}
+	return strconv.Itoa(n)
+}
+
+// supportWord writes a feature's support as yes, no, or ? when unknown.
+func supportWord(s llm.Support) string {
+	switch s {
+	case llm.SupportSupported:
+		return "yes"
+	case llm.SupportUnsupported:
+		return "no"
+	}
+	return "?"
+}
+
 func mapKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
 	for key := range m {

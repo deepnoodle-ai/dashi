@@ -22,9 +22,11 @@ dashi --provider anthropic
 dashi --provider openai --model gpt-6-luna
 ```
 
-Listings use offline catalog facts and your registrations. They show destination,
-model, availability, context/output limits, capabilities, and evidence source/date.
-Missing facts say `unknown`. `--available` means configured credentials and any
+Listings use offline catalog facts and your registrations. Each destination
+gets a status line (`ready`, or what it still needs, such as a credential
+variable) and a table of its models with their context and output limits in
+tokens and whether they take a reasoning effort. Missing facts show `?`.
+`--available` lists only `ready` destinations: configured credentials and any
 required binding trust are present. It makes no network probe or paid request,
 and does not establish authentication or server health.
 

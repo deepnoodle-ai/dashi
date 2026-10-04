@@ -18,7 +18,7 @@ func TestOfflineInventoryTrustBeforeCredentialLookup(t *testing.T) {
 	if err := modelInventory(registry, nil, lookup, false, &out); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 0 || !strings.Contains(out.String(), "needs project binding trust") || !strings.Contains(out.String(), "acme/code-v1") || !strings.Contains(out.String(), "unknown") || strings.Contains(out.String(), "NEVER_EXPORT_SECRET") {
+	if calls != 0 || !strings.Contains(out.String(), "needs project binding trust") || !strings.Contains(out.String(), "acme/code-v1") || !strings.Contains(out.String(), "?") || strings.Contains(out.String(), "NEVER_EXPORT_SECRET") {
 		t.Fatalf("calls=%d output=%s", calls, out.String())
 	}
 	out.Reset()
@@ -36,6 +36,14 @@ func TestOfflineInventoryTrustBeforeCredentialLookup(t *testing.T) {
 	}
 	if calls != 1 || !strings.Contains(out.String(), "acme/code-v1") || strings.Contains(out.String(), "NEVER_EXPORT_SECRET") {
 		t.Fatalf("trusted inventory = %s calls=%d", out.String(), calls)
+	}
+}
+
+func TestTokenCount(t *testing.T) {
+	for n, want := range map[int]string{0: "?", 512: "512", 64000: "64K", 65536: "66K", 200000: "200K", 1000000: "1M", 1048576: "1M", 2000000: "2M", 1500000: "1.5M"} {
+		if got := tokenCount(n); got != want {
+			t.Errorf("tokenCount(%d) = %q, want %q", n, got, want)
+		}
 	}
 }
 
