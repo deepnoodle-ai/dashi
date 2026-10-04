@@ -28,7 +28,7 @@ type options struct {
 	CodexDir   string
 }
 
-// command is one subcommand. Phase 1 part B adds verify and schedule here.
+// command is one subcommand.
 type command struct {
 	Summary string
 	Run     func(args []string, stdout, stderr io.Writer) error
@@ -78,7 +78,63 @@ var commands = map[string]command{
 			return runStatus(o.ArchiveDir, stdout)
 		},
 	},
+	"verify": {
+		Summary: "re-hash every copy against the database; -snapshot also checks a snapshot",
+		Run: func(args []string, stdout, stderr io.Writer) error {
+			fs := newFlagSet("verify", stderr)
+			o := addFlags(fs, false)
+			snapshot := fs.String("snapshot", "", "snapshot `directory` to check, holding claude/ and codex/")
+			if err := parseFlags(fs, args, o); err != nil {
+				return err
+			}
+			if *snapshot != "" {
+				p, err := expandHome(*snapshot)
+				if err != nil {
+					return err
+				}
+				*snapshot = p
+			}
+			res, err := runVerify(o.ArchiveDir, *snapshot)
+			if err != nil {
+				return err
+			}
+			printVerifyResult(stdout, o.ArchiveDir, res)
+			if n := res.problems(); n > 0 {
+				return fmt.Errorf("%d problems found", n)
+			}
+			return nil
+		},
+	},
+	"schedule": {
+		Summary: "install or remove the daily LaunchAgent that runs copy (macOS)",
+		Run: func(args []string, stdout, stderr io.Writer) error {
+			if len(args) == 0 || (args[0] != "install" && args[0] != "remove") {
+				fmt.Fprintln(stderr, "usage: agent-archive schedule install [flags] | agent-archive schedule remove")
+				return errUsage
+			}
+			fs := newFlagSet("schedule "+args[0], stderr)
+			o := &options{}
+			if args[0] == "install" {
+				o = addFlags(fs, true)
+			}
+			if err := parseFlags(fs, args[1:], o); err != nil {
+				return err
+			}
+			s, err := newScheduler()
+			if err != nil {
+				return err
+			}
+			if args[0] == "install" {
+				return s.install(*o, stdout)
+			}
+			return s.remove(stdout)
+		},
+	},
 }
+
+// newScheduler returns the scheduler the schedule command uses; tests
+// replace it.
+var newScheduler = defaultScheduler
 
 // errUsage reports bad arguments; its message has already been printed.
 var errUsage = errors.New("usage")

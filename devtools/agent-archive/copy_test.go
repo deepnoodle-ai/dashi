@@ -414,3 +414,51 @@ func TestSecondRunIsLocked(t *testing.T) {
 		t.Fatalf("second run: %v", err)
 	}
 }
+
+func TestMissingNewestCopyIsCopiedAgain(t *testing.T) {
+	cases := map[string]struct {
+		next  string
+		mtime time.Time
+	}{
+		"original unchanged": {claudeRootSession, baseTime},
+		"original changed":   {strings.Replace(claudeRootSession, "hello", "HELLO", 1), baseTime.Add(time.Minute)},
+		"original grew":      {claudeRootSession + `{"type":"user"}` + "\n", baseTime.Add(time.Minute)},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			const cp = "claude-code/projects/-work-demo/s-1.jsonl.gz"
+			e.claude("projects/-work-demo/s-1.jsonl", claudeRootSession, baseTime)
+			e.copy()
+			if err := os.Remove(e.archivePath(cp)); err != nil {
+				t.Fatal(err)
+			}
+			n := len(e.events())
+			e.claude("projects/-work-demo/s-1.jsonl", c.next, c.mtime)
+			sum := e.copy()
+			if sum.OriginalsCopied != 1 || sum.Superseded != 0 {
+				t.Fatalf("copied %d superseded %d; want 1 and 0", sum.OriginalsCopied, sum.Superseded)
+			}
+			if len(sum.Warnings) != 1 || !strings.Contains(sum.Warnings[0], "missing") || !strings.Contains(sum.Warnings[0], cp) {
+				t.Fatalf("warnings: %v", sum.Warnings)
+			}
+			evs := e.events()
+			written := eventsOf(evs, n, eventCopyWritten)
+			if len(written) != 1 || written[0].CopyPath != cp || written[0].Recovered {
+				t.Fatalf("copy_written events: %+v", written)
+			}
+			if len(eventsOf(evs, n, eventCopySuperseded)) != 0 {
+				t.Fatal("a missing copy was superseded")
+			}
+			if e.readCopy(cp) != c.next {
+				t.Fatal("the fresh copy is not the original")
+			}
+			if row, _ := e.copyRowAt(cp); row.Hash != sha(c.next) || e.countCopies("1=1") != 1 {
+				t.Fatal("database does not match the fresh copy")
+			}
+			if sum := e.copy(); sum.OriginalsCopied != 0 || len(sum.Warnings) != 0 {
+				t.Fatalf("next run copied %d, warnings %v", sum.OriginalsCopied, sum.Warnings)
+			}
+		})
+	}
+}

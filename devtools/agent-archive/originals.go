@@ -160,6 +160,21 @@ func listOriginals(app, dir string) listResult {
 	return res
 }
 
+// isCopied reports whether copy copies the file at an app-relative path:
+// it is below one of the app's sources and not skipped by name.
+func isCopied(app, rel string) bool {
+	sources := claudeCodeSources
+	if app == appCodex {
+		sources = codexSources
+	}
+	for _, src := range sources {
+		if rel == src || (strings.HasSuffix(src, "/") && strings.HasPrefix(rel, src)) {
+			return !skipName(app, path.Base(rel))
+		}
+	}
+	return false
+}
+
 // skipName reports files inside copied folders that are never copied:
 // Codex's SQLite files (built from the session files) and Finder's
 // .DS_Store files, which change on their own.

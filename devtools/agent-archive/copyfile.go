@@ -162,6 +162,25 @@ func hashCopy(name string) (string, int64, error) {
 	return hex.EncodeToString(h.Sum(nil)), n, nil
 }
 
+// hashCopyPrefix returns the SHA-256 of the first n uncompressed bytes of
+// a copy, or an error if the copy is shorter than n.
+func hashCopyPrefix(name string, n int64) (string, error) {
+	r, err := openCopy(name)
+	if err != nil {
+		return "", err
+	}
+	defer r.Close()
+	h := sha256.New()
+	k, err := io.Copy(h, io.LimitReader(r, n))
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", name, err)
+	}
+	if k != n {
+		return "", fmt.Errorf("%s has %d bytes, fewer than %d", name, k, n)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 // supersededMark is added to a superseded copy's name, before its
 // extension: "abc.jsonl.gz" becomes "abc.superseded-20261003T153012Z.jsonl.gz".
 var supersededMark = regexp.MustCompile(`\.superseded-\d{8}T\d{6}Z(-\d+)?`)

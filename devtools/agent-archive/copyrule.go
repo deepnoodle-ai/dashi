@@ -28,9 +28,19 @@ const (
 //   - anything else: keep the old copy under a superseded name and write a
 //     new one.
 //
+// If the newest copy is missing from the archive (someone deleted it), the
+// original is copied again as if it had no copy, with a warning, so an
+// original is never left without one.
+//
 // An error here is about this original only; the run goes on. Errors from
 // the copy log or database are returned wrapped in fatalError.
 func (a *archive) copyOriginal(o original, prev *copyRow) (copyOutcome, error) {
+	if prev != nil {
+		if _, err := os.Lstat(a.abs(prev.CopyPath)); errors.Is(err, fs.ErrNotExist) {
+			a.warn("the newest copy of %s was missing, so it was copied again: %s", o.Path, prev.CopyPath)
+			prev = nil
+		}
+	}
 	modifiedAt := formatTime(o.ModifiedAt)
 	if prev != nil && prev.OriginalBytes == o.Size {
 		if prev.ModifiedAt == modifiedAt {
