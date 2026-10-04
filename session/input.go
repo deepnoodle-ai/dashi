@@ -460,17 +460,19 @@ func notStarted(err error) bool {
 // When a turn in the idempotency window already started with the same
 // queue: key, the items were already added to it: it consumes them and starts
 // nothing. An unreadable last turn is an error, even under Exclusive,
-// since it may hold that key. The caller holds mu.
+// since it may hold that key. With holdUser, a queued user item holds the
+// whole queue: it plans nothing. The caller holds mu.
 func (s *Session) planQueue(
 	ctx context.Context,
 	compacted bool,
+	holdUser bool,
 ) (startPlan, bool, error) {
 	s.ready()
 	if err := s.finishReserved(ctx); err != nil {
 		return startPlan{}, false, err
 	}
 	items := s.free(nil)
-	if len(items) == 0 {
+	if len(items) == 0 || holdUser && s.queuedUser() > 0 {
 		return startPlan{}, false, nil
 	}
 	if s.ID == "" {

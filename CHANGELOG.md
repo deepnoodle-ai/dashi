@@ -141,6 +141,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`session.State.QueuedUser`** counts the queued items that came from the
   user, so a host that holds the user's queued input for the next prompt can
   tell it from a background task's notice or message.
+- **`session.Session.RunQueueUnlessUserQueued`** is `RunQueue` that runs
+  nothing while a user item is queued. A host that holds the user's queued
+  input for the next prompt uses it to wake the session for a task's notice
+  or message. The check and the choice of items happen under one lock, so a
+  user item enqueued at the same time is never taken.
 - **`wait_seconds` on `task`.** The call waits up to 60 seconds for the
   task's answer or a message from it. `task_status` waits also end on a
   message. When the message reached the running parent turn, the result says

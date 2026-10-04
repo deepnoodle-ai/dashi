@@ -320,9 +320,10 @@ was sent. `/tasks t_k3f2` shows it.
 ```
 
 The CLI sets `Config.Session` to its session, like any client, so `Tasks`
-delivers notices and messages. Its task driver runs a queue turn only when
-no queued item came from the user (`session.State.QueuedUser`): the user's
-queued prompts wait for the next prompt, which takes the task items too.
+delivers notices and messages. Its task driver runs the queue with
+`session.RunQueueUnlessUserQueued`, which runs nothing while an item from the
+user is queued: the user's queued prompts wait for the next prompt, which
+takes the task items too.
 
 ## Alternatives considered
 

@@ -289,9 +289,7 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 	if err != nil && !errors.Is(err, session.ErrNotFound) {
 		return Result{}, err
 	}
-	// A queued user prompt waits for the user's next prompt, which takes
-	// the task items too; a task wake must not run it early.
-	if state.Queued == 0 || state.QueuedUser > 0 {
+	if state.Queued == 0 {
 		return Result{}, nil
 	}
 	if p := e.cfg.Preferences; p != nil {
@@ -300,7 +298,9 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 		}
 	}
 	before := state.Turns
-	out, ran, err := chat.RunQueue(ctx)
+	// A queued user prompt waits for the user's next prompt, which takes
+	// the task items too; a task wake must not run it early.
+	out, ran, err := chat.RunQueueUnlessUserQueued(ctx)
 	if ran {
 		n := 0
 		for turn, loadErr := range chat.Turns(ctx) {
