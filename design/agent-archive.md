@@ -66,9 +66,31 @@ gone; only their typed prompts survive in its `history.jsonl`.
 5. **A copy is identified by its archive path,** not its original path,
    because Codex moves files between `sessions/` and `archived_sessions/`.
 6. **A copy log keeps what copies can't.** `copy-log.jsonl`, append-only,
-   beside the copies, records each run, each copy written or superseded,
-   each original's path, and each original that disappeared. The database is
-   built from the copies plus this log, so `rebuild` loses nothing.
+   beside the copies, holds every fact about an original or a run; the
+   database is built from it plus the copies. One event per line, each with
+   `event`, `time`, and `run_id`:
+   - `run_started`, and `run_ended` with `originals_seen`,
+     `originals_copied`, and `warnings`. A run with no `run_ended` was
+     interrupted; its `ended_at` stays empty.
+   - `copy_written`: `copy_path`, `original_path`, `app`, `kind`,
+     `original_bytes`, `modified_at`, `hash`. Its `time` is `copied_at`.
+   - `copy_superseded` (`copy_path` before and after the rename),
+     `modified_at_updated`, and `original_gone`.
+
+   Everything else is recomputed from the copies by the current parser:
+   `parse_status`, `parse_error`, `parser_version`, `line_types`, and the
+   `sessions` table. So `rebuild` reproduces the recorded facts exactly and
+   parses with today's parser.
+
+   Order of writes: copy to a temporary file, sync, rename; append the
+   event and sync; then update SQLite, which stores how far into the log it
+   has applied. Recovery at the start of each run:
+   - A torn last log line (crash mid-append) is dropped.
+   - Log events past the database's position are applied.
+   - A leftover temporary file is deleted.
+   - A copy file the log doesn't know (crash between rename and append) is
+     hashed and logged with `recovered: true`; a renamed old copy is logged
+     as superseded.
 7. **Retire the snapshot by verifying it.** Every snapshot file still has
    its original, so the first daily copy captures everything.
    `verify -snapshot <dir>` accepts a snapshot file when a copy, current or
@@ -78,7 +100,8 @@ gone; only their typed prompts survive in its `history.jsonl`.
 
 ### Database
 
-`archive.sqlite`, built by `copy` and `rebuild`. Phase 1 reads only paths
+`archive.sqlite`, built from the copy log and the copies (decision 6) by
+`copy` and `rebuild`. Phase 1 reads only paths
 and the first few lines of each session file; a fact missing there stays
 empty. DuckDB and `zcat | jq` read the raw lines.
 
@@ -86,7 +109,7 @@ empty. DuckDB and `zcat | jq` read the raw lines.
 | --- | --- | --- |
 | `copies` | copy | `copy_id`, `app` (`claude_code`, `codex`), `copy_path` (unique), `original_path`, `kind` (`session`, `subagent`, `subagent_meta`, `tool_result`, `prompt_log`, `session_titles`, `file_history`, `paste`, `attachment`, `generated_image`, `memory`, `other`), `original_bytes`, `modified_at`, `hash`, `copied_at`, `superseded_at`, `original_gone_at`, `parse_status` (`parsed`, `failed`, `skipped`), `parse_error`, `parser_version`, `line_types` (JSON: type to count) |
 | `sessions` | session file | `copy_id`, `app`, `session_id`, `agent_id` (empty for the root), `working_dir`, `started_at`, `app_version` |
-| `copy_runs` | `copy` run | `started_at`, `ended_at`, `originals_seen`, `originals_copied`, `warnings` (JSON) |
+| `copy_runs` | `copy` run | `run_id`, `started_at`, `ended_at`, `originals_seen`, `originals_copied`, `warnings` (JSON) |
 
 `line_types` shows format changes in SQL: a new line type is a new key.
 
