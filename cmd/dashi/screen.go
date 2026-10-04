@@ -858,6 +858,8 @@ func blockView(b Block) tui.View {
 		return withTaskLine(toolView(b), b)
 	case KindTaskStatus, KindTaskResult:
 		return taskLineView(b)
+	case KindTaskMessage:
+		return taskMessageView(b)
 	case KindDiff:
 		views := make([]tui.View, 0, len(b.Lines))
 		offset := 0

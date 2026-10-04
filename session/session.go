@@ -215,6 +215,11 @@ type State struct {
 	// Queued counts the items waiting in this handle's queue, including
 	// those reserved for a turn that is starting.
 	Queued int
+	// QueuedUser counts the items of Queued that came from the user
+	// (dashi.ContextUser). The rest, such as a background task's notice,
+	// came from elsewhere: a host that holds the user's queued input for
+	// the next prompt runs a queue turn only when Queued exceeds it.
+	QueuedUser int
 }
 
 // Send runs dashi.Say(text) as a new turn. It is exactly
@@ -329,9 +334,8 @@ func checkCommand(c dashi.Command) error {
 func (s *Session) Open(ctx context.Context) (State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	queued := len(s.queue)
 	if s.ID == "" {
-		return State{Next: dashi.NextNone, Queued: queued}, nil
+		return State{Next: dashi.NextNone, Queued: len(s.queue), QueuedUser: s.queuedUser()}, nil
 	}
 	// A reservation that cannot be finished holds only the queue back.
 	_ = s.finishReserved(ctx)
@@ -342,9 +346,9 @@ func (s *Session) Open(ctx context.Context) (State, error) {
 	if err := s.checkExists(last); err != nil {
 		return State{}, err
 	}
-	queued = len(s.queue)
+	queued, user := len(s.queue), s.queuedUser()
 	if last == 0 {
-		return State{Next: dashi.NextNone, Queued: queued}, nil
+		return State{Next: dashi.NextNone, Queued: queued, QueuedUser: user}, nil
 	}
 	t, err := s.load(ctx, last)
 	if err != nil {
@@ -352,11 +356,24 @@ func (s *Session) Open(ctx context.Context) (State, error) {
 	}
 	view := t.view
 	return State{
-		Turns:  last,
-		Last:   &view,
-		Next:   s.refine(ctx, t).next,
-		Queued: queued,
+		Turns:      last,
+		Last:       &view,
+		Next:       s.refine(ctx, t).next,
+		Queued:     queued,
+		QueuedUser: user,
 	}, nil
+}
+
+// queuedUser counts the queued items that came from the user. The caller
+// holds mu.
+func (s *Session) queuedUser() int {
+	n := 0
+	for _, q := range s.queue {
+		if q.item.Origin == dashi.ContextUser {
+			n++
+		}
+	}
+	return n
 }
 
 // commandPlan is a command routed to the last turn.

@@ -5,8 +5,9 @@ for work that can require effects. The parent receives a stable task ID and
 continues. A child's text does not stream into the parent's reply.
 
 Use `/tasks` during foreground work or while idle. A row shows the task,
-subagent, state, **model calls**, tool calls, and child spend. Model calls
-count calls that were started; they do not prove a provider request was sent.
+subagent, state, turns (once it has more than one), **model calls**, tool
+calls, and child spend. Model calls count calls that were started; they do
+not prove a provider request was sent.
 `/task ID` shows the recorded child Turn, parent call, accepted
 evidence/resource identities, destination, limits, stop, ordinary messages,
 and tool results. It counts model calls confirmed sent apart from started
@@ -47,10 +48,27 @@ that original call; remembered grants keep their existing run scope.
   target. Parent `/done`, `/discard`, and empty Enter retain their parent
   target.
 
-A completed child's result reaches the parent through its recorded notice ID.
-Inspection does not consume it. An idle parent receives it in a scheduled queue
-Turn; a pending start and a stopped parent hold the notice until they are
-resolved. Reload/callback repeats cannot add a recorded notice again.
+The agent and its tasks can message each other. A message shows as one line,
+cut at the terminal edge: `→ t_k3f2  Skip vendor/` for one the agent sent
+with `task_send` (`(queued)` after the ID when it waits for the task's turn
+to end), and `← t_k3f2  Parse is in config/load.go` where the agent got one a
+task sent with `message_parent`. A message can start a task's next turn,
+whose status line reads `↳ task t_k3f2 (explore) turn 2 …`. `/tasks ID`
+prints each turn of that task with the messages it got and sent, in order,
+and its reply.
+
+A task's result and its messages reach the parent the way `delegate` delivers
+them with `Config.Session`. A result or a steer message (the default) that
+arrives while the parent works reaches its running Turn before the next model
+call. A queue message, or anything that arrives while the parent is idle,
+waits on the session's queue and starts a queue Turn. When a prompt queued
+with `/queue` waits there, nothing starts: the next prompt takes the queued
+prompt and the task's items together. Inspection does not
+consume a result. A pending start and a stopped parent hold queued results
+until they are resolved, and the record keeps a result from reaching the
+parent twice across Turns. When a `task_status` read returns a result while
+the parent works, its notice can still reach that Turn, so the model may see
+the result twice there.
 
 Quit, `/new`, and session switching interrupt children and wait for their
 records before closing pinned services and releasing session ownership. A

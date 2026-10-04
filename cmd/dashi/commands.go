@@ -30,7 +30,7 @@ func (c *Controller) commands() []commandEntry {
 		return func(arg string) { c.async(func(ctx context.Context) { fn(ctx, arg) }) }
 	}
 	entries := []commandEntry{
-		{name: "/tasks", group: "Tasks", description: "list delegated work and separate parent/child spend", run: func(arg string) { c.taskInput("/tasks " + arg) }, during: func(arg string) { c.taskInput("/tasks " + arg) }},
+		{name: "/tasks", group: "Tasks", usage: "[ID]", description: "list delegated work and spend, or one task's turns and messages", run: func(arg string) { c.taskInput("/tasks " + arg) }, during: func(arg string) { c.taskInput("/tasks " + arg) }},
 		{name: "/task", group: "Tasks", usage: "ID [continue|done CALL_ID|discard]", description: "inspect or control the exact recorded child", run: func(arg string) { c.taskInput("/task " + arg) }, during: func(arg string) { c.taskInput("/task " + arg) }},
 		{name: "/task-stop", group: "Tasks", usage: "ID", description: "cancel one live child and verify its record", run: func(arg string) { c.taskInput("/task-stop " + arg) }, during: func(arg string) { c.taskInput("/task-stop " + arg) }},
 		{name: "/continue", group: "Turn", description: "continue after a model-call limit stop", run: func(string) {

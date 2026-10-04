@@ -13,6 +13,8 @@ import (
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/session"
+	"github.com/deepnoodle-ai/dashi/tool"
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
@@ -48,8 +50,17 @@ func taskStatusBlock(v delegate.TaskView) Block {
 		Text:  taskFacts(v),
 		Done:  !v.Running() && v.State != taskApprovalPending,
 	}
-	if v.Turns <= 1 && v.Parent.CallID != "" {
+	// A later turn, which a message started, stands alone and says which
+	// turn it is. The view may already count a turn after the one it names.
+	n := v.Turns
+	if v.TurnID != "" {
+		n = turnNumber(v.TurnID)
+	}
+	if n <= 1 && v.Parent.CallID != "" {
 		b.Parent = "t:" + v.Parent.CallID
+	}
+	if n > 1 {
+		b.Arg += fmt.Sprintf(" turn %d", n)
 	}
 	return b
 }
@@ -61,6 +72,9 @@ func taskSummary(v delegate.TaskView) string {
 		parts = append(parts, truncate(firstLine(v.Description), 48))
 	}
 	parts = append(parts, taskStateLabel(v))
+	if v.Turns > 1 {
+		parts = append(parts, fmt.Sprintf("%d turns", v.Turns))
+	}
 	parts = append(parts, taskCounts(v)...)
 	return strings.Join(parts, " · ")
 }
@@ -141,9 +155,10 @@ func taskFacts(v delegate.TaskView) string {
 	return strings.Join(append(taskCounts(v), "/task "+v.ID+" to inspect"), " · ")
 }
 
-// deliveredItemBlocks returns a KindTaskResult marker for each message from
-// an agent in msgs, such as a task's result. These messages are reminders,
-// so they have no user text.
+// deliveredItemBlocks returns a block for each message from an agent in
+// msgs: a message line for an agent message, and a KindTaskResult marker
+// for a task's result. These messages are reminders, so they have no user
+// text.
 func deliveredItemBlocks(prefix string, msgs []llm.Message) []Block {
 	var out []Block
 	for _, m := range msgs {
@@ -152,8 +167,17 @@ func deliveredItemBlocks(prefix string, msgs []llm.Message) []Block {
 			if c.Kind != llm.ContentReminder || r == nil || r.Name != taskNoticeName && r.From == "" {
 				continue
 			}
+			id := fmt.Sprintf("%s:%d", prefix, len(out))
+			if r.Name == taskMessageName {
+				direction, task := MessageToParent, taskIDOf(r.From)
+				if r.From == "parent" {
+					direction, task = MessageToTask, ""
+				}
+				out = append(out, taskMessageBlock(id, direction, task, r.Content, false))
+				continue
+			}
 			b := Block{
-				ID:   fmt.Sprintf("%s:%d", prefix, len(out)),
+				ID:   id,
 				Kind: KindTaskResult,
 				Arg:  orDefault(r.From, "agent"),
 				Text: "message delivered",
@@ -169,6 +193,107 @@ func deliveredItemBlocks(prefix string, msgs []llm.Message) []Block {
 		}
 	}
 	return out
+}
+
+// taskMessageName is the reminder name of delegate's agent messages.
+const taskMessageName = "agent-message"
+
+// Message line directions, kept in Block.State.
+const (
+	// MessageToTask is a message the parent sent a task with task_send.
+	MessageToTask = "to-task"
+	// MessageToParent is a message a task sent its parent with
+	// message_parent.
+	MessageToParent = "to-parent"
+)
+
+// taskMessageArrow is the arrow of a message line: "→" to a task, "←" to
+// the parent.
+func taskMessageArrow(direction string) string {
+	if direction == MessageToTask {
+		return "→"
+	}
+	return "←"
+}
+
+// taskMessageBlock returns a message line between the parent and task
+// taskID, such as "→ t_k3f2  Skip vendor/". It shows the first line of
+// text. Queued marks a message that waits for the recipient's turn to end.
+func taskMessageBlock(id, direction, taskID, text string, queued bool) Block {
+	b := Block{
+		ID:    id,
+		Kind:  KindTaskMessage,
+		State: direction,
+		Arg:   taskID,
+		Text:  firstLine(text),
+		Done:  true,
+	}
+	if queued {
+		b.Name = "queued"
+	}
+	return b
+}
+
+// taskSendArgs are the arguments of a task_send call.
+type taskSendArgs struct {
+	TaskID  string `json:"task_id"`
+	Message string `json:"message"`
+	Deliver string `json:"deliver"`
+}
+
+// taskSendArg is what a task_send tool line shows after its name until the
+// message is sent, such as "t_k3f2 · Skip vendor/".
+func taskSendArg(raw json.RawMessage) string {
+	var args taskSendArgs
+	_ = json.Unmarshal(raw, &args)
+	return joinNonEmpty(" · ", args.TaskID, firstLine(args.Message))
+}
+
+// taskSendBlock returns the message line of a task_send call that sent its
+// message. It takes the place of the call's tool line.
+func taskSendBlock(callID string, raw json.RawMessage) Block {
+	var args taskSendArgs
+	_ = json.Unmarshal(raw, &args)
+	return taskMessageBlock("t:"+callID, MessageToTask, args.TaskID, args.Message, args.Deliver == string(delegate.DeliverQueue))
+}
+
+// taskIDOf reads the task ID from a sender such as
+// "task t_k3f2 (explore)". Another sender comes back whole.
+func taskIDOf(from string) string {
+	rest, ok := strings.CutPrefix(from, "task ")
+	if !ok {
+		return from
+	}
+	id, _, _ := strings.Cut(rest, " ")
+	return id
+}
+
+// taskMessagePlainWidth cuts the text of a message line in plain output,
+// which has no terminal width.
+const taskMessagePlainWidth = 100
+
+// taskMessageText is the plain text of a message line, such as
+// "  ← t_k3f2  Parse is in config/load.go".
+func taskMessageText(b Block) string {
+	head := "  " + taskMessageArrow(b.State) + " " + b.Arg
+	if b.Name != "" {
+		head += " (" + b.Name + ")"
+	}
+	return head + "  " + truncate(b.Text, taskMessagePlainWidth)
+}
+
+// taskMessageView draws a message line. The text does not wrap: the
+// terminal edge cuts it, and /tasks ID shows it whole.
+func taskMessageView(b Block) tui.View {
+	views := []tui.View{
+		tui.Text("  %s ", taskMessageArrow(b.State)).Fg(tui.ColorCyan),
+		tui.Text("%s", b.Arg),
+	}
+	if b.Name != "" {
+		views = append(views, tui.Text(" (%s)", b.Name).Style(mutedStyle))
+	}
+	views = append(views, tui.Text("  "), tui.Text("%s", b.Text).SourceOffset(0).Flex(1))
+	return tui.Group(views...)
 }
 
 // noticeState reads the state from a notice such as
@@ -342,9 +467,10 @@ func (c *Controller) scheduleTaskNotices() {
 		return
 	}
 	host.mu.Lock()
-	ready := (len(host.notices) > 0 || host.rescan) && host.deliveryErr == nil
+	paused := host.deliveryErr != nil
 	host.mu.Unlock()
-	if !ready {
+	// Tasks put their notices and messages on the session's queue.
+	if paused || c.eng.queuedTaskItems() == 0 {
 		return
 	}
 	// While a turn, dialog, or command runs, say nothing: this runs again
@@ -421,7 +547,8 @@ func (e *Engine) inspectTask(ctx context.Context, id string) (taskSnapshot, erro
 		if err != nil {
 			return taskSnapshot{}, err
 		}
-		if view.Parent == nil || *view.Parent != task.Parent {
+		// Only turn 1 has the task call as its parent (see readRecorded).
+		if turn.ID == session.TurnID(task.SessionID, 1) && (view.Parent == nil || *view.Parent != task.Parent) {
 			return taskSnapshot{}, fmt.Errorf("task parent identity differs")
 		}
 		return taskSnapshot{Task: task, Turn: turn, View: view, Target: delegate.TaskTarget{ID: id, TurnID: turn.ID, LastSeq: view.LastSeq}, Bound: true}, nil
@@ -550,4 +677,69 @@ func taskDetailText(s string) string {
 		n--
 	}
 	return s[:n] + "\n[Display cut at 64 KiB; full text remains in the recorded Turn.]"
+}
+
+// taskConversation returns what /tasks ID prints: each turn of a task with
+// the messages it got and sent, in order, and its reply.
+func taskConversation(v delegate.TaskView, turns []dashi.Turn) string {
+	var b strings.Builder
+	b.WriteString(joinNonEmpty(" · ", "Task "+v.ID, v.Subagent, firstLine(v.Description)))
+	b.WriteString("\n")
+	for n, turn := range turns {
+		view, err := turn.View()
+		if err != nil {
+			fmt.Fprintf(&b, "Turn %d · unreadable: %v\n", n+1, err)
+			continue
+		}
+		state := orDefault(string(view.Stop.Kind), string(delegate.TaskRunning))
+		if view.Stop.Reason != "" && view.Stop.Kind != dashi.StopCompleted {
+			state += ": " + firstLine(view.Stop.Reason)
+		}
+		fmt.Fprintf(&b, "Turn %d · %s\n", n+1, state)
+		for _, step := range turn.Steps {
+			var msgs []llm.Message
+			switch {
+			case step.Kind == dashi.StepTurnStarted && step.Started != nil:
+				msgs = step.Started.Input
+			case step.Kind == dashi.StepMessagesAdded && step.Context != nil && step.Context.Steering:
+				for _, item := range step.Context.Items {
+					msgs = append(msgs, item.Message)
+				}
+			case step.Kind == dashi.StepToolFinished && step.Tool != nil &&
+				step.Tool.Call.Name == delegate.MessageParentToolName &&
+				step.Tool.Outcome != nil && step.Tool.Outcome.State == tool.StateSucceeded:
+				var args struct {
+					Message string `json:"message"`
+					Deliver string `json:"deliver"`
+				}
+				_ = json.Unmarshal(step.Tool.Call.Args, &args)
+				head := "←"
+				if args.Deliver == string(delegate.DeliverQueue) {
+					head += " (queued)"
+				}
+				writeConversationText(&b, "  "+head+" ", args.Message)
+			}
+			for _, m := range msgs {
+				for _, c := range m.Content {
+					if r := c.Reminder; c.Kind == llm.ContentReminder && r != nil && r.Name == taskMessageName && r.From == "parent" {
+						writeConversationText(&b, "  → ", r.Content)
+					}
+				}
+			}
+		}
+		if view.Stop.Kind == dashi.StopCompleted && view.Reply != "" {
+			b.WriteString("  Reply:\n")
+			writeConversationText(&b, "    ", taskDetailText(view.Reply))
+		}
+	}
+	return workspace.PrintableText(b.String())
+}
+
+// writeConversationText writes text after head, and its later lines
+// indented to line up with its first.
+func writeConversationText(b *strings.Builder, head, text string) {
+	indent := strings.Repeat(" ", utf8.RuneCountInString(head))
+	b.WriteString(head)
+	b.WriteString(strings.ReplaceAll(strings.TrimRight(text, "\n"), "\n", "\n"+indent))
+	b.WriteString("\n")
 }

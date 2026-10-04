@@ -386,6 +386,110 @@ func TestSessionDeliveredDropsQueuedItems(t *testing.T) {
 	}
 }
 
+// State.QueuedUser counts the queued items from the user, so a host can
+// tell them from a background task's notice.
+func TestSessionQueuedUserCountsUserItems(t *testing.T) {
+	s := handle(dashi.NewMemoryRecorder(), dashitest.NewClient())
+	s.New = true
+	if _, err := s.Enqueue(t.Context(), "later"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EnqueueItem(t.Context(), dashi.ContextItem{
+		Origin:  dashi.ContextRuntime,
+		Message: llm.UserMessage(llm.Text("task result")),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := s.Open(t.Context()); err != nil || st.Queued != 2 || st.QueuedUser != 1 {
+		t.Fatalf("state=%+v err=%v", st, err)
+	}
+}
+
+// runtimeItem is a queued item that did not come from the user, such as a
+// background task's notice.
+func runtimeItem(text string) dashi.ContextItem {
+	return dashi.ContextItem{
+		Origin:  dashi.ContextRuntime,
+		Message: llm.UserMessage(llm.Text(text)),
+	}
+}
+
+// RunQueueUnlessUserQueued runs nothing while a user item is queued, also
+// one that arrives during its queue turn, and never takes a user item
+// enqueued at the same time as the call.
+func TestSessionRunQueueUnlessUserQueued(t *testing.T) {
+	t.Run("user item queued", func(t *testing.T) {
+		s := handle(dashi.NewMemoryRecorder(), dashitest.NewClient(dashitest.Reply("no")))
+		s.New = true
+		if _, err := s.EnqueueItem(t.Context(), runtimeItem("notice")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Enqueue(t.Context(), "later"); err != nil {
+			t.Fatal(err)
+		}
+		if _, ran, err := s.RunQueueUnlessUserQueued(t.Context()); err != nil || ran {
+			t.Fatalf("ran=%v err=%v", ran, err)
+		}
+		if st, err := s.Open(t.Context()); err != nil || st.Turns != 0 || st.Queued != 2 {
+			t.Fatalf("state=%+v err=%v", st, err)
+		}
+	})
+	t.Run("user item arrives during the turn", func(t *testing.T) {
+		rec := dashi.NewMemoryRecorder()
+		client := held(1, dashitest.Reply("one"), dashitest.Reply("two"))
+		s := handle(rec, client)
+		s.New = true
+		if _, err := s.EnqueueItem(t.Context(), runtimeItem("notice")); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan result, 1)
+		go func() {
+			out, _, err := s.RunQueueUnlessUserQueued(t.Context())
+			done <- result{out, err}
+		}()
+		entered(t, client)
+		if _, err := s.Enqueue(t.Context(), "later"); err != nil {
+			t.Fatal(err)
+		}
+		close(client.gate.release)
+		if out := awaitSend(t, done); out.Turn.ID != "s-1" {
+			t.Fatalf("last turn=%s, want s-1 only", out.Turn.ID)
+		}
+		if st, err := s.Open(t.Context()); err != nil || st.Turns != 1 || st.QueuedUser != 1 {
+			t.Fatalf("state=%+v err=%v", st, err)
+		}
+	})
+	t.Run("user item enqueued concurrently", func(t *testing.T) {
+		for range 50 {
+			rec := dashi.NewMemoryRecorder()
+			s := handle(rec, dashitest.NewClient(dashitest.Reply("ok"), dashitest.Reply("again")))
+			s.New = true
+			if _, err := s.EnqueueItem(t.Context(), runtimeItem("notice")); err != nil {
+				t.Fatal(err)
+			}
+			enqueued := make(chan error, 1)
+			go func() {
+				_, err := s.Enqueue(t.Context(), "later")
+				enqueued <- err
+			}()
+			_, ran, err := s.RunQueueUnlessUserQueued(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := <-enqueued; err != nil {
+				t.Fatal(err)
+			}
+			if ran && slices.Contains(input(t, rec, "s-1"), "later") {
+				t.Fatal("the guarded run took the user item")
+			}
+			st, err := s.Open(t.Context())
+			if err != nil || st.QueuedUser != 1 || st.Turns > 1 {
+				t.Fatalf("ran=%v state=%+v err=%v", ran, st, err)
+			}
+		}
+	})
+}
+
 // Queued input under a durable recorder warns memory_only; the in-memory
 // recorder's queue lives as long as its record, so it does not.
 func TestSessionQueueMemoryOnly(t *testing.T) {

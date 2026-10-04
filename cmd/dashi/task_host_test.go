@@ -38,6 +38,21 @@ type taskFixtureClient struct {
 	statusRead    bool
 	beforeStatus  func()
 	parentNotices int
+	// messageParent is the text the child's first model call sends its
+	// parent with message_parent. sendQueue is the text the parent's
+	// second model call sends the task with task_send, as a queue message.
+	messageParent, sendQueue string
+	// messageDeliver is the deliver argument of that message_parent call;
+	// empty means the default, steer.
+	messageDeliver string
+	// replyHold, when set, holds the child's model call after its
+	// message_parent call until it closes.
+	replyHold <-chan struct{}
+	// parentMessageCalls lists the parent model calls, counting from 0,
+	// whose request holds a task's message.
+	parentMessageCalls []int
+	// parentInputs holds the text of each parent model call's messages.
+	parentInputs []string
 }
 
 // startedTaskID returns the task ID that a task tool result in the request
@@ -90,13 +105,19 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 		}
 	} else {
 		c.parentCalls++
+		var text strings.Builder
 		for _, m := range in.Messages {
+			text.WriteString(m.Text())
 			for _, part := range m.Content {
 				if part.Reminder != nil && part.Reminder.Name == taskNoticeName {
 					c.parentNotices++
 				}
+				if part.Reminder != nil && part.Reminder.Name == taskMessageName {
+					c.parentMessageCalls = append(c.parentMessageCalls, n)
+				}
 			}
 		}
+		c.parentInputs = append(c.parentInputs, text.String())
 	}
 	c.muTask.Unlock()
 	if child {
@@ -114,6 +135,20 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 		}
 		if n < c.loopUntil {
 			return callTool("read-loop-"+string(rune('A'+n)), "list_directory", `{}`)(ctx, call)
+		}
+		if c.replyHold != nil && c.messageParent != "" && n == 1 {
+			select {
+			case <-c.replyHold:
+			case <-ctx.Done():
+				return llm.Result{}, ctx.Err()
+			}
+		}
+		if c.messageParent != "" && n == 0 {
+			args := `{"message":"` + c.messageParent + `"`
+			if c.messageDeliver != "" {
+				args += `,"deliver":"` + c.messageDeliver + `"`
+			}
+			return callTool("message-call", "message_parent", args+"}")(ctx, call)
 		}
 		if c.effect && n == 0 {
 			return callTool("effect-call", "external_effect", `{"target":"once"}`)(ctx, call)
@@ -133,6 +168,9 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 			c.beforeStatus()
 		}
 		return callTool("status-call", "task_status", `{"task_id":"`+startedTaskID(in)+`","wait_seconds":30}`)(ctx, call)
+	}
+	if n == 1 && c.sendQueue != "" {
+		return callTool("send-call", "task_send", `{"task_id":"`+startedTaskID(in)+`","message":"`+c.sendQueue+`","deliver":"queue"}`)(ctx, call)
 	}
 	if n == 2 && c.statusRead {
 		return say("Parent read the result.")(ctx, call)
@@ -204,13 +242,16 @@ func installTaskEffect(t *testing.T, runs *atomic.Int32, wait bool) {
 	t.Cleanup(func() { adapters = old })
 }
 func TestTaskHostQuietDeliversOneRecordedNoticeAndKeepsChildTextSeparate(t *testing.T) {
-	client := &taskFixtureClient{}
+	hold := make(chan struct{})
+	client := &taskFixtureClient{childHold: hold}
 	ui := newRecorderUI()
 	a, _ := taskTestApp(t, client, ui)
 	result, err := a.eng.Prompt(t.Context(), "Delegate this job")
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The task's result reaches the idle parent as a queue turn.
+	close(hold)
 	result, err = a.eng.QuietTasks(t.Context(), result)
 	if err != nil {
 		t.Fatal(err)
@@ -235,11 +276,9 @@ func TestTaskHostQuietDeliversOneRecordedNoticeAndKeepsChildTextSeparate(t *test
 	}
 	beforeParent, beforeChild := client.counts()
 	// A callback duplicate and a fresh reload cannot deliver again.
-	item := task.Notice().Item()
-	host := a.eng.taskHost()
-	host.mu.Lock()
-	host.notices[item.ID] = item
-	host.mu.Unlock()
+	if _, err := a.eng.handle().EnqueueItem(t.Context(), task.Notice().Item()); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = a.eng.DriveTaskNotices(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -390,7 +429,9 @@ func TestTaskStopDoesNotCancelForegroundParent(t *testing.T) {
 }
 func TestTaskPrintQuietAndPipeAttentionHaveCleanExit(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.Client = &taskFixtureClient{}
+	client := &taskFixtureClient{}
+	holdChildUntilParentStops(&cfg, client)
+	cfg.Client = client
 	var out, notice bytes.Buffer
 	if code := runPrint(t.Context(), cfg, Options{Prompt: "delegate", Run: true, Yes: true}, &out, &notice); code != 0 {
 		t.Fatalf("print code=%d stderr=%s", code, notice.String())
@@ -457,6 +498,33 @@ func TestTaskCommandIDUsesFullCanonicalPayload(t *testing.T) {
 	}
 }
 
+// parentStopRecorder closes stopped when the first turn stops. With the
+// child held until then, that is the parent's first turn.
+type parentStopRecorder struct {
+	*filerecorder.Recorder
+	once    sync.Once
+	stopped chan struct{}
+}
+
+func (r *parentStopRecorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
+	err := r.Recorder.Commit(ctx, req)
+	if req.Step.Kind == dashi.StepTurnStopped {
+		r.once.Do(func() { close(r.stopped) })
+	}
+	return err
+}
+
+// holdChildUntilParentStops holds the child's model calls until the
+// parent's first turn stops, so the task's result reaches an idle parent
+// and starts a queue turn of its own, not a steer into the running turn.
+func holdChildUntilParentStops(cfg *appConfig, client *taskFixtureClient) {
+	stopped := make(chan struct{})
+	client.childHold = stopped
+	cfg.recorder = func(r *filerecorder.Recorder) dashi.Recorder {
+		return &parentStopRecorder{Recorder: r, stopped: stopped}
+	}
+}
+
 type taskQueueCrashRecorder struct {
 	*filerecorder.Recorder
 	mu         sync.Mutex
@@ -498,7 +566,8 @@ func (r *taskQueueCrashRecorder) Load(ctx context.Context, id string) (dashi.Tur
 func TestTaskNoticeUnknownStartPausesUntilExactResolution(t *testing.T) {
 	for _, mode := range []string{"absent", "committed"} {
 		t.Run(mode, func(t *testing.T) {
-			client := &taskFixtureClient{}
+			hold := make(chan struct{})
+			client := &taskFixtureClient{childHold: hold}
 			ui := newRecorderUI()
 			cfg := testConfig(t)
 			cfg.Client = client
@@ -521,6 +590,7 @@ func TestTaskNoticeUnknownStartPausesUntilExactResolution(t *testing.T) {
 			if _, err = a.eng.Prompt(t.Context(), "delegate"); err != nil {
 				t.Fatal(err)
 			}
+			close(hold)
 			waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopCompleted) })
 			// Wait also establishes that the notice callback returned.
 			if _, err = a.eng.taskHost().tasks.Wait(t.Context()); err != nil {
@@ -1029,13 +1099,16 @@ func TestTaskDiscoverySkipsUnrelatedParentWithoutClaimingCompleteInventory(t *te
 }
 
 func TestReadableTaskNoticeRequiresUnreadableOriginalParent(t *testing.T) {
-	client := &taskFixtureClient{}
+	hold := make(chan struct{})
+	client := &taskFixtureClient{childHold: hold}
 	ui := newRecorderUI()
 	a, cfg := taskTestApp(t, client, ui)
 	result, err := a.eng.Prompt(t.Context(), "delegate")
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The task's result reaches the idle parent as a queue turn.
+	close(hold)
 	if _, err = a.eng.QuietTasks(t.Context(), result); err != nil {
 		t.Fatal(err)
 	}

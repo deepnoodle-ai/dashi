@@ -402,7 +402,7 @@ func (e *Engine) quietAutomationTasks(ctx context.Context, result Result) (Resul
 			result = next
 		}
 		host.mu.Lock()
-		pending := len(host.notices) > 0 || host.rescan || host.recoveryErr != nil
+		pending := host.recoveryErr != nil
 		host.mu.Unlock()
 		if waited.idle && !pending && e.Queued() == 0 && !e.HasPending() {
 			return result, nil

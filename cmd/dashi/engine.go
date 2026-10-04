@@ -766,6 +766,22 @@ func (e *Engine) Queued() int {
 	return n + st.Queued
 }
 
+// queuedTaskItems counts the items on the open session's queue that a task
+// driver may run, such as task notices and messages. A queued user prompt
+// holds them all: it waits for the user's next prompt, which takes the
+// whole queue, task items included.
+func (e *Engine) queuedTaskItems() int {
+	chat := e.handle()
+	if chat == nil {
+		return 0
+	}
+	st, err := chat.Open(context.Background())
+	if err != nil || st.QueuedUser > 0 {
+		return 0
+	}
+	return st.Queued
+}
+
 // finished shows the end of one turn: its footer, how to go on, the session's
 // warnings, and the steers that wait for a later turn.
 func (e *Engine) finished(r *Renderer, out dashi.RunResult) {

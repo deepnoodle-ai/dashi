@@ -70,7 +70,24 @@ func (s *Session) RunQueue(
 	ctx context.Context,
 	opts ...dashi.RunOption,
 ) (dashi.RunResult, bool, error) {
-	cl := &call{s: s, opts: opts}
+	return s.runQueue(ctx, &call{s: s, opts: opts})
+}
+
+// RunQueueUnlessUserQueued is RunQueue that runs nothing while an item from
+// the user (dashi.ContextUser) is queued. It suits a host that holds the
+// user's queued input for the user's next prompt, which takes the whole
+// queue, and wakes the session for other items, such as a background task's
+// notice. The check and the choice of items happen under one lock, so a user
+// item enqueued at the same time is never taken; the check repeats before
+// each queue turn the call runs.
+func (s *Session) RunQueueUnlessUserQueued(
+	ctx context.Context,
+	opts ...dashi.RunOption,
+) (dashi.RunResult, bool, error) {
+	return s.runQueue(ctx, &call{s: s, opts: opts, holdUser: true})
+}
+
+func (s *Session) runQueue(ctx context.Context, cl *call) (dashi.RunResult, bool, error) {
 	out, ran, err := cl.queueTurn(ctx)
 	if err != nil {
 		return out, ran, err
@@ -99,6 +116,9 @@ type call struct {
 	// warnings holds session warnings of a compaction turn for the result
 	// of the turn it ran before.
 	warnings []dashi.Warning
+	// holdUser is set for RunQueueUnlessUserQueued: no queue turn starts
+	// while a user item is queued.
+	holdUser bool
 }
 
 func (cl *call) run(ctx context.Context, c dashi.Command) (dashi.RunResult, error) {
@@ -235,7 +255,7 @@ func (cl *call) queueTurn(ctx context.Context) (dashi.RunResult, bool, error) {
 	compacted := false
 	for attempt := 0; ; {
 		s.mu.Lock()
-		p, ok, err := s.planQueue(ctx, compacted)
+		p, ok, err := s.planQueue(ctx, compacted, cl.holdUser)
 		s.mu.Unlock()
 		if errors.Is(err, errReserved) {
 			// The queue waits; each result warns WarningQueueBlocked.

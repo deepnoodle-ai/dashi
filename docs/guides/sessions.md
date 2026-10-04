@@ -162,6 +162,9 @@ stops any other way. `Run` returns the last turn's result, with the earlier
 turns' session warnings. When a turn stops without ending, items wait, and
 `State.Queued` from `Open` counts them. `s.RunQueue(ctx)` runs them on an idle
 session with no new input, and reports false when it ran nothing.
+`s.RunQueueUnlessUserQueued(ctx)` runs nothing while an item from the user is
+queued: a host that holds the user's queued input for the next prompt uses it
+to wake the session for other items, such as a task's notice.
 
 A queue turn has the command ID `queue:` and the sorted item IDs, origin
 `StartUser` when any item came from the user (else `StartScheduled`), and the

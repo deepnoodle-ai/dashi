@@ -18,8 +18,10 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// taskHost retains notice delivery candidates; only the parent Engine driver
-// changes the session queue. Child observer callbacks never drive a parent.
+// taskHost tracks the tasks of the open session. Tasks puts each task's
+// notices and messages on the parent session (delegate.Config.Session);
+// only the parent Engine driver runs the session's queue. Child observer
+// callbacks never drive a parent.
 type taskHost struct {
 	tasks        *delegate.Tasks
 	inputs       *taskInputs
@@ -29,9 +31,6 @@ type taskHost struct {
 	recoveryErr  error
 	inventoryErr error
 	deliveryErr  error
-	notices      map[string]dashi.ContextItem
-	queued       map[string]bool
-	rescan       bool
 	recorded     map[string]taskSnapshot
 	problems     map[string]string
 	wake         func()
@@ -40,7 +39,7 @@ type taskHost struct {
 
 func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentResolver) *taskHost {
 	loader, _ := chat.Runner.Recorder.(dashi.Loader)
-	host := &taskHost{notices: map[string]dashi.ContextItem{}, queued: map[string]bool{}, observedSeq: map[string]int64{}}
+	host := &taskHost{observedSeq: map[string]int64{}}
 	host.inputs = &taskInputs{loader: loader, parentBind: resolver.bind, clientFor: func(ctx context.Context, agent dashi.Agent) (llm.Client, error) {
 		if p := e.cfg.Preferences; p != nil {
 			return p.clientFor(ctx, agent)
@@ -56,6 +55,9 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 	host.tasks = delegate.NewTasks(delegate.Config{
 		PrepareStart: host.inputs.prepareStart, BindServices: host.inputs.bindServices,
 		NoticeReady: taskNoticeReady,
+		// Tasks delivers notices and messages to the parent session, which
+		// holds them while a turn runs or waits for the host.
+		Session: chat,
 		OnChild: func(event delegate.ChildEvent) {
 			if event.Event.Step != nil {
 				host.mu.Lock()
@@ -85,23 +87,22 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 			}
 		},
 		OnTask: func(event delegate.TaskEvent) {
-			e.cfg.Emit(taskStatusBlock(event.Task))
-			if event.Kind == delegate.TaskEnded {
-				item := event.Task.Notice().Item()
-				host.mu.Lock()
-				if len(host.notices) < 128 {
-					host.notices[item.ID] = item
-				} else {
-					host.rescan = true
-				}
-				wake := host.wake
-				if wake == nil {
-					wake = e.taskWake
-				}
-				host.mu.Unlock()
-				if wake != nil {
-					go wake()
-				}
+			if event.Kind != delegate.TaskMessage {
+				e.cfg.Emit(taskStatusBlock(event.Task))
+			}
+			if event.Kind == delegate.TaskStarted {
+				return
+			}
+			// A notice or message that reached an idle session waits on its
+			// queue; wake the driver to run it.
+			host.mu.Lock()
+			wake := host.wake
+			if wake == nil {
+				wake = e.taskWake
+			}
+			host.mu.Unlock()
+			if wake != nil {
+				go wake()
 			}
 		},
 	})
@@ -185,9 +186,6 @@ func (e *Engine) taskParents(ctx context.Context) ([]dashi.Turn, error) {
 	for _, snapshot := range host.recorded {
 		known = append(known, snapshot.Task)
 	}
-	for id := range host.notices {
-		notices[id] = true
-	}
 	var incomplete []error
 	var required []error
 	for parentID, err := range skipped {
@@ -247,84 +245,11 @@ func (e *Engine) closeTasks() error {
 	return nil
 }
 
-func (e *Engine) flushTaskNotices(ctx context.Context) error {
-	host := e.taskHost()
-	if host == nil {
-		return nil
-	}
-	if e.HasPending() {
-		return nil
-	}
-	host.mu.Lock()
-	pending := len(host.notices) > 0 || host.rescan
-	host.mu.Unlock()
-	if !pending {
-		return nil
-	}
-	chat := e.handle()
-	turns, err := e.taskParents(ctx)
-	if err != nil {
-		return err
-	}
-	host.mu.Lock()
-	incomplete := host.inventoryErr
-	host.mu.Unlock()
-	if incomplete != nil {
-		return fmt.Errorf("task notice delivery incomplete: %w", incomplete)
-	}
-	delivered := delegate.DeliveredNotices(turns)
-	host.mu.Lock()
-	defer host.mu.Unlock()
-	for id := range delivered {
-		// The record shows the delivery, by a queue turn or by a
-		// task_status read, so the held notice is not sent.
-		delete(host.notices, id)
-		delete(host.queued, id)
-	}
-	if host.rescan {
-		for _, view := range host.tasks.List() {
-			if view.Running() || delivered[delegate.NoticeID(view.TurnID)] {
-				continue
-			}
-			turn, err := host.inputs.loader.Load(ctx, view.TurnID)
-			if err != nil {
-				return err
-			}
-			state, err := turn.View()
-			if err != nil {
-				return err
-			}
-			if !taskNoticeReady(state) {
-				continue
-			}
-			item := view.Notice().Item()
-			if len(host.notices) >= 128 {
-				break
-			}
-			host.notices[item.ID] = item
-		}
-		host.rescan = len(host.notices) >= 128
-	}
-	ids := make([]string, 0, len(host.notices))
-	for id := range host.notices {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		if host.queued[id] {
-			continue
-		}
-		if _, err := chat.EnqueueItem(ctx, host.notices[id]); err != nil {
-			return err
-		}
-		host.queued[id] = true // Submission is provisional; records alone remove it.
-	}
-	return nil
-}
-
-// DriveTaskNotices is called only by the Controller's parent driver. A stopped
-// parent or a parent Start whose recording is unconfirmed holds notices
-// without authorizing continuation.
+// DriveTaskNotices is called only by the Controller's parent driver. It runs
+// the session's queue, where Tasks puts task notices and messages that
+// reached an idle parent. A queued user prompt holds the queue for the
+// user's next prompt. A stopped parent or a parent Start whose recording
+// is unconfirmed holds them without authorizing continuation.
 func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error) {
 	host := e.taskHost()
 	if host != nil {
@@ -350,8 +275,14 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 	if last != nil && last.Open() {
 		return Result{}, nil
 	}
-	if err := e.flushTaskNotices(ctx); err != nil {
-		return Result{}, err
+	if host != nil {
+		// Damaged parent history may hide child work.
+		host.mu.Lock()
+		incomplete := host.inventoryErr
+		host.mu.Unlock()
+		if incomplete != nil {
+			return Result{}, fmt.Errorf("task notice delivery incomplete: %w", incomplete)
+		}
 	}
 	chat := e.configureChat()
 	state, err := chat.Open(ctx)
@@ -367,7 +298,9 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 		}
 	}
 	before := state.Turns
-	out, ran, err := chat.RunQueue(ctx)
+	// A queued user prompt waits for the user's next prompt, which takes
+	// the task items too; a task wake must not run it early.
+	out, ran, err := chat.RunQueueUnlessUserQueued(ctx)
 	if ran {
 		n := 0
 		for turn, loadErr := range chat.Turns(ctx) {
@@ -394,16 +327,11 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 			}
 		}
 	}
-	if err != nil {
-		return Result{Outcome: out}, err
-	}
-	if err := e.flushTaskNotices(ctx); err != nil {
-		return Result{Outcome: out}, err
-	}
-	return Result{Outcome: out}, nil
+	return Result{Outcome: out}, err
 }
 
-// QuietTasks drains permitted task notices. It never resumes a stopped parent,
+// QuietTasks drains permitted task notices. It leaves a queued user prompt,
+// and the task items behind it, for the next prompt. It never resumes a stopped parent,
 // resolves a child effect with an unknown result, or raises any recorded limit.
 func (e *Engine) QuietTasks(ctx context.Context, result Result) (Result, error) {
 	if err := e.recoverTasks(ctx); err != nil {
@@ -439,10 +367,7 @@ func (e *Engine) QuietTasks(ctx context.Context, result Result) (Result, error) 
 		if next.Outcome.ID != "" {
 			result = next
 		}
-		host.mu.Lock()
-		pending := len(host.notices) > 0 || host.rescan
-		host.mu.Unlock()
-		if idle && !pending && e.Queued() == 0 {
+		if idle && e.queuedTaskItems() == 0 {
 			return result, nil
 		}
 	}
@@ -516,7 +441,10 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 					problems[id] = err.Error()
 					break
 				}
-				if state.Parent == nil || *state.Parent != ref {
+				// The task call starts turn 1. A message starts a later
+				// turn, with the task_send call as its parent, or with
+				// none for a queue turn.
+				if n == 1 && (state.Parent == nil || *state.Parent != ref) {
 					problems[id] = "child parent differs"
 					break
 				}
@@ -565,6 +493,36 @@ func (host *taskHost) readRecorded(ctx context.Context, parents []dashi.Turn) er
 		host.mu.Unlock()
 	}
 	return err
+}
+
+// taskConversation loads the turns of task id and returns what /tasks ID
+// prints (see taskConversation).
+func (e *Engine) taskConversation(ctx context.Context, id string) (string, error) {
+	host := e.taskHost()
+	if host == nil {
+		return "", errors.New("no task host is open")
+	}
+	if host.inputs.loader == nil {
+		return "", errors.New("task recorder cannot load records")
+	}
+	for _, task := range host.list() {
+		if task.ID != id {
+			continue
+		}
+		var turns []dashi.Turn
+		for n := 1; n <= max(task.Turns, 1); n++ {
+			turn, err := host.inputs.loader.Load(ctx, session.TurnID(task.SessionID, n))
+			if errors.Is(err, dashi.ErrTurnNotFound) {
+				break
+			}
+			if err != nil {
+				return "", err
+			}
+			turns = append(turns, turn)
+		}
+		return taskConversation(task, turns), nil
+	}
+	return "", delegate.ErrUnknownTask
 }
 
 func (host *taskHost) list() []delegate.TaskView {
