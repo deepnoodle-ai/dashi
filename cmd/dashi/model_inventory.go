@@ -23,26 +23,23 @@ func modelInventory(registry, user map[string]configuredDestination, lookup func
 	var rows [][]string
 	for _, id := range slices.Sorted(slices.Values(mapKeys(registry))) {
 		d := registry[id]
-		status := "needs model registration"
-		if len(d.Definition.Models) != 0 {
-			status = "ready"
-			if !d.trustedBy(user) {
-				status = "needs project binding trust"
-			} else {
-				key, err := d.credential(lookup, true)
-				if err != nil {
-					return err
-				}
-				if key == "" && (d.Definition.CredentialEnv != "" || len(d.BuiltinAliases) != 0) && d.ID != "ollama" {
-					status = "needs " + credentialNames(d)[0]
-				}
+		if len(d.Definition.Models) == 0 {
+			continue // nothing to list until models are registered
+		}
+		status := "ready"
+		if !d.trustedBy(user) {
+			status = "needs project binding trust"
+		} else {
+			key, err := d.credential(lookup, true)
+			if err != nil {
+				return err
+			}
+			if key == "" && (d.Definition.CredentialEnv != "" || len(d.BuiltinAliases) != 0) && d.ID != "ollama" {
+				status = "needs " + credentialNames(d)[0]
 			}
 		}
 		if availableOnly && status != "ready" {
 			continue
-		}
-		if len(d.Definition.Models) == 0 {
-			rows = append(rows, []string{id, "—", "?", "?", "?", status})
 		}
 		for _, model := range slices.Sorted(slices.Values(d.Definition.Models)) {
 			info, known := d.modelInfo(model)
