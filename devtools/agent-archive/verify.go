@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/deepnoodle-ai/wonton/color"
 )
 
 // verifyRow is what verify needs to know about one copy.
@@ -30,10 +32,10 @@ type verifyResult struct {
 	Missing             []string        // copies missing from disk
 	Mismatched          []verifyProblem // copies whose bytes differ from the database
 	Unreadable          []verifyProblem
-	Snapshot            *snapshotResult // set when -snapshot was given
+	Snapshot            *snapshotResult // set when --snapshot was given
 }
 
-// snapshotResult is what verify -snapshot found (decision 7). Paths are
+// snapshotResult is what verify --snapshot found (decision 7). Paths are
 // relative to the snapshot directory.
 type snapshotResult struct {
 	Dir   string
@@ -236,35 +238,33 @@ func checkSnapshotFile(a *archive, name, copyPath string, copies []verifyRow) (e
 	return false, fmt.Sprintf("none of the %d copies at %s equals or begins with it", len(copies), copyPath)
 }
 
+// printVerifyResult prints what verify found. The caller prints the pass or
+// fail line.
 func printVerifyResult(w io.Writer, archiveDir string, r verifyResult) {
 	fmt.Fprintf(w, "archive: %s\n", archiveDir)
 	fmt.Fprintf(w, "copies checked: %d (%d current, %d superseded)\n", r.Current+r.Superseded, r.Current, r.Superseded)
-	fmt.Fprintf(w, "  missing from disk: %d\n", len(r.Missing))
+	printCount(w, "  ", "missing from disk", len(r.Missing), color.Red)
 	for _, p := range r.Missing {
 		fmt.Fprintf(w, "    %s\n", p)
 	}
-	printProblems(w, "  bytes differ from the database", r.Mismatched)
-	printProblems(w, "  unreadable", r.Unreadable)
+	printProblems(w, "bytes differ from the database", r.Mismatched)
+	printProblems(w, "unreadable", r.Unreadable)
 	if s := r.Snapshot; s != nil {
 		fmt.Fprintf(w, "\nsnapshot: %s\n", s.Dir)
 		fmt.Fprintf(w, "files checked: %d\n", s.Files)
 		fmt.Fprintf(w, "  accepted: %d (%d equal a copy, %d are the start of a longer copy)\n",
 			s.Equal+s.Grew, s.Equal, s.Grew)
-		printProblems(w, "  failed, keep these", s.Failed)
+		printProblems(w, "failed, keep these", s.Failed)
 		fmt.Fprintf(w, "  not checked, because copy does not copy them: %d\n", len(s.NotCopied))
 		for _, p := range s.NotCopied {
 			fmt.Fprintf(w, "    %s\n", p)
 		}
 	}
-	if n := r.problems(); n == 0 {
-		fmt.Fprintln(w, "\nverify passed")
-	} else {
-		fmt.Fprintf(w, "\nverify failed: %d problems\n", n)
-	}
+	fmt.Fprintln(w)
 }
 
 func printProblems(w io.Writer, title string, ps []verifyProblem) {
-	fmt.Fprintf(w, "%s: %d\n", title, len(ps))
+	printCount(w, "  ", title, len(ps), color.Red)
 	for _, p := range ps {
 		fmt.Fprintf(w, "    %s: %s\n", p.Path, p.Reason)
 	}

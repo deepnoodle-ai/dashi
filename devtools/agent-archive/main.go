@@ -4,20 +4,22 @@
 package main
 
 import (
-	"errors"
-	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"syscall"
+
+	"github.com/deepnoodle-ai/wonton/cli"
 )
 
 func main() {
 	syscall.Umask(0o077) // archive files are owner-only
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	app := newApp()
+	if err := app.Execute(); err != nil {
+		app.PrintError(err)
+		os.Exit(cli.GetExitCode(err))
+	}
 }
 
 // options are the directories a command works on. Tests point them at
@@ -28,200 +30,170 @@ type options struct {
 	CodexDir   string
 }
 
-// command is one subcommand.
-type command struct {
-	Summary string
-	Run     func(args []string, stdout, stderr io.Writer) error
+// The directory flags' defaults. Paths may start with ~/.
+const (
+	defaultArchiveDir = "~/agent-archive"
+	defaultClaudeDir  = "~/.claude"
+	defaultCodexDir   = "~/.codex"
+)
+
+// The directory flags. Each also reads an environment variable; a flag on
+// the command line wins over the variable.
+func archiveFlag() cli.Flag {
+	return cli.String("archive", "").Default(defaultArchiveDir).Env("AGENT_ARCHIVE_DIR").
+		Help("archive directory; env AGENT_ARCHIVE_DIR")
 }
 
-var commands = map[string]command{
-	"copy": {
-		Summary: "copy new and changed originals and update the database",
-		Run: func(args []string, stdout, stderr io.Writer) error {
-			fs := newFlagSet("copy", stderr)
-			o := addFlags(fs, true)
-			if err := parseFlags(fs, args, o); err != nil {
-				return err
-			}
-			sum, err := runCopy(*o)
-			if err != nil {
-				return err
-			}
-			printCopySummary(stdout, sum)
-			return nil
-		},
-	},
-	"rebuild": {
-		Summary: "recreate the database from the copies and the copy log",
-		Run: func(args []string, stdout, stderr io.Writer) error {
-			fs := newFlagSet("rebuild", stderr)
-			o := addFlags(fs, false)
-			if err := parseFlags(fs, args, o); err != nil {
-				return err
-			}
-			sum, err := runRebuild(o.ArchiveDir)
-			if err != nil {
-				return err
-			}
-			printRebuildSummary(stdout, o.ArchiveDir, sum)
-			return nil
-		},
-	},
-	"status": {
-		Summary: "show the last copy run, counts, warnings, and failed files",
-		Run: func(args []string, stdout, stderr io.Writer) error {
-			fs := newFlagSet("status", stderr)
-			o := addFlags(fs, false)
-			if err := parseFlags(fs, args, o); err != nil {
-				return err
-			}
-			return runStatus(o.ArchiveDir, stdout)
-		},
-	},
-	"verify": {
-		Summary: "re-hash every copy against the database; -snapshot also checks a snapshot",
-		Run: func(args []string, stdout, stderr io.Writer) error {
-			fs := newFlagSet("verify", stderr)
-			o := addFlags(fs, false)
-			snapshot := fs.String("snapshot", "", "snapshot `directory` to check, holding claude/ and codex/")
-			if err := parseFlags(fs, args, o); err != nil {
-				return err
-			}
-			if *snapshot != "" {
-				p, err := expandHome(*snapshot)
-				if err != nil {
-					return err
-				}
-				*snapshot = p
-			}
-			res, err := runVerify(o.ArchiveDir, *snapshot)
-			if err != nil {
-				return err
-			}
-			printVerifyResult(stdout, o.ArchiveDir, res)
-			if n := res.problems(); n > 0 {
-				return fmt.Errorf("%d problems found", n)
-			}
-			return nil
-		},
-	},
-	"schedule": {
-		Summary: "install or remove the daily LaunchAgent that runs copy (macOS)",
-		Run: func(args []string, stdout, stderr io.Writer) error {
-			if len(args) == 0 || (args[0] != "install" && args[0] != "remove") {
-				fmt.Fprintln(stderr, "usage: agent-archive schedule install [flags] | agent-archive schedule remove")
-				return errUsage
-			}
-			fs := newFlagSet("schedule "+args[0], stderr)
-			o := &options{}
-			if args[0] == "install" {
-				o = addFlags(fs, true)
-			}
-			if err := parseFlags(fs, args[1:], o); err != nil {
-				return err
-			}
-			s, err := newScheduler()
-			if err != nil {
-				return err
-			}
-			if args[0] == "install" {
-				return s.install(*o, stdout)
-			}
-			return s.remove(stdout)
-		},
-	},
+func originalsFlags() []cli.Flag {
+	return []cli.Flag{
+		archiveFlag(),
+		cli.String("claude-dir", "").Default(defaultClaudeDir).Env("AGENT_ARCHIVE_CLAUDE_DIR").
+			Help("Claude Code directory; env AGENT_ARCHIVE_CLAUDE_DIR"),
+		cli.String("codex-dir", "").Default(defaultCodexDir).Env("AGENT_ARCHIVE_CODEX_DIR").
+			Help("Codex directory; env AGENT_ARCHIVE_CODEX_DIR"),
+	}
 }
 
 // newScheduler returns the scheduler the schedule command uses; tests
 // replace it.
 var newScheduler = defaultScheduler
 
-// errUsage reports bad arguments; its message has already been printed.
-var errUsage = errors.New("usage")
+func newApp() *cli.App {
+	app := cli.New("agent-archive").
+		Description("Copy Claude Code and Codex session files into a local archive")
 
-// run is main without the process: it returns the exit code.
-func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "-help" || args[0] == "--help" || args[0] == "help" {
-		printUsage(stdout)
-		if len(args) == 0 {
-			return 2
-		}
-		return 0
-	}
-	cmd, ok := commands[args[0]]
-	if !ok {
-		fmt.Fprintf(stderr, "agent-archive: unknown command %q\n\n", args[0])
-		printUsage(stderr)
-		return 2
-	}
-	if err := cmd.Run(args[1:], stdout, stderr); err != nil {
-		if errors.Is(err, errUsage) {
-			return 2
-		}
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		fmt.Fprintf(stderr, "agent-archive %s: %v\n", args[0], err)
-		return 1
-	}
-	return 0
+	app.Command("copy").
+		Description("Copy new and changed originals and update the database").
+		Flags(originalsFlags()...).
+		Run(func(ctx *cli.Context) error {
+			o, err := directories(ctx)
+			if err != nil {
+				return err
+			}
+			sum, err := runCopy(o)
+			if err != nil {
+				return err
+			}
+			printCopySummary(ctx.Stdout(), sum)
+			return nil
+		})
+
+	app.Command("rebuild").
+		Description("Recreate the database from the copies and the copy log").
+		Flags(archiveFlag()).
+		Run(func(ctx *cli.Context) error {
+			o, err := directories(ctx)
+			if err != nil {
+				return err
+			}
+			sum, err := runRebuild(o.ArchiveDir)
+			if err != nil {
+				return err
+			}
+			printRebuildSummary(ctx.Stdout(), o.ArchiveDir, sum)
+			return nil
+		})
+
+	app.Command("status").
+		Description("Show the last copy run, counts, warnings, and failed files").
+		Flags(archiveFlag()).
+		Run(func(ctx *cli.Context) error {
+			o, err := directories(ctx)
+			if err != nil {
+				return err
+			}
+			return runStatus(ctx, o.ArchiveDir)
+		})
+
+	app.Command("verify").
+		Description("Re-hash every copy against the database").
+		Long("Re-hash every copy, current and superseded, against the database. "+
+			"With --snapshot, also check that every file in a snapshot has a copy "+
+			"that equals it or begins with it. Exits 1 when it finds a problem.").
+		Flags(
+			archiveFlag(),
+			cli.String("snapshot", "").Help("snapshot directory to check, holding claude/ and codex/"),
+		).
+		Run(func(ctx *cli.Context) error {
+			o, err := directories(ctx)
+			if err != nil {
+				return err
+			}
+			snapshot := ctx.String("snapshot")
+			if snapshot != "" {
+				if snapshot, err = expandHome(snapshot); err != nil {
+					return err
+				}
+			}
+			res, err := runVerify(o.ArchiveDir, snapshot)
+			if err != nil {
+				return err
+			}
+			printVerifyResult(ctx.Stdout(), o.ArchiveDir, res)
+			if n := res.problems(); n > 0 {
+				return fmt.Errorf("verify failed: %d problems", n)
+			}
+			ctx.Success("verify passed")
+			return nil
+		})
+
+	schedule := app.Group("schedule").
+		Description("Install or remove the daily LaunchAgent that runs copy (macOS)")
+
+	schedule.Command("install").
+		Description("Install a LaunchAgent that runs copy daily at 03:00 and at login").
+		Long("Run this from the installed binary: the LaunchAgent runs the binary at its current path. " +
+			"Directories that differ from the defaults are written into the LaunchAgent.").
+		Flags(originalsFlags()...).
+		Run(func(ctx *cli.Context) error {
+			o, err := directories(ctx)
+			if err != nil {
+				return err
+			}
+			s, err := newScheduler()
+			if err != nil {
+				return err
+			}
+			return s.install(o, ctx.Stdout())
+		})
+
+	schedule.Command("remove").
+		Description("Unload the LaunchAgent and delete its plist").
+		Run(func(ctx *cli.Context) error {
+			s, err := newScheduler()
+			if err != nil {
+				return err
+			}
+			return s.remove(ctx.Stdout())
+		})
+
+	return app
 }
 
-func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: agent-archive <command> [flags]")
-	fmt.Fprintln(w, "\ncommands:")
-	names := make([]string, 0, len(commands))
-	for name := range commands {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		fmt.Fprintf(w, "  %-9s %s\n", name, commands[name].Summary)
-	}
-	fmt.Fprintln(w, "\nRun agent-archive <command> -h for a command's flags.")
-}
-
-func newFlagSet(name string, stderr io.Writer) *flag.FlagSet {
-	fs := flag.NewFlagSet("agent-archive "+name, flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	return fs
-}
-
-// addFlags adds -archive, and with originals also -claude-dir and
-// -codex-dir. Paths may start with ~/.
-func addFlags(fs *flag.FlagSet, originals bool) *options {
-	o := &options{}
-	fs.StringVar(&o.ArchiveDir, "archive", "~/agent-archive", "archive directory")
-	if originals {
-		fs.StringVar(&o.ClaudeDir, "claude-dir", "~/.claude", "Claude Code directory")
-		fs.StringVar(&o.CodexDir, "codex-dir", "~/.codex", "Codex directory")
-	}
-	return o
-}
-
-// parseFlags parses args and makes the paths in o absolute, expanding ~.
-func parseFlags(fs *flag.FlagSet, args []string, o *options) error {
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return err
+// directories reads the directory flags and makes them absolute, expanding
+// ~. An empty value, from a flag the command lacks or an empty environment
+// variable, means the default.
+func directories(ctx *cli.Context) (options, error) {
+	var o options
+	for _, d := range []struct {
+		dst        *string
+		flag, dflt string
+	}{
+		{&o.ArchiveDir, "archive", defaultArchiveDir},
+		{&o.ClaudeDir, "claude-dir", defaultClaudeDir},
+		{&o.CodexDir, "codex-dir", defaultCodexDir},
+	} {
+		v := ctx.String(d.flag)
+		if v == "" {
+			v = d.dflt
 		}
-		return errUsage
-	}
-	if fs.NArg() > 0 {
-		fmt.Fprintf(fs.Output(), "unexpected argument %q\n", fs.Arg(0))
-		return errUsage
-	}
-	for _, p := range []*string{&o.ArchiveDir, &o.ClaudeDir, &o.CodexDir} {
-		if *p == "" {
-			continue
-		}
-		abs, err := expandHome(*p)
+		abs, err := expandHome(v)
 		if err != nil {
-			return err
+			return o, err
 		}
-		*p = abs
+		*d.dst = abs
 	}
-	return nil
+	return o, nil
 }
 
 // expandHome makes p absolute, expanding a leading ~ to the home directory.

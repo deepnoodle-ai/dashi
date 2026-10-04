@@ -60,9 +60,9 @@ func TestScheduleInstall(t *testing.T) {
 	<array>
 		<string>/Users/me/go/bin/agent-archive</string>
 		<string>copy</string>
-		<string>-archive</string>
+		<string>--archive</string>
 		<string>` + esc(archive) + `</string>
-		<string>-codex-dir</string>
+		<string>--codex-dir</string>
 		<string>/elsewhere/.codex</string>
 	</array>
 	<key>StartCalendarInterval</key>
@@ -203,22 +203,21 @@ func TestScheduleCommandLine(t *testing.T) {
 	newScheduler = func() (scheduler, error) { return s, nil }
 	t.Cleanup(func() { newScheduler = old })
 	archive := t.TempDir()
-	var out, errOut bytes.Buffer
-	if code := run([]string{"schedule", "install", "-archive", archive}, &out, &errOut); code != 0 {
-		t.Fatalf("install exit %d: %s", code, errOut.String())
+	if r := runCLI(t, "schedule", "install", "--archive", archive); r.ExitCode != 0 {
+		t.Fatalf("install exit %d: %v", r.ExitCode, r.Err)
 	}
-	if b, _ := os.ReadFile(s.PlistPath); !strings.Contains(string(b), "<string>"+archive+"</string>") {
-		t.Fatalf("plist lacks -archive:\n%s", b)
+	if b, _ := os.ReadFile(s.PlistPath); !strings.Contains(string(b), "<string>--archive</string>\n\t\t<string>"+archive+"</string>") {
+		t.Fatalf("plist lacks --archive:\n%s", b)
 	}
-	if code := run([]string{"schedule", "remove"}, &out, &errOut); code != 0 {
-		t.Fatalf("remove exit %d: %s", code, errOut.String())
+	if r := runCLI(t, "schedule", "remove"); r.ExitCode != 0 || !r.Contains("removed "+s.PlistPath) {
+		t.Fatalf("remove exit %d: %v", r.ExitCode, r.Err)
 	}
 	if len(f.calls) != 3 {
 		t.Fatalf("calls %v", f.calls)
 	}
-	for _, args := range [][]string{{"schedule"}, {"schedule", "start"}, {"schedule", "remove", "-archive", archive}} {
-		if code := run(args, &out, &errOut); code != 2 {
-			t.Errorf("%v: exit %d, want 2", args, code)
+	for _, args := range [][]string{{"schedule"}, {"schedule", "start"}, {"schedule", "remove", "--archive", archive}} {
+		if r := runCLI(t, args...); r.ExitCode != 1 {
+			t.Errorf("%v: exit %d, want 1", args, r.ExitCode)
 		}
 	}
 }

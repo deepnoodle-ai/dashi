@@ -138,14 +138,15 @@ func (s scheduler) remove(w io.Writer) error {
 	return nil
 }
 
-// plist renders the LaunchAgent. It passes -archive, -claude-dir, and
-// -codex-dir only when they differ from the defaults.
+// plist renders the LaunchAgent. It passes --archive, --claude-dir, and
+// --codex-dir only when they differ from the defaults, so directories set
+// by environment variables reach launchd, which does not see the shell's.
 func (s scheduler) plist(o options) ([]byte, error) {
 	args := []string{s.Executable, "copy"}
 	for _, f := range []struct{ name, value, dflt string }{
-		{"-archive", o.ArchiveDir, "~/agent-archive"},
-		{"-claude-dir", o.ClaudeDir, "~/.claude"},
-		{"-codex-dir", o.CodexDir, "~/.codex"},
+		{"--archive", o.ArchiveDir, defaultArchiveDir},
+		{"--claude-dir", o.ClaudeDir, defaultClaudeDir},
+		{"--codex-dir", o.CodexDir, defaultCodexDir},
 	} {
 		dflt, err := expandHome(f.dflt)
 		if err != nil {

@@ -4,14 +4,18 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+
+	"github.com/deepnoodle-ai/wonton/cli"
+	"github.com/deepnoodle-ai/wonton/color"
 )
 
 // runStatus prints the last copy run, counts by app and kind, the last
 // run's warnings, and copies that failed to parse.
-func runStatus(dir string, w io.Writer) error {
+func runStatus(ctx *cli.Context, dir string) error {
+	w := ctx.Stdout()
 	dbPath := filepath.Join(dir, databaseName)
 	if _, err := os.Stat(dbPath); err != nil {
 		return fmt.Errorf("no database at %s; run agent-archive copy first", dbPath)
@@ -47,7 +51,7 @@ func runStatus(dir string, w io.Writer) error {
 		if warningsJSON.Valid {
 			_ = json.Unmarshal([]byte(warningsJSON.String), &warnings)
 		}
-		fmt.Fprintf(w, "  warnings: %d\n", len(warnings))
+		printCount(w, "  ", "warnings", len(warnings), color.Yellow)
 		for _, x := range warnings {
 			fmt.Fprintf(w, "    %s\n", x)
 		}
@@ -61,7 +65,6 @@ func runStatus(dir string, w io.Writer) error {
 	}
 
 	fmt.Fprintln(w, "\ncopies by app and kind:")
-	fmt.Fprintf(w, "  %-12s %-16s %8s %11s %9s %7s\n", "app", "kind", "current", "superseded", "gone", "failed")
 	rows, err := db.Query(`SELECT app, kind,
 			SUM(superseded_at IS NULL),
 			SUM(superseded_at IS NOT NULL),
@@ -71,6 +74,7 @@ func runStatus(dir string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
+	var table [][]string
 	for rows.Next() {
 		var app, kind string
 		var current, superseded, gone, failed int
@@ -78,10 +82,14 @@ func runStatus(dir string, w io.Writer) error {
 			rows.Close()
 			return err
 		}
-		fmt.Fprintf(w, "  %-12s %-16s %8d %11d %9d %7d\n", app, kind, current, superseded, gone, failed)
+		table = append(table, []string{app, kind,
+			strconv.Itoa(current), strconv.Itoa(superseded), strconv.Itoa(gone), strconv.Itoa(failed)})
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := printTable(w, []string{"app", "kind", "current", "superseded", "gone", "failed"}, table); err != nil {
 		return err
 	}
 
@@ -99,7 +107,8 @@ func runStatus(dir string, w io.Writer) error {
 		}
 		failed = append(failed, p+": "+e)
 	}
-	fmt.Fprintf(w, "\nfailed files: %d\n", len(failed))
+	fmt.Fprintln(w)
+	printCount(w, "", "failed files", len(failed), color.Red)
 	for _, x := range failed {
 		fmt.Fprintf(w, "  %s\n", x)
 	}

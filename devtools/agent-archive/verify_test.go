@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,12 +66,12 @@ func TestVerifyMissingCopy(t *testing.T) {
 			t.Errorf("missing list lacks %s", p)
 		}
 	}
-	var out, errOut bytes.Buffer
-	if code := run([]string{"verify", "-archive", e.opts.ArchiveDir}, &out, &errOut); code != 1 {
-		t.Fatalf("exit %d, want 1", code)
+	r := runCLI(t, "verify", "--archive", e.opts.ArchiveDir)
+	if r.ExitCode != 1 {
+		t.Fatalf("exit %d, want 1", r.ExitCode)
 	}
-	if !strings.Contains(out.String(), "missing from disk: 2") || !strings.Contains(errOut.String(), "2 problems") {
-		t.Fatalf("output:\n%s\n%s", out.String(), errOut.String())
+	if !r.Contains("missing from disk: 2") || r.Err.Error() != "verify failed: 2 problems" {
+		t.Fatalf("output:\n%s\n%v", r.Stdout, r.Err)
 	}
 }
 
@@ -155,33 +154,31 @@ func TestVerifySnapshotCommandLine(t *testing.T) {
 	e.claude("history.jsonl", "a\nb\n", baseTime)
 	e.copy()
 	snap := e.snapshot("claude/history.jsonl", "a\n")
-	var out, errOut bytes.Buffer
-	args := []string{"verify", "-archive", e.opts.ArchiveDir, "-snapshot", snap}
-	if code := run(args, &out, &errOut); code != 0 {
-		t.Fatalf("exit %d: %s%s", code, out.String(), errOut.String())
+	args := []string{"verify", "--archive", e.opts.ArchiveDir, "--snapshot", snap}
+	r := runCLI(t, args...)
+	if r.ExitCode != 0 {
+		t.Fatalf("exit %d: %v\n%s", r.ExitCode, r.Err, r.Stdout)
 	}
-	if !strings.Contains(out.String(), "accepted: 1 (0 equal a copy, 1 are the start of a longer copy)") ||
-		!strings.Contains(out.String(), "verify passed") {
-		t.Fatalf("output:\n%s", out.String())
+	if !r.Contains("accepted: 1 (0 equal a copy, 1 are the start of a longer copy)") ||
+		!r.Contains("verify passed") {
+		t.Fatalf("output:\n%s", r.Stdout)
 	}
 	e.snapshot("claude/history.jsonl", "c\n")
-	out.Reset()
-	if code := run(args, &out, &errOut); code != 1 {
-		t.Fatalf("exit %d, want 1", code)
+	if r = runCLI(t, args...); r.ExitCode != 1 {
+		t.Fatalf("exit %d, want 1", r.ExitCode)
 	}
-	if !strings.Contains(out.String(), "failed, keep these: 1") {
-		t.Fatalf("output:\n%s", out.String())
+	if !r.Contains("failed, keep these: 1") || r.Contains("verify passed") {
+		t.Fatalf("output:\n%s", r.Stdout)
 	}
 	empty := t.TempDir()
-	if code := run([]string{"verify", "-archive", e.opts.ArchiveDir, "-snapshot", empty}, &out, &errOut); code != 1 {
-		t.Fatalf("snapshot without claude/ or codex/: exit %d", code)
+	if r := runCLI(t, "verify", "--archive", e.opts.ArchiveDir, "--snapshot", empty); r.ExitCode != 1 {
+		t.Fatalf("snapshot without claude/ or codex/: exit %d", r.ExitCode)
 	}
 }
 
 func TestVerifyNeedsAnArchive(t *testing.T) {
-	var out, errOut bytes.Buffer
-	if code := run([]string{"verify", "-archive", t.TempDir()}, &out, &errOut); code != 1 ||
-		!strings.Contains(errOut.String(), "no database") {
-		t.Fatalf("exit %d: %s", code, errOut.String())
+	r := runCLI(t, "verify", "--archive", t.TempDir())
+	if r.ExitCode != 1 || !strings.Contains(r.Err.Error(), "no database") {
+		t.Fatalf("exit %d: %v", r.ExitCode, r.Err)
 	}
 }

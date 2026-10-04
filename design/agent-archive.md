@@ -95,7 +95,7 @@ gone; only their typed prompts survive in its `history.jsonl`.
    original again.
 7. **Retire the snapshot by verifying it.** Every snapshot file still has
    its original, so the first daily copy captures everything.
-   `verify -snapshot <dir>` accepts a snapshot file when a copy, current or
+   `verify --snapshot <dir>` accepts a snapshot file when a copy, current or
    superseded, equals it or begins with it (the original grew since).
    Curtis may delete the snapshot once `verify` passes; files that fail are
    listed and kept.
@@ -121,7 +121,7 @@ empty. DuckDB and `zcat | jq` read the raw lines.
 
 - `copy`: copy new and changed originals and update the database.
 - `rebuild`: recreate the database from the copies and the copy log.
-- `verify`: re-hash every copy against the database; `-snapshot` also checks
+- `verify`: re-hash every copy against the database; `--snapshot` also checks
   a snapshot (decision 7).
 - `status`: last copy run, counts, warnings, and failed files.
 - `schedule install` / `schedule remove`: manage the daily LaunchAgent

@@ -21,15 +21,25 @@ cd devtools/agent-archive && go install .
 | `agent-archive copy` | Copy new and changed originals and update the database. |
 | `agent-archive status` | Show the last copy run, counts, warnings, and failed files. |
 | `agent-archive verify` | Re-hash every copy, current and superseded, against the database. |
-| `agent-archive verify -snapshot <dir>` | Also check that every file in a snapshot has a copy that equals it or begins with it. |
+| `agent-archive verify --snapshot <dir>` | Also check that every file in a snapshot has a copy that equals it or begins with it. |
 | `agent-archive rebuild` | Recreate the database from the copy log and the copies. |
 | `agent-archive schedule install` | Install a LaunchAgent that runs `copy` daily at 03:00 and at login (macOS). |
 | `agent-archive schedule remove` | Unload the LaunchAgent and delete its plist. |
 
-All commands but `schedule remove` take `-archive` (default
-`~/agent-archive`); `copy` and `schedule install` also take `-claude-dir` and `-codex-dir`. `verify` exits
-non-zero when it finds a problem. Run `schedule install` from the installed
-binary: the LaunchAgent runs the binary at its current path.
+Run `agent-archive <command> --help` for a command's flags.
+
+| Flag | Default | Environment variable | Taken by |
+| --- | --- | --- | --- |
+| `--archive` | `~/agent-archive` | `AGENT_ARCHIVE_DIR` | all but `schedule remove` |
+| `--claude-dir` | `~/.claude` | `AGENT_ARCHIVE_CLAUDE_DIR` | `copy`, `schedule install` |
+| `--codex-dir` | `~/.codex` | `AGENT_ARCHIVE_CODEX_DIR` | `copy`, `schedule install` |
+
+A flag wins over its environment variable. `schedule install` writes the
+directories into the LaunchAgent, since launchd does not see your shell's
+variables. `verify` exits 1 when it finds a problem, as does any command
+that fails. Output has color only on a terminal; `--no-color` or `NO_COLOR`
+turns it off. Run `schedule install` from the installed binary: the
+LaunchAgent runs the binary at its current path.
 
 ## Archive layout
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"sort"
+
+	"github.com/deepnoodle-ai/wonton/color"
 )
 
 // copySummary is what one copy run did.
@@ -108,7 +110,7 @@ func printCopySummary(w io.Writer, s copySummary) {
 	fmt.Fprintf(w, "modified time only: %d\n", s.ModifiedAt)
 	fmt.Fprintf(w, "originals gone:   %d\n", s.Gone)
 	if len(s.Warnings) > 0 {
-		fmt.Fprintf(w, "warnings (%d):\n", len(s.Warnings))
+		fmt.Fprintln(w, color.Yellow.Apply(fmt.Sprintf("warnings (%d):", len(s.Warnings))))
 		ws := append([]string{}, s.Warnings...)
 		sort.Strings(ws)
 		for _, x := range ws {

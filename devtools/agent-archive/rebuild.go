@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/deepnoodle-ai/wonton/color"
 )
 
 // rebuildSummary is what a rebuild did.
@@ -83,6 +85,6 @@ func removeDatabase(name string) {
 func printRebuildSummary(w io.Writer, dir string, s rebuildSummary) {
 	fmt.Fprintf(w, "rebuilt %s from %d copy log events\n", filepath.Join(dir, databaseName), s.Events)
 	for _, x := range s.Warnings {
-		fmt.Fprintf(w, "warning: %s\n", x)
+		fmt.Fprintln(w, color.Yellow.Apply("warning: "+x))
 	}
 }
