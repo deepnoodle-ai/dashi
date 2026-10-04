@@ -77,14 +77,19 @@ Phase 1's words hold. New ones:
    through the summary's `LineRef`.
 8. **Works by default.** A bad line or an unknown line type is counted and the
    run goes on; each new unknown type adds one run warning. Only an unreadable
-   copy is `failed`. Converted content must pass `llm.Content.Validate`. A
-   reminder that would fail (over 64 KiB, about 14 lines) becomes user text; a
+   copy is `failed`. Converted content must pass `llm.Content.Validate`.
+   Reminder names must match `[a-z][a-z0-9-]*`: a name taken from a source
+   type is lowercased, other characters become `-`, and an empty result is
+   `attachment`. A reminder that would fail (over 64 KiB, about 14 lines) becomes user text; a
    Codex web search without an `id` (537 of 732) gets one made from its line
    number; anything else that would fail is dropped. Each is counted.
 9. **Module.** `go.mod` requires Dashi's current release; `go.work` adds
    `../..`.
 10. **Fixtures are hand-written,** one per tricky case below, in each
-    package's `testdata/`, with placeholder text and made-up ids.
+    package's `testdata/`, with placeholder text and made-up ids. A
+    fixture per reminder source (`isMeta`, an attachment type with `_`,
+    Codex `agent_message`) checks that its reminder passes validation and
+    survives conversion.
 
 ## Database
 
@@ -140,12 +145,12 @@ tree by `parent_agent_id`.
 | Claude Code line | Becomes |
 | --- | --- |
 | `user` text | user `llm.Text` |
-| `user` with `isMeta` | user `llm.Reminder` named `claude_code_meta`, tier `ReminderContextual` |
+| `user` with `isMeta` | user `llm.Reminder` named `claude-code-meta`, tier `ReminderContextual` |
 | `user` with `isCompactSummary` | user text, `CompactionSummary` |
 | `user` `tool_result` | `llm.ToolResult` with `IsError`; `tool_reference` blocks dropped |
 | `user` `image` (base64) | `llm.Image` with inline data |
 | `assistant` lines of one model call | one message; nonempty `thinking` as `llm.Reasoning`; `tool_use` as `tool.Call`; `Source` gets model and `message.id` |
-| `attachment` with `rendered` | user `llm.Reminder` named after its type |
+| `attachment` with `rendered` | user `llm.Reminder` named after its type (decision 8) |
 | other attachments, `system`, metadata lines | `ignored:<type>` |
 
 | Codex line | Becomes |
@@ -153,7 +158,7 @@ tree by `parent_agent_id`.
 | `response_item` `message` | user, developer, or assistant text; `input_image` as `llm.Image` |
 | adjacent `reasoning`, assistant `message`, `*_call` items | one message; `summary` as `llm.Reasoning`; web search as `llm.ProviderToolUse` |
 | `*_output` items | `llm.ToolResult`, `IsError` on a nonzero exit code |
-| `agent_message` | user `llm.Reminder` named `agent_message`, `From` the author |
+| `agent_message` | user `llm.Reminder` named `agent-message`, `From` the author |
 | `compacted` | user text of its `message`, `CompactionSummary` |
 | `event_msg`, `turn_context`, and the rest | `ignored:<type>` |
 
