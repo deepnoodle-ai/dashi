@@ -1,0 +1,4 @@
+{"timestamp":"2026-08-22T17:00:00.000Z","ordinal":4,"type":"session_meta","payload":{"session_id":"t-two","id":"t-two","timestamp":"2026-08-22T16:00:00.000Z","cwd":"/work/demo","originator":"Codex Desktop","cli_version":"0.149.0","source":"vscode","history_base":{"thread_id":"t-two","end_ordinal_exclusive":4}}}
+{"timestamp":"2026-08-22T17:00:01.000Z","ordinal":5,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Second part."}]}}
+{"timestamp":"2026-08-22T17:00:02.000Z","ordinal":6,"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Reply two."}]}}
+{"timestamp":"2026-08-22T17:00:02.100Z","ordinal":7,"type":"token_usage_record","payload":{"response_id":"resp_t2","usage":{"input_tokens":20,"cached_input_tokens":10,"output_tokens":3,"reasoning_output_tokens":0,"total_tokens":23}}}

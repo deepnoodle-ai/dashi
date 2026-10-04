@@ -1,0 +1,4 @@
+{"timestamp":"2026-07-10T06:00:06.000Z","ordinal":0,"type":"session_meta","payload":{"session_id":"r-root","id":"r-eq","forked_from_id":"r-root","timestamp":"2026-07-10T06:00:06.000Z","cwd":"/work/demo","cli_version":"0.144.0","source":{"subagent":{"thread_spawn":{"parent_thread_id":"r-root","depth":1,"agent_path":"/root/other"}}},"subagent_history_start_ordinal":4}}
+{"timestamp":"2026-07-10T06:00:06.100Z","ordinal":1,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Other task."}]}}
+{"timestamp":"2026-07-10T06:00:06.200Z","ordinal":2,"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Other done."}]}}
+{"timestamp":"2026-07-10T06:00:06.300Z","ordinal":3,"type":"token_usage_record","payload":{"response_id":"resp_e1","usage":{"input_tokens":5,"cached_input_tokens":0,"output_tokens":2,"reasoning_output_tokens":0,"total_tokens":7}}}

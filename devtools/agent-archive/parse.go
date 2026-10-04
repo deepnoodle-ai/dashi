@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,8 +10,9 @@ import (
 )
 
 // parserVersion changes whenever the parser's output changes, so copies
-// parsed by an older parser are parsed again.
-const parserVersion = 1
+// parsed by an older parser are parsed again. Version 2 adds phase 2:
+// design/agent-archive-parse.md.
+const parserVersion = 2
 
 // Parse statuses.
 const (
@@ -38,6 +38,9 @@ type sessionFacts struct {
 	WorkingDir string
 	StartedAt  string
 	AppVersion string
+	// ParentThreadID is the thread that started a Codex subagent. Pass 1
+	// stores it in parent_agent_id so linkCodexSessions can find the root.
+	ParentThreadID string
 }
 
 // parseResult is what parsing one copy found.
@@ -182,6 +185,13 @@ func fillCodexFacts(f *sessionFacts, payload json.RawMessage) {
 	if isSubagent {
 		f.AgentID = m.ID
 		f.SessionID = firstNonEmpty(m.SessionID, m.ParentThreadID, m.ID)
+		var spawn struct {
+			ThreadSpawn struct {
+				ParentThreadID string `json:"parent_thread_id"`
+			} `json:"thread_spawn"`
+		}
+		_ = json.Unmarshal(source.Subagent, &spawn)
+		f.ParentThreadID = firstNonEmpty(spawn.ThreadSpawn.ParentThreadID, m.ParentThreadID)
 	}
 	f.WorkingDir = m.Cwd
 	f.AppVersion = m.CLIVersion
@@ -211,80 +221,4 @@ func trimSpace(b []byte) []byte {
 		b = b[1:]
 	}
 	return b
-}
-
-// parsePending parses every copy not yet parsed by this parser version and
-// stores the results. These are recomputed from the copies, never logged.
-func parsePending(db *sql.DB, archiveDir string) error {
-	rows, err := db.Query(`SELECT copy_id, app, kind, copy_path FROM copies
-		WHERE parser_version IS NULL OR parser_version != ? ORDER BY copy_id`, parserVersion)
-	if err != nil {
-		return err
-	}
-	type pending struct {
-		id                  int64
-		app, kind, copyPath string
-	}
-	var todo []pending
-	for rows.Next() {
-		var p pending
-		if err := rows.Scan(&p.id, &p.app, &p.kind, &p.copyPath); err != nil {
-			rows.Close()
-			return err
-		}
-		todo = append(todo, p)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	a := archive{Dir: archiveDir}
-	for _, p := range todo {
-		res := parseCopy(a.abs(p.copyPath), p.app, p.kind)
-		if err := storeParse(db, p.id, p.app, res); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func storeParse(db *sql.DB, copyID int64, app string, res parseResult) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var lineTypes, parseError any
-	if res.LineTypes != nil {
-		b, err := json.Marshal(res.LineTypes) // map keys are sorted
-		if err != nil {
-			return err
-		}
-		lineTypes = string(b)
-	}
-	if res.Error != "" {
-		parseError = res.Error
-	}
-	if _, err := tx.Exec(`UPDATE copies SET parse_status = ?, parse_error = ?, parser_version = ?, line_types = ?
-		WHERE copy_id = ?`, res.Status, parseError, parserVersion, lineTypes, copyID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM sessions WHERE copy_id = ?`, copyID); err != nil {
-		return err
-	}
-	if s := res.Session; s != nil {
-		if _, err := tx.Exec(`INSERT INTO sessions (copy_id, app, session_id, agent_id, working_dir, started_at, app_version)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`, copyID, app, nullIfEmpty(s.SessionID), s.AgentID,
-			nullIfEmpty(s.WorkingDir), nullIfEmpty(s.StartedAt), nullIfEmpty(s.AppVersion)); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-func nullIfEmpty(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
 }

@@ -54,10 +54,12 @@ func runRebuild(dir string) (rebuildSummary, error) {
 			return sum, err
 		}
 	}
-	if err := parsePending(db, dir); err != nil {
+	parsed, err := parsePending(db, dir)
+	if err != nil {
 		db.Close()
 		return sum, err
 	}
+	sum.Warnings = append(sum.Warnings, parsed.Warnings...)
 	if _, err := db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		db.Close()
 		return sum, err

@@ -89,9 +89,11 @@ func runCopy(o options) (copySummary, error) {
 		sum.Gone += gone
 	}
 
-	if err := parsePending(a.DB, a.Dir); err != nil {
+	parsed, err := parsePending(a.DB, a.Dir)
+	if err != nil {
 		return sum, err
 	}
+	a.Warnings = append(a.Warnings, parsed.Warnings...)
 	warnings := append([]string{}, a.Warnings...)
 	seenN, copiedN := sum.OriginalsSeen, sum.OriginalsCopied
 	if err := a.record(logEvent{

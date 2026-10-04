@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -98,19 +99,52 @@ func runStatus(ctx *cli.Context, dir string) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 	var failed []string
 	for rows.Next() {
 		var p, e string
 		if err := rows.Scan(&p, &e); err != nil {
+			rows.Close()
 			return err
 		}
 		failed = append(failed, p+": "+e)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
 	}
 	fmt.Fprintln(w)
 	printCount(w, "", "failed files", len(failed), color.Red)
 	for _, x := range failed {
 		fmt.Fprintf(w, "  %s\n", x)
+	}
+	return printToolErrorCheck(w, db)
+}
+
+// minCallsForErrorCheck is how many tool calls a Codex version needs before
+// zero tool errors looks like a change in how Codex records exit codes.
+const minCallsForErrorCheck = 200
+
+// printToolErrorCheck warns about Codex versions with many tool calls and
+// no tool errors: Codex has no error flag, so tool_errors comes from exit
+// codes in output text, and a format change would silently zero it.
+func printToolErrorCheck(w io.Writer, db *sql.DB) error {
+	rows, err := db.Query(`SELECT s.app_version, SUM(s.tool_calls) FROM sessions s JOIN copies c USING (copy_id)
+		WHERE s.app = ? AND c.superseded_at IS NULL AND s.tool_calls IS NOT NULL
+		GROUP BY s.app_version HAVING SUM(s.tool_calls) >= ? AND SUM(s.tool_errors) = 0
+		ORDER BY s.app_version`, appCodex, minCallsForErrorCheck)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var version sql.NullString
+		var calls int
+		if err := rows.Scan(&version, &calls); err != nil {
+			return err
+		}
+		fmt.Fprintln(w, color.Yellow.Apply(fmt.Sprintf(
+			"warning: Codex %s has %d tool calls and no tool errors; check that its exit code format is still read",
+			version.String, calls)))
 	}
 	return rows.Err()
 }
