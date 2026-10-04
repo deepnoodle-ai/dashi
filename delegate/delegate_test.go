@@ -1524,6 +1524,9 @@ func toolNames(in llm.Input) []string {
 	return names
 }
 
+// TestChildToolsAreFilteredAndNeverIncludeTaskTools checks the tools a
+// child is offered: the parent's, filtered, never a task tool, and always
+// message_parent.
 func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -1534,7 +1537,7 @@ func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 		{
 			name: "all tools except the task tools",
 			sub:  scout(),
-			want: []string{"read", "write"},
+			want: []string{"read", "write", "message_parent"},
 		},
 		{
 			name: "read-only",
@@ -1543,7 +1546,7 @@ func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 				s.ReadOnly = true
 				return s
 			}(),
-			want: []string{"read"},
+			want: []string{"read", "message_parent"},
 		},
 		{
 			name: "named tools",
@@ -1552,14 +1555,14 @@ func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 				s.Agent.Tools = []string{"write", "task", "task_status", "task_stop"}
 				return s
 			}(),
-			want: []string{"write"},
+			want: []string{"write", "message_parent"},
 		},
 		{
 			// A child draws only from the tools the parent agent may use.
 			name:   "the parent's selection",
 			sub:    scout(),
 			parent: []string{"read", "task"},
-			want:   []string{"read"},
+			want:   []string{"read", "message_parent"},
 		},
 		{
 			// A parent that only delegates still gives a worker the tools
@@ -1571,7 +1574,7 @@ func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 				return s
 			}(),
 			parent: []string{"task", "task_status", "task_stop"},
-			want:   []string{"write"},
+			want:   []string{"write", "message_parent"},
 		},
 		{
 			name: "named tools stay read-only",
@@ -1582,7 +1585,7 @@ func TestChildToolsAreFilteredAndNeverIncludeTaskTools(t *testing.T) {
 				return s
 			}(),
 			parent: []string{"task"},
-			want:   []string{"read"},
+			want:   []string{"read", "message_parent"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1617,19 +1620,19 @@ func TestChildRecordsItsResolvedTools(t *testing.T) {
 		{
 			// Nothing to freeze: the child may use every tool.
 			name:    "every parent tool",
-			offered: []string{"read", "write"},
+			offered: []string{"read", "write", "message_parent"},
 		},
 		{
 			name:    "the parent's selection",
 			parent:  []string{"read", "task"},
-			want:    []string{"read"},
-			offered: []string{"read"},
+			want:    []string{"message_parent", "read"},
+			offered: []string{"read", "message_parent"},
 		},
 		{
 			name:    "read-only",
 			sub:     func(s *delegate.Subagent) { s.ReadOnly = true },
-			want:    []string{"read"},
-			offered: []string{"read"},
+			want:    []string{"message_parent", "read"},
+			offered: []string{"read", "message_parent"},
 		},
 		{
 			// A named tool the runner lacks stays, so the child warns.
@@ -1638,15 +1641,22 @@ func TestChildRecordsItsResolvedTools(t *testing.T) {
 				s.Agent.Tools = []string{"write", "task", "missing"}
 			},
 			parent:  []string{"task"},
-			want:    []string{"missing", "write"},
-			offered: []string{"write"},
+			want:    []string{"message_parent", "missing", "write"},
+			offered: []string{"write", "message_parent"},
 		},
 		{
+			// The child may still message its parent.
 			name: "nothing left",
 			sub: func(s *delegate.Subagent) {
 				s.Agent.Tools = []string{"write"}
 				s.ReadOnly = true
 			},
+			want:    []string{"message_parent"},
+			offered: []string{"message_parent"},
+		},
+		{
+			name:    "no tools",
+			sub:     func(s *delegate.Subagent) { s.Agent.NoTools = true },
 			noTools: true,
 		},
 	} {
@@ -1685,8 +1695,8 @@ func TestInheritingChildFollowsADynamicToolset(t *testing.T) {
 		readOnly bool
 		want     string
 	}{
-		{name: "inheriting", want: "read,write,late"},
-		{name: "read-only", readOnly: true, want: "read"},
+		{name: "inheriting", want: "read,write,late,message_parent"},
+		{name: "read-only", readOnly: true, want: "read,message_parent"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var added atomic.Bool
@@ -2241,8 +2251,8 @@ func TestRecoverKeepsTheToolsTheChildStartedWith(t *testing.T) {
 	}
 	h.next(t, delegate.TaskEnded)
 	got := toolNames(h.client.last("child"))
-	if strings.Join(got, ",") != "read" {
-		t.Fatalf("resumed child tools=%v, want [read]", got)
+	if strings.Join(got, ",") != "read,message_parent" {
+		t.Fatalf("resumed child tools=%v, want [read message_parent]", got)
 	}
 	if n := h.ran.Load(); n != 0 {
 		t.Fatalf("a probe ran %d times; write must not run", n)
@@ -2284,8 +2294,8 @@ func TestRecoverKeepsReadOnly(t *testing.T) {
 	}
 	h.next(t, delegate.TaskEnded)
 	got := toolNames(h.client.last("child"))
-	if strings.Join(got, ",") != "read" {
-		t.Fatalf("resumed child tools=%v, want [read]", got)
+	if strings.Join(got, ",") != "read,message_parent" {
+		t.Fatalf("resumed child tools=%v, want [read message_parent]", got)
 	}
 	if n := h.ran.Load(); n != 0 {
 		t.Fatalf("a probe ran %d times; write must not run", n)

@@ -21,6 +21,7 @@ const maxWaitSeconds = 60
 // task_stop. Join it with the tools the agent already has. Children draw
 // from the tools of the runner that runs the call, filtered by each
 // Subagent; they never receive these tools, so a child cannot start a child.
+// Each child gets message_parent instead, bound to its task.
 //
 // The task and task_send tools are marked idempotent when the recorder can
 // load turns. After a crash, the runner runs the call again: the same child
@@ -37,7 +38,11 @@ type taskTools struct{ ts *Tasks }
 // recorder, else the recorder of the runner that asks for tools. Outside a
 // runner it assumes the host will set one that loads turns.
 func (t taskTools) resumable(ctx context.Context) bool {
-	if r := t.ts.cfg.Runner.Recorder; r != nil {
+	return t.ts.resumable(ctx)
+}
+
+func (ts *Tasks) resumable(ctx context.Context) bool {
+	if r := ts.cfg.Runner.Recorder; r != nil {
 		return loads(r)
 	}
 	if parent, ok := dashi.CurrentRunner(ctx); ok {
@@ -62,8 +67,9 @@ func (t taskTools) Tools(ctx context.Context) ([]tool.Tool, error) {
 	start := tool.Definition{
 		Name: ToolName,
 		Description: "Start a subagent on a focused task. It runs in the " +
-			"background and this call returns at once with a task ID. Keep " +
-			"working. A message arrives when the task ends. The subagent " +
+			"background and this call returns at once with a task ID, or " +
+			"after up to wait_seconds. Keep working, or end your turn to " +
+			"wait: a message arrives when the task ends. The subagent " +
 			"starts with no memory of this conversation and returns one " +
 			"answer; task_send gives it a correction or a follow-up. " +
 			"Subagents:" + list.String(),
@@ -82,6 +88,13 @@ func (t taskTools) Tools(ctx context.Context) ([]tool.Tool, error) {
 				"type":        "string",
 				"description": "A label of a few words for display.",
 			},
+			"wait_seconds": map[string]any{
+				"type":    "integer",
+				"minimum": 0,
+				"maximum": maxWaitSeconds,
+				"description": "How long to wait for the task's answer or a " +
+					"message from it before this call returns. Default 0.",
+			},
 		}, "subagent", "prompt", "description"),
 		Kind: tool.KindLocal,
 	}
@@ -93,9 +106,9 @@ func (t taskTools) Tools(ctx context.Context) ([]tool.Tool, error) {
 		Description: "Read the state of background tasks. With task_id: " +
 			"progress of a running task, or the state and answer of an " +
 			"ended one. Without task_id: one line per task. wait_seconds " +
-			"holds the call until the task ends (without task_id, until " +
-			"the next task ends) or the time is up. Do not poll: a message " +
-			"arrives when a task ends.",
+			"holds the call until the task ends or sends you a message " +
+			"(without task_id, any task), or the time is up. Do not poll: " +
+			"a message arrives when a task ends.",
 		Schema: mustSchema(map[string]any{
 			"task_id": map[string]any{
 				"type":        "string",
@@ -186,6 +199,17 @@ type taskArgs struct {
 	Subagent    string `json:"subagent"`
 	Prompt      string `json:"prompt"`
 	Description string `json:"description"`
+	WaitSeconds int    `json:"wait_seconds"`
+}
+
+// checkWait checks wait_seconds and returns the wait.
+func checkWait(seconds int) (time.Duration, error) {
+	if seconds < 0 || seconds > maxWaitSeconds {
+		return 0, fmt.Errorf(
+			"delegate: wait_seconds must be 0 to %d", maxWaitSeconds,
+		)
+	}
+	return time.Duration(seconds) * time.Second, nil
 }
 
 func parseTaskArgs(raw []byte) (taskArgs, error) {
@@ -204,6 +228,10 @@ func (ts *Tasks) execStart(
 	}
 	if strings.TrimSpace(args.Prompt) == "" {
 		return tool.Outcome{}, errors.New("delegate: prompt is required")
+	}
+	wait, err := checkWait(args.WaitSeconds)
+	if err != nil {
+		return tool.Outcome{}, err
 	}
 	sub, ok := ts.find(args.Subagent)
 	if !ok {
@@ -242,12 +270,49 @@ func (ts *Tasks) execStart(
 			v.ID, v.Subagent, v.Description, v.State, v.ID,
 		)), nil
 	}
-	return tool.Succeeded(fmt.Sprintf(
+	started := fmt.Sprintf(
 		"Started task %s (%s): %s. It runs in the background. A message "+
 			"that starts with \"[task %s\" arrives when it ends. Keep "+
 			"working. Do not poll.",
 		v.ID, v.Subagent, v.Description, v.ID,
-	)), nil
+	)
+	if wait == 0 {
+		return tool.Succeeded(started), nil
+	}
+	// The wait counts every message of the task, so one sent before the
+	// wait began still ends it.
+	v, final, steers, err := ts.awaitOne(ctx, v.ID, wait, 0)
+	if err != nil {
+		return tool.Outcome{}, err
+	}
+	var d statusData
+	text := started
+	if !v.Running() {
+		text = describe(v, true)
+		if final {
+			d.DeliveredTurnID = v.TurnID
+		}
+	}
+	if len(steers) > 0 {
+		var lines string
+		lines, d.DeliveredMessageIDs = steerLines(steers)
+		text += "\n" + lines
+	}
+	return withStatusData(tool.Succeeded(text), d)
+}
+
+// withStatusData records what a result delivered in its outcome's Data,
+// when it delivered anything.
+func withStatusData(out tool.Outcome, d statusData) (tool.Outcome, error) {
+	if d.DeliveredTurnID == "" && len(d.DeliveredMessageIDs) == 0 {
+		return out, nil
+	}
+	var err error
+	out.Data, err = json.Marshal(d)
+	if err != nil {
+		return tool.Outcome{}, err
+	}
+	return out, nil
 }
 
 type statusArgs struct {
@@ -263,37 +328,44 @@ func (ts *Tasks) execStatus(
 	if err := json.Unmarshal(call.Args, &args); err != nil {
 		return tool.Outcome{}, fmt.Errorf("delegate: read arguments: %w", err)
 	}
-	if args.WaitSeconds < 0 || args.WaitSeconds > maxWaitSeconds {
-		return tool.Outcome{}, fmt.Errorf(
-			"delegate: wait_seconds must be 0 to %d", maxWaitSeconds,
-		)
+	wait, err := checkWait(args.WaitSeconds)
+	if err != nil {
+		return tool.Outcome{}, err
 	}
-	wait := time.Duration(args.WaitSeconds) * time.Second
+	var d statusData
+	var text string
+	var steers []parentSteer
 	if args.TaskID != "" {
-		v, final, err := ts.awaitOne(ctx, args.TaskID, wait)
+		var v TaskView
+		var final bool
+		v, final, steers, err = ts.awaitOne(ctx, args.TaskID, wait, -1)
 		if err != nil {
 			return tool.Outcome{}, err
 		}
-		out := tool.Succeeded(describe(v, true))
+		text = describe(v, true)
 		if final {
 			// The record names the child turn whose result the model saw,
 			// so a host can skip its notice (see DeliveredNotices).
-			out.Data, err = json.Marshal(statusData{DeliveredTurnID: v.TurnID})
-			if err != nil {
-				return tool.Outcome{}, err
-			}
+			d.DeliveredTurnID = v.TurnID
 		}
-		return out, nil
+	} else {
+		var views []TaskView
+		views, steers = ts.awaitAny(ctx, wait)
+		if len(views) == 0 {
+			return tool.Succeeded("No tasks."), nil
+		}
+		lines := make([]string, len(views))
+		for i, v := range views {
+			lines[i] = describe(v, false)
+		}
+		text = strings.Join(lines, "\n")
 	}
-	views := ts.awaitAny(ctx, wait)
-	if len(views) == 0 {
-		return tool.Succeeded("No tasks."), nil
+	if len(steers) > 0 {
+		var lines string
+		lines, d.DeliveredMessageIDs = steerLines(steers)
+		text += "\n" + lines
 	}
-	lines := make([]string, len(views))
-	for i, v := range views {
-		lines[i] = describe(v, false)
-	}
-	return tool.Succeeded(strings.Join(lines, "\n")), nil
+	return withStatusData(tool.Succeeded(text), d)
 }
 
 func (ts *Tasks) execStop(
@@ -342,14 +414,17 @@ func (ts *Tasks) unknown(id string) error {
 	)
 }
 
-// awaitOne returns the view of one task, after it ends or the wait is over,
-// and whether the view holds the final result that the turn's notice
-// carries (see finalLocked).
+// awaitOne returns the view of one task, after its turn ends, it sends a
+// steer message to the parent, or the wait is over. It also reports
+// whether the view holds the final result that the turn's notice carries
+// (see finalLocked), and returns the steer messages past the first since;
+// a negative since counts from now.
 func (ts *Tasks) awaitOne(
 	ctx context.Context,
 	id string,
 	wait time.Duration,
-) (TaskView, bool, error) {
+	since int,
+) (TaskView, bool, []parentSteer, error) {
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	for {
@@ -357,20 +432,24 @@ func (ts *Tasks) awaitOne(
 		t, ok := ts.tasks[id]
 		if !ok {
 			ts.mu.Unlock()
-			return TaskView{}, false, ts.unknown(id)
+			return TaskView{}, false, nil, ts.unknown(id)
+		}
+		if since < 0 {
+			since = len(t.steers)
 		}
 		v, ch := ts.viewLocked(t, nil), ts.changed
 		final := finalLocked(t)
+		steers := t.steersSince(since)
 		ts.mu.Unlock()
-		if !v.Running() || wait == 0 {
-			return v, final, nil
+		if !v.Running() || wait == 0 || len(steers) > 0 {
+			return v, final, steers, nil
 		}
 		select {
 		case <-ch:
 		case <-timer.C:
-			return v, final, nil
+			return v, final, nil, nil
 		case <-ctx.Done():
-			return v, final, nil
+			return v, final, nil, nil
 		}
 	}
 }
@@ -384,17 +463,21 @@ func finalLocked(t *task) bool {
 	return c != nil && c.state != TaskRunning && !c.deferred && !c.suppressed
 }
 
-// awaitAny returns every task after the running turn of a task ends, or
-// after the wait is over. With no running task, or no wait, it returns at once.
-func (ts *Tasks) awaitAny(ctx context.Context, wait time.Duration) []TaskView {
+// awaitAny returns every task after the running turn of a task ends or a
+// task sends a steer message to the parent, or after the wait is over, with
+// the steer messages sent while it waited. With no running task, or no
+// wait, it returns at once.
+func (ts *Tasks) awaitAny(ctx context.Context, wait time.Duration) ([]TaskView, []parentSteer) {
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	var running map[string]bool
+	var since map[string]int
 	for {
 		ts.mu.Lock()
 		if running == nil {
-			running = map[string]bool{}
+			running, since = map[string]bool{}, map[string]int{}
 			for id, t := range ts.tasks {
+				since[id] = len(t.steers)
 				if t.state() == TaskRunning {
 					running[id] = true
 				}
@@ -406,19 +489,24 @@ func (ts *Tasks) awaitAny(ctx context.Context, wait time.Duration) []TaskView {
 		}
 		ch := ts.changed
 		views := make([]TaskView, 0, len(ts.order))
+		var steers []parentSteer
 		for _, id := range ts.order {
-			views = append(views, ts.viewLocked(ts.tasks[id], nil))
+			t := ts.tasks[id]
+			views = append(views, ts.viewLocked(t, nil))
+			if n, ok := since[id]; ok {
+				steers = append(steers, t.steersSince(n)...)
+			}
 		}
 		ts.mu.Unlock()
-		if wait == 0 || len(running) == 0 || ended {
-			return views
+		if wait == 0 || len(running) == 0 || ended || len(steers) > 0 {
+			return views, steers
 		}
 		select {
 		case <-ch:
 		case <-timer.C:
-			return views
+			return views, nil
 		case <-ctx.Done():
-			return views
+			return views, nil
 		}
 	}
 }

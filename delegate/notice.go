@@ -64,6 +64,9 @@ func (n Notice) Text() string {
 	if v.Reason != "" {
 		sb.WriteString("\nReason: " + v.Reason)
 	}
+	if v.State == TaskState(dashi.StopCompleted) {
+		sb.WriteString("\nIt can take a follow-up: reply with task_send.")
+	}
 	switch n := v.UnreadMessages; {
 	case n == 1:
 		sb.WriteString("\nYour message was not read. Send it again if it " +
@@ -152,28 +155,39 @@ func DeliveredNotices(turns []dashi.Turn) map[string]bool {
 	return out
 }
 
-// statusData is the tool.Outcome.Data of a task_status call that returned
-// a turn's final result. The record keeps it, so delivery never depends on
-// the text the model saw.
+// statusData is the tool.Outcome.Data of a task_status call, or of a task
+// call that waited, that returned a turn's final result or the text of
+// messages from tasks. The record keeps it, so delivery never depends on the
+// text the model saw.
 type statusData struct {
 	// DeliveredTurnID is the child turn whose result the call delivered.
-	DeliveredTurnID string `json:"delivered_turn_id"`
+	DeliveredTurnID string `json:"delivered_turn_id,omitempty"`
+	// DeliveredMessageIDs are the messages to the parent whose text the
+	// call returned.
+	DeliveredMessageIDs []string `json:"delivered_message_ids,omitempty"`
 }
 
 // statusDelivery returns the child turn whose result a step's finished
-// task_status call delivered, or "". The runner records Data only when the
-// model saw the result the tool returned, so a result that a hook changed or
-// the limit shortened has no marker and does not count.
+// task_status or task call delivered, or "".
 func statusDelivery(step dashi.Step) string {
+	return statusRead(step).DeliveredTurnID
+}
+
+// statusRead returns what a step's finished task_status or task call
+// delivered. The runner records Data only when the model saw the result the
+// tool returned, so a result that a hook changed or the limit shortened has
+// no marker and does not count.
+func statusRead(step dashi.Step) statusData {
 	f := step.Tool
 	if step.Kind != dashi.StepToolFinished || f == nil ||
-		f.Call.Name != StatusToolName || f.Outcome == nil ||
-		f.Outcome.State != tool.StateSucceeded || len(f.Outcome.Data) == 0 {
-		return ""
+		f.Call.Name != StatusToolName && f.Call.Name != ToolName ||
+		f.Outcome == nil || f.Outcome.State != tool.StateSucceeded ||
+		len(f.Outcome.Data) == 0 {
+		return statusData{}
 	}
 	var d statusData
 	if json.Unmarshal(f.Outcome.Data, &d) != nil {
-		return ""
+		return statusData{}
 	}
-	return d.DeliveredTurnID
+	return d
 }

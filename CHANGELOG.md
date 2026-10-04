@@ -120,6 +120,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   named in the notice; a send never reports success and then vanishes.
   `Report` counts the child turns a `task_send` call started
   under the parent turn that sent it.
+- **`message_parent`: a task can message its parent.** Every child gets the
+  tool, bound to its task, so the message is an `agent-message` reminder from
+  `task t_k3f2 (explore)` whatever the text says. A steer reaches a busy
+  parent before its next model call; `queue` waits for its turn to end. With
+  `Config.Session`, `Tasks` delivers it; without, `OnTask` gets the new
+  `TaskMessage` event (`TaskEvent.Message`). One child turn wakes an idle
+  parent at most once: its later messages join its notice. `MaxMessages`
+  bounds the messages of one child turn too. Each message is delivered once,
+  across crashes and `Recover`; `DeliveredMessages` reads the IDs a record
+  holds. `Tasks.Wait` and `RunUntilQuiet` wake on messages. A notice of a
+  completed turn says the task takes a follow-up.
+- **`wait_seconds` on `task`.** The call waits up to 60 seconds for the
+  task's answer or a message from it. `task_status` waits also end on a
+  message. When the message reached the running parent turn, the result says
+  it follows; otherwise the result holds its text.
 - **Decide examples.** `examples/decide` uses a decision model (Jev or Clef,
   through the Decide library) as a judge inside hooks: a risk gate on tool
   calls, a prompt-injection screen on tool results, and per-turn tool

@@ -4,10 +4,12 @@
 // working. The model can later call "task_status" to read the state or the
 // reply, "task_send" to send the task a message, and "task_stop" to end a
 // task. A message steers into the task's running turn, or starts its next
-// turn, so a finished task takes a follow-up with its memory. When a turn of
-// a task ends, the agent gets a notice: Tasks puts it on Config.Session, or the host routes
-// it from Config.OnTask. A notice whose result a recorded task_status call
-// already returned is not delivered again (see DeliveredNotices).
+// turn, so a finished task takes a follow-up with its memory. A task sends
+// its parent a message with "message_parent", the one tool a child gets
+// from delegate. When a turn of a task ends, the agent gets a notice. Tasks
+// puts notices and messages on Config.Session, or the host routes them from
+// Config.OnTask. A notice whose result a recorded task_status call already
+// returned is not delivered again (see DeliveredNotices).
 //
 // A Tasks value owns the running children. The host creates one for each
 // conversation, so a child does not depend on one tool call or one Turn.
@@ -41,7 +43,6 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/session"
-	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // Names of the tools that Tasks.Tools provides.
@@ -54,6 +55,9 @@ const (
 	StopToolName = "task_stop"
 	// SendToolName sends a message to a task.
 	SendToolName = "task_send"
+	// MessageParentToolName sends the parent a message. Only a task's child
+	// session has it, bound to that task.
+	MessageParentToolName = "message_parent"
 )
 
 // Subagent is a kind of child that the model can choose.
@@ -139,25 +143,29 @@ type Config struct {
 	// goroutine and must return promptly.
 	OnChild func(ChildEvent)
 	// OnTask receives a TaskStarted event when a child turn starts or
-	// resumes and a TaskEnded event when it ends. Without Session, the host
-	// decides how a result reaches the agent (see Notice). It runs on the
-	// task's goroutine and must return promptly. TaskEnded fires once for
-	// each child turn in one process. It does not fire when Close
-	// interrupts a turn.
+	// resumes, a TaskEnded event when it ends, and a TaskMessage event when
+	// a task sends its parent a message. Without Session, the host decides
+	// how a result or a message reaches the agent (see Notice and Message).
+	// It runs on the task's goroutine and must return promptly. TaskEnded
+	// fires once for each child turn in one process. It does not fire when
+	// Close interrupts a turn.
 	OnTask func(TaskEvent)
 	// Session, when set, is the parent's session, and Tasks puts each
-	// notice on it before OnTask runs: SteerItem reaches the running turn,
-	// or queues the notice for a queue turn when no turn runs (see
-	// RunUntilQuiet). A session with a host Steering source, or one that is
-	// compacting, gets the notice on its queue. NewTasks sets the session's
-	// Delivered function, so a queue turn drops a notice that the record
-	// shows delivered. Nil means the host routes notices from OnTask.
+	// notice and message on it before OnTask runs: SteerItem reaches the
+	// running turn, or queues the item for a queue turn when no turn runs
+	// (see RunUntilQuiet). A session with a host Steering source, or one
+	// that is compacting, gets the item on its queue. One child turn wakes
+	// an idle session at most once by message: its later messages join its
+	// notice. NewTasks sets the session's Delivered function, so a queue
+	// turn drops a notice or message that the record shows delivered. Nil
+	// means the host routes notices and messages from OnTask.
 	Session *session.Session
 	// MaxTaskTurns bounds the turns of one child session. Zero means 10; a
 	// negative value means no bound. Past it, task_send refuses.
 	MaxTaskTurns int
-	// MaxMessages bounds the messages that one parent turn sends to one
-	// task. Zero means 8; a negative value means no bound.
+	// MaxMessages bounds the messages that one sending turn sends to one
+	// recipient: a parent turn to one task, or a child turn to its parent.
+	// Zero means 8; a negative value means no bound.
 	MaxMessages int
 	// PrepareStart may append checked evidence and pin generation settings,
 	// active compaction, and the agent version before a new child is recorded.
@@ -274,29 +282,4 @@ func startedIn(turn dashi.Turn, view dashi.TurnView, parentID string) bool {
 		}
 	}
 	return false
-}
-
-// withoutTaskTools is the parent toolset less the task tools, so a child
-// cannot start a child. It resolves the parent on every model call, so a
-// dynamic toolset such as an MCP server keeps its live behavior inside the
-// child; the child's recorded Agent.Tools decides which tools it offers.
-type withoutTaskTools struct {
-	parent tool.Toolset
-}
-
-func (w withoutTaskTools) Tools(ctx context.Context) ([]tool.Tool, error) {
-	if w.parent == nil {
-		return nil, nil
-	}
-	all, err := w.parent.Tools(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var out []tool.Tool
-	for _, t := range all {
-		if !isTaskTool(t.Definition.Name) {
-			out = append(out, t)
-		}
-	}
-	return out, nil
 }

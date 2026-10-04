@@ -85,7 +85,8 @@ const (
 
 type Message struct {
     ID       string   // MessageID of the sending call
-    From, To string   // "parent" or a task ID
+    From     string   // "parent" or "task t_k3f2 (explore)", as the reminder shows it
+    To       string   // "parent" or a task ID
     Text     string
     Delivery Delivery
 }
@@ -151,6 +152,15 @@ starts a parent queue turn. Its later messages steer into a running parent
 turn, or wait in `Tasks` and join its notice at the end. So a task starts at
 most `MaxTaskTurns` parent turns by message, plus one notice per turn.
 
+As built (track 4): `Tasks` reads "running" from `Config.Session.Open`
+(`Next == NextRunning`); a state it cannot read counts as running, so the
+message goes out at once. A message that races the turn's end lands in the
+queue, as any steer that misses its turn does. Held messages go out just
+before the notice, so one queue turn carries both. The parent is never an
+undeliverable recipient: its session queue holds mail behind a `waiting`
+turn until the host resolves it, as it holds notices. `Recover`'s
+redeliveries do not wait for a notice.
+
 ## Tools (tracks 3 and 4)
 
 | Tool | Who | Arguments | Result |
@@ -172,8 +182,11 @@ The `message_parent` description says when to use it: a finding that changes
 the parent's plan, a blocker, or a question the child can work around; all
 else goes in the reply. A question it cannot work around ends its turn with
 the question (PRD decision 7). A child gets `message_parent` and none of the
-`task*` tools; `withoutTaskTools` becomes a child toolset that adds it, bound
-to that task.
+`task*` tools; the child toolset (`childTools`) adds it, bound to that task.
+A restricted child records it in `Agent.Tools`; only a subagent with
+`NoTools` goes without. A message held for the notice returns "Sent to your
+parent. It reads it with your final answer." A completed notice ends with
+"It can take a follow-up: reply with task_send." (UC-5).
 
 **Waits.** `wait_seconds` on `task` and `task_status` returns when the task
 (any task, without `task_id`) ends a turn or sends a steer message, when the
@@ -181,7 +194,10 @@ time is up, or when the call's context ends. The result omits the content
 and says "A message from t_k3f2 follows" only when `Tasks` steered it into
 `Config.Session` successfully before the `changed` channel closed; the next
 model call then holds it once. Otherwise (no `Config.Session`, a failed
-steer) the result holds the text. A plain read still returns the reply.
+steer) the result holds the text, and its `Data` (`delivered_message_ids`)
+marks the message delivered, so a queue turn drops it. A `task` wait that
+returns the final result records `delivered_turn_id`, as `task_status`
+does. A plain read still returns the reply.
 
 ## Sender tags and authority (track 1)
 
@@ -247,15 +263,18 @@ IDs, the message ID.
   child turns, whose rerun sends now see those sets; then for each finished
   `task_send` in the parent turns, redeliver it if the child lacks its ID;
   for each finished `message_parent` in the child turns, redeliver it if the
-  parent lacks its ID; then notices, as today. Each redelivery goes through
-  `deliver`, so it follows the table. A resumed child gets its messages as
-  its turn resumes, before that turn can end, so the turn's end handles them
-  like any mail. `Recover` skips an undeliverable message and never sends to
-  a `waiting` or `result_unknown` recipient, so it neither fails nor retries
-  on one; the message appears as "not read" in the notice. A redelivery that
-  fails for another reason, such as a store that refuses the turn, is an
-  error that `Recover` returns after the rest; the next `Recover` tries
-  again. A redelivery passes `MaxTaskTurns`, as it passes the other caps.
+  parent lacks its ID (as built, before the notices, so both reach one
+  queue turn); then notices, as today. The parent's set comes from
+  `DeliveredMessages(turns)`, which also backs the parent session's
+  `Delivered`. Each redelivery goes through `deliver`, so it follows the
+  table. A resumed child gets its messages as its turn resumes, before that
+  turn can end, so the turn's end handles them like any mail. `Recover`
+  skips an undeliverable message and never sends to a `waiting` or
+  `result_unknown` recipient, so it neither fails nor retries on one; the
+  message appears as "not read" in the notice. A redelivery that fails for
+  another reason, such as a store that refuses the turn, is an error that
+  `Recover` returns after the rest; the next `Recover` tries again. A
+  redelivery passes `MaxTaskTurns`, as it passes the other caps.
 - Crash tests: before send, after send, after delivery, "delivered, call
   not finished, turn resumed" (the resumed turn reruns the call), and
   "steered into a running child that then stops `waiting` before reading
