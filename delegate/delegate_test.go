@@ -74,7 +74,12 @@ func (c *fakeClient) Send(
 	c.mu.Lock()
 	c.inputs = append(c.inputs, in)
 	c.mu.Unlock()
-	result, err := c.handle(ctx, in)
+	handle := c.handle
+	if role(in) == "sender" {
+		// A parent turn that sends messages (see send_test.go).
+		handle = senderModel
+	}
+	result, err := handle(ctx, in)
 	result.Requested = llm.ModelRef{
 		Provider: "test",
 		Model:    call.Request.Snapshot().Origin.Model,
@@ -1891,7 +1896,7 @@ func TestTaskToolOutsideRunnerIsFatal(t *testing.T) {
 
 func TestDefaultCatalogHasExploreAndGeneral(t *testing.T) {
 	list, err := delegate.NewTasks(delegate.Config{}).Tools().Tools(t.Context())
-	if err != nil || len(list) != 3 {
+	if err != nil || len(list) != 4 {
 		t.Fatalf("tools=%d err=%v", len(list), err)
 	}
 	schema := string(list[0].Definition.Schema)
