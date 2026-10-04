@@ -304,7 +304,7 @@ func TestAutomationOutputFailureCancelsOwnedExecution(t *testing.T) {
 }
 func TestAutomationFormatsAndRoutes(t *testing.T) {
 	for _, args := range [][]string{{"--output-format", "JSON"}, {"--output-format", "json", "--plain"}, {"--output-format", "text", "--inline"}, {"models", "--output-format", "json"}} {
-		if _, err := parseArgs(args); err == nil {
+		if _, err := parseArgs(args, io.Discard); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
 	}

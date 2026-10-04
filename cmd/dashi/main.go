@@ -28,13 +28,12 @@ func run(
 	stdin io.Reader,
 	stdout, stderr io.Writer,
 ) int {
-	o, err := parseArgs(args)
+	o, err := parseArgs(args, stdout)
 	if err != nil {
-		fmt.Fprintf(stderr, "dashi: %v\n\n%s", err, usage)
+		fmt.Fprintf(stderr, "dashi: %v\n", err)
 		return 2
 	}
 	if o.Help {
-		fmt.Fprint(stdout, usage)
 		return 0
 	}
 	dir, err := workDir()

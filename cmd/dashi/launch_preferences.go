@@ -92,13 +92,12 @@ func resolveLaunchPreferences(o Options, registry, trusted map[string]configured
 		if !present {
 			continue
 		}
-		// The shared flag parser validates identical syntax, including omission.
-		args := []string{control.flag + "=" + value}
-		parsed, err := parseArgs(args)
-		if err != nil {
+		// The variable shares the flag's syntax, including omission.
+		var parsed generationPreferences
+		if err := parsed.setControl(control.flag, value); err != nil {
 			return launchPreferences{}, fmt.Errorf("invalid %s", control.name)
 		}
-		tiers = append(tiers, generationTier{generationPreferences: parsed.Controls, Source: source(control.name)})
+		tiers = append(tiers, generationTier{generationPreferences: parsed, Source: source(control.name)})
 	}
 	tiers = append(tiers,
 		generationTier{generationPreferences: reopened.generationPreferences, Source: "reopened session"},

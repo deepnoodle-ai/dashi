@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,11 +99,11 @@ func TestMCPTimeoutAndConfigFlag(t *testing.T) {
 	if cfg.timeout != 250*time.Millisecond {
 		t.Fatal(cfg.timeout)
 	}
-	o, err := parseArgs([]string{"--mcp-config", "one.json", "--mcp-config=two.json"})
+	o, err := parseArgs([]string{"--mcp-config", "one.json", "--mcp-config=two.json"}, io.Discard)
 	if err != nil || len(o.MCPFiles) != 2 {
 		t.Fatalf("o=%+v err=%v", o, err)
 	}
-	if _, err := parseArgs([]string{"--mcp-config="}); err == nil {
+	if _, err := parseArgs([]string{"--mcp-config="}, io.Discard); err == nil {
 		t.Fatal("empty config accepted")
 	}
 }

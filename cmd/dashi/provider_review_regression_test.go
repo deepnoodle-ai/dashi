@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 func TestExplicitEmptySelectorsCannotDispatchDefaults(t *testing.T) {
 	for _, flag := range []string{"--model", "--provider", "--api-endpoint", "--workspace", "--env-file"} {
 		for _, args := range [][]string{{flag + "="}, {flag, ""}, {flag, " "}} {
-			if _, err := parseArgs(args); err == nil {
+			if _, err := parseArgs(args, io.Discard); err == nil {
 				t.Fatalf("empty explicit %s accepted", flag)
 			}
 		}

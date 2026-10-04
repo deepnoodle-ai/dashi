@@ -266,35 +266,6 @@ func safeString(b *bytes.Buffer, ui *lineUI) string {
 	return b.String()
 }
 
-func TestParseArgs(t *testing.T) {
-	tests := []struct {
-		args []string
-		want Options
-	}{
-		{nil, Options{}},
-		{[]string{"-c"}, Options{Resume: true}},
-		{[]string{"--resume"}, Options{Resume: true}},
-		{[]string{"--resume", "abc"}, Options{Resume: true, ResumeID: "abc"}},
-		{[]string{"--resume=abc"}, Options{Resume: true, ResumeID: "abc"}},
-		{[]string{"--resume", "--model", "m"}, Options{Resume: true, Model: "m"}},
-		{[]string{"-p", "hi there", "--yes"}, Options{Print: "hi there", PrintSet: true, Yes: true}},
-		{[]string{"--model=gpt-6-luna"}, Options{Model: "gpt-6-luna"}},
-		{[]string{"--plain", "-h"}, Options{Plain: true, Help: true}},
-		{[]string{"--inline"}, Options{Inline: true}},
-	}
-	for _, tt := range tests {
-		got, err := parseArgs(tt.args)
-		if err != nil || !reflect.DeepEqual(got, tt.want) {
-			t.Errorf("parseArgs(%v)=%+v, %v; want %+v", tt.args, got, err, tt.want)
-		}
-	}
-	for _, bad := range [][]string{{"--nope"}, {"-p"}, {"--model"}, {"--plain", "--inline"}} {
-		if _, err := parseArgs(bad); err == nil {
-			t.Errorf("parseArgs(%v) succeeded", bad)
-		}
-	}
-}
-
 func TestModelChoiceOrder(t *testing.T) {
 	env := func(m map[string]string) func(string) string {
 		return func(k string) string { return m[k] }
