@@ -1118,13 +1118,13 @@ func TestSendRefusesAStoppingChild(t *testing.T) {
 	h.quiet(t)
 }
 
-// When two task_send calls run at once and the turn the first starts fails
-// before the record holds it, only that call fails. The other call's
-// message, sent with success while the turn was starting, still reaches the
-// child, once.
-func TestFailedTurnStartKeepsOtherMail(t *testing.T) {
+// When two task_send calls run at once and the turn that one starts fails
+// before the record holds it, a call that waits on that turn fails with it:
+// the other call either arrived while the turn started and fails too, or
+// came later and started its own turn. Either way, a call that returned
+// success reached the child once, and a call that failed never did.
+func TestFailedTurnStartFailsTheSendsThatWaitOnIt(t *testing.T) {
 	var store *failRecorder
-	finished := make(chan struct{}, 2)
 	h := newHarness(t, scripted(follows), delegate.Config{},
 		func(m *dashi.MemoryRecorder) dashi.Recorder {
 			store = &failRecorder{Recorder: m}
@@ -1134,20 +1134,24 @@ func TestFailedTurnStartKeepsOtherMail(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.next(t, delegate.TaskEnded)
+	var calls atomic.Int32
+	both := make(chan struct{})
 	var once sync.Once
 	fail := func(r dashi.CommitRequest) bool {
-		if r.Step.TurnID == sendTurn && r.Step.Kind == dashi.StepToolFinished {
-			finished <- struct{}{}
-			return false
+		if r.Step.TurnID == sendTurn && r.Step.Kind == dashi.StepToolStarted &&
+			calls.Add(1) == 2 {
+			close(both)
 		}
 		if r.Step.TurnID != childTurn(2) || r.Step.Kind != dashi.StepTurnStarted {
 			return false
 		}
 		failed := false
 		once.Do(func() {
-			// Fail the start only once the other call has succeeded.
+			// Fail the first start once both calls run, so the second call
+			// most often arrives while the turn starts.
 			select {
-			case <-finished:
+			case <-both:
+				time.Sleep(20 * time.Millisecond)
 			case <-time.After(5 * time.Second):
 			}
 			failed = true
@@ -1169,28 +1173,193 @@ func TestFailedTurnStartKeepsOtherMail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, failed1 := sendResult(t, out.TurnView, 1)
-	_, failed2 := sendResult(t, out.TurnView, 2)
-	if failed1 == failed2 {
-		t.Fatalf("send-1 failed=%v send-2 failed=%v, want one failure", failed1, failed2)
+	h.quiet(t)
+	failures, turns := 0, 1
+	for n := 1; n <= 2; n++ {
+		got, failed := sendResult(t, out.TurnView, n)
+		want := 1
+		if failed {
+			failures++
+			want = 0
+			if !strings.Contains(got, "could not start a turn") {
+				t.Fatalf("send-%d: %q", n, got)
+			}
+		} else {
+			turns++
+		}
+		if d := h.delivered(t, msgID(n)); d != want {
+			t.Fatalf("send-%d failed=%v: delivered %d times", n, failed, d)
+		}
 	}
-	lost, kept, keptText := 1, 2, "note two"
-	if failed2 {
-		lost, kept, keptText = 2, 1, "note one"
+	if failures == 0 {
+		t.Fatal("no send failed")
 	}
-	refused(t, out.TurnView, lost, "could not start a turn")
-	if e := h.next(t, delegate.TaskEnded); e.Task.TurnID != childTurn(2) ||
-		e.Task.Reply != "read: "+keptText {
+	if n := h.childTurns(t); n != turns {
+		t.Fatalf("child turns=%d, want %d", n, turns)
+	}
+	for _, v := range h.tasks.List() {
+		if v.UnreadMessages != 0 {
+			t.Fatalf("view=%+v", v)
+		}
+	}
+}
+
+// A queue message sent with success to a running child, whose next turn
+// the store then refuses to start, is not lost without a word: the notice
+// of the turn it waited on says it was not read, and the session's queue
+// never delivers it later. After a restart, Recover sends it again; while
+// the store still refuses, Recover returns an error that names it.
+func TestQueuedMessageWhoseTurnFailsToStartIsReportedUnread(t *testing.T) {
+	var store *failRecorder
+	g := newGate()
+	child := func(ctx context.Context, in llm.Input) (llm.Result, error) {
+		if strings.Contains(inputText(in), "thought") ||
+			strings.Contains(inputText(in), "try again") {
+			return follows(ctx, in)
+		}
+		if err := g.wait(ctx); err != nil {
+			return llm.Result{}, err
+		}
+		return text("first"), nil
+	}
+	h := newHarness(t, scripted(child), delegate.Config{},
+		func(m *dashi.MemoryRecorder) dashi.Recorder {
+			store = &failRecorder{Recorder: m}
+			return store
+		})
+	parent, err := h.start(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.waitStarted(t)
+	out := h.send(t, sendArgs("queued thought", delegate.DeliverQueue))
+	if got := sent(t, out.TurnView, 1); !strings.Contains(got, "after its current turn ends") {
+		t.Fatalf("result=%q", got)
+	}
+	fail := func(r dashi.CommitRequest) bool { return r.Step.TurnID == childTurn(2) }
+	store.fail.Store(&fail)
+	g.open()
+	ended := h.next(t, delegate.TaskEnded)
+	if ended.Task.TurnID != childTurnID() || ended.Task.State != "completed" ||
+		ended.Task.UnreadMessages != 1 ||
+		!strings.Contains(ended.Task.Notice().Text(), "Your message was not read.") {
+		t.Fatalf("ended=%+v", ended.Task)
+	}
+	h.quiet(t)
+	h.none(t, delegate.TaskEnded)
+	if h.childTurns(t) != 1 {
+		t.Fatalf("child turns=%d", h.childTurns(t))
+	}
+
+	store.fail.Store(nil)
+	again, err := h.sendAs(t.Context(), "parent-turn-8", sendArgs("try again", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent(t, again.TurnView, 1)
+	if e := h.next(t, delegate.TaskEnded); e.Task.Reply != "read: try again" {
 		t.Fatalf("ended=%+v", e.Task)
 	}
 	h.quiet(t)
-	if n := h.delivered(t, msgID(kept)); n != 1 {
-		t.Fatalf("the sent message was delivered %d times", n)
+	if h.childTurns(t) != 2 || h.delivered(t, msgID(1)) != 0 {
+		t.Fatalf("turns=%d: the dropped message arrived", h.childTurns(t))
 	}
-	if n := h.delivered(t, msgID(lost)); n != 0 {
-		t.Fatalf("the failed message was delivered %d times", n)
+
+	// A restart: the record shows a finished send the child lacks.
+	turns := []dashi.Turn{parent.Turn, out.Turn, again.Turn}
+	fail = func(r dashi.CommitRequest) bool { return r.Step.TurnID == childTurn(3) }
+	store.fail.Store(&fail)
+	h.newTasks(t)
+	err = h.tasks.Recover(t.Context(), h.runner, turns)
+	if err == nil || !strings.Contains(err.Error(), msgID(1)) {
+		t.Fatalf("Recover err=%v, want one that names the message", err)
 	}
-	if n := h.childTurns(t); n != 2 {
-		t.Fatalf("child turns=%d, want 2", n)
+	store.fail.Store(nil)
+	h.newTasks(t)
+	if err := h.tasks.Recover(t.Context(), h.runner, turns); err != nil {
+		t.Fatal(err)
+	}
+	h.quiet(t)
+	if h.delivered(t, msgID(1)) != 1 || h.childTurns(t) != 3 {
+		t.Fatalf("turns=%d delivered=%d", h.childTurns(t), h.delivered(t, msgID(1)))
+	}
+}
+
+// dropSendData replaces every task_send result, so the record keeps no
+// Outcome.Data for it.
+var dropSendData = dashi.ResultHook{
+	Name: "reword-sends",
+	Func: func(_ context.Context, p dashi.ResultPlan) (dashi.ResultDecision, error) {
+		if p.Call.Name != delegate.SendToolName {
+			return dashi.ResultDecision{}, nil
+		}
+		r := p.Result
+		r.Output = r.Output.MapText(func(s string) string { return "(reworded) " + s })
+		return dashi.ResultDecision{Replace: &r}, nil
+	},
+}.Hooks()
+
+// A queue message whose task_send result a hook replaced, sent to a turn
+// that Stop canceled before the child read it, is not sent after a restart,
+// even when a later follow-up turn completed: Recover finds the turn it
+// waited on from the order of the parent's calls.
+func TestRecoverWithoutSendDataKeepsDroppedMailDropped(t *testing.T) {
+	g := newGate()
+	child := func(ctx context.Context, in llm.Input) (llm.Result, error) {
+		if strings.Contains(inputText(in), "try again") {
+			return follows(ctx, in)
+		}
+		if err := g.wait(ctx); err != nil {
+			return llm.Result{}, err
+		}
+		return text("never"), nil
+	}
+	h := newHarness(t, scripted(child), delegate.Config{}, nil)
+	parent, err := h.start(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.waitStarted(t)
+	h.runner.Hooks = dropSendData
+	out := h.send(t, sendArgs("queued thought", delegate.DeliverQueue))
+	sent(t, out.TurnView, 1)
+	if d := out.Tools["send-1"].Outcome.Data; len(d) != 0 {
+		t.Fatalf("the record kept the send's data: %s", d)
+	}
+	if err := h.tasks.Stop(t.Context(), taskID()); err != nil {
+		t.Fatal(err)
+	}
+	if e := h.next(t, delegate.TaskEnded); e.Task.State != "canceled" ||
+		e.Task.UnreadMessages != 1 {
+		t.Fatalf("ended=%+v", e.Task)
+	}
+	again, err := h.sendAs(t.Context(), "parent-turn-8", sendArgs("try again", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent(t, again.TurnView, 1)
+	if e := h.next(t, delegate.TaskEnded); e.Task.TurnID != childTurn(2) ||
+		e.Task.Reply != "read: try again" {
+		t.Fatalf("ended=%+v", e.Task)
+	}
+	h.quiet(t)
+
+	// The process dies before the parent records either notice.
+	sends := h.client.sends("child")
+	h.newTasks(t)
+	if err := h.tasks.Recover(t.Context(), h.runner,
+		[]dashi.Turn{parent.Turn, out.Turn, again.Turn}); err != nil {
+		t.Fatal(err)
+	}
+	first := h.next(t, delegate.TaskEnded)
+	if first.Task.State != "canceled" || first.Task.UnreadMessages != 1 {
+		t.Fatalf("after Recover: %+v", first.Task)
+	}
+	h.next(t, delegate.TaskEnded)
+	h.quiet(t)
+	h.none(t, delegate.TaskEnded)
+	if h.client.sends("child") != sends || h.childTurns(t) != 2 ||
+		h.delivered(t, msgID(1)) != 0 {
+		t.Fatal("Recover sent the dropped message")
 	}
 }

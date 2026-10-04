@@ -114,9 +114,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   turn and task) and `Config.MaxTaskTurns` bound the cost. Each message is
   delivered once: the child's record holds its ID (`msg:<turn>/<call>`), a
   rerun call sends nothing, and `Recover` sends again a message from a
-  finished call that the child lacks. A message whose turn stopped before
-  reading it is dropped, counted in `TaskView.UnreadMessages`, and named in
-  the notice. `Report` counts the child turns a `task_send` call started
+  finished call that the child lacks, or returns an error that names it. A
+  message whose turn stopped before reading it, or whose next turn the store
+  refused to start, is dropped, counted in `TaskView.UnreadMessages`, and
+  named in the notice; a send never reports success and then vanishes.
+  `Report` counts the child turns a `task_send` call started
   under the parent turn that sent it.
 - **Decide examples.** `examples/decide` uses a decision model (Jev or Clef,
   through the Decide library) as a judge inside hooks: a risk gate on tool

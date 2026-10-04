@@ -87,6 +87,10 @@ func (m Message) Steer() dashi.Steer {
 type mail struct {
 	msg  Message
 	call dashi.CallRef
+	// waits is the turn whose record the sender waits for: the turn the
+	// message started, or the one that was starting when it arrived. It is
+	// nil once the sender was told the message was sent.
+	waits *childTurn
 }
 
 // sendResult says how deliver routed a message.
@@ -129,10 +133,12 @@ type sendData struct {
 // refuses it, as does a cap unless redelivery is set. A message the child's
 // record or this process already holds is sent again as nothing.
 //
-// A message that starts a turn returns once the child's record holds that
-// turn, as the task tool does, so a crash after the call cannot lose a turn
-// the model was told about. A turn that fails before its record holds it
-// is no turn: deliver returns the error and the message is not sent.
+// A message that starts a turn, or arrives while one starts, returns once
+// the child's record holds that turn, as the task tool does, so a crash
+// after the call cannot lose a turn the model was told about. A turn that
+// fails before its record holds it is no turn: deliver returns the error
+// and the message is not sent. So a message is never reported as sent and
+// then lost with a turn that never was.
 func (ts *Tasks) deliver(
 	ctx context.Context,
 	t *task,
@@ -157,6 +163,10 @@ func (ts *Tasks) deliver(
 		return sendResult{}, fmt.Errorf(
 			"delegate: task %s could not start a turn: %w", t.id, c.startErr,
 		)
+	}
+	if out.after != "" {
+		// The session numbers the turn; its ID may have changed.
+		out.after = c.id
 	}
 	return out, nil
 }
@@ -212,19 +222,23 @@ func (ts *Tasks) deliverLocked(
 		// runs it after the turn, or passOnLocked does when it exits.
 		out.target = q.TurnID
 		out.after = t.last().id
+		if c := t.last(); c.unrecorded() {
+			// The turn may fail to start; the sender learns whether it did.
+			started = c
+		}
 	case out.state == TaskRunning:
 		// Recover has not resumed the turn yet.
 		return sendResult{}, nil, fmt.Errorf(
 			"delegate: task %s cannot take messages yet; try again", t.id,
 		)
 	default:
-		if err := ts.startTurnLocked(ctx, t, startFor(m, call)); err != nil {
+		if err := ts.startTurnLocked(ctx, t, startFor(m, call), redelivery); err != nil {
 			return sendResult{}, nil, err
 		}
 		out.turn = len(t.turns)
 		started = t.last()
 	}
-	t.mail = append(t.mail, &mail{msg: m, call: call})
+	t.mail = append(t.mail, &mail{msg: m, call: call, waits: started})
 	return out, started, nil
 }
 
@@ -387,6 +401,16 @@ func (t *task) dropMailLocked(c *childTurn, turn dashi.Turn) {
 	t.mail = nil
 }
 
+// dropLocked drops one accepted message that no turn will read: it leaves
+// the inbox, and the session's queue drops it (see deliveredMail). The
+// caller holds ts.mu and removes it from t.mail.
+func (t *task) dropLocked(m *mail) {
+	t.inbox.Cancel(m.msg.ID)
+	t.droppedMu.Lock()
+	t.dropped[m.msg.ID] = true
+	t.droppedMu.Unlock()
+}
+
 // dropOnStop reports whether a child turn that stopped in state leaves its
 // pending mail unread.
 func dropOnStop(state TaskState) bool {
@@ -398,27 +422,32 @@ func dropOnStop(state TaskState) bool {
 	return false
 }
 
-// passOnLocked starts the next turn with mail that no turn read once the
-// goroutine that drove the child has exited: steers that missed the last
-// turn and queue messages behind it, when that turn did not end with
+// passOnLocked returns the Start of the next turn when mail that no turn
+// read remains once the child's Stream has ended: steers that missed the
+// last turn and queue messages behind it, when that turn did not end with
 // dashi.NextNone (failed or limited), or when the mail arrived after the
 // session last looked at its queue. The first message starts the turn; the
-// rest wait in the session's queue and run after it. The caller holds ts.mu.
-func (ts *Tasks) passOnLocked(ctx context.Context, t *task) {
-	if ts.closed || t.cancel != nil || len(t.mail) == 0 {
-		return
+// rest wait in the session's queue and run after it. When the turn cap
+// refuses the turn, the mail counts as not read on the last turn, whose
+// notice run has not sent yet. The caller holds ts.mu and runs the Start.
+func (ts *Tasks) passOnLocked(t *task) dashi.Command {
+	if ts.closed || len(t.mail) == 0 {
+		return nil
 	}
 	state := t.state()
 	if state == TaskRunning || state == TaskState(dashi.StopInterrupted) ||
 		dropOnStop(state) {
-		return
+		return nil
 	}
 	first := t.mail[0]
-	if err := ts.startTurnLocked(ctx, t, startFor(first.msg, first.call)); err != nil {
+	start := startFor(first.msg, first.call)
+	if err := ts.addTurnLocked(t, start, false); err != nil {
 		slog.Warn("delegate: could not deliver messages to a task",
 			"task", t.id, "count", len(t.mail), "error", err)
 		t.dropMailLocked(t.last(), dashi.Turn{})
+		return nil
 	}
+	return start
 }
 
 // stepMessageIDs returns the message IDs a child step holds: a turn's
@@ -609,13 +638,24 @@ func sentMessages(turnID string, view dashi.TurnView) []sentMessage {
 // a turn of a child that Stop canceled before it read it. The rest are
 // returned, to deliver again once the children resume. The caller holds
 // ts.mu.
-func (ts *Tasks) sortSentLocked(sends []sentMessage) []sentMessage {
+//
+// A send whose Data a hook removed names no turn. Its last turn is then the
+// last child turn that a parent call before the send started, by the order
+// of the calls in the parent turns (see callOrder and waitedOn), so the
+// rule above applies to it too.
+func (ts *Tasks) sortSentLocked(
+	sends []sentMessage,
+	order map[dashi.CallRef]int,
+) []sentMessage {
 	var again []sentMessage
 	for _, s := range sends {
 		t := ts.tasks[s.msg.To]
 		if t == nil || s.data.SessionID != "" && t.sessionID != s.data.SessionID ||
 			t.knows(s.msg.ID) {
 			continue
+		}
+		if s.data.SessionID == "" {
+			s.data.LastTurnID = t.waitedOn(order, s.call)
 		}
 		var unread *childTurn
 		if c := t.find(s.data.TargetTurnID); c != nil && dropOnStop(c.state) {
@@ -629,10 +669,6 @@ func (ts *Tasks) sortSentLocked(sends []sentMessage) []sentMessage {
 		case unread != nil:
 		case last.state == TaskState(dashi.StopWaiting),
 			last.state == TaskState(dashi.StopResultUnknown):
-			unread = last
-		case last.state == TaskState(dashi.StopCanceled) && s.data.SessionID == "":
-			// Without the call's data, the message may have waited on the
-			// canceled turn; it must not restart the child.
 			unread = last
 		}
 		if unread == nil {
@@ -663,17 +699,93 @@ func (t *task) droppedFrom(id string) *childTurn {
 	return nil
 }
 
+// waitedOn returns the child turn that a message from call, whose Data is
+// gone, waited on: the last turn whose origin comes before call in order.
+// A send that started a turn is in the child's record and never gets here,
+// so a missing send arrived while such a turn was the child's last. A turn whose origin order
+// does not hold counts as earlier. It returns "" when order lacks call.
+// The caller holds ts.mu.
+func (t *task) waitedOn(order map[dashi.CallRef]int, call dashi.CallRef) string {
+	at, ok := order[call]
+	if !ok {
+		return ""
+	}
+	id := ""
+	for _, c := range t.turns {
+		if n, known := order[c.origin]; known && n > at {
+			break
+		}
+		id = c.id
+	}
+	return id
+}
+
+// callOrder numbers the tool calls of turns in the order the record holds
+// them. A hook cannot change it.
+func callOrder(turns []dashi.Turn) map[dashi.CallRef]int {
+	out := map[dashi.CallRef]int{}
+	for _, turn := range turns {
+		for _, step := range turn.Steps {
+			if step.Tool == nil {
+				continue
+			}
+			ref := dashi.CallRef{TurnID: turn.ID, CallID: step.Tool.Call.ID}
+			if _, ok := out[ref]; !ok {
+				out[ref] = len(out)
+			}
+		}
+	}
+	return out
+}
+
+// turnOrigin returns the parent call that started a child turn, from its
+// first step: the Start's Parent, or the call that sent the first message
+// in a queue turn's key. It returns the zero CallRef for neither.
+func turnOrigin(step dashi.Step) dashi.CallRef {
+	if step.Kind != dashi.StepTurnStarted {
+		return dashi.CallRef{}
+	}
+	if step.Started != nil && step.Started.Parent != nil {
+		return *step.Started.Parent
+	}
+	for _, id := range queueKeyIDs(step.CommandID) {
+		rest, ok := strings.CutPrefix(id, messagePrefix)
+		if i := strings.LastIndex(rest, "/"); ok && i > 0 {
+			return dashi.CallRef{TurnID: rest[:i], CallID: rest[i+1:]}
+		}
+	}
+	return dashi.CallRef{}
+}
+
 // redeliver sends again each message Recover found missing, through
-// deliver, past the caps the first send passed. A refusal is logged and not
-// retried.
-func (ts *Tasks) redeliver(ctx context.Context, sends []sentMessage) {
+// deliver, past the caps the first send passed, except those to the tasks
+// that resume gave theirs. It returns an error for each message it could
+// not send; the message stays missing, so the next Recover tries again.
+func (ts *Tasks) redeliver(
+	ctx context.Context,
+	sends []sentMessage,
+	resumed []*task,
+) []error {
+	var errs []error
 	for _, s := range sends {
 		ts.mu.Lock()
 		t := ts.tasks[s.msg.To]
 		ts.mu.Unlock()
+		if slices.Contains(resumed, t) {
+			continue
+		}
 		if _, err := ts.deliver(ctx, t, s.msg, s.call, true); err != nil {
-			slog.Warn("delegate: could not deliver a message again after a restart",
-				"task", t.id, "message", s.msg.ID, "error", err)
+			errs = append(errs, redeliveryError(t, s, err))
 		}
 	}
+	return errs
+}
+
+// redeliveryError logs and returns the error of a message Recover could not
+// send again.
+func redeliveryError(t *task, s sentMessage, err error) error {
+	slog.Warn("delegate: could not deliver a message again after a restart",
+		"task", t.id, "message", s.msg.ID, "error", err)
+	return fmt.Errorf("delegate: deliver message %s to task %s again: %w",
+		s.msg.ID, t.id, err)
 }
