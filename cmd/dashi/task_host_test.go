@@ -51,6 +51,8 @@ type taskFixtureClient struct {
 	// parentMessageCalls lists the parent model calls, counting from 0,
 	// whose request holds a task's message.
 	parentMessageCalls []int
+	// parentInputs holds the text of each parent model call's messages.
+	parentInputs []string
 }
 
 // startedTaskID returns the task ID that a task tool result in the request
@@ -103,7 +105,9 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 		}
 	} else {
 		c.parentCalls++
+		var text strings.Builder
 		for _, m := range in.Messages {
+			text.WriteString(m.Text())
 			for _, part := range m.Content {
 				if part.Reminder != nil && part.Reminder.Name == taskNoticeName {
 					c.parentNotices++
@@ -113,6 +117,7 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 				}
 			}
 		}
+		c.parentInputs = append(c.parentInputs, text.String())
 	}
 	c.muTask.Unlock()
 	if child {

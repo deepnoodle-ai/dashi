@@ -61,7 +61,9 @@ A task's result and its messages reach the parent the way `delegate` delivers
 them with `Config.Session`. A result or a steer message (the default) that
 arrives while the parent works reaches its running Turn before the next model
 call. A queue message, or anything that arrives while the parent is idle,
-waits on the session's queue and starts a queue Turn. Inspection does not
+waits on the session's queue and starts a queue Turn. When a prompt queued
+with `/queue` waits there, nothing starts: the next prompt takes the queued
+prompt and the task's items together. Inspection does not
 consume a result. A pending start and a stopped parent hold queued results
 until they are resolved, and the record keeps a result from reaching the
 parent twice across Turns. When a `task_status` read returns a result while

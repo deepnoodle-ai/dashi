@@ -247,7 +247,8 @@ func (e *Engine) closeTasks() error {
 
 // DriveTaskNotices is called only by the Controller's parent driver. It runs
 // the session's queue, where Tasks puts task notices and messages that
-// reached an idle parent. A stopped parent or a parent Start whose recording
+// reached an idle parent. A queued user prompt holds the queue for the
+// user's next prompt. A stopped parent or a parent Start whose recording
 // is unconfirmed holds them without authorizing continuation.
 func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error) {
 	host := e.taskHost()
@@ -288,7 +289,9 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 	if err != nil && !errors.Is(err, session.ErrNotFound) {
 		return Result{}, err
 	}
-	if state.Queued == 0 {
+	// A queued user prompt waits for the user's next prompt, which takes
+	// the task items too; a task wake must not run it early.
+	if state.Queued == 0 || state.QueuedUser > 0 {
 		return Result{}, nil
 	}
 	if p := e.cfg.Preferences; p != nil {
@@ -327,7 +330,8 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 	return Result{Outcome: out}, err
 }
 
-// QuietTasks drains permitted task notices. It never resumes a stopped parent,
+// QuietTasks drains permitted task notices. It leaves a queued user prompt,
+// and the task items behind it, for the next prompt. It never resumes a stopped parent,
 // resolves a child effect with an unknown result, or raises any recorded limit.
 func (e *Engine) QuietTasks(ctx context.Context, result Result) (Result, error) {
 	if err := e.recoverTasks(ctx); err != nil {
@@ -363,7 +367,7 @@ func (e *Engine) QuietTasks(ctx context.Context, result Result) (Result, error) 
 		if next.Outcome.ID != "" {
 			result = next
 		}
-		if idle && e.Queued() == 0 {
+		if idle && e.queuedTaskItems() == 0 {
 			return result, nil
 		}
 	}

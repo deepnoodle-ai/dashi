@@ -366,3 +366,51 @@ func TestTaskSteerMessageReadByTaskStatusIsDeliveredOnce(t *testing.T) {
 		t.Fatalf("message %s delivered %d times, want once", id, got)
 	}
 }
+
+// A task's result that reaches an idle parent behind a /queue prompt does
+// not run that prompt early: the task wake runs nothing, and the user's
+// next prompt takes both.
+func TestTaskWakeLeavesQueuedUserPromptForTheNextPrompt(t *testing.T) {
+	hold := make(chan struct{})
+	client := &taskFixtureClient{childHold: hold}
+	a, _ := taskTestApp(t, client, newRecorderUI())
+	if _, err := a.eng.Prompt(t.Context(), "Delegate this job"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.eng.Queue("Also check the tests"); err != nil {
+		t.Fatal(err)
+	}
+	close(hold)
+	waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopCompleted) })
+	if _, err := a.eng.taskHost().tasks.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := a.eng.handle().Open(t.Context()); err != nil || st.Queued != 2 || st.QueuedUser != 1 {
+		t.Fatalf("state=%+v err=%v, want the user prompt and the task's notice queued", st, err)
+	}
+	if n := a.eng.queuedTaskItems(); n != 0 {
+		t.Fatalf("queued task items = %d, want 0 behind a user prompt", n)
+	}
+	if _, err := a.eng.DriveTaskNotices(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.eng.QuietTasks(t.Context(), Result{}); err != nil {
+		t.Fatal(err)
+	}
+	if parent, _ := client.counts(); parent != 2 || parentTurnCount(t, a.eng) != 1 {
+		t.Fatalf("parent calls=%d turns=%d: the task wake ran the queued prompt", parent, parentTurnCount(t, a.eng))
+	}
+	if _, err := a.eng.Prompt(t.Context(), "Next prompt"); err != nil {
+		t.Fatal(err)
+	}
+	client.muTask.Lock()
+	inputs, notices := slices.Clone(client.parentInputs), client.parentNotices
+	client.muTask.Unlock()
+	last := inputs[len(inputs)-1]
+	if notices != 1 || !strings.Contains(last, "Also check the tests") || !strings.Contains(last, "Next prompt") {
+		t.Fatalf("notices=%d last input %q: want the notice, the queued prompt, and the next prompt", notices, last)
+	}
+	if st, err := a.eng.handle().Open(t.Context()); err != nil || st.Queued != 0 {
+		t.Fatalf("state=%+v err=%v, want an empty queue", st, err)
+	}
+}

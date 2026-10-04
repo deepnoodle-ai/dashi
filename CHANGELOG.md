@@ -206,7 +206,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `delegate` as `Config.Session`, like any client, and `delegate` delivers
   task results and messages. A result or a steer message that arrives while
   the agent works reaches its running turn before the next model call; one
-  that arrives while the agent is idle starts a queue turn. A task with a
+  that arrives while the agent is idle starts a queue turn, unless a `/queue`
+  prompt waits: then the next prompt takes both. A task with a
   second turn no longer stops task delivery, `/tasks`, and reopening with
   "child parent differs": only a task's first turn has the `task` call as its
   parent.
