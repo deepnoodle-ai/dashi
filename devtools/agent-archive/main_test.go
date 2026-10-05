@@ -31,6 +31,9 @@ func TestCommandLine(t *testing.T) {
 	if r.ExitCode != 0 {
 		t.Fatalf("status exit %d: %v", r.ExitCode, r.Err)
 	}
+	if !strings.HasSuffix(r.Stdout, "\nneeds a look: 1 warning, no failed files\n") { // the copy run's warning
+		t.Errorf("status output lacks its last line:\n%s", r.Stdout)
+	}
 	for _, want := range []string{"last run:", "originals seen: 16, copied: 16", "failed files: 0",
 		"app          kind             current  superseded  gone  failed\n",
 		"\nclaude_code  session          1        0           0     0\n",

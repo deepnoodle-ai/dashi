@@ -102,11 +102,12 @@ type subagentSource struct {
 	} `json:"subagent"`
 }
 
-// Line types that hold no conversation.
+// Line types that hold no conversation. realtime_item marks a voice
+// session starting and closing, without usage.
 var ignoredTypes = map[string]bool{
 	"session_meta": true, "event_msg": true, "turn_context": true,
 	"world_state": true, "inter_agent_communication_metadata": true,
-	"token_usage_record": true,
+	"token_usage_record": true, "realtime_item": true,
 }
 
 // Response item types conversion knows. compaction is known but dropped.

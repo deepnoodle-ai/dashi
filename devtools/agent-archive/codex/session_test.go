@@ -16,7 +16,7 @@ func TestNoTokensAndUnknownTypes(t *testing.T) {
 	check(t, "unknown", len(sessionfile.UnknownTypes(p.SkippedLines)), 2)
 	tr := convert(t, "", c)
 	check(t, "skipped", tr.SkippedLines, map[string]int{
-		"ignored:session_meta": 1, "ignored:event_msg": 1, "unknown:realtime_item": 1, "unknown:ghost_snapshot": 1,
+		"ignored:session_meta": 1, "ignored:event_msg": 1, "unknown:future_item": 1, "unknown:ghost_snapshot": 1,
 	})
 	check(t, "last", shape(tr)[3], "assistant text:It parses files. @6")
 }
@@ -107,24 +107,59 @@ func TestTokenLineAfterToolOutput(t *testing.T) {
 	check(t, "model", tr.Messages[1].Source.Served.Model, "gpt-5.6")
 }
 
-func TestExitCodes(t *testing.T) {
+func TestToolErrors(t *testing.T) {
+	const script = `{"type":"input_text","text":"Script completed\nWall time 0.1 seconds\nOutput:\n"}`
 	for _, tc := range []struct {
 		out  string
-		code int
-		ok   bool
+		want bool
 	}{
-		{`"Chunk ID: 1\nProcess exited with code 2\nOutput:"`, 2, true},
-		{`"Exit code: 0\nWall time: 0 seconds"`, 0, true},
-		{`"{\"output\":\"x\",\"metadata\":{\"exit_code\":127}}"`, 127, true},
-		{`[{"type":"input_text","text":"Exit code: 1\n"}]`, 1, true},
-		{`"Plan updated"`, 0, false},
-		{`"Output mentions Exit code: 5 mid-line"`, 0, false},
+		{`"Chunk ID: 1\nProcess exited with code 2\nOutput:"`, true},
+		{`"Exit code: 0\nWall time: 0 seconds"`, false},
+		{`"{\"output\":\"x\",\"metadata\":{\"exit_code\":127}}"`, true},
+		{`[{"type":"input_text","text":"Exit code: 1\n"}]`, true},
+		{`"Plan updated"`, false},
+		{`"Output mentions Exit code: 5 mid-line"`, false},
+		{`"exec_command failed: CreateProcess { message: \"Rejected\" }"`, true},
+		{`[` + script + `,{"type":"input_text","text":"{\"chunk_id\":\"a\",\"exit_code\":0,\"output\":\"\"}"}]`, false},
+		{`[` + script + `,{"type":"input_text","text":"{\"chunk_id\":\"a\",\"exit_code\":1,\"output\":\"\"}"}]`, true},
+		{`[` + script + `,{"type":"input_text","text":"RESULT 1\n{\"exit_code\":0}\nRESULT 2\n{\"exit_code\": 2}"}]`, true},
+		{`[` + script + `,{"type":"input_text","text":"Warning: truncated output\n\n{\"i\":0,\"status\":\"fulfilled\",\"value\":{\"exit_code\":1,\"output\":\"pa"}]`, true},
+		{`[` + script + `,{"type":"input_text","text":"{\"exit_code\":0,\"output\":\"{\\\"exit_code\\\":4}\"}"}]`, false},
+		{`[` + script + `,{"type":"input_text","text":"Exit code: 1"}]`, false}, // printed by the script
+		{`[{"type":"input_text","text":"Script failed\nWall time 0.0 seconds\nOutput:\n"},{"type":"input_text","text":"Script error:\nboom"}]`, true},
 	} {
-		code, ok := exitCode([]byte(tc.out))
-		if code != tc.code || ok != tc.ok {
-			t.Errorf("exitCode(%s) = %d, %v; want %d, %v", tc.out, code, ok, tc.code, tc.ok)
+		if got := isToolError([]byte(tc.out)); got != tc.want {
+			t.Errorf("isToolError(%s) = %v, want %v", tc.out, got, tc.want)
 		}
 	}
+}
+
+func TestCodeMode(t *testing.T) {
+	// Code mode outputs hold exit codes as JSON; the first token line comes
+	// before any line names the model; realtime_item lines are ignored.
+	c := fixture(t, 1, "", "code_mode.jsonl")
+	p := parse(t, c)[1]
+	var lines []int
+	var models []string
+	for _, u := range p.Usage {
+		lines, models = append(lines, u.Line), append(models, u.Model)
+	}
+	check(t, "usage", []any{lines, models}, []any{[]int{4, 13, 17}, []string{"gpt-5.6-sol", "gpt-5.6-sol", "gpt-5.6-sol"}})
+	check(t, "session", []any{p.Session.ToolCalls, p.Session.ToolErrors}, []any{3, 2})
+	check(t, "unknown", len(sessionfile.UnknownTypes(p.SkippedLines)), 0)
+	tr := convert(t, "", c)
+	check(t, "messages", shape(tr), []string{
+		"user text:Is the build green? @2",
+		"assistant text:Checking. @3 usage",
+		`assistant call:exec("text(await exec_command({cmd: 'cat status.json'}))") @7`,
+		"user result:call_1 @8",
+		`assistant call:exec("const r = await Promise.allSettled([exec_command({cmd: 'make build'}), exec_command({cmd: 'make test'})])") @9`,
+		"user result:call_2! @10",
+		`assistant call:exec("text((await exec_command({cmd: 'make test'})") @11 usage`,
+		"user result:call_3! @12",
+		"assistant text:The tests fail. @16 usage",
+	})
+	check(t, "model", tr.Messages[1].Source.Served.Model, "gpt-5.6-sol")
 }
 
 func TestUnreadableCopy(t *testing.T) {

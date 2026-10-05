@@ -212,7 +212,11 @@ Each followed its recommendation.
   `output_tokens` and `thinking_tokens`. `git_branch` is the first seen.
 - A fork by reference leaves out parent lines written after its fork point.
 - Codex can write a reply's token line after its tool outputs, so a token
-  line's usage goes to the last reply since the previous token line.
+  line's usage goes to the last reply since the previous token line. A
+  token line before any line names the model gets the first model named.
+- A Codex code mode output starts "Script completed" or "Script failed" and
+  holds the script's printed exec results; a failed script, or any nonzero
+  `exit_code` key in them, is a tool error.
 - Codex tool names join an MCP namespace and name with `__`; a custom tool's
   input becomes a JSON string; `tool_search_call` is a call named
   `tool_search`. `tool_calls` leaves out `web_search_call`, which the

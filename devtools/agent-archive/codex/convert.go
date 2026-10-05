@@ -357,8 +357,8 @@ func (cv *converter) image(u string) (content.Block, bool) {
 	return content.ImageBlock(content.Source{URL: u}), true
 }
 
-// output converts a call's output to a tool result, an error when its exit
-// code is nonzero.
+// output converts a call's output to a tool result, an error when the
+// output records a failure.
 func (cv *converter) output(it item) llm.Message {
 	out := tool.Output{Content: []content.Block{}}
 	raw := it.Output
@@ -377,9 +377,8 @@ func (cv *converter) output(it item) llm.Message {
 			out.Content = append(out.Content, *p.Block)
 		}
 	}
-	code, ok := exitCode(it.Output)
 	return llm.Message{Role: llm.RoleUser, Content: []llm.Content{{
 		Kind:       llm.ContentToolResult,
-		ToolResult: &llm.ToolResult{CallID: it.CallID, Output: out, IsError: ok && code != 0},
+		ToolResult: &llm.ToolResult{CallID: it.CallID, Output: out, IsError: isToolError(it.Output)},
 	}}}
 }

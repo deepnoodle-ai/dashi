@@ -14,7 +14,8 @@ import (
 )
 
 // runStatus prints the last copy run, counts by app and kind, the last
-// run's warnings, and copies that failed to parse.
+// run's warnings, copies that failed to parse, and a last line that says
+// whether any of these need a look.
 func runStatus(ctx *cli.Context, dir string) error {
 	w := ctx.Stdout()
 	dbPath := filepath.Join(dir, databaseName)
@@ -33,6 +34,7 @@ func runStatus(ctx *cli.Context, dir string) error {
 		endedAt, warningsJSON sql.NullString
 		seen, copied          sql.NullInt64
 	)
+	var warnings []string
 	err = db.QueryRow(`SELECT run_id, started_at, ended_at, originals_seen, originals_copied, warnings
 		FROM copy_runs ORDER BY started_at DESC, run_id DESC LIMIT 1`).
 		Scan(&runID, &startedAt, &endedAt, &seen, &copied, &warningsJSON)
@@ -48,7 +50,6 @@ func runStatus(ctx *cli.Context, dir string) error {
 		} else {
 			fmt.Fprintln(w, "  ended:   never (interrupted, or still running)")
 		}
-		var warnings []string
 		if warningsJSON.Valid {
 			_ = json.Unmarshal([]byte(warningsJSON.String), &warnings)
 		}
@@ -117,7 +118,32 @@ func runStatus(ctx *cli.Context, dir string) error {
 	for _, x := range failed {
 		fmt.Fprintf(w, "  %s\n", x)
 	}
-	return printToolErrorCheck(w, db)
+	checks, err := printToolErrorCheck(w, db)
+	if err != nil {
+		return err
+	}
+	printVerdict(w, len(warnings)+checks, len(failed))
+	return nil
+}
+
+// printVerdict prints the last line: all clear, or how many warnings and
+// failed files there are.
+func printVerdict(w io.Writer, warnings, failed int) {
+	switch {
+	case warnings == 0 && failed == 0:
+		fmt.Fprintln(w, color.Green.Apply("\nall clear: no warnings and no failed files"))
+	case failed == 0:
+		fmt.Fprintln(w, color.Yellow.Apply(fmt.Sprintf("\nneeds a look: %s, no failed files", plural(warnings, "warning"))))
+	default:
+		fmt.Fprintln(w, color.Red.Apply(fmt.Sprintf("\nneeds a look: %s, %s", plural(warnings, "warning"), plural(failed, "failed file"))))
+	}
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return strconv.Itoa(n) + " " + noun + "s"
 }
 
 // minCallsForErrorCheck is how many tool calls a Codex version needs before
@@ -125,26 +151,29 @@ func runStatus(ctx *cli.Context, dir string) error {
 const minCallsForErrorCheck = 200
 
 // printToolErrorCheck warns about Codex versions with many tool calls and
-// no tool errors: Codex has no error flag, so tool_errors comes from exit
-// codes in output text, and a format change would silently zero it.
-func printToolErrorCheck(w io.Writer, db *sql.DB) error {
+// no tool errors, and returns how many warnings it printed: Codex has no
+// error flag, so tool_errors comes from exit codes in output text, and a
+// format change would silently zero it.
+func printToolErrorCheck(w io.Writer, db *sql.DB) (int, error) {
 	rows, err := db.Query(`SELECT s.app_version, SUM(s.tool_calls) FROM sessions s JOIN copies c USING (copy_id)
 		WHERE s.app = ? AND c.superseded_at IS NULL AND s.tool_calls IS NOT NULL
 		GROUP BY s.app_version HAVING SUM(s.tool_calls) >= ? AND SUM(s.tool_errors) = 0
 		ORDER BY s.app_version`, appCodex, minCallsForErrorCheck)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer rows.Close()
+	n := 0
 	for rows.Next() {
 		var version sql.NullString
 		var calls int
 		if err := rows.Scan(&version, &calls); err != nil {
-			return err
+			return 0, err
 		}
+		n++
 		fmt.Fprintln(w, color.Yellow.Apply(fmt.Sprintf(
 			"warning: Codex %s has %d tool calls and no tool errors; check that its exit code format is still read",
 			version.String, calls)))
 	}
-	return rows.Err()
+	return n, rows.Err()
 }

@@ -4,5 +4,5 @@
 {"timestamp":"2025-09-17T13:12:11.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Explain the code."}]}}
 {"timestamp":"2025-09-17T13:12:12.000Z","type":"event_msg","payload":{"type":"user_message","message":"Explain the code.","images":[]}}
 {"timestamp":"2025-09-17T13:12:13.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"It parses files."}]}}
-{"timestamp":"2025-09-17T13:12:14.000Z","type":"realtime_item","payload":{"type":"placeholder"}}
+{"timestamp":"2025-09-17T13:12:14.000Z","type":"future_item","payload":{"type":"placeholder"}}
 {"timestamp":"2025-09-17T13:12:15.000Z","type":"response_item","payload":{"type":"ghost_snapshot","ghost_commit":{}}}
