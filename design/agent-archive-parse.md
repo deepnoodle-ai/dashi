@@ -132,14 +132,16 @@ per session, on the copy of the earliest-started agent that has it.
 | `reasoning_tokens` | `output_tokens_details.thinking_tokens`, else 0 | `reasoning_output_tokens` |
 | `web_search_requests` | `server_tool_use.web_search_requests` | `web_search_call` items in the call's reply |
 | `speed` | `usage.speed` (`fast` on 287 lines) | empty |
+| `called_at` | that line's `timestamp` | the token line's `timestamp` |
 
 Token columns mean the `llm.Usage` fields of the same name. Reasoning is part
 of output in both apps, as `ReasoningTokens` is in `OutputTokens` (checked:
 `thinking_tokens` ≤ `output_tokens` on every line). `web_search_requests` is
 `Requests["web_search"]`. `speed` has no `llm.Usage` field and Dashi pricing
-has no speed variants, so phase 3 can only flag fast calls. Codex usage sets
-`CacheCreationInputTokensUnavailable`. A recursive SQL query walks the agent
-tree by `parent_agent_id`.
+has no speed variants, so phase 3 can only flag fast calls. `called_at` is
+the timestamp as written, like `started_at`, and `NULL` when it does not
+parse as RFC 3339. Codex usage sets `CacheCreationInputTokensUnavailable`.
+A recursive SQL query walks the agent tree by `parent_agent_id`.
 
 ## Mapping lines to messages
 

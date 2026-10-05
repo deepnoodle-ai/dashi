@@ -263,6 +263,7 @@ func usageRows(cl *copyLines, counted map[string]bool) []sessionfile.Usage {
 		}
 		out = append(out, sessionfile.Usage{
 			Line: mc.Lines[0].N, ModelCallID: mc.ID, Model: mc.Model, Usage: mc.Usage, Speed: mc.Speed,
+			CalledAt: sessionfile.CheckTimestamp(mc.Lines[0].Timestamp),
 		})
 	}
 	return out

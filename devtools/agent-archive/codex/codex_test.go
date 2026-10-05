@@ -127,11 +127,11 @@ func TestTokenUsageRecordPreferred(t *testing.T) {
 	c := fixture(t, 1, "", "token_both.jsonl")
 	p := parse(t, c)[1]
 	check(t, "usage", p.Usage, []sessionfile.Usage{
-		{Line: 10, ModelCallID: "resp_1", Model: "gpt-5.5", Usage: llm.Usage{
+		{Line: 10, ModelCallID: "resp_1", Model: "gpt-5.5", CalledAt: "2026-08-01T10:00:01.300Z", Usage: llm.Usage{
 			InputTokens: 40, CacheReadInputTokens: 60, OutputTokens: 20, ReasoningTokens: 5,
 			CacheCreationInputTokensUnavailable: true,
 		}},
-		{Line: 15, ModelCallID: "resp_2", Model: "gpt-5.5", Usage: llm.Usage{
+		{Line: 15, ModelCallID: "resp_2", Model: "gpt-5.5", CalledAt: "2026-08-01T10:00:03.300Z", Usage: llm.Usage{
 			InputTokens: 50, CacheReadInputTokens: 100, OutputTokens: 10,
 			CacheCreationInputTokensUnavailable: true, Requests: map[string]int{"web_search": 1},
 		}},
@@ -165,14 +165,32 @@ Then report. call:exec_command({"cmd":"go test ./..."}) @7,8 usage`,
 	})
 }
 
+// A token line without a timestamp, or with one that does not parse,
+// leaves CalledAt empty.
+func TestCalledAtMissing(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "token_both.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := strings.Replace(string(b), `"timestamp":"2026-08-01T10:00:01.300Z",`, "", 1)
+	s = strings.Replace(s, `"timestamp":"2026-08-01T10:00:03.300Z"`, `"timestamp":"not a time"`, 1)
+	c := fixture(t, 1, "", "token_both.jsonl")
+	c.Open = func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader(s)), nil }
+	var got []string
+	for _, u := range parse(t, c)[1].Usage {
+		got = append(got, u.CalledAt)
+	}
+	check(t, "called at", got, []string{"", ""})
+}
+
 func TestTokenCountOnly(t *testing.T) {
 	c := fixture(t, 1, "", "token_count_only.jsonl")
 	p := parse(t, c)[1]
 	// The repeat (same total) and the one lacking info are skipped.
 	check(t, "usage", p.Usage, []sessionfile.Usage{
-		{Line: 6, Model: "gpt-5.1-codex", Usage: llm.Usage{InputTokens: 40, CacheReadInputTokens: 10, OutputTokens: 5,
+		{Line: 6, Model: "gpt-5.1-codex", CalledAt: "2026-06-01T10:00:01.100Z", Usage: llm.Usage{InputTokens: 40, CacheReadInputTokens: 10, OutputTokens: 5,
 			ReasoningTokens: 1, CacheCreationInputTokensUnavailable: true}},
-		{Line: 11, Model: "gpt-5.1-codex", Usage: llm.Usage{InputTokens: 50, CacheReadInputTokens: 30, OutputTokens: 7,
+		{Line: 11, Model: "gpt-5.1-codex", CalledAt: "2026-06-01T10:00:03.200Z", Usage: llm.Usage{InputTokens: 50, CacheReadInputTokens: 30, OutputTokens: 7,
 			ReasoningTokens: 1, CacheCreationInputTokensUnavailable: true}},
 	})
 	s := p.Session

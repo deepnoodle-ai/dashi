@@ -9,6 +9,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 )
@@ -79,6 +80,9 @@ type Usage struct {
 	Usage llm.Usage
 	// Speed is Claude Code's usage.speed, such as "fast"; empty if unknown.
 	Speed string
+	// CalledAt is the timestamp of the row's line, as the app wrote it
+	// (RFC 3339); empty when the line has none that parses.
+	CalledAt string
 }
 
 // AppUsage is one row of the app_usage table: the app's own token totals
@@ -97,6 +101,14 @@ type ParsedCopy struct {
 	Usage        []Usage
 	AppUsage     []AppUsage
 	SkippedLines map[string]int
+}
+
+// CheckTimestamp returns timestamp when it parses as RFC 3339, else empty.
+func CheckTimestamp(timestamp string) string {
+	if _, err := time.Parse(time.RFC3339Nano, timestamp); err != nil {
+		return ""
+	}
+	return timestamp
 }
 
 // LineRef says where a transcript message came from.

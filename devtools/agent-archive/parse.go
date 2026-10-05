@@ -13,7 +13,8 @@ import (
 // parsed by an older parser are parsed again. Version 2 adds phase 2:
 // design/agent-archive-parse.md. Version 3 reads Codex code mode tool
 // errors. Version 4 adds app_usage and finds what older Codex forks repeat.
-const parserVersion = 4
+// Version 5 fills usage.called_at.
+const parserVersion = 5
 
 // Parse statuses.
 const (

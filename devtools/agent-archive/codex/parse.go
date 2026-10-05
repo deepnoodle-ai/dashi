@@ -53,7 +53,7 @@ func Parse(copies []sessionfile.Copy) ([]sessionfile.ParsedCopy, error) {
 				counted[mc.ResponseID] = true
 			}
 			p.Usage = append(p.Usage, sessionfile.Usage{
-				Line: mc.Line, ModelCallID: mc.ResponseID, Model: mc.Model, Usage: mc.Usage,
+				Line: mc.Line, ModelCallID: mc.ResponseID, Model: mc.Model, Usage: mc.Usage, CalledAt: mc.CalledAt,
 			})
 		}
 		out = append(out, p)
@@ -239,7 +239,8 @@ func spawnCalls(cls []*copyLines) map[string]string {
 
 // modelCall is the usage of one model call.
 type modelCall struct {
-	Line       int // the token line
+	Line       int    // the token line
+	CalledAt   string // the token line's timestamp, if it parses
 	ResponseID string
 	Model      string
 	Usage      llm.Usage
@@ -296,7 +297,7 @@ func modelCalls(cl *copyLines) ([]modelCall, string) {
 		if u == nil {
 			continue
 		}
-		mc := modelCall{Line: l.N, ResponseID: id, Model: model, Usage: toUsage(*u, searches)}
+		mc := modelCall{Line: l.N, CalledAt: sessionfile.CheckTimestamp(l.Timestamp), ResponseID: id, Model: model, Usage: toUsage(*u, searches)}
 		searches = 0
 		out = append(out, mc)
 	}

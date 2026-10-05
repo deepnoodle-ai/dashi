@@ -480,10 +480,10 @@ func (p *sessionParser) store(parsed []sessionfile.ParsedCopy) error {
 			x := u.Usage
 			if _, err := tx.Exec(`INSERT INTO usage (copy_id, line, model_call_id, model, input_tokens,
 					cache_read_input_tokens, cache_creation_input_tokens, cache_creation_1h_input_tokens, output_tokens,
-					reasoning_tokens, web_search_requests, speed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					reasoning_tokens, web_search_requests, speed, called_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				pc.CopyID, u.Line, u.ModelCallID, u.Model, x.InputTokens, x.CacheReadInputTokens,
 				x.CacheCreationInputTokens, x.CacheCreation1hInputTokens, x.OutputTokens, x.ReasoningTokens,
-				x.Requests["web_search"], u.Speed); err != nil {
+				x.Requests["web_search"], u.Speed, nullIfEmpty(u.CalledAt)); err != nil {
 				return err
 			}
 		}
