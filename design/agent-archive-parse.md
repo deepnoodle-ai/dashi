@@ -226,9 +226,11 @@ Each followed its recommendation.
 - A Claude Code call's usage takes each count's maximum over every copy: a
   fork holding a partial line of the call that started it can claim it.
 - A Codex fork with no usable start ordinal, or a forked root, still repeats
-  its parent: its lines through the turn of the last token line the parent
-  also has (same `response_id` or cumulative total) are inherited. A token
-  line repeating the one before it is not matched. No layout rule works. A
+  its parent. Its token lines, from its first, that follow the parent's
+  token lines in order (same `response_id` or cumulative total), with none
+  skipped, are the copy; the first that does not ends it. Lines through the
+  turn of the copy's last token line are inherited. A token line repeating
+  the one before it is not matched. No layout rule works. A
   forked root's parent session's root copies come in as `Copy.ForkParent`,
   read only to compare. This drops 1,498 usage rows from 26 files.
 - `app_usage` has one row per root `copy_id` and `model` (with `[1m]`): the

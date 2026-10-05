@@ -191,6 +191,23 @@ func TestForkWithoutStartOrdinal(t *testing.T) {
 	})
 }
 
+// TestForkTotalEqualsLaterParentTotal checks that only the copied prefix
+// is inherited: the fork's second own token line has the same total as a
+// parent token line from after the fork, and the fork's lines are kept.
+func TestForkTotalEqualsLaterParentTotal(t *testing.T) {
+	parent := fixture(t, 1, "", "replay/parent.jsonl")
+	fork := fixture(t, 2, "p-fork", "replay/fork_collide.jsonl")
+	ps := parse(t, parent, fork)
+	usage := ps[2].Usage
+	check(t, "fork usage", len(usage), 2)
+	check(t, "lines", []int{usage[0].Line, usage[1].Line}, []int{15, 17})
+	tr := convert(t, "p-fork", parent, fork)
+	check(t, "own messages", shape(tr)[4:], []string{
+		"assistant text:Fork done. @14 usage",
+		"assistant text:Fork checked. @16 usage",
+	})
+}
+
 // TestForkedRoot checks a root forked from another session: that
 // session's root, passed as a fork parent, shows what it repeats, and gets
 // no parsed copy of its own.

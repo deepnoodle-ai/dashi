@@ -216,37 +216,21 @@ func (l *line) tokenKey() tokenKey {
 
 // markInherited marks the lines a fork repeats from its parent when its
 // file gives no usable start ordinal: a subagent fork from Codex 0.140 to
-// 0.148, or a forked root. The repeat runs from the start through the turn
-// of the last token line the parent also has, up to the next task_started.
-// A token line that repeats the one before it is not matched: a fork's
-// first own turn can start with one. all is every copy read, including
-// fork parents.
+// 0.148, or a forked root. The repeat is the fork's token lines, from its
+// first, that follow the parent's token lines in order with none skipped;
+// the first that does not ends it. It runs through the turn of the last
+// one, up to the next task_started. A token line that repeats the one
+// before it is not matched: a fork's first own turn can start with one.
+// all is every copy read, including fork parents.
 func markInherited(cl *copyLines, all []*copyLines) {
 	if cl.meta.ForkedFromID == "" || cl.hasStartOrdinal() {
 		return
 	}
-	parent := map[tokenKey]bool{}
-	for _, p := range all {
-		if p == cl || p.meta.ID != cl.meta.ForkedFromID {
-			continue
-		}
-		for _, l := range p.Lines {
-			if k := l.tokenKey(); k != (tokenKey{}) {
-				parent[k] = true
-			}
-		}
-	}
 	last := -1
-	var prev tokenKey
-	for i, l := range cl.Lines {
-		k := l.tokenKey()
-		if k == (tokenKey{}) {
-			continue
+	for _, p := range all {
+		if p != cl && p.meta.ID == cl.meta.ForkedFromID {
+			last = max(last, copiedPrefixEnd(cl, p))
 		}
-		if k != prev && parent[k] {
-			last = i
-		}
-		prev = k
 	}
 	if last < 0 {
 		return
@@ -259,6 +243,36 @@ func markInherited(cl *copyLines, all []*copyLines) {
 			l.inherited = true
 		}
 	}
+}
+
+// copiedPrefixEnd returns the index of the fork's last token line in its
+// run that repeats the parent's token lines in order, or -1 when the fork's
+// first token line is not one of the parent's.
+func copiedPrefixEnd(fork, parent *copyLines) int {
+	var keys []tokenKey
+	for _, l := range parent.Lines {
+		if k := l.tokenKey(); k != (tokenKey{}) && (len(keys) == 0 || k != keys[len(keys)-1]) {
+			keys = append(keys, k)
+		}
+	}
+	last, next := -1, 0 // next is the index of the parent key to match
+	var prev tokenKey
+	for i, l := range fork.Lines {
+		k := l.tokenKey()
+		if k == (tokenKey{}) || k == prev {
+			continue
+		}
+		prev = k
+		j := next
+		if last < 0 {
+			j = slices.Index(keys, k)
+		}
+		if j < 0 || j >= len(keys) || keys[j] != k {
+			return last
+		}
+		last, next = i, j+1
+	}
+	return last
 }
 
 // isSubagent reports whether the file is a subagent's.
