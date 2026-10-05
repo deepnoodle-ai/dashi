@@ -301,6 +301,54 @@
       }
     },
     {
+      "model": "claude-sonnet-5-5",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "note": "Forced tool choice (any or a named tool) is rejected; auto and none work, so tool_choice support is left unknown. Thinking type disabled is rejected; between_tools turns off up-front thinking at effort high or below. Public summary request documented 2026-10-05: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-10-05",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "citations": "supported",
+          "tools": "supported",
+          "temperature": "unsupported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "unsupported",
+          "max_tokens": "supported",
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-09-28",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": "2",
+          "output": "10",
+          "cache_read": "0.2",
+          "cache_write": "2.5",
+          "cache_write_1h": "4"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
+        }
+      }
+    },
+    {
       "model": "claude-sonnet-5",
       "apis": [
         "anthropic.messages"

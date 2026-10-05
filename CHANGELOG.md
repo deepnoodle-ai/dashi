@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`claude-sonnet-5-5` in the model catalog,** with its 1M context window,
+  128K output limit, effort ladder, and prices: $2 input, $10 output, $0.20
+  cache read, $2.50 five-minute and $4 one-hour cache writes per MTok, and
+  $10 per 1,000 web searches. Temperature is marked unsupported and tool
+  choice is left unknown, because the model rejects non-default sampling and
+  forced tool choice.
+
 ### Changed
 
 - **Breaking: `session.Compactor.Start` takes a `context.Context`,** and the
