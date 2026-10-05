@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/deepnoodle-ai/wonton/cli"
 )
@@ -131,6 +132,37 @@ func newApp() *cli.App {
 				return err
 			}
 			return runConvert(o.ArchiveDir, ctx.String("session"), ctx.String("agent"), ctx.Stdout(), ctx.Stderr())
+		})
+
+	app.Command("report").
+		Description("Show list-price spend by model, app, project, or session").
+		Long("Price every model call with Dashi's catalog and show spend per day, week, or month. "+
+			"A trailing + marks a lower bound: some calls could not be priced. Codex cache writes, and "+
+			"Claude Code cache writes not in session files, are high estimates; --json gives the low "+
+			"end too. The last line compares Claude Code's own session totals with Dashi's.").
+		Flags(
+			archiveFlag(),
+			cli.String("by", "").Default(byModel).Enum(byModel, byApp, byProject, bySession).
+				Help("what each row is: model, app, project, or session"),
+			cli.String("per", "").Default(perWeek).Enum(perDay, perWeek, perMonth).
+				Help("what each column is: day, week (from Monday), or month"),
+			cli.String("since", "").Help("first day included (YYYY-MM-DD); default: eight periods back, counting the current one"),
+			cli.String("until", "").Help("last day included (YYYY-MM-DD); default: today"),
+			cli.Bool("json").Help("print one JSON object per row and period instead of a table"),
+		).
+		Run(func(ctx *cli.Context) error {
+			o, err := directories(ctx)
+			if err != nil {
+				return err
+			}
+			ro, err := newReportOptions(ctx.String("by"), ctx.String("per"), ctx.String("since"),
+				ctx.String("until"), time.Now(), time.Local)
+			if err != nil {
+				return err
+			}
+			ro.JSON = ctx.Bool("json")
+			ro.Home, _ = os.UserHomeDir()
+			return runReport(o.ArchiveDir, ro, ctx.Stdout(), ctx.Stderr())
 		})
 
 	app.Command("status").

@@ -27,6 +27,7 @@ cd devtools/agent-archive && go install .
 | `agent-archive rebuild` | Recreate the database from the copy log and the copies. |
 | `agent-archive parse` | Parse session files not yet parsed by this version; `copy` and `rebuild` do this too. `--all` parses every file again. |
 | `agent-archive convert --session <id> [--agent <id>]` | Print one agent (the root without `--agent`) as Dashi messages, one JSON line each; counts of skipped lines and changed blocks go to stderr. |
+| `agent-archive report` | Show list-price spend by model, app, project, or session, per day, week, or month; see [Report](#report). |
 | `agent-archive schedule install` | Install a LaunchAgent that runs `copy` daily at 03:00 and at login (macOS). |
 | `agent-archive schedule remove` | Unload the LaunchAgent and delete its plist. |
 
@@ -58,6 +59,31 @@ totals and cost, including calls it never writes to a session file), and a
 sqlite3 ~/agent-archive/archive.sqlite \
   "SELECT model, COUNT(*), SUM(output_tokens) FROM usage GROUP BY model"
 ```
+
+## Report
+
+`report` prices every model call with Dashi's catalog (`catalog`, through
+`llm.Pricing.Estimate`) and prints spend at list price, what the calls
+would have cost on the providers' APIs. It opens the database read-only,
+so it runs while `copy` does. The design is in
+[`design/agent-archive-report.md`](../../design/agent-archive-report.md).
+
+```sh
+agent-archive report [--by model|app|project|session] [--per day|week|month]
+                     [--since <date>] [--until <date>] [--json]
+```
+
+- The default is by model, per week (from Monday, local time), for the
+  last eight weeks counting this one.
+- A trailing `+` marks a lower bound: some calls could not be priced (a
+  model with no price, a fast-mode call, an unpriced tool request). `?` is
+  a cell with no priced call. A table of unpriced models follows.
+- Codex cache writes, and Claude Code cache writes in calls it never
+  writes to a session file, are high estimates; `--json` gives `low` and
+  `high`.
+- Worktrees count toward their project.
+- The last line compares Claude Code's own total for each session with
+  Dashi's; `--by session` lists each session with both amounts.
 
 ## Archive layout
 

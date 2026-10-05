@@ -150,6 +150,30 @@ strings, as `money.Amount` writes them, with `lower_bound`,
 `unpriced_calls`, `low` and `high` where a high estimate applies, and the
 price sheet's `updated_at` per model.
 
+## As built
+
+- A cell whose calls are all unpriced prints `?`, not `$0.00+`. The
+  unpriced table gives `-` calls for calls not in session files, which have
+  no count. `Estimate` refusing a usage would show as unpriced, "no
+  estimate"; the archive has none.
+- A `NULL` `called_at` falls on the day the session's earliest file
+  started. A worktree's subfolders roll up with it.
+- `--by session` lists every session started in the range, both apps:
+  compared sessions first, largest difference first, then the rest by
+  amount. Amounts cover the whole session, on any day. `Dashi cost` shows
+  `low–high` for a range; `Difference` is the app cost less the nearest
+  end. The agreement line counts the same sessions.
+- A `--json` object has `by`, `name`, `period`, `amount`, `low`, `high`,
+  `lower_bound`, `unpriced_calls`, and, by model, `price_updated_at`; by
+  session, `session_id`, `app_cost`, `difference`, and `agreement` instead
+  of `by`, `name`, and `period`. The agreement line goes to stderr, so
+  stdout stays one object per line.
+- First run (2026-10-05 copy): 391 sessions agree, 4 lower, 0 higher. In
+  the 4, the session files hold more of the main model's cache tokens than
+  Claude Code's own totals, so its total covers fewer calls. Where calls
+  not in session files write cache, the app cost sits at the range's low
+  (5-minute) end.
+
 ## Out of scope
 
 Budgets and limits, charts, a web UI, price history, other currencies, and
