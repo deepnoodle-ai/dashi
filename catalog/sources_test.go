@@ -80,6 +80,7 @@ var (
 		"claude-mythos-5",
 		"claude-opus-5-5",
 		"claude-opus-5",
+		"claude-sonnet-5-5",
 		"claude-sonnet-5",
 		"claude-opus-4-8",
 		"claude-opus-4-7",
@@ -99,6 +100,7 @@ var (
 		"claude-mythos-5",
 		"claude-opus-5-5",
 		"claude-opus-5",
+		"claude-sonnet-5-5",
 		"claude-sonnet-5",
 		"claude-opus-4-8",
 		"claude-opus-4-7",
@@ -216,6 +218,14 @@ var claimSources = []claimSource{
 			"claude-opus-4-7",
 			"claude-sonnet-5",
 		},
+		feature: llm.FeatureTemperature,
+		support: llm.SupportUnsupported,
+	},
+	{
+		// "Setting temperature, top_p, or top_k to a non-default value
+		// returns a 400 error."
+		url:     anthropicModelPage("claude-sonnet-5-5"),
+		models:  []string{"claude-sonnet-5-5"},
 		feature: llm.FeatureTemperature,
 		support: llm.SupportUnsupported,
 	},
@@ -598,6 +608,7 @@ var anthropicContextWindows = map[string]int{
 	"claude-mythos-5":            1_000_000,
 	"claude-opus-5-5":            1_000_000,
 	"claude-opus-5":              1_000_000,
+	"claude-sonnet-5-5":          1_000_000,
 	"claude-sonnet-5":            1_000_000,
 	"claude-opus-4-8":            1_000_000,
 	"claude-opus-4-7":            1_000_000,

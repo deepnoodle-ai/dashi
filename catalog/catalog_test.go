@@ -65,7 +65,7 @@ func TestEveryEntryBindsToEachDocumentedAPI(t *testing.T) {
 }
 
 func TestEntriesDateEveryClaim(t *testing.T) {
-	today := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	today := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
 	for _, name := range Providers() {
 		for _, e := range Entries(name) {
 			if e.QualifiedAt.After(today) {

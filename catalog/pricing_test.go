@@ -119,6 +119,21 @@ func TestCatalogEstimatesAreExact(t *testing.T) {
 			total: "0.055",
 		},
 		{
+			// 1000×2 + 500×10 + 10000×0.2 + 2000×2.5 + 1000×4 = 18000,
+			// plus two web searches at 0.01 each.
+			provider: "anthropic",
+			model:    "claude-sonnet-5-5",
+			usage: llm.Usage{
+				InputTokens:                1000,
+				OutputTokens:               500,
+				CacheReadInputTokens:       10000,
+				CacheCreationInputTokens:   3000,
+				CacheCreation1hInputTokens: 1000,
+				Requests:                   map[string]int{"web_search": 2},
+			},
+			total: "0.038",
+		},
+		{
 			// 1001×0.75 + 333×3.75 + 7×0.075 = 2000.025
 			provider: "google",
 			model:    "gemini-3.8-flash",
