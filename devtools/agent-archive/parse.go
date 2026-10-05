@@ -11,8 +11,9 @@ import (
 
 // parserVersion changes whenever the parser's output changes, so copies
 // parsed by an older parser are parsed again. Version 2 adds phase 2:
-// design/agent-archive-parse.md.
-const parserVersion = 2
+// design/agent-archive-parse.md. Version 3 reads Codex code mode tool
+// errors.
+const parserVersion = 3
 
 // Parse statuses.
 const (

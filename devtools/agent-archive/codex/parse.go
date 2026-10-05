@@ -98,7 +98,7 @@ func sessionFacts(cl *copyLines) sessionfile.Session {
 		case isCall(l.item.Type) && l.item.Type != "web_search_call":
 			s.ToolCalls++
 		case isOutput(l.item.Type):
-			if code, ok := exitCode(l.item.Output); ok && code != 0 {
+			if isToolError(l.item.Output) {
 				s.ToolErrors++
 			}
 		case l.item.Type == "message" && l.item.Role == "user" && isPrompt(l.item.Content):
@@ -135,12 +135,38 @@ func isPrompt(raw json.RawMessage) bool {
 	return false
 }
 
-var exitCodeText = regexp.MustCompile(`(?m)^(?:Process exited with code|Exit code:) (-?\d+)`)
+var (
+	exitCodeText = regexp.MustCompile(`(?m)^(?:Process exited with code|Exit code:) (-?\d+)`)
+	// exitCodeKey matches an exit_code key in JSON text, but not one
+	// escaped inside a JSON string.
+	exitCodeKey = regexp.MustCompile(`(?:^|[^\\])"exit_code":\s*(-?\d+)`)
+)
 
-// exitCode reads a tool output's exit code: "Exit code: N" or "Process
-// exited with code N" in its text, or metadata.exit_code in JSON text.
-func exitCode(raw json.RawMessage) (int, bool) {
+// isToolError reports whether a tool output records a failure. A code
+// mode script's output starts "Script completed" or "Script failed" and
+// holds what the script printed, often exec results with exit_code keys,
+// several when it ran commands in parallel; any nonzero one is an error.
+// Other outputs have one exit code: "Exit code: N" or "Process exited with
+// code N" in the text, or metadata.exit_code in JSON text.
+func isToolError(raw json.RawMessage) bool {
 	text := outputText(raw)
+	switch {
+	case strings.HasPrefix(text, "Script failed"), strings.HasPrefix(text, "exec_command failed"):
+		return true
+	case strings.HasPrefix(text, "Script completed"):
+		for _, m := range exitCodeKey.FindAllStringSubmatch(text, -1) {
+			if n, err := strconv.Atoi(m[1]); err == nil && n != 0 {
+				return true
+			}
+		}
+		return false
+	}
+	code, ok := exitCode(text)
+	return ok && code != 0
+}
+
+// exitCode reads the exit code in a tool output's text.
+func exitCode(text string) (int, bool) {
 	if strings.HasPrefix(text, "{") {
 		var j struct {
 			Metadata *struct {
@@ -270,7 +296,30 @@ func modelCalls(cl *copyLines) ([]modelCall, string) {
 		searches = 0
 		out = append(out, mc)
 	}
+	// A token line can come before any line names the model; it gets the
+	// first model named later.
+	first := firstModel(cl)
+	for i := range out {
+		if out[i].Model != "" {
+			break
+		}
+		out[i].Model = first
+	}
 	return out, source
+}
+
+// firstModel returns the first model a copy names, in turn_context or
+// thread_settings_applied.
+func firstModel(cl *copyLines) string {
+	for _, l := range cl.Lines {
+		switch {
+		case l.Type == "turn_context" && l.item.Model != "":
+			return l.item.Model
+		case l.Type == "event_msg" && l.item.ThreadSettings != nil && l.item.ThreadSettings.Model != "":
+			return l.item.ThreadSettings.Model
+		}
+	}
+	return ""
 }
 
 // toUsage maps Codex token counts to llm.Usage. Codex reports cached input

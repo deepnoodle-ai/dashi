@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -89,7 +90,7 @@ func TestParseFillsSessionsAndUsage(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("sessions:\n got %+v\nwant %+v", got, want)
 	}
-	if n := e.countCopies(`parser_version = 2`); n != 7 {
+	if n := e.countCopies(`parser_version = ` + strconv.Itoa(parserVersion)); n != 7 {
 		t.Fatalf("%d copies at the current parser version, want 7", n)
 	}
 
@@ -153,7 +154,8 @@ func TestStatusWarnsWhenCodexToolErrorsVanish(t *testing.T) {
 	}
 	db.Close()
 	r := runCLI(t, "status", "--archive", e.opts.ArchiveDir)
-	if r.ExitCode != 0 || !r.Contains("warning: Codex 0.144.0 has 1000 tool calls and no tool errors") {
+	if r.ExitCode != 0 || !r.Contains("warning: Codex 0.144.0 has 1000 tool calls and no tool errors") ||
+		!strings.HasSuffix(r.Stdout, "\nneeds a look: 2 warnings, no failed files\n") {
 		t.Fatalf("status exit %d:\n%s", r.ExitCode, r.Stdout)
 	}
 }

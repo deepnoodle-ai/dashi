@@ -21,7 +21,7 @@ cd devtools/agent-archive && go install .
 | Command | What it does |
 | --- | --- |
 | `agent-archive copy` | Copy new and changed originals and update the database. |
-| `agent-archive status` | Show the last copy run, counts, warnings, and failed files. |
+| `agent-archive status` | Show the last copy run, counts, warnings, and failed files; the last line says whether anything needs a look. |
 | `agent-archive verify` | Re-hash every copy, current and superseded, against the database. |
 | `agent-archive verify --snapshot <dir>` | Also check that every file in a snapshot has a copy that equals it or begins with it. |
 | `agent-archive rebuild` | Recreate the database from the copy log and the copies. |
