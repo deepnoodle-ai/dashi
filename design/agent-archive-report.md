@@ -1,6 +1,6 @@
 # Agent archive, phase 3: spend report
 
-**Status:** Proposed · **Date:** 2026-10-05 · **Owner:** Curtis
+**Status:** Accepted · **Date:** 2026-10-05 · **Owner:** Curtis
 
 The archive holds 483,632 `usage` rows across 27 models, but nothing turns
 them into dollars. `agent-archive report` prices every row with Dashi's own
@@ -22,6 +22,9 @@ Phase 1 and 2 words hold ([agent-archive.md](agent-archive.md),
 - *Unpriced*: a call the catalog has no price sheet for. Never shown as $0.
 - *Lower bound*: an amount known to be at or below the list price, because
   some part of it could not be priced. Marked with a trailing `+`.
+- *High estimate*: an amount priced at the top of a known range, so at or
+  above the list price. Used where the logs cannot say which of two rates
+  applied; we prefer showing a little too much to showing too little.
 - *Project*: a `working_dir`, with worktree folders rolled up (decision 6).
 - *Calls not in session files*: model calls Claude Code counts in its own
   total but never writes to a session file (decision 7).
@@ -63,9 +66,11 @@ Sums use `money.Amount`, which is exact; dollars print to the cent.
    - *Codex cache writes.* Codex never reports them, and phase 2 marks its
      usage `CacheCreationInputTokensUnavailable`. `Estimate` then refuses any
      sheet whose `CacheWrite` differs from `Input`, which is every
-     `gpt-6-*` and `gpt-5.6-*` sheet: 216,126 rows, 45% of the archive. The
-     report leaves the flag off and prices unknown writes as input, marked
-     `+`: a known lower bound beats a missing price on half the archive.
+     `gpt-6-*` and `gpt-5.6-*` sheet (`CacheWrite` is 1.25 × `Input`):
+     216,126 rows, 45% of the archive. The report leaves the flag off and
+     prices every uncached input token as a cache write: a high estimate, at
+     most 25% over on those tokens. `--json` also gives the low amount, with
+     all of them priced as input.
 4. **One price per model, today's.** The catalog keeps no history, so
    April's `gpt-5.5` calls are priced at the 2026-09-09 sheet, whose date
    `--json` names. Price history waits until a real price change matters.
@@ -105,9 +110,8 @@ Sums use `money.Amount`, which is exact; dollars print to the cent.
      Code's `modelUsage` records none), and archived calls write one-hour
      cache heavily (46.2M of 179.5M `claude-opus-5-5` write tokens), so
      neither rate can be assumed. The writes are priced twice: all at the
-     5-minute rate (low) and all at the one-hour rate (high). When they are
-     above zero, the table shows the low amount marked `+`; `--json` gives
-     both.
+     5-minute rate (low) and all at the one-hour rate (high). The table
+     shows the high estimate; `--json` gives both.
 8. **Compare with Claude Code's own total, per session.** `app_cost_usd` is
    on 395 of 440 Claude Code root files and none of Codex's. The Dashi side
    is every priced row with the same `session_id`, subagents included, plus
@@ -143,19 +147,10 @@ Rows sort by total, largest first. The columns are one per period
 row is `Total`. `--by session` has the columns `Session`, `App`, `Project`,
 `Started`, `Dashi cost`, `App cost`, `Difference`. JSON amounts are decimal
 strings, as `money.Amount` writes them, with `lower_bound`,
-`unpriced_calls`, and the price sheet's `updated_at` per model.
+`unpriced_calls`, `low` and `high` where a high estimate applies, and the
+price sheet's `updated_at` per model.
 
 ## Out of scope
 
 Budgets and limits, charts, a web UI, price history, other currencies, and
 editing the catalog. Missing prices go in `catalog` in their own PR.
-
-## Open questions
-
-1. **Codex cache writes:** price unknown writes as input and mark `+`
-   (recommended), or show 45% of the archive as unpriced?
-2. **Model aliases:** `codex-auto-review` and the `*-codex` models have no
-   published price. Leave them unpriced (recommended), or let the report map
-   each to a priced model, such as `gpt-5.2-codex` to `gpt-5.2`?
-3. **Default range:** confirm eight periods including the current one
-   (recommended), rather than the whole archive.
