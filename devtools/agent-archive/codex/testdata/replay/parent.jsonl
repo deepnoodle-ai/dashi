@@ -1,0 +1,13 @@
+{"timestamp":"2026-08-09T10:00:00.000Z","type":"session_meta","payload":{"id":"p-par","timestamp":"2026-08-09T10:00:00.000Z","cwd":"/work/demo","cli_version":"0.147.0-alpha.6.5","source":"vscode"}}
+{"timestamp":"2026-08-09T10:00:00.100Z","type":"turn_context","payload":{"model":"gpt-5.6"}}
+{"timestamp":"2026-08-09T10:00:00.200Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-08-09T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Start the work."}]}}
+{"timestamp":"2026-08-09T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Working."}]}}
+{"timestamp":"2026-08-09T10:00:02.100Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":110},"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":110}}}}
+{"timestamp":"2026-08-09T10:00:03.000Z","type":"response_item","payload":{"type":"function_call","name":"spawn_agent","arguments":"{\"fork_context\":true}","call_id":"call_fk"}}
+{"timestamp":"2026-08-09T10:00:03.100Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":210,"cached_input_tokens":100,"output_tokens":20,"reasoning_output_tokens":0,"total_tokens":230},"last_token_usage":{"input_tokens":110,"cached_input_tokens":100,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":120}}}}
+{"timestamp":"2026-08-09T10:00:04.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_fk","output":"{\"agent_id\":\"p-fork\"}"}}
+{"timestamp":"2026-08-09T10:00:05.000Z","type":"event_msg","payload":{"type":"task_complete"}}
+{"timestamp":"2026-08-09T10:01:00.000Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-08-09T10:01:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Next step."}]}}
+{"timestamp":"2026-08-09T10:01:02.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":340,"cached_input_tokens":200,"output_tokens":30,"reasoning_output_tokens":0,"total_tokens":370},"last_token_usage":{"input_tokens":130,"cached_input_tokens":100,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":140}}}}

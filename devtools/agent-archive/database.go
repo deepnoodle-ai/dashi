@@ -58,6 +58,21 @@ CREATE TABLE IF NOT EXISTS usage (
 	speed                          TEXT NOT NULL,
 	PRIMARY KEY (copy_id, line)
 );
+-- Claude Code's own per-model totals for a root session, from its last
+-- cost-state line. They include model calls it never writes to a session
+-- file, so they can exceed the session's usage rows.
+CREATE TABLE IF NOT EXISTS app_usage (
+	copy_id                     INTEGER NOT NULL REFERENCES copies (copy_id),
+	model                       TEXT NOT NULL,
+	input_tokens                INTEGER NOT NULL,
+	cache_read_input_tokens     INTEGER NOT NULL,
+	cache_creation_input_tokens INTEGER NOT NULL,
+	output_tokens               INTEGER NOT NULL,
+	reasoning_tokens            INTEGER NOT NULL,
+	web_search_requests         INTEGER NOT NULL,
+	cost_usd                    REAL NOT NULL,
+	PRIMARY KEY (copy_id, model)
+);
 CREATE TABLE IF NOT EXISTS copy_runs (
 	run_id           TEXT PRIMARY KEY,
 	started_at       TEXT NOT NULL,
@@ -235,15 +250,24 @@ func applyEventTx(tx *sql.Tx, ev logEvent) error {
 
 // deleteFacts deletes everything parsed from a copy.
 func deleteFacts(tx *sql.Tx, copyID int64) error {
-	if _, err := tx.Exec(`DELETE FROM usage WHERE copy_id = ?`, copyID); err != nil {
+	if err := deleteUsage(tx, copyID); err != nil {
 		return err
 	}
 	_, err := tx.Exec(`DELETE FROM sessions WHERE copy_id = ?`, copyID)
 	return err
 }
 
-// clearPhase2Facts deletes a copy's usage rows and empties its phase 2
-// sessions columns.
+// deleteUsage deletes a copy's usage and app_usage rows.
+func deleteUsage(tx *sql.Tx, copyID int64) error {
+	if _, err := tx.Exec(`DELETE FROM usage WHERE copy_id = ?`, copyID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(`DELETE FROM app_usage WHERE copy_id = ?`, copyID)
+	return err
+}
+
+// clearPhase2Facts deletes a copy's usage and app_usage rows and empties
+// its phase 2 sessions columns.
 func clearPhase2Facts(tx *sql.Tx, copyPath string) error {
 	var id int64
 	err := tx.QueryRow(`SELECT copy_id FROM copies WHERE copy_path = ?`, copyPath).Scan(&id)
@@ -253,7 +277,7 @@ func clearPhase2Facts(tx *sql.Tx, copyPath string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM usage WHERE copy_id = ?`, id); err != nil {
+	if err := deleteUsage(tx, id); err != nil {
 		return err
 	}
 	set := make([]string, len(sessionColumns))

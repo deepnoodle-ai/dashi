@@ -106,6 +106,41 @@ func TestParseFillsSessionsAndUsage(t *testing.T) {
 	}
 }
 
+// TestForkedRootAndAppUsage checks that a Codex root forked from another
+// session is parsed and converted with that session's root as its fork
+// parent, and that Claude Code's own per-model totals are stored.
+func TestForkedRootAndAppUsage(t *testing.T) {
+	e := newEnv(t)
+	e.claude("projects/-work-demo/s-rem.jsonl", fixture(t, "claudecode/testdata/reminders.jsonl"), baseTime)
+	e.codex("sessions/2026/08/09/rollout-2026-08-09T10-00-00-p-par.jsonl", fixture(t, "codex/testdata/replay/parent.jsonl"), baseTime)
+	e.codex("sessions/2026/08/09/rollout-2026-08-09T11-00-00-p-new.jsonl", fixture(t, "codex/testdata/replay/forked_root.jsonl"), baseTime)
+	e.copy()
+	db := e.db()
+	defer db.Close()
+	var forkedFrom string
+	var usage, appUsage int
+	var cost float64
+	if err := db.QueryRow(`SELECT forked_from_session_id, (SELECT COUNT(*) FROM usage u WHERE u.copy_id = s.copy_id)
+		FROM sessions s WHERE session_id = 'p-new'`).Scan(&forkedFrom, &usage); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*), SUM(cost_usd) FROM app_usage`).Scan(&appUsage, &cost); err != nil {
+		t.Fatal(err)
+	}
+	if forkedFrom != "p-par" || usage != 1 || appUsage != 2 || cost != 0.5 {
+		t.Fatalf("forked from %q, %d usage rows, %d app_usage rows costing %v", forkedFrom, usage, appUsage, cost)
+	}
+
+	r := runCLI(t, "convert", "--archive", e.opts.ArchiveDir, "--session", "p-new")
+	var first convertedLine
+	if err := json.Unmarshal([]byte(strings.SplitN(r.Stdout, "\n", 2)[0]), &first); err != nil {
+		t.Fatalf("convert exit %d: %v\n%s", r.ExitCode, err, r.Stderr)
+	}
+	if !first.Ref.Inherited || first.Ref.CopyID == 0 {
+		t.Fatalf("first line: %+v", first)
+	}
+}
+
 func TestStaleFactsAreDeleted(t *testing.T) {
 	e := newEnv(t)
 	root := fixture(t, "claudecode/testdata/fork/root.jsonl")

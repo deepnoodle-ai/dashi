@@ -1,6 +1,8 @@
 package claudecode
 
 import (
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/devtools/agent-archive/sessionfile"
@@ -20,7 +22,7 @@ func Parse(copies []sessionfile.Copy) ([]sessionfile.ParsedCopy, error) {
 	out := make([]sessionfile.ParsedCopy, 0, len(cls))
 	for i, cl := range cls {
 		p := sessionfile.ParsedCopy{CopyID: cl.ID, SkippedLines: cl.skipped}
-		p.Session = sessionFacts(cl, inherited[i])
+		p.Session, p.AppUsage = sessionFacts(cl, inherited[i])
 		p.Usage = usageRows(cl, counted)
 		p.Session.UsageSource = sessionfile.UsageSourceNone
 		if hasUsage(cl) {
@@ -31,8 +33,13 @@ func Parse(copies []sessionfile.Copy) ([]sessionfile.ParsedCopy, error) {
 	return out, nil
 }
 
-func sessionFacts(cl *copyLines, inherited map[string]bool) sessionfile.Session {
+// sessionFacts returns a copy's sessions columns and, for the root, Claude
+// Code's own per-model totals from its last cost-state line. Those include
+// calls it never writes to a session file, such as compaction and the
+// helpers behind web fetch and web search.
+func sessionFacts(cl *copyLines, inherited map[string]bool) (sessionfile.Session, []sessionfile.AppUsage) {
 	s := sessionfile.Session{AgentKind: sessionfile.AgentKindRoot}
+	var modelUsage map[string]appModelUsage
 	if cl.AgentID != "" {
 		s.AgentKind = sessionfile.AgentKindSubagent
 		if cl.meta.IsFork {
@@ -67,6 +74,9 @@ func sessionFacts(cl *copyLines, inherited map[string]bool) sessionfile.Session 
 				v := *l.TotalCostUSD
 				s.AppCostUSD = &v
 			}
+			if cl.AgentID == "" && l.ModelUsage != nil {
+				modelUsage = l.ModelUsage
+			}
 		}
 		if l.skip == sessionfile.SkipDuplicateLine || l.skip == sessionfile.SkipBadLine || inherited[l.UUID] {
 			continue
@@ -95,7 +105,22 @@ func sessionFacts(cl *copyLines, inherited map[string]bool) sessionfile.Session 
 			s.Title = aiTitle
 		}
 	}
-	return s
+	var apps []sessionfile.AppUsage
+	for _, model := range slices.Sorted(maps.Keys(modelUsage)) {
+		u := modelUsage[model]
+		x := llm.Usage{
+			InputTokens:              u.InputTokens,
+			CacheReadInputTokens:     u.CacheReadInputTokens,
+			CacheCreationInputTokens: u.CacheCreationInputTokens,
+			OutputTokens:             u.OutputTokens,
+			ReasoningTokens:          u.ThinkingTokens,
+		}
+		if u.WebSearchRequests > 0 {
+			x.Requests = map[string]int{llm.MeterWebSearch: u.WebSearchRequests}
+		}
+		apps = append(apps, sessionfile.AppUsage{Model: model, Usage: x, CostUSD: u.CostUSD})
+	}
+	return s, apps
 }
 
 // notPrompts are the starts of user text Claude Code writes itself:
@@ -232,7 +257,7 @@ func mergeUsage(mc *modelCall, m *message) {
 // on an earlier copy, and marks them counted.
 func usageRows(cl *copyLines, counted map[string]bool) []sessionfile.Usage {
 	var out []sessionfile.Usage
-	for _, mc := range modelCalls(cl) {
+	for _, mc := range cl.calls {
 		if !claimUsage(mc, counted) {
 			continue
 		}

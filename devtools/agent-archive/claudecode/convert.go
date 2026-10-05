@@ -41,7 +41,7 @@ func Convert(copies []sessionfile.Copy, agentID string) (sessionfile.Transcript,
 	// as in Parse.
 	counted := map[string]bool{}
 	for _, p := range cls[:idx] {
-		for _, mc := range modelCalls(p) {
+		for _, mc := range p.calls {
 			claimUsage(mc, counted)
 		}
 	}
@@ -91,7 +91,7 @@ func (cv *converter) add(m llm.Message, ref sessionfile.LineRef) {
 // when all is set or its uuid is in inherited.
 func (cv *converter) convert(cl *copyLines, path map[*line]bool, inherited map[string]bool, all bool) {
 	calls := map[string]*modelCall{}
-	for _, mc := range modelCalls(cl) {
+	for _, mc := range cl.calls {
 		if mc.ID != "" {
 			calls[mc.ID] = mc
 		}

@@ -177,7 +177,7 @@ blocks; Codex reasoning is encrypted in all 353,340 items and summarized in
 | Codex token sources | both 1,267 files; `token_count` only 2,272; none 167 | Prefer `token_usage_record` (its `usage`). Use a `token_count`'s `last_token_usage` only when its total changes (11,764 repeats; 678 lack `info`). |
 | Codex session in two files | 16 sessions | Same `session_meta.id`, no shared lines, one after the other: convert in time order. |
 | Codex fork prefix | 337 of 369 forks | Codex records the parent's line count as the fork's start `ordinal`. In forks only, lines with a lower `ordinal` are inherited. No prefix holds token lines; its `web_search_call` items are not counted. |
-| Codex `ordinal` not a prefix | 32 forks, 1,195 approval reviewers, 146 subagents; 27 files lack it | The start `ordinal` equals the file's own line count, or is absent (0.140.0-alpha.2): ignored. |
+| Codex `ordinal` not a prefix | 32 forks, 1,195 approval reviewers, 146 subagents; 27 files lack it | The start `ordinal` equals the file's own line count, or is absent (0.140.0-alpha.2), so it marks nothing. 21 forks (0.144 to 0.148) and 5 forked roots repeat their parent anyway: see "As built". |
 | Claude Code parallel lines in the `uuid` tree | 4,528+ results, 1,704 lines | A walk up `parentUuid` from the last line misses parallel tool results and split lines. Final path: that walk (crossing `compact_boundary` by `logicalParentUuid`), plus lines of its model calls or answering its calls, until none are added. |
 | Claude Code rewound lines | 401 lines in 165 files (288 prompts) | Off the final path: skipped as `rewound`. |
 | Claude Code served model differs | 4,554 lines | `usage.iterations[].model` differs from `message.model`; usage goes to it. |
@@ -223,3 +223,16 @@ Each followed its recommendation.
   provider runs.
 - `rewound` also counts attachments on a rewound branch: 741 lines in 183
   files, of which 415 are `user` or `assistant` (the survey's 401).
+- A Claude Code call's usage takes each count's maximum over every copy: a
+  fork holding a partial line of the call that started it can claim it.
+- A Codex fork with no usable start ordinal, or a forked root, still repeats
+  its parent: its lines through the turn of the last token line the parent
+  also has (same `response_id` or cumulative total) are inherited. A token
+  line repeating the one before it is not matched. No layout rule works. A
+  forked root's parent session's root copies come in as `Copy.ForkParent`,
+  read only to compare. This drops 1,498 usage rows from 26 files.
+- `app_usage` has one row per root `copy_id` and `model` (with `[1m]`): the
+  last `cost-state` line's `modelUsage`, as `usage` token columns plus
+  `cost_usd`. It counts calls never written to a session file (compaction,
+  summaries, web fetch and search helpers); minus the session's `usage`, it
+  prices them.

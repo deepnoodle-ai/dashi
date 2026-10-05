@@ -28,6 +28,10 @@ type Copy struct {
 	Open func() (io.ReadCloser, error)
 	// Meta is a Claude Code subagent's .meta.json, if archived.
 	Meta []byte
+	// ForkParent marks a Codex root copy of the session that a root of
+	// this session was forked from. It is read only to find the lines the
+	// fork repeats, and gets no ParsedCopy.
+	ForkParent bool
 }
 
 // Agent kinds.
@@ -77,11 +81,21 @@ type Usage struct {
 	Speed string
 }
 
+// AppUsage is one row of the app_usage table: the app's own token totals
+// and cost for one model over a whole session, which include model calls
+// it never writes to a session file.
+type AppUsage struct {
+	Model   string
+	Usage   llm.Usage
+	CostUSD float64
+}
+
 // ParsedCopy is what parsing found in one copy.
 type ParsedCopy struct {
 	CopyID       int64
 	Session      Session
 	Usage        []Usage
+	AppUsage     []AppUsage
 	SkippedLines map[string]int
 }
 

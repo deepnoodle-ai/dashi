@@ -12,8 +12,8 @@ import (
 // parserVersion changes whenever the parser's output changes, so copies
 // parsed by an older parser are parsed again. Version 2 adds phase 2:
 // design/agent-archive-parse.md. Version 3 reads Codex code mode tool
-// errors.
-const parserVersion = 3
+// errors. Version 4 adds app_usage and finds what older Codex forks repeat.
+const parserVersion = 4
 
 // Parse statuses.
 const (
@@ -42,6 +42,9 @@ type sessionFacts struct {
 	// ParentThreadID is the thread that started a Codex subagent. Pass 1
 	// stores it in parent_agent_id so linkCodexSessions can find the root.
 	ParentThreadID string
+	// ForkedFromSessionID is the session a Codex root was forked from.
+	// Pass 2 reads that session's root to find the lines the fork repeats.
+	ForkedFromSessionID string
 }
 
 // parseResult is what parsing one copy found.
@@ -111,6 +114,7 @@ type codexSessionMeta struct {
 	ID             string          `json:"id"`
 	SessionID      string          `json:"session_id"`
 	ParentThreadID string          `json:"parent_thread_id"`
+	ForkedFromID   string          `json:"forked_from_id"`
 	Cwd            string          `json:"cwd"`
 	CLIVersion     string          `json:"cli_version"`
 	Timestamp      string          `json:"timestamp"`
@@ -193,6 +197,8 @@ func fillCodexFacts(f *sessionFacts, payload json.RawMessage) {
 		}
 		_ = json.Unmarshal(source.Subagent, &spawn)
 		f.ParentThreadID = firstNonEmpty(spawn.ThreadSpawn.ParentThreadID, m.ParentThreadID)
+	} else {
+		f.ForkedFromSessionID = m.ForkedFromID
 	}
 	f.WorkingDir = m.Cwd
 	f.AppVersion = m.CLIVersion

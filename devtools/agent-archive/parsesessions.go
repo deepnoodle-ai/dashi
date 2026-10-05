@@ -121,9 +121,9 @@ func storeParse(db *sql.DB, copyID int64, app string, res parseResult, done bool
 	}
 	if s := res.Session; s != nil {
 		if _, err := tx.Exec(`INSERT INTO sessions (copy_id, app, session_id, agent_id, working_dir, started_at, app_version,
-			parent_agent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, copyID, app, nullIfEmpty(s.SessionID), s.AgentID,
-			nullIfEmpty(s.WorkingDir), nullIfEmpty(s.StartedAt), nullIfEmpty(s.AppVersion),
-			nullIfEmpty(s.ParentThreadID)); err != nil {
+			parent_agent_id, forked_from_session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, copyID, app,
+			nullIfEmpty(s.SessionID), s.AgentID, nullIfEmpty(s.WorkingDir), nullIfEmpty(s.StartedAt),
+			nullIfEmpty(s.AppVersion), nullIfEmpty(s.ParentThreadID), nullIfEmpty(s.ForkedFromSessionID)); err != nil {
 			return err
 		}
 	}
@@ -363,6 +363,11 @@ func (p *sessionParser) parseSession(g []sessionCopy, metas, titles map[string]s
 	parse := claudecode.Parse
 	if g[0].app == appCodex {
 		parse = codex.Parse
+		parents, err := forkParents(p.db, p.archive, g[0].session)
+		if err != nil {
+			return err
+		}
+		copies = append(copies, parents...)
 	}
 	parsed, err := parse(copies)
 	if err != nil {
@@ -387,6 +392,33 @@ func (p *sessionParser) parseSession(g []sessionCopy, metas, titles map[string]s
 		p.usageRows += len(pc.Usage)
 	}
 	return p.store(parsed)
+}
+
+// forkParents returns the root copies of the Codex session that a root of
+// session was forked from, as fork parents: read only to find the lines
+// the fork repeats.
+func forkParents(db *sql.DB, a archive, session string) ([]sessionfile.Copy, error) {
+	rows, err := db.Query(`SELECT c.copy_id, c.copy_path, COALESCE(s.started_at, '')
+		FROM copies c JOIN sessions s USING (copy_id)
+		WHERE s.app = ? AND s.agent_id = '' AND c.superseded_at IS NULL AND c.parse_status = ?
+			AND s.session_id IN (SELECT forked_from_session_id FROM sessions
+				WHERE app = ? AND session_id = ? AND agent_id = '' AND forked_from_session_id != '')
+		ORDER BY c.copy_id`, appCodex, parseStatusParsed, appCodex, session)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []sessionfile.Copy
+	for rows.Next() {
+		c := sessionfile.Copy{ForkParent: true}
+		if err := rows.Scan(&c.ID, &c.Name, &c.StartedAt); err != nil {
+			return nil, err
+		}
+		name := a.abs(c.Name)
+		c.Open = func() (io.ReadCloser, error) { return openCopy(name) }
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 // storeFailed marks a session's pending copies failed when one of its
@@ -431,8 +463,18 @@ func (p *sessionParser) store(parsed []sessionfile.ParsedCopy) error {
 			cost, s.UsageSource, string(skipped), pc.CopyID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`DELETE FROM usage WHERE copy_id = ?`, pc.CopyID); err != nil {
+		if err := deleteUsage(tx, pc.CopyID); err != nil {
 			return err
+		}
+		for _, u := range pc.AppUsage {
+			x := u.Usage
+			if _, err := tx.Exec(`INSERT INTO app_usage (copy_id, model, input_tokens, cache_read_input_tokens,
+					cache_creation_input_tokens, output_tokens, reasoning_tokens, web_search_requests, cost_usd)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				pc.CopyID, u.Model, x.InputTokens, x.CacheReadInputTokens, x.CacheCreationInputTokens, x.OutputTokens,
+				x.ReasoningTokens, x.Requests["web_search"], u.CostUSD); err != nil {
+				return err
+			}
 		}
 		for _, u := range pc.Usage {
 			x := u.Usage

@@ -133,5 +133,12 @@ func sessionCopies(db *sql.DB, dir, session string) ([]sessionfile.Copy, string,
 	if len(copies) == 0 {
 		return nil, "", fmt.Errorf("no parsed session %s", session)
 	}
+	if app == appCodex {
+		parents, err := forkParents(db, a, session)
+		if err != nil {
+			return nil, "", err
+		}
+		copies = append(copies, parents...)
+	}
 	return copies, app, nil
 }
