@@ -55,6 +55,8 @@ func TestCommandLine(t *testing.T) {
 		{"copy", "--bogus"},
 		{"copy", "-archive", e.opts.ArchiveDir}, // the old single-dash form
 		{"status", "extra"},
+		{"report", "--by", "nope"},
+		{"report", "--since", "yesterday", "--archive", e.opts.ArchiveDir},
 	} {
 		if r := runCLI(t, args...); r.ExitCode != 1 {
 			t.Errorf("%v: exit %d, want 1", args, r.ExitCode)
