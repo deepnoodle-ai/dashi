@@ -274,6 +274,10 @@ func modelCalls(cl *copyLines) ([]modelCall, string) {
 			searches++
 		}
 		if l.inherited {
+			// A fork's first own token_count can repeat the last inherited one.
+			if l.Type == "event_msg" && l.item.Type == "token_count" && l.item.Info != nil && l.item.Info.Total != nil {
+				lastTotal = l.item.Info.Total
+			}
 			continue
 		}
 		var u *tokenUsage

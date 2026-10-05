@@ -11,6 +11,6 @@
 {"type":"ai-title","aiTitle":"An AI title","sessionId":"s-rem"}
 {"type":"custom-title","customTitle":"Second custom title","sessionId":"s-rem"}
 {"type":"pr-link","sessionId":"s-rem","prNumber":7,"prUrl":"https://github.com/example-org/example-repo/pull/7","prRepository":"example-org/example-repo","timestamp":"2026-09-05T08:00:05.000Z"}
-{"type":"cost-state","sessionId":"s-rem","totalCostUSD":0.25}
-{"type":"cost-state","sessionId":"s-rem","totalCostUSD":0.5}
+{"type":"cost-state","sessionId":"s-rem","totalCostUSD":0.25,"modelUsage":{"claude-opus-5-5":{"inputTokens":10,"outputTokens":5,"thinkingTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":100,"webSearchRequests":0,"costUSD":0.25}}}
+{"type":"cost-state","sessionId":"s-rem","totalCostUSD":0.5,"modelUsage":{"claude-opus-5-5[1m]":{"inputTokens":20,"outputTokens":9,"thinkingTokens":3,"cacheReadInputTokens":300,"cacheCreationInputTokens":100,"webSearchRequests":0,"costUSD":0.45},"claude-haiku-4-5-20251001":{"inputTokens":900,"outputTokens":12,"thinkingTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":2,"costUSD":0.05}}}
 {"type":"agent-name","agentName":"placeholder-name","sessionId":"s-rem"}

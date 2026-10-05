@@ -263,9 +263,17 @@ func TestRemindersAndMetadata(t *testing.T) {
 	img := tr.Messages[2].Content[1].Block.Image
 	check(t, "image", []any{img.Source.MIMEType, len(img.Source.Data)}, []any{"image/png", 8})
 
-	s := parseOne(t, c)[0].Session
+	p := parseOne(t, c)[0]
+	s := p.Session
 	check(t, "session", []any{s.Title, s.GitRemoteURL, *s.AppCostUSD, s.Entrypoint, s.GitBranch, s.UserPrompts},
 		[]any{"Second custom title", "https://github.com/example-org/example-repo", 0.5, "sdk-cli", "feature/x", 1})
+	// The last cost-state line's per-model totals, sorted by model.
+	check(t, "app usage", p.AppUsage, []sessionfile.AppUsage{
+		{Model: "claude-haiku-4-5-20251001", CostUSD: 0.05, Usage: llm.Usage{InputTokens: 900, OutputTokens: 12,
+			Requests: map[string]int{llm.MeterWebSearch: 2}}},
+		{Model: "claude-opus-5-5[1m]", CostUSD: 0.45, Usage: llm.Usage{InputTokens: 20, OutputTokens: 9,
+			ReasoningTokens: 3, CacheReadInputTokens: 300, CacheCreationInputTokens: 100}},
+	})
 }
 
 func TestLargeReminderBecomesText(t *testing.T) {
@@ -327,6 +335,27 @@ func TestForkByReference(t *testing.T) {
 	if _, err := Convert([]sessionfile.Copy{root}, "missing"); err == nil {
 		t.Fatal("converting a missing agent should fail")
 	}
+}
+
+// TestForkPartialUsage checks that a fork that copies only the first line
+// of the call that started it, and ties its parent's start, gets the
+// call's full usage when it claims it.
+func TestForkPartialUsage(t *testing.T) {
+	parent := fixtureBytes(t, 3, "ap", "partial/agent-ap.jsonl", []byte(`{"type":"user","uuid":"pu1","parentUuid":null,"isSidechain":true,"agentId":"ap","sessionId":"s-part","timestamp":"2026-09-07T08:00:00.000Z","message":{"role":"user","content":"Split the work."}}
+{"type":"assistant","uuid":"pa1","parentUuid":"pu1","isSidechain":true,"agentId":"ap","sessionId":"s-part","timestamp":"2026-09-07T08:00:01.000Z","message":{"id":"msg_p1","role":"assistant","model":"claude-opus-5-5","content":[{"type":"text","text":"Forking."}],"usage":{"input_tokens":3,"output_tokens":2}}}
+{"type":"assistant","uuid":"pa2","parentUuid":"pa1","isSidechain":true,"agentId":"ap","sessionId":"s-part","timestamp":"2026-09-07T08:00:02.000Z","message":{"id":"msg_p1","role":"assistant","model":"claude-opus-5-5","content":[{"type":"tool_use","id":"toolu_p","name":"Agent","input":{"prompt":"Placeholder."}}],"usage":{"input_tokens":3,"output_tokens":5423}}}
+`))
+	fork := fixtureBytes(t, 2, "afp", "partial/agent-afp.jsonl", []byte(`{"type":"user","uuid":"pu1","parentUuid":null,"isSidechain":true,"agentId":"afp","sessionId":"s-part","timestamp":"2026-09-07T08:00:00.000Z","message":{"role":"user","content":"Split the work."}}
+{"type":"assistant","uuid":"pa1","parentUuid":"pu1","isSidechain":true,"agentId":"afp","sessionId":"s-part","timestamp":"2026-09-07T08:00:01.000Z","message":{"id":"msg_p1","role":"assistant","model":"claude-opus-5-5","content":[{"type":"text","text":"Forking."}],"usage":{"input_tokens":3,"output_tokens":2}}}
+{"type":"user","uuid":"fu1","parentUuid":"pa1","isSidechain":true,"agentId":"afp","sessionId":"s-part","timestamp":"2026-09-07T08:00:03.000Z","message":{"role":"user","content":"Placeholder."}}
+`))
+	ps := parseOne(t, parent, fork)
+	// Both start together, so the fork's lower copy id puts it first.
+	check(t, "order", []int64{ps[0].CopyID, ps[1].CopyID}, []int64{2, 3})
+	check(t, "fork usage", []int{len(ps[0].Usage), ps[0].Usage[0].Usage.OutputTokens}, []int{1, 5423})
+	check(t, "parent usage", len(ps[1].Usage), 0)
+	tr := convert(t, "afp", parent, fork)
+	check(t, "converted usage", tr.LineRefs[1].Usage.OutputTokens, 5423)
 }
 
 func TestUnreadableCopy(t *testing.T) {

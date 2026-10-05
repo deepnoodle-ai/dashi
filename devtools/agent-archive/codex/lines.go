@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/devtools/agent-archive/sessionfile"
 )
@@ -81,6 +82,7 @@ type tokenUsage struct {
 type sessionMeta struct {
 	ID             string `json:"id"`
 	ForkedFromID   string `json:"forked_from_id"`
+	Timestamp      string `json:"timestamp"` // when the file, or its fork, was created
 	ParentThreadID string `json:"parent_thread_id"`
 	Originator     string `json:"originator"`
 	AgentPath      string `json:"agent_path"`
@@ -172,11 +174,10 @@ func readCopy(c sessionfile.Copy) (*copyLines, error) {
 		return nil, err
 	}
 	// A fork records its parent's line count as its start ordinal; lines
-	// below it repeat the parent's. A start of zero, absent, or not below
-	// the file's own line count marks no prefix.
-	if start := cl.meta.StartOrdinal; start != nil && cl.isFork() && *start > 0 && *start < len(cl.Lines) {
+	// below it repeat the parent's.
+	if cl.hasStartOrdinal() {
 		for _, l := range cl.Lines {
-			if l.Ordinal != nil && *l.Ordinal < *start && l.N > 1 {
+			if l.Ordinal != nil && *l.Ordinal < *cl.meta.StartOrdinal && l.N > 1 {
 				l.inherited = true
 			}
 		}
@@ -187,6 +188,99 @@ func readCopy(c sessionfile.Copy) (*copyLines, error) {
 		}
 	}
 	return cl, nil
+}
+
+// hasStartOrdinal reports whether the file is a subagent fork with a usable
+// start ordinal. A start of zero, absent, or not below the file's own line
+// count marks no prefix.
+func (cl *copyLines) hasStartOrdinal() bool {
+	start := cl.meta.StartOrdinal
+	return start != nil && cl.isFork() && *start > 0 && *start < len(cl.Lines)
+}
+
+// tokenKey identifies a token line across files: a token_usage_record's
+// response id, or a token_count's cumulative total. The zero key is not a
+// token line.
+type tokenKey struct {
+	responseID string
+	total      tokenUsage
+}
+
+func (l *line) tokenKey() tokenKey {
+	switch {
+	case l.Type == "token_usage_record" && l.item.ResponseID != "":
+		return tokenKey{responseID: l.item.ResponseID}
+	case l.Type == "event_msg" && l.item.Type == "token_count" && l.item.Info != nil && l.item.Info.Total != nil:
+		return tokenKey{total: *l.item.Info.Total}
+	}
+	return tokenKey{}
+}
+
+// markInherited marks the lines a fork repeats from its parent when its
+// file gives no usable start ordinal: a subagent fork from Codex 0.140 to
+// 0.148, or a forked root. The repeat is the fork's token lines, from its
+// first, that follow the parent's token lines written before the fork was
+// created, in order with none skipped;
+// the first that does not ends it. It runs through the turn of the last
+// one, up to the next task_started. A token line that repeats the one
+// before it is not matched: a fork's first own turn can start with one.
+// all is every copy read, including fork parents.
+func markInherited(cl *copyLines, all []*copyLines) {
+	if cl.meta.ForkedFromID == "" || cl.hasStartOrdinal() {
+		return
+	}
+	last := -1
+	for _, p := range all {
+		if p != cl && p.meta.ID == cl.meta.ForkedFromID {
+			last = max(last, copiedPrefixEnd(cl, p))
+		}
+	}
+	if last < 0 {
+		return
+	}
+	for i, l := range cl.Lines {
+		if i > last && l.Type == "event_msg" && l.item.Type == "task_started" {
+			break
+		}
+		if l.N > 1 {
+			l.inherited = true
+		}
+	}
+}
+
+// copiedPrefixEnd returns the index of the fork's last token line in its
+// run that repeats the parent's token lines in order, or -1 when the fork's
+// first token line is not one of the parent's. Only the parent's token
+// lines written before the fork was created can be copied.
+func copiedPrefixEnd(fork, parent *copyLines) int {
+	created, err := time.Parse(time.RFC3339Nano, fork.meta.Timestamp)
+	var keys []tokenKey
+	for _, l := range parent.Lines {
+		if at, e := time.Parse(time.RFC3339Nano, l.Timestamp); err == nil && e == nil && at.After(created) {
+			break
+		}
+		if k := l.tokenKey(); k != (tokenKey{}) && (len(keys) == 0 || k != keys[len(keys)-1]) {
+			keys = append(keys, k)
+		}
+	}
+	last, next := -1, 0 // next is the index of the parent key to match
+	var prev tokenKey
+	for i, l := range fork.Lines {
+		k := l.tokenKey()
+		if k == (tokenKey{}) || k == prev {
+			continue
+		}
+		prev = k
+		j := next
+		if last < 0 {
+			j = slices.Index(keys, k)
+		}
+		if j < 0 || j >= len(keys) || keys[j] != k {
+			return last
+		}
+		last, next = i, j+1
+	}
+	return last
 }
 
 // isSubagent reports whether the file is a subagent's.
@@ -210,7 +304,8 @@ func (cl *copyLines) agentPath() string {
 	return cl.meta.AgentPath
 }
 
-// readSession reads every copy of a session, oldest first.
+// readSession reads every copy of a session, oldest first, and marks each
+// fork's repeated lines. Fork parents are read for that, then left out.
 func readSession(copies []sessionfile.Copy) ([]*copyLines, error) {
 	sorted := slices.Clone(copies)
 	slices.SortStableFunc(sorted, func(a, b sessionfile.Copy) int {
@@ -226,13 +321,20 @@ func readSession(copies []sessionfile.Copy) ([]*copyLines, error) {
 		}
 		return 0
 	})
-	out := make([]*copyLines, 0, len(sorted))
+	all := make([]*copyLines, 0, len(sorted))
 	for _, c := range sorted {
 		cl, err := readCopy(c)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, cl)
+		all = append(all, cl)
+	}
+	out := make([]*copyLines, 0, len(all))
+	for _, cl := range all {
+		if !cl.ForkParent {
+			markInherited(cl, all)
+			out = append(out, cl)
+		}
 	}
 	return out, nil
 }

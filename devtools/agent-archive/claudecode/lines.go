@@ -37,11 +37,12 @@ type line struct {
 	} `json:"rendered"`
 
 	// Metadata lines.
-	CustomTitle    string   `json:"customTitle"`
-	AITitle        string   `json:"aiTitle"`
-	PRURL          string   `json:"prUrl"`
-	TotalCostUSD   *float64 `json:"totalCostUSD"`
-	ParentLastUUID string   `json:"parentLastUuid"`
+	CustomTitle    string                   `json:"customTitle"`
+	AITitle        string                   `json:"aiTitle"`
+	PRURL          string                   `json:"prUrl"`
+	TotalCostUSD   *float64                 `json:"totalCostUSD"`
+	ModelUsage     map[string]appModelUsage `json:"modelUsage"`
+	ParentLastUUID string                   `json:"parentLastUuid"`
 
 	// skip is why the line is not converted; empty if it is.
 	skip string
@@ -73,6 +74,17 @@ type usage struct {
 	Iterations []struct {
 		Model string `json:"model"`
 	} `json:"iterations"`
+}
+
+// appModelUsage is one model's totals in a cost-state line's modelUsage.
+type appModelUsage struct {
+	InputTokens              int     `json:"inputTokens"`
+	OutputTokens             int     `json:"outputTokens"`
+	ThinkingTokens           int     `json:"thinkingTokens"`
+	CacheReadInputTokens     int     `json:"cacheReadInputTokens"`
+	CacheCreationInputTokens int     `json:"cacheCreationInputTokens"`
+	WebSearchRequests        int     `json:"webSearchRequests"`
+	CostUSD                  float64 `json:"costUSD"`
 }
 
 type attachment struct {
@@ -129,6 +141,8 @@ type copyLines struct {
 	byUUID map[string]*line
 	// final is the set of lines on the final path.
 	final map[*line]bool
+	// calls are the copy's model calls, with usage merged across copies.
+	calls []*modelCall
 	meta  meta
 	// skipped counts lines not converted, by reason.
 	skipped sessionfile.Counts
@@ -320,6 +334,31 @@ func readSession(copies []sessionfile.Copy) ([]*copyLines, error) {
 			return nil, err
 		}
 		out = append(out, cl)
+	}
+	// A fork copies its parent's partial lines of the call that started it
+	// and can claim that call, so each call's usage takes the maximum over
+	// every copy.
+	merged := map[string]*modelCall{}
+	for _, cl := range out {
+		cl.calls = modelCalls(cl)
+		for _, mc := range cl.calls {
+			if mc.ID == "" {
+				continue
+			}
+			if merged[mc.ID] == nil {
+				merged[mc.ID] = &modelCall{}
+			}
+			for _, l := range mc.Lines {
+				mergeUsage(merged[mc.ID], l.Message)
+			}
+		}
+	}
+	for _, cl := range out {
+		for _, mc := range cl.calls {
+			if m := merged[mc.ID]; m != nil {
+				mc.Usage, mc.Speed = m.Usage, m.Speed
+			}
+		}
 	}
 	return out, nil
 }

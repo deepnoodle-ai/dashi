@@ -168,3 +168,82 @@ func TestUnreadableCopy(t *testing.T) {
 		t.Fatal("want an error")
 	}
 }
+
+// TestForkWithoutStartOrdinal checks a subagent fork whose start ordinal
+// equals its own line count: the lines up to the turn after the last token
+// line its parent also has are inherited, and its first own token line,
+// which repeats the last inherited total, is not a model call.
+func TestForkWithoutStartOrdinal(t *testing.T) {
+	parent := fixture(t, 1, "", "replay/parent.jsonl")
+	fork := fixture(t, 2, "p-fork", "replay/fork.jsonl")
+	ps := parse(t, parent, fork)
+	check(t, "parent usage", len(ps[1].Usage), 3)
+	check(t, "fork usage", []int{len(ps[2].Usage), ps[2].Usage[0].Line}, []int{1, 15})
+	s := ps[2].Session
+	check(t, "fork session", []any{s.AgentKind, s.ToolCalls, s.UserPrompts}, []any{"fork", 0, 0})
+	tr := convert(t, "p-fork", parent, fork)
+	check(t, "messages", shape(tr), []string{
+		"user text:Start the work. @4 inherited",
+		"assistant text:Working. @5 inherited",
+		`assistant call:spawn_agent({"fork_context":true}) @7 inherited`,
+		"developer text:Placeholder fork instructions. @9 inherited",
+		"assistant text:Fork done. @14 usage",
+	})
+}
+
+// TestForkTotalEqualsLaterParentTotal checks that only the copied prefix
+// is inherited: the fork's second own token line has the same total as a
+// parent token line from after the fork, and the fork's lines are kept.
+func TestForkTotalEqualsLaterParentTotal(t *testing.T) {
+	parent := fixture(t, 1, "", "replay/parent.jsonl")
+	fork := fixture(t, 2, "p-fork", "replay/fork_collide.jsonl")
+	ps := parse(t, parent, fork)
+	usage := ps[2].Usage
+	check(t, "fork usage", len(usage), 2)
+	check(t, "lines", []int{usage[0].Line, usage[1].Line}, []int{15, 17})
+	tr := convert(t, "p-fork", parent, fork)
+	check(t, "own messages", shape(tr)[4:], []string{
+		"assistant text:Fork done. @14 usage",
+		"assistant text:Fork checked. @16 usage",
+	})
+}
+
+// TestForkTotalEqualsParentNextTotal checks that parent token lines from
+// after the fork was created are not matched: the fork's first own total
+// equals the parent's next total, and that call stays the fork's.
+func TestForkTotalEqualsParentNextTotal(t *testing.T) {
+	parent := fixture(t, 1, "", "replay/parent.jsonl")
+	fork := fixture(t, 2, "p-fork", "replay/fork_next.jsonl")
+	ps := parse(t, parent, fork)
+	usage := ps[2].Usage
+	check(t, "fork usage", len(usage), 1)
+	check(t, "usage", []int{usage[0].Line, usage[0].Usage.OutputTokens}, []int{15, 10})
+	tr := convert(t, "p-fork", parent, fork)
+	check(t, "own messages", shape(tr)[4:], []string{"assistant text:Fork done. @14 usage"})
+}
+
+// TestForkedRoot checks a root forked from another session: that
+// session's root, passed as a fork parent, shows what it repeats, and gets
+// no parsed copy of its own.
+func TestForkedRoot(t *testing.T) {
+	parent := fixture(t, 1, "", "replay/parent.jsonl")
+	parent.ForkParent = true
+	root := fixture(t, 2, "", "replay/forked_root.jsonl")
+	ps := parse(t, root, parent)
+	check(t, "copies", len(ps), 1)
+	s := ps[2].Session
+	check(t, "session", []any{s.ForkedFromSessionID, s.ToolCalls, s.UserPrompts, len(ps[2].Usage)},
+		[]any{"p-par", 0, 1, 1})
+	check(t, "usage", []int{ps[2].Usage[0].Line, ps[2].Usage[0].Usage.OutputTokens}, []int{15, 7})
+	tr := convert(t, "", root, parent)
+	check(t, "messages", shape(tr), []string{
+		"user text:Start the work. @3 inherited",
+		"assistant text:Working. @5 inherited",
+		`assistant call:spawn_agent({"fork_context":true}) @7 inherited`,
+		"user result:call_fk @9 inherited",
+		"user text:Do it differently. @12",
+		"assistant text:Done differently. @14 usage",
+	})
+	// Without its parent, the whole file is the root's own.
+	check(t, "alone", len(parse(t, root)[2].Usage), 3)
+}

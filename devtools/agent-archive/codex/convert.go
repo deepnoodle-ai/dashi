@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -32,21 +33,19 @@ const agentMessageReminder = "agent-message"
 // read or an agent with no copy.
 func Convert(copies []sessionfile.Copy, agentID string) (sessionfile.Transcript, error) {
 	t := sessionfile.Transcript{SkippedLines: map[string]int{}, ChangedBlocks: map[string]int{}}
-	var mine []sessionfile.Copy
-	for _, c := range copies {
-		if c.AgentID == agentID {
-			mine = append(mine, c)
-		}
-	}
-	if len(mine) == 0 {
+	if !slices.ContainsFunc(copies, func(c sessionfile.Copy) bool { return c.AgentID == agentID && !c.ForkParent }) {
 		return t, fmt.Errorf("no copy of agent %q in this session", agentID)
 	}
-	cls, err := readSession(mine)
+	// Every copy is read: a fork's parent shows which lines it repeats.
+	cls, err := readSession(copies)
 	if err != nil {
 		return t, err
 	}
 	cv := &converter{t: &t, changed: sessionfile.Counts(t.ChangedBlocks), awaiting: -1}
 	for _, cl := range cls {
+		if cl.AgentID != agentID {
+			continue
+		}
 		cv.convert(cl)
 		sessionfile.Counts(t.SkippedLines).Merge(cl.skipped)
 	}
