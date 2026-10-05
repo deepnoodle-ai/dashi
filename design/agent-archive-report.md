@@ -5,10 +5,9 @@
 The archive holds 483,632 `usage` rows across 27 models, but nothing turns
 them into dollars. `agent-archive report` prices every row with Dashi's own
 catalog and shows spend by model, app, or project, per day, week, or month.
-It has two purposes: make the archive something we open every week, and test
-Dashi's cost code against a year of real calls. Where Claude Code recorded
-its own total (`sessions.app_cost_usd`), the report compares the two, so a
-disagreement exposes a pricing bug on one side or the other. Counts below
+It makes the archive worth opening weekly, and tests Dashi's cost code
+against a year of real calls: where Claude Code recorded its own total
+(`sessions.app_cost_usd`), a disagreement exposes a pricing bug. Counts below
 come from the archive on 2026-10-05, before PR #197 (which drops 1,498 Codex
 rows that forks copied from their parents, and adds `app_usage`).
 
@@ -59,20 +58,17 @@ Sums use `money.Amount`, which is exact; dollars print to the cent.
      `gpt-6.1-sol`, `codex-auto-review`, six older
      `*-codex` models, `gpt-5.3-codex` (in the catalog without a price), and
      109 Codex rows with no model, shown as `(none)`.
-   - *Fast calls.* `speed = fast` (175 rows, all `claude-opus-5`) costs more
-     than the catalog's one sheet, which has no fast-mode price yet. Priced
-     at standard rates, marked `+`.
+   - *Fast calls.* `speed = fast` (175 rows, all `claude-opus-5`) has no
+     catalog price yet. Priced at standard rates, marked `+`.
    - *Codex cache writes.* Codex never reports them, and phase 2 marks its
      usage `CacheCreationInputTokensUnavailable`. `Estimate` then refuses any
      sheet whose `CacheWrite` differs from `Input`, which is every
      `gpt-6-*` and `gpt-5.6-*` sheet: 216,126 rows, 45% of the archive. The
      report leaves the flag off and prices unknown writes as input, marked
-     `+`. A missing price on half the archive helps nobody; a known lower
-     bound does.
-4. **One price per model, today's.** Each sheet has one `updated_at`, and
-   the catalog keeps no history, so April's `gpt-5.5` calls are priced at
-   the 2026-09-09 sheet. The `--json` output names each sheet's date. Price
-   history waits until a real price change makes it matter.
+     `+`: a known lower bound beats a missing price on half the archive.
+4. **One price per model, today's.** The catalog keeps no history, so
+   April's `gpt-5.5` calls are priced at the 2026-09-09 sheet, whose date
+   `--json` names. Price history waits until a real price change matters.
 5. **Days come from the model call, not the session.** `usage` has no time,
    and 213 sessions (96,631 rows, 20%) span more than one day. Phase 2 adds
    `usage.called_at`, the timestamp of the row's line (both apps write one
@@ -91,33 +87,41 @@ Sums use `money.Amount`, which is exact; dollars print to the cent.
      the one whose sessions share the row's `git_remote_url`; when none
      does, it stays `~/.codex/worktrees/*/<name>`, visible rather than
      guessed.
-   - The home folder prints as `~`. Subfolders of a project are not merged.
+   - Home prints as `~`; a project's subfolders are not merged.
 7. **Calls not in session files get their own rows.** A rough SQL check
-   found sessions with subagents about 12% below Claude Code's total. The
-   parser matches the raw files, and Dashi's prices are right: the gap is
-   calls Claude Code never writes to a session file. Most are background
+   found sessions with subagents about 12% below Claude Code's total: calls
+   Claude Code never writes to a session file. Most are background
    subagent summaries; the rest are compaction, prompt suggestions, memory
    extraction, and the Haiku calls behind WebFetch and WebSearch, with all
    web search fees. PR #197 stores Claude Code's per-model totals in
    `app_usage`. Per session and model, the report subtracts the archived
    rows (subagents included), clamps each token column at zero (7 of 372
    sessions go below, by small amounts, mostly cache writes), and prices the
-   rest as one `llm.Usage`, writes at the 5-minute rate. Model names drop
-   `[1m]`; Anthropic's current models have one price at any length. This
-   closes the gap to the cent. The amount falls on the session's last call
-   day, in its own row, such as `claude-haiku-4-5 (not in session files)`.
+   rest as one `llm.Usage`. Model names drop `[1m]`; Anthropic's current
+   models have one price at any length. The amount falls on the session's
+   last call day, in its own row, such as
+   `claude-haiku-4-5 (not in session files)`.
+   - *Cache writes are a range.* `app_usage` has no one-hour split (Claude
+     Code's `modelUsage` records none), and archived calls write one-hour
+     cache heavily (46.2M of 179.5M `claude-opus-5-5` write tokens), so
+     neither rate can be assumed. The writes are priced twice: all at the
+     5-minute rate (low) and all at the one-hour rate (high). When they are
+     above zero, the table shows the low amount marked `+`; `--json` gives
+     both.
 8. **Compare with Claude Code's own total, per session.** `app_cost_usd` is
    on 395 of 440 Claude Code root files and none of Codex's. The Dashi side
    is every priced row with the same `session_id`, subagents included, plus
    its calls not in session files, so the check tests prices. They agree
-   when they differ by at most 1% or $0.01, whichever is larger. A session
-   with an unpriced or fast row is "not compared", since its Dashi amount is
-   only a lower bound. Every report ends with one line counting sessions
-   that agree, are lower, are higher, or were not compared; `--by session`
-   lists them with both amounts and the difference, largest first.
-9. **Read-only.** The report opens `archive.sqlite` read-only, so it runs
-   while `copy` does, and never writes a cost back: a stored price goes
-   stale when the catalog changes.
+   when `app_cost_usd` is within 1% or $0.01 (whichever is larger) of the
+   Dashi amount, or of its range when calls not in session files write
+   cache; lower and higher are relative to that range. A session with an
+   unpriced or fast row is "not compared". Every report ends with one line
+   counting sessions that agree, are lower, are higher, or were not
+   compared; `--by session` lists them with both amounts and the
+   difference, largest first. Tests cover a session with such writes whose
+   app cost falls inside the range (agrees) and outside it (lower, higher).
+9. **Read-only.** The report opens the database read-only, so it runs while
+   `copy` does, and never stores a cost, which would go stale.
 
 ## Command
 
@@ -144,8 +148,7 @@ strings, as `money.Amount` writes them, with `lower_bound`,
 ## Out of scope
 
 Budgets and limits, charts, a web UI, price history, other currencies, and
-editing the catalog. Missing prices are added to `catalog` in their own PR,
-from the provider's price page, never guessed in this tool.
+editing the catalog. Missing prices go in `catalog` in their own PR.
 
 ## Open questions
 
