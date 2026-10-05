@@ -49,10 +49,10 @@ LaunchAgent runs the binary at its current path.
 
 `archive.sqlite` has a `copies` row per copy, a `sessions` row per session
 file (agent kind, parent, title, prompt and tool counts, and more), a
-`usage` row per model call (tokens by kind, served model), an `app_usage`
-row per Claude Code session and model (its own totals and cost, including
-calls it never writes to a session file), and a `copy_runs` row per `copy`
-run. Totals are SQL sums, for example:
+`usage` row per model call (tokens by kind, served model, when it was
+called), an `app_usage` row per Claude Code session and model (its own
+totals and cost, including calls it never writes to a session file), and a
+`copy_runs` row per `copy` run. Totals are SQL sums, for example:
 
 ```sh
 sqlite3 ~/agent-archive/archive.sqlite \

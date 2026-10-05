@@ -142,12 +142,12 @@ func TestSplitModelCall(t *testing.T) {
 	c := fixture(t, 1, "", "split_call.jsonl")
 	ps := parseOne(t, c)
 	check(t, "usage", ps[0].Usage, []sessionfile.Usage{
-		{Line: 3, ModelCallID: "msg_1", Model: "claude-opus-5-5", Speed: "standard", Usage: llm.Usage{
+		{Line: 3, ModelCallID: "msg_1", Model: "claude-opus-5-5", Speed: "standard", CalledAt: "2026-09-01T10:00:01.000Z", Usage: llm.Usage{
 			InputTokens: 3, OutputTokens: 30, CacheCreationInputTokens: 100, CacheReadInputTokens: 200,
 			CacheCreation1hInputTokens: 100, ReasoningTokens: 6, Requests: map[string]int{"web_search": 1},
 		}},
 		// The served model differs from message.model: usage goes to it.
-		{Line: 7, ModelCallID: "msg_2", Model: "claude-opus-5-5-fast", Speed: "fast", Usage: llm.Usage{
+		{Line: 7, ModelCallID: "msg_2", Model: "claude-opus-5-5-fast", Speed: "fast", CalledAt: "2026-09-01T10:00:05.000Z", Usage: llm.Usage{
 			InputTokens: 5, OutputTokens: 8, CacheReadInputTokens: 300, ReasoningTokens: 3,
 		}},
 	})
@@ -169,6 +169,23 @@ func TestSplitModelCall(t *testing.T) {
 		[]string{"claude-opus-5-5", "claude-opus-5-5-fast", "msg_2", "anthropic.messages"})
 	check(t, "ref model", tr.LineRefs[3].Model, "claude-opus-5-5-fast")
 	check(t, "ref usage", tr.LineRefs[1].Usage.OutputTokens, 30)
+}
+
+// A model call's first line without a timestamp, or with one that does not
+// parse, leaves CalledAt empty.
+func TestCalledAtMissing(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "split_call.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := strings.Replace(string(b), `"timestamp":"2026-09-01T10:00:01.000Z",`, "", 1)
+	s = strings.Replace(s, `"timestamp":"2026-09-01T10:00:05.000Z"`, `"timestamp":"not a time"`, 1)
+	ps := parseOne(t, fixtureBytes(t, 1, "", "split_call.jsonl", []byte(s)))
+	var got []string
+	for _, u := range ps[0].Usage {
+		got = append(got, u.CalledAt)
+	}
+	check(t, "called at", got, []string{"", ""})
 }
 
 func TestParallelToolResults(t *testing.T) {

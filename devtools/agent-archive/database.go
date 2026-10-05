@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS usage (
 	reasoning_tokens               INTEGER NOT NULL,
 	web_search_requests            INTEGER NOT NULL,
 	speed                          TEXT NOT NULL,
+	called_at                      TEXT,
 	PRIMARY KEY (copy_id, line)
 );
 -- Claude Code's own per-model totals for a root session, from its last
@@ -101,7 +102,11 @@ func openDatabase(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
-	if err := addSessionColumns(db); err != nil {
+	if err := addColumns(db, "sessions", sessionColumns); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	if err := addColumns(db, "usage", usageColumns); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -113,10 +118,13 @@ func openDatabase(path string) (*sql.DB, error) {
 	return db, nil
 }
 
+// column is a column that addColumns adds to a table that lacks it.
+type column struct{ name, typ string }
+
 // sessionColumns are the sessions columns phase 2 parsing fills. A
 // database made before phase 2 gets them added, and the parser version
 // bump then fills them.
-var sessionColumns = []struct{ name, typ string }{
+var sessionColumns = []column{
 	{"agent_kind", "TEXT"},
 	{"parent_agent_id", "TEXT"},
 	{"parent_tool_call_id", "TEXT"},
@@ -135,8 +143,18 @@ var sessionColumns = []struct{ name, typ string }{
 	{"skipped_lines", "TEXT"},
 }
 
-func addSessionColumns(db *sql.DB) error {
-	rows, err := db.Query(`SELECT name FROM pragma_table_info('sessions')`)
+// usageColumns are the usage columns added after the table was made. The
+// schema has them too; a database made before them gets them added, and
+// parser version 5 fills them.
+var usageColumns = []column{
+	{"called_at", "TEXT"},
+}
+
+// addColumns adds the columns table lacks. CREATE TABLE IF NOT EXISTS
+// leaves an existing table alone, so a database made by an older version
+// gets new columns here.
+func addColumns(db *sql.DB, table string, columns []column) error {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
 	if err != nil {
 		return err
 	}
@@ -153,9 +171,9 @@ func addSessionColumns(db *sql.DB) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for _, c := range sessionColumns {
+	for _, c := range columns {
 		if !have[c.name] {
-			if _, err := db.Exec(`ALTER TABLE sessions ADD COLUMN ` + c.name + ` ` + c.typ); err != nil {
+			if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + c.name + ` ` + c.typ); err != nil {
 				return err
 			}
 		}
