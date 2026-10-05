@@ -228,7 +228,8 @@ Each followed its recommendation.
 - A Codex fork with no usable start ordinal, or a forked root, still repeats
   its parent. Its token lines, from its first, that follow the parent's
   token lines in order (same `response_id` or cumulative total), with none
-  skipped, are the copy; the first that does not ends it. Lines through the
+  skipped, are the copy. Only parent lines stamped no later than the fork's
+  `session_meta` timestamp, its creation time, count; the first that does not ends it. Lines through the
   turn of the copy's last token line are inherited. A token line repeating
   the one before it is not matched. No layout rule works. A
   forked root's parent session's root copies come in as `Copy.ForkParent`,

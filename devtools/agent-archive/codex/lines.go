@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/devtools/agent-archive/sessionfile"
 )
@@ -81,6 +82,7 @@ type tokenUsage struct {
 type sessionMeta struct {
 	ID             string `json:"id"`
 	ForkedFromID   string `json:"forked_from_id"`
+	Timestamp      string `json:"timestamp"` // when the file, or its fork, was created
 	ParentThreadID string `json:"parent_thread_id"`
 	Originator     string `json:"originator"`
 	AgentPath      string `json:"agent_path"`
@@ -217,7 +219,8 @@ func (l *line) tokenKey() tokenKey {
 // markInherited marks the lines a fork repeats from its parent when its
 // file gives no usable start ordinal: a subagent fork from Codex 0.140 to
 // 0.148, or a forked root. The repeat is the fork's token lines, from its
-// first, that follow the parent's token lines in order with none skipped;
+// first, that follow the parent's token lines written before the fork was
+// created, in order with none skipped;
 // the first that does not ends it. It runs through the turn of the last
 // one, up to the next task_started. A token line that repeats the one
 // before it is not matched: a fork's first own turn can start with one.
@@ -247,10 +250,15 @@ func markInherited(cl *copyLines, all []*copyLines) {
 
 // copiedPrefixEnd returns the index of the fork's last token line in its
 // run that repeats the parent's token lines in order, or -1 when the fork's
-// first token line is not one of the parent's.
+// first token line is not one of the parent's. Only the parent's token
+// lines written before the fork was created can be copied.
 func copiedPrefixEnd(fork, parent *copyLines) int {
+	created, err := time.Parse(time.RFC3339Nano, fork.meta.Timestamp)
 	var keys []tokenKey
 	for _, l := range parent.Lines {
+		if at, e := time.Parse(time.RFC3339Nano, l.Timestamp); err == nil && e == nil && at.After(created) {
+			break
+		}
 		if k := l.tokenKey(); k != (tokenKey{}) && (len(keys) == 0 || k != keys[len(keys)-1]) {
 			keys = append(keys, k)
 		}

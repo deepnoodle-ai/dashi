@@ -208,6 +208,20 @@ func TestForkTotalEqualsLaterParentTotal(t *testing.T) {
 	})
 }
 
+// TestForkTotalEqualsParentNextTotal checks that parent token lines from
+// after the fork was created are not matched: the fork's first own total
+// equals the parent's next total, and that call stays the fork's.
+func TestForkTotalEqualsParentNextTotal(t *testing.T) {
+	parent := fixture(t, 1, "", "replay/parent.jsonl")
+	fork := fixture(t, 2, "p-fork", "replay/fork_next.jsonl")
+	ps := parse(t, parent, fork)
+	usage := ps[2].Usage
+	check(t, "fork usage", len(usage), 1)
+	check(t, "usage", []int{usage[0].Line, usage[0].Usage.OutputTokens}, []int{15, 10})
+	tr := convert(t, "p-fork", parent, fork)
+	check(t, "own messages", shape(tr)[4:], []string{"assistant text:Fork done. @14 usage"})
+}
+
 // TestForkedRoot checks a root forked from another session: that
 // session's root, passed as a fork parent, shows what it repeats, and gets
 // no parsed copy of its own.
