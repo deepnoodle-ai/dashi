@@ -184,7 +184,7 @@ func TestReport(t *testing.T) {
 	cx := r.session(appCodex, "c1", "", home+"/.codex/worktrees/ab12/tool", "2026-10-03T12:00:00Z", "", -1)
 	r.session(appCodex, "c0", "", home+"/git/tool", "2026-01-01T12:00:00Z", "", -1)
 	r.usage(cx, 1, "gpt-5.6", tokenCounts{Input: 250_000}, "", "2026-10-03T12:00:00Z") // $1 to $1.25
-	r.usage(cx, 2, "gpt-6.1-sol", tokenCounts{Input: 7}, "", "2026-10-03T12:00:00Z")
+	r.usage(cx, 2, "codex-auto-review", tokenCounts{Input: 7}, "", "2026-10-03T12:00:00Z")
 	r.usage(cx, 3, "gpt-5.6", tokenCounts{Input: 1_000_000}, "", "2026-07-01T12:00:00Z")
 
 	o := reportOptions{By: byModel, Per: perWeek, Since: date("2026-09-28"), Until: date("2026-10-05"),
@@ -200,10 +200,10 @@ func TestReport(t *testing.T) {
 		"claude-opus-5-5                           $100.00+       $8.00  $108.00+\n",
 		"claude-opus-5-5 (not in session files)                  $16.00    $16.00\n",
 		"gpt-5.6                                      $1.25                 $1.25\n",
-		"gpt-6.1-sol                                      ?                     ?\n",
+		"codex-auto-review                                ?                     ?\n",
 		"Total                                     $101.25+      $24.00  $125.25+\n",
 		"--json gives the low end ($119.00 in all)",
-		"gpt-6.1-sol  codex  not in catalog      1      7           0            0       0\n",
+		"codex-auto-review  codex  not in catalog      1      7           0            0       0\n",
 		"Claude Code's own session totals against Dashi's: 1 agree, 1 lower, 1 higher, 1 not compared\n",
 	} {
 		if !strings.Contains(out, want) {
@@ -238,10 +238,10 @@ func TestReport(t *testing.T) {
 				j.PriceUpdatedAt == "" {
 				t.Errorf("gpt-5.6: %+v", j)
 			}
-		case j.Name == "gpt-6.1-sol":
+		case j.Name == "codex-auto-review":
 			found++
 			if !j.LowerBound || j.UnpricedCalls != 1 {
-				t.Errorf("gpt-6.1-sol: %+v", j)
+				t.Errorf("codex-auto-review: %+v", j)
 			}
 		case strings.HasSuffix(j.Name, notInSessionFiles):
 			found++

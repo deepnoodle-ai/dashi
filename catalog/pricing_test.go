@@ -134,6 +134,20 @@ func TestCatalogEstimatesAreExact(t *testing.T) {
 			total: "0.038",
 		},
 		{
+			// 1000×2 + 500×10 + 10000×0.1 + 1000×2.5 = 10500, plus one web
+			// search at 0.01. Cache reads are 5% of input on this model.
+			provider: "openai",
+			model:    "gpt-6.1-sol",
+			usage: llm.Usage{
+				InputTokens:              1000,
+				OutputTokens:             500,
+				CacheReadInputTokens:     10000,
+				CacheCreationInputTokens: 1000,
+				Requests:                 map[string]int{"web_search": 1},
+			},
+			total: "0.0205",
+		},
+		{
 			// 1001×0.75 + 333×3.75 + 7×0.075 = 2000.025
 			provider: "google",
 			model:    "gemini-3.8-flash",
