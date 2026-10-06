@@ -147,8 +147,9 @@ error, with no request and no `OnCheck`, unless the call's tool is in
 2. Get the client with `internal/client.Default`. Send one request:
    state is the command text, one question `severe`. Bound it by
    `Timeout`.
-3. On an error or a missing `severe` answer: pause if `IsOutage`, and
-   return the error.
+3. On an error: pause if `IsOutage`, and return the error. A missing,
+   mistyped, or out-of-range `severe` answer is an error that wraps
+   `decide.ErrInvalidAnswer`, so it never pauses and never passes.
 4. Otherwise `Checked` is true, and `Flagged` is P(yes) at or above the
    threshold. `Reason` is `severe 94% (jev-1.13.0, request r_123)`.
 
@@ -168,8 +169,13 @@ left) hold 80 characters or more. Then:
 1. Over 1,000,000 characters: return `ErrTooLarge`, with no pause.
 2. If paused: return a `*PausedError`. Otherwise send one request: state is the
    joined text, questions `injection` and `hidden`.
-3. On an error: pause if `IsOutage`, and return it.
-4. Flagged when either P(yes) reaches the threshold. The hook returns
+3. Both `injection` and `hidden` must have a valid answer: a P(yes) in
+   [0, 1]. A missing, mistyped, or out-of-range answer is an error that
+   wraps `decide.ErrInvalidAnswer`: `IsOutage` is false, `OnCheck` sees
+   it, and the hook record shows it as a failed hook. It is never a
+   checked, unflagged verdict.
+4. On an error: pause if `IsOutage`, and return it.
+5. Flagged when either P(yes) reaches the threshold. The hook returns
    `Replace`: the same result with a warning text block put first, and `Reason`
    `injection 96%, hidden 97% (jev-1.13.0, request r_9)`. The warning is
    the plugin's text: "decide checked this `<tool>` result: 96% likely to

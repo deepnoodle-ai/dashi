@@ -387,6 +387,77 @@ func resultText(r llm.ToolResult) string {
 	return strings.Join(parts, "\n")
 }
 
+// A missing or invalid answer is an error that is not an outage, never a
+// passed check, and it is visible to OnCheck and in the hook record.
+func TestMissingOrInvalidAnswerIsAnError(t *testing.T) {
+	cases := []struct {
+		name    string
+		answers map[string]decide.Answer
+	}{
+		{"severe missing", map[string]decide.Answer{}},
+		{"severe out of range", map[string]decide.Answer{"severe": decidetest.NoulAnswer(1.5)}},
+		{"severe wrong type", map[string]decide.Answer{
+			"severe": decidetest.ChoiceAnswer(map[string]float64{"a": 1}),
+		}},
+		{"hidden missing", map[string]decide.Answer{"injection": decidetest.NoulAnswer(0.1)}},
+		{"injection missing", map[string]decide.Answer{"hidden": decidetest.NoulAnswer(0.1)}},
+		{"hidden invalid", map[string]decide.Answer{
+			"injection": decidetest.NoulAnswer(0.1),
+			"hidden":    decidetest.NoulAnswer(-0.2),
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.srv.Respond(func(*decide.Request) (*decide.Response, error) {
+				return &decide.Response{Model: "jev-1.13.0", Answers: tc.answers}, nil
+			})
+			var seen checks
+			var v toolcheck.Verdict
+			var err error
+			if strings.HasPrefix(tc.name, "severe") {
+				v, err = toolcheck.CommandRisk{Client: f.client, OnCheck: seen.add}.
+					Check(t.Context(), bashPlan("rm -rf ~"))
+			} else {
+				v, err = toolcheck.PromptInjection{Client: f.client, OnCheck: seen.add}.
+					Check(t.Context(), resultPlan("fetch_page", nil, page))
+			}
+			if err == nil || v.Checked || v.Flagged || toolcheck.IsOutage(err) ||
+				!errors.Is(err, decide.ErrInvalidAnswer) {
+				t.Fatalf("verdict = %+v, err = %v", v, err)
+			}
+			if got := seen.all(); len(got) != 1 || got[0].err == nil {
+				t.Fatalf("OnCheck saw %+v", got)
+			}
+			// Not an outage, so the next check asks again.
+			before := f.requests()
+			toolcheck.CommandRisk{Client: f.client}.Check(t.Context(), bashPlan("ls"))
+			if f.requests() != before+1 {
+				t.Fatal("an invalid answer paused the check")
+			}
+		})
+	}
+}
+
+func TestInvalidAnswerShowsInTheHookRecord(t *testing.T) {
+	f := newFixture(t)
+	f.srv.Respond(func(*decide.Request) (*decide.Response, error) {
+		return &decide.Response{Model: "jev-1.13.0", Answers: map[string]decide.Answer{
+			"injection": decidetest.NoulAnswer(0.99),
+		}}, nil
+	})
+	out, _ := run(t, tool.List{fetchTool(attack)},
+		toolcheck.PromptInjection{Client: f.client}.Hooks(),
+		dashitest.CallTool("call-1", "fetch_page", `{}`),
+		dashitest.Reply("done"),
+	)
+	results := hookResults(out, toolcheck.PromptInjectionName)
+	if len(results) != 1 || results[0].Verdict != dashi.VerdictFailed ||
+		!strings.Contains(results[0].Error, "hidden") {
+		t.Fatalf("hook results = %+v", results)
+	}
+}
+
 // An outage pauses the check for a minute, for every config sharing the
 // client; each skip returns a *PausedError, and the check asks again after.
 func TestOutagePausesForAMinute(t *testing.T) {
