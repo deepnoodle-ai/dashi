@@ -365,19 +365,21 @@ func (rt *decideRuntime) pausedUntil() (time.Time, string, bool) {
 	return p.Until, p.Cause, ok
 }
 
-// providerState is the provider line of /settings.
+// providerState is the provider line of /settings. It names the provider,
+// because that is where the commands go.
 func (rt *decideRuntime) providerState() string {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	provider := workspace.PrintableText(rt.provider)
 	switch {
 	case rt.off != "":
 		return "off: " + rt.off
 	case rt.model != "":
-		return "ready: " + workspace.PrintableText(rt.model)
+		return "ready: " + provider + " " + workspace.PrintableText(rt.model)
 	case rt.asked:
-		return "no answer yet"
+		return provider + ", no answer yet"
 	}
-	return "not used yet"
+	return provider + ", not used yet"
 }
 
 // pendingCheck is a command-risk check that runs while a prompt shows.

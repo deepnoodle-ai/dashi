@@ -417,13 +417,13 @@ func TestDecideSettingsSection(t *testing.T) {
 		"command_risk: on (--decide); shell commands only",
 		"turn_watcher: off (--decide)",
 		"bypass mode: write_file, edit_file, and MCP calls run without a prompt or a check",
-		"provider: ready: jev-1.13.0",
+		"provider: ready: typesafe jev-1.13.0",
 		"this run: 1 request, 120 input and 2 output tokens, 1 checked, 0 flagged, 0 unchecked",
 	} {
 		mustHave(t, text.String(), want)
 	}
 	raw := string(mustJSON(t, settingsInspection{Decide: view}))
-	for _, want := range []string{`"decide":{`, `"command_risk":{"on":true`, `"provider":"ready: jev-1.13.0"`, `"input_tokens":120`, `"checked":1`} {
+	for _, want := range []string{`"decide":{`, `"command_risk":{"on":true`, `"provider":"ready: typesafe jev-1.13.0"`, `"input_tokens":120`, `"checked":1`} {
 		mustHave(t, raw, want)
 	}
 }
