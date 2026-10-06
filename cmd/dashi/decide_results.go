@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -78,27 +77,33 @@ func (rt *decideRuntime) onWatch(c turnwatch.Check) {
 }
 
 // resultMark reads the prompt-injection answer of a finished call from
-// the hook results of its step, or returns nil. The hook records only a
-// result it warned the model about, or a check that failed; a result
-// decide passed leaves no mark.
+// the hook results of its step, or returns nil when the check did not read
+// the result.
 func resultMark(results []dashi.HookResult) *decideMark {
 	for _, h := range results {
-		if h.Name != toolcheck.PromptInjectionName {
+		r, ok := toolcheck.ReadResultRecord(h)
+		if !ok {
 			continue
 		}
-		switch h.Verdict {
-		case dashi.VerdictReplace:
-			reason, flagged := strings.CutPrefix(h.Reason, toolcheck.FlaggedPrefix)
-			answer, _, _ := strings.Cut(reason, " (")
-			if flagged {
-				return &decideMark{Flagged: true, Text: "decide: " + answer + " — flagged, agent warned"}
+		m := &decideMark{Check: decideCheckResult, Flagged: r.Flagged}
+		switch {
+		case !r.Checked:
+			m.Text = "unchecked (" + string(r.Cause) + ")"
+		default:
+			m.Text = fmt.Sprintf("injection %s, hidden %s", percent(r.Probabilities[toolcheck.QuestionInjection]),
+				percent(r.Probabilities[toolcheck.QuestionHidden]))
+			if r.Partial {
+				m.Text += ", start and end only"
 			}
-			// Too long to check whole: the model is told to treat it as
-			// untrusted.
-			return &decideMark{Text: "decide: " + answer + " — agent warned"}
-		case dashi.VerdictFailed:
-			return &decideMark{Text: "decide: unchecked (" + decideCauseText(h.Error) + ")"}
+			m.OK = !r.Warned
 		}
+		switch {
+		case r.Flagged:
+			m.Text += " — flagged, agent warned"
+		case r.Warned:
+			m.Text += " — agent warned"
+		}
+		return m
 	}
 	return nil
 }
@@ -161,78 +166,27 @@ func isDecideHookWarning(w dashi.Warning) bool {
 }
 
 // decideStepCounts counts, from a turn's steps, the results the
-// prompt-injection check flagged, warned about, or could not check, and
+// prompt-injection check answered for, flagged, or could not check, and
 // the turn watcher's reminders.
 func decideStepCounts(steps []dashi.Step) (checked, flagged, unchecked, reminded int) {
 	for _, s := range steps {
 		for _, h := range s.HookResults {
-			switch {
-			case h.Name == toolcheck.PromptInjectionName && h.Verdict == dashi.VerdictReplace:
-				checked++
-				if strings.HasPrefix(h.Reason, toolcheck.FlaggedPrefix) {
+			if r, ok := toolcheck.ReadResultRecord(h); ok {
+				switch {
+				case !r.Checked:
+					unchecked++
+				case r.Flagged:
+					checked++
 					flagged++
+				default:
+					checked++
 				}
-			case h.Name == toolcheck.PromptInjectionName && h.Verdict == dashi.VerdictFailed:
-				unchecked++
-			case h.Name == turnwatch.Name && h.Verdict == dashi.VerdictChange:
+				continue
+			}
+			if h.Name == turnwatch.Name && h.Verdict == dashi.VerdictChange {
 				reminded++
 			}
 		}
 	}
 	return checked, flagged, unchecked, reminded
-}
-
-// statusCode finds the HTTP status in decide's error text, "decide: 503".
-var statusCode = regexp.MustCompile(`decide: (\d{3})\b`)
-
-// decideCauseText names, from a recorded hook error's text, why decide
-// could not answer, in the words decideCause uses for the error itself.
-// The record keeps the text only.
-func decideCauseText(text string) string {
-	has := func(words ...string) bool {
-		for _, w := range words {
-			if strings.Contains(text, w) {
-				return true
-			}
-		}
-		return false
-	}
-	switch {
-	case has("deadline exceeded"):
-		return "timeout"
-	case has("too large"):
-		return "too large"
-	case has("no API key", "no credentials"):
-		return "no credentials"
-	case has("authentication failed"):
-		return "auth failed"
-	case has("rate limited"):
-		return "rate limited"
-	case has("server error", "overloaded"):
-		return "server error"
-	case has("invalid answer"):
-		return "invalid answer"
-	case has("validation failed", "invalid request"):
-		return "rejected"
-	}
-	if m := statusCode.FindStringSubmatch(text); m != nil {
-		code, _ := strconv.Atoi(m[1])
-		switch {
-		case code == 401, code == 403:
-			return "auth failed"
-		case code == 429:
-			return "rate limited"
-		case code >= 500:
-			return "server error"
-		default:
-			return "rejected"
-		}
-	}
-	switch {
-	case has("Timeout", "timeout", "i/o timeout"):
-		return "timeout"
-	case has("connection refused", "connection reset", "no such host", "EOF", "dial tcp"):
-		return "network error"
-	}
-	return "error"
 }

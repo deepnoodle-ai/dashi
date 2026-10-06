@@ -78,7 +78,7 @@ func TestDecideFlagsCommandInPrompt(t *testing.T) {
 		t.Fatalf("verdict = %+v", v)
 	}
 	text := h.ui.text()
-	mustHave(t, text, "decide: severe 91% — flagged")
+	mustHave(t, text, "decide command: severe 91% — flagged")
 	mustHave(t, text, "decide 1 checked, 1 flagged")
 	mustHave(t, inputText(h.client.inputAt(1)), "; decide: severe 91% flagged")
 	if strings.Contains(text, declinedReason+";") {
@@ -225,7 +225,7 @@ func TestDecideBypassRunsDuringOutage(t *testing.T) {
 	if len(h.ui.approvals) != 0 {
 		t.Fatalf("approvals = %d; want 0", len(h.ui.approvals))
 	}
-	mustHave(t, h.ui.text(), "decide: unchecked (server error)")
+	mustHave(t, h.ui.text(), "decide command: unchecked (server error)")
 	status := h.app.ctrl.decide.status()
 	if !strings.HasPrefix(status, "decide: command_risk paused (server error), resumes in ") {
 		t.Fatalf("status = %q", status)
@@ -262,14 +262,14 @@ func TestDecideRecordFormat(t *testing.T) {
 	}{
 		{decideResult{Checked: true, Flagged: true, Severe: 0.919, Model: "jev-1.13.0", Request: "r_12"},
 			"severe 91% flagged (jev-1.13.0, request r_12)", "decide/jev-1.13.0",
-			decideMark{Flagged: true, Text: "decide: severe 91% — flagged"}},
+			decideMark{Check: "command", Flagged: true, Text: "severe 91% — flagged"}},
 		{decideResult{Checked: true, Severe: 0.7999, Model: "jev-1.13.0", Request: "r_13"},
 			"severe 79% (jev-1.13.0, request r_13)", "decide/jev-1.13.0",
-			decideMark{OK: true, Text: "decide: severe 79% — ok"}},
+			decideMark{Check: "command", OK: true, Text: "severe 79% — ok"}},
 		{decideResult{Cause: "timeout"}, "unchecked (timeout)", "decide/unchecked",
-			decideMark{Text: "decide: unchecked (timeout)"}},
+			decideMark{Check: "command", Text: "unchecked (timeout)"}},
 		{decideResult{AnsweredFirst: true}, "not checked (answered first)", "decide/unchecked",
-			decideMark{Text: "decide: not checked (answered first)"}},
+			decideMark{Check: "command", Text: "not checked (answered first)"}},
 	}
 	for _, tc := range cases {
 		if got := tc.r.recordLine(); got != tc.line {
@@ -727,21 +727,21 @@ func TestDecideScreenIgnoresRememberOnFlaggedPrompt(t *testing.T) {
 	}
 }
 
-// A row shows "decide ✓" only beside a call that ran; a denied row shows
+// A row shows "decide ✓ command" only beside a call that ran; a denied row shows
 // the answer as a line, so the check's answer and the denial read apart.
 func TestDecideRowMarkAgreesWithOutcome(t *testing.T) {
-	ok := &decideMark{OK: true, Text: "decide: severe 52% — ok"}
+	ok := &decideMark{Check: "command", OK: true, Text: "severe 52% — ok"}
 	ran := formatTool(Block{Kind: KindTool, Name: "bash", Arg: "ls", State: StateOK, Decide: ok})
-	if !strings.Contains(ran, "decide ✓") || strings.Contains(ran, "52%") {
+	if !strings.Contains(ran, "decide ✓ command") || strings.Contains(ran, "52%") {
 		t.Fatalf("ran row = %q", ran)
 	}
 	denied := formatTool(Block{Kind: KindTool, Name: "bash", Arg: "rm -rf build/", State: StateDenied, Decide: ok})
-	if strings.Contains(denied, "✓") || !strings.Contains(denied, "denied\n    decide: severe 52% — ok") {
+	if strings.Contains(denied, "✓") || !strings.Contains(denied, "denied\n    decide command: severe 52% — ok") {
 		t.Fatalf("denied row = %q", denied)
 	}
 	screen := tui.SprintScreen(toolView(Block{Kind: KindTool, Name: "bash", Arg: "rm -rf build/", State: StateDenied, Decide: ok}),
 		tui.WithWidth(80), tui.WithHeight(2)).Text()
-	if strings.Contains(screen, "✓") || !strings.Contains(screen, "decide: severe 52% — ok") {
+	if strings.Contains(screen, "✓") || !strings.Contains(screen, "decide command: severe 52% — ok") {
 		t.Fatalf("denied screen row = %q", screen)
 	}
 }

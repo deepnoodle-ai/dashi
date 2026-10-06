@@ -14,9 +14,10 @@
 // Both are advice, not a sandbox. They never approve a call; only a person
 // or the host's own policy can. On an outage, such as no key or a Decide
 // server error, the call runs and the result reaches the model as if the
-// check were not there, and Dashi records a hook_failed warning. When the
-// command check fails in a way the input can cause, such as a timeout, its
-// hook holds the call for approval instead. A host that asks the user in
+// check were not there: the command check's hook gives Dashi a hook_failed
+// warning, and the content check's hook records the result as unchecked.
+// When the command check fails in a way the input can cause, such as a
+// timeout, its hook holds the call for approval instead. A host that asks the user in
 // its own BeforeTool hook calls Check from there instead, so the user sees
 // one prompt.
 //
@@ -61,8 +62,9 @@ type Verdict struct {
 	// Flagged is true when a probability reached the check's
 	// MinProbability.
 	Flagged bool
-	// Probabilities holds P(yes) by question: "severe" for CommandRisk,
-	// "injection" and "hidden" for PromptInjection.
+	// Probabilities holds P(yes) by question: QuestionSevere for
+	// CommandRisk, QuestionInjection and QuestionHidden for
+	// PromptInjection.
 	Probabilities map[string]float64
 	// Model is the resolved decision model version, such as "jev-1.13.0".
 	Model     string
@@ -445,6 +447,9 @@ func percent(p float64) string {
 	return fmt.Sprintf("%d%%", int(math.Floor(p*100+1e-9)))
 }
 
+// partialWords marks, in a Reason, a text checked at its start and end only.
+const partialWords = "start and end only"
+
 // reason is the one-line Reason: each probability, then the model and
 // request.
 func reason(a asked, questions []question) string {
@@ -456,7 +461,7 @@ func reason(a asked, questions []question) string {
 		b.WriteString(q.key + " " + percent(a.probabilities[q.key]))
 	}
 	if a.partial {
-		b.WriteString(", start and end only")
+		b.WriteString(", " + partialWords)
 	}
 	fmt.Fprintf(&b, " (%s, request %s)", a.model, a.requestID)
 	return b.String()

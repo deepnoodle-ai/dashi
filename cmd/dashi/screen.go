@@ -1045,22 +1045,20 @@ func toolView(b Block) tui.View {
 			tui.Text("%s", arg).SourceOffset(len(name)+len(toolHeadSep)).Style(mutedStyle))
 	}
 	views = append(views, tui.Spacer())
-	if b.Decide.tick(b.State) {
-		views = append(views, tui.Text("decide ✓  ").Style(mutedStyle))
+	if tick := decideTicks(b); tick != "" {
+		views = append(views, tui.Text("%s  ", tick).Style(mutedStyle))
 	}
 	head := tui.Group(append(views, state)...)
 	offset := len(toolHeadSource(b)) + 1
 	var checks []tui.View
-	for _, mark := range []*decideMark{b.Decide, b.DecideResult} {
-		if text := mark.line(b.State); text != "" {
-			t := tui.Text("%s", text).Wrap()
-			if mark.Flagged {
-				t = t.Fg(tui.ColorYellow)
-			} else {
-				t = t.Style(mutedStyle)
-			}
-			checks = append(checks, tui.PaddingLTRB(6, 0, 0, 0, t))
+	for _, mark := range decideLines(b) {
+		t := tui.Text("%s", mark.Text).Wrap()
+		if mark.Flagged {
+			t = t.Fg(tui.ColorYellow)
+		} else {
+			t = t.Style(mutedStyle)
 		}
+		checks = append(checks, tui.PaddingLTRB(6, 0, 0, 0, t))
 	}
 	if b.Expanded && b.Detail != "" {
 		views = append([]tui.View{head}, checks...)

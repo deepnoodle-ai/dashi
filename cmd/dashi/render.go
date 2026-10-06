@@ -814,15 +814,12 @@ func formatTool(b Block) string {
 	case StateChecking:
 		right = "decide: checking…"
 	}
-	if b.Decide.tick(b.State) {
-		right += "  decide ✓"
+	if tick := decideTicks(b); tick != "" {
+		right += "  " + tick
 	}
 	line := fmt.Sprintf("%-*s %s", toolLineWidth, left, right)
-	if text := b.Decide.line(b.State); text != "" {
-		line += "\n    " + text
-	}
-	if text := b.DecideResult.line(b.State); text != "" {
-		line += "\n    " + text
+	for _, m := range decideLines(b) {
+		line += "\n    " + m.Text
 	}
 	for _, l := range b.Lines {
 		line += "\n    " + l

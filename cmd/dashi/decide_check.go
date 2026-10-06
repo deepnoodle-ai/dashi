@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
 	"slices"
 	"strings"
 	"sync"
@@ -288,7 +287,7 @@ func (rt *decideRuntime) record(feature string, counts *decideCheckCounts, cance
 		rt.model = v.Model
 		delete(rt.paused, feature)
 		return decideResult{
-			Checked: true, Flagged: v.Flagged, Severe: v.Probabilities["severe"],
+			Checked: true, Flagged: v.Flagged, Severe: v.Probabilities[toolcheck.QuestionSevere],
 			Model: v.Model, Request: v.RequestID,
 		}, ""
 	}
@@ -331,37 +330,7 @@ func errorText(err error) string {
 
 // decideCause names why decide could not answer, in a few words.
 func decideCause(err error) string {
-	if p, ok := errors.AsType[*toolcheck.PausedError](err); ok && p.Cause != nil {
-		err = p.Cause
-	}
-	switch {
-	case errors.Is(err, context.DeadlineExceeded):
-		return "timeout"
-	case errors.Is(err, toolcheck.ErrTooLarge):
-		return "too large"
-	case errors.Is(err, decide.ErrNoAPIKey):
-		return "no credentials"
-	case errors.Is(err, decide.ErrAuth):
-		return "auth failed"
-	case errors.Is(err, decide.ErrRateLimited):
-		return "rate limited"
-	case errors.Is(err, decide.ErrServer):
-		return "server error"
-	case errors.Is(err, decide.ErrInvalidAnswer):
-		return "invalid answer"
-	case errors.Is(err, decide.ErrValidation), errors.Is(err, decide.ErrInvalidRequest):
-		return "rejected"
-	}
-	if _, ok := errors.AsType[*decide.APIError](err); ok {
-		return "rejected"
-	}
-	if ne, ok := errors.AsType[net.Error](err); ok {
-		if ne.Timeout() {
-			return "timeout"
-		}
-		return "network error"
-	}
-	return "error"
+	return string(toolcheck.CauseOf(err))
 }
 
 // status is the status-area line: empty while every check answers.
@@ -503,19 +472,30 @@ func splitDecide(v dashi.ToolVerdict) (reason, line string, ok bool) {
 	return v.Reason[:i], v.Reason[i+len(decideReasonSep):], true
 }
 
-// decideMark is the decide answer on a tool row: "decide ✓" at the end of
-// the line, or a line under it.
+// What a decide mark on a tool row checked: the shell command before it
+// ran, or the result before the model read it.
+const (
+	decideCheckCommand = "command"
+	decideCheckResult  = "result"
+)
+
+// decideMark is one decide answer on a tool row: a tick in the row's head,
+// "decide ✓ command", or a line under it, "decide command: severe 90% —
+// flagged". A row can carry a command mark and a result mark.
 type decideMark struct {
-	// OK is true when decide checked the call and did not flag it.
+	// Check is decideCheckCommand or decideCheckResult.
+	Check string
+	// OK is true when decide checked and did not flag, and the agent got
+	// nothing to read.
 	OK      bool
 	Flagged bool
-	// Text is the answer as a line, such as "decide: severe 52% — ok".
+	// Text is the answer, such as "severe 52% — ok".
 	Text string
 }
 
-// tick reports whether a row in state shows the mark as "decide ✓". A
-// denied row shows the answer as a line instead, so a ✓ never sits next to
-// the person's denial.
+// tick reports whether a row in state shows the mark as a tick. A denied
+// row shows the answer as a line instead, so a ✓ never sits next to the
+// person's denial.
 func (m *decideMark) tick(state string) bool {
 	return m != nil && m.OK && state != StateDenied
 }
@@ -525,7 +505,33 @@ func (m *decideMark) line(state string) string {
 	if m == nil || m.tick(state) {
 		return ""
 	}
-	return m.Text
+	return "decide " + m.Check + ": " + m.Text
+}
+
+// decideTicks is the tick of a row's passed checks, such as "decide ✓
+// command, result", or empty.
+func decideTicks(b Block) string {
+	var checks []string
+	for _, m := range []*decideMark{b.Decide, b.DecideResult} {
+		if m.tick(b.State) {
+			checks = append(checks, m.Check)
+		}
+	}
+	if len(checks) == 0 {
+		return ""
+	}
+	return "decide ✓ " + strings.Join(checks, ", ")
+}
+
+// decideLines are the lines under a row: each check that did not pass.
+func decideLines(b Block) []decideMark {
+	var lines []decideMark
+	for _, m := range []*decideMark{b.Decide, b.DecideResult} {
+		if text := m.line(b.State); text != "" {
+			lines = append(lines, decideMark{Check: m.Check, Flagged: m.Flagged, Text: text})
+		}
+	}
+	return lines
 }
 
 // markFromRecord reads the decide mark of a call from its recorded
@@ -535,14 +541,16 @@ func markFromRecord(v dashi.ToolVerdict) *decideMark {
 	if !ok {
 		return nil
 	}
+	m := &decideMark{Check: decideCheckCommand, Text: line}
 	if rest, checked := strings.CutPrefix(line, "severe "); checked {
 		answer, _, _ := strings.Cut(rest, " (")
 		if p, flagged := strings.CutSuffix(answer, " flagged"); flagged {
-			return &decideMark{Flagged: true, Text: "decide: severe " + p + " — flagged"}
+			m.Flagged, m.Text = true, "severe "+p+" — flagged"
+		} else {
+			m.OK, m.Text = true, "severe "+answer+" — ok"
 		}
-		return &decideMark{OK: true, Text: "decide: severe " + answer + " — ok"}
 	}
-	return &decideMark{Text: "decide: " + line}
+	return m
 }
 
 // decideCounts counts the checked, flagged, and unchecked calls of a turn
@@ -562,7 +570,7 @@ func decideCounts(v dashi.TurnView) (checked, flagged, unchecked int) {
 		case m.Flagged:
 			checked++
 			flagged++
-		case strings.HasPrefix(m.Text, "decide: unchecked"):
+		case strings.HasPrefix(m.Text, "unchecked"):
 			unchecked++
 		}
 	}

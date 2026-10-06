@@ -12,11 +12,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `toolcheck.CommandRisk{}` holds a shell command that could likely cause
   severe harm, such as `rm -rf ~`, for approval. `toolcheck.PromptInjection{}`
   warns the model about a tool result that likely tries to take over the
-  agent. Both fail open with a `hook_failed` warning when Decide is down; a
-  command whose check the input breaks, such as by a timeout, is held for
-  approval. `Check` lets a host ask the user in its own approval hook. The
-  recorded reason of a result the hook warned about starts with
-  `toolcheck.FlaggedPrefix`.
+  agent. Both fail open when Decide is down; a command whose check the input
+  breaks, such as by a timeout, is held for approval. `Check` lets a host
+  ask the user in its own approval hook. The `PromptInjection` hook records
+  every check it makes, passed, flagged, or unchecked, and
+  `toolcheck.ReadResultRecord` reads one back from the turn;
+  `toolcheck.CauseOf` names why a check could not answer.
 - **`dashi --decide command_risk`** (or `DASHI_DECIDE`, or `"decide":
   ["command_risk"]` in `~/.dashi/settings.json`) checks each shell command
   with a decision model before it runs. The prompt shows the answer, a
