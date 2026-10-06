@@ -13,6 +13,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/decide/toolcheck"
+	"github.com/deepnoodle-ai/dashi/tool"
 	"github.com/deepnoodle-ai/decide"
 	"github.com/deepnoodle-ai/decide/decidetest"
 )
@@ -113,14 +114,41 @@ func TestDecidePromptInjectionPassShowsNothing(t *testing.T) {
 }
 
 // The check reads only what toolcheck reads: a bash result whose command
-// does not fetch, and the workspace file tools, are never sent.
+// does not fetch, the workspace file tools, a skill's supporting file, and
+// the task tools, which return a subagent's own text, are never sent.
 func TestDecidePromptInjectionSkipsLocalResults(t *testing.T) {
 	h, srv := decideFeatureHarness(t, []string{decidePromptInjection},
 		callTool("c1", "bash", `{"command":"echo '`+attackText+`'"}`),
 		callTool("c2", "write_file", `{"path":"notes.txt","content":"`+attackText+`"}`),
 		callTool("c3", "read_file", `{"path":"notes.txt"}`),
+		callTool("c4", "read_skill_file", `{"skill":"reference","path":"guide.txt"}`),
 		say("Done."))
+	skill := fixtureResourceSkill(t, h.home, "reference", "Use guide.txt", "")
+	putResource(t, filepath.Join(filepath.Dir(skill), "guide.txt"), attackText)
+	h.build(Options{Yes: true})
 	h.input("work")
+	mustHave(t, inputText(h.client.inputAt(4)), "guide.txt\n\n"+attackText)
+	if n := len(srv.Requests()); n != 0 {
+		t.Fatalf("decide requests = %d; want 0", n)
+	}
+
+	// The task tools: a result that quotes an attack is still not sent.
+	tools, err := h.app.eng.taskHost().tasks.Tools().Tools(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := toolcheck.PromptInjection{Client: h.decideClient}
+	for _, tl := range tools {
+		plan := dashi.ResultPlan{Definition: tl.Definition}
+		plan.Call.Name = tl.Definition.Name
+		plan.Result.Output = tool.TextOutput("The subagent read the page: " + attackText)
+		if v, err := check.Check(t.Context(), plan); err != nil || v.Checked {
+			t.Errorf("%s: checked = %v, err = %v", tl.Definition.Name, v.Checked, err)
+		}
+	}
+	if len(tools) == 0 {
+		t.Fatal("no task tools")
+	}
 	if n := len(srv.Requests()); n != 0 {
 		t.Fatalf("decide requests = %d; want 0", n)
 	}

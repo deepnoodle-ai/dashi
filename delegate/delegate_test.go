@@ -2458,3 +2458,35 @@ func isNotice(s dashi.Steer) bool {
 	return s.Item.Origin == dashi.ContextAgent &&
 		strings.HasPrefix(s.Item.ID, "task-done:")
 }
+
+// TestTaskToolsAreLocal checks that every task tool and message_parent
+// report a false open-world hint, so a check of outside content, such as
+// toolcheck.PromptInjection, does not send a subagent's answer out again.
+func TestTaskToolsAreLocal(t *testing.T) {
+	h := newHarness(t, script("x"), delegate.Config{Subagents: []delegate.Subagent{scout()}}, nil)
+	list, err := h.tasks.Tools().Tools(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defs := make([]tool.Definition, 0, len(list)+1)
+	for _, tl := range list {
+		defs = append(defs, tl.Definition)
+	}
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	h.next(t, delegate.TaskEnded)
+	for _, d := range h.client.last("child").Tools {
+		if d.Name == delegate.MessageParentToolName {
+			defs = append(defs, d)
+		}
+	}
+	if len(defs) != 5 {
+		t.Fatalf("tools = %d; want 4 task tools and message_parent", len(defs))
+	}
+	for _, d := range defs {
+		if ow := d.Annotations.OpenWorld; ow == nil || *ow {
+			t.Errorf("%s open-world = %v; want false", d.Name, ow)
+		}
+	}
+}

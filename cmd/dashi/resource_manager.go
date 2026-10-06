@@ -168,5 +168,7 @@ func (m *resourceManager) tools() (tool.Toolset, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A skill's supporting files are local files the person installed.
+	files.Definition.Annotations.OpenWorld = new(false)
 	return tool.List{loader, files}, nil
 }

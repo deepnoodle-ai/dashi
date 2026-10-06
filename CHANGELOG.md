@@ -55,6 +55,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **The workspace file tools and `ask_user` report a false open-world
   hint,** so a check on outside content leaves their results local. `bash`
   stays unset.
+- **The `delegate` task tools and `message_parent` report a false
+  open-world hint,** so a check of outside content does not send a
+  subagent's answer out again; the subagent's own turn checks what it reads.
 - **An MCP server can no longer mark its tools closed-world.** The `mcp`
   toolset keeps an `openWorldHint` of true and drops a false one, so
   `toolcheck.PromptInjection` reads every MCP result: the text a server

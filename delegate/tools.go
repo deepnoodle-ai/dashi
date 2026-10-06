@@ -167,6 +167,12 @@ func (t taskTools) Tools(ctx context.Context) ([]tool.Tool, error) {
 	if t.resumable(ctx) {
 		send.Annotations.Idempotent = new(true)
 	}
+	// A task's answer and status are the subagent's own text, whose tool
+	// results its turn already handled, so a check of outside content
+	// leaves these results local.
+	for _, def := range []*tool.Definition{&start, &status, &send, &stop} {
+		def.Annotations.OpenWorld = new(false)
+	}
 	return []tool.Tool{
 		{Definition: start, Executor: executor(t.ts.execStart)},
 		{Definition: status, Executor: executor(t.ts.execStatus)},
