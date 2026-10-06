@@ -979,6 +979,12 @@ func toolView(b Block) tui.View {
 	case StateWaiting:
 		icon = tui.Text("  …").Fg(tui.ColorYellow)
 		state = tui.Text("waiting").Fg(tui.ColorYellow)
+	case StateChecking:
+		icon = tui.Text("  ⠋").Fg(tui.ColorCyan)
+		state = tui.Text("decide: checking…").Style(mutedStyle)
+	case StateWaitingForYou:
+		icon = tui.Text("  ?").Fg(tui.ColorYellow)
+		state = tui.Text("waiting for you").Fg(tui.ColorYellow)
 	default:
 		icon = tui.Text("  ⠋").Fg(tui.ColorCyan)
 		state = tui.Text("running").Style(mutedStyle)

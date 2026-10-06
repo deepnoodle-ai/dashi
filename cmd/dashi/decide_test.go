@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -162,6 +163,22 @@ func TestDecideBypassHoldsFlaggedCommand(t *testing.T) {
 	text := h.ui.text()
 	mustHave(t, text, "decide ✓")
 	mustHave(t, text, "decide 2 checked, 1 flagged")
+	// While it waits, the held call's row says so, without a spinner or
+	// the flagged line, which the prompt shows.
+	var states []string
+	h.ui.mu.Lock()
+	for _, b := range h.ui.log {
+		if b.ID == "t:c2" && !b.Done && b.Decide == nil {
+			states = append(states, b.State)
+			if len(b.Lines) != 0 {
+				t.Errorf("held row lines = %q", b.Lines)
+			}
+		}
+	}
+	h.ui.mu.Unlock()
+	if !slices.Contains(states, StateChecking) || !slices.Contains(states, StateWaitingForYou) {
+		t.Fatalf("held row states = %q", states)
+	}
 }
 
 // mustJSON encodes v for a test to search.

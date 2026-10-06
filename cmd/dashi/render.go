@@ -55,6 +55,11 @@ const (
 	StateFailed  = "failed"
 	StateDenied  = "denied"
 	StateWaiting = "waiting"
+	// StateChecking is a bash call in bypass mode while decide checks it,
+	// and StateWaitingForYou one the check holds for the person's answer.
+	// Neither has started.
+	StateChecking      = "checking"
+	StateWaitingForYou = "waiting for you"
 )
 
 // Steer line states.
@@ -766,8 +771,11 @@ func formatTool(b Block) string {
 	if b.State == StateOK || b.State == StateFailed {
 		right += fmt.Sprintf("  %.1fs", b.Elapsed.Seconds())
 	}
-	if b.State == StateRunning {
+	switch b.State {
+	case StateRunning:
 		right = "..."
+	case StateChecking:
+		right = "decide: checking…"
 	}
 	if b.Decide.tick(b.State) {
 		right += "  decide ✓"

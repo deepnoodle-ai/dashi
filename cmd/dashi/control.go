@@ -254,16 +254,13 @@ func (c *Controller) approveBypass(ctx context.Context, r ApprovalRequest) (Appr
 	owner, _ := promptOwner(ctx)
 	row := owner.TaskID == "" && c.canAnswer()
 	if row {
-		c.emit(c.checkingRow(slot.plan, "decide: checking…"))
+		c.emit(c.bypassRow(slot.plan, StateChecking))
 	}
 	result := c.decide.check(ctx, slot.plan)
 	if err := ctx.Err(); err != nil {
 		return Approval{}, err
 	}
 	slot.set(result)
-	if row {
-		c.emit(c.checkingRow(slot.plan, result.screenLine()))
-	}
 	if !result.holds() {
 		if result.Outage && !c.isScreen() {
 			c.warnPause()
@@ -279,6 +276,10 @@ func (c *Controller) approveBypass(ctx context.Context, r ApprovalRequest) (Appr
 			"approve it in a non-interactive run. Do not retry it. Tell the user what you " +
 			"wanted to run and why, so they can run it themselves."}, nil
 	}
+	if row {
+		// The prompt shows the answer; the row says only that it waits.
+		c.emit(c.bypassRow(slot.plan, StateWaitingForYou))
+	}
 	return c.broker.approve(ctx, r)
 }
 
@@ -292,16 +293,16 @@ func (c *Controller) askHeld(ctx context.Context, r ApprovalRequest, task string
 	return answer, err
 }
 
-// checkingRow is the tool row of a bash call while decide checks it in
-// bypass mode, before the call starts. The renderer's row replaces it.
-func (c *Controller) checkingRow(plan dashi.ToolPlan, line string) Block {
+// bypassRow is the tool row of a bash call in bypass mode before it
+// starts: StateChecking while decide checks it, or StateWaitingForYou while
+// it waits for the person's answer. The renderer's row replaces it.
+func (c *Controller) bypassRow(plan dashi.ToolPlan, state string) Block {
 	return Block{
 		ID:    "t:" + plan.Call.ID,
 		Kind:  KindTool,
 		Name:  plan.Call.Name,
 		Arg:   mainArg(plan.Call.Args, c.dir),
-		State: StateRunning,
-		Lines: []string{line},
+		State: state,
 	}
 }
 
