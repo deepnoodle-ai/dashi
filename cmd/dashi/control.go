@@ -327,7 +327,7 @@ func (c *Controller) warnWatchFailed(cause string) {
 	c.decideMu.Unlock()
 	if !seen {
 		c.emit(warnBlock("decide: turn_watcher could not check (%s), so the agent got no reminder. "+
-			"Later failures of this kind are counted in /settings only.", cause))
+			"Later failures of this kind are not shown.", cause))
 	}
 }
 
