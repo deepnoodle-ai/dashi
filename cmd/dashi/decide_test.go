@@ -15,9 +15,11 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/decide/defaultclient"
 	"github.com/deepnoodle-ai/dashi/decide/toolcheck"
+	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/tool"
 	"github.com/deepnoodle-ai/decide"
 	"github.com/deepnoodle-ai/decide/decidetest"
+	"github.com/deepnoodle-ai/wonton/tui"
 )
 
 // decideHarness is a harness with the command-risk check on, answered by a
@@ -554,5 +556,89 @@ func TestDecideBypassChecksOutsideTheQueue(t *testing.T) {
 	}
 	if len(h.ui.approvals) != 0 {
 		t.Fatalf("approvals = %d; want 0", len(h.ui.approvals))
+	}
+}
+
+// A delegated task's shell command gets the same check in bypass mode: a
+// flagged command asks, names its task, and offers allow once and deny
+// only.
+func TestDecideBypassChecksDelegatedTask(t *testing.T) {
+	srv := decidetest.NewServer(t)
+	srv.Answer("severe", decidetest.NoulAnswer(0.93))
+	client := &taskFixtureClient{childCommand: "git push --force origin main"}
+	ui := newRecorderUI()
+	ui.answer = func(context.Context, ApprovalRequest) (Approval, error) {
+		return Approval{Reason: declinedReason}, nil
+	}
+	cfg := testConfig(t)
+	cfg.Client = client
+	cfg.ApproveAll = true
+	cfg.Decide = decideSettings{On: []string{decideCommandRisk}, Source: "--decide"}
+	cfg.decideClient = srv.Client(t, decide.WithMaxRetries(0))
+	a, err := buildApp(t.Context(), cfg, ui)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = a.openSession(cfg.Store, cfg.Dir, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { a.ctrl.CancelWork(); a.eng.closeTasks(); a.ctrl.Wait(); a.eng.Close() })
+	if _, err := a.eng.Prompt(t.Context(), "delegate"); err != nil {
+		t.Fatal(err)
+	}
+	waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopCompleted) })
+	if n := len(srv.Requests()); n != 1 {
+		t.Fatalf("decide requests = %d; want 1", n)
+	}
+	ui.mu.Lock()
+	defer ui.mu.Unlock()
+	if len(ui.approvals) != 1 {
+		t.Fatalf("approvals = %d; want 1", len(ui.approvals))
+	}
+	got := ui.approvals[0]
+	if got.Task == "" || !got.Hold || got.offersRemember() || got.Command != client.childCommand ||
+		got.checkLine() != "decide: severe 93% — flagged" {
+		t.Fatalf("approval = %+v, line %q", got, got.checkLine())
+	}
+}
+
+// A flagged command is never remembered, even when the UI answers "allow
+// for this run": it asks again next time.
+func TestDecideFlaggedCommandIsNotRemembered(t *testing.T) {
+	h, srv := decideHarness(t, Options{},
+		callTool("c1", "bash", `{"command":"echo flagged"}`), say("One."),
+		callTool("c2", "bash", `{"command":"echo flagged"}`), say("Two."))
+	srv.Answer("severe", decidetest.NoulAnswer(0.91))
+	h.ui.answer = func(context.Context, ApprovalRequest) (Approval, error) {
+		<-h.ui.lastApproval().Check.done
+		return Approval{Allow: true, Remember: true}, nil
+	}
+	h.input("first")
+	h.input("second")
+	if len(h.ui.approvals) != 2 || len(srv.Requests()) != 2 {
+		t.Fatalf("approvals = %d, decide requests = %d; want 2 and 2: a flagged command was remembered",
+			len(h.ui.approvals), len(srv.Requests()))
+	}
+}
+
+// The full-screen prompt ignores "a" on a flagged command, and "y" still
+// answers allow once.
+func TestDecideScreenIgnoresRememberOnFlaggedPrompt(t *testing.T) {
+	s := newScreen("fixture")
+	s.send = func(tui.Event) {}
+	p := &approvalPrompt{
+		req:   toolApproval{Check: doneCheck(decideResult{Checked: true, Flagged: true, Severe: 0.9})},
+		reply: make(chan Approval, 1),
+	}
+	s.HandleEvent(promptEvent{id: 1, approval: p})
+	s.HandleEvent(tui.KeyEvent{Rune: 'a'})
+	select {
+	case a := <-p.reply:
+		t.Fatalf("answer = %+v; want none for a", a)
+	default:
+	}
+	s.HandleEvent(tui.KeyEvent{Rune: 'y'})
+	if a := <-p.reply; !a.Allow || a.Remember {
+		t.Fatalf("answer = %+v; want allow once", a)
 	}
 }
