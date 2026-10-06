@@ -276,6 +276,7 @@ func TestFallbacks(t *testing.T) {
 		messages func() []llm.Message
 		want     string
 		cause    Cause
+		requests int // the Requests count, when it is not zero
 	}{
 		{
 			name: "Decide fails",
@@ -286,7 +287,7 @@ func TestFallbacks(t *testing.T) {
 				}
 				return &Compactor{Base: smallWindow(), Client: client}
 			},
-			want: "Decide", cause: CauseServerError,
+			want: "Decide", cause: CauseServerError, requests: 1,
 		},
 		{
 			name: "Decide passes the timeout",
@@ -295,7 +296,57 @@ func TestFallbacks(t *testing.T) {
 				srv.SetLatency(time.Second)
 				return &Compactor{Base: smallWindow(), Client: client, Timeout: 20 * time.Millisecond}
 			},
-			want: "deadline exceeded", cause: CauseTimeout,
+			want: "deadline exceeded", cause: CauseTimeout, requests: 1,
+		},
+		{
+			// JSON escapes each < and > as six bytes, so the user's words
+			// encode to a state over the Decide limit; nothing is sent.
+			name: "state too large",
+			setup: func(t *testing.T) *Compactor {
+				_, client := judge(t, nil)
+				base := smallWindow()
+				base.Policy.Model.Capabilities.ContextWindow = 20_000
+				return &Compactor{Base: base, Client: client}
+			},
+			messages: func() []llm.Message {
+				m := history()
+				m[1] = user(strings.Repeat("<", 3_100))
+				m[7] = user(strings.Repeat(">", 3_100))
+				return m
+			},
+			want: "too large for the request limits", cause: CauseTooLarge,
+		},
+		{
+			// Every segment is dropped, so the summary covers the task and
+			// all eight results. With the pinned task's mark, that is just
+			// over the summarizer's minimum transcript; without it (stock),
+			// it is just under.
+			name: "summary request fails",
+			setup: func(t *testing.T) *Compactor {
+				answers := map[string]float64{}
+				for i := range 8 {
+					answers[neededKey(i)] = 0.05
+					answers[verbatimKey(i)] = 0.05
+				}
+				_, client := judge(t, answers)
+				return &Compactor{Base: smallWindow(), Client: client}
+			},
+			messages: func() []llm.Message {
+				m := []llm.Message{
+					{Role: llm.RoleSystem, Content: []llm.Content{llm.Text("You are a coding agent.")}},
+					user(strings.Repeat("t", 900)),
+				}
+				for i := range 8 {
+					id := fmt.Sprintf("c%d", i)
+					size := 1_100
+					if i == 7 {
+						size = 615
+					}
+					m = append(m, call(id, "read"), result(id, strings.Repeat("r", size)))
+				}
+				return append(m, user("go on"), assistant("ok"))
+			},
+			want: "summary request", cause: CauseSummaryFailed, requests: 1,
 		},
 		{
 			name: "pinned words exceed the budget",
@@ -308,7 +359,7 @@ func TestFallbacks(t *testing.T) {
 				m[1] = user(strings.Repeat("A long pasted spec line.\n", 300))
 				return m
 			},
-			want: "own words exceed the budget", cause: CauseOverBudget,
+			want: "own words exceed the budget", cause: CauseOverBudget, requests: 1,
 		},
 		{
 			name: "nothing dropped",
@@ -318,7 +369,7 @@ func TestFallbacks(t *testing.T) {
 				})
 				return &Compactor{Client: client}
 			},
-			want: "nothing was dropped", cause: CauseNothingDropped,
+			want: "nothing was dropped", cause: CauseNothingDropped, requests: 1,
 		},
 		{
 			name: "pairing broken by a short form",
@@ -327,7 +378,7 @@ func TestFallbacks(t *testing.T) {
 				drop := func(seg []llm.Message) ([]llm.Message, bool) { return seg[:1], true }
 				return &Compactor{Client: client, ShortForm: drop}
 			},
-			want: "lose its result", cause: CausePairing,
+			want: "lose its result", cause: CausePairing, requests: 1,
 		},
 		{
 			name: "negative OlderFraction turns selection off",
@@ -373,8 +424,8 @@ func TestFallbacks(t *testing.T) {
 			if sel.Cause != tt.cause {
 				t.Fatalf("cause = %q, want %q", sel.Cause, tt.cause)
 			}
-			if tt.cause == CauseServerError && sel.Requests == 0 {
-				t.Fatal("a failed Decide request is not counted in Requests")
+			if sel.Requests != tt.requests {
+				t.Fatalf("Requests = %d, want %d", sel.Requests, tt.requests)
 			}
 			if want := stockOf(c.Base, messages); !reflect.DeepEqual(st, want) {
 				t.Fatalf("start is not the stock start")
