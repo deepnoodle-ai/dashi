@@ -38,9 +38,17 @@
 // is larger than selective's tail share but fits stock's; the keyless run
 // then checks that the file survives word for word.
 //
+// -recorded replaces the generated sessions with recorded dashi CLI
+// sessions (folders such as ~/.dashi/sessions). Each turn end of 20,000 to
+// 120,000 estimated tokens is one case, compacted for a window that the
+// history fills to 80%. Its needles are mined once by -mine-model from the
+// part every arm compacts, checked word for word in code, and saved to
+// -needles before any arm runs; a later run reads that file.
+//
 //	go run ./decide/selective/eval
 //	go run ./decide/selective/eval -live -sessions 4
 //	go run ./decide/selective/eval -live -vague
+//	go run ./decide/selective/eval -live -recorded ~/.dashi/sessions -needles needles.json
 package main
 
 import (
@@ -69,6 +77,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
 	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
+	dashisession "github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 	"github.com/deepnoodle-ai/decide"
 	"github.com/deepnoodle-ai/decide/decidetest"
@@ -97,6 +106,11 @@ type config struct {
 	openai   string
 	seed     uint64
 	variant  variant
+	// recorded lists dashi CLI session folders; when set, they replace
+	// the generated sessions.
+	recorded  []string
+	needles   string // file of mined needles for recorded sessions
+	mineModel string // Claude model that mines the needles
 }
 
 func main() {
@@ -110,7 +124,13 @@ func main() {
 	seed := flag.Uint64("seed", 1, "session generator seed")
 	flag.BoolVar(&cfg.variant.vague, "vague", false, `make the latest request "Keep going." instead of one that names the needles' subjects`)
 	flag.BoolVar(&cfg.variant.longTurn, "long-turn", false, "read a large file in the last turn, over selective's tail share")
+	recorded := flag.String("recorded", "", "comma-separated dashi CLI session folders, or folders of them, to use instead of generated sessions")
+	flag.StringVar(&cfg.needles, "needles", "needles.json", "file of needles mined from recorded sessions; missing ones are mined (-live) and added")
+	flag.StringVar(&cfg.mineModel, "mine-model", "claude-sonnet-5", "Claude model that mines needles from recorded sessions")
 	flag.Parse()
+	if *recorded != "" {
+		cfg.recorded = strings.Split(*recorded, ",")
+	}
 	cfg.seed = *seed
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -125,9 +145,11 @@ type env struct {
 	policy compaction.Policy
 	model  string
 	tools  tool.List
-	// client returns the model client for one call. Live, it is the shared
+	// client returns the model client for one call to provider. Live, it
+	// is the shared Claude client, or the OpenAI client for a recorded
+	// OpenAI session.
 	// Claude client; keyless, a scripted client that replies with reply.
-	client  func(reply string) llm.Client
+	client  func(provider, reply string) llm.Client
 	judge   *decide.Client // selective's Decide
 	recency *decide.Client // scores by position
 	broken  *decide.Client // a Decide that cannot be reached (keyless)
@@ -165,12 +187,22 @@ func run(ctx context.Context, cfg config, out io.Writer) (*report, error) {
 	}
 	defer cleanup()
 	r := &report{results: map[string][]outcome{}}
-	sessions := make([]session, cfg.sessions)
-	for i := range sessions {
-		sessions[i] = newSession(i, cfg.seed, cfg.variant)
-		r.sessions = append(r.sessions, sessions[i].name)
-		r.sizes = append(r.sizes, keptTokens(sessions[i].messages, &dashi.CompactionFact{SummaryAt: -1}))
-		r.needles = append(r.needles, sessions[i].needles)
+	var sessions []session
+	if len(cfg.recorded) > 0 {
+		if sessions, err = e.recordedWithNeedles(ctx); err != nil {
+			return nil, err
+		}
+	} else {
+		sessions = make([]session, cfg.sessions)
+		for i := range sessions {
+			sessions[i] = newSession(i, cfg.seed, cfg.variant)
+		}
+	}
+	e.tools = evalTools(toolNames(sessions))
+	for _, s := range sessions {
+		r.sessions = append(r.sessions, s.name)
+		r.sizes = append(r.sizes, keptTokens(s.messages, &dashi.CompactionFact{SummaryAt: -1}))
+		r.needles = append(r.needles, s.needles)
 	}
 	for _, a := range arms {
 		r.results[a] = make([]outcome, len(sessions))
@@ -212,7 +244,7 @@ func run(ctx context.Context, cfg config, out io.Writer) (*report, error) {
 }
 
 func newEnv(cfg config) (*env, func(), error) {
-	e := &env{cfg: cfg, tools: evalTools()}
+	e := &env{cfg: cfg}
 	e.policy.Model.Capabilities.ContextWindow = cfg.window
 	recency, err := decidetest.Start()
 	if err != nil {
@@ -236,7 +268,19 @@ func newEnv(cfg config) (*env, func(), error) {
 			return nil, nil, err
 		}
 		e.model = cfg.model
-		e.client = func(string) llm.Client { return claude }
+		var openai llm.Client
+		if len(cfg.recorded) > 0 && os.Getenv("OPENAI_API_KEY") != "" {
+			if openai, err = responses.New(responses.Config{}); err != nil {
+				cleanup()
+				return nil, nil, err
+			}
+		}
+		e.client = func(provider, _ string) llm.Client {
+			if provider == "openai" && openai != nil {
+				return openai
+			}
+			return claude
+		}
 		if e.judge, err = decide.NewClient(); err != nil { // reads TYPESAFE_API_KEY
 			cleanup()
 			return nil, nil, err
@@ -244,7 +288,7 @@ func newEnv(cfg config) (*env, func(), error) {
 		return e, cleanup, nil
 	}
 	e.model = dashitest.Model
-	e.client = func(reply string) llm.Client { return dashitest.NewClient(dashitest.Reply(reply)) }
+	e.client = func(_, reply string) llm.Client { return dashitest.NewClient(dashitest.Reply(reply)) }
 	judge, err := decidetest.Start()
 	if err != nil {
 		cleanup()
@@ -317,7 +361,7 @@ func cannedNeedles(req *decide.Request) (*decide.Response, error) {
 
 // session compacts s with every arm and probes each history.
 func (e *env) session(ctx context.Context, n int, s session) (map[string]outcome, []string, error) {
-	stock := compaction.Compactor{Policy: e.policy, Model: e.model}
+	stock := compaction.Compactor{Policy: e.policyFor(s), Model: e.modelFor(s)}
 	res := map[string]outcome{}
 	var problems []string
 	check := func(arm string, err error) {
@@ -337,13 +381,13 @@ func (e *env) session(ctx context.Context, n int, s session) (map[string]outcome
 		if err != nil {
 			return nil, nil, err
 		}
-		hist, spend, err := e.compact(ctx, id(arm, "compact"), st, s.messages)
+		hist, spend, err := e.compact(ctx, s, id(arm, "compact"), st, s.messages)
 		if err != nil {
 			return nil, nil, err
 		}
 		o := outcome{kept: keptTokens(hist, st.Compaction)}
 		o.addSpend(spend)
-		if o.found, o.probeCost, err = e.probe(ctx, id(arm, "probe"), hist, s.needles); err != nil {
+		if o.found, o.probeCost, err = e.probe(ctx, s, id(arm, "probe"), hist, s.needles); err != nil {
 			return nil, nil, err
 		}
 		res[arm] = o
@@ -380,13 +424,13 @@ func (e *env) session(ctx context.Context, n int, s session) (map[string]outcome
 		if !e.cfg.live && sel.Fallback != "" {
 			check(arm, fmt.Errorf("unexpected fallback: %s", sel.Fallback))
 		}
-		hist, spend, err := e.compact(ctx, id(arm, "compact"), st, s.messages)
+		hist, spend, err := e.compact(ctx, s, id(arm, "compact"), st, s.messages)
 		if err != nil {
 			return nil, nil, err
 		}
 		o.addSpend(spend)
 		o.kept = keptTokens(hist, st.Compaction)
-		if o.found, o.probeCost, err = e.probe(ctx, id(arm, "probe"), hist, s.needles); err != nil {
+		if o.found, o.probeCost, err = e.probe(ctx, s, id(arm, "probe"), hist, s.needles); err != nil {
 			return nil, nil, err
 		}
 		res[arm] = o
@@ -401,7 +445,7 @@ func (e *env) session(ctx context.Context, n int, s session) (map[string]outcome
 		}
 		first := o
 		if sel.Fallback == "" {
-			first.found, first.probeCost, err = e.probe(ctx, id(armSummaryFirst, "probe"),
+			first.found, first.probeCost, err = e.probe(ctx, s, id(armSummaryFirst, "probe"),
 				summaryFirst(hist, st.Compaction), s.needles)
 			if err != nil {
 				return nil, nil, err
@@ -427,9 +471,9 @@ func (o *outcome) addSpend(s dashi.Spend) {
 // compact runs the compaction turn of st and returns its replacement
 // history. It checks that the record rebuilds the same history after a
 // JSON round trip, and that every tool call keeps its results.
-func (e *env) compact(ctx context.Context, id string, st dashi.Start, input []llm.Message) ([]llm.Message, dashi.Spend, error) {
+func (e *env) compact(ctx context.Context, s session, id string, st dashi.Start, input []llm.Message) ([]llm.Message, dashi.Spend, error) {
 	runner := dashi.Runner{
-		Client:   e.client("<summary>Scripted notes: the work continues.</summary>"),
+		Client:   e.client(s.provider, "<summary>Scripted notes: the work continues.</summary>"),
 		Recorder: dashi.NewMemoryRecorder(),
 	}
 	st.CommandID = "compact:" + id
@@ -467,7 +511,7 @@ const probeIntro = "Answer from our conversation so far, without calling tools. 
 
 // probe asks every needle's question after hist and reports which answers
 // the reply contains.
-func (e *env) probe(ctx context.Context, id string, hist []llm.Message, needles []needle) (map[string]bool, float64, error) {
+func (e *env) probe(ctx context.Context, s session, id string, hist []llm.Message, needles []needle) (map[string]bool, float64, error) {
 	var q strings.Builder
 	q.WriteString(probeIntro)
 	for i, n := range needles {
@@ -484,13 +528,13 @@ func (e *env) probe(ctx context.Context, id string, hist []llm.Message, needles 
 		scripted = append(scripted, fmt.Sprintf("%d. %s", i+1, answer))
 	}
 	runner := dashi.Runner{
-		Client:   e.client(strings.Join(scripted, "\n")),
+		Client:   e.client(s.provider, strings.Join(scripted, "\n")),
 		Recorder: dashi.NewMemoryRecorder(),
 		Tools:    e.tools,
 	}
 	out, err := runner.Run(ctx, dashi.NewTurn(id), dashi.Start{
 		CommandID: "run:" + id,
-		Agent:     dashi.Agent{Model: e.model, Settings: llm.Settings{MaxTokens: 600}},
+		Agent:     dashi.Agent{Model: e.modelFor(s), Settings: llm.Settings{MaxTokens: probeTokens(s)}},
 		History:   hist,
 		Input:     []llm.Message{llm.UserMessage(llm.Text(q.String()))},
 	})
@@ -506,6 +550,15 @@ func (e *env) probe(ctx context.Context, id string, hist []llm.Message, needles 
 		found[n.Answer] = strings.Contains(reply, strings.ToLower(n.Answer))
 	}
 	return found, out.TurnView.Spend.Cost["USD"].Float64(), nil
+}
+
+// probeTokens is the probe's output limit. A recorded session's own model
+// may reason before it answers, so it gets more room.
+func probeTokens(s session) int {
+	if s.model != "" {
+		return 4000
+	}
+	return 600
 }
 
 // keptTokens estimates the tokens of hist without its summary, as package
@@ -653,11 +706,35 @@ type toolArgs struct {
 	Q       string `json:"q,omitempty"`
 }
 
-// evalTools are the session's tools, so a probe can send history with tool
-// calls. They do nothing.
-func evalTools() tool.List {
+// modelFor is the model that summarizes s and answers its probe: the
+// recorded session's own model, or -model.
+func (e *env) modelFor(s session) string {
+	if e.cfg.live && s.model != "" {
+		return s.model
+	}
+	return e.model
+}
+
+// policyFor is the compaction policy of s: its own window, if it has one.
+func (e *env) policyFor(s session) compaction.Policy {
+	p := e.policy
+	if s.window > 0 {
+		p.Model.Capabilities.ContextWindow = s.window
+	}
+	return p
+}
+
+// evalTools are the sessions' tools, so a probe can send history with tool
+// calls. They do nothing. extra names the tools recorded sessions call.
+func evalTools(extra []string) tool.List {
 	var list tool.List
-	for _, name := range []string{"ls", "read_file", "git_log", "run_tests", "grep", "tail_log", "web_search"} {
+	names := []string{"ls", "read_file", "git_log", "run_tests", "grep", "tail_log", "web_search"}
+	for _, n := range extra {
+		if !slices.Contains(names, n) {
+			names = append(names, n)
+		}
+	}
+	for _, name := range names {
 		t, err := tool.Func(name, "Not available during this question.",
 			func(context.Context, tool.Call, toolArgs) (tool.Outcome, error) {
 				return tool.Failed("This tool is not available now. Answer from the conversation."), nil
@@ -670,43 +747,62 @@ func evalTools() tool.List {
 	return list
 }
 
-// sendToOpenAI sends the first session's selective history to OpenAI, to
-// check that a second provider accepts it.
+// sendToOpenAI sends the first session's selective and stock histories to
+// OpenAI, to check that a second provider accepts them.
 func (e *env) sendToOpenAI(ctx context.Context, s session) string {
-	stock := compaction.Compactor{Policy: e.policy, Model: e.model}
-	c := &selective.Compactor{Base: stock, Client: e.judge}
+	stock := compaction.Compactor{Policy: e.policyFor(s), Model: e.modelFor(s)}
+	var lines []string
+	for _, arm := range []string{armSelective, armStock} {
+		var c dashisession.Compactor = &stock
+		if arm == armSelective {
+			c = &selective.Compactor{Base: stock, Client: e.judge}
+		}
+		lines = append(lines, e.openAIAccepts(ctx, arm, s, c))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// openAIAccepts compacts s with c and sends the history to OpenAI. The
+// stock history is sent too, so a rejection shows whether selective
+// caused it.
+func (e *env) openAIAccepts(ctx context.Context, arm string, s session, c dashisession.Compactor) string {
+	prefix := "OpenAI " + e.cfg.openai + ", " + arm + " history: "
 	st, err := c.Start(ctx, s.messages)
 	if err != nil {
-		return "OpenAI: " + err.Error()
+		return prefix + err.Error()
 	}
-	hist, _, err := e.compact(ctx, "openai-compact", st, s.messages)
+	hist, _, err := e.compact(ctx, s, "openai-compact-"+strings.ReplaceAll(arm, " ", ""), st, s.messages)
 	if err != nil {
-		return "OpenAI: " + err.Error()
+		return prefix + err.Error()
 	}
 	client, err := responses.New(responses.Config{})
 	if err != nil {
-		return "OpenAI: " + err.Error()
+		return prefix + err.Error()
 	}
 	runner := dashi.Runner{Client: client, Recorder: dashi.NewMemoryRecorder(), Tools: e.tools}
-	out, err := runner.Run(ctx, dashi.NewTurn("openai-probe"), dashi.Start{
-		CommandID: "run:openai-probe",
+	id := "openai-probe-" + strings.ReplaceAll(arm, " ", "")
+	out, err := runner.Run(ctx, dashi.NewTurn(id), dashi.Start{
+		CommandID: "run:" + id,
 		Agent:     dashi.Agent{Model: e.cfg.openai, Settings: llm.Settings{MaxTokens: 300}},
 		History:   hist,
 		Input:     []llm.Message{llm.UserMessage(llm.Text("In one sentence, what is the task?"))},
 	})
 	switch {
 	case err != nil:
-		return "OpenAI " + e.cfg.openai + ": rejected: " + err.Error()
+		return prefix + "rejected: " + err.Error()
 	case out.Stop.Kind != dashi.StopCompleted:
-		return fmt.Sprintf("OpenAI %s: stopped %s: %s", e.cfg.openai, out.Stop.Kind, out.Stop.Reason)
+		return fmt.Sprintf("%sstopped %s: %s", prefix, out.Stop.Kind, out.Stop.Reason)
 	}
-	return fmt.Sprintf("OpenAI %s accepted a selective history (%d messages): %.80q", e.cfg.openai, len(hist), out.Reply)
+	return fmt.Sprintf("%saccepted (%d messages): %.80q", prefix, len(hist), out.Reply)
 }
 
 func (r *report) print(w io.Writer, cfg config) {
 	mode := "keyless (canned Decide answers, scripted model: plumbing only)"
 	if cfg.live {
 		mode = "live (" + cfg.model + ", Jev)"
+		if len(cfg.recorded) > 0 {
+			mode = "live (each session's own model, Jev)"
+		}
 	}
 	if cfg.variant.vague {
 		mode += ", vague latest request"
@@ -714,7 +810,16 @@ func (r *report) print(w io.Writer, cfg config) {
 	if cfg.variant.longTurn {
 		mode += ", long last turn"
 	}
-	fmt.Fprintf(w, "needle in history: %s, %d sessions, window %d tokens\n\n", mode, len(r.sessions), cfg.window)
+	if len(cfg.recorded) > 0 {
+		needles := 0
+		for _, n := range r.needles {
+			needles += len(n)
+		}
+		fmt.Fprintf(w, "needle in history: %s, %d recorded CLI cases, %d needles, window per case (history at %.0f%%)\n\n",
+			mode, len(r.sessions), needles, 100*caseFill)
+	} else {
+		fmt.Fprintf(w, "needle in history: %s, %d sessions, window %d tokens\n\n", mode, len(r.sessions), cfg.window)
+	}
 	fmt.Fprintf(w, "%-26s %-11s %5s %7s %8s %8s %8s %10s %9s %9s\n",
 		"arm", "recall", "falls", "kept", "sum in", "sum out", "sum $", "Decide in", "Decide $", "wait max")
 	recall := map[string]float64{}
@@ -764,6 +869,9 @@ func (r *report) print(w io.Writer, cfg config) {
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "%-26s", "recall by needle kind")
 	kinds := []string{"error", "path", "decision", "constraint"}
+	if len(cfg.recorded) > 0 {
+		kinds = []string{"error", "path", "name", "value", "decision"}
+	}
 	for _, k := range kinds {
 		fmt.Fprintf(w, " %10s", k)
 	}
@@ -816,9 +924,13 @@ func (r *report) print(w io.Writer, cfg config) {
 			decideCost += float64(o.decide.InputTokens) * jevPricePerToken
 			summaryCost += o.summaryCost
 		}
+		where := "generated"
+		if len(cfg.recorded) > 0 {
+			where = "recorded"
+		}
 		verdict := func(ok bool) string {
 			if ok {
-				return "met on generated sessions"
+				return "met on " + where + " sessions"
 			}
 			return "NOT met"
 		}
