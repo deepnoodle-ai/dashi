@@ -3,8 +3,8 @@
 //
 // Each session plants exact details early: an error code, a path, a
 // decision and its reason, and a constraint the user stated once. Then it
-// is compacted five ways to the same size, and a probe turn asks one
-// question per needle:
+// is compacted five ways to the same size budget, and a probe turn asks
+// one question per needle:
 //
 //  1. stock: compaction.Compactor, tail 0.25 of the window.
 //  2. stock, request-aware: the same, with the latest request added to the
