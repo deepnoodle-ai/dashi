@@ -6,103 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-06
+
 ### Added
 
 - **`decide/toolcheck` checks risky commands and outside content.**
-  `toolcheck.CommandRisk{}` holds a shell command that could likely cause
-  severe harm, such as `rm -rf ~`, for approval. `toolcheck.PromptInjection{}`
-  warns the model about a tool result that likely tries to take over the
-  agent. Both fail open when Decide is down; a command whose check the input
-  breaks, such as by a timeout, is held for approval. `Check` lets a host
-  ask the user in its own approval hook. The `PromptInjection` hook records
-  every check it makes, passed, flagged, or unchecked. When the input may
-  have broken the check, such as by a timeout, the model reads that the
-  result was not checked and is untrusted; the result is never held.
-  `toolcheck.ReadResultRecord` reads a record back from the turn, and
-  `toolcheck.CauseOf` names why a check could not answer, and `OnStart`
-  tells a host that a result waits for its check.
-- **`dashi --decide command_risk`** (or `DASHI_DECIDE`, or `"decide":
-  ["command_risk"]` in `~/.dashi/settings.json`) checks each shell command
-  with a decision model before it runs. The prompt shows the answer, a
-  flagged command offers allow once and deny only, and in
-  `--dangerously-skip-permissions` mode a flagged command still asks.
-  `dashi run --yes` refuses it. Every decide feature is off by default, and a
-  project settings file cannot turn one on. `/settings` shows a `decide`
-  section and the provider, and tool rows and the turn footer show the
-  answers. Missing credentials or an unknown `DECIDE_PROVIDER` give one
-  warning at start and turn the checks off; `dashi run --yes` refuses to
-  start instead.
-- **`turnwatch.ReadReminder`** reads a reminder the watcher recorded: the
-  confirmed question (`turnwatch.QuestionRepeating` or
-  `QuestionOffRequest`), its probability, and the trigger, so a host need
-  not parse the recorded reason.
-- **`dashi --decide prompt_injection,turn_watcher`.** `prompt_injection`
-  warns the agent about an MCP result, or `gh`, `curl`, `wget`, or `http`
-  output, that likely tries to take it over; the row shows the warning, and
-  the result is never hidden. `turn_watcher` reminds the agent when it
-  repeats a failing call, and the transcript shows the reminder. Both are
-  off by default, and `/settings` counts each feature's checks. Each tool
-  row names what decide checked: `decide ✓ command, result`, or a line
-  such as `decide result: injection 96%, hidden 3% — flagged, agent
-  warned`.
-- **`selective.Selection.Cause`** names, in a few words, why the selective
-  compactor fell back to its `Base`, with typed constants such as
-  `selective.CauseTimeout`, `CauseServerError`, and `CauseNothingDropped`,
-  so a host can show it without reading `Selection.Fallback`'s text.
-  `Selection.Requests` counts the Decide requests started, failed and
-  canceled ones included, so a host can account for requests that returned no ID.
-- **Cloudflare for every decide package.** With a nil `Client`, the decide
-  packages read `DECIDE_PROVIDER` as the `decide` command does:
-  `cloudflare` uses `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and
-  `CLOUDFLARE_BASE_URL`; `typesafe`, the default, uses `TYPESAFE_*`.
-  `defaultclient.Load` makes that client without a request and reports the
-  provider, or an error that wraps `defaultclient.ErrSetup` for missing
-  credentials or an unknown provider, so a host can warn at startup.
-- **`workspace.AskConcurrently()`** lets a `Policy` call its approval
-  callback for several tool calls at once, for a host that queues its own
-  prompts or does slow work before it shows one. Calls that one remembered
-  answer would cover still wait for each other. The `dashi` CLI uses it, so a
-  decide check in bypass mode no longer holds up other tool calls.
-- **`Warning.Hook` names the hook of a `hook_failed` warning,** so a host
-  that shows a hook's failures its own way can find them without reading
-  the message.
-- **An `AfterTool` hook can record a result it kept.** A `ResultDecision`
-  with no replacement but a `Reason` or `RulesVersion` is recorded as
-  `VerdictNoChange`, as for `BeforeModel`, such as a check that passed.
-- **`FailOpen` on `BeforeTool` hooks.** A failing hook then counts as no
+  `CommandRisk{}` holds a shell command that could cause severe harm, such as
+  `rm -rf ~`, for approval; `PromptInjection{}` warns the model about a tool
+  result that likely tries to take over the agent.
+- **`toolcheck` fails open only on an outage.** When the input breaks a check,
+  such as by a timeout, the command is held and the result is marked untrusted.
+  `Check`, `ReadResultRecord`, and `CauseOf` serve hosts with their own hooks.
+- **`dashi --decide`** turns on decision-model checks, each off by default:
+  `command_risk`, `prompt_injection` (MCP results; `gh`, `curl`, `wget`, `http`
+  output), and `turn_watcher` (repeated failing calls). `DASHI_DECIDE` and
+  `"decide"` in `~/.dashi/settings.json` work too; project settings cannot.
+- **A flagged shell command always asks,** offering allow once or deny, even
+  with `--dangerously-skip-permissions`; `dashi run --yes` refuses it. Tool
+  rows, the turn footer, and `/settings` show what decide checked and found.
+- **Missing decide credentials give one warning and turn the checks off;**
+  `dashi run --yes` refuses to start instead.
+- **Decide packages can use Cloudflare.** With a nil `Client` they read
+  `DECIDE_PROVIDER` as the `decide` command does; `defaultclient.Load` reports
+  the provider, or an `ErrSetup` error a host can warn about at startup.
+- **`turnwatch.ReadReminder`** reads a recorded reminder (question,
+  probability, trigger) without parsing its reason.
+- **`selective.Selection.Cause` and `Selection.Requests`** name why the
+  selective compactor fell back to its `Base` and count every request started.
+- **`workspace.AskConcurrently()`** lets a `Policy` run its approval callback
+  for several tool calls at once. The CLI uses it, so a decide check in bypass
+  mode no longer holds up other tool calls.
+- **`Warning.Hook`** names the hook behind a `hook_failed` warning.
+- **An `AfterTool` hook can record a result it kept:** a `ResultDecision` with
+  a `Reason` or `RulesVersion` and no replacement is recorded as
+  `VerdictNoChange`.
+- **`FailOpen` on `BeforeTool` hooks** makes a failing hook count as no
   opinion, with a `hook_failed` warning, instead of denying the call. Use it
   only for advice, never for a permission policy.
 
 ### Changed
 
-- **Large terminal input stays responsive when deleting text.** Wonton v0.7.2
-  fixes Ctrl-U, Ctrl-K, and Ctrl-W stalls on long pasted lines.
-
-- **The Dashi terminal interface uses a quieter layout:** a compact header,
-  shaded prompt and input bands, indented tool details, and compact status.
-  Narrow terminals keep approval choices visible; inline output uses the
-  actual terminal width.
-- **Copy selected transcript text with Ctrl-C.** Confirmed local copies clear
-  selection; failed or unconfirmed requests retain it. F2 toggles native
-  selection without replacing the draft. Dialog cancellation stays unchanged.
-- **Pasted slash commands stay editable until Enter.** Large ordinary text no
-  longer produces a file-selection warning.
-
-- **The workspace file tools and `ask_user` report a false open-world
-  hint,** so a check on outside content leaves their results local. `bash`
-  stays unset.
-- **The `delegate` task tools and `message_parent` report a false
-  open-world hint,** so a check of outside content does not send a
-  subagent's answer out again; the subagent's own turn checks what it reads.
-- **An MCP server can no longer mark its tools closed-world.** The `mcp`
-  toolset keeps an `openWorldHint` of true and drops a false one, so
-  `toolcheck.PromptInjection` reads every MCP result: the text a server
-  returns may come from anyone who can write to its data.
-
 - **The `decide` packages are part of the root module,** on Decide v0.3.0.
-  `go get github.com/deepnoodle-ai/dashi` is enough to import
-  `dashi/decide/listtool` and the others; import paths are unchanged. Every
-  Dashi module now needs Go 1.27.
+  `go get github.com/deepnoodle-ai/dashi` is enough; import paths are
+  unchanged. Every Dashi module now needs Go 1.27.
+- **Open-world hints are stricter.** Workspace file tools, `ask_user`,
+  `delegate` task tools, and `message_parent` report false; MCP tools always
+  report true, so `PromptInjection` checks every MCP result.
+- **`dashi --decide selective_compaction` stays off,** and its warning now
+  says why: on recorded sessions it kept no more needed details than keeping
+  the newest messages.
+- **The terminal interface uses a quieter layout:** a compact header, shaded
+  prompt and input bands, and indented tool details. Narrow terminals keep
+  approval choices visible.
+- **Ctrl-C copies selected transcript text,** and F2 toggles native selection
+  without losing the draft.
+- **Large pastes stay editable until Enter,** including pasted slash commands.
+  Ctrl-U, Ctrl-K, and Ctrl-W no longer stall on long lines (Wonton v0.7.2).
 
 ## [0.3.0] - 2026-10-06
 
