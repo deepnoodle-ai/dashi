@@ -54,7 +54,7 @@ func (e *Engine) configureChat() *session.Session {
 	if p := e.cfg.Preferences; p != nil {
 		chat.Compactor = &routedCompactor{dashiCompactor: compaction.New(policy), agent: p.agent()}
 	}
-	_, known := policy.Window()
+	window, known := policy.Window()
 	warn := !known && !e.windowWarned[e.model]
 	if warn {
 		if e.windowWarned == nil {
@@ -62,16 +62,29 @@ func (e *Engine) configureChat() *session.Session {
 		}
 		e.windowWarned[e.model] = true
 	}
+	threshold := e.cfg.CompactionThreshold
+	warnThreshold := threshold > window && !e.thresholdWarned[e.model]
+	if warnThreshold {
+		if e.thresholdWarned == nil {
+			e.thresholdWarned = map[string]bool{}
+		}
+		e.thresholdWarned[e.model] = true
+	}
 	model := e.model
 	e.mu.Unlock()
 	if warn {
 		e.warn("Model %s has no known context window; between-Turn history compaction uses 128,000 tokens. Active-Turn protection needs a known window.", model)
 	}
+	if warnThreshold {
+		e.warn("--compaction-threshold %d is above the %d-token window of model %s; history compacts at %d tokens.", threshold, window, model, window)
+	}
 	return chat
 }
 
 // compactionPolicy is the compaction policy for a model. A
-// --compaction-threshold becomes the share of the model's window it is.
+// --compaction-threshold becomes the share of the model's window it is. A
+// threshold above the window counts as the window, because no model call can
+// use more; configureChat warns about it.
 func (e *Engine) compactionPolicy(info llm.ModelInfo) compaction.Policy {
 	policy := compaction.Policy{Model: info}
 	if t := e.cfg.CompactionThreshold; t > 0 {

@@ -70,6 +70,9 @@ type Engine struct {
 	// turns already started.
 	model        string
 	windowWarned map[string]bool
+	// thresholdWarned names the models already warned that
+	// --compaction-threshold exceeds their window.
+	thresholdWarned map[string]bool
 	// sessionNotices maps each once-per-session notice text to the block
 	// that showed it in the open session.
 	sessionNotices    map[string]string
