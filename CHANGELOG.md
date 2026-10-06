@@ -22,7 +22,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `--dangerously-skip-permissions` mode a flagged command still asks.
   `dashi run --yes` refuses it. Every decide feature is off by default, and a
   project settings file cannot turn one on. `/settings` shows a `decide`
-  section, and tool rows and the turn footer show the answers.
+  section and the provider, and tool rows and the turn footer show the
+  answers. Missing credentials or an unknown `DECIDE_PROVIDER` give one
+  warning at start and turn the checks off; `dashi run --yes` refuses to
+  start instead.
 - **Cloudflare for every decide package.** With a nil `Client`, the decide
   packages read `DECIDE_PROVIDER` as the `decide` command does:
   `cloudflare` uses `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and

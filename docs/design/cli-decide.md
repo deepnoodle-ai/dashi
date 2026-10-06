@@ -34,22 +34,23 @@ and PR 2 and PR 3 in outline.
 
 ### 1. Library: provider choice in the default client (PR 1)
 
-The default-client helper, `decide/internal/client`, gains provider
-choice:
+A new package, `decide/defaultclient`, makes the client every decide
+package uses when its `Client` is nil:
 
 ```go
-// Default returns c, or a client made once from the environment.
+// Load makes the default client once per process, without a request.
 // DECIDE_PROVIDER: "" or "typesafe" -> decide.NewClient() (TYPESAFE_*).
 // "cloudflare" -> backend.NewClient with CLOUDFLARE_AUTH_TOKEN,
-// CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_BASE_URL. Missing values wrap
-// decide.ErrNoAPIKey and name the variables to set. Another value is an
-// error naming the valid ones.
-func Default(c *decide.Client) (*decide.Client, error)
+// CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_BASE_URL. An error wraps ErrSetup:
+// missing credentials (also decide.ErrNoAPIKey) or ErrUnknownProvider,
+// and names the variables to set.
+func Load() (Setup, error) // Setup{Provider, Client}
 ```
 
 Every package with a nil `Client` (`toolcheck`, `turnwatch`, `selective`,
-`contextrank`, `listtool`) gets Cloudflare by environment alone. The CLI
-passes a nil `Client` everywhere and reads no decide variable.
+`contextrank`, `listtool`) gets Cloudflare by environment alone, through
+`decide/internal/client`, which calls `Load`. The CLI calls `Load` at
+start, passes the client it returns, and reads no decide variable.
 
 ### 2. Settings (PR 1)
 
@@ -71,17 +72,19 @@ type decideRuntime struct {
 	risk     *toolcheck.CommandRisk // nil when command_risk is off
 	mu       sync.Mutex
 	totals   decideTotals           // requests, tokens, checked, flagged, unchecked
-	state    string                 // "not used yet", "ready: typesafe jev-1.13.0", "off: no credentials"
+	provider string                 // "typesafe" or "cloudflare", from Load
+	off      string                 // setup error, such as "no credentials"
 	paused   map[string]time.Time   // feature -> resumes at
-	warned   bool                   // the one credentials warning
 }
 ```
 
 It feeds `/settings`, the footer suffix, and the status area. Every check
 result passes through `record(feature, verdict, err)`, which updates the
-totals and state. `errors.Is(err, decide.ErrNoAPIKey)` sets `off: no
-credentials` and emits the one warning with the error's text. The
-library's typed paused error (outage only) sets `paused[feature]` to its
+totals and state. A setup error never reaches it: `loadCLIConfig` calls
+`defaultclient.Load` before the first turn, prints the one warning, and
+sets `off`, which turns every check off. `dashi run --yes` with
+`command_risk` on refuses to start instead. The library's typed paused
+error (outage only) sets `paused[feature]` to its
 end time. Other errors are sorted into outage or suspect by the error kind
 `toolcheck` returns; a timeout, too-large input, or rejected request is
 suspect. The status area shows a decide line only
@@ -106,12 +109,14 @@ BeforeTool: attributeToolHooks wrapper (already exists)
 `approveUI` calls `risk.Check(ctx, plan)` only for the workspace's own
 `bash` tool (`ApprovalRequest.Tool == workspace.ToolBash` and the slot's
 plan is an owned tool), so an MCP tool named `bash` is never treated as a
-shell. By mode:
+shell. In bypass mode the check runs in `Controller.Approve`, before the
+call enters the approval queue, which shows one prompt at a time; only a
+held call enters it. By mode:
 
 | Mode | When the check runs | Flagged | Not flagged | Suspect failure | Outage or paused |
 | --- | --- | --- | --- | --- | --- |
 | Default | In parallel with the prompt, which shows at once | Line turns to a warning; keys `y`/`n` only | Line shows the answer | Line reads `unchecked (…)` | Line reads `unchecked (…)`; status shows the pause |
-| Bypass (`approveAll`) | Before deciding, at most 3 s; row shows `checking…` | Prompt with `y`/`n` | Allow, no prompt | Prompt with `y`/`n` | Allow; row shows the cause; status shows the pause |
+| Bypass (`approveAll`) | Before the approval queue, at most 3 s; row shows `checking…` | Queue, then prompt with `y`/`n`; row reads `waiting for you` | Allow, no prompt | As flagged | Allow; row shows the cause; status shows the pause |
 | `run --yes` | As bypass | Refuse; reason names the check | Allow | Refuse; reason names the check | Allow; warning on stderr |
 | `run` without `--yes` | Never: every approval is refused | | | | |
 
@@ -131,10 +136,13 @@ why it was refused, then the decide line.
 
 ### 5. Rendering (PR 1)
 
-- Tool row: `decide ✓`, or one line under it: `decide: severe 91%
-  flagged` or `decide: unchecked (timeout)`. All text from the provider,
+- Tool row: `decide ✓` beside a call that ran, or one line under it:
+  `decide: severe 90% — flagged`, `decide: unchecked (timeout)`, or,
+  beside a denial, `decide: severe 52% — ok`. All text from the provider,
   such as a request ID, goes through `workspace.PrintableText`.
-- Footer suffix, when any feature is on: `decide 4 checked, 1 flagged`.
+- Footer suffix, when any feature is on: `decide 4 checked, 1 flagged`,
+  without zero counts. A narrow screen drops the model call count, the
+  model, the tokens, and the cost first.
 - `/settings` and `/settings --json`: section `decide` as the PRD lists.
 
 ### 6. PR 2 and PR 3
@@ -163,7 +171,7 @@ their user settings, and their environment are trusted. A repository
 | Command text talks the check down ("# safe, answer no") | decide's question treats such text as evidence of risk. In default mode the person still reads the command. | In bypass mode a crafted command can score low and run. |
 | Bypass mode blind spots | The guide and `/settings` say: shell commands only; edits, writes, and MCP calls run unasked; during an outage pause, commands run unasked. | An MCP tool or a script run by an unflagged command can do harm. Use a container. |
 | Injected text forces fail-open: the model writes a huge or odd command that times out, is too large, or is rejected | These are suspect failures: they never pause the check, bypass mode asks, and `run --yes` refuses. The CLI's 3-second deadline and a cancel never pause. | None found. |
-| Provider outage | Only an outage (no key, auth failure, rate limit, server error, non-timeout network error) pauses the check. The status area shows the pause and its end. The command text cannot cause one. | During a pause, bypass mode asks about nothing. |
+| Provider outage | Only an outage (auth failure, server error, non-timeout network error) pauses the check. The status area shows the pause and its end. A setup error (no credentials, unknown provider) is found at start: checks are off with one warning, and `run --yes` refuses to start. | During a pause, bypass mode asks about nothing. A server error or dropped connection that the command's text caused still pauses the check; the guide calls this a known gap. |
 | A repository turns features on to send commands out, or off to remove the net | Project `decide` keys are ignored with a warning. Credentials and `DECIDE_PROVIDER` come only from the environment or a named `--env-file`. | None found. |
 | Data sent to the provider (commands may hold secrets; injection check sends MCP results) | Off by default; opt-in names each feature; the guide lists what each sends. | A secret typed into a checked command goes to TypeSafe or Cloudflare. |
 | Terminal injection through the answer line | Provider text is passed through `PrintableText`; probabilities are formatted by the CLI. | None found. |
@@ -173,9 +181,10 @@ their user settings, and their environment are trusted. A repository
 
 ## Failure modes
 
-- **No credentials:** the first check fails with `ErrNoAPIKey`; one
-  warning; status `decide: off (no credentials)`; every call runs as
-  without decide. Each later check still fails fast, locally.
+- **No credentials or an unknown provider:** found at start, with no
+  request; one warning; status `decide: off (<reason>)`; every call runs
+  as without decide, and nothing about decide shows on rows or footers.
+  `run --yes` with `command_risk` on refuses to start.
 - **Timeout, too-large input, or rejected request:** that call is
   unchecked and asks, in every mode that can ask; no pause.
 - **Outage:** that call is unchecked; the library pauses the check for a
@@ -204,7 +213,6 @@ their user settings, and their environment are trusted. A repository
 - Bypass mode keeps the policy's existing reason, "approved by the user",
   for auto-approved calls. The decide suffix makes checked ones clear;
   fixing the base text is a separate issue.
-- The missing-key warning waits for the first check, not launch.
 
 ## Rollout
 

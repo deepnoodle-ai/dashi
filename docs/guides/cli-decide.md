@@ -54,10 +54,13 @@ variables as the `decide` command. Set them in your shell, or load them with
   `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_BASE_URL`
   if needed.
 
-Without credentials, dashi starts as usual. The first check shows one
-warning that names the variables to set, the status area shows
-`decide: off (no credentials)`, and every call runs as it would without
-decide.
+dashi checks this setup at start, before the first turn, without sending a
+request. With no credentials or an unknown `DECIDE_PROVIDER`, it shows one
+warning that names the variables to set, and the status area shows
+`decide: off (no credentials)` or `decide: off (unknown DECIDE_PROVIDER
+"x")`. Every call then runs as it would without decide: no prompt, row, or
+footer shows decide. `dashi run --yes` with `command_risk` on refuses to
+start instead, because nobody watches that output.
 
 ## The command-risk check
 
@@ -70,15 +73,17 @@ allowed with `a` runs again without a check.
 
 **Default mode.** The prompt shows at once with `decide: checking…`, and the
 keys work at once. Within 3 seconds the line shows the answer, such as
-`decide: severe 91% — flagged`, or `decide: unchecked (timeout)`. A flagged
+`decide: severe 90% — flagged`, `decide: severe 52% — ok`, or
+`decide: unchecked (timeout)`. A flagged
 command offers `y` and `n` only, so it is never remembered. If you answer
 before the check, it is canceled and the record says
 `not checked (answered first)`.
 
 **Bypass mode** (`--dangerously-skip-permissions`). A command that is not
 flagged runs without a prompt; its row shows `decide: checking…` while it
-waits, at most 3 seconds. A flagged command asks, with `y` and `n` only.
-Calls from delegated tasks are checked the same way. Bypass mode still runs
+waits, at most 3 seconds. A flagged command asks, with `y` and `n` only, and
+its row reads `waiting for you`. Calls from delegated tasks are checked the
+same way, at the same time; other calls never wait behind a check. Bypass mode still runs
 `write_file`, `edit_file`, and MCP calls without a prompt or a check, so keep
 using a container.
 
@@ -95,29 +100,37 @@ An unchecked call has one of two kinds of cause:
   rejected request or answer. The command text can cause these, so the call
   asks even in bypass mode, and `run --yes` refuses it. They never pause the
   check.
-- **Outage:** no credentials, a failed login, a server error, or a network
-  error. Nothing in the command can cause one. The check pauses for a
-  minute, and the status area counts down:
+- **Outage:** a failed login, a server error, or a dropped connection.
+  These most likely come from the provider, not the command, so the check
+  pauses for a minute, and the status area counts down:
   `decide: command_risk paused (server error), resumes in 45s`. During the
   pause, bypass mode runs commands without asking. Line mode and `dashi run`
   print one warning per pause instead.
+
+A known gap: a server error or dropped connection pauses the check for a
+minute even when the command's own text caused it, such as a provider bug
+on some text, or a gateway failure on a large command. During that minute,
+bypass mode runs every shell command unchecked, delegated tasks' too.
 
 The status area is quiet while every check answers.
 
 ## What you see
 
-- A checked row ends with `decide ✓`, or shows one line under it, such as
-  `decide: severe 91% — flagged` or `decide: unchecked (timeout)`.
-- The turn footer adds `decide 4 checked, 1 flagged` (and `, N unchecked`).
+- A checked row that ran ends with `decide ✓`. Any other checked row shows
+  one line under it, such as `decide: severe 90% — flagged`,
+  `decide: unchecked (timeout)`, or, beside your denial,
+  `decide: severe 52% — ok`.
+- The turn footer adds `decide 4 checked, 1 flagged` (and `, N unchecked`),
+  leaving zero counts out. A narrow screen drops other footer values first.
 - A reopened session shows the same marks, from the turn record.
 - `/settings` has a `decide` section: each feature with its source, what
-  `command_risk` reads, what bypass mode skips, the provider state (`not used
-  yet`, `ready: jev-1.13.0`, or `off: no credentials`), and this run's
+  `command_risk` reads, what bypass mode skips, the provider state (`typesafe,
+  not used yet`, `ready: typesafe jev-1.13.0`, or `off: no credentials`), and this run's
   requests, tokens, and checked, flagged, and unchecked calls.
   `/settings --json` has the same fields under `decide`.
 
 The turn record keeps each answer in the approval decision: its reason gets
-`; decide: severe 91% flagged (jev-1.13.0, request r_12)`, and its rules
+`; decide: severe 90% flagged (jev-1.13.0, request r_12)`, and its rules
 version names `decide/` and the model.
 
 ## What is sent
