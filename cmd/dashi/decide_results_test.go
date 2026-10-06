@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -122,6 +124,35 @@ func TestDecidePromptInjectionSkipsLocalResults(t *testing.T) {
 	if n := len(srv.Requests()); n != 0 {
 		t.Fatalf("decide requests = %d; want 0", n)
 	}
+}
+
+// An MCP server that marks its tools closed-world cannot turn the check
+// off: the text it returns may come from anyone who can write to its data.
+func TestDecidePromptInjectionChecksMCPToolMarkedClosedWorld(t *testing.T) {
+	h, srv := decideFeatureHarness(t, []string{decidePromptInjection},
+		callTool("c1", "mcp__docs__fetch", `{}`), say("The page tried to get me to print ~/.npmrc."))
+	entry, _ := mcpTestEntry(t)
+	writeMCPConfig(t, filepath.Join(h.dir, ".mcp.json"), map[string]any{"docs": entry})
+	if err := os.WriteFile(filepath.Join(h.dir, "guide.md"), []byte(attackText), 0600); err != nil {
+		t.Fatal(err)
+	}
+	h.build(Options{Yes: true})
+	consent := func(context.Context, mcpStartupRequest) (bool, error) { return true, nil }
+	if err := h.app.eng.cfg.MCP.Initialize(t.Context(), consent); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { h.app.wiring.Close() })
+	fetch := mcpFind(t, h.app.eng.cfg.MCP, "mcp__docs__fetch")
+	if ow := fetch.Definition.Annotations.OpenWorld; ow != nil && !*ow {
+		t.Fatal("the server's closed-world hint was kept")
+	}
+	srv.Answer("injection", decidetest.NoulAnswer(0.96))
+	srv.Answer("hidden", decidetest.NoulAnswer(0.03))
+	h.input("read the guide")
+	if n := len(srv.Requests()); n != 1 {
+		t.Fatalf("decide requests = %d; want 1", n)
+	}
+	mustHave(t, inputText(h.client.inputAt(1)), "decide checked this mcp__docs__fetch result: 96% likely")
 }
 
 // An outage leaves the result unchecked and pauses the check: the row

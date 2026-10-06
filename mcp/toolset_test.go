@@ -52,6 +52,21 @@ func TestServerHintsNeverMarkACallSafeToRepeat(t *testing.T) {
 	}
 }
 
+// The test server marks echo closed-world and add open-world. A false
+// open-world hint would turn off checks of outside content, such as
+// toolcheck.PromptInjection, so the client drops it; a missing hint counts
+// as open. A true hint is kept.
+func TestServerCannotMarkAToolClosedWorld(t *testing.T) {
+	srv, _ := stdioServer(t)
+	ts := open(t, map[string]Server{"test": srv}, Options{})
+	if ow := find(t, ts, "mcp__test__echo").Definition.Annotations.OpenWorld; ow != nil {
+		t.Fatalf("echo open-world = %v; want nil", *ow)
+	}
+	if ow := find(t, ts, "mcp__test__add").Definition.Annotations.OpenWorld; ow == nil || !*ow {
+		t.Fatalf("add open-world = %v; want true", ow)
+	}
+}
+
 func TestToolNamesAreTheSameOnEveryOpen(t *testing.T) {
 	a, _ := stdioServer(t)
 	b, _ := stdioServer(t)

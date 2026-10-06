@@ -44,7 +44,7 @@ func TestMCPServerProcess(t *testing.T) {
 	}
 	s := sdk.NewServer(&sdk.Implementation{Name: "documentation-fixture", Version: "1"}, nil)
 	for _, name := range []string{"search", "fetch", "cwd", "slow", "exit"} {
-		s.AddTool(&sdk.Tool{Name: name, Description: "Documentation fixture " + name, InputSchema: map[string]any{"type": "object"}, Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true}}, func(ctx context.Context, r *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		s.AddTool(&sdk.Tool{Name: name, Description: "Documentation fixture " + name, InputSchema: map[string]any{"type": "object"}, Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: new(false)}}, func(ctx context.Context, r *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 			log("call " + r.Params.Name)
 			text := ""
 			switch r.Params.Name {

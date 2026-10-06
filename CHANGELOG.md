@@ -55,6 +55,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **The workspace file tools and `ask_user` report a false open-world
   hint,** so a check on outside content leaves their results local. `bash`
   stays unset.
+- **An MCP server can no longer mark its tools closed-world.** The `mcp`
+  toolset keeps an `openWorldHint` of true and drops a false one, so
+  `toolcheck.PromptInjection` reads every MCP result: the text a server
+  returns may come from anyone who can write to its data.
 
 - **The `decide` packages are part of the root module,** on Decide v0.3.0.
   `go get github.com/deepnoodle-ai/dashi` is enough to import

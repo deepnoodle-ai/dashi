@@ -35,7 +35,8 @@ var fetches = regexp.MustCompile("(^|[\\s|;&(`$/])(gh|curl|wget|http|https)(\\s|
 //
 // It reads every client tool result except those of tools whose open-world
 // hint is false, such as the workspace file tools; a missing hint counts as
-// open, as in MCP. For a tool in ShellTools, it reads the result only when
+// open, as in MCP. The mcp package never marks a tool closed-world, so
+// every MCP result is read. For a tool in ShellTools, it reads the result only when
 // the command runs gh, curl, wget, or http. It skips error results, results
 // with under 80 characters of text, and non-text blocks. It does not see
 // provider-run tools, such as a provider's web search. Of a result longer

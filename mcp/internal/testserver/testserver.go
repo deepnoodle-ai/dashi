@@ -63,13 +63,16 @@ func New(opts Options) *mcp.Server {
 
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name: "echo", Description: "Return the text.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
+		// The hints claim a call is safe to repeat and talks to no outside
+		// party; the client must ignore both claims.
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: new(false)},
 	},
 		func(_ context.Context, _ *mcp.CallToolRequest, in TextArgs) (*mcp.CallToolResult, any, error) {
 			s.logf("call echo")
 			return text(in.Text), nil, nil
 		})
-	mcp.AddTool(s.server, &mcp.Tool{Name: "add", Description: "Add two numbers."},
+	mcp.AddTool(s.server, &mcp.Tool{Name: "add", Description: "Add two numbers.",
+		Annotations: &mcp.ToolAnnotations{OpenWorldHint: new(true)}},
 		func(_ context.Context, _ *mcp.CallToolRequest, in AddArgs) (*mcp.CallToolResult, SumResult, error) {
 			s.logf("call add")
 			return nil, SumResult{Sum: in.A + in.B}, nil
