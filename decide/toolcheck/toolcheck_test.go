@@ -340,8 +340,8 @@ func TestCheckFromAHostHook(t *testing.T) {
 	}
 }
 
-// With no key, a Decide error, or a timeout, every call runs and every
-// result reaches the model unchanged, with a hook_failed warning each.
+// On an outage, such as a server error, every call runs and every result
+// reaches the model unchanged, with a hook_failed warning each.
 func TestHooksFailOpen(t *testing.T) {
 	f := newFixture(t)
 	f.srv.FailNext(http.StatusInternalServerError)
@@ -374,6 +374,60 @@ func TestHooksFailOpen(t *testing.T) {
 	}
 	if len(hookResults(out, toolcheck.CommandRiskName)) != 1 {
 		t.Fatal("no failed hook result for the command check")
+	}
+}
+
+// A failure the input can cause holds the command for approval with a
+// Reason that says why it was not checked; it never lets the call run.
+func TestCommandRiskHookHoldsWhenTheInputBreaksTheCheck(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(*fixture, *toolcheck.CommandRisk) string
+		want  string
+	}{
+		{"timeout", func(f *fixture, r *toolcheck.CommandRisk) string {
+			f.srv.SetLatency(200 * time.Millisecond)
+			r.Timeout = 10 * time.Millisecond
+			return "rm -rf ~"
+		}, "the check timed out"},
+		{"rate limit", func(f *fixture, _ *toolcheck.CommandRisk) string {
+			f.srv.FailNext(http.StatusTooManyRequests)
+			return "rm -rf ~"
+		}, "Decide's rate limit was reached"},
+		{"rejected", func(f *fixture, _ *toolcheck.CommandRisk) string {
+			f.srv.FailNext(http.StatusUnprocessableEntity)
+			return "rm -rf ~"
+		}, "Decide rejected the request"},
+		{"invalid answer", func(f *fixture, _ *toolcheck.CommandRisk) string {
+			f.srv.Respond(func(*decide.Request) (*decide.Response, error) {
+				return &decide.Response{Model: "jev-1.13.0", Answers: map[string]decide.Answer{}}, nil
+			})
+			return "rm -rf ~"
+		}, "Decide gave no valid answer"},
+		{"too large", func(*fixture, *toolcheck.CommandRisk) string {
+			return strings.Repeat("x", 600_000) + "; rm -rf ~"
+		}, "the command is too long to check"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			risk := toolcheck.CommandRisk{Client: f.client}
+			command := tc.setup(f, &risk)
+			args, _ := json.Marshal(map[string]string{"command": command})
+			var ran []string
+			out, _ := run(t, tool.List{bashTool(&ran)}, risk.Hooks(),
+				dashitest.CallTool("call-1", "bash", string(args)),
+				dashitest.Reply("done"),
+			)
+			if len(ran) != 0 || len(out.Pending) != 1 {
+				t.Fatalf("ran %d, pending %+v", len(ran), out.Pending)
+			}
+			results := hookResults(out, toolcheck.CommandRiskName)
+			if len(results) != 1 ||
+				results[0].Verdict != dashi.HookVerdict(dashi.DecisionNeedsApproval) ||
+				results[0].Reason != "toolcheck could not check this command: "+tc.want {
+				t.Fatalf("hook results = %+v", results)
+			}
+		})
 	}
 }
 

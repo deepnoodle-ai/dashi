@@ -99,7 +99,8 @@ func (c PromptInjection) Hooks() dashi.Hooks // a ResultHook, FailOpen: true
 asks inside its own approval hook (the CLI) calls `Check` there, shows
 one prompt, and puts `v.Reason` in its own decision. `Verdict.Usage`
 carries the tokens of the request, so a host can total them. A `Check`
-error means skipped; the hooks let the action go on.
+error means skipped; on an outage the hooks let the action go on, and
+the command hook holds the call on any other error.
 
 **Errors.** A host must tell an outage from a failure that the input
 could cause, since an attacker can shape the input. Every `Check` error
@@ -161,9 +162,14 @@ error, with no request and no `OnCheck`, unless the call's tool is in
 
 `OnCheck` sees each verdict or error. The hook maps the result: flagged
 gives `NeedsApproval(v.Reason)` with `RulesVersion: v.Model`; passed or
-not checked gives no opinion; an error is returned, and `FailOpen` makes
-Dashi record the warning and run the call. The package builds only
-`NeedsApproval`, never `Allow`.
+not checked gives no opinion. An outage (`IsOutage`), or the caller's
+own cancel or deadline, is returned, and `FailOpen` makes Dashi record
+the warning and run the call. Any other error is one the input can
+cause, so the hook holds the call: `NeedsApproval("toolcheck could not
+check this command: the check timed out")`, naming a timeout, a rate
+limit, a command too long to check, a rejected request, or an invalid
+answer. This matches the dashi CLI, which asks the user in that case.
+The package builds only `NeedsApproval`, never `Allow`.
 
 **Prompt-injection flow.** `Check` returns `Checked: false` unless all
 of these hold: the tool's `OpenWorld` hint is not false; for a tool in `ShellTools`, its command

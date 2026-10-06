@@ -3,6 +3,7 @@ package toolcheck
 import (
 	"cmp"
 	"context"
+	"errors"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -39,8 +40,8 @@ type CommandRisk struct {
 	// means 0.8. A negative value never flags, but still checks, so a host
 	// can watch OnCheck first.
 	MinProbability float64
-	// Timeout bounds each check. Zero means 10 seconds. A timeout skips the
-	// check but never pauses it.
+	// Timeout bounds each check. Zero means 10 seconds. A timeout never
+	// pauses the check; the hook holds the call for approval.
 	Timeout time.Duration
 	// OnCheck, if set, sees every request's verdict, or its error, from
 	// Check and from the hook. It is not called for a call the check does
@@ -83,21 +84,52 @@ func (c CommandRisk) report(v Verdict, err error) {
 }
 
 // Hooks returns a BeforeTool hook named CommandRiskName. A flagged command
-// is held for approval with the verdict's Reason; any other call gets no
-// opinion. The hook fails open: when Decide cannot answer, the call runs
-// and Dashi records a hook_failed warning. It never allows a call.
+// is held for approval with the verdict's Reason; a passed or unread call
+// gets no opinion. A failure the input can cause, such as a timeout, a
+// rate limit, a command too long to check, a rejected request, or an
+// invalid answer, also holds the call, with a Reason that says why it was
+// not checked. Only an outage (see IsOutage) fails open: the call runs and
+// Dashi records a hook_failed warning. It never allows a call.
 func (c CommandRisk) Hooks() dashi.Hooks {
 	return dashi.ToolHook{
 		Name:     CommandRiskName,
 		FailOpen: true,
 		Func: func(ctx context.Context, p dashi.ToolPlan) (dashi.ToolDecision, error) {
 			v, err := c.Check(ctx, p)
-			if err != nil || !v.Flagged {
+			switch {
+			case err != nil && (IsOutage(err) || ctx.Err() != nil):
 				return dashi.ToolDecision{}, err
+			case err != nil:
+				return dashi.NeedsApproval(uncheckedReason(err)), nil
+			case !v.Flagged:
+				return dashi.ToolDecision{}, nil
 			}
 			d := dashi.NeedsApproval(v.Reason)
 			d.RulesVersion = v.Model
 			return d, nil
 		},
 	}.Hooks()
+}
+
+// uncheckedReason is the Reason for a command held because its check
+// failed in a way the input can cause.
+func uncheckedReason(err error) string {
+	why := "the check failed"
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		why = "the check timed out"
+	case errors.Is(err, ErrTooLarge):
+		why = "the command is too long to check"
+	case errors.Is(err, decide.ErrRateLimited):
+		why = "Decide's rate limit was reached"
+	case errors.Is(err, decide.ErrInvalidAnswer):
+		why = "Decide gave no valid answer"
+	case errors.Is(err, decide.ErrValidation), errors.Is(err, decide.ErrInvalidRequest):
+		why = "Decide rejected the request"
+	default:
+		if _, ok := errors.AsType[*decide.APIError](err); ok {
+			why = "Decide rejected the request"
+		}
+	}
+	return "toolcheck could not check this command: " + why
 }

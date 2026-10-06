@@ -12,11 +12,13 @@
 // and tell the user what it tried to get you to do.
 //
 // Both are advice, not a sandbox. They never approve a call; only a person
-// or the host's own policy can. When Decide cannot answer, the call runs
-// and the result reaches the model as if the check were not there, and
-// Dashi records a hook_failed warning. A host that asks the user in its own
-// BeforeTool hook calls Check from there instead, so the user sees one
-// prompt.
+// or the host's own policy can. On an outage, such as no key or a Decide
+// server error, the call runs and the result reaches the model as if the
+// check were not there, and Dashi records a hook_failed warning. When the
+// command check fails in a way the input can cause, such as a timeout, its
+// hook holds the call for approval instead. A host that asks the user in
+// its own BeforeTool hook calls Check from there instead, so the user sees
+// one prompt.
 //
 // The checked text goes to the decision model's provider, with the key of
 // the Decide client.

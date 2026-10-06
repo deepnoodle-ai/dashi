@@ -42,6 +42,13 @@ use step (a recorded `dashi.Step`), notice (an agent message), evidence
    guesses. A hook or compactor does what Dashi would do without it, and the
    failure is recorded as a warning. Nothing fails a turn that would succeed
    without Decide.
+
+   *Exception, for hostile input:* `toolcheck.CommandRisk` fails open only
+   on an outage. When its check fails in a way the command can cause (a
+   timeout, a rate limit, a command too long to check, a rejected request,
+   or an invalid answer), its hook holds the call for approval, since an
+   attacker could otherwise shape a command to skip the check. A hold is
+   advice, which decision 2 allows.
 4. **Zero means the most likely answer wins.** No package ships a tuned
    threshold. A zero floor means "the model leans yes": P(yes) above 0.5.
    A pick takes the top choice; a match on a choice needs P above 0.5.

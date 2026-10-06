@@ -135,7 +135,10 @@ Acceptance:
       deadline or cancel never starts a pause.
 - [ ] The hook returned by `CommandRisk.Hooks` is a thin wrapper over
       `Check`: flagged gives `NeedsApproval(v.Reason)`, passed gives no
-      opinion, and an error fails open with a warning.
+      opinion, an outage fails open with a warning, and any other error
+      (timeout, too large, rate limit, rejected request, invalid answer)
+      gives `NeedsApproval` with a Reason that says why the command was
+      not checked.
 - [ ] `PromptInjection.Check` does the same for a `dashi.ResultPlan`.
 
 ### UC-3: Warn the model about an injected page
@@ -170,11 +173,15 @@ Acceptance:
 
 ### UC-4: Decide is down or has no key
 
-No `TYPESAFE_API_KEY` is set, or Decide returns an error or times out.
+No `TYPESAFE_API_KEY` is set, or Decide is down: a failed login, a
+server error, or a lost connection.
 
 Acceptance:
 - [ ] Every tool call runs, and every result reaches the model, as if the
       checks were not configured. The model sees nothing about the check.
+- [ ] A command check that fails in a way the input can cause (a timeout,
+      a rate limit, a command too long to check, a rejected request, or an
+      invalid answer) holds the call for approval instead.
 - [ ] The turn records a `hook_failed` warning for each skipped call or
       result, with the cause, such as decide's `ErrNoAPIKey` text.
 - [ ] After an outage, that check pauses for one minute; each skip still
@@ -221,10 +228,17 @@ Acceptance:
   templates. `Verdict` is a judgment on one call, as in `ToolVerdict`.
   Rejected: `toolgate` (decide's `patterns/gate` is a policy evaluator),
   `Injection` (reads as "inject something").
-- **Fail open, with a warning per skipped action.** The plugin's design
-  and shared decision 3. The record keeps every warning; the dashi CLI shows
-  one line when a check goes off. Rejected: fail closed, as the examples
-  do, which makes a missing key ask about every command.
+- **Fail open on an outage, with a warning per skipped action.** The
+  plugin's design and shared decision 3. The record keeps every warning;
+  the dashi CLI shows one line when a check goes off. Rejected: fail
+  closed, as the examples do, which makes a missing key ask about every
+  command.
+- **Hold a command when the input breaks its check.** An attacker can
+  shape a command to time out, to be too long, or to use up the rate
+  limit; failing open would let that command run unchecked. Advice may
+  hold, so the hook asks a person, as the dashi CLI does. Rejected: fail
+  open on every error, which the security review showed input can
+  steer.
 - **`FailOpen` on `BeforeTool`.** Only the engine can record a hook
   warning. Rejected: swallow the error in the hook; nothing is recorded.
 - **Zero thresholds are 0.8 and 0.6.** Shared decision 4 allows evidence:

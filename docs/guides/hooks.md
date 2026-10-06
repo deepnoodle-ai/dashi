@@ -137,9 +137,12 @@ runner.Hooks = dashi.JoinHooks(
   and end (8 parts of 60 KiB), never skips it, and tells the model to
   treat the whole result as untrusted.
 
-They are advice, not a sandbox: neither ever allows a call. Both fail open:
-with no key, or when Decide fails, the call runs and the result reaches the
-model unchanged, with a `hook_failed` warning. After an outage (no key,
+They are advice, not a sandbox: neither ever allows a call. Both fail open
+on an outage: with no key, or when Decide is down, the call runs and the
+result reaches the model unchanged, with a `hook_failed` warning. When the
+command check fails in a way the input can cause (a timeout, a rate limit, a
+command too long to check, a rejected request, or an invalid answer), its
+hook holds the call for approval instead, with a `Reason` that says why. After an outage (no key,
 a failed login, a server error, or a lost connection) a check pauses for a
 minute; a timeout, a rate limit, or a rejected input never pauses it, and
 the content check never pauses the command check. A host
