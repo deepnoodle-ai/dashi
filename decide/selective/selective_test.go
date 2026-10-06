@@ -95,6 +95,9 @@ func TestStartKeepsNeededSegments(t *testing.T) {
 		!reflect.DeepEqual(sel.Models, []string{"jev-1.13.0"}) {
 		t.Fatalf("selection spend = %+v %+v %v", sel.Usage, sel.RequestIDs, sel.Models)
 	}
+	if sel.Requests != len(srv.Requests()) {
+		t.Fatalf("Requests = %d for %d requests", sel.Requests, len(srv.Requests()))
+	}
 	if len(sel.RequestIDs) != len(srv.Requests()) {
 		t.Fatalf("%d request IDs for %d requests", len(sel.RequestIDs), len(srv.Requests()))
 	}
@@ -272,6 +275,7 @@ func TestFallbacks(t *testing.T) {
 		setup    func(t *testing.T) *Compactor
 		messages func() []llm.Message
 		want     string
+		cause    Cause
 	}{
 		{
 			name: "Decide fails",
@@ -282,7 +286,7 @@ func TestFallbacks(t *testing.T) {
 				}
 				return &Compactor{Base: smallWindow(), Client: client}
 			},
-			want: "Decide",
+			want: "Decide", cause: CauseServerError,
 		},
 		{
 			name: "Decide passes the timeout",
@@ -291,7 +295,7 @@ func TestFallbacks(t *testing.T) {
 				srv.SetLatency(time.Second)
 				return &Compactor{Base: smallWindow(), Client: client, Timeout: 20 * time.Millisecond}
 			},
-			want: "deadline exceeded",
+			want: "deadline exceeded", cause: CauseTimeout,
 		},
 		{
 			name: "pinned words exceed the budget",
@@ -304,7 +308,7 @@ func TestFallbacks(t *testing.T) {
 				m[1] = user(strings.Repeat("A long pasted spec line.\n", 300))
 				return m
 			},
-			want: "own words exceed the budget",
+			want: "own words exceed the budget", cause: CauseOverBudget,
 		},
 		{
 			name: "nothing dropped",
@@ -314,7 +318,7 @@ func TestFallbacks(t *testing.T) {
 				})
 				return &Compactor{Client: client}
 			},
-			want: "nothing was dropped",
+			want: "nothing was dropped", cause: CauseNothingLeftOut,
 		},
 		{
 			name: "pairing broken by a short form",
@@ -323,7 +327,7 @@ func TestFallbacks(t *testing.T) {
 				drop := func(seg []llm.Message) ([]llm.Message, bool) { return seg[:1], true }
 				return &Compactor{Client: client, ShortForm: drop}
 			},
-			want: "lose its result",
+			want: "lose its result", cause: CausePairing,
 		},
 		{
 			name: "negative OlderFraction turns selection off",
@@ -331,7 +335,7 @@ func TestFallbacks(t *testing.T) {
 				_, client := judge(t, nil)
 				return &Compactor{Base: smallWindow(), Client: client, OlderFraction: -1}
 			},
-			want: "OlderFraction is negative",
+			want: "OlderFraction is negative", cause: CauseOff,
 		},
 		{
 			name: "negative Base.TailFraction keeps nothing word for word",
@@ -341,7 +345,7 @@ func TestFallbacks(t *testing.T) {
 				base.TailFraction = -1
 				return &Compactor{Base: base, Client: client}
 			},
-			want: "TailFraction is negative",
+			want: "TailFraction is negative", cause: CauseOff,
 		},
 		{
 			name: "no older segments",
@@ -352,7 +356,7 @@ func TestFallbacks(t *testing.T) {
 			messages: func() []llm.Message {
 				return []llm.Message{user("task"), user("more"), user("go"), assistant("ok")}
 			},
-			want: "nothing was dropped",
+			want: "nothing was dropped", cause: CauseNothingLeftOut,
 		},
 	}
 	for _, tt := range tests {
@@ -365,6 +369,12 @@ func TestFallbacks(t *testing.T) {
 			st, sel := start(t, c, messages)
 			if !strings.Contains(sel.Fallback, tt.want) {
 				t.Fatalf("fallback = %q, want %q", sel.Fallback, tt.want)
+			}
+			if sel.Cause != tt.cause {
+				t.Fatalf("cause = %q, want %q", sel.Cause, tt.cause)
+			}
+			if tt.cause == CauseServerError && sel.Requests == 0 {
+				t.Fatal("a failed Decide request is not counted in Requests")
 			}
 			if want := stockOf(c.Base, messages); !reflect.DeepEqual(st, want) {
 				t.Fatalf("start is not the stock start")

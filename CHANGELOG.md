@@ -45,6 +45,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   row names what decide checked: `decide ✓ command, result`, or a line
   such as `decide result: injection 96%, hidden 3% — flagged, agent
   warned`.
+- **`selective.Selection.Cause`** names, in a few words, why the selective
+  compactor fell back to its `Base`, with typed constants such as
+  `selective.CauseTimeout`, `CauseServerError`, and `CauseNothingLeftOut`,
+  so a host can show it without reading `Selection.Fallback`'s text.
+  `Selection.Requests` counts the Decide requests sent, failed ones
+  included, so a host can account for requests that returned no ID.
 - **Cloudflare for every decide package.** With a nil `Client`, the decide
   packages read `DECIDE_PROVIDER` as the `decide` command does:
   `cloudflare` uses `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and

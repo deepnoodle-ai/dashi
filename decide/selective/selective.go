@@ -12,7 +12,7 @@
 //
 // Any Decide failure, a pairing problem, or a selection with nothing to
 // summarize falls back to the stock Start, and OnSelection receives the
-// cause in Selection.Fallback.
+// cause in Selection.Fallback and Selection.Cause.
 //
 // Experimental: on generated sessions it kept more needed details than the
 // stock compactor, but its lead over a stock compactor that also sees the
@@ -119,6 +119,9 @@ type Selection struct {
 	// Segments holds one choice per judged segment, in history order.
 	Segments []SegmentChoice
 
+	// Requests counts the Decide requests sent, failed ones included.
+	Requests int
+
 	// Usage is the token usage of every Decide request.
 	Usage decide.Usage
 
@@ -132,6 +135,10 @@ type Selection struct {
 	// Fallback is why Start returned Base's Start instead; empty when the
 	// selection was used.
 	Fallback string
+
+	// Cause names the fallback in a few words, such as CauseTimeout or
+	// CauseNothingLeftOut; empty when the selection was used.
+	Cause Cause
 }
 
 // Action is what compaction did with a segment.
@@ -194,7 +201,7 @@ func (c *Compactor) Start(ctx context.Context, messages []llm.Message) (dashi.St
 	}()
 	stock, err := c.Base.Start(ctx, messages)
 	if err != nil {
-		sel.Fallback = err.Error()
+		sel.Fallback, sel.Cause = err.Error(), causeOf(err)
 		return dashi.Start{}, err
 	}
 	sel.Hash = stock.Compaction.Hash
@@ -203,10 +210,10 @@ func (c *Compactor) Start(ctx context.Context, messages []llm.Message) (dashi.St
 		return start, nil
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		sel.Fallback = ctxErr.Error()
+		sel.Fallback, sel.Cause = ctxErr.Error(), causeOf(ctxErr)
 		return dashi.Start{}, ctxErr
 	}
-	sel.Fallback = err.Error()
+	sel.Fallback, sel.Cause = err.Error(), causeOf(err)
 	return stock, nil
 }
 
@@ -231,9 +238,9 @@ func (c *Compactor) selective(ctx context.Context, messages []llm.Message, sel *
 	}
 	switch {
 	case total < 0:
-		return dashi.Start{}, errors.New("selective: Base.TailFraction is negative, so nothing is kept word for word")
+		return dashi.Start{}, fallBack(CauseOff, errors.New("selective: Base.TailFraction is negative, so nothing is kept word for word"))
 	case older < 0:
-		return dashi.Start{}, errors.New("selective: OlderFraction is negative, so selection is off")
+		return dashi.Start{}, fallBack(CauseOff, errors.New("selective: OlderFraction is negative, so selection is off"))
 	}
 	older = min(older, total)
 	budget := int(total * float64(window))
@@ -242,7 +249,7 @@ func (c *Compactor) selective(ctx context.Context, messages []llm.Message, sel *
 		compactionrules.Cut(messages, max(0, int((total-older)*float64(window)))))
 	budget -= compactionrules.EstimateAll(messages[cut:])
 	if budget <= 0 {
-		return dashi.Start{}, errors.New("selective: the tail fills the budget")
+		return dashi.Start{}, fallBack(CauseOverBudget, errors.New("selective: the tail fills the budget"))
 	}
 
 	p := split(messages, cut)
@@ -303,7 +310,7 @@ func (c *Compactor) selective(ctx context.Context, messages []llm.Message, sel *
 
 	keep, summaryAt := p.keep(messages, cut, actions)
 	if err := checkPairing(messages, keep); err != nil {
-		return dashi.Start{}, err
+		return dashi.Start{}, fallBack(CausePairing, err)
 	}
 	prompt := c.Prompt
 	if prompt == "" {
@@ -314,7 +321,7 @@ func (c *Compactor) selective(ctx context.Context, messages []llm.Message, sel *
 	summarizer.TailFraction = -1 // the summary covers all of its input
 	summary, err := summarizer.Start(ctx, p.summaryInput(actions))
 	if err != nil {
-		return dashi.Start{}, fmt.Errorf("selective: summary request: %w", err)
+		return dashi.Start{}, fallBack(CauseSummaryFailed, fmt.Errorf("selective: summary request: %w", err))
 	}
 	return dashi.Start{
 		Agent:  summary.Agent,
@@ -397,7 +404,7 @@ func (c *Compactor) choose(p *plan, answers []answer, budget int) ([]Action, err
 	}
 	decisions, err := compact.Select(segs, scores, rule)
 	if errors.Is(err, compact.ErrOverBudget) {
-		return nil, errors.New("selective: the user's own words exceed the budget")
+		return nil, fallBack(CauseOverBudget, errors.New("selective: the user's own words exceed the budget"))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("selective: select: %w", err)

@@ -107,6 +107,9 @@ func (q questions) ask(
 		func(_ context.Context, _ int, b *batch) (*decide.Request, error) { return b.req, nil })
 	models := map[string]bool{}
 	for n, r := range results {
+		if r.Response != nil || r.Err != nil && !errors.Is(r.Err, context.Canceled) {
+			sel.Requests++
+		}
 		if r.Response != nil {
 			sel.Usage.InputTokens += r.Response.Usage.InputTokens
 			sel.Usage.OutputTokens += r.Response.Usage.OutputTokens
