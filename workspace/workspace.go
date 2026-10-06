@@ -128,6 +128,13 @@ func (w *Workspace) Tools(opts ...Option) tool.List {
 		if slices.Contains(cfg.without, t.Definition.Name) {
 			continue
 		}
+		if t.Definition.Name != ToolBash {
+			// The file tools act on the workspace and ask_user on the
+			// user, a closed set. A check on outside content, such as
+			// decide/toolcheck, then leaves their results local. bash can
+			// reach anywhere, so its hint stays unset.
+			t.Definition.Annotations.OpenWorld = new(false)
+		}
 		w.register(t)
 		list = append(list, t)
 	}

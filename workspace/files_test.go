@@ -46,6 +46,25 @@ func TestToolsMarkReadOnly(t *testing.T) {
 	}
 }
 
+// Every tool but bash acts on a closed set, so a check on outside content
+// leaves its results local.
+func TestToolsMarkOpenWorld(t *testing.T) {
+	ask := func(context.Context, Question) (Answer, error) { return Answer{}, nil }
+	list, _ := newTestTools(t, WithAsker(ask))
+	for _, tl := range list {
+		ow := tl.Definition.Annotations.OpenWorld
+		if tl.Definition.Name == ToolBash {
+			if ow != nil {
+				t.Errorf("bash: OpenWorld = %v, want unset", *ow)
+			}
+			continue
+		}
+		if ow == nil || *ow {
+			t.Errorf("%s: OpenWorld = %v, want false", tl.Definition.Name, ow)
+		}
+	}
+}
+
 func TestReadFileNumbersLinesAndPages(t *testing.T) {
 	list, dir := newTestTools(t)
 	var lines []string
