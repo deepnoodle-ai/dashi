@@ -769,12 +769,12 @@ func formatTool(b Block) string {
 	if b.State == StateRunning {
 		right = "..."
 	}
-	if b.Decide != nil && b.Decide.OK {
+	if b.Decide.tick(b.State) {
 		right += "  decide ✓"
 	}
 	line := fmt.Sprintf("%-*s %s", toolLineWidth, left, right)
-	if b.Decide != nil && !b.Decide.OK {
-		line += "\n    " + b.Decide.Text
+	if text := b.Decide.line(b.State); text != "" {
+		line += "\n    " + text
 	}
 	for _, l := range b.Lines {
 		line += "\n    " + l

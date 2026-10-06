@@ -467,10 +467,26 @@ func splitDecide(v dashi.ToolVerdict) (reason, line string, ok bool) {
 // decideMark is the decide answer on a tool row: "decide ✓" at the end of
 // the line, or a line under it.
 type decideMark struct {
+	// OK is true when decide checked the call and did not flag it.
 	OK      bool
 	Flagged bool
-	// Text is the line under the row when OK is false.
+	// Text is the answer as a line, such as "decide: severe 52% — ok".
 	Text string
+}
+
+// tick reports whether a row in state shows the mark as "decide ✓". A
+// denied row shows the answer as a line instead, so a ✓ never sits next to
+// the person's denial.
+func (m *decideMark) tick(state string) bool {
+	return m != nil && m.OK && state != StateDenied
+}
+
+// line is the line a row in state shows under it, or empty.
+func (m *decideMark) line(state string) string {
+	if m == nil || m.tick(state) {
+		return ""
+	}
+	return m.Text
 }
 
 // markFromRecord reads the decide mark of a call from its recorded
@@ -485,7 +501,7 @@ func markFromRecord(v dashi.ToolVerdict) *decideMark {
 		if p, flagged := strings.CutSuffix(answer, " flagged"); flagged {
 			return &decideMark{Flagged: true, Text: "decide: severe " + p + " — flagged"}
 		}
-		return &decideMark{OK: true}
+		return &decideMark{OK: true, Text: "decide: severe " + answer + " — ok"}
 	}
 	return &decideMark{Text: "decide: " + line}
 }

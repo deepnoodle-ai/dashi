@@ -247,7 +247,8 @@ func TestDecideRecordFormat(t *testing.T) {
 			"severe 91% flagged (jev-1.13.0, request r_12)", "decide/jev-1.13.0",
 			decideMark{Flagged: true, Text: "decide: severe 91% — flagged"}},
 		{decideResult{Checked: true, Severe: 0.7999, Model: "jev-1.13.0", Request: "r_13"},
-			"severe 79% (jev-1.13.0, request r_13)", "decide/jev-1.13.0", decideMark{OK: true}},
+			"severe 79% (jev-1.13.0, request r_13)", "decide/jev-1.13.0",
+			decideMark{OK: true, Text: "decide: severe 79% — ok"}},
 		{decideResult{Cause: "timeout"}, "unchecked (timeout)", "decide/unchecked",
 			decideMark{Text: "decide: unchecked (timeout)"}},
 		{decideResult{AnsweredFirst: true}, "not checked (answered first)", "decide/unchecked",
@@ -640,5 +641,24 @@ func TestDecideScreenIgnoresRememberOnFlaggedPrompt(t *testing.T) {
 	s.HandleEvent(tui.KeyEvent{Rune: 'y'})
 	if a := <-p.reply; !a.Allow || a.Remember {
 		t.Fatalf("answer = %+v; want allow once", a)
+	}
+}
+
+// A row shows "decide ✓" only beside a call that ran; a denied row shows
+// the answer as a line, so the check's answer and the denial read apart.
+func TestDecideRowMarkAgreesWithOutcome(t *testing.T) {
+	ok := &decideMark{OK: true, Text: "decide: severe 52% — ok"}
+	ran := formatTool(Block{Kind: KindTool, Name: "bash", Arg: "ls", State: StateOK, Decide: ok})
+	if !strings.Contains(ran, "decide ✓") || strings.Contains(ran, "52%") {
+		t.Fatalf("ran row = %q", ran)
+	}
+	denied := formatTool(Block{Kind: KindTool, Name: "bash", Arg: "rm -rf build/", State: StateDenied, Decide: ok})
+	if strings.Contains(denied, "✓") || !strings.Contains(denied, "denied\n    decide: severe 52% — ok") {
+		t.Fatalf("denied row = %q", denied)
+	}
+	screen := tui.SprintScreen(toolView(Block{Kind: KindTool, Name: "bash", Arg: "rm -rf build/", State: StateDenied, Decide: ok}),
+		tui.WithWidth(80), tui.WithHeight(2)).Text()
+	if strings.Contains(screen, "✓") || !strings.Contains(screen, "decide: severe 52% — ok") {
+		t.Fatalf("denied screen row = %q", screen)
 	}
 }

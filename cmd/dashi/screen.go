@@ -992,14 +992,14 @@ func toolView(b Block) tui.View {
 			tui.Text("%s", arg).SourceOffset(len(name)+len(toolHeadSep)).Style(mutedStyle))
 	}
 	views = append(views, tui.Spacer())
-	if b.Decide != nil && b.Decide.OK {
+	if b.Decide.tick(b.State) {
 		views = append(views, tui.Text("decide ✓  ").Style(mutedStyle))
 	}
 	head := tui.Group(append(views, state)...)
 	offset := len(toolHeadSource(b)) + 1
 	var check tui.View
-	if b.Decide != nil && !b.Decide.OK {
-		t := tui.Text("%s", b.Decide.Text).Wrap()
+	if text := b.Decide.line(b.State); text != "" {
+		t := tui.Text("%s", text).Wrap()
 		if b.Decide.Flagged {
 			t = t.Fg(tui.ColorYellow)
 		} else {
