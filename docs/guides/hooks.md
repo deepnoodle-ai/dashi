@@ -13,7 +13,7 @@ Set hooks on `Runner.Hooks`; any number run at each point, in order:
 |---|---|---|---|
 | `BeforeModel` | before each model request is prepared | change settings, add messages, hide tools, stop | skipped, with a warning |
 | `BeforeSend` | on each prepared request, with its worst-case cost | deny, report a limit, record reservation terms | the turn stops failed |
-| `BeforeTool` | on each client tool call with valid arguments | allow, deny, hold for approval, rewrite the arguments | the call is denied, with a warning |
+| `BeforeTool` | on each client tool call with valid arguments | allow, deny, hold for approval, rewrite the arguments | the call is denied, with a warning; with `FailOpen`, no opinion |
 | `AfterTool` | on each final result from a tool, or from the host through `Resolve` | replace what the model sees | the result is withheld from the model, with a warning |
 | `BeforeFinish` | on each final reply: final text, or output submitted with `dashi_submit_output` | ask the model to continue, turn a submission down, accept an empty reply | the turn stops failed |
 
@@ -84,8 +84,11 @@ model saw. `Output.MapText` rewrites text blocks only; a strict redactor returns
 an error, withholding the result, when it finds a block it cannot inspect, such
 as a document or a resource. A failing result hook withholds that result,
 telling the model the tool ran; set `FailOpen` on a hook that only improves
-results to keep the result instead. `FailOpen` also works on `BeforeFinish`,
-where an error then counts as no opinion. Pass the same hooks to a `Resolve`
+results to keep the result instead. `FailOpen` also works on `BeforeFinish`
+and `BeforeTool`, where an error then counts as no opinion and still records a
+warning. Use it on `BeforeTool` only for advice, such as a decision-model
+check, never for a permission policy: a broken policy would let every call
+through. Pass the same hooks to a `Resolve`
 that reports a tool result, since it runs `AfterTool`.
 
 The result limit (`Limits.ToolResultBytes`) runs after the `AfterTool` chain.

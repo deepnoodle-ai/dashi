@@ -108,7 +108,7 @@ nothing is recorded for that hook.
 |---|---|---|
 | `BeforeModel` | Each hook sees settings as changed by earlier ones; non-nil `Settings` replaces them; `AddMessages` appends; the first `Stop` ends the chain and no added messages commit. A `Stop` may be `refused`, `failed`, or `limited` with a host, cost or token `Limit` | Fails open: `WarningHookFailed`; that decision is dropped |
 | `BeforeSend` | The first `Deny` stops: `StopRefused`, or `StopLimited` with `Limit`. `Reservation` is kept per hook name, 16 KiB in total | `StopFailed`, reason `hook_failed` |
-| `BeforeTool` | The first deny ends the chain; otherwise needs-approval beats allow. A `Rewrite` is schema-checked and restarts the chain | The call is denied ("Denied: check `<name>` failed."); `WarningHookFailed` |
+| `BeforeTool` | The first deny ends the chain; otherwise needs-approval beats allow. A `Rewrite` is schema-checked and restarts the chain | The call is denied ("Denied: check `<name>` failed."); `WarningHookFailed`. With `FailOpen`, no opinion and a `WarningHookFailed`, for advice only |
 | `BeforeFinish` | `AddMessages` items append; `AcceptEmpty` if any hook says so; the first `Reason` is kept | `StopFailed`, reason `hook_failed` |
 
 - **`hook_failed`** sits beside `tool_fatal`: fix the cause, then `Continue`.

@@ -34,10 +34,11 @@ type Hook[P, D any] struct {
 	Name string
 	Func func(context.Context, P) (D, error)
 	// FailOpen makes an error or invalid answer a warning instead of a
-	// guard, for hooks that only improve a result. It is allowed only for
-	// AfterTool, where the result stands as earlier hooks left it, and
-	// BeforeFinish, where the error counts as no opinion. Run rejects it at
-	// the other points.
+	// guard, for hooks that only advise. It is allowed for BeforeTool and
+	// BeforeFinish, where the error counts as no opinion, and AfterTool,
+	// where the result stands as earlier hooks left it. Run rejects it at
+	// the other points. Never set it on a hook that enforces a permission
+	// policy: with FailOpen, a broken policy lets every call through.
 	FailOpen bool
 }
 
@@ -60,7 +61,9 @@ func (h SendHook) Hooks() Hooks {
 }
 
 // ToolHook decides whether a model-requested client tool call may run. It
-// fails closed: an error denies the call and records a WarningHookFailed.
+// fails closed: an error denies the call and records a WarningHookFailed,
+// unless FailOpen is set. Then the error counts as no opinion, the model
+// sees nothing of it, and the warning is still recorded.
 type ToolHook Hook[ToolPlan, ToolDecision]
 
 // Hooks returns a Hooks value holding just h, for a Runner or WithHooks.
@@ -495,9 +498,10 @@ func validatePoint[H hookShape[P, D], P, D any](
 		if h.Func == nil {
 			return fmt.Errorf("dashi: %s hook %q has no function", point, h.Name)
 		}
-		if h.FailOpen && point != HookAfterTool && point != HookBeforeFinish {
+		if h.FailOpen && point != HookBeforeTool && point != HookAfterTool &&
+			point != HookBeforeFinish {
 			return fmt.Errorf(
-				"dashi: %s hook %q cannot fail open; only after_tool and before_finish hooks can",
+				"dashi: %s hook %q cannot fail open; only before_tool, after_tool, and before_finish hooks can",
 				point,
 				h.Name,
 			)

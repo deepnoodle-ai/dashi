@@ -109,7 +109,8 @@ call, and child turns; hidden extra calls are not allowed.
 Hooks ([hooks.md](hooks.md)) own request adjustment, tool authorization, and
 whether to continue after a candidate final reply. Each reads an immutable turn
 view and returns a decision that Dashi records; a rewrite asks every tool hook
-again. Guarding hooks fail closed and shaping hooks fail open. An observer
+again. Guarding hooks fail closed, unless they opt out, and shaping hooks
+fail open. An observer
 receives isolated committed events and bounded, lossy previews with no control
 return. Queueing new context through `AddMessages` is safe at the next step
 boundary; it cannot mutate a model call already prepared or sent.

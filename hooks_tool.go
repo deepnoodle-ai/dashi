@@ -17,7 +17,8 @@ import (
 // authorizeTool runs the BeforeTool chain for a call whose arguments match
 // its schema, and returns the call as rewritten and the combined verdict. A
 // failing hook denies the call, since BeforeTool guards execution, and the
-// model sees only the hook's name. The returned RunResult is set when the
+// model sees only the hook's name. A failing hook with FailOpen counts as no
+// opinion: the warning is recorded and the chain goes on. The returned RunResult is set when the
 // run's context ended during a hook.
 //
 // Steering's check for a pending urgent steer belongs just before this call
@@ -54,6 +55,9 @@ restart:
 				return call, ToolVerdict{}, &o
 			}
 			r.hookFailed(HookBeforeTool, h.Name, err, true)
+			if h.FailOpen {
+				continue
+			}
 			return call, ToolVerdict{
 				Kind:   DecisionDeny,
 				Reason: fmt.Sprintf("Denied: check %s failed.", h.Name),
