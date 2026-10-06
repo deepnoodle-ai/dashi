@@ -139,7 +139,9 @@ no constructor, so the pause lives in a package-level table, guarded by
 a mutex, keyed by the resolved `*decide.Client` and the check kind. A
 Decide outage is process-wide, so one pause serves every config and
 turn that shares the client. Each kind pauses on its own, so content
-checks can never pause the command check.
+checks can never pause the command check. Starting a pause drops every pause
+that has ended, so clients made per tenant or per request do not pile
+up in the table.
 
 **Command-risk flow.** `Check` returns `Verdict{Checked: false}` and no
 error, with no request and no `OnCheck`, unless the call's tool is in

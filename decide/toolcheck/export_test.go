@@ -23,6 +23,13 @@ func SetClock(t *testing.T, clock *time.Time) {
 	})
 }
 
+// PauseCount is how many pauses the table holds.
+func PauseCount() int {
+	pauses.Lock()
+	defer pauses.Unlock()
+	return len(pauses.m)
+}
+
 // ResetPauses clears every pause.
 func ResetPauses() {
 	pauses.Lock()

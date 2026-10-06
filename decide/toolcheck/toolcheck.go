@@ -175,10 +175,19 @@ func paused(key pauseKey) *PausedError {
 	return p
 }
 
+// pause starts a pause for key. It first drops every pause that has
+// ended, so a host that makes a client per tenant or per request does not
+// keep old clients in the table.
 func pause(key pauseKey, cause error) {
 	pauses.Lock()
 	defer pauses.Unlock()
-	pauses.m[key] = &PausedError{Until: now().Add(pauseFor), Cause: cause}
+	t := now()
+	for k, p := range pauses.m {
+		if !t.Before(p.Until) {
+			delete(pauses.m, k)
+		}
+	}
+	pauses.m[key] = &PausedError{Until: t.Add(pauseFor), Cause: cause}
 }
 
 // Limits on the text one check sends.

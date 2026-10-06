@@ -519,6 +519,27 @@ func TestContentChecksNeverPauseTheCommandCheck(t *testing.T) {
 	}
 }
 
+// A new pause drops the pauses that have ended, so clients made per
+// tenant or per request do not pile up.
+func TestEndedPausesAreDropped(t *testing.T) {
+	f := newFixture(t)
+	for range 3 {
+		other := decidetest.NewServer(t)
+		other.FailNext(http.StatusServiceUnavailable)
+		toolcheck.CommandRisk{Client: other.Client(t, decide.WithMaxRetries(0))}.
+			Check(t.Context(), bashPlan("ls"))
+	}
+	if n := toolcheck.PauseCount(); n != 3 {
+		t.Fatalf("pauses = %d, want 3", n)
+	}
+	f.clock = f.clock.Add(2 * time.Minute)
+	f.srv.FailNext(http.StatusServiceUnavailable)
+	toolcheck.CommandRisk{Client: f.client}.Check(t.Context(), bashPlan("ls"))
+	if n := toolcheck.PauseCount(); n != 1 {
+		t.Fatalf("pauses = %d, want 1", n)
+	}
+}
+
 func TestOutageKinds(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
