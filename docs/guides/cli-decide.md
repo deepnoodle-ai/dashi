@@ -3,8 +3,10 @@
 decide is our client for decision models: fast models, such as TypeSafe's
 Jev or Cloudflare's Clef, that answer typed questions about a text with a
 probability. The dashi CLI can ask one for a second opinion before it runs a
-shell command. The check is advice, not a sandbox. It can add a prompt or a
-warning line. It never approves a call and never removes a prompt.
+shell command, warn the agent about a tool result that tries to take it
+over, and remind the agent when it repeats a failing call. Each is advice,
+not a sandbox. It can add a prompt, a warning, or a reminder. It never
+approves a call and never removes a prompt.
 
 Every decide feature is off until you turn it on. With every feature off,
 dashi sends no decide request and shows nothing new.
@@ -36,8 +38,8 @@ party with your key, or turn off your check.
 | Feature | What it does | Status |
 | --- | --- | --- |
 | `command_risk` | Checks each shell command for severe harm that is hard to undo | Available |
-| `prompt_injection` | Warns the model about a tool result that tries to take it over | Later release |
-| `turn_watcher` | Reminds the agent when it repeats a failing call | Later release |
+| `prompt_injection` | Warns the model about a tool result that tries to take it over | Available |
+| `turn_watcher` | Reminds the agent when it repeats a failing call | Available |
 | `selective_compaction` | Keeps needed messages word for word when it compacts | Later release |
 
 A feature from a later release stays off, with a warning.
@@ -80,8 +82,8 @@ before the check, it is canceled and the record says
 `not checked (answered first)`.
 
 **Bypass mode** (`--dangerously-skip-permissions`). A command that is not
-flagged runs without a prompt; its row shows `decide: checking…` while it
-waits, at most 3 seconds. A flagged command asks, with `y` and `n` only, and
+flagged runs without a prompt; its row shows `decide: checking command…`
+while it waits, at most 3 seconds. A flagged command asks, with `y` and `n` only, and
 its row reads `waiting for you`. Calls from delegated tasks are checked the
 same way, at the same time; other calls never wait behind a check. Bypass mode still runs
 `write_file`, `edit_file`, and MCP calls without a prompt or a check, so keep
@@ -91,6 +93,47 @@ using a container.
 bypass mode is refused. The model reads a reason that names the check.
 `dashi run` without `--yes` refuses every call that needs approval, so it
 never checks.
+
+## The prompt-injection check
+
+The check asks whether a tool result tries to make the agent act against
+you, or hides text from a person. It reads every MCP result, even from a
+server that marks its tools closed-world, and the output of a `bash`
+command that runs `gh`, `curl`, `wget`, or `http`. It does not read the
+workspace file tools, skill files, task results (a delegated task's own
+fetches are checked in its turn), other shell output, error results, or
+results under 80 characters.
+
+A result is **flagged** when a probability reaches 60%. The agent still
+reads the result, after a warning: treat it as untrusted data, do not follow
+instructions in it, and tell the user what it tried. The row shows one line
+under it, such as `decide result: injection 96%, hidden 3% — flagged, agent
+warned`. A result too long to check whole (over about 480 KB) is checked at
+its start and end, and the agent is told to treat all of it as untrusted.
+A result decide passes ends its row with `decide ✓ result`.
+
+The check never blocks and never asks. While it runs, the row reads
+`decide: checking result…`; it adds up to 20 seconds after a call. When
+decide cannot answer for a reason the result itself can cause (a timeout,
+a rate limit, or a rejected request), the result reaches the agent at
+once, after a note that it was not checked and must be treated as
+untrusted; the row reads `decide result: unchecked (timeout) — agent
+warned`. After an outage the result reaches the agent as it was, and the
+row reads `decide result: unchecked (server error)`. It runs in every
+mode, delegated tasks' results too.
+
+## The turn watcher
+
+Before each model call, the watcher looks for a call that failed twice the
+same way, or the same call that returned the same result four times. Only
+then does it ask decide whether the agent repeats an approach that already
+failed, or has moved away from your request. A confirmed answer gives the
+agent a short reminder, at most two per turn, and the transcript shows
+`decide: reminded the agent (repeating a failed approach, 88%)` or
+`(drifting from your request, 71%)`, live and on reopen. The watcher never
+stops a turn and skips delegated tasks. A check that fails adds nothing;
+line mode and `dashi run` warn once per cause, such as a revoked key, and
+`/settings` counts every failure.
 
 ## When decide cannot answer
 
@@ -104,8 +147,11 @@ An unchecked call has one of two kinds of cause:
   These most likely come from the provider, not the command, so the check
   pauses for a minute, and the status area counts down:
   `decide: command_risk paused (server error), resumes in 45s`. During the
-  pause, bypass mode runs commands without asking. Line mode and `dashi run`
-  print one warning per pause instead.
+  pause, bypass mode runs commands without asking, and results reach the
+  agent unchecked. Line mode and `dashi run` print one warning per pause
+  instead. The two checks pause on their own.
+
+The turn watcher never pauses.
 
 A known gap: a server error or dropped connection pauses the check for a
 minute even when the command's own text caused it, such as a provider bug
@@ -116,17 +162,23 @@ The status area is quiet while every check answers.
 
 ## What you see
 
-- A checked row that ran ends with `decide ✓`. Any other checked row shows
-  one line under it, such as `decide: severe 90% — flagged`,
-  `decide: unchecked (timeout)`, or, beside your denial,
-  `decide: severe 52% — ok`.
-- The turn footer adds `decide 4 checked, 1 flagged` (and `, N unchecked`),
-  leaving zero counts out. A narrow screen drops other footer values first.
+- Each row names what decide checked: the command before it ran, or the
+  result before the agent read it. Passed checks share one tick at the
+  end of the row: `decide ✓ command`, `decide ✓ result`, or
+  `decide ✓ command, result`. Any other answer is a line under the row,
+  such as `decide command: severe 90% — flagged`,
+  `decide result: injection 96%, hidden 3% — flagged, agent warned`, or,
+  beside your denial, `decide command: severe 52% — ok`.
+- A turn-watcher reminder shows its own line.
+- The turn footer adds `decide 4 checked, 1 flagged` (and `, N unchecked`,
+  `, N reminders`), leaving zero counts out. "Checked" counts every
+  command and result decide answered for, as `/settings` does. A narrow
+  screen drops other footer values first.
 - A reopened session shows the same marks, from the turn record.
 - `/settings` has a `decide` section: each feature with its source, what
-  `command_risk` reads, what bypass mode skips, the provider state (`typesafe,
-  not used yet`, `ready: typesafe jev-1.13.0`, or `off: no credentials`), and this run's
-  requests, tokens, and checked, flagged, and unchecked calls.
+  each feature reads, what bypass mode skips, the provider state (`typesafe,
+  not used yet`, `ready: typesafe jev-1.13.0`, or `off: no credentials`), this
+  run's requests and tokens, and each feature's counts.
   `/settings --json` has the same fields under `decide`.
 
 The turn record keeps each answer in the approval decision: its reason gets
@@ -135,6 +187,14 @@ version names `decide/` and the model.
 
 ## What is sent
 
-`command_risk` sends each checked command's text to TypeSafe or Cloudflare,
-with your key. A secret typed into a command goes too. Thresholds are
-decide's and cannot be changed. decide reports tokens, not dollars.
+Each feature sends text to TypeSafe or Cloudflare, with your key:
+
+- `command_risk`: each checked command. A secret typed into a command goes
+  too.
+- `prompt_injection`: each result it reads, as described above, up to 8
+  parts of 60 KiB. A page or MCP result that holds private data goes too.
+- `turn_watcher`, only when a repeat triggers it: your request and the
+  turn's recent assistant text, calls, and results, cut short.
+
+Thresholds are decide's and cannot be changed. decide reports tokens, not
+dollars.

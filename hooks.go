@@ -197,8 +197,9 @@ const (
 	// settings or added messages, or a stop.
 	VerdictChange HookVerdict = "change"
 	VerdictStop   HookVerdict = "stop"
-	// VerdictNoChange is a BeforeModel answer that changed nothing but
-	// carried a Reason or RulesVersion, so the record shows the hook ran.
+	// VerdictNoChange is a BeforeModel or AfterTool answer that changed
+	// nothing but carried a Reason or RulesVersion, so the record shows the
+	// hook ran.
 	VerdictNoChange HookVerdict = "no_change"
 	// VerdictReserve and VerdictLimit are BeforeSend answers: reservation
 	// terms, or a denial with a limit. VerdictDeny is also a BeforeTool answer.
@@ -403,7 +404,8 @@ type ResultDecision struct {
 	// opinion, so a hook may return one on every call.
 	Replace *llm.ToolResult
 	// Reason is recorded with a replacement and is never shown to the
-	// model.
+	// model. With no replacement, a Reason or RulesVersion is recorded as
+	// a no_change result, such as a check that passed.
 	Reason string
 	// RulesVersion is audit data naming the rules that decided, such as a
 	// policy or decision model version.

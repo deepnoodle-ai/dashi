@@ -60,6 +60,9 @@ const (
 	// Neither has started.
 	StateChecking      = "checking"
 	StateWaitingForYou = "waiting for you"
+	// StateCheckingResult is a call that finished while decide checks its
+	// result, before the model reads it.
+	StateCheckingResult = "checking result"
 )
 
 // Steer line states.
@@ -105,6 +108,9 @@ type Block struct {
 	Task *Block
 	// Decide is the decide answer of a checked tool call, or nil.
 	Decide *decideMark
+	// DecideResult is the prompt-injection answer of a call's result, or
+	// nil: a warning the agent got, or a check that failed.
+	DecideResult *decideMark
 }
 
 // Renderer turns Dashi events into blocks. The screen, line mode, and the run
@@ -134,6 +140,7 @@ type callState struct {
 	started time.Time
 	denied  string
 	decide  *decideMark
+	result  *decideMark
 }
 
 // NewRenderer returns a renderer for turn number n. The model is what the
@@ -212,12 +219,13 @@ func (r *Renderer) progress(p *dashi.ToolProgress) []Block {
 
 func (r *Renderer) toolBlock(id string, c *callState, state string) Block {
 	return Block{
-		ID:     "t:" + id,
-		Kind:   KindTool,
-		Name:   c.name,
-		Arg:    c.arg,
-		State:  state,
-		Decide: c.decide,
+		ID:           "t:" + id,
+		Kind:         KindTool,
+		Name:         c.name,
+		Arg:          c.arg,
+		State:        state,
+		Decide:       c.decide,
+		DecideResult: c.result,
 	}
 }
 
@@ -296,7 +304,14 @@ func (r *Renderer) step(s dashi.Step) []Block {
 	case dashi.StepContextCompacted:
 		out = append(out, r.activeContextApplied(s)...)
 	}
+	if hint, ok := watchHint(s); ok {
+		out = append(out, hint)
+	}
 	for _, w := range s.Warnings {
+		if isDecideHookWarning(w) {
+			// The tool row or /settings shows it.
+			continue
+		}
 		if block, ok := activeContextUnavailable(s, w); ok {
 			out = append(out, block)
 			continue
@@ -408,6 +423,7 @@ func (r *Renderer) toolStarted(s dashi.Step) []Block {
 func (r *Renderer) toolFinished(s dashi.Step) []Block {
 	id := s.Tool.Call.ID
 	c := r.toolCall(s)
+	c.result = resultMark(s.HookResults)
 	state := StateOK
 	var lines []string
 	if o := s.Tool.Outcome; o != nil {
@@ -488,8 +504,10 @@ func limitText(st *dashi.Stop) string {
 }
 
 // Footer returns the line that closes a finished turn.
-func (r *Renderer) Footer(v dashi.TurnView) Block {
-	f := newFooterFacts(r.Turn, r.Model, v)
+// steps are the turn's steps, from which the footer counts the decide
+// answers that hooks recorded.
+func (r *Renderer) Footer(v dashi.TurnView, steps []dashi.Step) Block {
+	f := newFooterFacts(r.Turn, r.Model, v, steps)
 	return Block{
 		ID:     fmt.Sprintf("footer:%s", v.ID),
 		Kind:   KindFooter,
@@ -510,16 +528,20 @@ type footerFacts struct {
 	UsageIncomplete bool
 	Cost            string
 	// DecideChecked, DecideFlagged, and DecideUnchecked count the turn's
-	// calls that decide checked, flagged, and could not check.
-	DecideChecked, DecideFlagged, DecideUnchecked int
+	// calls and results that decide checked, flagged, and could not
+	// check, as the record keeps them. DecideReminded counts the turn
+	// watcher's reminders.
+	DecideChecked, DecideFlagged, DecideUnchecked, DecideReminded int
 }
 
-func newFooterFacts(turn int, model string, v dashi.TurnView) footerFacts {
+func newFooterFacts(turn int, model string, v dashi.TurnView, steps []dashi.Step) footerFacts {
 	checked, flagged, unchecked := decideCounts(v)
+	rChecked, rFlagged, rUnchecked, reminded := decideStepCounts(steps)
 	return footerFacts{
-		DecideChecked:   checked,
-		DecideFlagged:   flagged,
-		DecideUnchecked: unchecked,
+		DecideChecked:   checked + rChecked,
+		DecideFlagged:   flagged + rFlagged,
+		DecideUnchecked: unchecked + rUnchecked,
+		DecideReminded:  reminded,
 		Turn:            turn,
 		Model:           model,
 		Calls:           v.ModelCalls,
@@ -562,7 +584,7 @@ func (f footerFacts) parts() []footerPart {
 	if f.Cost != "" {
 		parts = append(parts, footerPart{f.Cost, footerCost, 1})
 	}
-	if f.DecideChecked+f.DecideUnchecked > 0 {
+	if f.DecideChecked+f.DecideUnchecked+f.DecideReminded > 0 {
 		kind := footerMeta
 		if f.DecideFlagged > 0 {
 			kind = footerWarn
@@ -573,16 +595,22 @@ func (f footerFacts) parts() []footerPart {
 }
 
 // decideText is the footer's decide counts, such as "decide 4 checked, 1
-// flagged". A zero flagged or unchecked count is left out.
+// flagged" or "decide 1 reminder". A zero count is left out.
 func (f footerFacts) decideText() string {
-	text := fmt.Sprintf("decide %d checked", f.DecideChecked)
+	var counts []string
+	if f.DecideChecked > 0 {
+		counts = append(counts, fmt.Sprintf("%d checked", f.DecideChecked))
+	}
 	if f.DecideFlagged > 0 {
-		text += fmt.Sprintf(", %d flagged", f.DecideFlagged)
+		counts = append(counts, fmt.Sprintf("%d flagged", f.DecideFlagged))
 	}
 	if f.DecideUnchecked > 0 {
-		text += fmt.Sprintf(", %d unchecked", f.DecideUnchecked)
+		counts = append(counts, fmt.Sprintf("%d unchecked", f.DecideUnchecked))
 	}
-	return text
+	if f.DecideReminded > 0 {
+		counts = append(counts, fmt.Sprintf("%d %s", f.DecideReminded, plural(f.DecideReminded, "reminder")))
+	}
+	return "decide " + strings.Join(counts, ", ")
 }
 
 // String is the plain form: "── turn 3 · model · 2 model calls · ...".
@@ -606,8 +634,8 @@ const (
 )
 
 // FooterText formats the turn summary as plain text.
-func FooterText(turn int, model string, v dashi.TurnView) string {
-	return newFooterFacts(turn, model, v).String()
+func FooterText(turn int, model string, v dashi.TurnView, steps []dashi.Step) string {
+	return newFooterFacts(turn, model, v, steps).String()
 }
 
 func costText(sp dashi.Spend) string {
@@ -667,7 +695,7 @@ func RenderTurn(
 	}
 	if view.Stop.Kind != "" {
 		out = append(out, r.activeContextStopped(view.Stop)...)
-		out = append(out, r.Footer(view))
+		out = append(out, r.Footer(view, turn.Steps))
 	}
 	if view.Origin == dashi.StartCompaction {
 		// Reopened output shows the current state, not historical progress.
@@ -675,7 +703,7 @@ func RenderTurn(
 		r.summary = view.Reply
 		out = append(out, r.compactionBlock(view.ID, view.Stop))
 		if view.Stop.Kind != "" {
-			out = append(out, r.Footer(view))
+			out = append(out, r.Footer(view, turn.Steps))
 		}
 	}
 	return out, nil
@@ -787,14 +815,16 @@ func formatTool(b Block) string {
 	case StateRunning:
 		right = "..."
 	case StateChecking:
-		right = "decide: checking…"
+		right = "decide: checking command…"
+	case StateCheckingResult:
+		right = "decide: checking result…"
 	}
-	if b.Decide.tick(b.State) {
-		right += "  decide ✓"
+	if tick := decideTicks(b); tick != "" {
+		right += "  " + tick
 	}
 	line := fmt.Sprintf("%-*s %s", toolLineWidth, left, right)
-	if text := b.Decide.line(b.State); text != "" {
-		line += "\n    " + text
+	for _, m := range decideLines(b) {
+		line += "\n    " + m.Text
 	}
 	for _, l := range b.Lines {
 		line += "\n    " + l
@@ -886,6 +916,11 @@ func printable(b Block) Block {
 		mark := *b.Decide
 		mark.Text = workspace.PrintableText(mark.Text)
 		b.Decide = &mark
+	}
+	if b.DecideResult != nil {
+		mark := *b.DecideResult
+		mark.Text = workspace.PrintableText(mark.Text)
+		b.DecideResult = &mark
 	}
 	if b.Lines != nil {
 		lines := make([]string, len(b.Lines))

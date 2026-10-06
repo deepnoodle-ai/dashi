@@ -304,6 +304,7 @@ func (r *runtime) afterToolHooks(
 						fact.Call.ID,
 						what,
 					),
+					Hook: h.Name,
 				})
 				break
 			}
@@ -318,6 +319,17 @@ func (r *runtime) afterToolHooks(
 			break
 		}
 		if d.Replace == nil || canonjson.SameValue(replace, current) {
+			if d.Reason != "" || d.RulesVersion != "" {
+				// A hook that looked and kept the result can still leave a
+				// record, such as a check that passed.
+				r.addHookResult(HookResult{
+					Point:        HookAfterTool,
+					Name:         h.Name,
+					Verdict:      VerdictNoChange,
+					RulesVersion: d.RulesVersion,
+					Reason:       d.Reason,
+				})
+			}
 			continue
 		}
 		current = replace

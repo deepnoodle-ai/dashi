@@ -12,9 +12,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `toolcheck.CommandRisk{}` holds a shell command that could likely cause
   severe harm, such as `rm -rf ~`, for approval. `toolcheck.PromptInjection{}`
   warns the model about a tool result that likely tries to take over the
-  agent. Both fail open with a `hook_failed` warning when Decide is down; a
-  command whose check the input breaks, such as by a timeout, is held for
-  approval. `Check` lets a host ask the user in its own approval hook.
+  agent. Both fail open when Decide is down; a command whose check the input
+  breaks, such as by a timeout, is held for approval. `Check` lets a host
+  ask the user in its own approval hook. The `PromptInjection` hook records
+  every check it makes, passed, flagged, or unchecked. When the input may
+  have broken the check, such as by a timeout, the model reads that the
+  result was not checked and is untrusted; the result is never held.
+  `toolcheck.ReadResultRecord` reads a record back from the turn, and
+  `toolcheck.CauseOf` names why a check could not answer, and `OnStart`
+  tells a host that a result waits for its check.
 - **`dashi --decide command_risk`** (or `DASHI_DECIDE`, or `"decide":
   ["command_risk"]` in `~/.dashi/settings.json`) checks each shell command
   with a decision model before it runs. The prompt shows the answer, a
@@ -26,6 +32,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   answers. Missing credentials or an unknown `DECIDE_PROVIDER` give one
   warning at start and turn the checks off; `dashi run --yes` refuses to
   start instead.
+- **`turnwatch.ReadReminder`** reads a reminder the watcher recorded: the
+  confirmed question (`turnwatch.QuestionRepeating` or
+  `QuestionOffRequest`), its probability, and the trigger, so a host need
+  not parse the recorded reason.
+- **`dashi --decide prompt_injection,turn_watcher`.** `prompt_injection`
+  warns the agent about an MCP result, or `gh`, `curl`, `wget`, or `http`
+  output, that likely tries to take it over; the row shows the warning, and
+  the result is never hidden. `turn_watcher` reminds the agent when it
+  repeats a failing call, and the transcript shows the reminder. Both are
+  off by default, and `/settings` counts each feature's checks. Each tool
+  row names what decide checked: `decide ✓ command, result`, or a line
+  such as `decide result: injection 96%, hidden 3% — flagged, agent
+  warned`.
 - **Cloudflare for every decide package.** With a nil `Client`, the decide
   packages read `DECIDE_PROVIDER` as the `decide` command does:
   `cloudflare` uses `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and
@@ -38,6 +57,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   prompts or does slow work before it shows one. Calls that one remembered
   answer would cover still wait for each other. The `dashi` CLI uses it, so a
   decide check in bypass mode no longer holds up other tool calls.
+- **`Warning.Hook` names the hook of a `hook_failed` warning,** so a host
+  that shows a hook's failures its own way can find them without reading
+  the message.
+- **An `AfterTool` hook can record a result it kept.** A `ResultDecision`
+  with no replacement but a `Reason` or `RulesVersion` is recorded as
+  `VerdictNoChange`, as for `BeforeModel`, such as a check that passed.
 - **`FailOpen` on `BeforeTool` hooks.** A failing hook then counts as no
   opinion, with a `hook_failed` warning, instead of denying the call. Use it
   only for advice, never for a permission policy.
@@ -47,6 +72,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **The workspace file tools and `ask_user` report a false open-world
   hint,** so a check on outside content leaves their results local. `bash`
   stays unset.
+- **The `delegate` task tools and `message_parent` report a false
+  open-world hint,** so a check of outside content does not send a
+  subagent's answer out again; the subagent's own turn checks what it reads.
+- **An MCP server can no longer mark its tools closed-world.** The `mcp`
+  toolset keeps an `openWorldHint` of true and drops a false one, so
+  `toolcheck.PromptInjection` reads every MCP result: the text a server
+  returns may come from anyone who can write to its data.
 
 - **The `decide` packages are part of the root module,** on Decide v0.3.0.
   `go get github.com/deepnoodle-ai/dashi` is enough to import

@@ -26,7 +26,7 @@ var decideFeatureNames = []string{
 
 // decideFeaturesBuilt are the features this version of the CLI runs. A
 // feature that is named but not built stays off, with a warning.
-var decideFeaturesBuilt = []string{decideCommandRisk}
+var decideFeaturesBuilt = []string{decideCommandRisk, decidePromptInjection, decideTurnWatcher}
 
 // laterFeatures names the features this version accepts but does not run.
 func laterFeatures() string {
@@ -39,7 +39,11 @@ func laterFeatures() string {
 	if len(later) == 0 {
 		return ""
 	}
-	return " (" + strings.Join(later, ", ") + " come in a later release)"
+	verb := " comes"
+	if len(later) > 1 {
+		verb = " come"
+	}
+	return " (" + strings.Join(later, ", ") + verb + " in a later release)"
 }
 
 // decideOff is the list value that turns every feature off.

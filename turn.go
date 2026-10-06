@@ -192,6 +192,10 @@ const (
 type Warning struct {
 	Code    WarningCode `json:"code"`
 	Message string      `json:"message"`
+	// Hook names the hook of a hook_failed warning, so a host that shows a
+	// hook's failures its own way can find them. It is empty when no one
+	// hook failed.
+	Hook string `json:"hook,omitempty"`
 }
 
 var (

@@ -9,11 +9,18 @@ import "github.com/deepnoodle-ai/decide"
 // templates and copy any change. The answer options stay decide's defaults,
 // as in the templates.
 
-// Question keys, which name each probability in a Verdict and its Reason.
+// Question names, the keys of Verdict.Probabilities and the words of a
+// Reason.
 const (
-	keySevere    = "severe"
-	keyInjection = "injection"
-	keyHidden    = "hidden"
+	// QuestionSevere asks CommandRisk whether a command could cause severe
+	// harm that is hard to undo.
+	QuestionSevere = "severe"
+	// QuestionInjection asks PromptInjection whether a result tries to
+	// make the agent act against its user.
+	QuestionInjection = "injection"
+	// QuestionHidden asks PromptInjection whether a result hides text from
+	// a person.
+	QuestionHidden = "hidden"
 )
 
 var (
@@ -31,9 +38,9 @@ type question struct {
 }
 
 var (
-	commandQuestions = []question{{keySevere, severeQuestion}}
+	commandQuestions = []question{{QuestionSevere, severeQuestion}}
 	contentQuestions = []question{
-		{keyInjection, injectionQuestion},
-		{keyHidden, hiddenQuestion},
+		{QuestionInjection, injectionQuestion},
+		{QuestionHidden, hiddenQuestion},
 	}
 )

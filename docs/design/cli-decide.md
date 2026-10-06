@@ -118,7 +118,7 @@ the check, and other calls never wait behind one. By mode:
 | Mode | When the check runs | Flagged | Not flagged | Suspect failure | Outage or paused |
 | --- | --- | --- | --- | --- | --- |
 | Default | In parallel with the prompt, which shows at once | Line turns to a warning; keys `y`/`n` only | Line shows the answer | Line reads `unchecked (…)` | Line reads `unchecked (…)`; status shows the pause |
-| Bypass (`approveAll`) | Before the approval queue, at most 3 s; row shows `checking…` | Queue, then prompt with `y`/`n`; row reads `waiting for you` | Allow, no prompt | As flagged | Allow; row shows the cause; status shows the pause |
+| Bypass (`approveAll`) | Before the approval queue, at most 3 s; row shows `checking command…` | Queue, then prompt with `y`/`n`; row reads `waiting for you` | Allow, no prompt | As flagged | Allow; row shows the cause; status shows the pause |
 | `run --yes` | As bypass | Refuse; reason names the check | Allow | Refuse; reason names the check | Allow; warning on stderr |
 | `run` without `--yes` | Never: every approval is refused | | | | |
 
@@ -138,24 +138,44 @@ why it was refused, then the decide line.
 
 ### 5. Rendering (PR 1)
 
-- Tool row: `decide ✓` beside a call that ran, or one line under it:
-  `decide: severe 90% — flagged`, `decide: unchecked (timeout)`, or,
-  beside a denial, `decide: severe 52% — ok`. All text from the provider,
-  such as a request ID, goes through `workspace.PrintableText`.
+- Tool row: each check is named. Passed checks share one tick in the head,
+  `decide ✓ command`, `decide ✓ result`, or `decide ✓ command, result`.
+  Any other answer is a line under the row that names its check:
+  `decide command: severe 90% — flagged`, `decide command: unchecked
+  (timeout)`, or, beside a denial, `decide command: severe 52% — ok`. All
+  text from the provider, such as a request ID, goes through
+  `workspace.PrintableText`.
 - Footer suffix, when any feature is on: `decide 4 checked, 1 flagged`,
-  without zero counts. A narrow screen drops the model call count, the
+  without zero counts. "Checked" means decide answered, for a command or a
+  result alike. A narrow screen drops the model call count, the
   model, the tokens, and the cost first.
 - `/settings` and `/settings --json`: section `decide` as the PRD lists.
 
 ### 6. PR 2 and PR 3
 
 - **Prompt injection:** a `decideWiring` adapter adds
-  `toolcheck.PromptInjection{OnCheck: rt.onInjection}.Hooks()`. The hook
-  replaces what the model reads; `OnCheck` marks the row by call ID.
-- **Turn watcher:** `turnwatch.Watcher{OnCheck: rt.onWatch}.Hook()` goes in
-  `Runner.Hooks`, so `ActiveHooks` names it. The renderer draws the
-  `turnwatch` `HookResult` of a step as `decide: reminded the agent
-  (repeating 88%)`, live and on reopen.
+  `toolcheck.PromptInjection{OnStart: rt.onInjectionStart, OnCheck:
+  rt.onInjection}.Hooks()`. The hook records every check in the tool
+  step's `HookResult`: a pass (`no_change`), a warning or partial notice
+  (`replace`), or `unchecked: <cause>`, with a note to the model when the
+  input may have caused the failure. The renderer reads it with
+  `toolcheck.ReadResultRecord`, live and on reopen: `decide ✓ result`, or
+  `decide result: injection 96%, hidden 3% — flagged, agent warned`.
+  `OnStart` shows `decide: checking result…` on the row while it waits;
+  `OnCheck` counts checks and pauses. The `mcp` toolset drops a server's
+  false open-world hint, and the task tools and `read_skill_file` are
+  marked local, so the check reads what the guide says.
+- **Turn watcher:** the same adapter adds
+  `turnwatch.Watcher{OnCheck: rt.onWatch}.Hook()` to `Runner.Hooks`, so
+  `ActiveHooks` names it. The renderer reads a reminder with
+  `turnwatch.ReadReminder` and draws `decide: reminded the agent
+  (repeating a failed approach, 88%)`, live and on reopen. A failed check
+  adds nothing; line mode and `dashi run` warn once per cause, and
+  `/settings` counts every failure. The CLI hides the watcher's
+  `hook_failed` warnings by `Warning.Hook`.
+- The footer counts these from the turn's steps, as the record keeps them;
+  `/settings` shows each feature's counts from `OnCheck`. Neither hook is
+  added after a setup error.
 - **Selective compaction:** in `configureChat`, wrap the stock policy:
   `&selective.Compactor{Base: <stock>, OnSelection: rt.onSelection}`,
   inside `routedCompactor` as today. `Selection.Fallback` goes on the

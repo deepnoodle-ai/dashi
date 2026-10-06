@@ -534,9 +534,13 @@ func (t *Toolset) rebuild() {
 }
 
 // definition builds the model-facing definition. It copies the destructive
-// and open-world hints. It never copies the read-only or idempotent hint. The
-// runner repeats a call of unknown outcome when a tool is marked safe to
-// repeat, and a server must not control that choice.
+// hint, and the open-world hint only when it is true. It never copies the
+// read-only or idempotent hint. The runner repeats a call of unknown outcome
+// when a tool is marked safe to repeat, and a server must not control that
+// choice. A false open-world hint would turn off checks that read outside
+// content, such as toolcheck.PromptInjection, and the server's claim does
+// not make the text it returns trusted: the text may come from anyone who
+// can write to the server's data.
 func definition(server string, remote *mcp.Tool) (tool.Definition, error) {
 	schema := json.RawMessage(`{"type":"object"}`)
 	if remote.InputSchema != nil {
@@ -558,7 +562,9 @@ func definition(server string, remote *mcp.Tool) (tool.Definition, error) {
 	}
 	if a := remote.Annotations; a != nil {
 		def.Annotations.Destructive = a.DestructiveHint
-		def.Annotations.OpenWorld = a.OpenWorldHint
+		if a.OpenWorldHint != nil && *a.OpenWorldHint {
+			def.Annotations.OpenWorld = new(true)
+		}
 	}
 	return def, def.Validate()
 }

@@ -40,3 +40,4 @@ profile.cov
 /cmd/dashi/dashi
 /devtools/agent-archive/agent-archive
 __pycache__/
+/dashi

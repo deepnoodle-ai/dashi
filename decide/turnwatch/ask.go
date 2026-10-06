@@ -64,8 +64,8 @@ func (w *Watcher) ask(ctx context.Context, p dashi.ModelPlan) (*decide.Response,
 		return nil, fmt.Errorf("turnwatch: no decide client: %w", err)
 	}
 	req := decide.NewRequest(buildState(p))
-	decide.Ask(req, keyRepeating, repeatingQuestion)
-	decide.Ask(req, keyOffRequest, offRequestQuestion)
+	decide.Ask(req, QuestionRepeating, repeatingQuestion)
+	decide.Ask(req, QuestionOffRequest, offRequestQuestion)
 	ctx, cancel := context.WithTimeout(ctx, cmp.Or(w.Timeout, defaultTimeout))
 	defer cancel()
 	resp, err := c.SystemOne(ctx, req)
@@ -79,7 +79,7 @@ func (w *Watcher) ask(ctx context.Context, p dashi.ModelPlan) (*decide.Response,
 // answer is an error.
 func yesProbabilities(resp *decide.Response) (map[string]float64, error) {
 	out := map[string]float64{}
-	for _, key := range []string{keyRepeating, keyOffRequest} {
+	for _, key := range []string{QuestionRepeating, QuestionOffRequest} {
 		a, ok := resp.Answers[key].(*decide.NoulAnswer)
 		if !ok || a == nil {
 			return nil, fmt.Errorf("turnwatch: decide gave no %s answer", key)

@@ -30,10 +30,11 @@ A tool hook that returns `dashi.Allow(reason)` leaves an audit record naming
 it; one with no opinion leaves none. `ToolDecision`, `ModelDecision`, and
 `ResultDecision` each carry a `Reason` and a `RulesVersion`, recorded in the
 hook's `HookResult` with any answer other than no opinion: say why, and name
-the policy or decision model version that decided. A `BeforeModel` decision
-that changes nothing but carries a `Reason` or `RulesVersion` is recorded as
-`VerdictNoChange`, so `HookActed` tells a retried call that the hook already
-ran. Only a `BeforeTool`
+the policy or decision model version that decided. A `BeforeModel` or
+`AfterTool` decision that changes nothing but carries a `Reason` or
+`RulesVersion` is recorded as `VerdictNoChange`, such as a check that passed;
+for `BeforeModel`, `HookActed` then tells a retried call that the hook
+already ran. Only a `BeforeTool`
 denial's reason reaches the model. When a `BeforeTool` hook fails, the model
 sees its name, so keep private details out of hook names. A hook that stops
 the turn with a cost or token limit resumes like the turn's own caps, with a
@@ -133,13 +134,18 @@ runner.Hooks = dashi.JoinHooks(
   each command, such as an agent that runs commands without approval.
 - `PromptInjection` reads tool results and puts a warning before one that
   likely tries to take over the agent or hides text from a person. The
-  record keeps the raw output. Of a very long result it reads the start
-  and end (8 parts of 60 KiB), never skips it, and tells the model to
-  treat the whole result as untrusted.
+  record keeps the raw output, and the hook records every check it makes,
+  passed, flagged, or unchecked; `toolcheck.ReadResultRecord` reads it
+  back. Of a very long result it reads the start and end (8 parts of 60
+  KiB), never skips it, and tells the model to treat the whole result as
+  untrusted. A result it could not check for a reason the input can
+  cause, such as a timeout, gets the same note, at once.
 
 They are advice, not a sandbox: neither ever allows a call. Both fail open
 on an outage: with no key, or when Decide is down, the call runs and the
-result reaches the model unchanged, with a `hook_failed` warning. When the
+result reaches the model unchanged; the command check gives a
+`hook_failed` warning, and the content check records the result as
+unchecked. When the
 command check fails in a way the input can cause (a timeout, a rate limit, a
 command too long to check, a rejected request, or an invalid answer), its
 hook holds the call for approval instead, with a `Reason` that says why. After an outage (no key,

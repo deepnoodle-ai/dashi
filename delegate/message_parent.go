@@ -87,6 +87,8 @@ func (ts *Tasks) messageParentTool(ctx context.Context, taskID string) tool.Tool
 	if ts.resumable(ctx) {
 		def.Annotations.Idempotent = new(true)
 	}
+	// The result only says where the message went.
+	def.Annotations.OpenWorld = new(false)
 	return tool.Tool{
 		Definition: def,
 		Executor: executor(func(ctx context.Context, c tool.Call) (tool.Outcome, error) {

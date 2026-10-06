@@ -808,7 +808,7 @@ func (e *Engine) finished(r *Renderer, out dashi.RunResult) {
 		e.cfg.Emit(b)
 	}
 	r.Model = turnModel(out.Turn, r.Model)
-	e.cfg.Emit(r.Footer(out.TurnView))
+	e.cfg.Emit(r.Footer(out.TurnView, out.Turn.Steps))
 	if retryable(out.TurnView) {
 		e.cfg.Emit(Block{
 			Kind: KindNotice,

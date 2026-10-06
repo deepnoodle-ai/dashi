@@ -341,7 +341,8 @@ func TestCheckFromAHostHook(t *testing.T) {
 }
 
 // On an outage, such as a server error, every call runs and every result
-// reaches the model unchanged, with a hook_failed warning each.
+// reaches the model unchanged. The command check gives a hook_failed
+// warning; the content check records the result as unchecked.
 func TestHooksFailOpen(t *testing.T) {
 	f := newFixture(t)
 	f.srv.FailNext(http.StatusInternalServerError)
@@ -362,8 +363,12 @@ func TestHooksFailOpen(t *testing.T) {
 		t.Fatalf("model saw %q", resultText(got))
 	}
 	w := warnings(out)
-	if len(w) != 2 || !strings.Contains(w[0], "500") || !strings.Contains(w[1], "500") {
+	if len(w) != 1 || !strings.Contains(w[0], toolcheck.CommandRiskName) || !strings.Contains(w[0], "500") {
 		t.Fatalf("warnings = %q", w)
+	}
+	if r := hookResults(out, toolcheck.PromptInjectionName); len(r) != 1 ||
+		r[0].Verdict != dashi.VerdictNoChange || r[0].Reason != "unchecked: server error" {
+		t.Fatalf("content hook results = %+v", r)
 	}
 	for _, in := range model.Inputs() {
 		for _, m := range in.Messages {
@@ -506,9 +511,32 @@ func TestInvalidAnswerShowsInTheHookRecord(t *testing.T) {
 		dashitest.Reply("done"),
 	)
 	results := hookResults(out, toolcheck.PromptInjectionName)
-	if len(results) != 1 || results[0].Verdict != dashi.VerdictFailed ||
-		!strings.Contains(results[0].Error, "hidden") {
+	if len(results) != 1 || results[0].Reason != "unchecked: invalid answer" {
 		t.Fatalf("hook results = %+v", results)
+	}
+}
+
+// A failure the input can cause, such as a timeout, still lets the result
+// through at once, but the model first reads that it was not checked.
+func TestPromptInjectionHookNotesAnUncheckedResult(t *testing.T) {
+	f := newFixture(t)
+	f.srv.SetLatency(200 * time.Millisecond)
+	check := toolcheck.PromptInjection{Client: f.client, Timeout: 10 * time.Millisecond}
+	out, _ := run(t, tool.List{fetchTool(attack)}, check.Hooks(),
+		dashitest.CallTool("call-1", "fetch_page", `{}`),
+		dashitest.Reply("done"),
+	)
+	blocks := out.Tools["call-1"].Result().Output.Content
+	if len(blocks) != 2 || !strings.HasPrefix(blocks[0].Text.Text, "decide could not check this tool result") ||
+		blocks[1].Text.Text != attack {
+		t.Fatalf("model saw %+v", blocks)
+	}
+	results := hookResults(out, toolcheck.PromptInjectionName)
+	if len(results) != 1 || results[0].Verdict != dashi.VerdictReplace || results[0].Reason != "unchecked: timeout" {
+		t.Fatalf("hook results = %+v", results)
+	}
+	if len(warnings(out)) != 0 {
+		t.Fatalf("warnings = %q", warnings(out))
 	}
 }
 
@@ -735,7 +763,7 @@ func TestPromptInjectionHookWarnsTheModel(t *testing.T) {
 	}
 	results := hookResults(out, toolcheck.PromptInjectionName)
 	if len(results) != 1 || results[0].Verdict != dashi.VerdictReplace ||
-		results[0].Reason != "injection 96%, hidden 97% (jev-1.13.0, request req_1)" ||
+		results[0].Reason != "flagged: injection 96%, hidden 97% (jev-1.13.0, request req_1)" ||
 		results[0].RulesVersion != "jev-1.13.0" {
 		t.Fatalf("hook results = %+v", results)
 	}
@@ -748,16 +776,29 @@ func TestPromptInjectionPassLeavesTheResult(t *testing.T) {
 	f := newFixture(t)
 	f.srv.Answer("injection", decidetest.NoulAnswer(0.03))
 	f.srv.Answer("hidden", decidetest.NoulAnswer(0.02))
+	var started []string
+	onStart := func(c tool.Call) {
+		if f.requests() != 0 {
+			t.Error("OnStart came after the request")
+		}
+		started = append(started, c.ID)
+	}
 	out, _ := run(t, tool.List{fetchTool(page)},
-		toolcheck.PromptInjection{Client: f.client}.Hooks(),
+		toolcheck.PromptInjection{Client: f.client, OnStart: onStart}.Hooks(),
 		dashitest.CallTool("call-1", "fetch_page", `{}`),
 		dashitest.Reply("done"),
 	)
 	if got := resultText(out.Tools["call-1"].Result()); got != page {
 		t.Fatalf("model saw %q", got)
 	}
-	if len(hookResults(out, toolcheck.PromptInjectionName)) != 0 {
-		t.Fatal("a passed check left a hook result")
+	if len(started) != 1 || started[0] != "call-1" {
+		t.Fatalf("OnStart saw %q", started)
+	}
+	results := hookResults(out, toolcheck.PromptInjectionName)
+	if len(results) != 1 || results[0].Verdict != dashi.VerdictNoChange ||
+		results[0].Reason != "injection 3%, hidden 2% (jev-1.13.0, request req_1)" ||
+		results[0].RulesVersion != "jev-1.13.0" {
+		t.Fatalf("hook results = %+v", results)
 	}
 }
 

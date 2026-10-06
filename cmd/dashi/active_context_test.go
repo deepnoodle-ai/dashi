@@ -51,7 +51,7 @@ func TestActiveContextRendererKeepsSummaryOutOfAnswers(t *testing.T) {
 	}
 	footer := r.Footer(dashi.TurnView{ModelCalls: 3, Spend: dashi.Spend{
 		Usage: llm.Usage{InputTokens: 100, OutputTokens: 50}, Cost: map[string]money.Amount{"USD": money.MustParseAmount("0.05")},
-	}})
+	}}, nil)
 	compactionMustHave(t, footer.Text, "3 model calls", "150 tokens", "$0.050")
 }
 

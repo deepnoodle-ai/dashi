@@ -65,7 +65,7 @@ func TestFooterShowsIncompleteUsageWithoutQualifyingExactCost(t *testing.T) {
 		UsageIncomplete: true,
 		Cost:            map[string]money.Amount{"USD": money.MustParseAmount("0.5")},
 	}}
-	got := FooterText(1, "fixture", view)
+	got := FooterText(1, "fixture", view, nil)
 	want := "── turn 1 · fixture · 0 model calls · usage incomplete · $0.500"
 	if got != want {
 		t.Fatalf("footer presented incomplete counts or unknown money: %q", got)
@@ -235,17 +235,17 @@ func TestFooterUsageAndCost(t *testing.T) {
 	view.ModelCalls = 4
 	view.Spend.Usage = llm.Usage{InputTokens: 3000, OutputTokens: 210}
 	view.Spend.Cost = map[string]money.Amount{"USD": money.MustParseAmount("0.012")}
-	got := FooterText(1, "gpt-6-luna", view)
+	got := FooterText(1, "gpt-6-luna", view, nil)
 	want := "── turn 1 · gpt-6-luna · 4 model calls · 3,210 tokens · $0.012"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	// Replay and live runs both build the footer here, with its facts.
-	if b := NewRenderer(1, "gpt-6-luna", "").Footer(view); b.Text != want || b.Footer == nil || b.Footer.Cost != "$0.012" {
+	if b := NewRenderer(1, "gpt-6-luna", "").Footer(view, nil); b.Text != want || b.Footer == nil || b.Footer.Cost != "$0.012" {
 		t.Fatalf("footer block = %+v", b)
 	}
 	view.Spend.CostUnknown = 1
-	if got := FooterText(1, "", view); !strings.Contains(got, ">=$0.012") {
+	if got := FooterText(1, "", view, nil); !strings.Contains(got, ">=$0.012") {
 		t.Fatalf("partial cost: %q", got)
 	}
 }

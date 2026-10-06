@@ -1028,7 +1028,10 @@ func toolView(b Block) tui.View {
 		state = tui.Text("waiting").Fg(tui.ColorYellow)
 	case StateChecking:
 		icon = tui.Text("  ⠋").Fg(tui.ColorCyan)
-		state = tui.Text("decide: checking…").Style(mutedStyle)
+		state = tui.Text("decide: checking command…").Style(mutedStyle)
+	case StateCheckingResult:
+		icon = tui.Text("  ⠋").Fg(tui.ColorCyan)
+		state = tui.Text("decide: checking result…").Style(mutedStyle)
 	case StateWaitingForYou:
 		icon = tui.Text("  ?").Fg(tui.ColorYellow)
 		state = tui.Text("waiting for you").Fg(tui.ColorYellow)
@@ -1045,36 +1048,30 @@ func toolView(b Block) tui.View {
 			tui.Text("%s", arg).SourceOffset(len(name)+len(toolHeadSep)).Style(mutedStyle))
 	}
 	views = append(views, tui.Spacer())
-	if b.Decide.tick(b.State) {
-		views = append(views, tui.Text("decide ✓  ").Style(mutedStyle))
+	if tick := decideTicks(b); tick != "" {
+		views = append(views, tui.Text("%s  ", tick).Style(mutedStyle))
 	}
 	head := tui.Group(append(views, state)...)
 	offset := len(toolHeadSource(b)) + 1
-	var check tui.View
-	if text := b.Decide.line(b.State); text != "" {
-		t := tui.Text("%s", text).Wrap()
-		if b.Decide.Flagged {
+	var checks []tui.View
+	for _, mark := range decideLines(b) {
+		t := tui.Text("%s", mark.Text).Wrap()
+		if mark.Flagged {
 			t = t.Fg(tui.ColorYellow)
 		} else {
 			t = t.Style(mutedStyle)
 		}
-		check = tui.PaddingLTRB(6, 0, 0, 0, t)
+		checks = append(checks, tui.PaddingLTRB(6, 0, 0, 0, t))
 	}
 	if b.Expanded && b.Detail != "" {
-		views = []tui.View{head}
-		if check != nil {
-			views = append(views, check)
-		}
+		views = append([]tui.View{head}, checks...)
 		return tui.Stack(append(views, tui.PaddingLTRB(6, 0, 0, 0,
 			tui.Text("%s", b.Detail).SourceOffset(offset).Wrap().Style(mutedStyle)))...).Gap(0)
 	}
-	if len(b.Lines) == 0 && check == nil {
+	if len(b.Lines) == 0 && len(checks) == 0 {
 		return head
 	}
-	views = []tui.View{head}
-	if check != nil {
-		views = append(views, check)
-	}
+	views = append([]tui.View{head}, checks...)
 	for _, l := range b.Lines {
 		views = append(views, tui.PaddingLTRB(6, 0, 0, 0,
 			tui.Text("%s", l).SourceOffset(offset).Wrap().Style(mutedStyle)))
