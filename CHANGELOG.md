@@ -46,6 +46,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   prompts or does slow work before it shows one. Calls that one remembered
   answer would cover still wait for each other. The `dashi` CLI uses it, so a
   decide check in bypass mode no longer holds up other tool calls.
+- **An `AfterTool` hook can record a result it kept.** A `ResultDecision`
+  with no replacement but a `Reason` or `RulesVersion` is recorded as
+  `VerdictNoChange`, as for `BeforeModel`, such as a check that passed.
 - **`FailOpen` on `BeforeTool` hooks.** A failing hook then counts as no
   opinion, with a `hook_failed` warning, instead of denying the call. Use it
   only for advice, never for a permission policy.

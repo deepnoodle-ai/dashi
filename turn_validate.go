@@ -30,7 +30,7 @@ var hookVerdicts = map[HookPoint][]HookVerdict{
 		VerdictRewrite,
 		VerdictFailed,
 	},
-	HookAfterTool: {VerdictReplace, VerdictFailed},
+	HookAfterTool: {VerdictReplace, VerdictNoChange, VerdictFailed},
 	HookBeforeFinish: {
 		VerdictAddMessages,
 		VerdictReject,

@@ -115,6 +115,42 @@ func TestAfterToolEqualReplacementIsNoOpinion(t *testing.T) {
 	}
 }
 
+// A hook that keeps the result but gives a reason, such as a check that
+// passed, leaves a no_change record; the model sees the result as it was.
+func TestAfterToolKeptResultWithReasonIsRecorded(t *testing.T) {
+	passed := ResultHook{Name: "scan", Func: func(context.Context, ResultPlan) (ResultDecision, error) {
+		return ResultDecision{Reason: "clean 2%", RulesVersion: "scanner-1"}, nil
+	}}
+	same := ResultHook{Name: "same", Func: func(_ context.Context, p ResultPlan) (ResultDecision, error) {
+		r := p.Result
+		return ResultDecision{Replace: &r, Reason: "looked"}, nil
+	}}
+	runs := 0
+	client := &scriptedClient{
+		results: []llm.Result{callResult("call-1", "remote"), final("done")},
+	}
+	out, err := runHooked(t, client, tool.List{secretTool(&runs)},
+		Hooks{AfterTool: []ResultHook{passed, same}})
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	finished := finishOf(t, out.Turn, "call-1")
+	want := []HookResult{
+		{Point: HookAfterTool, Name: "scan", Verdict: VerdictNoChange, RulesVersion: "scanner-1", Reason: "clean 2%"},
+		{Point: HookAfterTool, Name: "same", Verdict: VerdictNoChange, Reason: "looked"},
+	}
+	if finished.Tool.Result != nil || len(finished.HookResults) != 2 ||
+		finished.HookResults[0] != want[0] || finished.HookResults[1] != want[1] {
+		t.Fatalf("finished = %+v", finished)
+	}
+	if got := modelText(out.Tools["call-1"].Result()); got != "key=sk-123 ok" {
+		t.Fatalf("model result = %q", got)
+	}
+	if _, err := out.Turn.View(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAfterToolFailsClosed(t *testing.T) {
 	later := 0
 	after := replaceText("later", func(s string) string {
