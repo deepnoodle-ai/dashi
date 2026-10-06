@@ -210,6 +210,12 @@ they are not permanent grants.
 including calls from delegated tasks and MCP servers. Use it only where
 something outside Dashi, such as a container, limits what the agent can do.
 
+`--decide command_risk` adds a decide check to shell commands: the prompt
+shows the check's answer, and in bypass mode a command it flags still asks.
+The check sends each checked command to TypeSafe or Cloudflare with your key.
+Bypass mode still runs edits, writes, and MCP calls unasked and unchecked.
+Every decide feature is off by default. See [decide checks](cli-decide.md).
+
 Questions support choices or own words. Multiple questions use checkboxes:
 arrows move, Space selects, Tab moves to Submit, and Enter submits. Press `o`
 for own words. Escape interrupts without submitting an empty answer. Dialogs
