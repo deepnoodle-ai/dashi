@@ -390,7 +390,7 @@ func TestDecideFlagValidation(t *testing.T) {
 	started := false
 	app := newApp(&stdout, &stderr, func(Options) error { started = true; return nil })
 	err := app.ExecuteContext(t.Context(), []string{"--decide", "nope"})
-	if err == nil || started || !strings.Contains(err.Error(), "command_risk, prompt_injection, turn_watcher, selective_compaction, or off") {
+	if err == nil || started || !strings.Contains(err.Error(), "use command_risk, or off (prompt_injection, turn_watcher, selective_compaction come in a later release)") {
 		t.Fatalf("err = %v, started = %v", err, started)
 	}
 	var got Options

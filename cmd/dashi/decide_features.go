@@ -28,6 +28,20 @@ var decideFeatureNames = []string{
 // feature that is named but not built stays off, with a warning.
 var decideFeaturesBuilt = []string{decideCommandRisk}
 
+// laterFeatures names the features this version accepts but does not run.
+func laterFeatures() string {
+	var later []string
+	for _, f := range decideFeatureNames {
+		if !slices.Contains(decideFeaturesBuilt, f) {
+			later = append(later, f)
+		}
+	}
+	if len(later) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(later, ", ") + " come in a later release)"
+}
+
 // decideOff is the list value that turns every feature off.
 const decideOff = "off"
 
@@ -78,8 +92,8 @@ func checkDecideNames(names []string) ([]string, error) {
 			}
 			return []string{}, nil
 		case !slices.Contains(decideFeatureNames, name):
-			return nil, fmt.Errorf("unknown decide feature %q; use %s, or %s",
-				workspace.PrintableText(name), strings.Join(decideFeatureNames, ", "), decideOff)
+			return nil, fmt.Errorf("unknown decide feature %q; use %s, or %s%s",
+				workspace.PrintableText(name), strings.Join(decideFeaturesBuilt, ", "), decideOff, laterFeatures())
 		case !slices.Contains(out, name):
 			out = append(out, name)
 		}
