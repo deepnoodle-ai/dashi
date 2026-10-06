@@ -304,6 +304,20 @@ func (c *Controller) helpDoc() helpDoc {
 	if full || inline {
 		keys.Title = "Keys"
 	}
+	if inline {
+		keys.Rows = slices.Clone(composerKeys)
+		for i := range keys.Rows {
+			switch keys.Rows[i].Name {
+			case "Ctrl+C":
+				keys.Rows[i].Text = "interrupt or press twice to exit"
+			case "F2":
+				keys.Rows[i].Text = "native terminal selection is already enabled"
+			}
+		}
+		keys.Note = "  Use your terminal's selection and copy controls in inline mode."
+	} else if !full {
+		keys.Note = "  Selection copying with Ctrl+C and the F2 toggle apply to fullscreen mode.\n  Inline uses your terminal's selection and copy controls; Ctrl+C interrupts or exits."
+	}
 	h.Sections = append(h.Sections, keys)
 	return h
 }
@@ -316,7 +330,8 @@ var composerKeys = []helpRow{
 	{Name: "Esc", Text: "undo completion, stop work, or return to live output"},
 	{Name: "Page Up/Down", Text: "scroll the transcript"},
 	{Name: "Ctrl+G", Text: "edit the draft in an external editor"},
-	{Name: "Ctrl+C", Text: "interrupt; press twice to exit when idle"},
+	{Name: "Ctrl+C", Text: "copy selection; otherwise interrupt or press twice to exit"},
+	{Name: "F2", Text: "toggle native selection without changing the draft"},
 	{Name: "Ctrl+D", Text: "delete forward; exit on an empty draft"},
 	{Name: "text, !text", Text: "while a turn runs: steer it; ! also cuts the model call"},
 }

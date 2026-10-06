@@ -92,7 +92,9 @@ func TestRuntimeNavigationAfterPromptEnds(t *testing.T) {
 	h.scr.rt.SendEvent(promptEvent{id: 1, approval: &approvalPrompt{reply: make(chan Approval, 1)}})
 	h.wait(func(s transcriptState) bool { return s.approval })
 	h.scr.rt.SendEvent(endPromptEvent{id: 1})
-	h.wait(func(s transcriptState) bool { return !s.approval && strings.Contains(s.text, "Type a message...") })
+	h.wait(func(s transcriptState) bool {
+		return !s.approval && strings.Contains(s.text, "Ask Dashi to do anything")
+	})
 	h.typeText("retained draft")
 	h.key(tui.KeyEvent{Key: tui.KeyPageUp})
 	h.wait(func(s transcriptState) bool {

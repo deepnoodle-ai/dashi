@@ -169,7 +169,7 @@ func TestRuntimeEnterResumesCompactionAndOriginalOnce(t *testing.T) {
 		}
 	}
 	probe(func(s runtimeScreenState) bool {
-		return s.mode == ModeIdle && strings.Contains(s.text, "Type a message...")
+		return s.mode == ModeIdle && strings.Contains(s.text, "Ask Dashi to do anything")
 	})
 	for _, r := range "original prompt" {
 		rt.SendEvent(tui.KeyEvent{Key: tui.KeyUnknown, Rune: r})
@@ -187,7 +187,7 @@ func TestRuntimeEnterResumesCompactionAndOriginalOnce(t *testing.T) {
 	wait(delivered)
 	a.ctrl.Wait()
 	final := probe(func(s runtimeScreenState) bool {
-		return s.mode == ModeIdle && !s.pending && strings.Contains(s.text, "Type a message...") && !strings.Contains(s.text, "Working.")
+		return s.mode == ModeIdle && !s.pending && strings.Contains(s.text, "Ask Dashi to do anything") && !strings.Contains(s.text, "Working")
 	})
 	if final.input != "" || strings.Contains(final.text, "PRIVATE SUMMARY") ||
 		strings.Contains(final.text, "Type to steer") {

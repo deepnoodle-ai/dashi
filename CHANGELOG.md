@@ -69,6 +69,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Large terminal input stays responsive when deleting text.** Wonton v0.7.2
+  fixes Ctrl-U, Ctrl-K, and Ctrl-W stalls on long pasted lines.
+
+- **The Dashi terminal interface uses a quieter layout:** a compact header,
+  shaded prompt and input bands, indented tool details, and compact status.
+  Narrow terminals keep approval choices visible; inline output uses the
+  actual terminal width.
+- **Copy selected transcript text with Ctrl-C.** Confirmed local copies clear
+  selection; failed or unconfirmed requests retain it. F2 toggles native
+  selection without replacing the draft. Dialog cancellation stays unchanged.
+- **Pasted slash commands stay editable until Enter.** Large ordinary text no
+  longer produces a file-selection warning.
+
 - **The workspace file tools and `ask_user` report a false open-world
   hint,** so a check on outside content leaves their results local. `bash`
   stays unset.

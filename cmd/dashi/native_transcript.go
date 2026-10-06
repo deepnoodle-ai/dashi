@@ -34,7 +34,16 @@ func nativeBlockText(b Block, width int, useColor bool) (string, bool) {
 		if n > 0 {
 			out.WriteByte('\n')
 		}
-		out.WriteString(strings.Repeat(" ", 2+line.Indent))
+		if n == 0 && b.Kind == KindAssistant {
+			marker := "• "
+			if useColor {
+				marker = mutedStyle.Apply(marker)
+			}
+			out.WriteString(marker)
+			out.WriteString(strings.Repeat(" ", line.Indent))
+		} else {
+			out.WriteString(strings.Repeat(" ", 2+line.Indent))
+		}
 		for i, segment := range line.Segments {
 			text := segment.Text
 			if i == len(line.Segments)-1 {

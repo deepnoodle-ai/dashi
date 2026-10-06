@@ -1,7 +1,7 @@
 # Terminal presentation and input reliability
 
-Status: In Review · Author: Codex · Date: 2026-10-06\
-Workflow: specification, orchestrator checkpoint, then implementation.
+Status: Accepted · Author: Codex · Date: 2026-10-06\
+PRD: [approved in #211](https://github.com/deepnoodle-ai/dashi/pull/211).
 
 ## Context and boundaries
 
@@ -13,7 +13,7 @@ The independent audit reproduced three defects: selected-text Ctrl-C invokes can
 
 Keep the existing `Block` transcript and its source offsets. Move view helpers from `screen.go` into a focused private presentation file before parallel work. This isolates appearance from event routing without changing the model.
 
-Use a compact Dashi/workspace header, full-width shaded user prompts and composer, neutral assistant markers, indented tool details, and restrained state colors. Keep explicit state words for waiting, failure, and denial. Use the existing muted foreground without dim; reserve color for emphasis. Render shaded multiline text with a flexible, background-filled text region so shorter rows retain the band.
+Use a compact Dashi/workspace header, full-width shaded user prompts and composer, neutral assistant markers, indented tool details, and restrained state colors. Keep explicit state words for waiting, failure, and denial. Use the existing muted foreground without dim; reserve color for emphasis. Render shaded multiline text inside a bounded panel so shorter rows retain the band without filling other viewport rows.
 
 Retain the model, workspace, and useful work state in the bottom area. Session identity remains available through `/status`. Replace composer divider rules with padding and a background. Keep help discoverable and contextual selection/cancellation instructions visible. Approval descriptions and choices retain priority over decoration.
 
@@ -37,9 +37,9 @@ Keep pasted content directly editable; do not enable blanket multiline placehold
 
 Large ordinary text bypasses the file-drop heuristic without the misleading 64 KiB warning. Do not claim an unavailable undo action. Keep Wonton's existing newline normalization and retain all remaining content, including Unicode, tabs, and blank lines. Test insertion at an interior cursor, explicit submission, history, dialogs, and resize through actual focused input.
 
-The Ctrl-U/K defect belongs to Wonton's private text-input editor: it deletes each grapheme separately while repeatedly scanning or copying the line. Bulk deletion must use one range removal, preserve grapheme boundaries and placeholder segments, and emit one change notification. Word deletion needs the same audit. Dashi's published InputField hook has no cursor access, so a local workaround must not mirror or guess cursor state.
+The Ctrl-U/K defect belongs to Wonton's private text-input editor: it deletes each grapheme separately while repeatedly scanning or copying the line. Bulk deletion must use one range removal, preserve grapheme boundaries and placeholder segments, and emit one change notification. The same audit reproduced the defect in Ctrl-W word deletion; the upstream fix covers that route too. Dashi's published InputField hook has no cursor access, so a local workaround must not mirror or guess cursor state.
 
-The dependency audit confirms no public bulk-edit API and no fix in Wonton v0.7.1. Prepare a focused upstream fix with independent review. Dashi remains pinned to a published dependency. Qualify the upstream fix through a temporary external workspace, without committing replacements. Consume a published fix when available; do not merge or release without authorization. Never change the module cache, vendor a second editor, or add `go.mod` replacements. Keep this dependency explicit until the tested fix is consumable.
+The dependency audit found no public bulk-edit API and no fix in Wonton v0.7.1. The independently reviewed [upstream fix](https://github.com/deepnoodle-ai/wonton/pull/79) now ships in [Wonton v0.7.2](https://github.com/deepnoodle-ai/wonton/releases/tag/v0.7.2). All four Dashi modules consume that published version. Final PTY qualification uses the published module without workspace replacements. No module-cache edits, vendored editor, or `go.mod` replacements are needed.
 
 ## Alternatives and consequences
 

@@ -312,11 +312,11 @@ func TestStatusLineRightAlignsHelpHintWhenItFits(t *testing.T) {
 		return strings.TrimRight(tui.SprintScreen(h.scr.statusView(), tui.WithWidth(width), tui.WithHeight(1)).Text(), " \n")
 	}
 	wide := line(160)
-	if !strings.HasPrefix(wide, " fixture · ") || !strings.HasSuffix(wide, "/help lists commands") || len([]rune(wide)) != 159 {
+	if !strings.HasPrefix(wide, " fixture · ") || !strings.HasSuffix(wide, "/help") || len([]rune(wide)) != 159 {
 		t.Fatalf("wide = %q", wide)
 	}
 	narrow := line(60)
-	if !strings.HasPrefix(narrow, " fixture · ") || strings.Contains(narrow, "/help") {
+	if !strings.HasPrefix(narrow, " fixture · ") || !strings.HasSuffix(narrow, "/help") {
 		t.Fatalf("narrow = %q", narrow)
 	}
 }
@@ -324,7 +324,7 @@ func TestStatusLineRightAlignsHelpHintWhenItFits(t *testing.T) {
 func TestIdleInputHintIsEmpty(t *testing.T) {
 	h := newScreenHarness(t, 0)
 	got := h.render()
-	if strings.Contains(got, "Ask anything") || !strings.Contains(got, "\n\n────") {
+	if h.scr.inputHint(ModeIdle) != "" || !strings.Contains(got, "Ask Dashi to do anything") || strings.Contains(got, "────") {
 		t.Fatalf("idle footer:\n%s", got)
 	}
 }

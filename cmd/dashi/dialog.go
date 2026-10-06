@@ -104,7 +104,11 @@ func (s *screen) approvalView() tui.View {
 		title = append(title, tui.Text("  %s", l.summary))
 	}
 	views := []tui.View{tui.Divider(), tui.Group(title...)}
-	height := min(len(l.rows), s.dialogHeight())
+	detailHeight := s.dialogHeight()
+	if s.width > 0 && s.width < 72 {
+		detailHeight = max(1, detailHeight-3)
+	}
+	height := min(len(l.rows), detailHeight)
 	if height > 0 {
 		views = append(views, tui.Height(height, tui.Viewport(&p.vp, approvalRows(l.rows)).Gap(0)))
 	}
@@ -114,7 +118,7 @@ func (s *screen) approvalView() tui.View {
 	views = append(views, tui.Text(""))
 	if p.denying {
 		return tui.Stack(append(views,
-			tui.Text(" Deny: Enter submits the reason · Ctrl-S inspects without editing").Style(hintStyle),
+			tui.Text(" Deny: Enter submits · Ctrl-S inspects").Wrap().Style(hintStyle),
 			tui.InputField(&p.reason).ID(denialInputID).Prompt("Reason:").OnKey(s.dialogTextKey(s.promptID)).OnPaste(s.dialogTextPaste(s.promptID)).OnSubmit(s.denialSubmit(s.promptID)))...).Gap(0)
 	}
 	var hints []string
@@ -128,8 +132,8 @@ func (s *screen) approvalView() tui.View {
 	}
 	hints = append(hints, "/ commands", "Esc interrupts")
 	return tui.Stack(append(views,
-		approvalChoices(p.req.offersRemember()),
-		tui.Text(" %s", strings.Join(hints, " · ")).Style(hintStyle))...).Gap(0)
+		approvalChoices(p.req.offersRemember(), s.width),
+		tui.Text(" %s", strings.Join(hints, " · ")).Wrap().Style(hintStyle))...).Gap(0)
 }
 
 // checkLineView is the decide line of a prompt. A flagged or held command
@@ -144,7 +148,15 @@ func checkLineView(line string, warn bool) tui.View {
 
 // approvalChoices are the keys of a prompt. remember offers "allow for this
 // run"; a command decide flagged or held offers allow once and deny only.
-func approvalChoices(remember bool) tui.View {
+func approvalChoices(remember bool, width int) tui.View {
+	if width > 0 && width < 72 {
+		rows := []tui.View{tui.Text(" [y] Allow once").Wrap()}
+		if remember {
+			rows = append(rows, tui.Text(" [a] Allow for this Dashi run").Wrap())
+		}
+		rows = append(rows, tui.Text(" [n] Deny").Wrap())
+		return tui.Stack(rows...).Gap(0)
+	}
 	key := func(k string) tui.View { return tui.Text("[%s]", k).Fg(tui.ColorCyan).Bold() }
 	views := []tui.View{tui.Text(" "), key("y"), tui.Text(" Allow once    ")}
 	if remember {

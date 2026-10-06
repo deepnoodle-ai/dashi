@@ -164,12 +164,16 @@ the build's exit status.
 
 ## Read and copy output
 
-Page Up/Down and the wheel scroll without following new output. End returns
-an empty draft to live output; Ctrl+Home/End navigate with a draft. The
+In fullscreen, Page Up/Down and the wheel scroll without following new output.
+End returns an empty draft to live output; Ctrl+Home/End navigate with a draft. The
 indicator shows lines below. Drag selects; double/triple clicks select a word
 or original logical line, including its whitespace and Markdown syntax. Copying
 selection excludes role labels, display indentation, and wrapped row breaks.
-Escape clears a selection or returns to live output when idle.
+With the main composer focused, Ctrl+C copies selected source without changing
+the draft. A confirmed local clipboard write clears the selection; failed or
+unconfirmed writes keep it for retry. Without selection, Ctrl+C interrupts work
+or uses the idle exit confirmation. Dialogs keep their cancellation controls.
+Escape interrupts running work, or clears a selection when idle.
 Ctrl+L repaints. Click a tool header to expand its full retained output.
 
 `/copy` copies selected text or lists fenced blocks in the latest reply.
@@ -177,7 +181,12 @@ Ctrl+L repaints. Click a tool header to expand its full retained output.
 prose. Code copying retains original source lines, even when wrapped on screen.
 A newer prompt ends the previous reply's copy window. OSC52 and tmux
 terminal requests report unconfirmed receipt; local clipboard process success
-is reported separately. `/scrollback raw` provides complete printable text.
+is reported separately. F2 toggles fullscreen mouse capture without changing
+the draft. With capture off, use your terminal's selection and copy controls
+for transcript or composer text; F2 restores application selection. `/mouse`
+also toggles capture. Inline always uses your terminal's selection and copy
+controls. Ctrl+C interrupts work or requests exit, even with a native selection.
+`/scrollback raw` provides complete printable text.
 Enter/Escape return from inspection with the draft intact.
 
 Start `dashi --inline` to keep completed output in native scrollback and

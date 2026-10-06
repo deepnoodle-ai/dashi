@@ -14,9 +14,9 @@ func TestRuntimeCopySelectionUsesExactSource(t *testing.T) {
 	source := "  **bold**\t  世界  \r\nsecond line"
 	h := newTranscriptRuntime(t, say(source))
 	copied := make(chan string, 1)
-	h.scr.rt.SendEvent(transcriptCapture{copy: func(_ context.Context, text string) (string, error) {
+	h.scr.rt.SendEvent(transcriptCapture{copy: func(_ context.Context, text string) (clipboardWriteResult, error) {
 		copied <- text
-		return "Fixture copied.", nil
+		return clipboardWriteResult{notice: "Fixture copied.", confirmed: true}, nil
 	}})
 	h.app.ctrl.Input("show the source")
 	frame := h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "bold") })

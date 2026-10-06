@@ -25,9 +25,13 @@ type transcriptCommandEvent struct {
 func (e transcriptCommandEvent) Timestamp() time.Time { return e.at }
 
 type clipboardResultEvent struct {
-	at           time.Time
-	text, notice string
-	err          error
+	at                time.Time
+	text              string
+	result            clipboardWriteResult
+	err               error
+	selectionRevision uint64
+	generation        uint64
+	selected          bool
 }
 
 func (e clipboardResultEvent) Timestamp() time.Time { return e.at }
@@ -47,7 +51,7 @@ func (s *screen) inputKey(e tui.KeyEvent) bool {
 	if e.Key == tui.KeyEscape && !s.promptActive {
 		return false
 	}
-	consume := (s.approval != nil && !s.approval.denying) || s.asking != nil && !s.asking.own || s.picker != nil || isCtrlC(e) || e.Key == tui.KeyEscape || e.Key == tui.KeyCtrlL || e.Key == tui.KeyCtrlG ||
+	consume := (s.approval != nil && !s.approval.denying) || s.asking != nil && !s.asking.own || s.picker != nil || isCtrlC(e) || e.Key == tui.KeyEscape || e.Key == tui.KeyCtrlL || e.Key == tui.KeyCtrlG || e.Key == tui.KeyF2 ||
 		e.Key == tui.KeyPageUp || e.Key == tui.KeyPageDown ||
 		(e.Key == tui.KeyHome || e.Key == tui.KeyEnd) && (e.Ctrl || s.input == "")
 	if consume {
@@ -69,28 +73,13 @@ func (s *screen) transcriptCommand(name, arg string) {
 			s.Emit(Block{Kind: KindNotice, Text: notice, Done: true})
 			return
 		}
-		go func() {
-			notice, err := s.clipboardWrite(s.ctrl.base, text)
-			s.post(clipboardResultEvent{at: time.Now(), text: text, notice: notice, err: err})
-		}()
+		s.copyText(text, strings.TrimSpace(arg) == "" && s.vp.HasSelection())
 	case "/mouse":
 		if arg != "" {
 			s.Emit(warnBlock("Usage: /mouse"))
 			return
 		}
-		if s.runtime == nil {
-			s.Emit(warnBlock("Native selection is already available in inline mode."))
-			return
-		}
-		s.mouseEnabled = !s.mouseEnabled
-		if s.mouseEnabled {
-			s.runtime.Terminal().EnableMouseDrag()
-			s.Emit(Block{Kind: KindNotice, Text: "Application mouse capture on.", Done: true})
-		} else {
-			s.vp.ClearSelection()
-			s.runtime.Terminal().DisableMouseTracking()
-			s.Emit(Block{Kind: KindNotice, Text: "Application mouse capture off. Use native terminal selection.", Done: true})
-		}
+		s.toggleMouse()
 	case "/scrollback":
 		if arg != "" && arg != "raw" {
 			s.Emit(warnBlock("Usage: /scrollback [raw]"))
@@ -100,9 +89,63 @@ func (s *screen) transcriptCommand(name, arg string) {
 	}
 }
 
+// Main-composer shortcuts never take precedence over a pending decision.
+func (s *screen) mainComposerActive() bool {
+	return !s.promptActive && s.approval == nil && s.asking == nil && s.picker == nil && s.dialogStatus == nil
+}
+
+func (s *screen) selectionHint() string {
+	if !s.mainComposerActive() || !s.vp.HasSelection() {
+		return ""
+	}
+	if s.ctrl.Mode() == ModeRunning || s.ctrl.Mode() == ModeApproval {
+		return "Ctrl+C copies selection · Esc stops work · F2 native selection"
+	}
+	return "Ctrl+C copies selection · Esc clears · F2 native selection"
+}
+
+func (s *screen) copySelection() bool {
+	text := s.vp.SelectedText()
+	if text == "" {
+		return false
+	}
+	s.copyText(text, true)
+	return true
+}
+
+func (s *screen) copyText(text string, selected bool) {
+	event := clipboardResultEvent{text: text, selected: selected, selectionRevision: s.selectionRevision, generation: s.generation}
+	write := s.clipboardWrite
+	go func() {
+		event.result, event.err = write(s.ctrl.base, text)
+		event.at = time.Now()
+		s.post(event)
+	}()
+}
+
+func (s *screen) toggleMouse() {
+	if s.runtime == nil {
+		s.Emit(Block{Kind: KindNotice, Text: "Native selection is already available in inline mode.", Done: true})
+		return
+	}
+	s.mouseEnabled = !s.mouseEnabled
+	if s.mouseEnabled {
+		s.runtime.Terminal().EnableMouseDrag()
+		s.Emit(Block{Kind: KindNotice, Text: "Application mouse capture on. Drag to select; Ctrl+C copies. F2 enables native selection.", Done: true})
+	} else {
+		s.selectionRevision++
+		s.vp.ClearSelection()
+		s.runtime.Terminal().DisableMouseTracking()
+		s.Emit(Block{Kind: KindNotice, Text: "Application mouse capture off. Use native terminal selection and copying; F2 restores capture.", Done: true})
+	}
+}
+
 func (s *screen) clipboardResult(e clipboardResultEvent) {
 	if e.err == nil {
-		s.Emit(Block{Kind: KindNotice, Text: e.notice, Done: true})
+		if e.result.confirmed && e.selected && e.generation == s.generation && e.selectionRevision == s.selectionRevision && s.vp.SelectedText() == e.text {
+			s.vp.ClearSelection()
+		}
+		s.Emit(Block{Kind: KindNotice, Text: e.result.notice, Done: true})
 		return
 	}
 	if s.clipboardOut == nil {
@@ -168,6 +211,9 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 	}
 	if e.Type == tui.MousePress && !inside {
 		return
+	}
+	if e.Button == tui.MouseButtonLeft && (e.Type == tui.MousePress || e.Type == tui.MouseClick || e.Type == tui.MouseDrag || e.Type == tui.MouseMove) {
+		s.selectionRevision++
 	}
 	if s.vp.HandleMouse(local) {
 		return

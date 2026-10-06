@@ -82,8 +82,9 @@ func (s *screen) inputPaste(id uint64) tui.PasteHandler {
 		if s.promptActive || s.promptID != id {
 			return tui.PasteAccept, ""
 		}
-		if len(info.Content) > attachmentPasteBytes {
-			s.Emit(warnBlock("Paste exceeded the 64 KiB file-selection limit. It was inserted as text. Undo it, then drop fewer files or use /attach PATH."))
+		// Large text bypasses path detection without a file warning. Commands
+		// stay editable, even when their spelling is also an absolute path.
+		if len(info.Content) > attachmentPasteBytes || s.pastedCommand(info.Content) {
 			return tui.PasteAccept, ""
 		}
 		paths, recognized, overflow := droppedPaths(info.Content)
@@ -107,4 +108,19 @@ func (s *screen) inputPaste(id uint64) tui.PasteHandler {
 		s.updateAttachmentUnsaved()
 		return tui.PasteModified, ""
 	}
+}
+
+func (s *screen) pastedCommand(text string) bool {
+	name, _ := splitCommand(strings.TrimSpace(text))
+	if !strings.HasPrefix(name, "/") {
+		return false
+	}
+	// Refresh synchronously for paste: the highlighting cache may still be
+	// empty on the first input after startup.
+	for _, command := range s.ctrl.commandNames() {
+		if strings.EqualFold(command, name) {
+			return true
+		}
+	}
+	return false
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/wonton/tui"
+	"golang.org/x/term"
 )
 
 // inlineScreen shares controller, prompts, and rendering with fullscreen.
@@ -24,6 +25,11 @@ type inlineScreen struct {
 
 func newInlineScreen(s *screen, output io.Writer) *inlineScreen {
 	i := &inlineScreen{screen: s}
+	if terminal, ok := output.(interface{ Fd() uintptr }); ok {
+		if width, height, err := term.GetSize(int(terminal.Fd())); err == nil {
+			s.width, s.height = width, height
+		}
+	}
 	i.runner = tui.NewInlineApp(tui.WithInlineOutput(output), tui.WithInlineFPS(30), tui.WithInlineBracketedPaste(true))
 	s.send = i.runner.SendEvent
 	s.handoff = i.runner.Handoff
@@ -110,8 +116,8 @@ func (i *inlineScreen) flushCompleted() {
 }
 
 func (i *inlineScreen) printCompletedBlock(b Block) {
-	if text, ok := nativeBlockText(b, max(80, i.width), !i.noColor); ok {
-		i.runner.PrintRaw([]byte(strings.ReplaceAll(text, "\n", "\r\n") + "\r\n"))
+	if text, ok := nativeBlockText(b, i.outputWidth(), !i.noColor); ok {
+		i.runner.PrintRaw([]byte(strings.ReplaceAll(text, "\n", "\r\n") + "\r\n\r\n"))
 	}
 }
 
@@ -120,11 +126,39 @@ func (i *inlineScreen) LiveView() tui.View {
 		return tui.Text("")
 	}
 	if i.inspecting {
-		return tui.Text(" Press Enter or Escape to return to Dashi.").Style(hintStyle)
+		view := tui.Text(" Press Enter or Escape to return to Dashi.").Style(hintStyle)
+		if i.noColor {
+			return withoutColors(view, 1)
+		}
+		return view
 	}
-	return tui.Stack(
-		tui.Height(8, tui.Viewport(&i.vp, inlineItems{i}).Gap(1)), i.footer(),
-	).Gap(0)
+	footer := i.footer()
+	_, footerHeight := tui.Measure(footer, i.outputWidth(), 0)
+	height := i.height
+	if height <= 0 {
+		height = 24
+	}
+	maxLiveHeight := max(1, min(8, height-footerHeight))
+	liveHeight := 0
+	items := inlineItems{i}
+	for n := 0; n < items.Len() && liveHeight < maxLiveHeight; n++ {
+		_, rows := tui.Measure(items.Item(n), i.outputWidth(), 0)
+		if rows > 0 {
+			if liveHeight > 0 {
+				liveHeight++
+			}
+			liveHeight += rows
+		}
+	}
+	liveHeight = min(liveHeight, maxLiveHeight)
+	var view tui.View = footer
+	if liveHeight > 0 {
+		view = tui.Stack(tui.Height(liveHeight, tui.Viewport(&i.vp, items).Gap(1)), footer).Gap(0)
+	}
+	if i.noColor {
+		return withoutColors(view, liveHeight+footerHeight)
+	}
+	return view
 }
 
 func (i *inlineScreen) showScrollback(raw bool) {
@@ -134,7 +168,7 @@ func (i *inlineScreen) showScrollback(raw bool) {
 		if raw {
 			i.runner.PrintRaw([]byte(strings.ReplaceAll(FormatBlock(b), "\n", "\r\n") + "\r\n"))
 		} else {
-			if text, ok := nativeBlockText(b, max(80, i.width), !i.noColor); ok {
+			if text, ok := nativeBlockText(b, i.outputWidth(), !i.noColor); ok {
 				i.runner.PrintRaw([]byte(strings.ReplaceAll(text, "\n", "\r\n") + "\r\n"))
 			}
 		}
@@ -162,3 +196,11 @@ func (v inlineItems) Len() int {
 func (v inlineItems) Item(n int) tui.View { return v.app.screen.Item(v.app.printed + n) }
 
 func (v inlineItems) Source(n int) (string, bool) { return v.app.screen.Source(v.app.printed + n) }
+
+// outputWidth uses a default only before a terminal size is available.
+func (i *inlineScreen) outputWidth() int {
+	if i.width > 0 {
+		return i.width
+	}
+	return 80
+}
