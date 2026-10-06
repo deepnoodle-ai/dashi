@@ -177,13 +177,62 @@ func TestTurnEventsHoldEndUntilIdle(t *testing.T) {
 	if got := names(readTurnEvents(t, path)); got != "UserPromptSubmit Stop" {
 		t.Fatalf("after idle: %s", got)
 	}
+	// Queued input that runs as the next turn of the same run writes the
+	// held end first.
+	log.started("s-2", &dashi.StartFact{Input: []llm.Message{llm.UserMessage(llm.Text("queued"))}})
+	log.ended(dashi.RunResult{Turn: dashi.Turn{ID: "s-2"}, TurnView: dashi.TurnView{Stop: dashi.Stop{Kind: dashi.StopCompleted}}})
+	log.started("s-3", &dashi.StartFact{Input: []llm.Message{llm.UserMessage(llm.Text("queued <b>&</b>"))}})
+	log.ended(dashi.RunResult{Turn: dashi.Turn{ID: "s-3"}, TurnView: dashi.TurnView{Stop: dashi.Stop{Kind: dashi.StopCompleted}}})
+	if err := log.idle(nil); err != nil {
+		t.Fatal(err)
+	}
+	got := readTurnEvents(t, path)
+	if names(got) != "UserPromptSubmit Stop UserPromptSubmit Stop UserPromptSubmit Stop" ||
+		got[3]["prompt_id"] != "s-2" || got[4]["prompt"] != "queued <b>&</b>" {
+		t.Fatalf("queued turns: %v", got)
+	}
+	raw, _ := os.ReadFile(path)
+	if strings.Contains(string(raw), `\u003c`) {
+		t.Fatalf("HTML escaped: %s", raw)
+	}
 	// A run refused before any turn starts still tells the reader.
 	if err := log.idle(errors.New("MCP startup has not completed")); err != nil {
 		t.Fatal(err)
 	}
-	got := readTurnEvents(t, path)
-	if names(got) != "UserPromptSubmit Stop StopFailure" || got[2]["prompt_id"] != nil {
+	got = readTurnEvents(t, path)
+	if names(got) != "UserPromptSubmit Stop UserPromptSubmit Stop UserPromptSubmit Stop StopFailure" || got[6]["prompt_id"] != nil {
 		t.Fatalf("refused run: %v", got)
+	}
+}
+
+// A question waits for the person like an approval does.
+func TestTurnEventsQuestionWait(t *testing.T) {
+	h := newHarness(t)
+	path := withTurnEvents(t, h, Options{})
+	h.app.ctrl.askUI(t.Context(), Question{Prompt: "Which file?"}, "")
+	got := readTurnEvents(t, path)
+	if names(got) != "Notification" || got[0]["notification_type"] != "permission_prompt" ||
+		got[0]["message"] != "Dashi has a question for you" {
+		t.Fatalf("records: %v", got)
+	}
+}
+
+// Text sent while a turn runs is a steer. Its record carries the running
+// turn's ID, so a sender knows the turn took it.
+func TestTurnEventsSteer(t *testing.T) {
+	started := make(chan struct{})
+	h := newHarness(t, blockUntilDone(started))
+	path := withTurnEvents(t, h, Options{})
+	h.app.ctrl.Input("first")
+	<-started
+	// "@lead" would be a file mention, which a steer refuses; "\@" is not.
+	h.app.ctrl.Input(`[from \@lead · prompt 2] also this`)
+	h.app.ctrl.CancelWork()
+	h.app.ctrl.Wait()
+	got := readTurnEvents(t, path)
+	if names(got) != "UserPromptSubmit UserPromptSubmit StopFailure" ||
+		got[1]["prompt_id"] != got[0]["prompt_id"] || got[1]["prompt"] != `[from \@lead · prompt 2] also this` {
+		t.Fatalf("records: %v", got)
 	}
 }
 
@@ -220,5 +269,22 @@ func TestSessionIDNamesNewSession(t *testing.T) {
 	h.build(Options{Resume: true, ResumeID: id})
 	if h.app.eng.Session().ID != id || h.turns() != 1 {
 		t.Fatalf("resumed %s with %d turns", h.app.eng.Session().ID, h.turns())
+	}
+}
+
+// A launch killed before its first turn leaves only a lock file. Its ID
+// can start the session again.
+func TestSessionIDAfterKilledLaunch(t *testing.T) {
+	const id = "8c1a0e2b-3f4d-4e5a-9b6c-7d8e9f0a1b2c"
+	h := newHarness(t)
+	if err := os.MkdirAll(filepath.Join(h.store.Root(), id), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.store.Root(), id, "lock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.build(Options{SessionID: id})
+	if h.app.eng.Session().ID != id {
+		t.Fatalf("session ID = %s", h.app.eng.Session().ID)
 	}
 }

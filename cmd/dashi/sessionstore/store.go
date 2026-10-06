@@ -82,20 +82,26 @@ func (st *Store) Create(dir, model string) (*Session, error) {
 // CreateWithID makes a new empty session for dir with an ID the caller
 // chose, such as a launcher that must know the ID before dashi starts. The
 // ID is a UUID in lowercase canonical form. It returns ErrExists when the
-// store already has a folder with that ID, saved or not, so a chosen ID
-// never reopens or overwrites another session. Like Create, it does not
-// touch the disk.
+// store already has a session with that ID, saved or with a turn log, so a
+// chosen ID never reopens or overwrites another session. Like Create, it
+// does not touch the disk.
 func (st *Store) CreateWithID(dir, model, id string) (*Session, error) {
 	if !ValidChosenID(id) {
 		return nil, fmt.Errorf("session: %q is not a lowercase UUID", id)
 	}
+	now := st.now()
+	s := &Session{ID: id, Dir: dir, Model: model, Created: now, Updated: now}
 	if _, err := os.Lstat(filepath.Join(st.root, id)); err == nil {
-		return nil, fmt.Errorf("%w: %s", ErrExists, id)
+		// A launch that was killed before its first turn leaves a folder
+		// with only its lock. Nothing can reopen it, so the ID stays free.
+		// A live process that holds it still refuses the lock.
+		if !st.unused(s) {
+			return nil, fmt.Errorf("%w: %s", ErrExists, id)
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	now := st.now()
-	return &Session{ID: id, Dir: dir, Model: model, Created: now, Updated: now}, nil
+	return s, nil
 }
 
 // ValidChosenID reports whether id can name a session that the caller
@@ -109,15 +115,19 @@ func ValidChosenID(id string) bool {
 // even when its session file was never saved, so a failed save cannot
 // delete recorded history.
 func (st *Store) Discard(s *Session) {
-	dir := filepath.Join(st.root, s.ID)
+	if st.unused(s) {
+		os.RemoveAll(filepath.Join(st.root, s.ID))
+	}
+}
+
+// unused reports whether the folder of s holds nothing to keep: no
+// session file, no turn log, and no retained attachment.
+func (st *Store) unused(s *Session) bool {
 	if st.Saved(s) || st.RetainsAttachments(s) {
-		return
+		return false
 	}
-	entries, err := os.ReadDir(filepath.Join(dir, "turns"))
-	if len(entries) > 0 || err != nil && !os.IsNotExist(err) {
-		return
-	}
-	os.RemoveAll(dir)
+	entries, err := os.ReadDir(filepath.Join(st.root, s.ID, "turns"))
+	return len(entries) == 0 && (err == nil || os.IsNotExist(err))
 }
 
 // Save writes s to disk and sets its Updated time. It replaces the file

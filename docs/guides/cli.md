@@ -179,15 +179,18 @@ full screen, `--inline`, and `--plain`. `dashi run` takes neither.
 
 | `hook_event_name` | When | Other fields |
 |---|---|---|
-| `UserPromptSubmit` | a turn starts | `prompt_id` (the turn ID), `prompt` |
-| `Notification` | a tool call waits for approval, or the model asks you a question | `notification_type`: `permission_prompt` or `elicitation_dialog`; `message` |
+| `UserPromptSubmit` | a turn starts, or text reaches the running turn as a steer | `prompt_id` (the turn ID), `prompt` |
+| `Notification` | a tool call waits for approval, or the model asks you a question | `notification_type` (`permission_prompt`), `message` |
 | `Stop` | a turn completes | `prompt_id`, `last_assistant_message` |
 | `StopFailure` | a turn stops any other way, or dashi refuses the prompt | `prompt_id` (empty for a refusal), `error_type` (the stop kind, such as `failed` or `interrupted`), `error_message` |
 
 Every line also has `session_id` and `cwd`. dashi writes and fsyncs the end
-of a turn before it takes the next prompt. Text fields keep their first 64
-KiB. A compaction turn writes nothing. Escape interrupts a turn in the full
-screen; in `--plain`, Ctrl-C does.
+of a turn before it takes the next prompt. Text fields keep their first 32
+KiB. A compaction turn writes nothing, and nothing marks the end of a wait:
+a child task's approval answered while dashi is idle is followed by no
+record until the next turn. Escape interrupts a turn in the full screen; in
+`--plain`, Ctrl-C does. Typed `@word` is a file mention, so a sender that
+means a name writes `\@word`.
 
 ## Read and copy output
 

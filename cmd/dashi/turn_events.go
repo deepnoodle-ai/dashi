@@ -16,6 +16,7 @@ package main
 // fsynced before the call returns.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,7 +30,7 @@ import (
 // turnEventTextLimit caps each text field of a record, so one line stays
 // small for a reader that reads the file in chunks. A cut keeps the start
 // of the text, where a sender's own prefix is.
-const turnEventTextLimit = 64 << 10
+const turnEventTextLimit = 32 << 10
 
 // turnEvent is one line of the turn-event file. The names and values are
 // those of Claude Code's hook inputs.
@@ -54,12 +55,11 @@ const (
 	turnEventNotification     = "Notification"
 )
 
-// The notification_type values dashi writes: a tool call waits for
-// approval, or the model asks the person a question.
-const (
-	notificationPermissionPrompt  = "permission_prompt"
-	notificationElicitationDialog = "elicitation_dialog"
-)
+// notificationPermissionPrompt is the notification_type dashi writes when
+// a tool call waits for approval or the model asks the person a question.
+// Both need the person before the turn can go on, and readers of Claude
+// Code hooks treat this value as "waiting on you"; the message says which.
+const notificationPermissionPrompt = "permission_prompt"
 
 // turnEventLog appends turn events to one file. A nil log writes nothing,
 // so callers need no check.
@@ -152,6 +152,27 @@ func (l *turnEventLog) ended(out dashi.RunResult) {
 	l.open, l.held = "", &e
 }
 
+// steered writes UserPromptSubmit for text that reached the running turn
+// as a steer, with that turn's ID. A sender whose prompt arrives while a
+// turn runs, such as a task notice turn that began just after the last
+// Stop, then sees its text taken, and the turn's end answers it. A steer
+// that missed the turn goes with the next turn's start instead.
+func (l *turnEventLog) steered(text string) error {
+	if l == nil {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.open == "" {
+		return nil
+	}
+	return l.writeLocked(turnEvent{
+		HookEventName: turnEventUserPromptSubmit,
+		PromptID:      l.open,
+		Prompt:        text,
+	})
+}
+
 // waiting writes Notification when dashi waits for the person.
 func (l *turnEventLog) waiting(kind, message string) error {
 	if l == nil {
@@ -216,11 +237,15 @@ func (l *turnEventLog) writeLocked(e turnEvent) error {
 	e.LastAssistantMessage = capText(e.LastAssistantMessage)
 	e.ErrorMessage = capText(e.ErrorMessage)
 	e.Message = capText(e.Message)
-	line, err := json.Marshal(e)
-	if err != nil {
+	// Without HTML escaping, <, > and & keep one byte each, so a capped
+	// field stays near its cap once encoded. The encoder adds the newline.
+	var line bytes.Buffer
+	enc := json.NewEncoder(&line)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(e); err != nil {
 		return err
 	}
-	if _, err := l.f.Write(append(line, '\n')); err != nil {
+	if _, err := l.f.Write(line.Bytes()); err != nil {
 		return err
 	}
 	return l.f.Sync()

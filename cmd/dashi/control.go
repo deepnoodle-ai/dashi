@@ -386,7 +386,7 @@ func (c *Controller) warnPause(feature string) {
 func (c *Controller) askUI(ctx context.Context, q Question, task string) (workspace.Answer, error) {
 	c.setMode(ModeApproval)
 	defer c.endDialog()
-	if w := c.turnEvents.failure(c.turnEvents.waiting(notificationElicitationDialog, "Dashi has a question for you")); w != "" {
+	if w := c.turnEvents.failure(c.turnEvents.waiting(notificationPermissionPrompt, "Dashi has a question for you")); w != "" {
 		c.emit(warnBlock("%s", w))
 	}
 	original := q.Choices
@@ -629,6 +629,10 @@ func (c *Controller) steer(line string) {
 	}
 	if err := c.eng.Steer(line, urgent); err != nil {
 		c.emit(warnBlock("The input %q was not sent: %v.", line, err))
+		return
+	}
+	if w := c.turnEvents.failure(c.turnEvents.steered(line)); w != "" {
+		c.emit(warnBlock("%s", w))
 	}
 }
 
