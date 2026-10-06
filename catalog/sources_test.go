@@ -337,6 +337,7 @@ var claimSources = []claimSource{
 // "reasoning.effort supports" line. The page URL is derived from the ID.
 var openAIEfforts = map[string][]string{
 	"gpt-6-astra":   {"low", "medium", "high", "xhigh", "max"},
+	"gpt-6.1-sol":   {"low", "medium", "high", "xhigh", "max"},
 	"gpt-6-sol":     {"none", "low", "medium", "high", "xhigh", "max"},
 	"gpt-6-luna":    {"none", "low", "medium", "high", "xhigh", "max"},
 	"gpt-5.6":       {"none", "low", "medium", "high", "xhigh", "max"},
@@ -430,6 +431,7 @@ var outputLimitSources = []outputLimitSource{
 // states. gpt-5-codex-mini has no model page, so it has no limit.
 var openAIOutputLimits = map[string]int{
 	"gpt-6-astra":              128_000,
+	"gpt-6.1-sol":              128_000,
 	"gpt-6-sol":                128_000,
 	"gpt-6-luna":               128_000,
 	"gpt-5.6":                  128_000,
@@ -551,6 +553,7 @@ var contextWindowSources = []contextWindowSource{
 // states. gpt-5-codex-mini has no model page, so it has no window.
 var openAIContextWindows = map[string]int{
 	"gpt-6-astra":              1_050_000,
+	"gpt-6.1-sol":              1_050_000,
 	"gpt-6-sol":                1_050_000,
 	"gpt-6-luna":               1_050_000,
 	"gpt-5.6":                  1_050_000,
@@ -935,6 +938,7 @@ var (
 	// The o-series entries have no price sheet.
 	openAIReasoningPriced = []string{
 		"gpt-6-astra",
+		"gpt-6.1-sol",
 		"gpt-6-sol",
 		"gpt-6-luna",
 		"gpt-5.6",

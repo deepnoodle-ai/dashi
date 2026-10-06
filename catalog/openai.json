@@ -72,6 +72,62 @@
       }
     },
     {
+      "model": "gpt-6.1-sol",
+      "apis": [
+        "openai.responses"
+      ],
+      "note": "Standard tier. Cache reads are 5% of input, not the 10% of other GPT-5.6 and later models. Above 272K input tokens, input, cache read, and cache write rates double and output is 1.5x.",
+      "qualified_at": "2026-10-05",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "reasoning_effort": "supported",
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1050000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "cache_ttls": [
+          "30m"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-10-05",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": "2",
+          "output": "10",
+          "cache_read": "0.1",
+          "cache_write": "2.5"
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": "4",
+              "output": "15",
+              "cache_read": "0.2",
+              "cache_write": "5"
+            }
+          }
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
+      }
+    },
+    {
       "model": "gpt-6-sol",
       "apis": [
         "openai.responses"

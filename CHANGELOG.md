@@ -14,6 +14,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   $10 per 1,000 web searches. Temperature is marked unsupported and tool
   choice is left unknown, because the model rejects non-default sampling and
   forced tool choice.
+- **`gpt-6.1-sol` in the model catalog,** with its 1.05M context window,
+  128K output limit, `low` to `max` effort ladder, 30-minute prompt cache, and
+  prices: $2 input, $10 output, $0.10 cache read, and $2.50 cache write per
+  MTok, doubling input and cache rates and raising output to $15 above 272K
+  input tokens. Its cache reads cost 5% of input, half the rate of other
+  GPT-5.6 and later models. Codex uses this model, so its calls are now
+  priced.
 
 ### Changed
 
