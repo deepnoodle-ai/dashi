@@ -34,6 +34,8 @@ type Env struct {
 	Approve ApprovalFunc
 	// Ask asks the user a question in the model's name.
 	Ask AskFunc
+	// Decide runs the decide features; nil when every feature is off.
+	Decide *decideRuntime
 }
 
 // adapters lists the features that plug into the runner. To wire a feature,
@@ -42,6 +44,7 @@ var adapters = []func(Env) (wiring, error){
 	resourceWiring,
 	workspaceWiring,
 	mcpWiring,
+	decideWiring,
 }
 
 // The approval and question types come from the coding tools package, so a

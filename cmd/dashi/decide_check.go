@@ -31,12 +31,17 @@ const decidePauseFor = time.Minute
 // feature is on.
 type decideRuntime struct {
 	settings decideSettings
-	risk     toolcheck.CommandRisk
+	// client is the decide client every feature uses.
+	client *decide.Client
+	risk   toolcheck.CommandRisk
 	// wait bounds each check; decideWait outside tests.
 	wait time.Duration
 	// warn shows one warning to the user.
 	warn func(string)
-	now  func() time.Time
+	// outage is told about an outage of the prompt-injection check, so a
+	// UI with no status area can say once that results go unchecked.
+	outage func(feature string)
+	now    func() time.Time
 
 	// provider is the provider the checks use, such as "typesafe".
 	provider string
@@ -46,6 +51,10 @@ type decideRuntime struct {
 
 	mu     sync.Mutex
 	totals decideTotals
+	// commands, results, and watch count each feature's checks.
+	commands decideCheckCounts
+	results  decideCheckCounts
+	watch    decideWatchCounts
 	// model is the decision model that last answered.
 	model string
 	// asked reports that a check was attempted.
@@ -56,16 +65,30 @@ type decideRuntime struct {
 	paused map[string]decidePause
 }
 
-// decideTotals are this run's decide counts.
+// decideTotals are this run's decide requests and tokens, for every
+// feature together.
 type decideTotals struct {
 	// Requests counts the checks sent to the provider.
 	Requests     int `json:"requests"`
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
-	// Checked counts the calls the provider answered, Flagged the answers
-	// that flagged, and Unchecked the calls decide could not answer.
+}
+
+// decideCheckCounts are one check's counts this run: Checked counts the
+// calls or results the provider answered, Flagged the answers that
+// flagged, and Unchecked the ones decide could not answer.
+type decideCheckCounts struct {
 	Checked   int `json:"checked"`
 	Flagged   int `json:"flagged"`
+	Unchecked int `json:"unchecked"`
+}
+
+// decideWatchCounts are the turn watcher's counts this run: Checked counts
+// the checks the provider answered, Reminded the reminders the agent got,
+// and Unchecked the checks decide could not answer.
+type decideWatchCounts struct {
+	Checked   int `json:"checked"`
+	Reminded  int `json:"reminded"`
 	Unchecked int `json:"unchecked"`
 }
 
@@ -142,15 +165,20 @@ func newDecideRuntime(s decideSettings, setup decideSetup) *decideRuntime {
 	}
 	rt := &decideRuntime{
 		settings: s, wait: decideWait, now: time.Now, paused: map[string]decidePause{},
-		provider: setup.Provider, off: offReason(setup),
+		provider: setup.Provider, off: offReason(setup), client: setup.Client,
 	}
 	rt.risk = toolcheck.CommandRisk{Client: setup.Client, Timeout: decideWait}
 	return rt
 }
 
+// runs reports whether feature is on and its checks can run.
+func (rt *decideRuntime) runs(feature string) bool {
+	return rt != nil && rt.off == "" && rt.settings.enabled(feature)
+}
+
 // checksCommands reports whether the command-risk check is on and can run.
 func (rt *decideRuntime) checksCommands() bool {
-	return rt != nil && rt.off == "" && rt.settings.enabled(decideCommandRisk)
+	return rt.runs(decideCommandRisk)
 }
 
 // decideResult is what the command-risk check found for one call.
@@ -233,49 +261,52 @@ func (rt *decideRuntime) check(ctx context.Context, plan dashi.ToolPlan) decideR
 	rctx, cancel := context.WithTimeout(ctx, rt.wait)
 	defer cancel()
 	v, err := rt.risk.Check(rctx, plan)
-	r, warning := rt.record(ctx, v, err)
+	canceled := ctx.Err() != nil && errors.Is(err, context.Canceled)
+	r, warning := rt.record(decideCommandRisk, &rt.commands, canceled, v, err)
 	if warning != "" && rt.warn != nil {
 		rt.warn(warning)
 	}
 	return r
 }
 
-// record turns a verdict or error into a result and updates the totals,
-// the provider state, and the pauses. warning is a warning to show once.
-func (rt *decideRuntime) record(ctx context.Context, v toolcheck.Verdict, err error) (r decideResult, warning string) {
+// record turns a toolcheck verdict or error for feature into a result and
+// updates counts, the totals, the provider state, and the pauses. canceled
+// is set when the check stopped because nobody needs it any more, such as
+// a person who answered first. warning is a warning to show once.
+func (rt *decideRuntime) record(feature string, counts *decideCheckCounts, canceled bool, v toolcheck.Verdict, err error) (r decideResult, warning string) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	rt.asked = true
 	if err == nil {
 		rt.totals.Requests++
-		rt.totals.Checked++
 		rt.totals.InputTokens += v.Usage.InputTokens
 		rt.totals.OutputTokens += v.Usage.OutputTokens
+		counts.Checked++
 		if v.Flagged {
-			rt.totals.Flagged++
+			counts.Flagged++
 		}
 		rt.model = v.Model
-		delete(rt.paused, decideCommandRisk)
+		delete(rt.paused, feature)
 		return decideResult{
 			Checked: true, Flagged: v.Flagged, Severe: v.Probabilities["severe"],
 			Model: v.Model, Request: v.RequestID,
 		}, ""
 	}
-	if ctx.Err() != nil && errors.Is(err, context.Canceled) {
+	if canceled {
 		rt.totals.Requests++
 		return decideResult{AnsweredFirst: true}, ""
 	}
 	r = decideResult{Cause: decideCause(err), Outage: toolcheck.IsOutage(err)}
-	rt.totals.Unchecked++
+	counts.Unchecked++
 	paused, isPause := errors.AsType[*toolcheck.PausedError](err)
 	if !isPause {
 		rt.totals.Requests++
 	}
 	switch {
 	case isPause:
-		rt.paused[decideCommandRisk] = decidePause{Until: paused.Until, Cause: r.Cause}
+		rt.paused[feature] = decidePause{Until: paused.Until, Cause: r.Cause}
 	case r.Outage:
-		rt.paused[decideCommandRisk] = decidePause{Until: rt.now().Add(decidePauseFor), Cause: r.Cause}
+		rt.paused[feature] = decidePause{Until: rt.now().Add(decidePauseFor), Cause: r.Cause}
 		if r.Cause == "error" && !rt.warned {
 			// An outage with no known kind: say what it was, once.
 			rt.warned = true
@@ -363,11 +394,11 @@ func (rt *decideRuntime) status() string {
 	return "decide: " + strings.Join(parts, "; ")
 }
 
-// pausedUntil returns when the command-risk pause ends, if one is on.
-func (rt *decideRuntime) pausedUntil() (time.Time, string, bool) {
+// pausedUntil returns when the pause of feature ends, if one is on.
+func (rt *decideRuntime) pausedUntil(feature string) (time.Time, string, bool) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	p, ok := rt.paused[decideCommandRisk]
+	p, ok := rt.paused[feature]
 	return p.Until, p.Cause, ok
 }
 
@@ -597,6 +628,15 @@ type decideInspection struct {
 	Unchecked  string `json:"bypass_unchecked,omitempty"`
 	Provider   string `json:"provider"`
 	decideTotals
+	// Counts holds this run's counts of each feature that is on.
+	Counts decideFeatureCounts `json:"counts"`
+}
+
+// decideFeatureCounts holds the counts of the features that are on.
+type decideFeatureCounts struct {
+	CommandRisk     *decideCheckCounts `json:"command_risk,omitempty"`
+	PromptInjection *decideCheckCounts `json:"prompt_injection,omitempty"`
+	TurnWatcher     *decideWatchCounts `json:"turn_watcher,omitempty"`
 }
 
 // decideFeatureState is one feature in /settings.
@@ -611,12 +651,19 @@ type decideFeatureState struct {
 	Available bool `json:"available"`
 }
 
+// decideScopes says what each feature reads, for /settings.
+var decideScopes = map[string]string{
+	decideCommandRisk:     "shell commands only",
+	decidePromptInjection: "MCP results, and the output of gh, curl, wget, and http commands",
+	decideTurnWatcher:     "a turn's repeated calls",
+}
+
 // inspectDecide builds the decide section of /settings.
 func (c *Controller) inspectDecide() *decideInspection {
 	s := c.decideOn
 	view := &decideInspection{
 		Features:         map[string]decideFeatureState{},
-		CommandRiskScope: "shell commands only",
+		CommandRiskScope: decideScopes[decideCommandRisk],
 		BypassMode:       c.approveAll,
 		Provider:         "not used yet",
 	}
@@ -640,6 +687,18 @@ func (c *Controller) inspectDecide() *decideInspection {
 		view.Provider = rt.providerState()
 		rt.mu.Lock()
 		view.decideTotals = rt.totals
+		if s.enabled(decideCommandRisk) {
+			counts := rt.commands
+			view.Counts.CommandRisk = &counts
+		}
+		if s.enabled(decidePromptInjection) {
+			counts := rt.results
+			view.Counts.PromptInjection = &counts
+		}
+		if s.enabled(decideTurnWatcher) {
+			counts := rt.watch
+			view.Counts.TurnWatcher = &counts
+		}
 		rt.mu.Unlock()
 	}
 	return view
@@ -660,8 +719,8 @@ func writeDecideInspection(text *strings.Builder, view decideInspection) {
 			value = "off (" + workspace.PrintableText(state.Source) + ")"
 		}
 		fmt.Fprintf(text, "\n  %s: %s", f, value)
-		if f == decideCommandRisk {
-			fmt.Fprintf(text, "; %s", view.CommandRiskScope)
+		if scope := decideScopes[f]; scope != "" && (state.On || f == decideCommandRisk) {
+			fmt.Fprintf(text, "; %s", scope)
 		}
 	}
 	if view.Unchecked != "" {
@@ -669,7 +728,16 @@ func writeDecideInspection(text *strings.Builder, view decideInspection) {
 	}
 	fmt.Fprintf(text, "\n  provider: %s", view.Provider)
 	t := view.decideTotals
-	fmt.Fprintf(text, "\n  this run: %d %s, %s input and %s output tokens, %d checked, %d flagged, %d unchecked",
-		t.Requests, plural(t.Requests, "request"), groupDigits(t.InputTokens), groupDigits(t.OutputTokens),
-		t.Checked, t.Flagged, t.Unchecked)
+	fmt.Fprintf(text, "\n  this run: %d %s, %s input and %s output tokens",
+		t.Requests, plural(t.Requests, "request"), groupDigits(t.InputTokens), groupDigits(t.OutputTokens))
+	if c := view.Counts.CommandRisk; c != nil {
+		fmt.Fprintf(text, "\n    command_risk: %d checked, %d flagged, %d unchecked", c.Checked, c.Flagged, c.Unchecked)
+	}
+	if c := view.Counts.PromptInjection; c != nil {
+		fmt.Fprintf(text, "\n    prompt_injection: %d checked, %d flagged, %d unchecked", c.Checked, c.Flagged, c.Unchecked)
+	}
+	if c := view.Counts.TurnWatcher; c != nil {
+		fmt.Fprintf(text, "\n    turn_watcher: %d checked, %d %s, %d unchecked",
+			c.Checked, c.Reminded, plural(c.Reminded, "reminder"), c.Unchecked)
+	}
 }

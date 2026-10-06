@@ -77,6 +77,18 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		invocation, _ = os.Getwd()
 	}
 	mcp := newMCPRuntime(cfg.Dir, selectMCP(home, cfg.Dir, invocation, cfg.MCPFiles, os.ReadFile, os.LookupEnv))
+	setup := cfg.DecideSetup
+	if cfg.decideClient != nil {
+		setup = decideSetup{Setup: defaultclient.Setup{Provider: defaultclient.ProviderTypeSafe, Client: cfg.decideClient}}
+	}
+	rt := newDecideRuntime(cfg.Decide, setup)
+	if rt != nil {
+		rt.warn = func(text string) { ctrl.emit(warnBlock("%s", text)) }
+		rt.outage = func(feature string) { ctrl.warnPause(feature) }
+		if cfg.decideWait > 0 {
+			rt.wait, rt.risk.Timeout = cfg.decideWait, cfg.decideWait
+		}
+	}
 	w, err := buildWiring(Env{
 		Dir:       cfg.Dir,
 		Resources: resources,
@@ -91,6 +103,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		Ask: func(ctx context.Context, q Question) (workspace.Answer, error) {
 			return ctrl.Ask(ctx, q)
 		},
+		Decide: rt,
 	})
 	if err != nil {
 		return nil, err
@@ -126,17 +139,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 	ctrl = NewController(ctx, eng, ui, cfg.Store, cfg.Dir)
 	ctrl.approveAll = cfg.ApproveAll
 	ctrl.decideOn = cfg.Decide
-	setup := cfg.DecideSetup
-	if cfg.decideClient != nil {
-		setup = decideSetup{Setup: defaultclient.Setup{Provider: defaultclient.ProviderTypeSafe, Client: cfg.decideClient}}
-	}
-	if rt := newDecideRuntime(cfg.Decide, setup); rt != nil {
-		rt.warn = func(text string) { ctrl.emit(warnBlock("%s", text)) }
-		if cfg.decideWait > 0 {
-			rt.wait, rt.risk.Timeout = cfg.decideWait, cfg.decideWait
-		}
-		ctrl.decide = rt
-	}
+	ctrl.decide = rt
 	eng.taskWake = ctrl.scheduleTaskNotices
 	if cfg.Preferences != nil {
 		cfg.Preferences.ask = ctrl.Ask

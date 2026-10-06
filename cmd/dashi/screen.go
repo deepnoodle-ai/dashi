@@ -1050,31 +1050,27 @@ func toolView(b Block) tui.View {
 	}
 	head := tui.Group(append(views, state)...)
 	offset := len(toolHeadSource(b)) + 1
-	var check tui.View
-	if text := b.Decide.line(b.State); text != "" {
-		t := tui.Text("%s", text).Wrap()
-		if b.Decide.Flagged {
-			t = t.Fg(tui.ColorYellow)
-		} else {
-			t = t.Style(mutedStyle)
+	var checks []tui.View
+	for _, mark := range []*decideMark{b.Decide, b.DecideResult} {
+		if text := mark.line(b.State); text != "" {
+			t := tui.Text("%s", text).Wrap()
+			if mark.Flagged {
+				t = t.Fg(tui.ColorYellow)
+			} else {
+				t = t.Style(mutedStyle)
+			}
+			checks = append(checks, tui.PaddingLTRB(6, 0, 0, 0, t))
 		}
-		check = tui.PaddingLTRB(6, 0, 0, 0, t)
 	}
 	if b.Expanded && b.Detail != "" {
-		views = []tui.View{head}
-		if check != nil {
-			views = append(views, check)
-		}
+		views = append([]tui.View{head}, checks...)
 		return tui.Stack(append(views, tui.PaddingLTRB(6, 0, 0, 0,
 			tui.Text("%s", b.Detail).SourceOffset(offset).Wrap().Style(mutedStyle)))...).Gap(0)
 	}
-	if len(b.Lines) == 0 && check == nil {
+	if len(b.Lines) == 0 && len(checks) == 0 {
 		return head
 	}
-	views = []tui.View{head}
-	if check != nil {
-		views = append(views, check)
-	}
+	views = append([]tui.View{head}, checks...)
 	for _, l := range b.Lines {
 		views = append(views, tui.PaddingLTRB(6, 0, 0, 0,
 			tui.Text("%s", l).SourceOffset(offset).Wrap().Style(mutedStyle)))

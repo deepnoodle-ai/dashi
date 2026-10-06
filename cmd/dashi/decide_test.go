@@ -377,10 +377,10 @@ func TestResolveDecide(t *testing.T) {
 		})
 	}
 	var w bytes.Buffer
-	warnDecideSettings(&w, decideSettings{On: []string{decideTurnWatcher}},
+	warnDecideSettings(&w, decideSettings{On: []string{decideSelectiveCompaction}},
 		preferenceFile{Source: "/repo/.dashi/settings.json", Project: true, Decide: json.RawMessage(`[]`)})
 	mustHave(t, w.String(), `/repo/.dashi/settings.json: "decide" is ignored in a project settings file`)
-	mustHave(t, w.String(), "turn_watcher is not available in this version")
+	mustHave(t, w.String(), "selective_compaction is not available in this version")
 }
 
 // --decide with an unknown name is a command-line error that lists the
@@ -390,7 +390,7 @@ func TestDecideFlagValidation(t *testing.T) {
 	started := false
 	app := newApp(&stdout, &stderr, func(Options) error { started = true; return nil })
 	err := app.ExecuteContext(t.Context(), []string{"--decide", "nope"})
-	if err == nil || started || !strings.Contains(err.Error(), "use command_risk, or off (prompt_injection, turn_watcher, selective_compaction come in a later release)") {
+	if err == nil || started || !strings.Contains(err.Error(), "use command_risk, prompt_injection, turn_watcher, or off (selective_compaction comes in a later release)") {
 		t.Fatalf("err = %v, started = %v", err, started)
 	}
 	var got Options
@@ -418,12 +418,13 @@ func TestDecideSettingsSection(t *testing.T) {
 		"turn_watcher: off (--decide)",
 		"bypass mode: write_file, edit_file, and MCP calls run without a prompt or a check",
 		"provider: ready: typesafe jev-1.13.0",
-		"this run: 1 request, 120 input and 2 output tokens, 1 checked, 0 flagged, 0 unchecked",
+		"this run: 1 request, 120 input and 2 output tokens\n    command_risk: 1 checked, 0 flagged, 0 unchecked",
+		"prompt_injection: off (--decide)\n",
 	} {
 		mustHave(t, text.String(), want)
 	}
 	raw := string(mustJSON(t, settingsInspection{Decide: view}))
-	for _, want := range []string{`"decide":{`, `"command_risk":{"on":true`, `"provider":"ready: typesafe jev-1.13.0"`, `"input_tokens":120`, `"checked":1`} {
+	for _, want := range []string{`"decide":{`, `"command_risk":{"on":true`, `"provider":"ready: typesafe jev-1.13.0"`, `"input_tokens":120`, `"counts":{"command_risk":{"checked":1,"flagged":0,"unchecked":0}}`} {
 		mustHave(t, raw, want)
 	}
 }

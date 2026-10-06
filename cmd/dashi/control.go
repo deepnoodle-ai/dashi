@@ -98,10 +98,10 @@ type Controller struct {
 	autoTaskDelivery bool
 	// knownNames caches command names for highlighting in the composer.
 	knownNames commandNameCache
-	// decideWarned is the end of the last pause warned about; a pause
+	// decideWarned is the end of the last pause warned about, by feature; a pause
 	// that starts before it ends gets no second warning.
 	decideMu     sync.Mutex
-	decideWarned time.Time
+	decideWarned map[string]time.Time
 }
 
 // NewController returns a controller. base ends every run when it is done.
@@ -262,8 +262,8 @@ func (c *Controller) approveBypass(ctx context.Context, r ApprovalRequest) (Appr
 	}
 	slot.set(result)
 	if !result.holds() {
-		if result.Outage && !c.isScreen() {
-			c.warnPause()
+		if result.Outage {
+			c.warnPause(decideCommandRisk)
 		}
 		return Approval{Allow: true}, nil
 	}
@@ -312,22 +312,34 @@ func (c *Controller) isScreen() bool {
 	return ok
 }
 
-// warnPause says once per pause, where there is no status area, that
-// commands run unchecked.
-func (c *Controller) warnPause() {
-	until, cause, ok := c.decide.pausedUntil()
+// pausedWhat says what goes unchecked while a feature is paused.
+var pausedWhat = map[string]string{
+	decideCommandRisk:     "shell commands run unchecked",
+	decidePromptInjection: "tool results reach the agent unchecked",
+}
+
+// warnPause says once per pause of feature, where there is no status area,
+// what goes unchecked and until when.
+func (c *Controller) warnPause(feature string) {
+	if c.isScreen() {
+		return
+	}
+	until, cause, ok := c.decide.pausedUntil(feature)
 	if !ok {
 		return
 	}
 	c.decideMu.Lock()
-	seen := c.decideWarned.After(time.Now())
+	seen := c.decideWarned[feature].After(time.Now())
 	if !seen {
-		c.decideWarned = until
+		if c.decideWarned == nil {
+			c.decideWarned = map[string]time.Time{}
+		}
+		c.decideWarned[feature] = until
 	}
 	c.decideMu.Unlock()
 	if !seen {
-		c.emit(warnBlock("decide: command_risk paused (%s); shell commands run unchecked until %s.",
-			cause, until.Format(time.TimeOnly)))
+		c.emit(warnBlock("decide: %s paused (%s); %s until %s.",
+			feature, cause, pausedWhat[feature], until.Format(time.TimeOnly)))
 	}
 }
 
