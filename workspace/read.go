@@ -23,7 +23,7 @@ type readArgs struct {
 }
 
 func newReadFile(s *scope) (tool.Tool, error) {
-	return tool.Func(
+	return closedWorld(tool.Func(
 		ToolReadFile,
 		"Read a text file. Each line starts with its line number and a tab. "+
 			"Use offset and limit to read part of a long file. "+
@@ -32,7 +32,7 @@ func newReadFile(s *scope) (tool.Tool, error) {
 			return readFile(s, in)
 		},
 		tool.ReadOnly(),
-	)
+	))
 }
 
 func readFile(s *scope, in readArgs) (tool.Outcome, error) {
@@ -101,7 +101,7 @@ type listArgs struct {
 }
 
 func newListDirectory(s *scope) (tool.Tool, error) {
-	return tool.Func(
+	return closedWorld(tool.Func(
 		ToolListDirectory,
 		"List the entries of one directory. A name that ends with / is a directory.",
 		func(_ context.Context, _ tool.Call, in listArgs) (tool.Outcome, error) {
@@ -131,5 +131,5 @@ func newListDirectory(s *scope) (tool.Tool, error) {
 			return tool.Succeeded(strings.Join(names, "\n")), nil
 		},
 		tool.ReadOnly(),
-	)
+	))
 }

@@ -128,13 +128,6 @@ func (w *Workspace) Tools(opts ...Option) tool.List {
 		if slices.Contains(cfg.without, t.Definition.Name) {
 			continue
 		}
-		if t.Definition.Name != ToolBash {
-			// The file tools act on the workspace and ask_user on the
-			// user, a closed set. A check on outside content, such as
-			// decide/toolcheck, then leaves their results local. bash can
-			// reach anywhere, so its hint stays unset.
-			t.Definition.Annotations.OpenWorld = new(false)
-		}
 		w.register(t)
 		list = append(list, t)
 	}
@@ -172,6 +165,15 @@ func hash(def tool.Definition) string {
 func mutating(t tool.Tool) tool.Tool {
 	t.Definition.Annotations.ReadOnly = new(false)
 	return t
+}
+
+// closedWorld marks a tool that acts only on the workspace or the user, a
+// closed set, so a check on outside content, such as decide/toolcheck,
+// leaves its results local. Each builder opts in; a new tool, such as one
+// that fetches pages, stays unset and so counts as open-world.
+func closedWorld(t tool.Tool, err error) (tool.Tool, error) {
+	t.Definition.Annotations.OpenWorld = new(false)
+	return t, err
 }
 
 // fail returns a failed outcome that the model reads and can act on.
