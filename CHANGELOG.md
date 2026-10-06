@@ -10,276 +10,70 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- **`dashi --dangerously-skip-permissions`** approves every tool call
-  without asking, in the interactive session and in `dashi run`, for use in
-  an externally sandboxed environment.
+- **`dashi --dangerously-skip-permissions`** approves every tool call without
+  asking, for use in an externally sandboxed environment.
 - **`dashi --compaction-threshold N`** (or `DASHI_COMPACTION_THRESHOLD`)
-  compacts history once a model call uses N tokens, instead of 80% of the
-  model's context window.
-- **`claude-sonnet-5-5` in the model catalog,** with its 1M context window,
-  128K output limit, effort ladder, and prices: $2 input, $10 output, $0.20
-  cache read, $2.50 five-minute and $4 one-hour cache writes per MTok, and
-  $10 per 1,000 web searches. Temperature is marked unsupported and tool
-  choice is left unknown, because the model rejects non-default sampling and
-  forced tool choice.
-- **`gpt-6.1-sol` in the model catalog,** with its 1.05M context window,
-  128K output limit, `low` to `max` effort ladder, 30-minute prompt cache, and
-  prices: $2 input, $10 output, $0.10 cache read, and $2.50 cache write per
-  MTok, doubling input and cache rates and raising output to $15 above 272K
-  input tokens. Its cache reads cost 5% of input, half the rate of other
-  GPT-5.6 and later models. Codex uses this model, so its calls are now
-  priced.
-- **`task_send`: the parent agent can message its tasks.** The new
-  `delegate` tool sends a task a correction while it runs (`deliver: steer`,
-  read before its next model call) or after its current turn (`queue`), and
-  gives an ended task (completed, failed, limited, or stopped) a follow-up as
-  its next turn, with its history. The message is an `agent-message`
-  reminder from `parent` with origin `ContextAgent`; `delegate.Message`,
-  `MessageID`, and `Delivery` describe it. A waiting or `result_unknown` task
-  refuses mail with a tool error, as does a task that `task_stop` is
-  stopping, until it has stopped. `Config.MaxMessages` (default 8 per parent
-  turn and task) and `Config.MaxTaskTurns` bound the cost. Each message is
-  delivered once: the child's record holds its ID (`msg:<turn>/<call>`), a
-  rerun call sends nothing, and `Recover` sends again a message from a
-  finished call that the child lacks, or returns an error that names it. A
-  message whose turn stopped before reading it, or whose next turn the store
-  refused to start, is dropped, counted in `TaskView.UnreadMessages`, and
-  named in the notice; a send never reports success and then vanishes.
-  `Report` counts the child turns a `task_send` call started
-  under the parent turn that sent it.
-- **`message_parent`: a task can message its parent.** Every child gets the
-  tool when `Config.Session` or `Config.OnTask` is set, bound to its task, so the message is an `agent-message` reminder from
-  `task t_k3f2 (explore)` whatever the text says. A steer reaches a busy
-  parent before its next model call; `queue` waits for its turn to end. With
-  `Config.Session`, `Tasks` delivers it; without, `OnTask` gets the new
-  `TaskMessage` event (`TaskEvent.Message`). One child turn wakes an idle
-  parent at most once: its later messages join its notice. `MaxMessages`
-  bounds the messages of one child turn too. Each message is delivered once,
-  across crashes and `Recover`; `DeliveredMessages` reads the IDs a record
-  holds. `Tasks.Wait` and `RunUntilQuiet` wake on messages. A notice of a
-  completed turn says the task takes a follow-up.
-- **The CLI shows messages between the agent and its tasks.** A `task_send`
-  shows as `→ t_k3f2  Skip vendor/`, with `(queued)` for a queue message,
-  and a task's `message_parent` message shows as `← t_k3f2  …` where the
-  agent got it. Each is one line, cut at the terminal edge, and a reopened
-  session shows the same lines. A task's later turns show as `↳ task t_k3f2
-  (explore) turn 2 …`, and `/tasks ID` prints each turn's reply with the
-  messages between them.
-- **`session.State.QueuedUser`** counts the queued items that came from the
-  user, so a host that holds the user's queued input for the next prompt can
-  tell it from a background task's notice or message.
-- **`session.Session.RunQueueUnlessUserQueued`** is `RunQueue` that runs
-  nothing while a user item is queued. A host that holds the user's queued
-  input for the next prompt uses it to wake the session for a task's notice
-  or message. The check and the choice of items happen under one lock, so a
-  user item enqueued at the same time is never taken.
-- **`wait_seconds` on `task`.** The call waits up to 60 seconds for the
-  task's answer or a message from it. `task_status` waits also end on a
-  message. When the message reached the running parent turn, the result says
-  it follows; otherwise the result holds its text.
-- **Decide examples.** `examples/decide` uses a decision model (Jev or Clef,
-  through the Decide library) as a judge inside hooks: a risk gate on tool
-  calls, a prompt-injection screen on tool results, and per-turn tool
-  narrowing. Each runs without API keys by default.
-- **`decide/contextrank` adds the notes and documents each turn needs,**
-  chosen by a decision model. A `Ranker`'s `BeforeModel` hook asks Decide,
-  once per candidate from the host's `Source`, whether it would help answer
-  the latest exchange, and adds the best as contextual reminders under a
-  byte budget, once per turn and never again on resume.
-- **Selective compaction (`decide/selective`), experimental.** A
-  `session.Compactor` that wraps `compaction.Compactor`, asks a decision model
-  through Decide which older segments are still needed, keeps those word for
-  word (or as a short form) with the user's own words, and summarizes only the
-  rest, at the stock size. Any Decide failure falls back to the stock
-  compactor; `OnSelection` reports the choices, Decide usage, request IDs, and
-  models. It may change or be removed after evals on recorded sessions.
-- **`tool.Outcome.Data` carries structured detail about a call for the
-  host.** It is raw JSON that the turn record keeps and the model never sees.
-  Like `Progress.Data`, Data that is not valid JSON or exceeds 64 KiB is
-  dropped, and the step records the new `WarningToolDataDropped`; the call
-  still succeeds. Data describes the result the tool returned, so it is also
-  dropped, with the same warning, when an `AfterTool` hook replaces or
-  withholds the result or `Limits.ToolResultBytes` shortens it. A change the
-  model does not see, such as one to `Output.Display` only, keeps it.
-- **`session.Session.Delivered` drops queued items that the record shows
-  delivered another way,** just before a queue turn, so they start no turn.
+  compacts history at N tokens instead of 80% of the model's window.
+- **`claude-sonnet-5-5` and `gpt-6.1-sol` in the model catalog,** with their
+  windows, effort ladders, and prices, so Codex calls are now priced.
+- **`task_send`** lets the parent agent steer a running task or give an ended
+  task a follow-up turn. Each message is delivered once, across `Recover`.
+- **`message_parent`** lets a task message its parent, as a steer or a queued
+  message. Hosts without a session get it as a `TaskMessage` event.
+- **The CLI shows messages between the agent and its tasks** as `→ t_k3f2`
+  and `← t_k3f2` lines, and `/tasks ID` shows each task turn's reply.
+- **`session.State.QueuedUser` and `Session.RunQueueUnlessUserQueued`** let a
+  host wake a session for a task's message without taking the user's queue.
+- **`wait_seconds` on `task`** waits up to 60 seconds for the task's answer
+  or a message from it.
+- **The `decide` module (Go 1.27)** uses decision models as judges:
+  `contextrank` adds the context each turn needs, `turnwatch` reminds an agent
+  that repeats a failing call, and `listtool` adds `judge_items` and
+  `pick_item`.
+- **Selective compaction (`decide/selective`), experimental,** keeps the
+  older history still needed word for word and summarizes the rest.
+- **Decide examples** in `examples/decide`: a tool risk gate, a
+  prompt-injection screen, and per-turn tool narrowing.
+- **`tool.Outcome.Data`** carries structured JSON about a call for the host;
+  the model never sees it.
+- **`TurnView.Input`** holds the turn's input, so hooks and tools can see what
+  the user asked for.
 - **`ModelDecision` and `ResultDecision` carry `Reason` and `RulesVersion`,**
-  recorded in the hook's `HookResult` as `ToolDecision`'s are, so a
-  `BeforeModel` or `AfterTool` hook can say why it changed something and which
-  rules or decision model decided. The model never sees them. A `BeforeModel`
-  stop with no `Reason` still records `Stop.Reason`. A `BeforeModel` decision
-  that changes nothing but carries a `Reason` or `RulesVersion` is recorded
-  with the new `VerdictNoChange`, so `HookActed` reports that the hook ran.
-- **`TurnView.Input` holds the turn's input,** in record order: `Start.Input`,
-  then user items that `AddMessages` or a steer added later. Items that hooks
-  add are left out. A hook reads it from its plan's `Turn`, and a tool from
-  `dashi.CurrentTurn(ctx)`, to see what the user asked for.
-- **`compaction.IsSummary` reports whether a message is a compaction
-  summary,** from the package's `Compactor` or from `Agent.ActiveCompaction`,
-  so other packages need not match the frame text.
-- **A `decide` module for decision models,** at
-  `github.com/deepnoodle-ai/dashi/decide`. It needs Go 1.27, so the root
-  module and the others stay on Go 1.26. It holds shared internal helpers so
-  far; its packages follow.
-- **`decide/turnwatch` reminds an agent that repeats a failing call.** Its
-  `Watcher.Hook` runs free checks before each model call for a call repeated
-  with the same result, asks Decide to confirm only when one triggers, and
-  adds a short reminder from the watcher, at most `MaxReminders` per turn; a
-  failed check is a `hook_failed` warning.
-- **`decide/listtool`: the `judge_items` and `pick_item` tools** let an agent
-  judge every item of a long host list, or find one item's ID, with a
-  decision model instead of reading the items; see `decide/listtool/example`.
+  recorded like `ToolDecision`'s.
+- **`compaction.IsSummary`** reports whether a message is a compaction
+  summary.
+- **`session.Session.Delivered`** drops queued items that the record shows
+  were delivered another way.
 
 ### Changed
 
-- **Breaking: `session.Compactor.Start` takes a `context.Context`,** and the
-  session calls it without holding its lock, so a slow compactor never blocks
-  `Steer`, `Enqueue`, or `Open`. While it runs, `Steer` and a new `Run` or
-  `Send` on the same handle refuse with a `*TurnBusyError` for the
-  compaction, as they do while the compaction turn runs, so `Start` runs once
-  per compaction turn. `compaction.Compactor.Start` takes the context too; update custom
-  compactors and hosts that call `Start` themselves.
-- **Plain names across the API.** Names now say what they mean, so a new
-  reader does not have to decode them. Recorded values change with the names
-  (step kinds, JSON keys, stop and verdict codes), so turns recorded by an
-  earlier version do not load. The main renames, old → new:
-  - Commands: `Settle` → `Resolve`, `Deliver` → `AddMessages`,
-    `Session.Answer` → `Session.Resolve`, `ApprovalFact` →
-    `ApprovalDecision`, `ContentResolver` → `ContentLoader` (method `Load`).
-  - Results: `Outcome` → `RunResult`, `TurnView.Answer` → `Reply`,
-    `Replay(turn)` → `turn.View()`, `TurnView.Revision` → `LastSeq`,
-    `Stop.Terminal` → `Ended`, `Stop.Projected` → `Inferred`, `uncertain` →
-    `result_unknown`.
-  - Next steps: `NextAnswer` → `NextResolvePending`, `NextResolve` →
-    `NextFix`, `NextResume` → `NextRecover`, `NextRaiseAttempts` →
-    `NextRaiseModelCalls`.
-  - Steps: `model_requested` → `model_call_started`, `model_settled` →
-    `model_call_finished`, `model_reconciled` → `model_call_finished_by_host`,
-    `tool_settled` → `tool_finished`, `approval_settled` →
-    `approval_decided`, `context_delivered` → `messages_added`;
-    `StepStarted`/`Continued`/`Stopped` → `StepTurnStarted`/`Continued`/`Stopped`.
-  - Model calls and cost: "attempt" → "model call" (`Limits.ModelCalls`,
-    `ModelCallID`, `ModelCallCost`, `TurnView.ModelCallCosts`), `AtRisk` →
-    `WorstCaseCost`, `Charge` → `Cost`, `SpendBasis` → `UsageSource`
-    (`reported`/`estimated`/`not_sent`), `llm.FailureDisposition` →
-    `llm.SendStatus`, `Admission` → `Reservation`, `Limits.Interruptions` →
-    `Resumes`, `FitTokens` → `SuggestedMaxOutputTokens`.
-  - Tools: every `Hosted*` name → `ProviderTool*`, `Defer` →
-    `NeedsApproval`, a hook decision's `Revision` → `RulesVersion`.
-    `OutputFromTool`/`OutputFromText` → `OutputSourceToolCall`/`OutputSourceText`.
-  - History and recording: `ProjectContext` → `TurnMessages`, `Project` →
-    `TurnMessagesFull`, `ProjectHistory` → `BuildHistory`,
-    `Session.ProjectedHistory` → `NextHistory`, digest and fingerprint →
-    hash (`HistoryHash`, `ArgsHash`, `RequestHash`, `CommandHash`),
-    `Agent.Revision` → `Agent.Version`, `ErrRevisionConflict` →
-    `ErrStaleTurn`, `ErrCommandConflict` → `ErrCommandIDReused`,
-    `CommitError.Persistence` → `NothingWritten`, `session.Liveness` →
-    `WorkerStatus`, `ModelFact.Origin` → `Endpoint`.
-  - A limited stop's reason is now its `LimitKind` (for example
-    `model_calls`), and every stop-reason code has a constant.
-- **The CLI approval prompt is easier to read.** It shows a one-line title,
-  such as `Allow task?  explore subagent: messaging test wait`, and the
-  choices as highlighted keys: `[y] Allow once  [a] Allow for this Dashi run
-  [n] Deny`. Arguments show as `key: value` lines with multi-line text
-  indented, not as JSON. A long value shows its first lines and `+N more
-  lines`; `e` shows all of it. Shell commands show the command and its
-  directory, and file edits show the diff, without repeating those arguments.
-  Internal turn and call IDs no longer appear in approvals or questions; a
-  prompt from a delegated task names the task. Line mode prints the same
-  layout.
+- **Breaking: plain names across the API,** such as `Settle` → `Resolve` and
+  "attempt" → "model call". Turns recorded by v0.2.0 do not load. #170 lists
+  every rename.
+- **Breaking: `session.Compactor.Start` takes a `context.Context`** and runs
+  without the session lock, so a slow compactor never blocks `Steer`.
+- **Breaking: a new `dashi` command line on Wonton.** `dashi run` replaces
+  `-p`; `dashi models` and `dashi completion` join it. A flag wins over its
+  `DASHI_*` variable.
 - **A `Runner` needs a `Client` only to fill in an agent or call the model.**
-  A Start with an already-closed `WithPause` records a turn without running it
-  and without a `Client` when its agent names its provider, API, and model. A run that
-  would call the model without one fails with "client is required to call the
-  model" before recording anything.
-- **The `dashi` CLI reads more clearly.** `/help` groups commands under
-  headings, lists skills in their own section, marks commands that also work
-  during a turn with `•`, and shows keys in a short aligned list. Secondary
-  text is a lighter gray, and notices such as `/status` output use the normal
-  foreground. The end-of-turn footer is a rule line
-  (`── turn 3 · model · 2 model calls · 12,345 tokens · $0.0421`). The idle
-  "Ask anything" hint is gone; the status line shows "/help lists commands"
-  when it fits. The mouse wheel scrolls three lines per notch, and also
-  scrolls dialog details. In the composer, a draft that starts with a known
-  command, alias, or skill name (such as `/effort` or `/q`) shows that name
-  in bold cyan; a partial or unknown name stays plain.
-- **The CLI shows delegated tasks on their tool lines.** The `task` tool line
-  reads `task  explore · find the parser · t_k3f2`. One status line under it
-  follows the task, such as `⎿  completed · 1 model call · $0.0069 · /task
-  t_k3f2 to inspect`, in the tool line colors. It replaces the separate block
-  that repeated the task ID, description, counts, and raw spend. `/tasks`
-  prints one line per task in the same words, and counts are pluralized.
-- **Breaking: a new `dashi` command line, built on Wonton's `cli` package.**
-  `dashi` starts a session; `-c`/`--continue` reopens the last one here and
-  `-r`/`--resume ID` a named one. `dashi run [PROMPT]` replaces `-p` and owns
-  `-o`/`--output-format`, `--attach`, and `-y`/`--yes`. `dashi models
-  [--available]` and `dashi completion bash|zsh|fish` complete the set. Help
-  is generated per command. `DASHI_PROVIDER`, `DASHI_MODEL`, and the control
-  variables are bound to their flags: a flag wins over its variable, which
-  wins over a reopened session, then workspace and user settings. An empty
-  variable sets nothing. `--env-file` loads after the command line, so it
-  supplies credentials only; a `DASHI_*` line in it draws a warning.
-  With `NO_COLOR` set, text printed to native scrollback is plain.
-  `dashi models` prints one table of destination, model, context, output,
-  reasoning, and status (`ready` or what is missing), with limits such as
-  `200K` and `1M`.
+- **The CLI approval prompt is easier to read:** a one-line title, `key:
+  value` arguments, diffs for edits, and no internal IDs.
+- **The CLI's help, footer, and scrolling read more clearly,** and the
+  composer highlights a known command name.
+- **The CLI shows a delegated task on its `task` tool line,** with one status
+  line under it.
 
 ### Fixed
 
-- **A task's message reaches the agent in the CLI.** The CLI dropped the
-  `TaskMessage` events of `message_parent`, so the agent saw a task's message
-  only if a `task_status` wait returned it. The CLI now passes its session to
-  `delegate` as `Config.Session`, like any client, and `delegate` delivers
-  task results and messages. A result or a steer message that arrives while
-  the agent works reaches its running turn before the next model call; one
-  that arrives while the agent is idle starts a queue turn, unless a `/queue`
-  prompt waits: then the next prompt takes both. A task with a
-  second turn no longer stops task delivery, `/tasks`, and reopening with
-  "child parent differs": only a task's first turn has the `task` call as its
-  parent.
-- **The CLI scrolls up when a mouse selection is dragged to the top row.** In
-  fullscreen mode, holding a selection drag on the transcript's top row now
-  scrolls up and extends the selection, as dragging below the transcript
-  already scrolled down. The transcript starts on the screen's first row, so
-  the terminal could never report the pointer above it. Wonton v0.5.0 now
-  handles this edge row.
-- **A task result no longer shows an empty user line in the CLI.** The turn
-  that a finished task's result starts now opens with `↳ task t_k3f2
-  (explore) completed · result delivered`, live, after a reopen, inline, and
-  in plain output.
-- **A task result the agent read with `task_status` is not sent again.** A
-  `task_status` call that returns a task's final result records the child
-  turn in its outcome's `Data`, and the new `delegate.DeliveredNotices(turns)`
-  counts it as delivery (decision 46). The record is checked just before a
-  notice is delivered: on `Recover`, before a queue turn (the new
-  `Session.Delivered`, which `NewTasks` sets), and by the CLI, which holds
-  notices until the turn ends. So the read starts no extra turn, also after
-  a reopen. A notice that reaches a running turn is not checked, so the
-  model may see a result twice in that turn. If the parent turn is canceled
-  before the read is recorded, the notice goes out on the next turn. Reading
-  a running task or the task list delivers nothing, and the user's `/task`
-  and `/tasks` never count as delivery. A read whose result an `AfterTool`
-  hook changed or the result limit shortened records no `Data`, so it does
-  not count, and the notice still delivers the whole reply.
-- **The CLI no longer says task results wait for a stopped parent while the
-  parent runs.** The line now shows only when the turn really stopped, and
-  says what to do: "Task results will be sent when this turn goes on. Press
-  Enter to continue it, or type a new prompt." It and the pending-prompt line
-  are quiet indented lines.
-- **Task status lines keep their spacing.** Two spaces follow `⎿`, and the
-  space before ` · ` no longer disappears where a status line wraps.
-- **A subagent knows its task ID.** Its instructions end with "Your task ID
-  is t_k3f2.", so it can name itself in its reply.
-- **A mouse selection in the CLI no longer vanishes across a turn.** In
-  fullscreen mode, dragging a selection over a task line or a blank reply
-  used to drop the whole selection. A selection now also copies a tool
-  line's name and argument, and copies a turn footer without its `──`
-  rule, so the copied text matches what is highlighted. Glyphs such as
-  `⏺`, `❯`, `↳`, and `⎿`, and a tool's state, are still left out. With
-  Wonton v0.6.0, copied text has a blank line between blocks, as on
-  screen, each selected row highlights as one continuous band, and a drag
-  that starts or ends on a glyph, rule, or gap row snaps to the nearest
-  text.
+- **A task's message reaches the agent in the CLI;** before, the CLI dropped
+  `message_parent` events.
+- **A task result the agent read with `task_status` is not sent again.**
+- **A mouse selection in the CLI survives across a turn,** and dragging to
+  the top row scrolls up.
+- **A task result no longer shows an empty user line in the CLI.**
+- **The CLI says task results wait only when the parent turn really stopped.**
+- **Task status lines keep their spacing.**
+- **A subagent knows its task ID.**
 
 ## [0.2.0] - 2026-10-01
 
