@@ -40,7 +40,11 @@ type decideRuntime struct {
 	// outage is told about an outage of the prompt-injection check, so a
 	// UI with no status area can say once that results go unchecked.
 	outage func(feature string)
-	now    func() time.Time
+	// watchFailed is told about each failed turn-watcher check, with its
+	// cause, so a UI with no status area can say once per cause that the
+	// watcher could not check.
+	watchFailed func(cause string)
+	now         func() time.Time
 
 	// provider is the provider the checks use, such as "typesafe".
 	provider string

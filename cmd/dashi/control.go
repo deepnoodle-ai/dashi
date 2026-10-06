@@ -102,6 +102,9 @@ type Controller struct {
 	// that starts before it ends gets no second warning.
 	decideMu     sync.Mutex
 	decideWarned map[string]time.Time
+	// watchWarned holds the causes of failed turn-watcher checks already
+	// warned about.
+	watchWarned map[string]bool
 }
 
 // NewController returns a controller. base ends every run when it is done.
@@ -303,6 +306,28 @@ func (c *Controller) bypassRow(plan dashi.ToolPlan, state string) Block {
 		Name:  plan.Call.Name,
 		Arg:   mainArg(plan.Call.Args, c.dir),
 		State: state,
+	}
+}
+
+// warnWatchFailed says once per cause, where there is no status area,
+// that the turn watcher could not check, such as after a revoked key.
+// /settings counts every failure.
+func (c *Controller) warnWatchFailed(cause string) {
+	if c.isScreen() {
+		return
+	}
+	c.decideMu.Lock()
+	seen := c.watchWarned[cause]
+	if !seen {
+		if c.watchWarned == nil {
+			c.watchWarned = map[string]bool{}
+		}
+		c.watchWarned[cause] = true
+	}
+	c.decideMu.Unlock()
+	if !seen {
+		c.emit(warnBlock("decide: turn_watcher could not check (%s), so the agent got no reminder. "+
+			"Later failures of this kind are counted in /settings only.", cause))
 	}
 }
 

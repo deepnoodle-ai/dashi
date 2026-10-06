@@ -85,6 +85,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 	if rt != nil {
 		rt.warn = func(text string) { ctrl.emit(warnBlock("%s", text)) }
 		rt.outage = func(feature string) { ctrl.warnPause(feature) }
+		rt.watchFailed = func(cause string) { ctrl.warnWatchFailed(cause) }
 		if cfg.decideWait > 0 {
 			rt.wait, rt.risk.Timeout = cfg.decideWait, cfg.decideWait
 		}

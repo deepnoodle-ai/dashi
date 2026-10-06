@@ -55,6 +55,9 @@ func (rt *decideRuntime) onInjection(v toolcheck.Verdict, err error) {
 // onWatch counts one turn-watcher check. It runs in the hook, before a
 // model call.
 func (rt *decideRuntime) onWatch(c turnwatch.Check) {
+	if c.Err != nil && !errors.Is(c.Err, context.Canceled) && rt.watchFailed != nil {
+		rt.watchFailed(decideCause(c.Err))
+	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	rt.asked = true

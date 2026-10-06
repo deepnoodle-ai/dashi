@@ -280,19 +280,31 @@ func TestDecideTurnWatcherReminds(t *testing.T) {
 	}
 }
 
-// A watcher check that fails adds no reminder and no warning line; the
-// failure is counted in /settings.
-func TestDecideTurnWatcherFailureIsQuiet(t *testing.T) {
+// A watcher check that fails adds no reminder and no hook warning. Where
+// there is no status area, the first failure of each cause, such as a
+// revoked key, gives one warning; /settings counts every failure.
+func TestDecideTurnWatcherWarnsOncePerCause(t *testing.T) {
 	h, srv := decideFeatureHarness(t, []string{decideTurnWatcher},
 		callTool("c1", "bash", failingCommand),
 		callTool("c2", "bash", failingCommand),
+		callTool("c3", "bash", failingCommand),
+		callTool("c4", "bash", failingCommand),
 		say("Done."))
+	srv.FailNext(http.StatusUnauthorized)
+	srv.FailNext(http.StatusUnauthorized)
 	srv.FailNext(http.StatusInternalServerError)
 	h.input("fix the test")
-	if text := h.ui.text(); strings.Contains(text, "decide") || strings.Contains(text, "hook") {
-		t.Fatalf("the failure showed:\n%s", text)
+	text := h.ui.text()
+	if strings.Contains(text, "hook") || strings.Contains(text, "reminded") {
+		t.Fatalf("the failure showed as a hook warning or reminder:\n%s", text)
 	}
-	if c := h.app.ctrl.inspectDecide().Counts.TurnWatcher; c == nil || c.Unchecked != 1 {
+	if n := strings.Count(text, "decide: turn_watcher could not check (auth failed)"); n != 1 {
+		t.Fatalf("auth warnings = %d; want 1:\n%s", n, text)
+	}
+	if n := strings.Count(text, "decide: turn_watcher could not check (server error)"); n != 1 {
+		t.Fatalf("server warnings = %d; want 1:\n%s", n, text)
+	}
+	if c := h.app.ctrl.inspectDecide().Counts.TurnWatcher; c == nil || c.Unchecked != 3 {
 		t.Fatalf("counts = %+v", c)
 	}
 }
