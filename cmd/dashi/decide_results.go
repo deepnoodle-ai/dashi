@@ -1,11 +1,11 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -113,39 +113,35 @@ func resultMark(results []dashi.HookResult) *decideMark {
 // step's hook results, or false.
 func watchHint(s dashi.Step) (Block, bool) {
 	for i, h := range s.HookResults {
-		if h.Name != turnwatch.Name || h.Verdict != dashi.VerdictChange {
+		r, ok := turnwatch.ReadReminder(h)
+		if !ok {
 			continue
 		}
 		return Block{
 			ID:   fmt.Sprintf("decide:%s:%d:%d", s.TurnID, s.Seq, i),
 			Kind: KindHint,
-			Text: "decide: reminded the agent" + watchAnswer(h.Reason),
+			Text: "decide: reminded the agent" + watchAnswer(r),
 			Done: true,
 		}, true
 	}
 	return Block{}, false
 }
 
-// watchAnswer reads the confirmed question and its probability from a
-// turnwatch Reason, such as "repeating: failed_again: bash, 2 times;
-// repeating 0.88, off_request 0.10 (request r_1)", as " (repeating
-// 88%)". It returns "" for a Reason it cannot read.
-func watchAnswer(reason string) string {
-	key, rest, ok := strings.Cut(reason, ": ")
-	if !ok {
-		return ""
+// watchWords says each turn-watcher question in plain words.
+var watchWords = map[string]string{
+	turnwatch.QuestionRepeating:  "repeating a failed approach",
+	turnwatch.QuestionOffRequest: "drifting from your request",
+}
+
+// watchAnswer is the confirmed question and its probability, such as
+// " (repeating a failed approach, 88%)", or the question alone when the
+// watcher did not ask decide.
+func watchAnswer(r turnwatch.Reminder) string {
+	words := cmp.Or(watchWords[r.Question], strings.ReplaceAll(r.Question, "_", " "))
+	if r.Probability == 0 {
+		return " (" + words + ")"
 	}
-	label := strings.ReplaceAll(key, "_", " ")
-	if i := strings.LastIndex(rest, "; "); i >= 0 {
-		answers, _, _ := strings.Cut(rest[i+2:], " (")
-		for answer := range strings.SplitSeq(answers, ", ") {
-			number, found := strings.CutPrefix(answer, key+" ")
-			if p, err := strconv.ParseFloat(number, 64); found && err == nil {
-				return " (" + label + " " + percent(p) + ")"
-			}
-		}
-	}
-	return " (" + label + ")"
+	return " (" + words + ", " + percent(r.Probability) + ")"
 }
 
 // decideHooks are the hooks whose failures the CLI shows itself, as a row
@@ -176,7 +172,7 @@ func decideStepCounts(steps []dashi.Step) (checked, flagged, unchecked, reminded
 				}
 				continue
 			}
-			if h.Name == turnwatch.Name && h.Verdict == dashi.VerdictChange {
+			if _, ok := turnwatch.ReadReminder(h); ok {
 				reminded++
 			}
 		}

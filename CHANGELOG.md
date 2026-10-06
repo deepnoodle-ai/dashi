@@ -31,6 +31,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   answers. Missing credentials or an unknown `DECIDE_PROVIDER` give one
   warning at start and turn the checks off; `dashi run --yes` refuses to
   start instead.
+- **`turnwatch.ReadReminder`** reads a reminder the watcher recorded: the
+  confirmed question (`turnwatch.QuestionRepeating` or
+  `QuestionOffRequest`), its probability, and the trigger, so a host need
+  not parse the recorded reason.
 - **`dashi --decide prompt_injection,turn_watcher`.** `prompt_injection`
   warns the agent about an MCP result, or `gh`, `curl`, `wget`, or `http`
   output, that likely tries to take it over; the row shows the warning, and

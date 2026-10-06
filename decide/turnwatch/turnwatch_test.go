@@ -199,6 +199,12 @@ func TestRepeatedFailureReminds(t *testing.T) {
 	if r.Verdict != dashi.VerdictChange || r.Reason != want || r.RulesVersion != "jev-1.13.0" {
 		t.Fatalf("hook result = %+v", r)
 	}
+	// A host reads the record back without parsing it.
+	if got, ok := turnwatch.ReadReminder(r); !ok || got != (turnwatch.Reminder{
+		Question: turnwatch.QuestionRepeating, Probability: 0.95, Trigger: turnwatch.TriggerFailedAgain,
+	}) {
+		t.Fatalf("ReadReminder = %+v, %v", got, ok)
+	}
 
 	all := seen.all()
 	if len(all) != 1 {
@@ -290,6 +296,11 @@ func TestSameCallAndCheckEvery(t *testing.T) {
 	if len(srv.Requests()) != 1 || len(results) != 1 ||
 		!strings.HasPrefix(results[0].Reason, "off_request: same_call: read_file, 3 times;") {
 		t.Fatalf("%d requests, results %+v", len(srv.Requests()), results)
+	}
+	if got, ok := turnwatch.ReadReminder(results[0]); !ok || got != (turnwatch.Reminder{
+		Question: turnwatch.QuestionOffRequest, Probability: 0.9, Trigger: turnwatch.TriggerSameCall,
+	}) {
+		t.Fatalf("ReadReminder = %+v, %v", got, ok)
 	}
 	got := reminders(model.Inputs()[3])
 	if len(got) != 1 || !strings.HasPrefix(got[0].Content, "Your recent calls may have moved") {
@@ -469,6 +480,11 @@ func TestHeuristicOnly(t *testing.T) {
 	if len(results) != 1 || results[0].Reason != "repeating: failed_again: run_tests, 2 times" ||
 		results[0].RulesVersion != "" {
 		t.Fatalf("hook results = %+v", results)
+	}
+	if got, ok := turnwatch.ReadReminder(results[0]); !ok || got != (turnwatch.Reminder{
+		Question: turnwatch.QuestionRepeating, Trigger: turnwatch.TriggerFailedAgain,
+	}) {
+		t.Fatalf("ReadReminder = %+v, %v", got, ok)
 	}
 	got := reminders(model.Inputs()[3])
 	if len(got) != 1 || !strings.HasPrefix(got[0].Content, "A call you made keeps failing") {

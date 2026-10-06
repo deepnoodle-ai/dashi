@@ -116,10 +116,15 @@ type Check struct {
 	Err error
 }
 
-// Question keys, which name the confirmed key in the record's Reason.
+// Question names, the keys of Check.Answers and the words of a reminder's
+// recorded Reason.
 const (
-	keyRepeating  = "repeating"
-	keyOffRequest = "off_request"
+	// QuestionRepeating asks whether the agent repeats an approach that
+	// already failed.
+	QuestionRepeating = "repeating"
+	// QuestionOffRequest asks whether the recent calls moved away from the
+	// user's request.
+	QuestionOffRequest = "off_request"
 )
 
 // reminderText returns the fixed text for a confirmed key and the trigger
@@ -128,7 +133,7 @@ const (
 // the call fails. Only this text reaches the agent; tool text can move the
 // probabilities but never the words.
 func reminderText(key string, trigger Trigger) string {
-	if key == keyOffRequest {
+	if key == QuestionOffRequest {
 		return "Your recent calls may have moved away from the user's " +
 			"request. Re-read the request and check that your next call works " +
 			"toward it."
@@ -191,7 +196,7 @@ func (w *Watcher) check(
 		Trigger:    trigger,
 		Action:     ActionNone,
 	}
-	key, reason := keyRepeating, detail
+	key, reason := QuestionRepeating, detail
 	if !heuristic {
 		resp, err := w.ask(ctx, p)
 		if resp != nil {
@@ -209,7 +214,7 @@ func (w *Watcher) check(
 		}
 		key = w.confirmed(probs)
 		reason = fmt.Sprintf("%s; repeating %.2f, off_request %.2f (request %s)",
-			detail, probs[keyRepeating], probs[keyOffRequest], resp.RequestID)
+			detail, probs[QuestionRepeating], probs[QuestionOffRequest], resp.RequestID)
 	}
 	if key == "" || limit < 0 {
 		w.report(c)
@@ -235,7 +240,7 @@ func (w *Watcher) report(c Check) {
 // confirmed returns the key whose P(yes) clears the floor, preferring
 // "repeating", or "" when neither does.
 func (w *Watcher) confirmed(probs map[string]float64) string {
-	for _, key := range []string{keyRepeating, keyOffRequest} {
+	for _, key := range []string{QuestionRepeating, QuestionOffRequest} {
 		p := probs[key]
 		if w.MinProbability == 0 && p > 0.5 ||
 			w.MinProbability > 0 && p >= w.MinProbability {

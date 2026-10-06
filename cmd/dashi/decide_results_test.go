@@ -12,6 +12,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/decide/toolcheck"
+	"github.com/deepnoodle-ai/dashi/decide/turnwatch"
 	"github.com/deepnoodle-ai/dashi/tool"
 	"github.com/deepnoodle-ai/decide"
 	"github.com/deepnoodle-ai/decide/decidetest"
@@ -259,7 +260,7 @@ func TestDecideTurnWatcherReminds(t *testing.T) {
 		!strings.Contains(item.Message.Content[0].Reminder.Content, "keeps failing in the same way") {
 		t.Fatalf("reminder = %+v, %v", item, ok)
 	}
-	const line = "decide: reminded the agent (repeating 88%)"
+	const line = "decide: reminded the agent (repeating a failed approach, 88%)"
 	text := h.ui.text()
 	mustHave(t, text, line)
 	mustHave(t, text, "decide 1 reminder")
@@ -313,17 +314,19 @@ func TestDecideSetupErrorAddsNoHooks(t *testing.T) {
 	}
 }
 
-// watchAnswer reads the confirmed question and probability, and falls
-// back to the question alone.
+// watchAnswer says the confirmed question in plain words, with its
+// probability when decide was asked.
 func TestDecideWatchAnswer(t *testing.T) {
-	for reason, want := range map[string]string{
-		"repeating: failed_again: bash, 2 times; repeating 0.88, off_request 0.10 (request r_1)":  " (repeating 88%)",
-		"off_request: check_every: 4 model calls; repeating 0.20, off_request 0.71 (request r_2)": " (off request 71%)",
-		"repeating: same_call: grep, 4 times":                                                     " (repeating)",
-		"":                                                                                        "",
+	for _, tc := range []struct {
+		r    turnwatch.Reminder
+		want string
+	}{
+		{turnwatch.Reminder{Question: turnwatch.QuestionRepeating, Probability: 0.88}, " (repeating a failed approach, 88%)"},
+		{turnwatch.Reminder{Question: turnwatch.QuestionOffRequest, Probability: 0.71}, " (drifting from your request, 71%)"},
+		{turnwatch.Reminder{Question: turnwatch.QuestionRepeating}, " (repeating a failed approach)"},
 	} {
-		if got := watchAnswer(reason); got != want {
-			t.Errorf("watchAnswer(%q) = %q; want %q", reason, got, want)
+		if got := watchAnswer(tc.r); got != tc.want {
+			t.Errorf("watchAnswer(%+v) = %q; want %q", tc.r, got, tc.want)
 		}
 	}
 }
