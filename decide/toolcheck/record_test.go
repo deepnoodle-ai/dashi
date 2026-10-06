@@ -37,6 +37,9 @@ func TestReadResultRecord(t *testing.T) {
 			f.srv.Answer("hidden", decidetest.NoulAnswer(0.01))
 		}, toolcheck.ResultRecord{Checked: true, Partial: true, Warned: true, Model: "jev-1.13.0", RequestID: "req_1",
 			Probabilities: map[string]float64{toolcheck.QuestionInjection: 0.04, toolcheck.QuestionHidden: 0.01}}},
+		{"rate limited", attack, func(f *fixture) {
+			f.srv.FailNext(http.StatusTooManyRequests)
+		}, toolcheck.ResultRecord{Warned: true, Cause: toolcheck.CauseRateLimited}},
 		{"outage", attack, func(f *fixture) {
 			f.srv.FailNext(http.StatusInternalServerError)
 		}, toolcheck.ResultRecord{Cause: toolcheck.CauseServerError}},

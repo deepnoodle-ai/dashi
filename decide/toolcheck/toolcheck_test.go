@@ -516,6 +516,30 @@ func TestInvalidAnswerShowsInTheHookRecord(t *testing.T) {
 	}
 }
 
+// A failure the input can cause, such as a timeout, still lets the result
+// through at once, but the model first reads that it was not checked.
+func TestPromptInjectionHookNotesAnUncheckedResult(t *testing.T) {
+	f := newFixture(t)
+	f.srv.SetLatency(200 * time.Millisecond)
+	check := toolcheck.PromptInjection{Client: f.client, Timeout: 10 * time.Millisecond}
+	out, _ := run(t, tool.List{fetchTool(attack)}, check.Hooks(),
+		dashitest.CallTool("call-1", "fetch_page", `{}`),
+		dashitest.Reply("done"),
+	)
+	blocks := out.Tools["call-1"].Result().Output.Content
+	if len(blocks) != 2 || !strings.HasPrefix(blocks[0].Text.Text, "decide could not check this tool result") ||
+		blocks[1].Text.Text != attack {
+		t.Fatalf("model saw %+v", blocks)
+	}
+	results := hookResults(out, toolcheck.PromptInjectionName)
+	if len(results) != 1 || results[0].Verdict != dashi.VerdictReplace || results[0].Reason != "unchecked: timeout" {
+		t.Fatalf("hook results = %+v", results)
+	}
+	if len(warnings(out)) != 0 {
+		t.Fatalf("warnings = %q", warnings(out))
+	}
+}
+
 // An outage pauses the check for a minute, for every config sharing the
 // client; each skip returns a *PausedError, and the check asks again after.
 func TestOutagePausesForAMinute(t *testing.T) {
