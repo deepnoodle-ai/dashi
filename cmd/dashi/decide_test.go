@@ -574,6 +574,74 @@ func TestDecideBypassChecksOutsideTheQueue(t *testing.T) {
 	}
 }
 
+// The same holds through the real workspace policy, wired as the CLI wires
+// it: the policy does not hold its lock across a check, so two bash checks
+// reach decide at once, and a write_file call runs while they wait.
+func TestDecideBypassChecksRunConcurrentlyThroughThePolicy(t *testing.T) {
+	h, srv := decideHarness(t, Options{Yes: true})
+	var mu sync.Mutex
+	arrived := 0
+	bothIn, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	free := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(free)
+	srv.Respond(func(*decide.Request) (*decide.Response, error) {
+		mu.Lock()
+		if arrived++; arrived == 2 {
+			close(bothIn)
+		}
+		mu.Unlock()
+		<-release
+		return &decide.Response{Model: "jev-test", RequestID: "r",
+			Answers: map[string]decide.Answer{"severe": &decide.NoulAnswer{Noul: 0.02}}}, nil
+	})
+	w, err := workspaceWiring(Env{Dir: t.TempDir(), Approve: h.app.ctrl.Approve})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := attributeToolHooks(w.Hooks).BeforeTool[0].Func
+	entries, err := w.Tools.Tools(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := func(id, name string, args map[string]string) dashi.ToolPlan {
+		raw, _ := json.Marshal(args)
+		for _, e := range entries {
+			if e.Definition.Name == name {
+				return dashi.ToolPlan{Call: tool.Call{ID: id, Name: name, Args: raw}, Definition: e.Definition}
+			}
+		}
+		t.Fatalf("no tool %s", name)
+		return dashi.ToolPlan{}
+	}
+	decisions := make(chan dashi.ToolDecision, 2)
+	for _, id := range []string{"c1", "c2"} {
+		p := plan(id, "bash", map[string]string{"command": "echo " + id})
+		go func() {
+			d, err := before(t.Context(), p)
+			if err != nil {
+				t.Error(err)
+			}
+			decisions <- d
+		}()
+	}
+	select {
+	case <-bothIn:
+	case <-time.After(time.Second):
+		t.Fatal("the second check waited behind the first")
+	}
+	write, err := before(t.Context(), plan("c3", "write_file", map[string]string{"path": "a.txt", "content": "a"}))
+	free()
+	if err != nil || write.Kind != dashi.DecisionAllow {
+		t.Fatalf("write_file = %+v, %v", write, err)
+	}
+	for range 2 {
+		if d := <-decisions; d.Kind != dashi.DecisionAllow {
+			t.Fatalf("bash decision = %+v; want allowed after a quick check", d)
+		}
+	}
+}
+
 // A delegated task's shell command gets the same check in bypass mode: a
 // flagged command asks, names its task, and offers allow once and deny
 // only.

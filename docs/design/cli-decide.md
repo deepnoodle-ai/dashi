@@ -111,7 +111,9 @@ BeforeTool: attributeToolHooks wrapper (already exists)
 plan is an owned tool), so an MCP tool named `bash` is never treated as a
 shell. In bypass mode the check runs in `Controller.Approve`, before the
 call enters the approval queue, which shows one prompt at a time; only a
-held call enters it. By mode:
+held call enters it. The CLI builds the workspace policy with
+`workspace.AskConcurrently()`, so the policy does not hold its lock across
+the check, and other calls never wait behind one. By mode:
 
 | Mode | When the check runs | Flagged | Not flagged | Suspect failure | Outage or paused |
 | --- | --- | --- | --- | --- | --- |

@@ -359,3 +359,113 @@ func TestPolicyHooksHoldOneBeforeToolHook(t *testing.T) {
 		t.Fatalf("hooks = %+v", h)
 	}
 }
+
+// With AskConcurrently, asks for different calls overlap: both reach ask
+// before either answers.
+func TestPolicyAskConcurrentlyOverlapsAsks(t *testing.T) {
+	f := newPolicyFixture(t)
+	var mu sync.Mutex
+	arrived := 0
+	bothIn, release := make(chan struct{}), make(chan struct{})
+	p := f.ws.Policy(func(context.Context, ApprovalRequest) (Approval, error) {
+		mu.Lock()
+		if arrived++; arrived == 2 {
+			close(bothIn)
+		}
+		mu.Unlock()
+		<-release
+		return Approval{Allow: true}, nil
+	}, AskConcurrently())
+	var wg sync.WaitGroup
+	for _, cmd := range []string{"ls", "pwd"} {
+		wg.Go(func() {
+			p.decide(context.Background(), f.plan(t, ToolBash, map[string]any{"command": cmd}))
+		})
+	}
+	select {
+	case <-bothIn:
+	case <-time.After(time.Second):
+		t.Error("the second ask waited behind the first")
+	}
+	close(release)
+	wg.Wait()
+}
+
+// With AskConcurrently, calls under one rule key still wait for each other,
+// so an allow the first call remembers covers the call behind it.
+func TestPolicyAskConcurrentlyKeepsRememberedRules(t *testing.T) {
+	f := newPolicyFixture(t)
+	var mu sync.Mutex
+	asks := 0
+	entered, release := make(chan struct{}), make(chan struct{})
+	p := f.ws.Policy(func(context.Context, ApprovalRequest) (Approval, error) {
+		mu.Lock()
+		asks++
+		first := asks == 1
+		mu.Unlock()
+		if first {
+			close(entered)
+			<-release
+		}
+		return Approval{Allow: true, Remember: true}, nil
+	}, AskConcurrently())
+	plan := f.plan(t, ToolBash, map[string]any{"command": "ls"})
+	decisions := make(chan dashi.ToolDecision, 2)
+	go func() {
+		d, _ := p.decide(context.Background(), plan)
+		decisions <- d
+	}()
+	<-entered
+	go func() {
+		d, _ := p.decide(context.Background(), plan)
+		decisions <- d
+	}()
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	for range 2 {
+		if d := <-decisions; d.Kind != dashi.DecisionAllow {
+			t.Fatalf("decision = %+v", d)
+		}
+	}
+	if asks != 1 {
+		t.Fatalf("asked %d times; want 1", asks)
+	}
+}
+
+// A call that waits behind another ask under its rule key honors ctx, and
+// an ask that fails frees the key for the next call.
+func TestPolicyAskConcurrentlyWaitHonorsContext(t *testing.T) {
+	f := newPolicyFixture(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	p := f.ws.Policy(func(ctx context.Context, _ ApprovalRequest) (Approval, error) {
+		first := false
+		once.Do(func() { first = true })
+		if first {
+			close(entered)
+			<-release
+			return Approval{}, errors.New("no terminal")
+		}
+		return Approval{Allow: true}, nil
+	}, AskConcurrently())
+	plan := f.plan(t, ToolBash, map[string]any{"command": "ls"})
+	failed := make(chan error, 1)
+	go func() {
+		_, err := p.decide(context.Background(), plan)
+		failed <- err
+	}()
+	<-entered
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := p.decide(ctx, plan); !errors.Is(err, context.Canceled) {
+		t.Fatalf("waiting call err = %v; want context.Canceled", err)
+	}
+	close(release)
+	if err := <-failed; err == nil {
+		t.Fatal("the failed ask returned no error")
+	}
+	d, err := p.decide(context.Background(), plan)
+	if err != nil || d.Kind != dashi.DecisionAllow {
+		t.Fatalf("after a failed ask: %+v, %v", d, err)
+	}
+}
