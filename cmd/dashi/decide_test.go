@@ -484,32 +484,29 @@ func TestDecideSetupErrorTurnsChecksOff(t *testing.T) {
 	}
 }
 
-// A setup error warns once at startup and names the variables to set;
-// dashi run --yes with command_risk on refuses to start instead.
+// A setup error turns the checks off with one warning that names the
+// variables to set; an unattended run with approveAll and command_risk on
+// refuses to start instead.
 func TestLoadDecideSetup(t *testing.T) {
 	noKey := func() (defaultclient.Setup, error) {
 		return defaultclient.Setup{Provider: "typesafe"}, fmt.Errorf("decide: no credentials: set TYPESAFE_API_KEY: %w %w",
 			defaultclient.ErrSetup, decide.ErrNoAPIKey)
 	}
 	on := decideSettings{On: []string{decideCommandRisk}, Source: "--decide"}
-	for _, o := range []Options{{}, {Yes: true}, {Run: true}} {
-		var w bytes.Buffer
-		setup, err := loadDecideSetup(on, o, &w, noKey)
+	for _, c := range []struct{ unattended, approveAll bool }{{false, false}, {false, true}, {true, false}} {
+		setup, err := loadDecideSetup(on, c.unattended, c.approveAll, noKey)
 		if err != nil || offReason(setup) != "no credentials" {
-			t.Fatalf("%+v: setup = %+v, %v", o, setup, err)
+			t.Fatalf("%+v: setup = %+v, %v", c, setup, err)
 		}
-		if got := w.String(); strings.Count(got, "\n") != 1 ||
-			!strings.HasPrefix(got, "dashi: warning: decide checks are off for this run: no credentials: set TYPESAFE_API_KEY") {
-			t.Fatalf("%+v: warning = %q", o, got)
+		if got := setup.warning(); !strings.HasPrefix(got, "decide checks are off for this run: no credentials: set TYPESAFE_API_KEY") {
+			t.Fatalf("%+v: warning = %q", c, got)
 		}
 	}
-	var w bytes.Buffer
-	_, err := loadDecideSetup(on, Options{Run: true, Yes: true}, &w, noKey)
-	if err == nil || !strings.Contains(err.Error(), "TYPESAFE_API_KEY") || w.Len() != 0 {
-		t.Fatalf("run --yes: err = %v, warning = %q", err, w.String())
+	if _, err := loadDecideSetup(on, true, true, noKey); err == nil || !strings.Contains(err.Error(), "TYPESAFE_API_KEY") {
+		t.Fatalf("run --yes: err = %v", err)
 	}
 	loaded := false
-	if _, err := loadDecideSetup(decideSettings{}, Options{}, &w, func() (defaultclient.Setup, error) {
+	if _, err := loadDecideSetup(decideSettings{}, true, true, func() (defaultclient.Setup, error) {
 		loaded = true
 		return defaultclient.Setup{}, nil
 	}); err != nil || loaded {

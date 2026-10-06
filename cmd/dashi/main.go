@@ -139,6 +139,9 @@ func runLines(
 	if notice != "" {
 		fmt.Fprintln(stdout, workspace.PrintableText(notice))
 	}
+	if w := cfg.DecideSetup.warning(); w != "" {
+		a.ctrl.emit(warnBlock("%s", w))
+	}
 	a.ctrl.Open()
 	ui.SetLive()
 	startupCtx, cancelStartup := context.WithCancel(ctx)
@@ -233,6 +236,9 @@ func runScreen(
 	if notice != "" {
 		scr.Emit(Block{Kind: KindNotice, Text: notice, Done: true})
 	}
+	if w := cfg.DecideSetup.warning(); w != "" {
+		scr.Emit(warnBlock("%s", w))
+	}
 	a.ctrl.Open()
 	var inline *inlineScreen
 	if o.Inline {
@@ -287,9 +293,14 @@ func loadCLIConfig(o Options, home, dir, invocation string, stdin io.Reader, std
 		return appConfig{}, err
 	}
 	warnDecideSettings(stderr, decideOn, project)
-	decideReady, err := loadDecideSetup(decideOn, o, stderr, defaultclient.Load)
+	unattended := automationOneShot(o, stdin)
+	decideReady, err := loadDecideSetup(decideOn, unattended, o.Yes, defaultclient.Load)
 	if err != nil {
 		return appConfig{}, err
+	}
+	if w := decideReady.warning(); w != "" && unattended {
+		// An interactive session shows it in the transcript instead.
+		fmt.Fprintf(stderr, "dashi: warning: %s\n", w)
 	}
 	store := sessionstore.NewStore(filepath.Join(home, ".dashi", "sessions"))
 	reopened, err := loadReopenedPreferences(store, dir, o)

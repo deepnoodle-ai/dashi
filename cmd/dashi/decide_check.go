@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"net"
 	"slices"
@@ -86,11 +85,12 @@ type decideSetup struct {
 }
 
 // loadDecideSetup loads the default decide client when a feature is on,
-// before the first turn and without a request. A setup error warns once
-// on w. It stops the launch instead for dashi run --yes with command_risk
-// on: nobody watches that output, and the user asked for the guard. load
-// is defaultclient.Load outside tests.
-func loadDecideSetup(s decideSettings, o Options, w io.Writer, load func() (defaultclient.Setup, error)) (decideSetup, error) {
+// before the first turn and without a request. unattended is set for a
+// run nobody watches, such as dashi run. A setup error turns every check
+// off; with approveAll and command_risk on in an unattended run, it stops
+// the launch instead, since nobody would read a warning and the user asked
+// for the guard. load is defaultclient.Load outside tests.
+func loadDecideSetup(s decideSettings, unattended, approveAll bool, load func() (defaultclient.Setup, error)) (decideSetup, error) {
 	if !s.any() {
 		return decideSetup{}, nil
 	}
@@ -98,13 +98,19 @@ func loadDecideSetup(s decideSettings, o Options, w io.Writer, load func() (defa
 	if err == nil {
 		return decideSetup{Setup: setup}, nil
 	}
-	text := setupErrorText(err)
-	if o.Run && o.Yes && s.enabled(decideCommandRisk) {
+	if unattended && approveAll && s.enabled(decideCommandRisk) {
 		return decideSetup{}, fmt.Errorf("decide command_risk is on, but its checks cannot run: %s. "+
-			"Set the variable, or turn the check off with --decide off", text)
+			"Set the variable, or turn the check off with --decide off", setupErrorText(err))
 	}
-	fmt.Fprintf(w, "dashi: warning: decide checks are off for this run: %s.\n", text)
 	return decideSetup{Setup: setup, Err: err}, nil
+}
+
+// warning is the one warning a setup error gives, or empty.
+func (s decideSetup) warning() string {
+	if s.Err == nil {
+		return ""
+	}
+	return "decide checks are off for this run: " + setupErrorText(s.Err) + "."
 }
 
 // setupErrorText is a setup error as a person reads it, without the
