@@ -381,7 +381,7 @@ func TestResolveDecide(t *testing.T) {
 	warnDecideSettings(&w, decideSettings{On: []string{decideSelectiveCompaction}},
 		preferenceFile{Source: "/repo/.dashi/settings.json", Project: true, Decide: json.RawMessage(`[]`)})
 	mustHave(t, w.String(), `/repo/.dashi/settings.json: "decide" is ignored in a project settings file`)
-	mustHave(t, w.String(), "selective_compaction is not available in this version; it stays off. "+
+	mustHave(t, w.String(), "selective_compaction is not available; it stays off. "+
 		"On recorded sessions it kept no more needed details than keeping the newest messages; see https://")
 }
 

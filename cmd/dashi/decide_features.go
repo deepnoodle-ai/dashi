@@ -24,7 +24,7 @@ var decideFeatureNames = []string{
 	decideCommandRisk, decidePromptInjection, decideTurnWatcher, decideSelectiveCompaction,
 }
 
-// decideFeaturesBuilt are the features this version of the CLI runs. A
+// decideFeaturesBuilt are the features the CLI runs. A
 // feature that is named but not built stays off, with a warning.
 var decideFeaturesBuilt = []string{decideCommandRisk, decidePromptInjection, decideTurnWatcher}
 
@@ -34,7 +34,7 @@ var decideNotBuiltReasons = map[string]string{
 		"the newest messages; see https://github.com/deepnoodle-ai/dashi/blob/main/docs/dev/selective-compaction-eval.md",
 }
 
-// notBuiltFeatures names the features this version accepts but does not run.
+// notBuiltFeatures names the features the CLI accepts but does not run.
 func notBuiltFeatures() string {
 	var names []string
 	for _, f := range decideFeatureNames {
@@ -55,7 +55,7 @@ const decideOff = "off"
 // from. The highest source present replaces the lower ones, so one source
 // covers the whole list.
 type decideSettings struct {
-	// On holds the features turned on, including ones this version does
+	// On holds the features turned on, including ones the CLI does
 	// not build.
 	On []string
 	// Source is "--decide", "DASHI_DECIDE", the user settings file, or
@@ -139,7 +139,7 @@ func resolveDecide(flagValue string, flagSet bool, envValue string, envSet bool,
 }
 
 // warnDecideSettings warns about a "decide" key in the project settings
-// file, which is ignored, and about features this version does not build.
+// file, which is ignored, and about features the CLI does not build.
 func warnDecideSettings(w io.Writer, s decideSettings, project preferenceFile) {
 	if len(project.Decide) != 0 {
 		fmt.Fprintf(w, "dashi: warning: %s: \"decide\" is ignored in a project settings file, "+
@@ -148,7 +148,7 @@ func warnDecideSettings(w io.Writer, s decideSettings, project preferenceFile) {
 	}
 	for _, f := range s.On {
 		if !slices.Contains(decideFeaturesBuilt, f) {
-			fmt.Fprintf(w, "dashi: warning: the decide feature %s is not available in this version; it stays off.", f)
+			fmt.Fprintf(w, "dashi: warning: the decide feature %s is not available; it stays off.", f)
 			if reason := decideNotBuiltReasons[f]; reason != "" {
 				fmt.Fprintf(w, " %s", reason)
 			}
