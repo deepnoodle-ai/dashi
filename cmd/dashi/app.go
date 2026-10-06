@@ -86,6 +86,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		rt.warn = func(text string) { ctrl.emit(warnBlock("%s", text)) }
 		rt.outage = func(feature string) { ctrl.warnPause(feature) }
 		rt.watchFailed = func(cause string) { ctrl.warnWatchFailed(cause) }
+		rt.showRow = func(b Block) { emitToUI(ui, b) }
 		if cfg.decideWait > 0 {
 			rt.wait, rt.risk.Timeout = cfg.decideWait, cfg.decideWait
 		}
@@ -126,8 +127,11 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 		MCP:                 mcp,
 		ModelCalls:          cfg.ModelCalls,
 		CompactionThreshold: cfg.CompactionThreshold,
-		Emit:                func(b Block) { emitToUI(ui, b) },
-		ParentStopped:       cfg.parentStopped,
+		Emit: func(b Block) {
+			rt.noteRow(b)
+			emitToUI(ui, b)
+		},
+		ParentStopped: cfg.parentStopped,
 		Receipt: func(in *submittedInput, r inputReceipt) {
 			if u, ok := ui.(attachmentUI); ok {
 				u.AttachmentReceipt(in, r)

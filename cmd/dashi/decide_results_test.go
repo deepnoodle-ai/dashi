@@ -120,6 +120,40 @@ func TestDecidePromptInjectionPassShowsATick(t *testing.T) {
 	}
 }
 
+// While decide checks a result, its row reads "decide: checking result…",
+// keeping the command check's tick; the finished row then replaces it.
+func TestDecideResultCheckShowsOnTheRow(t *testing.T) {
+	h, srv := decideFeatureHarness(t, []string{decideCommandRisk, decidePromptInjection},
+		callTool("c1", "bash", fetchCommand), say("Done."))
+	srv.Answer("severe", decidetest.NoulAnswer(0.02))
+	srv.Answer("injection", decidetest.NoulAnswer(0.04))
+	srv.Answer("hidden", decidetest.NoulAnswer(0.01))
+	h.input("read the docs page")
+	h.ui.mu.Lock()
+	log := append([]Block(nil), h.ui.log...)
+	h.ui.mu.Unlock()
+	checking, finished := -1, -1
+	for i, b := range log {
+		if b.ID != "t:c1" {
+			continue
+		}
+		switch {
+		case b.State == StateCheckingResult:
+			checking = i
+			if text := FormatBlock(b); !strings.Contains(text, "decide: checking result…") ||
+				!strings.Contains(text, "decide ✓ command") {
+				t.Fatalf("checking row = %q", text)
+			}
+		case b.Done:
+			finished = i
+		}
+	}
+	if checking < 0 || finished < checking {
+		t.Fatalf("checking row at %d, finished row at %d", checking, finished)
+	}
+	mustHave(t, h.ui.text(), "decide ✓ command, result")
+}
+
 // The check reads only what toolcheck reads: a bash result whose command
 // does not fetch, the workspace file tools, a skill's supporting file, and
 // the task tools, which return a subagent's own text, are never sent.

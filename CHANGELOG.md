@@ -19,7 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   have broken the check, such as by a timeout, the model reads that the
   result was not checked and is untrusted; the result is never held.
   `toolcheck.ReadResultRecord` reads a record back from the turn, and
-  `toolcheck.CauseOf` names why a check could not answer.
+  `toolcheck.CauseOf` names why a check could not answer, and `OnStart`
+  tells a host that a result waits for its check.
 - **`dashi --decide command_risk`** (or `DASHI_DECIDE`, or `"decide":
   ["command_risk"]` in `~/.dashi/settings.json`) checks each shell command
   with a decision model before it runs. The prompt shows the answer, a

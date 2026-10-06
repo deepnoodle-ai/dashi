@@ -11,6 +11,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/decide/toolcheck"
 	"github.com/deepnoodle-ai/dashi/decide/turnwatch"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // This file wires the two decide features that work through library
@@ -31,13 +32,48 @@ func decideWiring(env Env) (wiring, error) {
 func (rt *decideRuntime) hooks() dashi.Hooks {
 	var sets []dashi.HookSet
 	if rt.runs(decidePromptInjection) {
-		sets = append(sets, toolcheck.PromptInjection{Client: rt.client, OnCheck: rt.onInjection}.Hooks())
+		sets = append(sets, toolcheck.PromptInjection{
+			Client: rt.client, OnStart: rt.onInjectionStart, OnCheck: rt.onInjection,
+		}.Hooks())
 	}
 	if rt.runs(decideTurnWatcher) {
 		w := &turnwatch.Watcher{Client: rt.client, OnCheck: rt.onWatch}
 		sets = append(sets, w.Hook())
 	}
 	return dashi.JoinHooks(sets...)
+}
+
+// noteRow keeps the latest row of each running tool call, so a result
+// check can show its state on it. It is called with every block the
+// engine emits.
+func (rt *decideRuntime) noteRow(b Block) {
+	if !rt.runs(decidePromptInjection) || b.Kind != KindTool || !strings.HasPrefix(b.ID, "t:") {
+		return
+	}
+	rt.rowMu.Lock()
+	defer rt.rowMu.Unlock()
+	if b.Done {
+		delete(rt.rows, b.ID)
+		return
+	}
+	if rt.rows == nil {
+		rt.rows = map[string]Block{}
+	}
+	rt.rows[b.ID] = b
+}
+
+// onInjectionStart shows "decide: checking result…" on the row of a call
+// whose result waits for the check. The finished row replaces it. A call
+// with no row of its own, such as a delegated task's, shows nothing.
+func (rt *decideRuntime) onInjectionStart(call tool.Call) {
+	rt.rowMu.Lock()
+	b, ok := rt.rows["t:"+call.ID]
+	rt.rowMu.Unlock()
+	if !ok || rt.showRow == nil {
+		return
+	}
+	b.State = StateCheckingResult
+	rt.showRow(b)
 }
 
 // onInjection counts one prompt-injection check. It runs in the hook,

@@ -776,13 +776,23 @@ func TestPromptInjectionPassLeavesTheResult(t *testing.T) {
 	f := newFixture(t)
 	f.srv.Answer("injection", decidetest.NoulAnswer(0.03))
 	f.srv.Answer("hidden", decidetest.NoulAnswer(0.02))
+	var started []string
+	onStart := func(c tool.Call) {
+		if f.requests() != 0 {
+			t.Error("OnStart came after the request")
+		}
+		started = append(started, c.ID)
+	}
 	out, _ := run(t, tool.List{fetchTool(page)},
-		toolcheck.PromptInjection{Client: f.client}.Hooks(),
+		toolcheck.PromptInjection{Client: f.client, OnStart: onStart}.Hooks(),
 		dashitest.CallTool("call-1", "fetch_page", `{}`),
 		dashitest.Reply("done"),
 	)
 	if got := resultText(out.Tools["call-1"].Result()); got != page {
 		t.Fatalf("model saw %q", got)
+	}
+	if len(started) != 1 || started[0] != "call-1" {
+		t.Fatalf("OnStart saw %q", started)
 	}
 	results := hookResults(out, toolcheck.PromptInjectionName)
 	if len(results) != 1 || results[0].Verdict != dashi.VerdictNoChange ||

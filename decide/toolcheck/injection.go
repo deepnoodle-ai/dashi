@@ -13,6 +13,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 	"github.com/deepnoodle-ai/decide"
 )
 
@@ -59,6 +60,11 @@ type PromptInjection struct {
 	// Timeout bounds each check. Zero means 20 seconds. A timeout skips the
 	// check but never pauses it.
 	Timeout time.Duration
+	// OnStart, if set, is called when a check of a result starts, before
+	// its request is sent, so a host can show that the result waits for
+	// the check. It is not called for a result the check does not read.
+	// It may be called from many turns at once.
+	OnStart func(tool.Call)
 	// OnCheck, if set, sees every request's verdict, or its error, from
 	// Check and from the hook. It is not called for a result the check
 	// does not read. It may be called from many turns at once.
@@ -75,6 +81,9 @@ func (c PromptInjection) Check(ctx context.Context, p dashi.ResultPlan) (Verdict
 	text, ok := c.reads(p)
 	if !ok {
 		return v, nil
+	}
+	if c.OnStart != nil {
+		c.OnStart(p.Call.Clone())
 	}
 	a, err := ask(ctx, c.Client, "prompt-injection",
 		cmp.Or(c.Timeout, defaultContentTimeout),

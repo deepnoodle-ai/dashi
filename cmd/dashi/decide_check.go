@@ -44,7 +44,15 @@ type decideRuntime struct {
 	// cause, so a UI with no status area can say once per cause that the
 	// watcher could not check.
 	watchFailed func(cause string)
-	now         func() time.Time
+	// showRow shows a tool row again, such as one whose result waits for
+	// the prompt-injection check.
+	showRow func(Block)
+	now     func() time.Time
+
+	// rowMu guards rows: the latest row of each running tool call, by
+	// block ID, so a result check can show its state on the row.
+	rowMu sync.Mutex
+	rows  map[string]Block
 
 	// provider is the provider the checks use, such as "typesafe".
 	provider string

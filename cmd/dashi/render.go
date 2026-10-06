@@ -60,6 +60,9 @@ const (
 	// Neither has started.
 	StateChecking      = "checking"
 	StateWaitingForYou = "waiting for you"
+	// StateCheckingResult is a call that finished while decide checks its
+	// result, before the model reads it.
+	StateCheckingResult = "checking result"
 )
 
 // Steer line states.
@@ -812,7 +815,9 @@ func formatTool(b Block) string {
 	case StateRunning:
 		right = "..."
 	case StateChecking:
-		right = "decide: checking…"
+		right = "decide: checking command…"
+	case StateCheckingResult:
+		right = "decide: checking result…"
 	}
 	if tick := decideTicks(b); tick != "" {
 		right += "  " + tick
