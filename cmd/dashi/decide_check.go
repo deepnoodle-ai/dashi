@@ -654,7 +654,7 @@ type decideFeatureState struct {
 // decideScopes says what each feature reads, for /settings.
 var decideScopes = map[string]string{
 	decideCommandRisk:     "shell commands only",
-	decidePromptInjection: "MCP results, and the output of gh, curl, wget, and http commands",
+	decidePromptInjection: "MCP results, and gh, curl, wget, http output",
 	decideTurnWatcher:     "a turn's repeated calls",
 }
 
@@ -668,8 +668,10 @@ func (c *Controller) inspectDecide() *decideInspection {
 		Provider:         "not used yet",
 	}
 	if c.approveAll {
-		view.Unchecked = "write_file, edit_file, and MCP calls run without a prompt or a check; " +
-			"while a check is paused, shell commands run unchecked too"
+		view.Unchecked = "write_file, edit_file, and MCP calls run without a prompt or a check"
+		if s.enabled(decideCommandRisk) {
+			view.Unchecked += "; while a check is paused, shell commands run unchecked too"
+		}
 	}
 	for _, f := range decideFeatureNames {
 		state := decideFeatureState{
