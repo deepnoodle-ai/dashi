@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,7 +16,8 @@ import (
 )
 
 // A recorded session folder gives one case per turn end in the size
-// limits, with a window the history fills to caseFill.
+// limits, with a window the history fills to caseFill. Both are measured
+// without reasoning, which no arm receives.
 func TestRecordedCases(t *testing.T) {
 	ctx := context.Background()
 	folder := filepath.Join(t.TempDir(), "20261006-000000-abc123")
@@ -31,7 +33,15 @@ func TestRecordedCases(t *testing.T) {
 		"The build failed with code ZX-9917 in pkg/zeta/gen.go.\n" + strings.Repeat(filler, 4),
 		"Now fix it.",
 	} {
-		runner := dashi.Runner{Client: dashitest.NewClient(dashitest.Reply("ok")), Recorder: rec}
+		reply := dashitest.Reply("ok")
+		if n == 0 {
+			// About 100,000 tokens of reasoning: with it, turn 1 would be
+			// over maxCaseTokens.
+			thought := llm.Content{Kind: llm.ContentReasoning,
+				Reasoning: &llm.Reasoning{Text: strings.Repeat("thinking about the build\n", 16_000)}}
+			reply.Message.Content = append([]llm.Content{thought}, reply.Message.Content...)
+		}
+		runner := dashi.Runner{Client: dashitest.NewClient(reply), Recorder: rec}
 		_, err := runner.Run(ctx, dashi.NewTurn(dashisession.TurnID(id, n+1)), dashi.Start{
 			CommandID: "run", Agent: dashi.Agent{Model: dashitest.Model},
 			History: history, Input: []llm.Message{llm.UserMessage(llm.Text(text))},
@@ -59,6 +69,11 @@ func TestRecordedCases(t *testing.T) {
 		t.Fatalf("cases = %+v, want turn 1 only", cases)
 	}
 	for _, c := range cases {
+		for _, m := range c.messages {
+			if slices.ContainsFunc(m.Content, func(c llm.Content) bool { return c.Kind == llm.ContentReasoning }) {
+				t.Fatalf("%s keeps reasoning", c.name)
+			}
+		}
 		if size := keptTokens(c.messages, &dashi.CompactionFact{SummaryAt: -1}); c.window != int(float64(size)/caseFill) {
 			t.Errorf("%s: window %d for %d tokens", c.name, c.window, size)
 		}

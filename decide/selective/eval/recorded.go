@@ -90,6 +90,9 @@ func sessionCases(ctx context.Context, folder string) ([]session, error) {
 		if len(warnings) > 0 {
 			continue // an unreadable turn, such as one that did not finish
 		}
+		// Every arm gets the history without reasoning, so the size, the
+		// limits, and the window are measured on it.
+		hist = withoutReasoning(hist)
 		size := keptTokens(hist, &dashi.CompactionFact{SummaryAt: -1})
 		if size < minCaseTokens || size > maxCaseTokens {
 			continue
@@ -102,7 +105,7 @@ func sessionCases(ctx context.Context, folder string) ([]session, error) {
 			model:    view.Agent.Model,
 			provider: view.Agent.Provider,
 			name:     fmt.Sprintf("%s/t%d", id, n),
-			messages: withoutReasoning(hist),
+			messages: hist,
 			latest:   latestOwnWords(hist),
 			window:   int(float64(size) / caseFill),
 		})
