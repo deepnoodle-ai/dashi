@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -286,6 +287,9 @@ func (s *screen) Item(i int) tui.View {
 		return nil
 	}
 	b := s.tr.Blocks[i]
+	if b.Kind == KindFooter {
+		return footerView(b, s.width)
+	}
 	if b.Kind == KindTool && b.Detail != "" {
 		if s.expanded[i] {
 			b.Expanded = true
@@ -320,7 +324,7 @@ func (s *screen) Source(i int) (string, bool) {
 	case KindDiff:
 		return strings.Join(b.Lines, "\n"), true
 	case KindFooter:
-		return footerSource(b), true
+		return footerSource(b, s.width), true
 	case KindPending:
 		if b.Done {
 			return "", true
@@ -907,7 +911,7 @@ func blockView(b Block) tui.View {
 	case KindStop:
 		return sourceLabel("■ ", b.Text, tui.ColorYellow)
 	case KindFooter:
-		return footerView(b)
+		return footerView(b, 0)
 	case KindHelp:
 		if b.Help != nil {
 			return helpView(*b.Help)
@@ -922,18 +926,61 @@ func blockView(b Block) tui.View {
 	return tui.Text("%s", b.Text).SourceOffset(0).Wrap()
 }
 
-// footerSource is the copyable text of a footer: its plain form without the
-// leading rule.
-func footerSource(b Block) string {
+// footerSource is the copyable text of a footer at width columns: its
+// values and separators, without the leading rule.
+func footerSource(b Block, width int) string {
 	if b.Footer == nil {
 		return b.Text
 	}
-	return strings.TrimPrefix(b.Footer.String(), footerRule+" ")
+	parts := b.Footer.fit(width)
+	texts := make([]string, len(parts))
+	for i, p := range parts {
+		texts[i] = p.text
+	}
+	return strings.Join(texts, footerSep)
+}
+
+// footerMinRule is the shortest rule a fitted footer keeps after its
+// values.
+const footerMinRule = 3
+
+// fit returns the footer parts that fit in width columns, leaving out the
+// parts a reader needs least first: the model call count, the model, the
+// token count, then the cost. The turn number, an incomplete-usage
+// warning, and the decide counts stay. Zero width keeps every part.
+func (f footerFacts) fit(width int) []footerPart {
+	parts := f.parts()
+	if width <= 0 {
+		return parts
+	}
+	used := func() int {
+		n := runewidth.StringWidth(footerRule) + 1 + 1 + footerMinRule
+		for i, p := range parts {
+			if i > 0 {
+				n += runewidth.StringWidth(footerSep)
+			}
+			n += runewidth.StringWidth(p.text)
+		}
+		return n
+	}
+	for used() > width {
+		worst := -1
+		for i, p := range parts {
+			if p.drop > 0 && (worst < 0 || p.drop > parts[worst].drop) {
+				worst = i
+			}
+		}
+		if worst < 0 {
+			break
+		}
+		parts = slices.Delete(parts, worst, worst+1)
+	}
+	return parts
 }
 
 // footerView draws the turn footer as a quiet rule. The values stand out
 // a little from the rule and separators; incomplete usage stands out more.
-func footerView(b Block) tui.View {
+func footerView(b Block, width int) tui.View {
 	if b.Footer == nil {
 		return tui.Text("%s", b.Text).SourceOffset(0).Style(mutedStyle)
 	}
@@ -941,7 +988,7 @@ func footerView(b Block) tui.View {
 	// which are footerSource.
 	views := []tui.View{tui.Text("%s ", footerRule).Style(mutedStyle)}
 	offset := 0
-	for i, p := range b.Footer.parts() {
+	for i, p := range b.Footer.fit(width) {
 		if i > 0 {
 			views = append(views, tui.Text("%s", footerSep).SourceOffset(offset).Style(mutedStyle))
 			offset += len(footerSep)

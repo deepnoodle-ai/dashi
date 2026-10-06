@@ -534,6 +534,9 @@ func newFooterFacts(turn int, model string, v dashi.TurnView) footerFacts {
 type footerPart struct {
 	text string
 	kind footerKind
+	// drop orders the parts a narrow screen leaves out, highest first. Zero
+	// is never left out.
+	drop int
 }
 
 type footerKind int
@@ -546,31 +549,40 @@ const (
 )
 
 func (f footerFacts) parts() []footerPart {
-	parts := []footerPart{{fmt.Sprintf("turn %d", f.Turn), footerMeta}}
+	parts := []footerPart{{fmt.Sprintf("turn %d", f.Turn), footerMeta, 0}}
 	if f.Model != "" {
-		parts = append(parts, footerPart{f.Model, footerValue})
+		parts = append(parts, footerPart{f.Model, footerValue, 3})
 	}
-	parts = append(parts, footerPart{fmt.Sprintf("%d model %s", f.Calls, plural(f.Calls, "call")), footerMeta})
+	parts = append(parts, footerPart{fmt.Sprintf("%d model %s", f.Calls, plural(f.Calls, "call")), footerMeta, 4})
 	if f.UsageIncomplete {
-		parts = append(parts, footerPart{"usage incomplete", footerWarn})
+		parts = append(parts, footerPart{"usage incomplete", footerWarn, 0})
 	} else {
-		parts = append(parts, footerPart{groupDigits(f.Tokens) + " tokens", footerValue})
+		parts = append(parts, footerPart{groupDigits(f.Tokens) + " tokens", footerValue, 2})
 	}
 	if f.Cost != "" {
-		parts = append(parts, footerPart{f.Cost, footerCost})
+		parts = append(parts, footerPart{f.Cost, footerCost, 1})
 	}
 	if f.DecideChecked+f.DecideUnchecked > 0 {
-		text := fmt.Sprintf("decide %d checked, %d flagged", f.DecideChecked, f.DecideFlagged)
-		if f.DecideUnchecked > 0 {
-			text += fmt.Sprintf(", %d unchecked", f.DecideUnchecked)
-		}
 		kind := footerMeta
 		if f.DecideFlagged > 0 {
 			kind = footerWarn
 		}
-		parts = append(parts, footerPart{text, kind})
+		parts = append(parts, footerPart{f.decideText(), kind, 0})
 	}
 	return parts
+}
+
+// decideText is the footer's decide counts, such as "decide 4 checked, 1
+// flagged". A zero flagged or unchecked count is left out.
+func (f footerFacts) decideText() string {
+	text := fmt.Sprintf("decide %d checked", f.DecideChecked)
+	if f.DecideFlagged > 0 {
+		text += fmt.Sprintf(", %d flagged", f.DecideFlagged)
+	}
+	if f.DecideUnchecked > 0 {
+		text += fmt.Sprintf(", %d unchecked", f.DecideUnchecked)
+	}
+	return text
 }
 
 // String is the plain form: "── turn 3 · model · 2 model calls · ...".

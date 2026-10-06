@@ -679,3 +679,30 @@ func TestDecideRowMarkAgreesWithOutcome(t *testing.T) {
 		t.Fatalf("denied screen row = %q", screen)
 	}
 }
+
+// A narrow footer leaves out the model call count, the model, and the
+// tokens before the decide counts, so the flagged count never clips.
+func TestDecideFooterKeepsFlaggedCount(t *testing.T) {
+	f := footerFacts{Turn: 1, Model: "claude-haiku-4-5", Calls: 2, Tokens: 6495, Cost: "$0.0069",
+		DecideChecked: 4, DecideFlagged: 1}
+	if got := f.String(); !strings.HasSuffix(got, " · $0.0069 · decide 4 checked, 1 flagged") {
+		t.Fatalf("plain = %q", got)
+	}
+	b := Block{Kind: KindFooter, Text: f.String(), Footer: &f, Done: true}
+	for _, width := range []int{100, 80, 60, 40} {
+		got := strings.TrimRight(tui.SprintScreen(footerView(b, width), tui.WithWidth(width), tui.WithHeight(1)).Text(), "\n")
+		if !strings.Contains(got, "decide 4 checked, 1 flagged") {
+			t.Errorf("width %d: %q", width, got)
+		}
+		if source := footerSource(b, width); !strings.Contains(got, source) {
+			t.Errorf("width %d: source %q is not the shown text %q", width, source, got)
+		}
+	}
+	if got := footerSource(b, 100); got != "turn 1 · claude-haiku-4-5 · 6,495 tokens · $0.0069 · decide 4 checked, 1 flagged" {
+		t.Fatalf("100 columns = %q", got)
+	}
+	f.DecideFlagged = 0
+	if got := f.decideText(); got != "decide 4 checked" {
+		t.Fatalf("no flags = %q", got)
+	}
+}
