@@ -30,8 +30,8 @@ const (
 // hook does not see earlier answers. Add it where nothing else asks about
 // each command, such as an agent that runs commands without approval.
 type CommandRisk struct {
-	// Client asks the decision model. Nil means decide.NewClient() from the
-	// environment, such as TYPESAFE_API_KEY.
+	// Client asks the decision model. Nil means defaultclient.Load, which reads
+	// the environment, such as TYPESAFE_API_KEY.
 	Client *decide.Client
 	// ShellTools names the tools whose "command" argument is a shell
 	// command. Nil means {"bash"}, the workspace bash tool.

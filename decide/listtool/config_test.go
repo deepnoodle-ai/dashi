@@ -67,7 +67,7 @@ func TestConstructorsRefuseBadConfig(t *testing.T) {
 		cfg  Config
 		want string
 	}{
-		{"no client and no key", Config{Lists: []AnyList{list("notes")}}, "no API key"},
+		{"no client and no key", Config{Lists: []AnyList{list("notes")}}, "no credentials"},
 		{"no lists", Config{Client: client}, "Config.Lists is empty"},
 		{"no name", Config{Client: client, Lists: []AnyList{list("")}}, "a list has no Name"},
 		{"bad name", Config{Client: client, Lists: []AnyList{list("my notes")}}, `list name "my notes" must be`},

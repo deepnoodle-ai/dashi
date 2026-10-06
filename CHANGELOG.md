@@ -27,6 +27,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   packages read `DECIDE_PROVIDER` as the `decide` command does:
   `cloudflare` uses `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and
   `CLOUDFLARE_BASE_URL`; `typesafe`, the default, uses `TYPESAFE_*`.
+  `defaultclient.Load` makes that client without a request and reports the
+  provider, or an error that wraps `defaultclient.ErrSetup` for missing
+  credentials or an unknown provider, so a host can warn at startup.
 - **`FailOpen` on `BeforeTool` hooks.** A failing hook then counts as no
   opinion, with a `hook_failed` warning, instead of denying the call. Use it
   only for advice, never for a permission policy.

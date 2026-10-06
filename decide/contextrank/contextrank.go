@@ -88,10 +88,9 @@ type Candidate struct {
 // Ranker chooses context items for each turn. The zero value of every field
 // but Source works.
 type Ranker struct {
-	// Client asks the decision model. Nil means a client that
-	// decide.NewClient makes from the environment, such as
-	// TYPESAFE_API_KEY. Pin a model version with decide.WithModel, because
-	// "jev-latest" can move.
+	// Client asks the decision model. Nil means defaultclient.Load, which
+	// reads the environment, such as TYPESAFE_API_KEY. Pin a model version
+	// with decide.WithModel, because "jev-latest" can move.
 	Client *decide.Client
 
 	// Source returns candidates for the latest exchange, best first by the

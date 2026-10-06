@@ -19,7 +19,7 @@ import (
 // Config configures both tools. Its zero value works once Lists holds at
 // least one list and TYPESAFE_API_KEY is set.
 type Config struct {
-	// Client sends the requests. Nil means decide.NewClient() from the
+	// Client sends the requests. Nil means defaultclient.Load, which reads the
 	// environment. Pin the decision model with decide.WithModel, because
 	// an alias such as jev-latest can move.
 	Client *decide.Client
