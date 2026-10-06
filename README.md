@@ -53,7 +53,7 @@ out, err := s.Send(ctx, "What's the weather in Tokyo?")
 out, err = s.Send(ctx, "And in Fahrenheit?")
 ```
 
-Requires Go 1.26. `go run ./examples/chat` runs a session with no API key, on
+Requires Go 1.27. `go run ./examples/chat` runs a session with no API key, on
 a scripted client. Set `OPENAI_API_KEY`, then run `go run ./examples/agent`
 for a recorded agent turn or `go run ./examples/basic` for one model call.
 Both make paid requests. See [examples](examples/) for tools, approvals,

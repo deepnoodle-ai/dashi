@@ -1,6 +1,6 @@
 module github.com/deepnoodle-ai/dashi/devtools/agent-archive
 
-go 1.26.0
+go 1.27
 
 require (
 	github.com/deepnoodle-ai/dashi v0.2.0

@@ -9,14 +9,14 @@
 // agent, and a decidetest server answers from a fixed rule. Both are
 // stand-ins, so the output is always the same.
 //
-//	go run ./turnwatch/example
+//	go run ./decide/turnwatch/example
 //
 // With -live it uses Claude (ANTHROPIC_API_KEY; ANTHROPIC_MODEL optionally
 // overrides the catalog's default model) and Jev on the TypeSafe API
 // (TYPESAFE_API_KEY). The agent is told the tests are flaky, so it is
 // likely to rerun them before it looks at the code:
 //
-//	go run ./turnwatch/example -live
+//	go run ./decide/turnwatch/example -live
 package main
 
 import (

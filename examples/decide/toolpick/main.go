@@ -12,8 +12,8 @@
 // ANTHROPIC_MODEL to override the catalog's default model) and Jev
 // (TYPESAFE_API_KEY).
 //
-//	go run ./toolpick
-//	go run ./toolpick -live
+//	go run ./examples/decide/toolpick
+//	go run ./examples/decide/toolpick -live
 package main
 
 import (

@@ -10,13 +10,13 @@
 // agent, and a decidetest server answers with canned probabilities from
 // simple rules. Both are stand-ins, so the output is always the same.
 //
-//	go run ./riskgate
+//	go run ./examples/decide/riskgate
 //
 // With -live it uses Claude (ANTHROPIC_API_KEY; ANTHROPIC_MODEL optionally
 // overrides the catalog's default model) and Jev on the TypeSafe API
 // (TYPESAFE_API_KEY):
 //
-//	go run ./riskgate -live
+//	go run ./examples/decide/riskgate -live
 package main
 
 import (

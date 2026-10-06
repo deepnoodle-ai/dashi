@@ -40,8 +40,7 @@ The MCP examples are in their own Go module. From `mcp/`, run
 It uses fixed model replies and needs no API key or config file.
 Run `go run ./example` to use Anthropic and the servers in a `.mcp.json`.
 
-The [Decide examples](decide/README.md) are in their own Go module too. They
-use a decision model as a judge inside hooks: a risk gate on tool calls, a
+The [Decide examples](decide/README.md) use a decision model as a judge inside hooks: a risk gate on tool calls, a
 prompt-injection screen on tool results, and per-turn tool narrowing. They run
 without API keys by default.
 

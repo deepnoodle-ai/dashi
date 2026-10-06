@@ -14,8 +14,8 @@
 // catalog's default model) and Jev on the TypeSafe API (TYPESAFE_API_KEY).
 // A live run costs a few cents.
 //
-//	go run ./listtool/example
-//	go run ./listtool/example -live
+//	go run ./decide/listtool/example
+//	go run ./decide/listtool/example -live
 package main
 
 import (

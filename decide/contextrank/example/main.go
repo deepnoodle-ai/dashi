@@ -9,8 +9,8 @@
 // ANTHROPIC_MODEL to override the catalog's default model) and Jev
 // (TYPESAFE_API_KEY).
 //
-//	go run ./contextrank/example
-//	go run ./contextrank/example -live
+//	go run ./decide/contextrank/example
+//	go run ./decide/contextrank/example -live
 package main
 
 import (

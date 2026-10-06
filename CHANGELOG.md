@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The `decide` packages are part of the root module,** on Decide v0.3.0.
+  `go get github.com/deepnoodle-ai/dashi` is enough to import
+  `dashi/decide/listtool` and the others; import paths are unchanged. Every
+  Dashi module now needs Go 1.27.
+
 ## [0.3.0] - 2026-10-06
 
 ### Added

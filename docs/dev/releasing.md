@@ -1,7 +1,7 @@
 # Releasing
 
-Dashi is a root module plus four tagged sub-modules: `mcp`,
-`providers/google/gemini`, `decide` and `cmd/dashi`. The list lives once, in
+Dashi is a root module plus three tagged sub-modules: `mcp`,
+`providers/google/gemini` and `cmd/dashi`. The list lives once, in
 `scripts/sync_module_versions.py`, and a test fails if a tracked `go.mod` is
 missing from it. Everything below assumes an up-to-date `main` and an
 authenticated `gh`.
@@ -54,7 +54,7 @@ After the PR merges, from an updated `main`:
 ```sh
 git tag v0.2.0
 make tag-modules VERSION=v0.2.0
-git push origin v0.2.0 mcp/v0.2.0 providers/google/gemini/v0.2.0 decide/v0.2.0 cmd/dashi/v0.2.0
+git push origin v0.2.0 mcp/v0.2.0 providers/google/gemini/v0.2.0 cmd/dashi/v0.2.0
 ```
 
 Every tag must point at a commit whose `go.mod` files name the release version.

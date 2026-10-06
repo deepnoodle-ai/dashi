@@ -12,8 +12,8 @@
 // ANTHROPIC_API_KEY and TYPESAFE_API_KEY; ANTHROPIC_MODEL optionally
 // overrides the catalog's default model.
 //
-//	go run ./injection
-//	go run ./injection -live
+//	go run ./examples/decide/injection
+//	go run ./examples/decide/injection -live
 package main
 
 import (

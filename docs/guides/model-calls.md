@@ -5,7 +5,7 @@ agent or session.
 
 ## Try it
 
-Requires Go 1.26. Set `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`), then
+Requires Go 1.27. Set `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`), then
 run:
 
 ```sh
