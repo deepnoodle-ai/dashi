@@ -39,7 +39,7 @@ Large ordinary text bypasses the file-drop heuristic without the misleading 64 K
 
 The Ctrl-U/K defect belongs to Wonton's private text-input editor: it deletes each grapheme separately while repeatedly scanning or copying the line. Bulk deletion must use one range removal, preserve grapheme boundaries and placeholder segments, and emit one change notification. Word deletion needs the same audit. Dashi's published InputField hook has no cursor access, so a local workaround must not mirror or guess cursor state.
 
-The dependency audit confirms no public bulk-edit API and no fix in Wonton v0.7.1. Prepare a focused upstream fix with independent review. Consume a published version or permitted commit version when available; do not merge or release without authorization. Never change the module cache, vendor a second editor, or add `go.mod` replacements. Keep this dependency explicit until the tested fix is consumable.
+The dependency audit confirms no public bulk-edit API and no fix in Wonton v0.7.1. Prepare a focused upstream fix with independent review. Dashi remains pinned to a published dependency. Qualify the upstream fix through a temporary external workspace, without committing replacements. Consume a published fix when available; do not merge or release without authorization. Never change the module cache, vendor a second editor, or add `go.mod` replacements. Keep this dependency explicit until the tested fix is consumable.
 
 ## Alternatives and consequences
 

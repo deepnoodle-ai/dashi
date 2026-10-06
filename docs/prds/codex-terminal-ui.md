@@ -1,7 +1,7 @@
 # Read and compose comfortably in the terminal
 
 Status: Approved\
-PRD PR: pending · Implementation PR: pending · Updated: 2026-10-06
+PRD PR: [#211](https://github.com/deepnoodle-ai/dashi/pull/211) · Implementation PR: pending · Updated: 2026-10-06
 
 ## Problem and context
 
