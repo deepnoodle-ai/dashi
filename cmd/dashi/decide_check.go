@@ -646,7 +646,10 @@ type decideInspection struct {
 	// and Unchecked then says what runs without a prompt or a check.
 	BypassMode bool   `json:"bypass_mode"`
 	Unchecked  string `json:"bypass_unchecked,omitempty"`
-	Provider   string `json:"provider"`
+	// uncheckedLines is Unchecked one clause a line, so no line of the
+	// text form wraps on a narrow screen.
+	uncheckedLines []string
+	Provider       string `json:"provider"`
 	decideTotals
 	// Counts holds this run's counts of each feature that is on.
 	Counts decideFeatureCounts `json:"counts"`
@@ -674,7 +677,7 @@ type decideFeatureState struct {
 // decideScopes says what each feature reads, for /settings.
 var decideScopes = map[string]string{
 	decideCommandRisk:     "shell commands only",
-	decidePromptInjection: "MCP results, and gh, curl, wget, http output",
+	decidePromptInjection: "MCP results; gh, curl, wget, http output",
 	decideTurnWatcher:     "a turn's repeated calls",
 }
 
@@ -688,10 +691,11 @@ func (c *Controller) inspectDecide() *decideInspection {
 		Provider:         "not used yet",
 	}
 	if c.approveAll {
-		view.Unchecked = "write_file, edit_file, and MCP calls run without a prompt or a check"
+		view.uncheckedLines = []string{"write_file, edit_file, and MCP calls run unasked and unchecked"}
 		if s.enabled(decideCommandRisk) {
-			view.Unchecked += "; while a check is paused, shell commands run unchecked too"
+			view.uncheckedLines = append(view.uncheckedLines, "while a check is paused, shell commands run unchecked too")
 		}
+		view.Unchecked = strings.Join(view.uncheckedLines, "; ")
 	}
 	for _, f := range decideFeatureNames {
 		state := decideFeatureState{
@@ -745,8 +749,12 @@ func writeDecideInspection(text *strings.Builder, view decideInspection) {
 			fmt.Fprintf(text, "; %s", scope)
 		}
 	}
-	if view.Unchecked != "" {
-		fmt.Fprintf(text, "\n  bypass mode: %s", view.Unchecked)
+	for i, line := range view.uncheckedLines {
+		if i == 0 {
+			fmt.Fprintf(text, "\n  bypass mode: %s", line)
+		} else {
+			fmt.Fprintf(text, "\n    %s", line)
+		}
 	}
 	fmt.Fprintf(text, "\n  provider: %s", view.Provider)
 	t := view.decideTotals

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/decide/defaultclient"
@@ -416,12 +417,19 @@ func TestDecideSettingsSection(t *testing.T) {
 	for _, want := range []string{
 		"command_risk: on (--decide); shell commands only",
 		"turn_watcher: off (--decide)",
-		"bypass mode: write_file, edit_file, and MCP calls run without a prompt or a check",
+		"\n  bypass mode: write_file, edit_file, and MCP calls run unasked and unchecked" +
+			"\n    while a check is paused, shell commands run unchecked too\n",
 		"provider: ready: typesafe jev-1.13.0",
 		"this run: 1 request, 120 input and 2 output tokens\n    command_risk: 1 checked, 0 flagged, 0 unchecked",
 		"prompt_injection: off (--decide)\n",
 	} {
 		mustHave(t, text.String(), want)
+	}
+	// No line wraps at 80 columns, where a wrapped line loses its indent.
+	for line := range strings.SplitSeq(text.String(), "\n") {
+		if n := utf8.RuneCountInString(line); n > 80 {
+			t.Errorf("line of %d columns: %q", n, line)
+		}
 	}
 	raw := string(mustJSON(t, settingsInspection{Decide: view}))
 	for _, want := range []string{`"decide":{`, `"command_risk":{"on":true`, `"provider":"ready: typesafe jev-1.13.0"`, `"input_tokens":120`, `"counts":{"command_risk":{"checked":1,"flagged":0,"unchecked":0}}`} {
