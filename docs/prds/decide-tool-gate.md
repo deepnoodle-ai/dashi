@@ -1,7 +1,7 @@
 # Check risky commands and outside content with a decision model
 
 Status: Approved\
-PRD PR: #205  Implementation PR: pending  Updated: 2026-10-06
+PRD PR: #205  Implementation PR: #207  Updated: 2026-10-06
 
 ## Problem
 
