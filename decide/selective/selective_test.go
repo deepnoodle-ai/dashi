@@ -318,7 +318,7 @@ func TestFallbacks(t *testing.T) {
 				})
 				return &Compactor{Client: client}
 			},
-			want: "nothing was dropped", cause: CauseNothingLeftOut,
+			want: "nothing was dropped", cause: CauseNothingDropped,
 		},
 		{
 			name: "pairing broken by a short form",
@@ -356,7 +356,7 @@ func TestFallbacks(t *testing.T) {
 			messages: func() []llm.Message {
 				return []llm.Message{user("task"), user("more"), user("go"), assistant("ok")}
 			},
-			want: "nothing was dropped", cause: CauseNothingLeftOut,
+			want: "nothing was dropped", cause: CauseNothingDropped,
 		},
 	}
 	for _, tt := range tests {

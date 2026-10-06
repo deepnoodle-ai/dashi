@@ -29,9 +29,9 @@ const (
 
 // Causes that are not Decide failures.
 const (
-	// CauseNothingLeftOut means every older segment was kept whole, or
+	// CauseNothingDropped means every older segment was kept whole, or
 	// there was none, so a summary would cover nothing.
-	CauseNothingLeftOut Cause = "nothing left out"
+	CauseNothingDropped Cause = "nothing dropped"
 	// CauseOverBudget means the user's own words or the tail fill the
 	// size budget alone.
 	CauseOverBudget Cause = "over budget"
@@ -63,7 +63,7 @@ func causeOf(err error) Cause {
 	}
 	switch {
 	case errors.Is(err, errNothingDropped):
-		return CauseNothingLeftOut
+		return CauseNothingDropped
 	case errors.Is(err, compact.ErrTooLarge):
 		return CauseTooLarge
 	}

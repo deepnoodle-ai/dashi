@@ -47,7 +47,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   warned`.
 - **`selective.Selection.Cause`** names, in a few words, why the selective
   compactor fell back to its `Base`, with typed constants such as
-  `selective.CauseTimeout`, `CauseServerError`, and `CauseNothingLeftOut`,
+  `selective.CauseTimeout`, `CauseServerError`, and `CauseNothingDropped`,
   so a host can show it without reading `Selection.Fallback`'s text.
   `Selection.Requests` counts the Decide requests sent, failed ones
   included, so a host can account for requests that returned no ID.

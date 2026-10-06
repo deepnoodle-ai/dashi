@@ -137,7 +137,7 @@ type Selection struct {
 	Fallback string
 
 	// Cause names the fallback in a few words, such as CauseTimeout or
-	// CauseNothingLeftOut; empty when the selection was used.
+	// CauseNothingDropped; empty when the selection was used.
 	Cause Cause
 }
 
