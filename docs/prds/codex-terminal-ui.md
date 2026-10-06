@@ -1,6 +1,6 @@
 # Read and compose comfortably in the terminal
 
-Status: Draft\
+Status: Approved\
 PRD PR: pending · Implementation PR: pending · Updated: 2026-10-06
 
 ## Problem and context
@@ -35,7 +35,7 @@ Select a wrapped answer or tool result, copy it, and paste it into another appli
 
 - [ ] In fullscreen mode, drag, double-click, and triple-click select text, words, and logical lines. Dragging beyond the viewport scrolls selection.
 - [ ] `/copy` sends the selected source text to the clipboard without role markers, display indentation, or inserted wrap breaks. Cover Unicode, tabs, Markdown, multiple blocks, and resize.
-- [ ] With main-composer focus and an active selection, Ctrl-C copies selected source without changing the draft. Successful copy clears selection; failure preserves it for retry.
+- [ ] With main-composer focus and an active selection, Ctrl-C copies selected source without changing the draft. A confirmed local clipboard write clears selection. Failed writes and unconfirmed tmux or OSC52 requests preserve it for retry.
 - [ ] Without selection, Ctrl-C retains interruption and exit behavior. Dialog focus retains cancellation even with a background selection. Escape still interrupts running work.
 - [ ] A visible selection hint and help explain copying and cancellation. Selection remains usable while output streams; copying never approves a request.
 - [ ] Inline native selection and fullscreen `/mouse` native selection remain available for transcript and composer text. With main-composer focus, F2 toggles mouse capture without changing the draft and reports whether capture is on or off; inline reports that native selection is available. Help explains both routes. Existing `/copy N`, `/copy all`, and `/scrollback raw` retain complete source access.
@@ -47,7 +47,7 @@ Paste a large log or document into an existing draft, edit it, then explicitly s
 
 - [ ] In both modes, bracketed paste retains a payload of at least 256 KiB and 2,000 lines, including Unicode, tabs, blank lines, and shell-like text.
 - [ ] Paste inserts once at the cursor and preserves surrounding draft text. Newlines do not submit prompts, execute commands, or answer dialogs.
-- [ ] The composer stays within the screen. Its cursor, bottom status, and subsequent edit remain usable. After the paste ends, an appended character appears within two seconds in the keyless local PTY fixture.
+- [ ] The composer stays within the screen. Clearing a 256 KiB line with Ctrl-U or Ctrl-K must not block subsequent input or resize. Its cursor, bottom status, and subsequent edit remain usable. After the paste ends, an appended character appears within two seconds in the keyless local PTY fixture.
 - [ ] The fixture verifies the complete editable draft before submission and the complete submitted payload after existing prompt normalization. No silent truncation is permitted.
 - [ ] Pasting a recognized slash command or alias inserts editable command text; it does not become an attachment or run before Enter.
 - [ ] Ordinary large text does not produce file-selection warnings. Actual file drops retain existing attachment validation and explicit preview behavior.
