@@ -252,7 +252,10 @@ func (h *harness) build(o Options) {
 		Store:   h.store,
 
 		ModelCalls: h.limit,
-		recorder:   h.recorder,
+		ApproveAll: o.Yes,
+
+		CompactionThreshold: o.CompactionThreshold,
+		recorder:            h.recorder,
 	}, h.ui)
 	if err != nil {
 		h.t.Fatal(err)

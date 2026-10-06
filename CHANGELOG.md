@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **`dashi --dangerously-skip-permissions`** approves every tool call
+  without asking, in the interactive session and in `dashi run`, for use in
+  an externally sandboxed environment.
+- **`dashi --compaction-threshold N`** (or `DASHI_COMPACTION_THRESHOLD`)
+  compacts history once a model call uses N tokens, instead of 80% of the
+  model's context window.
+
 - **`claude-sonnet-5-5` in the model catalog,** with its 1M context window,
   128K output limit, effort ladder, and prices: $2 input, $10 output, $0.20
   cache read, $2.50 five-minute and $4 one-hour cache writes per MTok, and

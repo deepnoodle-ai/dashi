@@ -296,6 +296,6 @@ func loadCLIConfig(o Options, home, dir, invocation string, stdin io.Reader, std
 	preferences.resolveSession = func(saved preferenceFile) (launchPreferences, error) {
 		return resolveLaunchPreferences(o, registry, trusted, user, project, saved, os.LookupEnv)
 	}
-	cfg := appConfig{Dir: dir, HomeDir: home, InvocationDir: invocation, MCPFiles: o.MCPFiles, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences}
+	cfg := appConfig{Dir: dir, HomeDir: home, InvocationDir: invocation, MCPFiles: o.MCPFiles, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences, ApproveAll: o.Yes, CompactionThreshold: o.CompactionThreshold}
 	return cfg, nil
 }

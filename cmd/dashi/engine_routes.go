@@ -74,7 +74,7 @@ func (e *Engine) routeCompactor(agent dashi.Agent) *routedCompactor {
 	p := e.cfg.Preferences
 	d := p.routes.registry[agent.Provider]
 	info, _ := d.modelInfo(agent.Model)
-	return &routedCompactor{dashiCompactor: compaction.New(compaction.Policy{Model: info}), agent: agent}
+	return &routedCompactor{dashiCompactor: compaction.New(e.compactionPolicy(info)), agent: agent}
 }
 
 func (e *Engine) saveNextPreferences() error {

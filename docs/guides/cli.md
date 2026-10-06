@@ -56,8 +56,10 @@ dashi runs, so `/quit`, Ctrl-C, Ctrl-D, `/new`, and `/sessions` first warn that
 they would drop them; repeat the action to go ahead.
 
 The CLI summarizes history before new work when the last model call uses
-80% of the selected model's context window. `/compact` requests a summary
-while idle, without sending queued prompts. The transcript shows compaction
+80% of the selected model's context window, or the token count that
+`--compaction-threshold N` (or `DASHI_COMPACTION_THRESHOLD`) names. A
+threshold above the model's window counts as the window, with a warning.
+`/compact` requests a summary while idle, without sending queued prompts. The transcript shows compaction
 states and its usage footer; it hides the summary request and text. Unknown
 windows use 128,000 tokens for this between-Turn history workflow and warn
 once per selected model.
@@ -203,6 +205,10 @@ choices stay visible.
 Remembered rules cover all calls to the owned write/edit tool, the exact Bash
 command, or exact external-tool arguments. They last until the process exits;
 they are not permanent grants.
+
+`--dangerously-skip-permissions` approves every tool call without asking,
+including calls from delegated tasks and MCP servers. Use it only where
+something outside Dashi, such as a container, limits what the agent can do.
 
 Questions support choices or own words. Multiple questions use checkboxes:
 arrows move, Space selects, Tab moves to Submit, and Enter submits. Press `o`

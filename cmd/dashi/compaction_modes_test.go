@@ -91,6 +91,24 @@ func TestUnknownCompactionWindowWarnsOncePerModel(t *testing.T) {
 	compactionMustHave(t, h.ui.text(), "128,000 tokens")
 }
 
+// A threshold above the model's window compacts at the window, with one
+// warning per model.
+func TestCompactionThresholdAboveWindowWarnsOncePerModel(t *testing.T) {
+	h := newHarness(t, say("One."), say("Two."), say("Three."))
+	h.build(Options{CompactionThreshold: 200_000})
+	h.input("first")
+	h.input("second")
+	const warning = "--compaction-threshold 200000 is above the 128000-token window"
+	if got := strings.Count(h.ui.text(), warning); got != 1 {
+		t.Fatalf("threshold warnings=%d in:\n%s", got, h.ui.text())
+	}
+	h.input("/model " + modelNames()[0])
+	h.input("third")
+	if got := strings.Count(h.ui.text(), "is above the 128000-token window"); got != 2 {
+		t.Fatalf("new model did not get one warning: %d", got)
+	}
+}
+
 func TestCompactionPrintAndPlainOutputBoundaries(t *testing.T) {
 	for _, mode := range []string{"print", "plain"} {
 		t.Run(mode, func(t *testing.T) {

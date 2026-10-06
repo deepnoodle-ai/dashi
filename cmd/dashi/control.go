@@ -62,7 +62,10 @@ type Chooser interface {
 // and the slash commands. It never blocks its caller, so a screen can call it
 // from its event loop.
 type Controller struct {
-	eng            *Engine
+	eng *Engine
+	// approveAll approves every tool call without asking, for
+	// --dangerously-skip-permissions.
+	approveAll     bool
 	ui             UI
 	store          *sessionstore.Store
 	dir            string
@@ -189,6 +192,9 @@ func (c *Controller) approveUI(
 	r ApprovalRequest,
 	task string,
 ) (Approval, error) {
+	if c.approveAll {
+		return Approval{Allow: true}, nil
+	}
 	c.setMode(ModeApproval)
 	defer c.endDialog()
 	// The request text is the model's. The UI gets the printable form only.

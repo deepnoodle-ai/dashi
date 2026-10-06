@@ -24,8 +24,13 @@ type appConfig struct {
 	InvocationDir string
 	MCPFiles      []string
 	// ModelCalls overrides the per-turn model-call limit; zero means 40.
-	ModelCalls    int
-	parentStopped func(int)
+	ModelCalls int
+	// ApproveAll approves every tool call without asking.
+	ApproveAll bool
+	// CompactionThreshold is the token count at which history is compacted;
+	// zero means the compaction default.
+	CompactionThreshold int
+	parentStopped       func(int)
 
 	// recorder wraps each session's recorder; tests use it.
 	recorder func(*filerecorder.Recorder) dashi.Recorder
@@ -86,16 +91,17 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 	w.Scopes["task_status"] = "CLI recorded child state; read-only; no reference resolution"
 	w.Scopes["task_stop"] = "CLI live child cancellation; verify the recorded acknowledgement"
 	eng := NewEngine(EngineConfig{
-		Dir:           cfg.Dir,
-		Client:        cfg.Client,
-		Model:         cfg.Model,
-		Store:         cfg.Store,
-		Wiring:        w,
-		Resources:     resources,
-		MCP:           mcp,
-		ModelCalls:    cfg.ModelCalls,
-		Emit:          func(b Block) { emitToUI(ui, b) },
-		ParentStopped: cfg.parentStopped,
+		Dir:                 cfg.Dir,
+		Client:              cfg.Client,
+		Model:               cfg.Model,
+		Store:               cfg.Store,
+		Wiring:              w,
+		Resources:           resources,
+		MCP:                 mcp,
+		ModelCalls:          cfg.ModelCalls,
+		CompactionThreshold: cfg.CompactionThreshold,
+		Emit:                func(b Block) { emitToUI(ui, b) },
+		ParentStopped:       cfg.parentStopped,
 		Receipt: func(in *submittedInput, r inputReceipt) {
 			if u, ok := ui.(attachmentUI); ok {
 				u.AttachmentReceipt(in, r)
@@ -106,6 +112,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 	})
 	resources.warning = eng.warn
 	ctrl = NewController(ctx, eng, ui, cfg.Store, cfg.Dir)
+	ctrl.approveAll = cfg.ApproveAll
 	eng.taskWake = ctrl.scheduleTaskNotices
 	if cfg.Preferences != nil {
 		cfg.Preferences.ask = ctrl.Ask
