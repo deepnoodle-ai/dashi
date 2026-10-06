@@ -20,15 +20,12 @@ versioned model, since an alias such as `jev-latest` can move.
 
 ## Running
 
-This directory is its own Go module because Decide needs Go 1.27 and Dashi's
-modules stay on Go 1.26. Its `go.work` builds against the Dashi checkout two
-directories up. Run commands from here:
+Run commands from the repository root:
 
 ```sh
-cd examples/decide
-go run ./riskgate            # keyless: scripted model, canned Decide answers
-go test ./...
-go run ./riskgate -live      # Claude and Jev
+go run ./examples/decide/riskgate          # keyless: scripted model, canned Decide answers
+go test ./examples/decide/...
+go run ./examples/decide/riskgate -live    # Claude and Jev
 ```
 
 Without `-live`, a `dashitest` client plays the model and a `decidetest`

@@ -20,7 +20,7 @@ results. The focused guides cover the rest:
 
 ## Try it
 
-With the same environment as the [model call guide](model-calls.md) (Go 1.26
+With the same environment as the [model call guide](model-calls.md) (Go 1.27
 and `OPENAI_API_KEY`), run:
 
 ```sh

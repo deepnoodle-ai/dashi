@@ -29,10 +29,11 @@ use step (a recorded `dashi.Step`), notice (an agent message), evidence
 
 ## Shared decisions
 
-1. **One sub-module, `decide/`, outside the root module.** Decide needs Go
-   1.27; Dashi's root module stays on 1.26, and most hosts never use a
-   decision model. One package for each thing a host configures. The module
-   is tagged with the others, and `make check` covers it.
+1. **Packages under `decide/`, in the root module.** One package for each
+   thing a host configures; none is in the root package `dashi`. The root
+   module needs Go 1.27 because Decide does. Go builds only the packages a
+   host imports, and Decide's library adds no third-party dependencies, so
+   hosts that never use a decision model pay nothing for them.
 2. **Model advice never grants permission.** It may hold, deny, hide, or
    warn. It never approves a call or raises a budget.
 3. **Tools return errors to the model; hooks and compactors fail open.** A

@@ -27,7 +27,7 @@ class ModuleListTest(unittest.TestCase):
         self.assertEqual(sorted(sync.SUB_MODULES), sync.tracked_modules())
 
     def test_examples_and_devtools_are_not_tracked(self) -> None:
-        listed = "go.mod\nmcp/go.mod\nexamples/decide/go.mod\ndevtools/agent-archive/go.mod\n"
+        listed = "go.mod\nmcp/go.mod\nexamples/demo/go.mod\ndevtools/agent-archive/go.mod\n"
         result = subprocess.CompletedProcess(args=[], returncode=0, stdout=listed, stderr="")
         with mock.patch.object(sync.subprocess, "run", return_value=result):
             self.assertEqual(sync.tracked_modules(), ["mcp"])

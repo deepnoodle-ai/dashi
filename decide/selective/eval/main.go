@@ -38,9 +38,9 @@
 // is larger than selective's tail share but fits stock's; the keyless run
 // then checks that the file survives word for word.
 //
-//	go run ./selective/eval
-//	go run ./selective/eval -live -sessions 4
-//	go run ./selective/eval -live -vague
+//	go run ./decide/selective/eval
+//	go run ./decide/selective/eval -live -sessions 4
+//	go run ./decide/selective/eval -live -vague
 package main
 
 import (

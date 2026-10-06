@@ -115,7 +115,7 @@ compaction slot. A host joins its spend to a turn by `Selection.Hash`, which
 equals the winning `CompactionFact.Hash`. The record needs no new field:
 `Keep` already shows what was kept, shortened, or dropped.
 
-### Go API (package `selective`, module `decide/`)
+### Go API (package `selective`, in `decide/selective`)
 
 ```go
 type Compactor struct {

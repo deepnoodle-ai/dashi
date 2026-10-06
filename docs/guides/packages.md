@@ -46,8 +46,8 @@ other.
   approval for project servers. This is a separate module; add it with
   `go get github.com/deepnoodle-ai/dashi/mcp`. See [MCP](mcp.md).
 - `decide`: Decision models, through the Decide library, in hooks, tools, and
-  compaction. This is a separate module that needs Go 1.27; add it with
-  `go get github.com/deepnoodle-ai/dashi/decide`.
+  compaction: `decide/contextrank`, `decide/listtool`, `decide/selective`, and
+  `decide/turnwatch`. They are part of the root module.
 - `providers/grok/imagine`: xAI image generation and editing, and video jobs.
 - `providers/deepinfra`, `mistral`, `openrouter`: configured Chat Completions
   destinations.
