@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-06
+
 ### Added
 
 - **`dashi --dangerously-skip-permissions`** approves every tool call
@@ -14,7 +16,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`dashi --compaction-threshold N`** (or `DASHI_COMPACTION_THRESHOLD`)
   compacts history once a model call uses N tokens, instead of 80% of the
   model's context window.
-
 - **`claude-sonnet-5-5` in the model catalog,** with its 1M context window,
   128K output limit, effort ladder, and prices: $2 input, $10 output, $0.20
   cache read, $2.50 five-minute and $4 one-hour cache writes per MTok, and
@@ -28,103 +29,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   input tokens. Its cache reads cost 5% of input, half the rate of other
   GPT-5.6 and later models. Codex uses this model, so its calls are now
   priced.
-
-### Changed
-
-- **Breaking: `session.Compactor.Start` takes a `context.Context`,** and the
-  session calls it without holding its lock, so a slow compactor never blocks
-  `Steer`, `Enqueue`, or `Open`. While it runs, `Steer` and a new `Run` or
-  `Send` on the same handle refuse with a `*TurnBusyError` for the
-  compaction, as they do while the compaction turn runs, so `Start` runs once
-  per compaction turn. `compaction.Compactor.Start` takes the context too; update custom
-  compactors and hosts that call `Start` themselves.
-- **Plain names across the API.** Names now say what they mean, so a new
-  reader does not have to decode them. Recorded values change with the names
-  (step kinds, JSON keys, stop and verdict codes), so turns recorded by an
-  earlier version do not load. The main renames, old → new:
-  - Commands: `Settle` → `Resolve`, `Deliver` → `AddMessages`,
-    `Session.Answer` → `Session.Resolve`, `ApprovalFact` →
-    `ApprovalDecision`, `ContentResolver` → `ContentLoader` (method `Load`).
-  - Results: `Outcome` → `RunResult`, `TurnView.Answer` → `Reply`,
-    `Replay(turn)` → `turn.View()`, `TurnView.Revision` → `LastSeq`,
-    `Stop.Terminal` → `Ended`, `Stop.Projected` → `Inferred`, `uncertain` →
-    `result_unknown`.
-  - Next steps: `NextAnswer` → `NextResolvePending`, `NextResolve` →
-    `NextFix`, `NextResume` → `NextRecover`, `NextRaiseAttempts` →
-    `NextRaiseModelCalls`.
-  - Steps: `model_requested` → `model_call_started`, `model_settled` →
-    `model_call_finished`, `model_reconciled` → `model_call_finished_by_host`,
-    `tool_settled` → `tool_finished`, `approval_settled` →
-    `approval_decided`, `context_delivered` → `messages_added`;
-    `StepStarted`/`Continued`/`Stopped` → `StepTurnStarted`/`Continued`/`Stopped`.
-  - Model calls and cost: "attempt" → "model call" (`Limits.ModelCalls`,
-    `ModelCallID`, `ModelCallCost`, `TurnView.ModelCallCosts`), `AtRisk` →
-    `WorstCaseCost`, `Charge` → `Cost`, `SpendBasis` → `UsageSource`
-    (`reported`/`estimated`/`not_sent`), `llm.FailureDisposition` →
-    `llm.SendStatus`, `Admission` → `Reservation`, `Limits.Interruptions` →
-    `Resumes`, `FitTokens` → `SuggestedMaxOutputTokens`.
-  - Tools: every `Hosted*` name → `ProviderTool*`, `Defer` →
-    `NeedsApproval`, a hook decision's `Revision` → `RulesVersion`.
-    `OutputFromTool`/`OutputFromText` → `OutputSourceToolCall`/`OutputSourceText`.
-  - History and recording: `ProjectContext` → `TurnMessages`, `Project` →
-    `TurnMessagesFull`, `ProjectHistory` → `BuildHistory`,
-    `Session.ProjectedHistory` → `NextHistory`, digest and fingerprint →
-    hash (`HistoryHash`, `ArgsHash`, `RequestHash`, `CommandHash`),
-    `Agent.Revision` → `Agent.Version`, `ErrRevisionConflict` →
-    `ErrStaleTurn`, `ErrCommandConflict` → `ErrCommandIDReused`,
-    `CommitError.Persistence` → `NothingWritten`, `session.Liveness` →
-    `WorkerStatus`, `ModelFact.Origin` → `Endpoint`.
-  - A limited stop's reason is now its `LimitKind` (for example
-    `model_calls`), and every stop-reason code has a constant.
-- **The CLI approval prompt is easier to read.** It shows a one-line title,
-  such as `Allow task?  explore subagent: messaging test wait`, and the
-  choices as highlighted keys: `[y] Allow once  [a] Allow for this Dashi run
-  [n] Deny`. Arguments show as `key: value` lines with multi-line text
-  indented, not as JSON. A long value shows its first lines and `+N more
-  lines`; `e` shows all of it. Shell commands show the command and its
-  directory, and file edits show the diff, without repeating those arguments.
-  Internal turn and call IDs no longer appear in approvals or questions; a
-  prompt from a delegated task names the task. Line mode prints the same
-  layout.
-- **A `Runner` needs a `Client` only to fill in an agent or call the model.**
-  A Start with an already-closed `WithPause` records a turn without running it
-  and without a `Client` when its agent names its provider, API, and model. A run that
-  would call the model without one fails with "client is required to call the
-  model" before recording anything.
-- **The `dashi` CLI reads more clearly.** `/help` groups commands under
-  headings, lists skills in their own section, marks commands that also work
-  during a turn with `•`, and shows keys in a short aligned list. Secondary
-  text is a lighter gray, and notices such as `/status` output use the normal
-  foreground. The end-of-turn footer is a rule line
-  (`── turn 3 · model · 2 model calls · 12,345 tokens · $0.0421`). The idle
-  "Ask anything" hint is gone; the status line shows "/help lists commands"
-  when it fits. The mouse wheel scrolls three lines per notch, and also
-  scrolls dialog details. In the composer, a draft that starts with a known
-  command, alias, or skill name (such as `/effort` or `/q`) shows that name
-  in bold cyan; a partial or unknown name stays plain.
-- **The CLI shows delegated tasks on their tool lines.** The `task` tool line
-  reads `task  explore · find the parser · t_k3f2`. One status line under it
-  follows the task, such as `⎿  completed · 1 model call · $0.0069 · /task
-  t_k3f2 to inspect`, in the tool line colors. It replaces the separate block
-  that repeated the task ID, description, counts, and raw spend. `/tasks`
-  prints one line per task in the same words, and counts are pluralized.
-- **Breaking: a new `dashi` command line, built on Wonton's `cli` package.**
-  `dashi` starts a session; `-c`/`--continue` reopens the last one here and
-  `-r`/`--resume ID` a named one. `dashi run [PROMPT]` replaces `-p` and owns
-  `-o`/`--output-format`, `--attach`, and `-y`/`--yes`. `dashi models
-  [--available]` and `dashi completion bash|zsh|fish` complete the set. Help
-  is generated per command. `DASHI_PROVIDER`, `DASHI_MODEL`, and the control
-  variables are bound to their flags: a flag wins over its variable, which
-  wins over a reopened session, then workspace and user settings. An empty
-  variable sets nothing. `--env-file` loads after the command line, so it
-  supplies credentials only; a `DASHI_*` line in it draws a warning.
-  With `NO_COLOR` set, text printed to native scrollback is plain.
-  `dashi models` prints one table of destination, model, context, output,
-  reasoning, and status (`ready` or what is missing), with limits such as
-  `200K` and `1M`.
-
-### Added
-
 - **`task_send`: the parent agent can message its tasks.** The new
   `delegate` tool sends a task a correction while it runs (`deliver: steer`,
   read before its next model call) or after its current turn (`queue`), and
@@ -225,6 +129,100 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`decide/listtool`: the `judge_items` and `pick_item` tools** let an agent
   judge every item of a long host list, or find one item's ID, with a
   decision model instead of reading the items; see `decide/listtool/example`.
+
+### Changed
+
+- **Breaking: `session.Compactor.Start` takes a `context.Context`,** and the
+  session calls it without holding its lock, so a slow compactor never blocks
+  `Steer`, `Enqueue`, or `Open`. While it runs, `Steer` and a new `Run` or
+  `Send` on the same handle refuse with a `*TurnBusyError` for the
+  compaction, as they do while the compaction turn runs, so `Start` runs once
+  per compaction turn. `compaction.Compactor.Start` takes the context too; update custom
+  compactors and hosts that call `Start` themselves.
+- **Plain names across the API.** Names now say what they mean, so a new
+  reader does not have to decode them. Recorded values change with the names
+  (step kinds, JSON keys, stop and verdict codes), so turns recorded by an
+  earlier version do not load. The main renames, old → new:
+  - Commands: `Settle` → `Resolve`, `Deliver` → `AddMessages`,
+    `Session.Answer` → `Session.Resolve`, `ApprovalFact` →
+    `ApprovalDecision`, `ContentResolver` → `ContentLoader` (method `Load`).
+  - Results: `Outcome` → `RunResult`, `TurnView.Answer` → `Reply`,
+    `Replay(turn)` → `turn.View()`, `TurnView.Revision` → `LastSeq`,
+    `Stop.Terminal` → `Ended`, `Stop.Projected` → `Inferred`, `uncertain` →
+    `result_unknown`.
+  - Next steps: `NextAnswer` → `NextResolvePending`, `NextResolve` →
+    `NextFix`, `NextResume` → `NextRecover`, `NextRaiseAttempts` →
+    `NextRaiseModelCalls`.
+  - Steps: `model_requested` → `model_call_started`, `model_settled` →
+    `model_call_finished`, `model_reconciled` → `model_call_finished_by_host`,
+    `tool_settled` → `tool_finished`, `approval_settled` →
+    `approval_decided`, `context_delivered` → `messages_added`;
+    `StepStarted`/`Continued`/`Stopped` → `StepTurnStarted`/`Continued`/`Stopped`.
+  - Model calls and cost: "attempt" → "model call" (`Limits.ModelCalls`,
+    `ModelCallID`, `ModelCallCost`, `TurnView.ModelCallCosts`), `AtRisk` →
+    `WorstCaseCost`, `Charge` → `Cost`, `SpendBasis` → `UsageSource`
+    (`reported`/`estimated`/`not_sent`), `llm.FailureDisposition` →
+    `llm.SendStatus`, `Admission` → `Reservation`, `Limits.Interruptions` →
+    `Resumes`, `FitTokens` → `SuggestedMaxOutputTokens`.
+  - Tools: every `Hosted*` name → `ProviderTool*`, `Defer` →
+    `NeedsApproval`, a hook decision's `Revision` → `RulesVersion`.
+    `OutputFromTool`/`OutputFromText` → `OutputSourceToolCall`/`OutputSourceText`.
+  - History and recording: `ProjectContext` → `TurnMessages`, `Project` →
+    `TurnMessagesFull`, `ProjectHistory` → `BuildHistory`,
+    `Session.ProjectedHistory` → `NextHistory`, digest and fingerprint →
+    hash (`HistoryHash`, `ArgsHash`, `RequestHash`, `CommandHash`),
+    `Agent.Revision` → `Agent.Version`, `ErrRevisionConflict` →
+    `ErrStaleTurn`, `ErrCommandConflict` → `ErrCommandIDReused`,
+    `CommitError.Persistence` → `NothingWritten`, `session.Liveness` →
+    `WorkerStatus`, `ModelFact.Origin` → `Endpoint`.
+  - A limited stop's reason is now its `LimitKind` (for example
+    `model_calls`), and every stop-reason code has a constant.
+- **The CLI approval prompt is easier to read.** It shows a one-line title,
+  such as `Allow task?  explore subagent: messaging test wait`, and the
+  choices as highlighted keys: `[y] Allow once  [a] Allow for this Dashi run
+  [n] Deny`. Arguments show as `key: value` lines with multi-line text
+  indented, not as JSON. A long value shows its first lines and `+N more
+  lines`; `e` shows all of it. Shell commands show the command and its
+  directory, and file edits show the diff, without repeating those arguments.
+  Internal turn and call IDs no longer appear in approvals or questions; a
+  prompt from a delegated task names the task. Line mode prints the same
+  layout.
+- **A `Runner` needs a `Client` only to fill in an agent or call the model.**
+  A Start with an already-closed `WithPause` records a turn without running it
+  and without a `Client` when its agent names its provider, API, and model. A run that
+  would call the model without one fails with "client is required to call the
+  model" before recording anything.
+- **The `dashi` CLI reads more clearly.** `/help` groups commands under
+  headings, lists skills in their own section, marks commands that also work
+  during a turn with `•`, and shows keys in a short aligned list. Secondary
+  text is a lighter gray, and notices such as `/status` output use the normal
+  foreground. The end-of-turn footer is a rule line
+  (`── turn 3 · model · 2 model calls · 12,345 tokens · $0.0421`). The idle
+  "Ask anything" hint is gone; the status line shows "/help lists commands"
+  when it fits. The mouse wheel scrolls three lines per notch, and also
+  scrolls dialog details. In the composer, a draft that starts with a known
+  command, alias, or skill name (such as `/effort` or `/q`) shows that name
+  in bold cyan; a partial or unknown name stays plain.
+- **The CLI shows delegated tasks on their tool lines.** The `task` tool line
+  reads `task  explore · find the parser · t_k3f2`. One status line under it
+  follows the task, such as `⎿  completed · 1 model call · $0.0069 · /task
+  t_k3f2 to inspect`, in the tool line colors. It replaces the separate block
+  that repeated the task ID, description, counts, and raw spend. `/tasks`
+  prints one line per task in the same words, and counts are pluralized.
+- **Breaking: a new `dashi` command line, built on Wonton's `cli` package.**
+  `dashi` starts a session; `-c`/`--continue` reopens the last one here and
+  `-r`/`--resume ID` a named one. `dashi run [PROMPT]` replaces `-p` and owns
+  `-o`/`--output-format`, `--attach`, and `-y`/`--yes`. `dashi models
+  [--available]` and `dashi completion bash|zsh|fish` complete the set. Help
+  is generated per command. `DASHI_PROVIDER`, `DASHI_MODEL`, and the control
+  variables are bound to their flags: a flag wins over its variable, which
+  wins over a reopened session, then workspace and user settings. An empty
+  variable sets nothing. `--env-file` loads after the command line, so it
+  supplies credentials only; a `DASHI_*` line in it draws a warning.
+  With `NO_COLOR` set, text printed to native scrollback is plain.
+  `dashi models` prints one table of destination, model, context, output,
+  reasoning, and status (`ready` or what is missing), with limits such as
+  `200K` and `1M`.
 
 ### Fixed
 

@@ -3,7 +3,7 @@ module github.com/deepnoodle-ai/dashi/decide
 go 1.27
 
 require (
-	github.com/deepnoodle-ai/dashi v0.2.0
+	github.com/deepnoodle-ai/dashi v0.3.0
 	github.com/deepnoodle-ai/decide v0.1.0
 )
 
