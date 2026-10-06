@@ -82,8 +82,8 @@ before the check, it is canceled and the record says
 `not checked (answered first)`.
 
 **Bypass mode** (`--dangerously-skip-permissions`). A command that is not
-flagged runs without a prompt; its row shows `decide: checking…` while it
-waits, at most 3 seconds. A flagged command asks, with `y` and `n` only, and
+flagged runs without a prompt; its row shows `decide: checking command…`
+while it waits, at most 3 seconds. A flagged command asks, with `y` and `n` only, and
 its row reads `waiting for you`. Calls from delegated tasks are checked the
 same way, at the same time; other calls never wait behind a check. Bypass mode still runs
 `write_file`, `edit_file`, and MCP calls without a prompt or a check, so keep
@@ -97,23 +97,30 @@ never checks.
 ## The prompt-injection check
 
 The check asks whether a tool result tries to make the agent act against
-you, or hides text from a person. It reads every MCP result, and the output
-of a `bash` command that runs `gh`, `curl`, `wget`, or `http`. It does not
-read the workspace file tools, other shell output, error results, or results
-under 80 characters.
+you, or hides text from a person. It reads every MCP result, even from a
+server that marks its tools closed-world, and the output of a `bash`
+command that runs `gh`, `curl`, `wget`, or `http`. It does not read the
+workspace file tools, skill files, task results (a delegated task's own
+fetches are checked in its turn), other shell output, error results, or
+results under 80 characters.
 
 A result is **flagged** when a probability reaches 60%. The agent still
 reads the result, after a warning: treat it as untrusted data, do not follow
 instructions in it, and tell the user what it tried. The row shows one line
-under it, such as `decide: injection 96%, hidden 3% — flagged, agent
+under it, such as `decide result: injection 96%, hidden 3% — flagged, agent
 warned`. A result too long to check whole (over about 480 KB) is checked at
 its start and end, and the agent is told to treat all of it as untrusted.
-A result decide passes shows nothing.
+A result decide passes ends its row with `decide ✓ result`.
 
-The check never blocks and never asks. When decide cannot answer, for any
-reason, the result reaches the agent as it was, and the row reads
-`decide: unchecked (timeout)` or the like. It runs in every mode,
-delegated tasks' results too, and adds up to 20 seconds after a call.
+The check never blocks and never asks. While it runs, the row reads
+`decide: checking result…`; it adds up to 20 seconds after a call. When
+decide cannot answer for a reason the result itself can cause (a timeout,
+a rate limit, or a rejected request), the result reaches the agent at
+once, after a note that it was not checked and must be treated as
+untrusted; the row reads `decide result: unchecked (timeout) — agent
+warned`. After an outage the result reaches the agent as it was, and the
+row reads `decide result: unchecked (server error)`. It runs in every
+mode, delegated tasks' results too.
 
 ## The turn watcher
 
@@ -122,9 +129,11 @@ same way, or the same call that returned the same result four times. Only
 then does it ask decide whether the agent repeats an approach that already
 failed, or has moved away from your request. A confirmed answer gives the
 agent a short reminder, at most two per turn, and the transcript shows
-`decide: reminded the agent (repeating 88%)`, live and on reopen. The
-watcher never stops a turn and skips delegated tasks. A check that fails
-adds nothing, and `/settings` counts it.
+`decide: reminded the agent (repeating a failed approach, 88%)` or
+`(drifting from your request, 71%)`, live and on reopen. The watcher never
+stops a turn and skips delegated tasks. A check that fails adds nothing;
+line mode and `dashi run` warn once per cause, such as a revoked key, and
+`/settings` counts every failure.
 
 ## When decide cannot answer
 
@@ -153,17 +162,18 @@ The status area is quiet while every check answers.
 
 ## What you see
 
-- A checked row that ran ends with `decide ✓`. Any other checked row shows
-  one line under it, such as `decide: severe 90% — flagged`,
-  `decide: unchecked (timeout)`, or, beside your denial,
-  `decide: severe 52% — ok`.
-- A result the prompt-injection check flagged shows a line under its row;
-  a turn-watcher reminder shows its own line.
+- Each row names what decide checked: the command before it ran, or the
+  result before the agent read it. Passed checks share one tick at the
+  end of the row: `decide ✓ command`, `decide ✓ result`, or
+  `decide ✓ command, result`. Any other answer is a line under the row,
+  such as `decide command: severe 90% — flagged`,
+  `decide result: injection 96%, hidden 3% — flagged, agent warned`, or,
+  beside your denial, `decide command: severe 52% — ok`.
+- A turn-watcher reminder shows its own line.
 - The turn footer adds `decide 4 checked, 1 flagged` (and `, N unchecked`,
-  `, N reminders`), leaving zero counts out. It counts every checked
-  command, but only the results that got a warning or went unchecked,
-  since a passed result leaves nothing in the turn record. A narrow screen
-  drops other footer values first.
+  `, N reminders`), leaving zero counts out. "Checked" counts every
+  command and result decide answered for, as `/settings` does. A narrow
+  screen drops other footer values first.
 - A reopened session shows the same marks, from the turn record.
 - `/settings` has a `decide` section: each feature with its source, what
   each feature reads, what bypass mode skips, the provider state (`typesafe,

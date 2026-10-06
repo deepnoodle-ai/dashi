@@ -81,9 +81,11 @@ Acceptance:
 - [ ] `/settings` has a "decide" section: each feature on or off with its
       source, the line `command_risk: shell commands only`, the provider
       state (`typesafe, not used yet`, `ready: typesafe jev-1.13.0`, or
-      `off: no credentials`), and this run's requests, input and
-      output tokens, checked, flagged, and unchecked. `--json` has the same
-      fields under `decide`.
+      `off: no credentials`), and this run's requests and input and
+      output tokens, then each feature's counts on its own line (checked,
+      flagged, and unchecked; the turn watcher's reminders). `--json` has
+      the same fields under `decide`, with each feature's counts under
+      `counts.<feature>`.
 - [ ] `--decide off` turns every feature off for this launch.
 
 ### UC-2: A prompt shows the command-risk answer
@@ -110,7 +112,7 @@ prompt with the answer line. The user answers `n`, and the model reads why.
 
 Acceptance:
 - [ ] A command that is not flagged runs without a prompt. Its row shows
-      `decide: checking…` while it waits, at most 3 seconds.
+      `decide: checking command…` while it waits, at most 3 seconds.
 - [ ] A flagged command asks. Calls from delegated tasks are checked the
       same way.
 - [ ] `write_file`, `edit_file`, and MCP calls still run without a prompt;
@@ -120,8 +122,8 @@ Acceptance:
 - [ ] `dashi run --yes --decide command_risk` refuses a flagged command and
       a suspect failure; the model reads a reason that names the check.
       Other commands run.
-- [ ] A checked row ends with `decide ✓`, or shows one line under it with
-      the flagged question and probability. The turn footer adds
+- [ ] A checked row ends with `decide ✓ command`, or shows one line under
+      it, such as `decide command: severe 90% — flagged`. The turn footer adds
       `decide 4 checked, 1 flagged`. A reopened session shows the answers
       from the turn record.
 
@@ -150,15 +152,23 @@ Acceptance:
 
 Acceptance:
 - [ ] The check reads what `toolcheck.PromptInjection` reads: every MCP
-      result, and `bash` results whose command runs `gh`, `curl`, `wget`, or
-      `http`. Workspace file tools are not sent.
+      result, even from a server that marks its tools closed-world, and
+      `bash` results whose command runs `gh`, `curl`, `wget`, or `http`.
+      Workspace file tools, skill files, and task tools are not sent.
 - [ ] A flagged result reaches the model with a warning; it is not hidden.
-      The row shows the flagged question and probability.
+      The row shows the flagged question and probability. A passed result
+      ends its row with `decide ✓ result`, and the footer counts it.
+- [ ] A result that waits on its check shows `decide: checking result…`
+      on its row. A result decide could not check for a reason the input
+      can cause reaches the model at once, after a note to treat it as
+      untrusted.
 
 ### UC-6: The agent gets a reminder when it loops (PR 2)
 
 `turn_watcher` on. `go test` fails three times the same way. The transcript
-shows `decide: reminded the agent (repeating 88%)`, live and on reopen.
+shows `decide: reminded the agent (repeating a failed approach, 88%)`, live
+and on reopen. A check that fails adds nothing; line mode and `dashi run`
+warn once per cause.
 
 ### UC-7: Compaction keeps exact details (PR 3)
 
