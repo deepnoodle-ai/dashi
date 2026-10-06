@@ -160,3 +160,45 @@ func TestAttachmentDropFocusedRuntimePreservesCursor(t *testing.T) {
 		t.Fatal("focused drop did not send immutable evidence once")
 	}
 }
+
+func TestRuntimePastedCommandsStayEditable(t *testing.T) {
+	for _, command := range []string{"/status", "/help", "/copy", "/q", "/exit", "/?", "/STATUS\nnotes"} {
+		t.Run(command, func(t *testing.T) {
+			h := newTranscriptRuntime(t)
+			h.key(tui.KeyEvent{Paste: command})
+			h.wait(func(s transcriptState) bool { return s.input == command && s.mode == ModeIdle })
+			h.key(tui.KeyEvent{Rune: 'Z'})
+			h.wait(func(s transcriptState) bool { return s.input == command+"Z" })
+		})
+	}
+}
+
+func TestRuntimeLargePasteAtCursorPreservesSurroundingDraft(t *testing.T) {
+	h := newTranscriptRuntime(t)
+	h.typeText("BEFOREAFTER")
+	h.wait(func(s transcriptState) bool { return s.input == "BEFOREAFTER" })
+	for range len("AFTER") {
+		h.key(tui.KeyEvent{Key: tui.KeyArrowLeft})
+	}
+	payload := strings.Repeat("世界\t$(literal) `text`\n\n", 12000)
+	h.key(tui.KeyEvent{Paste: payload})
+	h.wait(func(s transcriptState) bool { return s.input == "BEFORE"+payload+"AFTER" })
+	h.key(tui.KeyEvent{Rune: 'Z'})
+	frame := h.wait(func(s transcriptState) bool { return s.input == "BEFORE"+payload+"ZAFTER" })
+	if strings.Contains(frame.text, "file-selection limit") {
+		t.Fatal("ordinary text produced a file-drop warning")
+	}
+}
+
+func TestRuntimePastedCommandPreservesSurroundingDraft(t *testing.T) {
+	h := newTranscriptRuntime(t)
+	h.typeText("beforeafter")
+	h.wait(func(s transcriptState) bool { return s.input == "beforeafter" })
+	for range len("after") {
+		h.key(tui.KeyEvent{Key: tui.KeyArrowLeft})
+	}
+	h.key(tui.KeyEvent{Paste: "/status"})
+	h.wait(func(s transcriptState) bool { return s.input == "before/statusafter" && s.mode == ModeIdle })
+	h.key(tui.KeyEvent{Rune: 'Z'})
+	h.wait(func(s transcriptState) bool { return s.input == "before/statusZafter" })
+}

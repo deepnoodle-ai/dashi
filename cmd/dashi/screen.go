@@ -68,9 +68,10 @@ type screen struct {
 	generation            uint64
 	nativeScrollback      func(bool)
 	// noColor makes text printed to native scrollback plain, as NO_COLOR asks.
-	noColor        bool
-	clipboardOut   io.Writer
-	clipboardWrite func(context.Context, string) (string, error)
+	noColor           bool
+	clipboardOut      io.Writer
+	clipboardWrite    func(context.Context, string) (clipboardWriteResult, error)
+	selectionRevision uint64
 }
 
 // queued is one item of pending work: a block to show, or a reset.
@@ -366,7 +367,9 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		s.width, s.height = e.Width, e.Height
 	case tui.TickEvent:
 		s.frame = e.Frame
-		s.vp.DragAutoScroll()
+		if s.vp.DragAutoScroll() {
+			s.selectionRevision++
+		}
 	case tui.MouseEvent:
 		s.exitGuard.reset()
 		s.handleTranscriptMouse(e)
@@ -435,6 +438,10 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 		s.exitGuard.reset()
 	}
 	if isCtrlC(e) {
+		if s.mainComposerActive() && s.copySelection() {
+			s.exitGuard.reset()
+			return nil
+		}
 		return s.interrupt()
 	}
 	if s.dialogStatus != nil {
@@ -477,6 +484,10 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 			s.vp.ClearSelection()
 		} else {
 			s.vp.ScrollToBottom()
+		}
+	case tui.KeyF2:
+		if s.mainComposerActive() {
+			s.toggleMouse()
 		}
 	case tui.KeyCtrlG:
 		return s.editDraft()

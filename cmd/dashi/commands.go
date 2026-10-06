@@ -316,7 +316,8 @@ var composerKeys = []helpRow{
 	{Name: "Esc", Text: "undo completion, stop work, or return to live output"},
 	{Name: "Page Up/Down", Text: "scroll the transcript"},
 	{Name: "Ctrl+G", Text: "edit the draft in an external editor"},
-	{Name: "Ctrl+C", Text: "interrupt; press twice to exit when idle"},
+	{Name: "Ctrl+C", Text: "copy selection; otherwise interrupt or press twice to exit"},
+	{Name: "F2", Text: "toggle native selection without changing the draft"},
 	{Name: "Ctrl+D", Text: "delete forward; exit on an empty draft"},
 	{Name: "text, !text", Text: "while a turn runs: steer it; ! also cuts the model call"},
 }

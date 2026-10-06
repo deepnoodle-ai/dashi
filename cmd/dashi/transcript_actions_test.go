@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -487,5 +490,215 @@ func TestDragAcrossATurnMatchesTheHighlight(t *testing.T) {
 		if got := s.vp.SelectedText(); got != c.want {
 			t.Errorf("%s: copy %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// Drive the focused input, rather than calling screen.key directly: Wonton
+// forwards Ctrl-C even when the input consumes a key.
+func TestRuntimeSelectedCopyPreservesDraftAndReportsReceipt(t *testing.T) {
+	for _, outcome := range []string{"confirmed", "unconfirmed", "failed", "osc52"} {
+		t.Run(outcome, func(t *testing.T) {
+			h := newTranscriptRuntime(t)
+			copied := make(chan string, 2)
+			var output io.Writer = failedClipboardOutput{}
+			if outcome == "osc52" {
+				output = io.Discard
+			}
+			h.scr.rt.SendEvent(transcriptCapture{out: output, copy: func(_ context.Context, text string) (clipboardWriteResult, error) {
+				copied <- text
+				if outcome == "failed" || outcome == "osc52" {
+					return clipboardWriteResult{}, errors.New("fixture unavailable")
+				}
+				return clipboardWriteResult{notice: outcome + " clipboard fixture", confirmed: outcome == "confirmed"}, nil
+			}})
+			source := "**wrapped**\t世界 " + strings.Repeat("long ", 24) + "END  "
+			selectRuntimeLine(t, h, source)
+			h.typeText("keep this draft")
+			h.wait(func(s transcriptState) bool { return s.input == "keep this draft" && s.selected == source })
+			h.key(tui.KeyEvent{Key: tui.KeyCtrlC})
+			select {
+			case got := <-copied:
+				if got != source {
+					t.Fatalf("copied %q, want exact unwrapped source %q", got, source)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("copy did not reach writer")
+			}
+			message := outcome + " clipboard fixture"
+			if outcome == "failed" {
+				message = "Clipboard request failed"
+			} else if outcome == "osc52" {
+				message = "Sent a terminal clipboard request"
+			}
+			h.wait(func(s transcriptState) bool {
+				selected := source
+				if outcome == "confirmed" {
+					selected = ""
+				}
+				return s.selected == selected && s.input == "keep this draft" && strings.Contains(s.text, message)
+			})
+			select {
+			case <-copied:
+				t.Fatal("one Ctrl-C copied twice")
+			default:
+			}
+		})
+	}
+}
+
+type failedClipboardOutput struct{}
+
+func (failedClipboardOutput) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+func selectRuntimeLine(t *testing.T, h *runtimeFixture, source string) {
+	t.Helper()
+	h.scr.Emit(Block{Kind: KindAssistant, Text: source, Done: true})
+	frame := h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "wrapped") })
+	h.scr.rt.SendEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 3, X: 8, Y: transcriptRow(t, frame.text, "wrapped")})
+	h.wait(func(s transcriptState) bool { return s.selected == source })
+}
+
+func TestRuntimeCopyCompletionCannotClearNewSelection(t *testing.T) {
+	for _, change := range []string{"reselect same text", "new session"} {
+		t.Run(change, func(t *testing.T) {
+			h := newTranscriptRuntime(t)
+			started, release := make(chan struct{}), make(chan struct{})
+			h.scr.rt.SendEvent(transcriptCapture{copy: func(ctx context.Context, text string) (clipboardWriteResult, error) {
+				close(started)
+				select {
+				case <-release:
+					return clipboardWriteResult{notice: "Old copy finished", confirmed: true}, nil
+				case <-ctx.Done():
+					return clipboardWriteResult{}, ctx.Err()
+				}
+			}})
+			const source = "wrapped selection stays"
+			selectRuntimeLine(t, h, source)
+			h.key(tui.KeyEvent{Key: tui.KeyCtrlC})
+			<-started
+			if change == "new session" {
+				h.app.ctrl.Input("/new")
+				h.app.ctrl.Wait()
+				h.wait(func(s transcriptState) bool { return s.selected == "" })
+				selectRuntimeLine(t, h, source)
+			} else {
+				frame := h.wait(func(s transcriptState) bool { return s.selected == source })
+				h.scr.rt.SendEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 3, X: 8, Y: transcriptRow(t, frame.text, "wrapped")})
+			}
+			// A probe ensures that re-selection has run before completion.
+			h.wait(func(s transcriptState) bool { return s.selected == source })
+			close(release)
+			h.wait(func(s transcriptState) bool {
+				return s.selected == source && strings.Contains(s.text, "Old copy finished")
+			})
+		})
+	}
+}
+
+func TestRuntimeSelectionCopyDuringWorkKeepsEscapeInterruption(t *testing.T) {
+	started := make(chan struct{})
+	h := newTranscriptRuntime(t, blockUntilDone(started))
+	h.scr.rt.SendEvent(transcriptCapture{copy: func(context.Context, string) (clipboardWriteResult, error) {
+		return clipboardWriteResult{notice: "Copied while running", confirmed: true}, nil
+	}})
+	selectRuntimeLine(t, h, "wrapped previous reply")
+	h.typeText("start work")
+	h.key(tui.KeyEvent{Key: tui.KeyEnter})
+	<-started
+	h.key(tui.KeyEvent{Key: tui.KeyCtrlC})
+	h.wait(func(s transcriptState) bool {
+		return s.mode == ModeRunning && s.selected == "" && strings.Contains(s.text, "Copied while running")
+	})
+	h.key(tui.KeyEvent{Key: tui.KeyEscape})
+	h.wait(func(s transcriptState) bool { return s.mode == ModeIdle && strings.Contains(s.text, "Interrupted") })
+}
+
+func TestRuntimeF2PreservesDraftAndClearsApplicationSelection(t *testing.T) {
+	h := newTranscriptRuntime(t)
+	selectRuntimeLine(t, h, "wrapped previous reply")
+	h.key(tui.KeyEvent{Paste: "draft 世界\nsecond"})
+	h.wait(func(s transcriptState) bool { return s.input == "draft 世界\nsecond" })
+	h.key(tui.KeyEvent{Key: tui.KeyF2})
+	h.wait(func(s transcriptState) bool {
+		return !s.mouse && s.selected == "" && s.input == "draft 世界\nsecond" && strings.Contains(s.text, "capture off")
+	})
+	h.key(tui.KeyEvent{Key: tui.KeyF2})
+	h.wait(func(s transcriptState) bool {
+		return s.mouse && s.input == "draft 世界\nsecond" && strings.Contains(s.text, "capture on")
+	})
+}
+
+func TestComposerShortcutsYieldToDialogs(t *testing.T) {
+	for _, dialog := range []string{"approval", "denial", "question", "own answer", "picker", "status"} {
+		t.Run(dialog, func(t *testing.T) {
+			h := selectionTranscript(t)
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			s := h.scr
+			s.clipboardWrite = func(context.Context, string) (clipboardWriteResult, error) {
+				return clipboardWriteResult{}, errors.New("dialog must not copy")
+			}
+			rows, _ := selectionFrame(s)
+			x, y := cellOf(t, rows, "Second answer.")
+			drag(s, x, y, x+6, y)
+			s.runtime = tui.NewRuntime(tui.NewTestTerminal(80, 24, io.Discard), s, 30)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			s.ctrl.mu.Lock()
+			s.ctrl.cancel, s.ctrl.mode = cancel, ModeRunning
+			s.ctrl.mu.Unlock()
+			s.promptActive = true
+			pickerReply := make(chan int, 1)
+			switch dialog {
+			case "approval", "denial":
+				s.approval = &approvalPrompt{denying: dialog == "denial"}
+			case "question", "own answer":
+				s.asking = &askPrompt{own: dialog == "own answer"}
+			case "picker":
+				s.picker = &pickerState{reply: pickerReply}
+			case "status":
+				s.dialogStatus = &dialogStatusInput{}
+			}
+			if s.selectionHint() != "" {
+				t.Fatal("dialog advertises main-composer shortcut")
+			}
+			s.key(tui.KeyEvent{Key: tui.KeyF2})
+			if !s.mouseEnabled {
+				t.Fatal("F2 toggled capture behind dialog")
+			}
+			s.key(tui.KeyEvent{Key: tui.KeyCtrlC})
+			if dialog == "picker" {
+				select {
+				case got := <-pickerReply:
+					if got != -1 {
+						t.Fatal("picker cancellation selected an entry")
+					}
+				default:
+					t.Fatal("Ctrl-C copied instead of canceling picker")
+				}
+			} else if ctx.Err() == nil {
+				t.Fatal("Ctrl-C copied instead of canceling dialog work")
+			}
+			// Undo synthetic state before harness teardown.
+			s.approval, s.asking, s.picker, s.dialogStatus = nil, nil, nil, nil
+			s.promptActive = false
+			s.ctrl.setMode(ModeIdle)
+		})
+	}
+}
+
+func TestInlineF2KeepsDraftAndNativeSelection(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s := h.scr
+	send := s.send
+	newInlineScreen(s, io.Discard)
+	s.send = send
+	s.input = "draft 世界\nsecond"
+	s.key(tui.KeyEvent{Key: tui.KeyF2})
+	s.drain()
+	if s.mouseEnabled || s.input != "draft 世界\nsecond" || !strings.Contains(s.tr.Blocks[len(s.tr.Blocks)-1].Text, "Native selection is already available") {
+		t.Fatal("inline F2 changed the draft or native selection mode")
 	}
 }

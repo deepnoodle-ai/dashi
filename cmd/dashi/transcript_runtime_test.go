@@ -22,7 +22,7 @@ import (
 
 type transcriptCapture struct {
 	out  io.Writer
-	copy func(context.Context, string) (string, error)
+	copy func(context.Context, string) (clipboardWriteResult, error)
 }
 
 func (transcriptCapture) Timestamp() time.Time { return time.Now() }

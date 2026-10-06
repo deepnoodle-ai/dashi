@@ -27,8 +27,8 @@ func TestNativeClipboardUsesStdinAndBoundedProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := "日本 long line\n$(this is literal) `also literal`"
-	if _, err := writeClipboard(t.Context(), source); err != nil {
-		t.Fatal(err)
+	if result, err := writeClipboard(t.Context(), source); err != nil || !result.confirmed {
+		t.Fatalf("local write result=%+v error=%v", result, err)
 	}
 	got, err := os.ReadFile(capture)
 	if err != nil || string(got) != source {
@@ -62,5 +62,28 @@ func TestClipboardFallbackIsExplicitBoundedAndHonest(t *testing.T) {
 	s.drain()
 	if transport.Len() != 0 || !strings.Contains(s.tr.Blocks[len(s.tr.Blocks)-1].Text, "/scrollback") {
 		t.Fatal("oversized OSC52 did not offer safe fallback")
+	}
+}
+
+func TestTmuxClipboardDoesNotClaimConfirmedReceipt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses a shell command")
+	}
+	dir := t.TempDir()
+	capture := filepath.Join(dir, "captured")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TMUX", "fixture")
+	t.Setenv("DASHI_CLIPBOARD_FIXTURE", capture)
+	if err := os.WriteFile(filepath.Join(dir, "tmux"), []byte("#!/bin/sh\ncat > \"$DASHI_CLIPBOARD_FIXTURE\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	const source = "世界\nexact source"
+	result, err := writeClipboard(t.Context(), source)
+	if err != nil || result.confirmed || !strings.Contains(result.notice, "unconfirmed") {
+		t.Fatalf("tmux result=%+v error=%v", result, err)
+	}
+	got, err := os.ReadFile(capture)
+	if err != nil || string(got) != source {
+		t.Fatalf("tmux source=%q error=%v", got, err)
 	}
 }

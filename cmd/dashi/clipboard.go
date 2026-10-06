@@ -10,9 +10,14 @@ import (
 	"time"
 )
 
+type clipboardWriteResult struct {
+	notice    string
+	confirmed bool
+}
+
 // writeClipboard uses bounded local processes. OSC52 is emitted separately
 // on the terminal's owning loop because receipt cannot be confirmed.
-func writeClipboard(ctx context.Context, text string) (string, error) {
+func writeClipboard(ctx context.Context, text string) (clipboardWriteResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	run := func(name string, args ...string) error {
@@ -23,27 +28,27 @@ func writeClipboard(ctx context.Context, text string) (string, error) {
 	}
 	if os.Getenv("TMUX") != "" {
 		if err := run("tmux", "load-buffer", "-w", "-"); err == nil {
-			return "Copied to tmux; terminal clipboard receipt is unconfirmed.", nil
+			return clipboardWriteResult{notice: "Copied to tmux; terminal clipboard receipt is unconfirmed."}, nil
 		}
 	}
 	if os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != "" {
-		return "", errors.New("use the remote terminal clipboard")
+		return clipboardWriteResult{}, errors.New("use the remote terminal clipboard")
 	}
 	switch runtime.GOOS {
 	case "darwin":
 		if err := run("pbcopy"); err == nil {
-			return "Copied to the local clipboard.", nil
+			return clipboardWriteResult{notice: "Copied to the local clipboard.", confirmed: true}, nil
 		}
 	case "windows":
 		if err := run("clip.exe"); err == nil {
-			return "Copied to the local clipboard.", nil
+			return clipboardWriteResult{notice: "Copied to the local clipboard.", confirmed: true}, nil
 		}
 	case "linux":
 		for _, command := range [][]string{{"wl-copy"}, {"xclip", "-selection", "clipboard"}, {"xsel", "--clipboard", "--input"}} {
 			if err := run(command[0], command[1:]...); err == nil {
-				return "Copied to the local clipboard.", nil
+				return clipboardWriteResult{notice: "Copied to the local clipboard.", confirmed: true}, nil
 			}
 		}
 	}
-	return "", errors.New("local clipboard is unavailable")
+	return clipboardWriteResult{}, errors.New("local clipboard is unavailable")
 }
