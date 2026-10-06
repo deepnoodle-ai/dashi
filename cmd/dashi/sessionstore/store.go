@@ -19,6 +19,9 @@ import (
 // ErrNotFound reports that no session matches the request.
 var ErrNotFound = errors.New("session: not found")
 
+// ErrExists reports that a session with the chosen ID already exists.
+var ErrExists = errors.New("session: already exists")
+
 // ErrBusy reports that another process holds the session.
 var ErrBusy = errors.New("session: in use by another dashi process")
 
@@ -74,6 +77,31 @@ func (st *Store) Create(dir, model string) (*Session, error) {
 		Updated: now,
 	}
 	return s, nil
+}
+
+// CreateWithID makes a new empty session for dir with an ID the caller
+// chose, such as a launcher that must know the ID before dashi starts. The
+// ID is a UUID in lowercase canonical form. It returns ErrExists when the
+// store already has a folder with that ID, saved or not, so a chosen ID
+// never reopens or overwrites another session. Like Create, it does not
+// touch the disk.
+func (st *Store) CreateWithID(dir, model, id string) (*Session, error) {
+	if !ValidChosenID(id) {
+		return nil, fmt.Errorf("session: %q is not a lowercase UUID", id)
+	}
+	if _, err := os.Lstat(filepath.Join(st.root, id)); err == nil {
+		return nil, fmt.Errorf("%w: %s", ErrExists, id)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	now := st.now()
+	return &Session{ID: id, Dir: dir, Model: model, Created: now, Updated: now}, nil
+}
+
+// ValidChosenID reports whether id can name a session that the caller
+// chose: a UUID in lowercase canonical form.
+func ValidChosenID(id string) bool {
+	return chosenSessionPattern.MatchString(id)
 }
 
 // Discard removes the directory of a session that holds no turn record,

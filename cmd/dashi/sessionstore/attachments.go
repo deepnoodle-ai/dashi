@@ -26,6 +26,11 @@ const attachmentMetadataLimit = 16 << 10
 var attachmentIDPattern = regexp.MustCompile(`^att_[0-9a-f]{32}$`)
 var attachmentSessionPattern = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$`)
 
+// chosenSessionPattern matches a session ID that the launcher chose with
+// --session-id: a UUID in lowercase canonical form. Its characters are safe
+// in a path, like the generated IDs.
+var chosenSessionPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
 type attachmentMetadata struct {
 	Version  int    `json:"version"`
 	Name     string `json:"name"`
@@ -61,6 +66,9 @@ func (st *Store) Attachments(s *Session) (*AttachmentStore, error) {
 }
 
 func validAttachmentSession(id string) bool {
+	if chosenSessionPattern.MatchString(id) {
+		return true
+	}
 	if !attachmentSessionPattern.MatchString(id) {
 		return false
 	}

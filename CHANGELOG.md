@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`dashi --session-id UUID`** starts a new session with an ID the caller
+  chose. An ID that already names a session is refused; `--resume UUID`
+  reopens it.
+- **`dashi --turn-events PATH`** appends a JSON line when a turn starts
+  (`UserPromptSubmit`), ends (`Stop` or `StopFailure`), or waits for you
+  (`Notification`), in the field names of Claude Code hook inputs. The end
+  is written before dashi takes the next prompt.
+
 ## [0.4.0] - 2026-10-06
 
 ### Added

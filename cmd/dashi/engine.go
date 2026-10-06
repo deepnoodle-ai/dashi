@@ -45,6 +45,9 @@ type EngineConfig struct {
 	Receipt func(*submittedInput, inputReceipt)
 	// ParentStopped is a nonblocking notification of acknowledged parent stops.
 	ParentStopped func(int)
+	// TurnEvents receives the start and end of each turn; nil without
+	// --turn-events.
+	TurnEvents *turnEventLog
 
 	// recorder wraps the session's recorder; tests use it to fail commits.
 	recorder func(*filerecorder.Recorder) dashi.Recorder
@@ -673,6 +676,7 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 			if e.cfg.ParentStopped != nil && ev.Result.Origin != dashi.StartCompaction {
 				e.cfg.ParentStopped(turnNumber(ev.TurnID))
 			}
+			e.cfg.TurnEvents.ended(*ev.Result)
 			e.finished(renderer(ev.TurnID), *ev.Result)
 			if stopOutcome {
 				break
@@ -722,6 +726,9 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 			}
 			if err := e.record(ev.Step); err != nil {
 				e.warn("The session file was not saved: %v.", err)
+			}
+			if w := e.cfg.TurnEvents.failure(e.cfg.TurnEvents.started(ev.TurnID, ev.Step.Started)); w != "" {
+				e.warn("%s", w)
 			}
 		}
 		for _, b := range r.Event(ev) {

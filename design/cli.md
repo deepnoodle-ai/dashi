@@ -64,6 +64,10 @@ The test expects "1,2" to give two items. Parse drops the last one.
 A slash command typed during a turn is not a steer. It waits, and the screen
 says so. Flags: `-c` or `--continue` reopens the last session of this
 directory that has a turn. `-r ID` or `--resume ID` reopens session `ID`.
+`--session-id UUID` starts a new session with that ID, and `--turn-events
+PATH` appends a Claude Code hook-shaped JSON line per turn start, turn end,
+and wait for the person, for a program that drives the terminal (see the
+CLI guide).
 `dashi run "prompt"` runs one turn without a UI and prints the reply.
 `--model NAME` sets the model. The order for the model is flag, `DASHI_MODEL`,
 reopened session, settings file, then detection or `gpt-6-luna`. Settings are

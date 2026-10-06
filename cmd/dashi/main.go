@@ -89,6 +89,14 @@ func runOptions(
 		return 1
 	}
 
+	if o.TurnEvents != "" {
+		cfg.TurnEvents, err = openTurnEvents(o.TurnEvents, dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "dashi: --turn-events: %v\n", err)
+			return 1
+		}
+		defer cfg.TurnEvents.Close()
+	}
 	if o.Plain || !isTerminal(os.Stdin) || !isTerminal(os.Stdout) {
 		return runLines(ctx, cfg, o, stdin, stdout, stderr)
 	}
