@@ -164,8 +164,8 @@ the build's exit status.
 
 ## Read and copy output
 
-Page Up/Down and the wheel scroll without following new output. End returns
-an empty draft to live output; Ctrl+Home/End navigate with a draft. The
+In fullscreen, Page Up/Down and the wheel scroll without following new output.
+End returns an empty draft to live output; Ctrl+Home/End navigate with a draft. The
 indicator shows lines below. Drag selects; double/triple clicks select a word
 or original logical line, including its whitespace and Markdown syntax. Copying
 selection excludes role labels, display indentation, and wrapped row breaks.
@@ -184,7 +184,8 @@ terminal requests report unconfirmed receipt; local clipboard process success
 is reported separately. F2 toggles fullscreen mouse capture without changing
 the draft. With capture off, use your terminal's selection and copy controls
 for transcript or composer text; F2 restores application selection. `/mouse`
-also toggles capture. Inline always leaves native selection available.
+also toggles capture. Inline always uses your terminal's selection and copy
+controls. Ctrl+C interrupts work or requests exit, even with a native selection.
 `/scrollback raw` provides complete printable text.
 Enter/Escape return from inspection with the draft intact.
 

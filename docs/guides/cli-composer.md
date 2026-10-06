@@ -4,9 +4,10 @@ Fullscreen and inline Dashi use the same composer. Enter submits the displayed
 text. Shift+Enter adds a newline. Bracketed paste retains Unicode, tabs, and
 line breaks without sending the request. Large text remains directly editable.
 Pasted commands and aliases, such as `/status` and `/q`, stay in the composer
-until Enter; they do not become file attachments. F2 enables native terminal
-selection and copying without changing the draft. In fullscreen, press F2
-again to restore application mouse capture. Inline already uses native selection.
+until Enter; they do not become file attachments. In fullscreen, F2 enables
+native terminal selection and copying without changing the draft. Press F2
+again to restore application mouse capture. Inline always uses your terminal's
+selection and copy controls; F2 reports that native selection is already available.
 
 ## Recall and completion
 
@@ -67,9 +68,11 @@ turn ends. It never schedules an editor action. Dialogs retain their own control
 
 ## Exit safely
 
-When transcript text is selected and the main composer is focused, Ctrl-C
-copies it. Escape interrupts running work even with a selection. A confirmed
+In fullscreen, when transcript text is selected and the main composer is
+focused, Ctrl-C copies it. Escape interrupts running work even with a selection. A confirmed
 local copy clears the selection; an unconfirmed terminal request preserves it.
+Inline selection belongs to your terminal. Ctrl-C interrupts work or requests
+exit, even with a native selection.
 
 Without selection, the first idle Ctrl-C preserves the draft and identifies
 any unsent, pending, or queued input that exit would lose. Press Ctrl-C again within two seconds to
