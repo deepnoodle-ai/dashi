@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -168,5 +169,24 @@ func TestRecordedChecksProviders(t *testing.T) {
 	}
 	if _, err := e.recordedWithNeedles(context.Background()); err == nil || !strings.Contains(err.Error(), `provider "dashitest"`) {
 		t.Fatalf("err = %v, want an unsupported provider error", err)
+	}
+}
+
+// The needles file quotes private sessions, so only its owner can read it,
+// also when it existed before.
+func TestWriteNeedlesIsPrivate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "needles.json")
+	if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeNeedles(path, minedNeedles{"s/t1": {{Answer: "ZX-9917"}}}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Fatalf("mode = %o, want 600", mode)
 	}
 }

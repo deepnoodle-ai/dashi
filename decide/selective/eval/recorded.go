@@ -201,12 +201,17 @@ func readNeedles(path string) (minedNeedles, error) {
 	return m, json.Unmarshal(b, &m)
 }
 
+// writeNeedles saves m readable by its owner only: the needles quote
+// private sessions.
 func writeNeedles(path string, m minedNeedles) error {
 	b, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600) // WriteFile keeps an older file's mode
 }
 
 const mineIntro = `Below is part of a coding-agent session. Its exact text will be summarized away soon.
