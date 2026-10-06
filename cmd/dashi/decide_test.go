@@ -280,6 +280,7 @@ func TestDecideCause(t *testing.T) {
 		{toolcheck.ErrTooLarge, "too large", false},
 		{fmt.Errorf("x: %w", decide.ErrNoAPIKey), "no credentials", true},
 		{fmt.Errorf("x: %w", decide.ErrServer), "server error", true},
+		{fmt.Errorf("x: %w", decide.ErrRateLimited), "rate limited", false},
 		{fmt.Errorf("x: %w", decide.ErrInvalidAnswer), "invalid answer", false},
 		{&toolcheck.PausedError{Until: time.Now(), Cause: fmt.Errorf("x: %w", decide.ErrAuth)}, "auth failed", true},
 	}
