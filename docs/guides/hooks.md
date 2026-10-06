@@ -133,7 +133,8 @@ runner.Hooks = dashi.JoinHooks(
   each command, such as an agent that runs commands without approval.
 - `PromptInjection` reads tool results and puts a warning before one that
   likely tries to take over the agent or hides text from a person. The
-  record keeps the raw output. Of a very long result it reads the start
+  record keeps the raw output, and its hook result's `Reason` starts with
+  `toolcheck.FlaggedPrefix` (`flagged: `) for a warning. Of a very long result it reads the start
   and end (8 parts of 60 KiB), never skips it, and tells the model to
   treat the whole result as untrusted.
 

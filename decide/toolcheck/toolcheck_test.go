@@ -735,7 +735,7 @@ func TestPromptInjectionHookWarnsTheModel(t *testing.T) {
 	}
 	results := hookResults(out, toolcheck.PromptInjectionName)
 	if len(results) != 1 || results[0].Verdict != dashi.VerdictReplace ||
-		results[0].Reason != "injection 96%, hidden 97% (jev-1.13.0, request req_1)" ||
+		results[0].Reason != "flagged: injection 96%, hidden 97% (jev-1.13.0, request req_1)" ||
 		results[0].RulesVersion != "jev-1.13.0" {
 		t.Fatalf("hook results = %+v", results)
 	}

@@ -124,7 +124,9 @@ func (c PromptInjection) report(v Verdict, err error) {
 
 // Hooks returns an AfterTool hook named PromptInjectionName. For a flagged
 // result, the model reads a warning before the result, and the hook result
-// records the verdict's Reason; the record keeps the raw output. For a
+// records the verdict's Reason after "flagged: ", so a host that reopens
+// the record can tell a warning from a Partial notice; the record keeps the
+// raw output. For a
 // Partial verdict, the model also reads a fixed notice that part of the
 // result was too large to check and must be treated as untrusted. The hook
 // fails open: when Decide cannot answer, the result reaches the model as
@@ -147,14 +149,24 @@ func (c PromptInjection) Hooks() dashi.Hooks {
 			}
 			replace := p.Result
 			replace.Output.Content = append(notes, p.Result.Output.Content...)
+			why := v.Reason
+			if v.Flagged {
+				why = FlaggedPrefix + why
+			}
 			return dashi.ResultDecision{
 				Replace:      &replace,
-				Reason:       v.Reason,
+				Reason:       why,
 				RulesVersion: v.Model,
 			}, nil
 		},
 	}.Hooks()
 }
+
+// FlaggedPrefix starts the recorded Reason of a result the
+// PromptInjection hook flagged, as in "flagged: injection 96%, hidden 3%
+// (jev-1.13.0, request r_1)". A recorded Reason without it is a Partial
+// notice alone.
+const FlaggedPrefix = "flagged: "
 
 // partialNotice is the fixed text the model reads before a result too long
 // to check whole.
