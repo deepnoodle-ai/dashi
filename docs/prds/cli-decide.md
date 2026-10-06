@@ -1,7 +1,8 @@
-# Turn on decision-model checks in the dashi CLI
+# Turn on decide checks in the dashi CLI
 
 Status: Draft\
-PRD PR: pending · Implementation PR: pending · Updated: 2026-10-06
+PRD PR: pending · Implementation PR: pending · Updated: 2026-10-06\
+Tech spec: [docs/design/cli-decide.md](../design/cli-decide.md)
 
 ## Problem
 
@@ -13,10 +14,9 @@ use it only inside a container. Long sessions have two more gaps: the stock
 summary drops exact paths and error strings, and nothing notices when the
 agent repeats a failing call.
 
-Dashi has decision-model packages for these jobs (`turnwatch`,
-`selective`, and the tool-call checks of track decide-tool-gate), but the
-CLI cannot use them. Our Decide plugin for Claude Code proves the design in
-another agent.
+Dashi has decision-model packages for these jobs (`turnwatch`, `selective`,
+and `toolcheck` from track decide-tool-gate), but the CLI cannot use them.
+Our decide plugin for Claude Code proves the design in another agent.
 
 ## Context
 
@@ -24,12 +24,12 @@ another agent.
   write, edit, shell command, and MCP call. `a` remembers an exact command
   for the process. `--dangerously-skip-permissions` answers yes to all of
   them. `dashi run` refuses them unless `--yes`.
-- **The Decide plugin (v0.3.0)** checks shell commands in bypass mode only
+- **The decide plugin (v0.3.0)** checks shell commands in bypass mode only
   (`severe` at 80%), and checks web pages, MCP results, and `gh`, `curl`,
   `wget`, and `http` output for prompt injection (60%). It warns without
   hiding the result, shows a footer count and a mark on each checked row,
-  and fails open. It dropped its reply check, which flagged one honest
-  reply in five.
+  fails open, and pauses a check for a minute after a failure. It dropped
+  its reply check, which flagged one honest reply in five.
 - **Others.** Claude Code auto mode lets a classifier model approve calls
   with no person involved. Codex CLI pairs approvals with an OS sandbox.
   OpenCode and Cursor use static allow and deny patterns.
@@ -46,222 +46,215 @@ commands sent to a third party without their consent.
 
 ## Concepts
 
-- **Decision model:** a fast model that answers typed questions about a
-  text with probabilities. Decide is our client for them (TypeSafe's Jev or
-  Cloudflare's Clef). It writes no prose.
-- **Command check:** asks whether a shell command could cause severe harm
-  that is hard to undo. A command is **flagged** when the answer's
-  probability clears the check's threshold.
-- **Content check:** asks whether outside content tries to take over the
-  agent or hides text from the person.
-- **Turn watcher:** notices a repeated failing call, confirms it with a
-  decision model, and gives the agent a short reminder.
-- **Selective compaction:** keeps old messages that are still needed word
+- **decide**: the one word the user sees, in the setting, the flag, and on
+  screen. It names our client for decision models: fast models (TypeSafe's
+  Jev or Cloudflare's Clef) that answer typed questions about a text with
+  probabilities and write no prose.
+- **Command-risk check**: asks whether a shell command could cause severe
+  harm that is hard to undo. A command is **flagged** when the probability
+  clears 80%. It reads shell commands only.
+- **Prompt-injection check**: asks whether a tool result tries to take
+  over the agent or hides text from the person.
+- **Turn watcher**: notices a repeated failing call, confirms it with
+  decide, and gives the agent a short reminder.
+- **Selective compaction**: keeps old messages that are still needed word
   for word, and summarizes only the rest.
-- **Unchecked:** a call the check could not answer (no key, timeout,
-  provider error). It goes on as if the check were off.
+- **Unchecked**: a call decide could not answer (no key, timeout, provider
+  error, or a **paused** check). It goes on as if the check were off.
 
 ## Use cases
 
 ### UC-1: Turn features on and see them
 
-The user adds to `~/.dashi/settings.json`:
-
-```json
-{"decision_models": {"command_check": true, "turn_watcher": true}}
-```
-
-or starts `dashi --decision-models command_check,turn_watcher`. `/settings`
-shows a "Decision models" section.
+The user adds `{"decide": ["command_risk", "turn_watcher"]}` to
+`~/.dashi/settings.json`, or starts `dashi --decide command_risk`.
 
 Acceptance:
 - [ ] With no setting, flag, or variable, every feature is off and dashi
-      sends no Decide request.
-- [ ] `/settings` lists each feature as on or off with the source that set
-      it, the provider, the model, and the credential variable name and
-      whether it is set (never its value). `--json` has the same fields under
-      `decision_models`.
-- [ ] `/settings` shows this run's totals: requests, input and output
-      tokens, checked, flagged, and unchecked.
-- [ ] `--decision-models off` turns every feature off for this launch.
+      sends no decide request.
+- [ ] `/settings` has a "decide" section: each feature on or off with its
+      source, the line `command_risk: shell commands only`, the provider
+      state (`not used yet`, `ready: typesafe jev-1.13.0`, or
+      `off: no credentials`), and this run's requests, input and
+      output tokens, checked, flagged, and unchecked. `--json` has the same
+      fields under `decide`.
+- [ ] `--decide off` turns every feature off for this launch.
 
-### UC-2: A prompt shows the command check's answer
+### UC-2: A prompt shows the command-risk answer
 
-Default mode, command check on. The agent proposes `rm -rf build/ ~/.cache`.
-The approval prompt shows the command and one line:
-`decide: severe 0.91 — flagged`. The user answers `n`.
-
-Acceptance:
-- [ ] Each shell command that would prompt shows the answer and its
-      probability in the same prompt. A flagged command's line is styled as
-      a warning.
-- [ ] One call gets at most one prompt.
-- [ ] A command the user remembered with `a` runs without a check, as before.
-- [ ] The check never answers a prompt for the user. `y`, `a`, and `n` keep
-      their meaning.
-
-### UC-3: Bypass mode still holds a severe command
-
-`dashi --dangerously-skip-permissions`, command check on. `go test ./...`
-runs at once. `git push --force origin main` stops at a prompt that shows the
-answer. The user answers `n`, and the model reads why.
+Default mode, `command_risk` on. The agent proposes `rm -rf build/ ~/.cache`.
+The prompt shows at once with `decide: checking…`. Under a second later that
+line reads `decide: severe 91% — flagged`. The user answers `n`.
 
 Acceptance:
-- [ ] A command that is not flagged runs without a prompt.
-- [ ] A flagged command asks, with the same keys and the answer line.
-- [ ] Calls from delegated tasks are checked the same way.
-- [ ] `dashi run --yes` with the check on refuses a flagged command; the
-      model reads a reason that names the check. Other commands run.
+- [ ] The prompt never waits for decide. `y` and `n` work at once; an answer
+      given first cancels the check, and the record says so.
+- [ ] The line shows the answer within 3 seconds, or reads
+      `decide: unchecked (timeout)`.
+- [ ] One call gets one prompt. A flagged prompt offers `y` and `n` only,
+      so a flagged command is never remembered.
+- [ ] A command remembered with `a` runs without a check, as before.
+
+### UC-3: Bypass mode still asks about a severe command
+
+`dashi --dangerously-skip-permissions --decide command_risk`.
+`go test ./...` runs at once. `git push --force origin main` stops at a
+prompt with the answer line. The user answers `n`, and the model reads why.
+
+Acceptance:
+- [ ] A command that is not flagged runs without a prompt. Its row shows
+      `decide: checking…` while it waits, at most 3 seconds.
+- [ ] A flagged command asks. Calls from delegated tasks are checked the
+      same way.
+- [ ] `write_file`, `edit_file`, and MCP calls still run without a prompt;
+      the guide and `/settings` say so.
+- [ ] `dashi run --yes --decide command_risk` refuses a flagged command;
+      the model reads a reason that names the check. Other commands run.
 - [ ] A checked row ends with `decide ✓`, or shows one line under it with
       the flagged question and probability. The turn footer adds
-      `decide 4 checked, 1 flagged`. A reopened session shows flagged calls
+      `decide 4 checked, 1 flagged`. A reopened session shows the answers
       from the turn record.
 
-### UC-4: No key, or the provider fails
+### UC-4: No key, or decide fails
 
-A feature is on, and `TYPESAFE_API_KEY` is not set. Dashi starts, prints one
-warning that names the missing variable and the features it affects, and
-runs as if those features were off. Later, with a key, a request times out.
+A feature is on, and `TYPESAFE_API_KEY` is not set. Later, with a key, a
+request times out.
 
 Acceptance:
-- [ ] Missing credentials give exactly one warning per launch, not one per
-      call or turn.
-- [ ] A failed check lets the call go on. The tool row shows
-      `decide: unchecked (timeout)`, and the turn records a warning.
-- [ ] The status area shows a decide warning only while a feature is off for
-      missing credentials or calls went unchecked. It is quiet otherwise.
+- [ ] Missing credentials give exactly one warning per launch, at the first
+      check, naming the variables to set. The status area then shows
+      `decide: off (no credentials)`.
+- [ ] A failed check lets the call go on; the row shows
+      `decide: unchecked (timeout)`.
+- [ ] While a check is paused, the status area shows
+      `decide: command_risk paused (timeout), resumes in 45s`. The guide
+      says bypass mode does not ask during a pause.
+- [ ] The status area is quiet when every check is answering.
 
 ### UC-5: Outside content gets a warning (PR 2)
 
-Content check on. A `curl` result says "ignore previous instructions".
+`prompt_injection` on. A `curl` result says "ignore previous instructions".
 
 Acceptance:
-- [ ] The check reads `bash` results whose command starts with `curl`,
-      `wget`, `gh`, or `http`, and every MCP tool result.
-- [ ] A flagged result reaches the model with a warning beside it; it is not
-      hidden. The row shows the flagged question and probability.
+- [ ] The check reads what `toolcheck.PromptInjection` reads: every MCP
+      result, and `bash` results whose command runs `gh`, `curl`, `wget`, or
+      `http`. Workspace file tools are not sent.
+- [ ] A flagged result reaches the model with a warning; it is not hidden.
+      The row shows the flagged question and probability.
 
 ### UC-6: The agent gets a reminder when it loops (PR 2)
 
-Turn watcher on. `go test` fails three times the same way. The transcript
-shows `turn watcher: reminded the agent (repeating 0.88)`, and the agent's
-next call changes approach.
-
-Acceptance:
-- [ ] The reminder line appears once per reminder, live and on reopen.
+`turn_watcher` on. `go test` fails three times the same way. The transcript
+shows `decide: reminded the agent (repeating 88%)`, live and on reopen.
 
 ### UC-7: Compaction keeps exact details (PR 3)
 
-Selective compaction on. Automatic compaction and `/compact` use it.
-`/settings` marks it experimental.
-
-Acceptance:
-- [ ] A fallback to stock compaction shows its cause in the compaction
-      line.
+`selective_compaction` on. Automatic compaction and `/compact` use it.
+`/settings` marks it experimental. A fallback to stock compaction shows its
+cause in the compaction line.
 
 ## Requirements
 
-- R-1: Features: `command_check`, `content_check`, `turn_watcher`,
-  `selective_compaction`. Each is off unless turned on.
-- R-2: Sources, highest first: `--decision-models LIST`, then
-  `DASHI_DECISION_MODELS`, then the `decision_models` block in
-  `~/.dashi/settings.json`. A list replaces the lower tiers; it does not
-  merge. `off` turns all off. An unknown name is a startup error that lists
-  the valid names.
-- R-3: A `decision_models` block in a project `.dashi/settings.json` is
-  ignored with one warning.
-- R-4: Provider: `DECIDE_PROVIDER`, then `decision_models.provider`, then
-  `typesafe`. TypeSafe reads `TYPESAFE_API_KEY` and `TYPESAFE_BASE_URL`;
-  Cloudflare reads `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and
-  `CLOUDFLARE_BASE_URL`, as the decide CLI does. `--env-file` works for
-  these. Settings never hold credentials.
-- R-5: `decision_models.model` pins the decision model, such as
-  `jev-1.13.0`. Empty means the provider's default.
-- R-6: The command check uses the plugin's `severe` question flagged at
-  80%. The content check flags `injection` or `hidden` at 60%. Users cannot
-  change thresholds in v1.
-- R-7: Model advice never grants permission. A check may add a prompt, add
+- R-1: Features: `command_risk`, `prompt_injection`, `turn_watcher`,
+  `selective_compaction`, named after the library types. Each is off unless
+  turned on.
+- R-2: Sources, highest first: `--decide LIST`, then `DASHI_DECIDE`, then the
+  `decide` list in `~/.dashi/settings.json`. A list replaces lower tiers.
+  `off` turns all off. An unknown name is a startup error that lists the
+  valid names.
+- R-3: A `decide` key in a project `.dashi/settings.json` is ignored with
+  one warning.
+- R-4: The library's default decide client chooses the provider:
+  `DECIDE_PROVIDER` (`typesafe` or `cloudflare`), then `TYPESAFE_API_KEY`
+  and `TYPESAFE_BASE_URL`, or `CLOUDFLARE_AUTH_TOKEN`,
+  `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_BASE_URL`, as the decide CLI
+  reads them. Every decide package honors it. The CLI reads none of these
+  variables itself. `--env-file` works for them.
+- R-5: Thresholds are the library's (80% and 60%). Users cannot change them.
+- R-6: Model advice never grants permission. A check may add a prompt, add
   a line to a prompt, refuse a call where nobody can answer, or warn. It
-  never approves, never creates a remembered rule, and never skips a prompt
-  the policy would show.
-- R-8: Every flagged, refused, or unchecked call is in the turn record
-  with the probability, the Decide request ID, and the model version.
-- R-9: The CLI reaches each feature through library packages only. Any
-  behavior the CLI needs from a check goes in the library.
-- R-10: `docs/guides/cli.md` and a new section in `docs/guides/approvals.md`
-  say what each feature sends to the provider.
+  never approves, never creates a remembered rule, and never removes a
+  prompt the policy would show.
+- R-7: Every checked approval records the check's one-line reason
+  (probability, request ID, model version) in the turn record, in the
+  approval decision's `Reason`.
+- R-8: The CLI reaches each feature through library packages only.
+- R-9: `docs/guides/cli.md` and `docs/guides/approvals.md` say what each
+  feature sends to the provider and what bypass mode still skips.
 
 ## Not in scope
 
-- Context ranking. The CLI has no store of notes or documents to rank;
-  AGENTS.md and skills already load by their own rules.
+- Context ranking. The CLI has nothing to rank; AGENTS.md and skills load
+  by their own rules.
 - List tools (`judge_items`, `pick_item`). A coding agent has no host list.
-- Dollar spend. Decide reports tokens only and has no price table yet.
-- An answer cache. The decision belongs to the library check (track
-  decide-tool-gate).
-- User-set thresholds, and an `ask|deny` choice for the command check.
-  Wait for a user who needs them.
+- Dollar spend. decide reports tokens only and has no price table.
+- A model pin and user-set thresholds. Wait for a user who asks.
+- An answer cache. It belongs in the library check.
 
 ## Decisions
 
 - **Every feature is off by default.** No surprise spend, latency, or data
   sent out. Rejected: on when a key is set; a key is not consent.
 - **Fewer prompts come from bypass mode with the check, not from the check
-  approving calls.** Model advice never grants permission. Rejected:
+  approving calls.** The cost is plain: bypass mode also drops the prompts
+  for edits, writes, and MCP calls, and no check covers them. Rejected:
   auto-approve calls the check scores safe, as Claude Code auto mode does.
-- **The command check runs in both modes.** In bypass mode it adds a prompt
-  for a flagged command. In default mode it adds a line to the prompt the
-  user sees anyway. Rejected: bypass mode only, as the plugin does; the
-  brief's main case is the default mode.
-- **A flagged command asks inline; it never stops the turn.** A held call
-  (`NeedsApproval`) ends a CLI turn with `StopWaiting`, which the
-  interactive CLI does not resolve inline. Rejected: hold and resolve.
+- **One approval path, one prompt.** The CLI calls
+  `toolcheck.CommandRisk.Check` inside its own approval step, shows the
+  answer in the one prompt, and writes the answer's reason into the
+  approval's record. Rejected: join the `CommandRisk` hook with the policy;
+  its hold beats the person's `y` and stops the turn.
+- **The command-risk check runs in both modes.** In default mode it adds a
+  line to the prompt the user sees anyway; in bypass mode it adds a prompt
+  for a flagged command. Rejected: bypass mode only, as the plugin does;
+  the brief's main case is the default mode.
+- **The prompt shows at once.** Keys work before the answer arrives.
+  Rejected: wait for decide; a slow provider would freeze the prompt.
 - **`dashi run --yes` refuses a flagged command.** Nobody can answer.
   Rejected: let it run; then the check does nothing in CI.
-- **Checks fail open, with one startup warning and unchecked marks.** It
-  matches design/decide/README.md decision 3 and the plugin. Rejected: fail
-  closed, as `examples/decide` does; an outage would stop bypass-mode work.
+- **Checks fail open, with one warning and visible unchecked and paused
+  states.** It matches the shared decide design and the plugin. Rejected:
+  fail closed; an outage would stop all bypass-mode work.
 - **User settings, flag, and variable only.** A project file that turns a
   feature on would send the user's commands to a third party with the
   user's key. Rejected: honor project settings, as for model controls.
-- **One list flag.** Its values are the settings key names, so each feature
-  has one spelling. Rejected: one flag per feature.
+- **One word, `decide`, and library names for features.** A user who sees
+  `decide ✓` finds the `decide` setting. Rejected: `decision_models`, a
+  second name for one thing.
+- **Provider choice lives in the library's default client.** Every host
+  gets Cloudflare by setting variables. Rejected: build the client in the
+  CLI, which every other host would have to copy.
+- **The missing-key warning comes at the first check.** The CLI never reads
+  decide's variables, so it learns of a missing key from the first skipped
+  check. Rejected: a public "is decide ready" call, new API for one line.
 - **Tokens and counts, not dollars.** A price copied into dashi would drift.
-  Rejected: a hard-coded Jev price.
-- **The CLI builds the Cloudflare client with decide's public
-  `backend.NewClient`.** decide's env-reading code is internal. Rejected:
-  wait for a decide release. Follow-up: ask decide to export it.
-- **Three implementation PRs.** PR 1: settings, flag, credentials,
-  warnings, `/settings`, footer, row marks, and the command check (most
-  value). PR 2: content check and turn watcher. PR 3: selective compaction,
+- **Three implementation PRs.** PR 1: the client helper, settings, flag,
+  `/settings`, warnings, footer, row marks, and the command-risk check. PR
+  2: prompt-injection check and turn watcher. PR 3: selective compaction,
   experimental until its eval passes on recorded CLI sessions. Rejected:
   one PR that waits on every dependency.
-- **UI label `decide`; no "verdict".** `decide` names the service that
-  answered, as in the plugin. "Verdict" already means a hook verdict in
-  Dashi. Rejected: `decision model` on every row; too long.
 
 ## Dependencies
 
-- Track decide-in-root: decide packages in the root module, on decide
-  v0.3.0. `cmd/dashi` may move to Go 1.27.
-- Track decide-tool-gate (PR 1 and PR 2): a command check and a content
-  check that ask through a host approval callback, record a reason, report
-  usage to a callback, and support the thresholds in R-6.
+- Track decide-in-root: decide packages in the root module, decide v0.3.0.
+- Track decide-tool-gate: `toolcheck.CommandRisk.Check(ctx, dashi.ToolPlan)
+  (Verdict, error)`, where `Verdict` holds flagged, probability, request ID,
+  model version, a one-line reason, and usage; an error that says a check
+  is paused and until when; and `PromptInjection` with an `OnCheck`.
 
 ## Success
 
-- A bypass-mode session holds a severe command and lets routine commands
-  run, live, with a real key; the PR shows the transcript.
-- No added prompt in default mode, and median added wait per checked
-  command under one second.
-- Must not get worse: startup with every feature off, and the zero-setting
-  launch.
+- A live bypass-mode session asks about a severe command and lets routine
+  commands run; the PR shows the transcript and the flag rate.
+- Median added wait per bash call in bypass mode under one second; never
+  more than 3 seconds.
+- In the dogfood week, we count sessions that use bypass mode with the
+  check outside a container, and whether the user kept the check on.
+- Must not get worse: startup and every turn with all features off.
 
-## Risks and open questions
+## Risks
 
-- **False flags** would make users turn the check off. The `severe`
-  question reduces this; PR 1 reports the flag rate from a live session.
-- **A text judge misses hidden effects** (`make clean`, a script). The guide
-  says the check is a second opinion, not a sandbox.
-- **The tool-gate design may not fit inline asking.** This blocks PR 1. We
-  raise it with that track now.
+- **False flags** make users turn the check off. The `severe` question
+  reduces this; PR 1 reports the flag rate from a live session.
+- **A text judge misses hidden effects** (`make clean`, a script). The
+  guide says the check is a second opinion, not a sandbox.
