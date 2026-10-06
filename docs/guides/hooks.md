@@ -150,10 +150,24 @@ that asks the user in its own `BeforeTool` hook calls `CommandRisk.Check`
 there and shows one prompt; `toolcheck.IsOutage` tells an outage from a
 failure the input could cause.
 
-The checks cover client tools only. A provider-run tool, such as a
-provider's web search or fetch, never reaches `AfterTool`. The checked
-commands and results go to the decision model's provider with your Decide
-key. `PromptInjection` reads every result except those of tools whose
+`PromptInjection` does not see everything outside text can reach the model
+through. It does not check:
+
+- error results, such as a page that returns 404 with an attack in its body;
+- provider-run tools, such as a provider's web search or fetch, which never
+  reach `AfterTool`;
+- a two-step fetch: `curl -o page.html URL` returns little text, and a later
+  `read_file page.html` comes from a closed-world tool;
+- shell commands that do not run `gh`, `curl`, `wget`, or `http`, such as
+  `cat page.html` on a downloaded file, `python -c 'requests…'`, or
+  `git clone`;
+- the workspace file tools reading text from outside, such as the README of
+  a cloned repository;
+- a result whose check timed out or hit the rate limit, which reaches the
+  model unchanged with a `hook_failed` warning.
+
+The checked commands and results go to the decision model's provider with
+your Decide key. `PromptInjection` reads every result except those of tools whose
 open-world hint is false; the workspace file tools and `ask_user` set it.
 To keep a trusted tool's results local, set it on that tool:
 
