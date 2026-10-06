@@ -51,6 +51,8 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"--dangerously-skip-permissions"}, Options{Yes: true}},
 		{[]string{"run", "go", "--dangerously-skip-permissions"}, Options{Run: true, Prompt: "go", OutputFormat: "text", Yes: true}},
 		{[]string{"--compaction-threshold", "50000"}, Options{CompactionThreshold: 50000}},
+		{[]string{"--session-id", "0F8FAD5B-D9CB-469F-A165-70867728950E", "--turn-events", "t.jsonl"},
+			Options{SessionID: "0f8fad5b-d9cb-469f-a165-70867728950e", TurnEvents: "t.jsonl"}},
 		{[]string{"models"}, Options{Models: true}},
 		{[]string{"models", "--available", "--workspace", "w", "--env-file=e"}, Options{Models: true, Available: true, Workspace: "w", EnvFiles: []string{"e"}}},
 	}
@@ -66,6 +68,11 @@ func TestParseArgs(t *testing.T) {
 		{"run", "-o", "xml"}, {"--yes"}, {"--attach", "a.go"}, {"--output-format", "json"},
 		{"--compaction-threshold", "0"}, {"--compaction-threshold", "lots"},
 		{"--available"}, {"models", "extra"}, {"models", "--model", "m"}, {"models", "-c"},
+		{"--session-id", "abc"}, {"--session-id", "0f8fad5b-d9cb-469f-a165-70867728950"},
+		{"--session-id", "0f8fad5b-d9cb-469f-a165-70867728950e", "-c"},
+		{"--session-id", "0f8fad5b-d9cb-469f-a165-70867728950e", "-r", "abc"},
+		{"--turn-events="}, {"run", "--session-id", "0f8fad5b-d9cb-469f-a165-70867728950e"},
+		{"run", "--turn-events", "t.jsonl"},
 	} {
 		if _, err := parseArgs(bad, io.Discard); err == nil {
 			t.Errorf("parseArgs(%v) succeeded", bad)

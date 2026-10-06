@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -38,6 +39,8 @@ type appConfig struct {
 	Decide        decideSettings
 	DecideSetup   decideSetup
 	parentStopped func(int)
+	// TurnEvents is the --turn-events file; nil without the flag.
+	TurnEvents *turnEventLog
 
 	// decideClient replaces the default decide client; tests use it.
 	decideClient *decide.Client
@@ -132,6 +135,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 			emitToUI(ui, b)
 		},
 		ParentStopped: cfg.parentStopped,
+		TurnEvents:    cfg.TurnEvents,
 		Receipt: func(in *submittedInput, r inputReceipt) {
 			if u, ok := ui.(attachmentUI); ok {
 				u.AttachmentReceipt(in, r)
@@ -145,6 +149,15 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 	ctrl.approveAll = cfg.ApproveAll
 	ctrl.decideOn = cfg.Decide
 	ctrl.decide = rt
+	ctrl.turnEvents = cfg.TurnEvents
+	if cfg.TurnEvents != nil {
+		cfg.TurnEvents.session = func() string {
+			if s := eng.Session(); s != nil {
+				return s.ID
+			}
+			return ""
+		}
+	}
 	eng.taskWake = ctrl.scheduleTaskNotices
 	if cfg.Preferences != nil {
 		cfg.Preferences.ask = ctrl.Ask
@@ -179,6 +192,15 @@ func (a *app) openSession(
 		}
 		if errors.Is(err, sessionstore.ErrNotFound) && o.ResumeID == "" {
 			notice, s, err = "There is no session to resume. Starting a new one.", nil, nil
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	if s == nil && o.SessionID != "" {
+		s, err = store.CreateWithID(dir, a.eng.Model(), o.SessionID)
+		if errors.Is(err, sessionstore.ErrExists) {
+			return "", fmt.Errorf("session %s already exists; reopen it with --resume %s", o.SessionID, o.SessionID)
 		}
 		if err != nil {
 			return "", err

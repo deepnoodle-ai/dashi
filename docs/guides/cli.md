@@ -162,6 +162,37 @@ text|json|jsonl` (`-o`) selects the output format. See [script input, response f
 resuming, and exit codes](cli-automation.md), including a CI example that keeps
 the build's exit status.
 
+## Drive dashi from another program
+
+A program that types prompts into a dashi terminal, such as a terminal
+multiplexer, uses two flags of the interactive session. They work in the
+full screen, `--inline`, and `--plain`. `dashi run` takes neither.
+
+- `--session-id UUID` starts a new session with that ID, so the program knows
+  it before dashi starts. Letters may be either case; dashi uses the
+  lowercase form. An ID that already names a session is refused. Reopen
+  that session with `--resume UUID`. `--session-id` cannot be combined with
+  `-c` or `-r`.
+- `--turn-events PATH` appends one JSON line to `PATH` (mode 0600) for each
+  event. dashi sets an existing file to mode 0600 and refuses a symlink or a
+  file that is not a regular file. The lines use the field names of Claude
+  Code hook inputs, so a reader of those hooks reads dashi too:
+
+| `hook_event_name` | When | Other fields |
+|---|---|---|
+| `UserPromptSubmit` | a turn starts, or text reaches the running turn as a steer | `prompt_id` (the turn ID), `prompt` |
+| `Notification` | a tool call waits for approval, or the model asks you a question | `notification_type` (`permission_prompt`), `message` |
+| `Stop` | a turn completes | `prompt_id`, `last_assistant_message` |
+| `StopFailure` | a turn stops any other way, or dashi refuses the prompt | `prompt_id` (empty for a refusal), `error_type` (the stop kind, such as `failed` or `interrupted`), `error_message` |
+
+Every line also has `session_id` and `cwd`. dashi writes and fsyncs the end
+of a turn before it takes the next prompt. Text fields keep their first 32
+KiB. A compaction turn writes nothing, and nothing marks the end of a wait:
+a child task's approval answered while dashi is idle is followed by no
+record until the next turn. Escape interrupts a turn in the full screen; in
+`--plain`, Ctrl-C does. Typed `@word` is a file mention, so a sender that
+means a name writes `\@word`.
+
 ## Read and copy output
 
 In fullscreen, Page Up/Down and the wheel scroll without following new output.

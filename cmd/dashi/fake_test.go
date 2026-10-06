@@ -217,6 +217,8 @@ type harness struct {
 	decideSetup  decideSetup
 	decideClient *decide.Client
 	decideWait   time.Duration
+	// turnEvents is the --turn-events file of the next build.
+	turnEvents *turnEventLog
 }
 
 func newHarness(t *testing.T, script ...reply) *harness {
@@ -267,6 +269,7 @@ func (h *harness) build(o Options) {
 		DecideSetup:         h.decideSetup,
 		decideClient:        h.decideClient,
 		decideWait:          h.decideWait,
+		TurnEvents:          h.turnEvents,
 	}, h.ui)
 	if err != nil {
 		h.t.Fatal(err)

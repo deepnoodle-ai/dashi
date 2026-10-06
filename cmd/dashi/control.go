@@ -105,6 +105,9 @@ type Controller struct {
 	// watchWarned holds the causes of failed turn-watcher checks already
 	// warned about.
 	watchWarned map[string]bool
+	// turnEvents gets a line when dashi waits for the person, and the end
+	// of each run; nil without --turn-events.
+	turnEvents *turnEventLog
 }
 
 // NewController returns a controller. base ends every run when it is done.
@@ -218,6 +221,7 @@ func (c *Controller) approveUI(
 	}
 	c.setMode(ModeApproval)
 	defer c.endDialog()
+	c.waiting(notificationPermissionPrompt, r)
 	// The request text is the model's. The UI gets the printable form only.
 	a := toolApproval{ApprovalRequest: r.Printable(), Task: task}
 	if slot != nil {
@@ -233,6 +237,14 @@ func (c *Controller) approveUI(
 		}
 	}
 	return answer, err
+}
+
+// waiting writes the turn event that says a tool call waits for approval.
+func (c *Controller) waiting(kind string, r ApprovalRequest) {
+	message := "Dashi needs your permission to use " + r.Printable().Tool
+	if w := c.turnEvents.failure(c.turnEvents.waiting(kind, message)); w != "" {
+		c.emit(warnBlock("%s", w))
+	}
 }
 
 // canAnswer reports whether a person can answer a prompt. The run command
@@ -291,6 +303,7 @@ func (c *Controller) approveBypass(ctx context.Context, r ApprovalRequest) (Appr
 func (c *Controller) askHeld(ctx context.Context, r ApprovalRequest, task string, result decideResult) (Approval, error) {
 	c.setMode(ModeApproval)
 	defer c.endDialog()
+	c.waiting(notificationPermissionPrompt, r)
 	answer, err := c.ui.Approve(ctx, toolApproval{ApprovalRequest: r.Printable(), Task: task, Check: doneCheck(result), Hold: true})
 	answer.Remember = false
 	return answer, err
@@ -373,6 +386,9 @@ func (c *Controller) warnPause(feature string) {
 func (c *Controller) askUI(ctx context.Context, q Question, task string) (workspace.Answer, error) {
 	c.setMode(ModeApproval)
 	defer c.endDialog()
+	if w := c.turnEvents.failure(c.turnEvents.waiting(notificationPermissionPrompt, "Dashi has a question for you")); w != "" {
+		c.emit(warnBlock("%s", w))
+	}
 	original := q.Choices
 	q.Prompt = workspace.PrintableText(q.Prompt)
 	choices := make([]workspace.Choice, len(q.Choices))
@@ -613,6 +629,10 @@ func (c *Controller) steer(line string) {
 	}
 	if err := c.eng.Steer(line, urgent); err != nil {
 		c.emit(warnBlock("The input %q was not sent: %v.", line, err))
+		return
+	}
+	if w := c.turnEvents.failure(c.turnEvents.steered(line)); w != "" {
+		c.emit(warnBlock("%s", w))
 	}
 }
 
@@ -701,6 +721,9 @@ func (c *Controller) startRun(fn func(context.Context) (Result, error)) bool {
 		_, err := fn(ctx)
 		cancel()
 		c.mu.Lock()
+		// The turn's end is written before the mode allows a new prompt, so
+		// a reader that sends one after it never steers this run.
+		eventErr := c.turnEvents.idle(err)
 		c.workerMode, c.cancel = ModeIdle, nil
 		if c.mode != ModeApproval {
 			c.mode = ModeIdle
@@ -712,6 +735,9 @@ func (c *Controller) startRun(fn func(context.Context) (Result, error)) bool {
 			c.dropping = ""
 		}
 		c.mu.Unlock()
+		if w := c.turnEvents.failure(eventErr); w != "" {
+			c.emit(warnBlock("%s", w))
+		}
 		c.scheduleTaskNotices()
 		if err != nil && !errors.Is(err, context.Canceled) {
 			var attachmentErr *attachmentFailure

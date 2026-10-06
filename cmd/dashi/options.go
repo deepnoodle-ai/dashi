@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/wonton/cli"
 	"github.com/deepnoodle-ai/wonton/color"
 )
@@ -38,6 +39,12 @@ type Options struct {
 	// directory when ResumeID is empty.
 	Resume   bool
 	ResumeID string
+	// SessionID is the --session-id value: the ID of the new session, in
+	// lowercase. Empty means a generated ID.
+	SessionID string
+	// TurnEvents is the --turn-events path: the file that gets one JSON
+	// line when a turn starts, ends, or waits for the user.
+	TurnEvents string
 
 	Model        string
 	Provider     string
@@ -123,10 +130,17 @@ func newApp(stdout, stderr io.Writer, start func(Options) error) *cli.App {
 		Flags(append(agentFlags(),
 			cli.Bool("plain").Help("use line mode instead of the full screen"),
 			cli.Bool("inline").Help("keep the conversation in the terminal's scrollback"),
+			cli.String("session-id").ValidateWith(sessionIDSyntax).
+				Help("start a new session with this UUID as its ID"),
+			cli.String("turn-events").ValidateWith(needsValue).
+				Help("append a JSON line to this file when a turn starts, ends, or waits for you"),
 		)...).
 		Validate(func(ctx *cli.Context) error {
 			if ctx.Bool("plain") && ctx.Bool("inline") {
 				return errors.New("--plain and --inline cannot be combined")
+			}
+			if ctx.IsSet("session-id") && (ctx.Bool("continue") || ctx.IsSet("resume")) {
+				return errors.New("--session-id starts a new session; to reopen one, use --resume ID alone")
 			}
 			return validateAgent(ctx)
 		}).
@@ -134,6 +148,8 @@ func newApp(stdout, stderr io.Writer, start func(Options) error) *cli.App {
 			o := agentOptions(ctx)
 			o.Plain = ctx.Bool("plain")
 			o.Inline = ctx.Bool("inline")
+			o.SessionID = strings.ToLower(ctx.String("session-id"))
+			o.TurnEvents = ctx.String("turn-events")
 			return start(o)
 		})
 
@@ -302,6 +318,16 @@ func decideSyntax(value string) error {
 	}
 	_, err := parseDecideList(value)
 	return err
+}
+
+// sessionIDSyntax validates --session-id: a UUID, such as
+// 0f8fad5b-d9cb-469f-a165-70867728950e. Letters may be either case; the
+// session uses the lowercase form.
+func sessionIDSyntax(value string) error {
+	if !sessionstore.ValidChosenID(strings.ToLower(value)) {
+		return errors.New("use a UUID, such as 0f8fad5b-d9cb-469f-a165-70867728950e")
+	}
+	return nil
 }
 
 // needsValue rejects a blank flag value.
