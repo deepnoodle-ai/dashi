@@ -12,6 +12,11 @@ go run ./selective/eval -long-turn   # a large file read in the last turn
 go run ./selective/eval -live -recorded ~/.dashi/sessions -needles needles.json
 ```
 
+A recorded case runs on its own provider: an OpenAI case needs
+`OPENAI_API_KEY`, and a case of another provider stops the run.
+`needles.json` quotes private sessions; it is written with mode 0600 and
+ignored by Git.
+
 ## Setup
 
 Six generated coding-agent sessions of about 13,000 tokens each, one per
@@ -120,6 +125,12 @@ design says to drop the package in that case. So the dashi CLI does not
 ship it; the library package stays experimental.
 
 ## Live run 3, 2026-10-06: recorded CLI sessions
+
+These totals came from an earlier window calculation that measured each
+case with reasoning, although every arm gets the history without it. The
+eval now measures the history without reasoning (13 cases, 64 needles from
+the same mined needles), but this run has not been repeated with it; see
+[#221](https://github.com/deepnoodle-ai/dashi/issues/221).
 
 `-recorded` reads dashi CLI session folders. Each turn end of 20,000 to
 120,000 estimated tokens is one case, compacted for a window its history
