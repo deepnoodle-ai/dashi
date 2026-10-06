@@ -1,8 +1,9 @@
 # decide checks in the dashi CLI
 
 **Status:** Draft · **Date:** 2026-10-06 · **Owner:** Curtis\
-**Workflow:** spec, then build after #204 (decide in the root module)
-and the `toolcheck` package ([PRD](../prds/decide-tool-gate.md)) land. **PRD:** [docs/prds/cli-decide.md](../prds/cli-decide.md)
+**Workflow:** spec, then build after the `toolcheck` package
+([PRD](../prds/decide-tool-gate.md)) lands. The decide packages are in the
+root module since #204. **PRD:** [docs/prds/cli-decide.md](../prds/cli-decide.md)
 
 ## Context
 
@@ -33,8 +34,8 @@ and PR 2 and PR 3 in outline.
 
 ### 1. Library: provider choice in the default client (PR 1)
 
-The default-client helper (`decide/internal/client` today; it may move
-to the root `internal/` with decide-in-root) gains provider choice:
+The default-client helper, `decide/internal/client`, gains provider
+choice:
 
 ```go
 // Default returns c, or a client made once from the environment.
@@ -181,7 +182,7 @@ their user settings, and their environment are trusted. A repository
   minute; the status area counts down; bypass mode runs commands.
 - **Check returns after the person answered:** discarded; the slot already
   holds "answered first".
-- **#204 or `toolcheck` slips:** PR 1 waits; nothing ships half wired.
+- **`toolcheck` slips:** PR 1 waits; nothing ships half wired.
 
 ## Alternatives considered
 

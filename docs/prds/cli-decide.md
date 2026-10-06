@@ -247,7 +247,7 @@ cause in the compaction line.
 
 ## Dependencies
 
-- #204: decide packages in the root module, on decide v0.3.0.
+- #204 (merged): decide packages in the root module, on decide v0.3.0.
 - The `toolcheck` package: `CommandRisk.Check(ctx, dashi.ToolPlan)
   (Verdict, error)`, where `Verdict` holds flagged, probability, request ID,
   model version, a one-line reason, and usage; a typed paused error with
