@@ -495,13 +495,37 @@ func TestOutagePausesForAMinute(t *testing.T) {
 	}
 }
 
+// A rate limit on content checks, which a long hostile page can cause,
+// never pauses either check, and a content outage never pauses the command
+// check.
+func TestContentChecksNeverPauseTheCommandCheck(t *testing.T) {
+	f := newFixture(t)
+	check := toolcheck.PromptInjection{Client: f.client}
+	risk := toolcheck.CommandRisk{Client: f.client}
+	f.srv.FailNext(http.StatusTooManyRequests)
+	_, err := check.Check(t.Context(), resultPlan("fetch_page", nil, page))
+	if !errors.Is(err, decide.ErrRateLimited) || toolcheck.IsOutage(err) {
+		t.Fatalf("rate limit: err = %v", err)
+	}
+	if _, err := check.Check(t.Context(), resultPlan("fetch_page", nil, page)); err != nil {
+		t.Fatalf("content check paused after a rate limit: %v", err)
+	}
+	f.srv.FailNext(http.StatusBadGateway)
+	if _, err := check.Check(t.Context(), resultPlan("fetch_page", nil, page)); !toolcheck.IsOutage(err) {
+		t.Fatalf("server error: err = %v", err)
+	}
+	if _, err := risk.Check(t.Context(), bashPlan("rm -rf ~")); err != nil {
+		t.Fatalf("command check paused by a content outage: %v", err)
+	}
+}
+
 func TestOutageKinds(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		fail   func(*decidetest.Server)
 		outage bool
 	}{
-		{"rate limit", func(s *decidetest.Server) { s.FailNext(http.StatusTooManyRequests) }, true},
+		{"rate limit", func(s *decidetest.Server) { s.FailNext(http.StatusTooManyRequests) }, false},
 		{"auth", func(s *decidetest.Server) { s.FailNext(http.StatusUnauthorized) }, true},
 		{"server", func(s *decidetest.Server) { s.FailNext(http.StatusBadGateway) }, true},
 		{"overloaded", func(s *decidetest.Server) { s.Overloaded(1) }, true},
@@ -570,7 +594,7 @@ func TestIsOutage(t *testing.T) {
 		{nil, false},
 		{&toolcheck.PausedError{Cause: decide.ErrServer}, true},
 		{fmt.Errorf("x: %w", decide.ErrNoAPIKey), true},
-		{decide.ErrRateLimited, true},
+		{decide.ErrRateLimited, false},
 		{toolcheck.ErrTooLarge, false},
 		{context.DeadlineExceeded, false},
 		{errors.Join(context.DeadlineExceeded, decide.ErrServer), false},

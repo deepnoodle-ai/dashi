@@ -106,8 +106,8 @@ wraps its cause, so `errors.Is` and `errors.As` see decide's errors.
 
 ```go
 // IsOutage reports whether err came from Decide being unreachable or
-// unusable, whatever the input: no key, auth, rate limit, server error,
-// a transport error that is not a timeout, or a *PausedError.
+// unusable, whatever the input: no key, auth, server error (5xx), a
+// transport error that is not a timeout, or a *PausedError.
 func IsOutage(err error) bool
 
 // PausedError is returned while a check is paused after an outage.
@@ -121,7 +121,8 @@ var ErrTooLarge = errors.New("toolcheck: input too large to check")
 ```
 
 Any error for which `IsOutage` is false may come from the input: a
-timeout (`context.DeadlineExceeded`), `ErrTooLarge`, a rejected request
+timeout (`context.DeadlineExceeded`), a rate limit (429, since the input
+sets how many parts a check sends), `ErrTooLarge`, a rejected request
 (`decide.ErrValidation`, `ErrInvalidRequest`), or a missing or invalid
 answer. The dashi CLI asks the user about a command in that case, even
 in bypass mode.
@@ -137,7 +138,8 @@ earlier of the caller's deadline and `Timeout`. A config is a value with
 no constructor, so the pause lives in a package-level table, guarded by
 a mutex, keyed by the resolved `*decide.Client` and the check kind. A
 Decide outage is process-wide, so one pause serves every config and
-turn that shares the client.
+turn that shares the client. Each kind pauses on its own, so content
+checks can never pause the command check.
 
 **Command-risk flow.** `Check` returns `Verdict{Checked: false}` and no
 error, with no request and no `OnCheck`, unless the call's tool is in
@@ -261,7 +263,10 @@ options stay decide's defaults, as in the templates.
   malformed input skips one check but never pauses it, for commands as
   well as results: injected text can steer the model to write a huge
   command, and a pause would let the next one through. Only
-  input-independent failures pause.
+  input-independent failures pause. A rate limit does not pause either:
+  a long page sends several requests, so content checks could use up the
+  key's limit and turn the command check off. Each check kind keeps its
+  own pause.
 - **Never a permission grant.** The package builds no `Allow`. A flag
   becomes a hold, or a verdict the host weighs in its own policy.
 - **Data leaves the process.** Commands and results go to the decision

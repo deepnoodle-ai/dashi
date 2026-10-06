@@ -127,8 +127,9 @@ Acceptance:
 - [ ] `Verdict.Usage` holds the request's tokens.
 - [ ] When Decide cannot answer, `Check` returns the error, so the host
       can show "unchecked". `toolcheck.IsOutage(err)` tells an outage
-      from a failure the input could cause (a timeout, oversized input,
-      or a rejected request), so a host can ask the user in that case.
+      from a failure the input could cause (a timeout, a rate limit,
+      oversized input, or a rejected request), so a host can ask the user
+      in that case.
 - [ ] While a check is paused, `Check` returns a `*toolcheck.PausedError`
       with `Until`, so a host can show "paused until 14:32". A caller's
       deadline or cancel never starts a pause.

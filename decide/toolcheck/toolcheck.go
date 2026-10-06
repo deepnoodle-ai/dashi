@@ -98,11 +98,13 @@ func (e *PausedError) Unwrap() error { return e.Cause }
 var errNoClient = errors.New("toolcheck: no decide client")
 
 // IsOutage reports whether err came from Decide being unreachable or
-// unusable, whatever the input: no key, a failed login, a rate limit, a
-// server error, a network error that is not a timeout, or a *PausedError.
-// Any other error may come from the input, which an attacker can shape: a
-// timeout, ErrTooLarge, a rejected request, or a missing or invalid
-// answer. A host can ask the user about the call in that case.
+// unusable, whatever the input: no key, a failed login, a server error, a
+// network error that is not a timeout, or a *PausedError. Any other error
+// may come from the input, which an attacker can shape: a timeout, a rate
+// limit, ErrTooLarge, a rejected request, or a missing or invalid answer.
+// A rate limit is in that group because the input sets how many requests
+// the checks send: a long result is checked in several parts. A host can
+// ask the user about the call in that case.
 func IsOutage(err error) bool {
 	if err == nil {
 		return false
@@ -113,12 +115,12 @@ func IsOutage(err error) bool {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded),
 		errors.Is(err, context.Canceled),
-		errors.Is(err, ErrTooLarge):
+		errors.Is(err, ErrTooLarge),
+		errors.Is(err, decide.ErrRateLimited):
 		return false
 	case errors.Is(err, errNoClient),
 		errors.Is(err, decide.ErrNoAPIKey),
 		errors.Is(err, decide.ErrAuth),
-		errors.Is(err, decide.ErrRateLimited),
 		errors.Is(err, decide.ErrServer):
 		return true
 	}
@@ -146,6 +148,8 @@ var now = time.Now
 
 // pauseKey names one check kind on one client. A Decide outage is
 // process-wide, so every config and turn sharing a client shares a pause.
+// Each kind pauses on its own, so a failing content check never pauses the
+// command check.
 type pauseKey struct {
 	client *decide.Client
 	kind   string

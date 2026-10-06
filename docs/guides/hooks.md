@@ -137,8 +137,10 @@ runner.Hooks = dashi.JoinHooks(
 
 They are advice, not a sandbox: neither ever allows a call. Both fail open:
 with no key, or when Decide fails, the call runs and the result reaches the
-model unchanged, with a `hook_failed` warning. After an outage a check
-pauses for a minute; a timeout or a rejected input never pauses it. A host
+model unchanged, with a `hook_failed` warning. After an outage (no key,
+a failed login, a server error, or a lost connection) a check pauses for a
+minute; a timeout, a rate limit, or a rejected input never pauses it, and
+the content check never pauses the command check. A host
 that asks the user in its own `BeforeTool` hook calls `CommandRisk.Check`
 there and shows one prompt; `toolcheck.IsOutage` tells an outage from a
 failure the input could cause.
