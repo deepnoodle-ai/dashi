@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -233,6 +234,56 @@ func TestTurnEventsSteer(t *testing.T) {
 	if names(got) != "UserPromptSubmit UserPromptSubmit StopFailure" ||
 		got[1]["prompt_id"] != got[0]["prompt_id"] || got[1]["prompt"] != `[from \@lead · prompt 2] also this` {
 		t.Fatalf("records: %v", got)
+	}
+}
+
+func TestTurnEventsRestrictsExistingFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix permission bits")
+	}
+	path := filepath.Join(t.TempDir(), "turn-events.jsonl")
+	if err := os.WriteFile(path, []byte("earlier\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	log, err := openTurnEvents(path, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode = %o, want 600", got)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "earlier\n" {
+		t.Fatalf("existing content = %q, %v; want it kept", data, err)
+	}
+}
+
+func TestTurnEventsRefusesSymlinkAndDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{link, dir} {
+		if log, err := openTurnEvents(path, "/w"); err == nil {
+			log.Close()
+			t.Fatalf("openTurnEvents(%s) succeeded, want refusal", path)
+		}
 	}
 }
 

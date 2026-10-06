@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"unicode/utf8"
@@ -96,9 +97,25 @@ func (l *turnEventLog) failure(err error) string {
 }
 
 // openTurnEvents opens path for appending, creating it with mode 0600.
+// The file holds prompts and replies, so an existing file must be a
+// regular file, not a symlink, and is restricted to mode 0600 before the
+// first line is written. A file dashi cannot chmod is refused.
 func openTurnEvents(path, dir string) (*turnEventLog, error) {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE|turnEventsOpenFlags, 0o600)
 	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err == nil && !info.Mode().IsRegular() {
+		err = fmt.Errorf("%s is not a regular file", path)
+	}
+	if err == nil && info.Mode().Perm() != 0o600 {
+		if err = f.Chmod(0o600); err != nil {
+			err = fmt.Errorf("restrict %s to mode 0600: %w", path, err)
+		}
+	}
+	if err != nil {
+		f.Close()
 		return nil, err
 	}
 	return &turnEventLog{f: f, dir: dir}, nil

@@ -174,8 +174,9 @@ full screen, `--inline`, and `--plain`. `dashi run` takes neither.
   that session with `--resume UUID`. `--session-id` cannot be combined with
   `-c` or `-r`.
 - `--turn-events PATH` appends one JSON line to `PATH` (mode 0600) for each
-  event. The lines use the field names of Claude Code hook inputs, so a
-  reader of those hooks reads dashi too:
+  event. dashi sets an existing file to mode 0600 and refuses a symlink or a
+  file that is not a regular file. The lines use the field names of Claude
+  Code hook inputs, so a reader of those hooks reads dashi too:
 
 | `hook_event_name` | When | Other fields |
 |---|---|---|
