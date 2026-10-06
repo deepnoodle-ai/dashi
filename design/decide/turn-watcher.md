@@ -127,7 +127,7 @@ refusal by its name and the watcher reminds when the turn resumes.
 
 ## API
 
-Package `turnwatch` in the `decide/` sub-module:
+Package `turnwatch` in `decide/turnwatch`:
 
 ```go
 type Watcher struct {

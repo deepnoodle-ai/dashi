@@ -1,8 +1,8 @@
 // Package compactionrules holds the rules the stock compactor uses to size,
 // clean, and cut history: the token estimate, the reminder filter, and the
 // tail cut. Package compaction and other compactors, such as the selective
-// one in the decide module, call it, so they measure and cut history the
-// same way. It is internal so that these rules do not become public
+// one in decide/selective, call it, so they measure and cut history the same
+// way. It is internal so that these rules do not become public
 // compaction API.
 package compactionrules
 
