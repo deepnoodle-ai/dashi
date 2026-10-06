@@ -47,7 +47,7 @@ type askArgs struct {
 }
 
 func newAskUser(ask AskFunc) (tool.Tool, error) {
-	return tool.Func(
+	return closedWorld(tool.Func(
 		ToolAskUser,
 		"Ask the person a question and wait for the answer. Use it when a "+
 			"missing fact blocks the work and you cannot find the fact in "+
@@ -91,7 +91,7 @@ func newAskUser(ask AskFunc) (tool.Tool, error) {
 			return tool.Succeeded(a.Text), nil
 		},
 		tool.ReadOnly(),
-	)
+	))
 }
 
 func validateSelections(choices []Choice, a Answer) error {

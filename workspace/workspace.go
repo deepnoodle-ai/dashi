@@ -167,6 +167,15 @@ func mutating(t tool.Tool) tool.Tool {
 	return t
 }
 
+// closedWorld marks a tool that acts only on the workspace or the user, a
+// closed set, so a check on outside content, such as decide/toolcheck,
+// leaves its results local. Each builder opts in; a new tool, such as one
+// that fetches pages, stays unset and so counts as open-world.
+func closedWorld(t tool.Tool, err error) (tool.Tool, error) {
+	t.Definition.Annotations.OpenWorld = new(false)
+	return t, err
+}
+
 // fail returns a failed outcome that the model reads and can act on.
 func fail(text string) (tool.Outcome, error) {
 	return tool.Failed(text), nil

@@ -6,7 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`decide/toolcheck` checks risky commands and outside content.**
+  `toolcheck.CommandRisk{}` holds a shell command that could likely cause
+  severe harm, such as `rm -rf ~`, for approval. `toolcheck.PromptInjection{}`
+  warns the model about a tool result that likely tries to take over the
+  agent. Both fail open with a `hook_failed` warning when Decide is down; a
+  command whose check the input breaks, such as by a timeout, is held for
+  approval. `Check` lets a host ask the user in its own approval hook.
+- **`FailOpen` on `BeforeTool` hooks.** A failing hook then counts as no
+  opinion, with a `hook_failed` warning, instead of denying the call. Use it
+  only for advice, never for a permission policy.
+
 ### Changed
+
+- **The workspace file tools and `ask_user` report a false open-world
+  hint,** so a check on outside content leaves their results local. `bash`
+  stays unset.
 
 - **The `decide` packages are part of the root module,** on Decide v0.3.0.
   `go get github.com/deepnoodle-ai/dashi` is enough to import

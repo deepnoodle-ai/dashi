@@ -13,7 +13,7 @@ Set hooks on `Runner.Hooks`; any number run at each point, in order:
 |---|---|---|---|
 | `BeforeModel` | before each model request is prepared | change settings, add messages, hide tools, stop | skipped, with a warning |
 | `BeforeSend` | on each prepared request, with its worst-case cost | deny, report a limit, record reservation terms | the turn stops failed |
-| `BeforeTool` | on each client tool call with valid arguments | allow, deny, hold for approval, rewrite the arguments | the call is denied, with a warning |
+| `BeforeTool` | on each client tool call with valid arguments | allow, deny, hold for approval, rewrite the arguments | the call is denied, with a warning; with `FailOpen`, no opinion |
 | `AfterTool` | on each final result from a tool, or from the host through `Resolve` | replace what the model sees | the result is withheld from the model, with a warning |
 | `BeforeFinish` | on each final reply: final text, or output submitted with `dashi_submit_output` | ask the model to continue, turn a submission down, accept an empty reply | the turn stops failed |
 
@@ -84,8 +84,11 @@ model saw. `Output.MapText` rewrites text blocks only; a strict redactor returns
 an error, withholding the result, when it finds a block it cannot inspect, such
 as a document or a resource. A failing result hook withholds that result,
 telling the model the tool ran; set `FailOpen` on a hook that only improves
-results to keep the result instead. `FailOpen` also works on `BeforeFinish`,
-where an error then counts as no opinion. Pass the same hooks to a `Resolve`
+results to keep the result instead. `FailOpen` also works on `BeforeFinish`
+and `BeforeTool`, where an error then counts as no opinion and still records a
+warning. Use it on `BeforeTool` only for advice, such as a decision-model
+check, never for a permission policy: a broken policy would let every call
+through. Pass the same hooks to a `Resolve`
 that reports a tool result, since it runs `AfterTool`.
 
 The result limit (`Limits.ToolResultBytes`) runs after the `AfterTool` chain.
@@ -106,6 +109,71 @@ tool not marked read-only for approval, see
 [holding calls for later approval](approvals.md#holding-calls-for-later-approval).
 For advisory model review, use a separately recorded turn and required host
 approval. See [using a model's advice](approvals.md#using-a-models-advice).
+
+## Decision-model checks
+
+Package `decide/toolcheck` gives two ready-made checks that ask a decision
+model, through [Decide](https://github.com/deepnoodle-ai/decide), for a
+second opinion. Both zero values work, with `TYPESAFE_API_KEY` from the
+environment:
+
+```go
+runner.Hooks = dashi.JoinHooks(
+	toolcheck.CommandRisk{},     // holds a likely disaster for approval
+	toolcheck.PromptInjection{}, // warns the model about a likely attack
+	policy,
+)
+```
+
+- `CommandRisk` reads the `command` argument of `bash` (`ShellTools` names
+  other shells) and holds a command that could likely cause severe harm,
+  such as `rm -rf ~` or a force push to `main`, as a `PendingApproval` named
+  `toolcheck-command-risk`. It checks every shell call, because a hook does
+  not see other hooks' answers, so add it where no other hook asks about
+  each command, such as an agent that runs commands without approval.
+- `PromptInjection` reads tool results and puts a warning before one that
+  likely tries to take over the agent or hides text from a person. The
+  record keeps the raw output. Of a very long result it reads the start
+  and end (8 parts of 60 KiB), never skips it, and tells the model to
+  treat the whole result as untrusted.
+
+They are advice, not a sandbox: neither ever allows a call. Both fail open
+on an outage: with no key, or when Decide is down, the call runs and the
+result reaches the model unchanged, with a `hook_failed` warning. When the
+command check fails in a way the input can cause (a timeout, a rate limit, a
+command too long to check, a rejected request, or an invalid answer), its
+hook holds the call for approval instead, with a `Reason` that says why. After an outage (no key,
+a failed login, a server error, or a lost connection) a check pauses for a
+minute; a timeout, a rate limit, or a rejected input never pauses it, and
+the content check never pauses the command check. A host
+that asks the user in its own `BeforeTool` hook calls `CommandRisk.Check`
+there and shows one prompt; `toolcheck.IsOutage` tells an outage from a
+failure the input could cause.
+
+`PromptInjection` does not see everything outside text can reach the model
+through. It does not check:
+
+- error results, such as a page that returns 404 with an attack in its body;
+- provider-run tools, such as a provider's web search or fetch, which never
+  reach `AfterTool`;
+- a two-step fetch: `curl -o page.html URL` returns little text, and a later
+  `read_file page.html` comes from a closed-world tool;
+- shell commands that do not run `gh`, `curl`, `wget`, or `http`, such as
+  `cat page.html` on a downloaded file, `python -c 'requests…'`, or
+  `git clone`;
+- the workspace file tools reading text from outside, such as the README of
+  a cloned repository;
+- a result whose check timed out or hit the rate limit, which reaches the
+  model unchanged with a `hook_failed` warning.
+
+The checked commands and results go to the decision model's provider with
+your Decide key. `PromptInjection` reads every result except those of tools whose
+open-world hint is false; the workspace file tools and `ask_user` set it.
+To keep a trusted tool's results local, set it on that tool:
+
+```go
+t.Definition.Annotations.OpenWorld = new(false)
+```
 
 ## Adding messages and vetoing replies
 

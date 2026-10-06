@@ -431,13 +431,19 @@ func TestReplayRejectsAResultOnRunnerWrittenOutcomes(t *testing.T) {
 	}
 }
 
-func TestFailOpenIsOnlyForAfterToolAndBeforeFinish(t *testing.T) {
+func TestFailOpenIsNotForModelOrSend(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
-	gate := ToolHook{Name: "gate", FailOpen: true, Func: func(context.Context, ToolPlan) (ToolDecision, error) {
-		return ToolDecision{}, nil
+	model := ModelHook{Name: "model", FailOpen: true, Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		return ModelDecision{}, nil
 	}}
-	if _, err := runHooked(t, client, nil, gate.Hooks()); err == nil {
-		t.Fatal("FailOpen accepted on before_tool")
+	if _, err := runHooked(t, client, nil, model.Hooks()); err == nil {
+		t.Fatal("FailOpen accepted on before_model")
+	}
+	send := SendHook{Name: "send", FailOpen: true, Func: func(context.Context, SendPlan) (SendDecision, error) {
+		return SendDecision{}, nil
+	}}
+	if _, err := runHooked(t, client, nil, send.Hooks()); err == nil {
+		t.Fatal("FailOpen accepted on before_send")
 	}
 	guard := FinishHook{Name: "guard", FailOpen: true, Func: func(context.Context, FinishPlan) (FinishDecision, error) {
 		return FinishDecision{}, errors.New("guard down")
@@ -446,6 +452,70 @@ func TestFailOpenIsOnlyForAfterToolAndBeforeFinish(t *testing.T) {
 	if err != nil || out.Stop.Kind != StopCompleted || !hasWarning(out, WarningHookFailed) {
 		t.Fatalf("stop=%+v warnings=%+v err=%v", out.Stop, out.Warnings, err)
 	}
+}
+
+// A failing BeforeTool hook with FailOpen counts as no opinion: the call
+// runs, later hooks still decide, the model sees nothing of the failure,
+// and a warning is recorded. Without FailOpen the call is denied.
+func TestBeforeToolFailOpenRunsTheCall(t *testing.T) {
+	advice := ToolHook{Name: "advice", FailOpen: true, Func: func(context.Context, ToolPlan) (ToolDecision, error) {
+		return ToolDecision{}, errors.New("advisor down")
+	}}
+	invalid := ToolHook{Name: "invalid", FailOpen: true, Func: func(context.Context, ToolPlan) (ToolDecision, error) {
+		return ToolDecision{Kind: "maybe"}, nil
+	}}
+	t.Run("runs", func(t *testing.T) {
+		runs := 0
+		client := &scriptedClient{
+			results: []llm.Result{callResult("call-1", "remote"), final("done")},
+		}
+		out, err := runHooked(t, client, tool.List{secretTool(&runs)},
+			Hooks{BeforeTool: []ToolHook{advice, invalid}})
+		if err != nil || out.Stop.Kind != StopCompleted || runs != 1 {
+			t.Fatalf("stop=%+v runs=%d err=%v", out.Stop, runs, err)
+		}
+		failed := 0
+		for _, w := range out.Warnings {
+			if w.Code == WarningHookFailed {
+				failed++
+			}
+		}
+		if failed != 2 {
+			t.Fatalf("warnings = %+v", out.Warnings)
+		}
+		if got := toolResultText(t, out.Turn, "call-1"); strings.Contains(got, "advice") {
+			t.Fatalf("model saw the failure: %q", got)
+		}
+		if _, err := out.Turn.View(); err != nil {
+			t.Fatalf("replay: %v", err)
+		}
+	})
+	t.Run("later hooks still decide", func(t *testing.T) {
+		runs := 0
+		client := &scriptedClient{
+			results: []llm.Result{callResult("call-1", "remote"), final("done")},
+		}
+		hold := ToolHook{Name: "hold", Func: func(context.Context, ToolPlan) (ToolDecision, error) {
+			return NeedsApproval("ask first"), nil
+		}}
+		out, err := runHooked(t, client, tool.List{secretTool(&runs)},
+			Hooks{BeforeTool: []ToolHook{advice, hold}})
+		if err != nil || runs != 0 || len(out.Pending) != 1 {
+			t.Fatalf("stop=%+v runs=%d err=%v", out.Stop, runs, err)
+		}
+	})
+	t.Run("without FailOpen denies", func(t *testing.T) {
+		runs := 0
+		client := &scriptedClient{
+			results: []llm.Result{callResult("call-1", "remote"), final("done")},
+		}
+		strict := advice
+		strict.FailOpen = false
+		out, err := runHooked(t, client, tool.List{secretTool(&runs)}, strict.Hooks())
+		if err != nil || runs != 0 || !hasWarning(out, WarningHookFailed) {
+			t.Fatalf("stop=%+v runs=%d err=%v", out.Stop, runs, err)
+		}
+	})
 }
 
 func TestAfterToolCannotChangeTheRecordedOutcome(t *testing.T) {

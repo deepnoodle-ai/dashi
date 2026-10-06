@@ -27,7 +27,7 @@ type globArgs struct {
 }
 
 func newGlob(s *scope) (tool.Tool, error) {
-	return tool.Func(
+	return closedWorld(tool.Func(
 		ToolGlob,
 		"Find files by name pattern. ** matches any number of directories. "+
 			"The result lists paths relative to the workspace, newest first.",
@@ -35,7 +35,7 @@ func newGlob(s *scope) (tool.Tool, error) {
 			return glob(s, in)
 		},
 		tool.ReadOnly(),
-	)
+	))
 }
 
 func glob(s *scope, in globArgs) (tool.Outcome, error) {

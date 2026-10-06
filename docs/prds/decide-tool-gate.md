@@ -1,7 +1,7 @@
 # Check risky commands and outside content with a decision model
 
-Status: Draft\
-PRD PR: #205  Implementation PR: pending  Updated: 2026-10-06
+Status: Approved\
+PRD PR: #205  Implementation PR: #207  Updated: 2026-10-06
 
 ## Problem
 
@@ -127,14 +127,18 @@ Acceptance:
 - [ ] `Verdict.Usage` holds the request's tokens.
 - [ ] When Decide cannot answer, `Check` returns the error, so the host
       can show "unchecked". `toolcheck.IsOutage(err)` tells an outage
-      from a failure the input could cause (a timeout, oversized input,
-      or a rejected request), so a host can ask the user in that case.
+      from a failure the input could cause (a timeout, a rate limit,
+      oversized input, or a rejected request), so a host can ask the user
+      in that case.
 - [ ] While a check is paused, `Check` returns a `*toolcheck.PausedError`
       with `Until`, so a host can show "paused until 14:32". A caller's
       deadline or cancel never starts a pause.
 - [ ] The hook returned by `CommandRisk.Hooks` is a thin wrapper over
       `Check`: flagged gives `NeedsApproval(v.Reason)`, passed gives no
-      opinion, and an error fails open with a warning.
+      opinion, an outage fails open with a warning, and any other error
+      (timeout, too large, rate limit, rejected request, invalid answer)
+      gives `NeedsApproval` with a Reason that says why the command was
+      not checked.
 - [ ] `PromptInjection.Check` does the same for a `dashi.ResultPlan`.
 
 ### UC-3: Warn the model about an injected page
@@ -157,6 +161,11 @@ Acceptance:
       the result only when the command runs `gh`, `curl`, `wget`, or
       `http`. It skips error results, results with under 80 characters of
       text, and non-text blocks.
+- [ ] A long result is never skipped. One check sends at most 8 parts:
+      the first 4 and the last 4. When the middle goes unchecked, the
+      check still flags from the parts it read, and the model reads a
+      short fixed notice that part of the result was too large to check
+      and must be treated as untrusted.
 - [ ] The workspace file tools and `ask_user` set their open-world hint
       to false, so `read_file` and `grep` results are not sent.
 - [ ] Live: an article that explains prompt injection gets no warning,
@@ -164,11 +173,15 @@ Acceptance:
 
 ### UC-4: Decide is down or has no key
 
-No `TYPESAFE_API_KEY` is set, or Decide returns an error or times out.
+No `TYPESAFE_API_KEY` is set, or Decide is down: a failed login, a
+server error, or a lost connection.
 
 Acceptance:
 - [ ] Every tool call runs, and every result reaches the model, as if the
       checks were not configured. The model sees nothing about the check.
+- [ ] A command check that fails in a way the input can cause (a timeout,
+      a rate limit, a command too long to check, a rejected request, or an
+      invalid answer) holds the call for approval instead.
 - [ ] The turn records a `hook_failed` warning for each skipped call or
       result, with the cause, such as decide's `ErrNoAPIKey` text.
 - [ ] After an outage, that check pauses for one minute; each skip still
@@ -215,10 +228,17 @@ Acceptance:
   templates. `Verdict` is a judgment on one call, as in `ToolVerdict`.
   Rejected: `toolgate` (decide's `patterns/gate` is a policy evaluator),
   `Injection` (reads as "inject something").
-- **Fail open, with a warning per skipped action.** The plugin's design
-  and shared decision 3. The record keeps every warning; the dashi CLI shows
-  one line when a check goes off. Rejected: fail closed, as the examples
-  do, which makes a missing key ask about every command.
+- **Fail open on an outage, with a warning per skipped action.** The
+  plugin's design and shared decision 3. The record keeps every warning;
+  the dashi CLI shows one line when a check goes off. Rejected: fail
+  closed, as the examples do, which makes a missing key ask about every
+  command.
+- **Hold a command when the input breaks its check.** An attacker can
+  shape a command to time out, to be too long, or to use up the rate
+  limit; failing open would let that command run unchecked. Advice may
+  hold, so the hook asks a person, as the dashi CLI does. Rejected: fail
+  open on every error, which the security review showed input can
+  steer.
 - **`FailOpen` on `BeforeTool`.** Only the engine can record a hook
   warning. Rejected: swallow the error in the hook; nothing is recorded.
 - **Zero thresholds are 0.8 and 0.6.** Shared decision 4 allows evidence:
@@ -245,6 +265,12 @@ Acceptance:
   attacker, so a slow or rejected input must not turn the check off. The
   plugin also paused on a slow command; we do not. Rejected: the plugin's
   rule, which lets a crafted huge command open a one-minute gap.
+- **Check the start and end of a long result; never skip it.** Dashi
+  does not cut a result before `AfterTool`, the bash tool keeps up to
+  1 MiB, and MCP results have no limit, so a size limit would let an
+  attacker pad a page past it. A cap of 8 parts bounds the requests one
+  page can cause. Rejected: skip results over 1,000,000 characters, as
+  the plugin does (Claude Code cuts tool output first).
 - **Warn, not withhold.** The model then tells the user what the page
   tried. Rejected: withhold, which hides honest pages about injection.
 - **Copy the template text into Dashi, marked "decide v0.3.0".** decide

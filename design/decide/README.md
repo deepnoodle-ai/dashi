@@ -9,7 +9,7 @@ answers typed questions (yes-or-no, choice, score) about a piece of text,
 with probabilities, in well under a second and for a small fraction of an LLM
 call. It writes no prose.
 
-PR #174 used Decide inside hooks. These designs use it in four more places:
+PR #174 used Decide inside hooks. These designs use it in five more places:
 
 | Design | Package | Where Decide sits | What it buys |
 | --- | --- | --- | --- |
@@ -17,6 +17,7 @@ PR #174 used Decide inside hooks. These designs use it in four more places:
 | [Context ranking](context-ranking.md) | `contextrank` | A hook before the turn's first model call | The most relevant notes and files go into the turn, under a size limit |
 | [Selective compaction](selective-compaction.md) | `selective` | A `session.Compactor` | Old messages still needed stay word for word; only the rest is summarized |
 | [Turn watcher](turn-watcher.md) | `turnwatch` | A hook before each model call | A repeated failing call triggers a check, and Decide confirms before the agent gets a reminder |
+| [Tool checks](../../docs/design/decide-tool-gate.md) | `toolcheck` | Hooks before a shell call and after a tool result | A likely disaster is held for approval; a likely prompt injection reaches the model with a warning |
 
 ## Words
 
@@ -41,12 +42,27 @@ use step (a recorded `dashi.Step`), notice (an agent message), evidence
    guesses. A hook or compactor does what Dashi would do without it, and the
    failure is recorded as a warning. Nothing fails a turn that would succeed
    without Decide.
+
+   *Exception, for hostile input:* `toolcheck.CommandRisk` fails open only
+   on an outage. When its check fails in a way the command can cause (a
+   timeout, a rate limit, a command too long to check, a rejected request,
+   or an invalid answer), its hook holds the call for approval, since an
+   attacker could otherwise shape a command to skip the check. A hold is
+   advice, which decision 2 allows.
 4. **Zero means the most likely answer wins.** No package ships a tuned
    threshold. A zero floor means "the model leans yes": P(yes) above 0.5.
    A pick takes the top choice; a match on a choice needs P above 0.5.
    A negative value turns a floor off. Hosts tune their own
    with Decide's `calibrate` and pin a version such as `jev-1.13.0` with
    `decide.WithModel`, because `jev-latest` can move.
+
+   *Exception, with evidence:* `toolcheck` ships the thresholds of the
+   decide plugin. `CommandRisk` flags `severe` at 0.8: on decide's set of
+   151 commands, it scored 12 of 13 disasters at 0.85 or more and every
+   other command at 0.63 or less (decide PR #54). `PromptInjection` flags
+   at 0.6, decide's default flag, above the unsure band of 40 to 60
+   percent. A threshold of 0.5 would sit inside that band. See
+   [the PRD](../../docs/prds/decide-tool-gate.md).
 5. **Spend.** Tools report Decide spend as `tool.Outcome.Cost`, which Dashi
    adds to `Spend.ToolCost`, outside `Budget.MaxCost`. Hooks and compactors
    pass usage to their `On…` callback.
@@ -59,6 +75,10 @@ use step (a recorded `dashi.Step`), notice (an agent message), evidence
    as it would without Decide.
 8. **Keyless tests and examples** use `decidetest` for Decide and `dashitest`
    for the model, as in PR #174.
+9. **Copied template text tracks decide.** `toolcheck/questions.go` copies
+   question text from decide's built-in templates, which decide does not
+   export. When Dashi upgrades decide, compare that text with the new
+   templates and copy any change.
 
 ## Dashi changes
 
