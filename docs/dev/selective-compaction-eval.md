@@ -9,7 +9,13 @@ go run ./selective/eval              # keyless: plumbing checks only
 go run ./selective/eval -live        # Claude (ANTHROPIC_API_KEY) and Jev (TYPESAFE_API_KEY)
 go run ./selective/eval -live -vague # the latest request is "Keep going."
 go run ./selective/eval -long-turn   # a large file read in the last turn
+go run ./selective/eval -live -recorded ~/.dashi/sessions -needles needles.json
 ```
+
+A recorded case runs on its own provider: an OpenAI case needs
+`OPENAI_API_KEY`, and a case of another provider stops the run.
+`needles.json` quotes private sessions; it is written with mode 0600 and
+ignored by Git.
 
 ## Setup
 
@@ -112,9 +118,66 @@ cause.
 The data shows that selective helps on these generated sessions; it does not
 yet show that the bar is met in general.
 
+On recorded CLI sessions the bar is not met. Selective beats the stock
+summary by 11 points, but keeping the newest older messages without Decide
+recalls as much, so Decide's choice has not yet earned its place; the
+design says to drop the package in that case. So the dashi CLI does not
+ship it; the library package stays experimental.
+
+## Live run 3, 2026-10-06: recorded CLI sessions
+
+These totals came from an earlier window calculation that measured each
+case with reasoning, although every arm gets the history without it. The
+eval now measures the history without reasoning (13 cases, 64 needles from
+the same mined needles), but this run has not been repeated with it; see
+[#221](https://github.com/deepnoodle-ai/dashi/issues/221).
+
+`-recorded` reads dashi CLI session folders. Each turn end of 20,000 to
+120,000 estimated tokens is one case, compacted for a window its history
+fills to 80%, as above. Its own recorded model writes the summaries and
+answers the probe, as in the CLI; reasoning is dropped from every arm's
+history, because only the model that wrote it may receive it. Needles are
+not planted: Claude Sonnet 5 mines up to six per case from the part every
+arm compacts, and code keeps an answer only when it is there word for word
+and not in the tail, the user's own words, or a system message. The needles
+are saved before any arm runs.
+
+Corpus: 14 cases from 7 sessions, 70 needles (20 names, 19 values, 12
+paths, 12 errors, 7 decisions). Six sessions were recorded for this run
+with `dashi run --yes`, three prompts each, on scratch copies of six of our
+repositories (one with a planted bug): three with Claude Haiku 4.5 and
+three with Claude Sonnet 5. The seventh is an earlier GPT-6 Luna security
+audit. Three first Haiku recordings stopped when the CLI's in-turn
+compaction failed; they were set aside and recorded again with Sonnet.
+
+| Arm | Recall | Fallbacks | Kept tokens | Summary $ | Decide tokens | Decide $ |
+| --- | --- | --- | --- | --- | --- | --- |
+| stock | 27/70 (39%) | – | 60,999 | 0.7354 | – | – |
+| stock, request-aware | 29/70 (41%) | – | 60,999 | 1.0817 | – | – |
+| recency | 35/70 (50%) | 0/14 | 174,627 | 1.0212 | – | – |
+| selective | 35/70 (50%) | 0/14 | 108,290 | 0.8678 | 690,783 | 0.0290 |
+| summary first | 34/70 (49%) | 0/14 | 108,290 | (shared) | (shared) | (shared) |
+
+By kind (error, path, name, value, decision): stock 1, 8, 13, 4, 1;
+request-aware 2, 8, 12, 6, 1; recency 7, 6, 17, 3, 2; selective 5, 7, 16,
+6, 1. Selective kept 0–5 segments whole and 0–5 short per case, and kept
+none in 5 of 14. The longest Decide wait was 738 ms. The run cost $5.10.
+OpenAI refused the selective history of the first case ("private replay
+data has no lossless canonical conversion") and accepted the stock one,
+which kept a single message; a kept assistant message carries the first
+provider's private replay data, so a provider switch after a selective
+compaction can fail. Three earlier attempts stopped on provider content
+rules before printing a result; the fixes above (each case's own model, no
+reasoning) came from them.
+
+Against the bar: beats stock by +11 (met); beats request-aware stock by +9
+(not met); beats recency by +0 (not met); no fallbacks (met); Decide spend
+3% of the summary spend (met). Selective matched recency while keeping 38%
+fewer tokens, so later turns cost less; it did not recall more.
+
 ## Not yet run
 
 - The request-aware stock arm with the pointed latest request.
-- Recorded CLI sessions, as the design requires: the eval reads only
-  generated sessions so far.
+- More recorded sessions, and repeated runs to measure run-to-run noise
+  on them.
 - A stronger summary model, which may close the path gap.

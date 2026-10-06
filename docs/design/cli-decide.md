@@ -176,10 +176,10 @@ why it was refused, then the decide line.
 - The footer counts these from the turn's steps, as the record keeps them;
   `/settings` shows each feature's counts from `OnCheck`. Neither hook is
   added after a setup error.
-- **Selective compaction:** in `configureChat`, wrap the stock policy:
-  `&selective.Compactor{Base: <stock>, OnSelection: rt.onSelection}`,
-  inside `routedCompactor` as today. `Selection.Fallback` goes on the
-  compaction line. `/settings` marks it experimental.
+- **Selective compaction is not wired.** Its eval on recorded CLI
+  sessions tied recency (50% recall each), so the CLI keeps the stock
+  compactor and `selective_compaction` stays "not available"; see
+  [the eval](../dev/selective-compaction-eval.md).
 
 ## Security considerations
 

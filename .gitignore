@@ -41,3 +41,6 @@ profile.cov
 /devtools/agent-archive/agent-archive
 __pycache__/
 /dashi
+
+# Needles mined by decide/selective/eval -recorded; they quote private sessions
+needles.json

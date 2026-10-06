@@ -1,6 +1,7 @@
 # Selective compaction
 
-**Status:** Proposed · **Date:** 2026-10-02 · **Owner:** Curtis · **Builds
+**Status:** Experimental in the library; not in the dashi CLI ·
+**Date:** 2026-10-02, result 2026-10-06 · **Owner:** Curtis · **Builds
 on:** [README](README.md), [compaction guide](../../docs/guides/compaction.md)
 
 ## Problem
@@ -139,8 +140,10 @@ type Selection struct {
     Segments   []SegmentChoice // message indexes, action, probabilities, size
     Usage      decide.Usage
     RequestIDs []string        // Decide request IDs
+    Requests   int             // Decide requests sent, failed ones included
     Models     []string        // resolved decision model versions
     Fallback   string          // why stock ran; empty if selective ran
+    Cause      Cause           // the fallback in a few words, such as CauseTimeout
 }
 ```
 
@@ -179,6 +182,32 @@ recency on needle recall by at least 10 points, falls back in under 5% of
 compactions, and spends less on Decide than on the summary call. If recency
 matches selective, Decide is not earning its place. Then we drop this package
 and move pinning and the prompt into the stock compactor.
+
+## Result and decision (2026-10-06)
+
+On 14 compactions from 7 recorded dashi CLI sessions, with 70 mined
+needles, selective recalled 50%, stock 39%, request-aware stock 41%, and
+recency 50%. Selective kept 38% fewer tokens than recency, fell back 0
+times, and spent 3% of the summary's cost on Decide. It beats stock by 11
+points but ties recency, so the bar is not met. Details:
+[docs/dev/selective-compaction-eval.md](../../docs/dev/selective-compaction-eval.md).
+
+**Decision:** the dashi CLI does not ship `selective_compaction`. The
+package stays experimental for library hosts. `Selection.Cause` and
+`Selection.Requests` stay, because any host that shows or bills a
+fallback needs them.
+
+**What would change it:** a recall lead over recency of 10 points or more
+on more recorded sessions, or a goal of cutting token cost, where keeping
+38% fewer tokens at the same recall matters. Moving pinning and the prompt
+into the stock compactor, as the bar says, is still open.
+
+**Provider switch.** A kept older assistant message carries the first
+provider's private replay data. OpenAI refused one such history ("private
+replay data has no lossless canonical conversion"). Stock compaction
+keeps its tail the same way, so this is not selective's alone, but
+selective keeps more assistant messages
+([#219](https://github.com/deepnoodle-ai/dashi/issues/219)).
 
 ## Open questions
 

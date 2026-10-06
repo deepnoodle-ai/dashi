@@ -381,7 +381,8 @@ func TestResolveDecide(t *testing.T) {
 	warnDecideSettings(&w, decideSettings{On: []string{decideSelectiveCompaction}},
 		preferenceFile{Source: "/repo/.dashi/settings.json", Project: true, Decide: json.RawMessage(`[]`)})
 	mustHave(t, w.String(), `/repo/.dashi/settings.json: "decide" is ignored in a project settings file`)
-	mustHave(t, w.String(), "selective_compaction is not available in this version")
+	mustHave(t, w.String(), "selective_compaction is not available; it stays off. "+
+		"On recorded sessions it kept no more needed details than keeping the newest messages; see https://")
 }
 
 // --decide with an unknown name is a command-line error that lists the
@@ -391,7 +392,7 @@ func TestDecideFlagValidation(t *testing.T) {
 	started := false
 	app := newApp(&stdout, &stderr, func(Options) error { started = true; return nil })
 	err := app.ExecuteContext(t.Context(), []string{"--decide", "nope"})
-	if err == nil || started || !strings.Contains(err.Error(), "use command_risk, prompt_injection, turn_watcher, or off (selective_compaction comes in a later release)") {
+	if err == nil || started || !strings.Contains(err.Error(), "use command_risk, prompt_injection, turn_watcher, or off (selective_compaction is not available)") {
 		t.Fatalf("err = %v, started = %v", err, started)
 	}
 	var got Options

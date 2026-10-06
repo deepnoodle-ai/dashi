@@ -179,6 +179,9 @@ type session struct {
 	needles  []needle
 	latest   string // the latest request
 	lastRead string // the file read after the latest request
+	window   int    // context window for this session; zero: -window
+	model    string // a recorded session's model, which summarizes and answers
+	provider string // a recorded session's provider, such as anthropic
 }
 
 // builder writes a session's messages.
