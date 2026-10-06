@@ -68,13 +68,20 @@ type Verdict struct {
 	// Usage holds the tokens of the request, or of every request when a
 	// long text was checked in parts.
 	Usage decide.Usage
+	// Partial is true when a result was too long to check whole: the check
+	// read its first and last parts and skipped the middle. The
+	// PromptInjection hook then tells the model to treat the whole result
+	// as untrusted. CommandRisk never checks part of a command.
+	Partial bool
 	// Reason is one line for a hook decision, such as
 	// "severe 94% (jev-1.13.0, request r_123)".
 	Reason string
 }
 
-// ErrTooLarge is returned for a text over 1,000,000 characters. Nothing
-// was sent, and the check does not pause.
+// ErrTooLarge is returned by CommandRisk for a command too long to check
+// whole: more than 8 parts of 60 KiB, about 480 KB. Nothing was sent, and
+// the check does not pause. PromptInjection never returns it; it checks
+// the start and end of a long result instead.
 var ErrTooLarge = errors.New("toolcheck: input too large to check")
 
 // PausedError is returned while a check is paused after an outage. It
@@ -192,8 +199,11 @@ func pause(key pauseKey, cause error) {
 
 // Limits on the text one check sends.
 const (
-	// maxChars is the most text a check sends, in characters.
-	maxChars = 1_000_000
+	// headParts and tailParts are how many parts of a long text one check
+	// sends: the first headParts and the last tailParts. They bound the
+	// paid requests one hostile page can cause.
+	headParts = 4
+	tailParts = 4
 	// partBytes is the most text, as encoded in JSON, in one request. It
 	// keeps a part and its questions within the decision model's limit of
 	// 32,000 tokens, as decide's own command does with 64 KiB items.
@@ -208,12 +218,15 @@ type asked struct {
 	model         string
 	requestID     string
 	usage         decide.Usage
+	// partial is true when the middle of the text was not sent.
+	partial bool
 }
 
 // ask sends text to Decide with the questions, in parts when it is long,
 // bounded by timeout and the caller's deadline. field names the text in
-// the state the decision model reads. An outage starts a pause for kind;
-// no other error does.
+// the state the decision model reads. A text too long to send whole is
+// sent as its start and end, or, when whole is set, returns ErrTooLarge.
+// An outage starts a pause for kind; no other error does.
 func ask(
 	ctx context.Context,
 	given *decide.Client,
@@ -221,8 +234,10 @@ func ask(
 	timeout time.Duration,
 	field, text string,
 	questions []question,
+	whole bool,
 ) (asked, error) {
-	if tooLong(text) {
+	parts, partial := pick(text, partBytes)
+	if partial && whole {
 		return asked{}, ErrTooLarge
 	}
 	c, err := client.Default(given)
@@ -240,7 +255,7 @@ func ask(
 	}
 	rctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	a, err := askParts(rctx, c, field, split(text, partBytes), questions)
+	a, err := askParts(rctx, c, field, parts, questions)
 	if err != nil {
 		err = fmt.Errorf("toolcheck: %s: %w", kind, err)
 		// The caller's deadline or cancel never starts a pause.
@@ -249,6 +264,7 @@ func ask(
 		}
 		return asked{}, err
 	}
+	a.partial = partial
 	return a, nil
 }
 
@@ -343,27 +359,48 @@ func askOne(
 	return out, nil
 }
 
-// tooLong reports whether text has more than maxChars characters, without
-// counting past the limit.
-func tooLong(text string) bool {
-	if len(text) <= maxChars {
-		return false
+// pick returns the parts of text that one check sends, each at most limit
+// bytes as encoded in JSON. A text of headParts+tailParts parts or fewer
+// is sent whole. A longer one sends its first headParts and last tailParts
+// parts, and partial is true. It never cuts more of the text than it
+// sends, so a huge text costs little.
+func pick(text string, limit int) (parts []string, partial bool) {
+	head, rest := splitN(text, limit, headParts+tailParts)
+	if rest == "" {
+		return head, false
 	}
-	n := 0
-	for range text {
-		if n++; n > maxChars {
-			return true
-		}
+	head = head[:headParts]
+	mid := 0
+	for _, p := range head {
+		mid += len(p)
 	}
-	return false
+	// A part holds at most limit bytes, and JSON never encodes a character
+	// in fewer bytes than UTF-8, so the last tailParts*limit bytes hold at
+	// least the last tailParts parts.
+	start := max(mid, len(text)-tailParts*limit)
+	for start < len(text) && !utf8.RuneStart(text[start]) {
+		start++
+	}
+	tail := split(text[start:], limit)
+	if len(tail) > tailParts {
+		tail = tail[len(tail)-tailParts:]
+	}
+	return append(head, tail...), true
 }
 
 // split cuts text into parts whose JSON encoding is at most limit bytes,
 // on whole characters, preferring to cut after a newline in the second
 // half of a part.
 func split(text string, limit int) []string {
+	parts, _ := splitN(text, limit, -1)
+	return parts
+}
+
+// splitN is split that stops after n parts, when n is positive, and
+// returns the text it did not cut.
+func splitN(text string, limit, n int) ([]string, string) {
 	var parts []string
-	for text != "" {
+	for text != "" && len(parts) != n {
 		size, cut, lastBreak := 0, len(text), -1
 		for i, r := range text {
 			n := jsonLen(r)
@@ -383,9 +420,9 @@ func split(text string, limit int) []string {
 		text = text[cut:]
 	}
 	if len(parts) == 0 {
-		return []string{""}
+		return []string{""}, ""
 	}
-	return parts
+	return parts, text
 }
 
 // jsonLen is how many bytes encoding/json writes for r inside a string.
@@ -415,6 +452,9 @@ func reason(a asked, questions []question) string {
 			b.WriteString(", ")
 		}
 		b.WriteString(q.key + " " + percent(a.probabilities[q.key]))
+	}
+	if a.partial {
+		b.WriteString(", start and end only")
 	}
 	fmt.Fprintf(&b, " (%s, request %s)", a.model, a.requestID)
 	return b.String()

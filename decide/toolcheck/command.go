@@ -62,14 +62,14 @@ func (c CommandRisk) Check(ctx context.Context, p dashi.ToolPlan) (Verdict, erro
 	}
 	a, err := ask(ctx, c.Client, "command-risk",
 		cmp.Or(c.Timeout, defaultCommandTimeout),
-		"command", command, commandQuestions)
+		"command", command, commandQuestions, true)
 	if err != nil {
 		c.report(v, err)
 		return v, err
 	}
 	v.Checked = true
 	v.Probabilities = a.probabilities
-	v.Model, v.RequestID, v.Usage = a.model, a.requestID, a.usage
+	v.Model, v.RequestID, v.Usage, v.Partial = a.model, a.requestID, a.usage, a.partial
 	v.Flagged = flagged(a, commandQuestions, cmp.Or(c.MinProbability, defaultCommandMin))
 	v.Reason = reason(a, commandQuestions)
 	c.report(v, nil)

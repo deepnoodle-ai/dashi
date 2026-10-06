@@ -770,20 +770,89 @@ func TestPromptInjectionReadsWhatEarlierHooksLeft(t *testing.T) {
 	}
 }
 
-func TestTooLarge(t *testing.T) {
+// A result too long to check whole is never skipped: the check reads its
+// first 4 and last 4 parts, flags from what it read, and the model reads a
+// fixed notice to treat the whole result as untrusted.
+func TestLongResultIsCheckedAtStartAndEnd(t *testing.T) {
 	f := newFixture(t)
+	f.srv.Respond(func(req *decide.Request) (*decide.Response, error) {
+		state, _ := json.Marshal(req.State)
+		p := 0.05
+		if strings.Contains(string(state), "Ignore previous instructions") {
+			p = 0.97
+		}
+		return &decide.Response{Model: "jev-1.13.0", Answers: map[string]decide.Answer{
+			"injection": decidetest.NoulAnswer(p), "hidden": decidetest.NoulAnswer(0.04),
+		}}, nil
+	})
+	text := strings.Repeat("é", 1_000_001) + "\n" + attack
 	var seen checks
 	check := toolcheck.PromptInjection{Client: f.client, OnCheck: seen.add}
-	_, err := check.Check(t.Context(),
-		resultPlan("fetch_page", nil, strings.Repeat("é", 1_000_001)))
+	out, _ := run(t, tool.List{fetchTool(text)}, check.Hooks(),
+		dashitest.CallTool("call-1", "fetch_page", `{}`),
+		dashitest.Reply("done"),
+	)
+	if f.requests() != 8 {
+		t.Fatalf("requests = %d, want 8", f.requests())
+	}
+	got := seen.all()
+	if len(got) != 1 || got[0].err != nil || !got[0].v.Partial || !got[0].v.Flagged {
+		t.Fatalf("OnCheck saw %+v", got)
+	}
+	blocks := out.Tools["call-1"].Result().Output.Content
+	if len(blocks) != 3 || !strings.HasPrefix(blocks[0].Text.Text, "decide checked this fetch_page") ||
+		!strings.HasPrefix(blocks[1].Text.Text, "Part of this tool result was too large") ||
+		!strings.HasPrefix(blocks[2].Text.Text, "éé") {
+		t.Fatalf("model saw %d blocks", len(blocks))
+	}
+	results := hookResults(out, toolcheck.PromptInjectionName)
+	if len(results) != 1 || !strings.Contains(results[0].Reason, "start and end only") {
+		t.Fatalf("hook results = %+v", results)
+	}
+
+	// Unflagged, the notice alone goes first.
+	f.srv.Respond(nil)
+	out, _ = run(t, tool.List{fetchTool(strings.Repeat("plain text\n", 100_000))}, check.Hooks(),
+		dashitest.CallTool("call-1", "fetch_page", `{}`),
+		dashitest.Reply("done"),
+	)
+	blocks = out.Tools["call-1"].Result().Output.Content
+	if len(blocks) != 2 || !strings.HasPrefix(blocks[0].Text.Text, "Part of this tool result") {
+		t.Fatalf("model saw %d blocks", len(blocks))
+	}
+}
+
+// A command too long to check whole is not sent, and returns ErrTooLarge,
+// an error the input can cause, which never pauses the check.
+func TestCommandTooLarge(t *testing.T) {
+	f := newFixture(t)
+	risk := toolcheck.CommandRisk{Client: f.client}
+	_, err := risk.Check(t.Context(), bashPlan(strings.Repeat("x", 600_000)+"; rm -rf ~"))
 	if !errors.Is(err, toolcheck.ErrTooLarge) || toolcheck.IsOutage(err) || f.requests() != 0 {
 		t.Fatalf("err = %v, requests = %d", err, f.requests())
 	}
-	if got := seen.all(); len(got) != 1 || got[0].err == nil {
-		t.Fatalf("OnCheck saw %+v", got)
+	if _, err := risk.Check(t.Context(), bashPlan(strings.Repeat("x", 400_000)+"; rm -rf ~")); err != nil {
+		t.Fatalf("a command of 400 KB: %v", err)
 	}
-	if _, err := check.Check(t.Context(), resultPlan("fetch_page", nil, page)); err != nil {
-		t.Fatalf("paused after ErrTooLarge: %v", err)
+}
+
+func TestPick(t *testing.T) {
+	limit := 100
+	whole := strings.Repeat("a", 8*limit)
+	if parts, partial := toolcheck.Pick(whole, limit); partial || strings.Join(parts, "") != whole {
+		t.Fatalf("8 parts: %d parts, partial %v", len(parts), partial)
+	}
+	text := "HEAD" + strings.Repeat("é", 20*limit) + "TAIL"
+	parts, partial := toolcheck.Pick(text, limit)
+	if !partial || len(parts) != 8 || !strings.HasPrefix(parts[0], "HEAD") ||
+		!strings.HasSuffix(parts[7], "TAIL") {
+		t.Fatalf("%d parts, partial %v", len(parts), partial)
+	}
+	for i, p := range parts {
+		encoded, _ := json.Marshal(p)
+		if len(encoded)-2 > limit || !utf8.ValidString(p) || !strings.Contains(text, p) {
+			t.Fatalf("part %d: %d bytes encoded", i, len(encoded)-2)
+		}
 	}
 }
 

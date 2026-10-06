@@ -133,7 +133,9 @@ runner.Hooks = dashi.JoinHooks(
   each command, such as an agent that runs commands without approval.
 - `PromptInjection` reads tool results and puts a warning before one that
   likely tries to take over the agent or hides text from a person. The
-  record keeps the raw output.
+  record keeps the raw output. Of a very long result it reads the start
+  and end (8 parts of 60 KiB), never skips it, and tells the model to
+  treat the whole result as untrusted.
 
 They are advice, not a sandbox: neither ever allows a call. Both fail open:
 with no key, or when Decide fails, the call runs and the result reaches the

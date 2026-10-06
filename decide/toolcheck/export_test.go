@@ -8,6 +8,7 @@ import (
 // Split and PartBytes expose the part cutter to tests.
 var (
 	Split     = split
+	Pick      = pick
 	PartBytes = partBytes
 )
 

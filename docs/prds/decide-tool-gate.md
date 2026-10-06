@@ -158,6 +158,11 @@ Acceptance:
       the result only when the command runs `gh`, `curl`, `wget`, or
       `http`. It skips error results, results with under 80 characters of
       text, and non-text blocks.
+- [ ] A long result is never skipped. One check sends at most 8 parts:
+      the first 4 and the last 4. When the middle goes unchecked, the
+      check still flags from the parts it read, and the model reads a
+      short fixed notice that part of the result was too large to check
+      and must be treated as untrusted.
 - [ ] The workspace file tools and `ask_user` set their open-world hint
       to false, so `read_file` and `grep` results are not sent.
 - [ ] Live: an article that explains prompt injection gets no warning,
@@ -246,6 +251,12 @@ Acceptance:
   attacker, so a slow or rejected input must not turn the check off. The
   plugin also paused on a slow command; we do not. Rejected: the plugin's
   rule, which lets a crafted huge command open a one-minute gap.
+- **Check the start and end of a long result; never skip it.** Dashi
+  does not cut a result before `AfterTool`, the bash tool keeps up to
+  1 MiB, and MCP results have no limit, so a size limit would let an
+  attacker pad a page past it. A cap of 8 parts bounds the requests one
+  page can cause. Rejected: skip results over 1,000,000 characters, as
+  the plugin does (Claude Code cuts tool output first).
 - **Warn, not withhold.** The model then tells the user what the page
   tried. Rejected: withhold, which hides honest pages about injection.
 - **Copy the template text into Dashi, marked "decide v0.3.0".** decide
