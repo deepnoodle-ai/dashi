@@ -222,6 +222,12 @@ func TestAfterToolFailOpenKeepsTheResult(t *testing.T) {
 		!hasWarning(out, WarningHookFailed) {
 		t.Fatalf("stop=%+v result=%+v warnings=%+v err=%v", out.Stop, out.Tools["call-1"].Result(), out.Warnings, err)
 	}
+	// The warning names the hook, so a host can find its own hook's failures.
+	for _, w := range out.Warnings {
+		if w.Code == WarningHookFailed && w.Hook != "flaky" {
+			t.Fatalf("warning hook = %q; want flaky", w.Hook)
+		}
+	}
 }
 
 func TestAfterToolWithholdsWhenTheRunEnds(t *testing.T) {

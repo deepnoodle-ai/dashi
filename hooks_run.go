@@ -55,6 +55,7 @@ func (r *runtime) hookFailed(
 		r.pendingWarnings = append(r.pendingWarnings, Warning{
 			Code:    WarningHookFailed,
 			Message: fmt.Sprintf("%s hook %s failed: %s", point, name, text),
+			Hook:    name,
 		})
 	}
 }

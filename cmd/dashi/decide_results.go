@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -154,15 +155,7 @@ var decideHooks = []string{toolcheck.PromptInjectionName, turnwatch.Name}
 // isDecideHookWarning reports whether w is the hook_failed warning of a
 // decide hook.
 func isDecideHookWarning(w dashi.Warning) bool {
-	if w.Code != dashi.WarningHookFailed {
-		return false
-	}
-	for _, name := range decideHooks {
-		if strings.Contains(w.Message, " hook "+name+" failed: ") {
-			return true
-		}
-	}
-	return false
+	return w.Code == dashi.WarningHookFailed && slices.Contains(decideHooks, w.Hook)
 }
 
 // decideStepCounts counts, from a turn's steps, the results the

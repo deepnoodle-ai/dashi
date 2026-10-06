@@ -49,6 +49,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   prompts or does slow work before it shows one. Calls that one remembered
   answer would cover still wait for each other. The `dashi` CLI uses it, so a
   decide check in bypass mode no longer holds up other tool calls.
+- **`Warning.Hook` names the hook of a `hook_failed` warning,** so a host
+  that shows a hook's failures its own way can find them without reading
+  the message.
 - **An `AfterTool` hook can record a result it kept.** A `ResultDecision`
   with no replacement but a `Reason` or `RulesVersion` is recorded as
   `VerdictNoChange`, as for `BeforeModel`, such as a check that passed.

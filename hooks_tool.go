@@ -304,6 +304,7 @@ func (r *runtime) afterToolHooks(
 						fact.Call.ID,
 						what,
 					),
+					Hook: h.Name,
 				})
 				break
 			}
