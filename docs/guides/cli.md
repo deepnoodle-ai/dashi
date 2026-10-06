@@ -214,6 +214,10 @@ something outside Dashi, such as a container, limits what the agent can do.
 shows the check's answer, and in bypass mode a command it flags still asks.
 The check sends each checked command to TypeSafe or Cloudflare with your key.
 Bypass mode still runs edits, writes, and MCP calls unasked and unchecked.
+`--decide prompt_injection` warns the agent about an MCP result or `gh`,
+`curl`, `wget`, or `http` output that tries to take it over, and sends that
+text out. `--decide turn_watcher` reminds the agent when it repeats a failing
+call, and sends the turn's recent calls out when it does.
 Every decide feature is off by default. See [decide checks](cli-decide.md).
 
 Questions support choices or own words. Multiple questions use checkboxes:

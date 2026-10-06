@@ -14,7 +14,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   warns the model about a tool result that likely tries to take over the
   agent. Both fail open with a `hook_failed` warning when Decide is down; a
   command whose check the input breaks, such as by a timeout, is held for
-  approval. `Check` lets a host ask the user in its own approval hook.
+  approval. `Check` lets a host ask the user in its own approval hook. The
+  recorded reason of a result the hook warned about starts with
+  `toolcheck.FlaggedPrefix`.
 - **`dashi --decide command_risk`** (or `DASHI_DECIDE`, or `"decide":
   ["command_risk"]` in `~/.dashi/settings.json`) checks each shell command
   with a decision model before it runs. The prompt shows the answer, a
@@ -26,6 +28,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   answers. Missing credentials or an unknown `DECIDE_PROVIDER` give one
   warning at start and turn the checks off; `dashi run --yes` refuses to
   start instead.
+- **`dashi --decide prompt_injection,turn_watcher`.** `prompt_injection`
+  warns the agent about an MCP result, or `gh`, `curl`, `wget`, or `http`
+  output, that likely tries to take it over; the row shows the warning, and
+  the result is never hidden. `turn_watcher` reminds the agent when it
+  repeats a failing call, and the transcript shows the reminder. Both are
+  off by default, and `/settings` counts each feature's checks.
 - **Cloudflare for every decide package.** With a nil `Client`, the decide
   packages read `DECIDE_PROVIDER` as the `decide` command does:
   `cloudflare` uses `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and

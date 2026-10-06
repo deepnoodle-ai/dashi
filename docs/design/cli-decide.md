@@ -151,11 +151,19 @@ why it was refused, then the decide line.
 
 - **Prompt injection:** a `decideWiring` adapter adds
   `toolcheck.PromptInjection{OnCheck: rt.onInjection}.Hooks()`. The hook
-  replaces what the model reads; `OnCheck` marks the row by call ID.
-- **Turn watcher:** `turnwatch.Watcher{OnCheck: rt.onWatch}.Hook()` goes in
-  `Runner.Hooks`, so `ActiveHooks` names it. The renderer draws the
-  `turnwatch` `HookResult` of a step as `decide: reminded the agent
-  (repeating 88%)`, live and on reopen.
+  replaces what the model reads; `OnCheck` counts checks and pauses. The
+  renderer marks the row from the tool step's `HookResult`: a reason that
+  starts with `toolcheck.FlaggedPrefix` is a warning, another replace is a
+  partial notice, and a failed result is `unchecked (cause)`. Its
+  `hook_failed` warning is not shown; the row and the status area are.
+- **Turn watcher:** the same adapter adds
+  `turnwatch.Watcher{OnCheck: rt.onWatch}.Hook()` to `Runner.Hooks`, so
+  `ActiveHooks` names it. The renderer draws the `turnwatch` `HookResult`
+  of a step as `decide: reminded the agent (repeating 88%)`, live and on
+  reopen. A failed check shows nothing; `/settings` counts it.
+- The footer counts these from the turn's steps, as the record keeps them;
+  `/settings` shows each feature's counts from `OnCheck`. Neither hook is
+  added after a setup error.
 - **Selective compaction:** in `configureChat`, wrap the stock policy:
   `&selective.Compactor{Base: <stock>, OnSelection: rt.onSelection}`,
   inside `routedCompactor` as today. `Selection.Fallback` goes on the
