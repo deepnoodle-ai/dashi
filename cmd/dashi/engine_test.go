@@ -128,6 +128,31 @@ func TestApprovalAnswers(t *testing.T) {
 	}
 }
 
+// --dangerously-skip-permissions runs a call without asking.
+func TestApproveAllSkipsApproval(t *testing.T) {
+	var runs atomicCounter
+	withNoteTool(t, &runs)
+	h := newHarness(t, callTool("c1", "write_note", `{"text":"one"}`), say("Noted."))
+	h.build(Options{Yes: true})
+	h.input("write a note")
+	if runs.Load() != 1 || len(h.ui.approvals) != 0 {
+		t.Fatalf("runs=%d approvals=%d", runs.Load(), len(h.ui.approvals))
+	}
+}
+
+// --compaction-threshold becomes the share of the model's window.
+func TestCompactionPolicyThreshold(t *testing.T) {
+	info := llm.ModelInfo{Capabilities: llm.Capabilities{ContextWindow: 200_000}}
+	e := &Engine{cfg: EngineConfig{CompactionThreshold: 50_000}}
+	p := e.compactionPolicy(info)
+	if p.Fraction != 0.25 || p.Due(llm.Usage{InputTokens: 49_000}) || !p.Due(llm.Usage{InputTokens: 50_000}) {
+		t.Fatalf("policy=%+v", p)
+	}
+	if p := (&Engine{}).compactionPolicy(info); p.Fraction != 0 {
+		t.Fatalf("default policy=%+v", p)
+	}
+}
+
 // Quit during an approval prompt leaves the turn interrupted. After a
 // reopen, an empty Enter continues it, and the same call is asked again.
 func TestQuitDuringApprovalThenContinue(t *testing.T) {

@@ -23,8 +23,12 @@ type Options struct {
 	Prompt       string
 	OutputFormat string
 	AttachFiles  []string
-	// Yes approves every tool call, for the run command.
+	// Yes approves every tool call: run --yes, or
+	// --dangerously-skip-permissions on either command.
 	Yes bool
+	// CompactionThreshold is the token count at which history is compacted.
+	// Zero means the compaction default, a share of the model's window.
+	CompactionThreshold int
 
 	// Resume reopens a saved session: ResumeID, or the last session of this
 	// directory when ResumeID is empty.
@@ -52,7 +56,8 @@ type Options struct {
 
 // settingsHelp is the long help of the app: where settings come from.
 const settingsHelp = `Settings: a flag wins over its DASHI_* variable (DASHI_PROVIDER, DASHI_MODEL,
-DASHI_THINKING_EFFORT, DASHI_SHOW_THINKING, DASHI_TEMPERATURE, DASHI_MAX_TOKENS).
+DASHI_THINKING_EFFORT, DASHI_SHOW_THINKING, DASHI_TEMPERATURE, DASHI_MAX_TOKENS,
+DASHI_COMPACTION_THRESHOLD).
 Then come a reopened session's own choices, the workspace .dashi/settings.json,
 ~/.dashi/settings.json, and the defaults. --env-file is read after the command
 line, so it supplies credentials but not DASHI_* settings.`
@@ -69,6 +74,7 @@ var controlFlags = []struct{ flag, env string }{
 var settingsVariables = []string{
 	"DASHI_PROVIDER", "DASHI_MODEL", "DASHI_THINKING_EFFORT",
 	"DASHI_SHOW_THINKING", "DASHI_TEMPERATURE", "DASHI_MAX_TOKENS",
+	"DASHI_COMPACTION_THRESHOLD",
 }
 
 // clearEmptySettings unsets each empty settings variable, so it sets
@@ -150,7 +156,7 @@ func newApp(stdout, stderr io.Writer, start func(Options) error) *cli.App {
 			o.Prompt = ctx.Arg(0)
 			o.OutputFormat = ctx.String("output-format")
 			o.AttachFiles = ctx.Strings("attach")
-			o.Yes = ctx.Bool("yes")
+			o.Yes = o.Yes || ctx.Bool("yes")
 			return start(o)
 		})
 
@@ -194,6 +200,10 @@ func agentFlags() []cli.Flag {
 			Help("sampling temperature, or omit to send none"),
 		cli.String("max-tokens").Env("DASHI_MAX_TOKENS").ValidateWith(controlSyntax("--max-tokens")).
 			Help("output token limit, or default"),
+		cli.String("compaction-threshold").Env("DASHI_COMPACTION_THRESHOLD").ValidateWith(compactionThresholdSyntax).
+			Help("compact history once a model call uses this many tokens (default: 80% of the model's window)"),
+		cli.Bool("dangerously-skip-permissions").
+			Help("approve every tool call; use only in an externally sandboxed environment"),
 	}
 }
 
@@ -205,6 +215,9 @@ func validateAgent(ctx *cli.Context) error {
 		return errors.New("--continue and --resume cannot be combined")
 	}
 	if _, err := controls(ctx); err != nil {
+		return err
+	}
+	if _, err := compactionThreshold(ctx); err != nil {
 		return err
 	}
 	return needsValues(ctx, "env-file", "mcp-config")
@@ -222,9 +235,34 @@ func agentOptions(ctx *cli.Context) Options {
 		Workspace:    ctx.String("workspace"),
 		EnvFiles:     ctx.Strings("env-file"),
 		MCPFiles:     ctx.Strings("mcp-config"),
+		Yes:          ctx.Bool("dangerously-skip-permissions"),
 	}
 	o.Controls, _ = controls(ctx)
+	o.CompactionThreshold, _ = compactionThreshold(ctx)
 	return o
+}
+
+// compactionThreshold reads --compaction-threshold. A flag's value has
+// passed its validator, so an invalid value here came from
+// DASHI_COMPACTION_THRESHOLD. An empty variable sets nothing.
+func compactionThreshold(ctx *cli.Context) (int, error) {
+	value := ctx.String("compaction-threshold")
+	if !ctx.IsSet("compaction-threshold") || value == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n <= 0 {
+		return 0, errors.New("invalid DASHI_COMPACTION_THRESHOLD: use a whole number of tokens above 0")
+	}
+	return n, nil
+}
+
+// compactionThresholdSyntax validates --compaction-threshold.
+func compactionThresholdSyntax(value string) error {
+	if n, err := strconv.Atoi(value); err != nil || n <= 0 {
+		return errors.New("use a whole number of tokens above 0")
+	}
+	return nil
 }
 
 // controls reads the generation control flags. A flag's value has passed

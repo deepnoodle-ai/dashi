@@ -48,6 +48,9 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"run", "-c", "-o", "json"}, Options{Run: true, Resume: true, OutputFormat: "json"}},
 		{[]string{"run", "--", "-5"}, Options{Run: true, Prompt: "-5", OutputFormat: "text"}},
 		{[]string{"-c", "run", "go"}, Options{Run: true, Prompt: "go", Resume: true, OutputFormat: "text"}},
+		{[]string{"--dangerously-skip-permissions"}, Options{Yes: true}},
+		{[]string{"run", "go", "--dangerously-skip-permissions"}, Options{Run: true, Prompt: "go", OutputFormat: "text", Yes: true}},
+		{[]string{"--compaction-threshold", "50000"}, Options{CompactionThreshold: 50000}},
 		{[]string{"models"}, Options{Models: true}},
 		{[]string{"models", "--available", "--workspace", "w", "--env-file=e"}, Options{Models: true, Available: true, Workspace: "w", EnvFiles: []string{"e"}}},
 	}
@@ -61,6 +64,7 @@ func TestParseArgs(t *testing.T) {
 		{"--nope"}, {"stray"}, {"-r"}, {"--model"}, {"--plain", "--inline"},
 		{"-c", "-r", "abc"}, {"--resume="}, {"run", "a", "b"}, {"run", "--plain"},
 		{"run", "-o", "xml"}, {"--yes"}, {"--attach", "a.go"}, {"--output-format", "json"},
+		{"--compaction-threshold", "0"}, {"--compaction-threshold", "lots"},
 		{"--available"}, {"models", "extra"}, {"models", "--model", "m"}, {"models", "-c"},
 	} {
 		if _, err := parseArgs(bad, io.Discard); err == nil {
@@ -169,6 +173,12 @@ func TestParseArgsSettingsVariables(t *testing.T) {
 	if _, err = parseArgs(nil, io.Discard); err == nil || !strings.HasPrefix(err.Error(), "invalid DASHI_TEMPERATURE: use a number") {
 		t.Fatalf("invalid variable: %v", err)
 	}
+	t.Setenv("DASHI_TEMPERATURE", "")
+	t.Setenv("DASHI_COMPACTION_THRESHOLD", "-1")
+	if _, err = parseArgs(nil, io.Discard); err == nil || !strings.HasPrefix(err.Error(), "invalid DASHI_COMPACTION_THRESHOLD") {
+		t.Fatalf("invalid variable: %v", err)
+	}
+	t.Setenv("DASHI_COMPACTION_THRESHOLD", "")
 	if _, err = parseArgs([]string{"models"}, io.Discard); err != nil {
 		t.Fatalf("models read an agent variable: %v", err)
 	}

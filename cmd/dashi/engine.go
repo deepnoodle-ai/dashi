@@ -36,6 +36,9 @@ type EngineConfig struct {
 	MCP         *mcpRuntime
 	// ModelCalls is the per-turn model-call limit; zero means 40.
 	ModelCalls int
+	// CompactionThreshold is the token count at which history is compacted;
+	// zero means the compaction default.
+	CompactionThreshold int
 	// Emit receives every block the engine produces. It may run on any
 	// goroutine.
 	Emit    func(Block)

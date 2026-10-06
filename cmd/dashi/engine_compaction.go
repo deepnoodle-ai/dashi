@@ -9,6 +9,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/compaction"
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
+	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
 )
 
@@ -48,7 +49,7 @@ func (e *Engine) configureChat() *session.Session {
 		d := p.routes.registry[agent.Provider]
 		info, _ = d.modelInfo(agent.Model)
 	}
-	policy := compaction.Policy{Model: info}
+	policy := e.compactionPolicy(info)
 	chat.Compactor = compaction.New(policy)
 	if p := e.cfg.Preferences; p != nil {
 		chat.Compactor = &routedCompactor{dashiCompactor: compaction.New(policy), agent: p.agent()}
@@ -67,6 +68,17 @@ func (e *Engine) configureChat() *session.Session {
 		e.warn("Model %s has no known context window; between-Turn history compaction uses 128,000 tokens. Active-Turn protection needs a known window.", model)
 	}
 	return chat
+}
+
+// compactionPolicy is the compaction policy for a model. A
+// --compaction-threshold becomes the share of the model's window it is.
+func (e *Engine) compactionPolicy(info llm.ModelInfo) compaction.Policy {
+	policy := compaction.Policy{Model: info}
+	if t := e.cfg.CompactionThreshold; t > 0 {
+		window, _ := policy.Window()
+		policy.Fraction = float64(t) / float64(window)
+	}
+	return policy
 }
 
 // Compact summarizes only. It cannot authorize execution of queued prompts.

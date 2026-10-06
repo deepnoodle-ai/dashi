@@ -252,6 +252,7 @@ func (h *harness) build(o Options) {
 		Store:   h.store,
 
 		ModelCalls: h.limit,
+		ApproveAll: o.Yes,
 		recorder:   h.recorder,
 	}, h.ui)
 	if err != nil {
