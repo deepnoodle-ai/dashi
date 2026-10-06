@@ -202,10 +202,12 @@ func (c *Controller) approveUI(
 ) (Approval, error) {
 	slot := c.decide.checkedCommand(ctx, r)
 	if c.approveAll {
-		if slot == nil {
+		// approveBypass lets only a call the check holds into the queue.
+		result, held := slot.take()
+		if !held || !result.holds() {
 			return Approval{Allow: true}, nil
 		}
-		return c.approveHeld(ctx, r, task, slot)
+		return c.askHeld(ctx, r, task, result)
 	}
 	if slot != nil && !c.canAnswer() {
 		// Every approval is refused here; a check would spend for nothing.
@@ -237,13 +239,20 @@ func (c *Controller) canAnswer() bool {
 	return !print
 }
 
-// approveHeld decides a shell command in bypass mode with the command-risk
-// check on. A command decide flags, or cannot check for a reason the command
-// itself can cause, asks; with no one to ask, it is refused. Any other
-// command runs. Model advice never approves: bypass mode, which the person
-// chose, does.
-func (c *Controller) approveHeld(ctx context.Context, r ApprovalRequest, task string, slot *decideSlot) (Approval, error) {
-	row := task == "" && c.canAnswer()
+// approveBypass decides a call in bypass mode. Every call runs, except a
+// shell command the command-risk check holds: decide flags it, or cannot
+// check it for a reason the command itself can cause. The check runs here,
+// before the approval queue, so checks from parallel tasks run at once and
+// other calls never wait behind one. Only a held call enters the queue to
+// ask; with no one to ask, it is refused. Model advice never approves:
+// bypass mode, which the person chose, does.
+func (c *Controller) approveBypass(ctx context.Context, r ApprovalRequest) (Approval, error) {
+	slot := c.decide.checkedCommand(ctx, r)
+	if slot == nil {
+		return Approval{Allow: true}, nil
+	}
+	owner, _ := promptOwner(ctx)
+	row := owner.TaskID == "" && c.canAnswer()
 	if row {
 		c.emit(c.checkingRow(slot.plan, "decide: checking…"))
 	}
@@ -270,6 +279,12 @@ func (c *Controller) approveHeld(ctx context.Context, r ApprovalRequest, task st
 			"approve it in a non-interactive run. Do not retry it. Tell the user what you " +
 			"wanted to run and why, so they can run it themselves."}, nil
 	}
+	return c.broker.approve(ctx, r)
+}
+
+// askHeld asks about a shell command the check held in bypass mode, with
+// allow once and deny only.
+func (c *Controller) askHeld(ctx context.Context, r ApprovalRequest, task string, result decideResult) (Approval, error) {
 	c.setMode(ModeApproval)
 	defer c.endDialog()
 	answer, err := c.ui.Approve(ctx, toolApproval{ApprovalRequest: r.Printable(), Task: task, Check: doneCheck(result), Hold: true})

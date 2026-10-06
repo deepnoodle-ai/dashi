@@ -447,6 +447,9 @@ func (c *Controller) presentTaskPrompt(p brokerPrompt) {
 	})
 }
 func (c *Controller) Approve(ctx context.Context, r ApprovalRequest) (Approval, error) {
+	if c.approveAll {
+		return c.approveBypass(ctx, r)
+	}
 	return c.broker.approve(ctx, r)
 }
 func (c *Controller) Ask(ctx context.Context, q Question) (workspace.Answer, error) {

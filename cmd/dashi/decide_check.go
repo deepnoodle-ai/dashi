@@ -529,6 +529,9 @@ func (s *decideSlot) set(r decideResult) {
 }
 
 func (s *decideSlot) take() (decideResult, bool) {
+	if s == nil {
+		return decideResult{}, false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.result == nil {

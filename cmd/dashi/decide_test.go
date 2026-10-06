@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/decide/defaultclient"
 	"github.com/deepnoodle-ai/dashi/decide/toolcheck"
+	"github.com/deepnoodle-ai/dashi/tool"
 	"github.com/deepnoodle-ai/decide"
 	"github.com/deepnoodle-ai/decide/decidetest"
 )
@@ -492,5 +494,65 @@ func TestLoadDecideSetup(t *testing.T) {
 		return defaultclient.Setup{}, nil
 	}); err != nil || loaded {
 		t.Fatal("the decide client was loaded with every feature off")
+	}
+}
+
+// bashSlot is the context a BeforeTool call of bash gives the approval
+// step: the call's plan in a decideSlot, and the call that owns a prompt.
+func bashSlot(ctx context.Context, id, command string) (context.Context, *decideSlot) {
+	args, _ := json.Marshal(map[string]string{"command": command})
+	plan := dashi.ToolPlan{Call: tool.Call{ID: id, Name: "bash", Args: args}}
+	slot := &decideSlot{plan: plan}
+	ctx = context.WithValue(ctx, decideSlotKey{}, slot)
+	return context.WithValue(ctx, brokerOwnerKey{}, brokerOwner{Call: dashi.CallRef{TurnID: "t", CallID: id}}), slot
+}
+
+// In bypass mode the check runs before the approval queue: two checks are
+// in flight at once, and a write_file call runs while they wait.
+func TestDecideBypassChecksOutsideTheQueue(t *testing.T) {
+	h, srv := decideHarness(t, Options{Yes: true})
+	var mu sync.Mutex
+	arrived := 0
+	bothIn, release := make(chan struct{}), make(chan struct{})
+	srv.Respond(func(*decide.Request) (*decide.Response, error) {
+		mu.Lock()
+		if arrived++; arrived == 2 {
+			close(bothIn)
+		}
+		mu.Unlock()
+		<-release
+		return &decide.Response{Model: "jev-test", RequestID: "r",
+			Answers: map[string]decide.Answer{"severe": &decide.NoulAnswer{Noul: 0.02}}}, nil
+	})
+	c := h.app.ctrl
+	results := make(chan Approval, 2)
+	for _, id := range []string{"c1", "c2"} {
+		go func() {
+			ctx, _ := bashSlot(t.Context(), id, "echo "+id)
+			a, err := c.Approve(ctx, ApprovalRequest{Tool: "bash", Command: "echo " + id})
+			if err != nil {
+				t.Error(err)
+			}
+			results <- a
+		}()
+	}
+	select {
+	case <-bothIn:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("the second check waited behind the first")
+	}
+	write, err := c.Approve(t.Context(), ApprovalRequest{Tool: "write_file"})
+	close(release)
+	if err != nil || !write.Allow {
+		t.Fatalf("write_file = %+v, %v", write, err)
+	}
+	for range 2 {
+		if a := <-results; !a.Allow {
+			t.Fatalf("approval = %+v; want allowed after a quick check", a)
+		}
+	}
+	if len(h.ui.approvals) != 0 {
+		t.Fatalf("approvals = %d; want 0", len(h.ui.approvals))
 	}
 }
