@@ -227,3 +227,39 @@ func (s *terminalVisualInline) HandleEvent(e tui.Event) []tui.Cmd {
 	}
 	return s.inlineScreen.HandleEvent(e)
 }
+
+func TestTerminalNarrowToolStatesAndChecks(t *testing.T) {
+	for _, test := range []struct {
+		state string
+		label string
+	}{
+		{StateChecking, "decide: checking command…"},
+		{StateCheckingResult, "decide: checking result…"},
+		{StateOK, "ok  1.0s"},
+		{StateFailed, "failed  1.0s"},
+	} {
+		t.Run(test.state, func(t *testing.T) {
+			b := Block{Kind: KindTool, Name: "bash", Arg: "curl https://example.com", State: test.state, Elapsed: time.Second,
+				Decide: &decideMark{Check: "command", OK: true}, DecideResult: &decideMark{Check: "result", OK: true}}
+			frame := tui.SprintScreen(toolView(b), tui.WithWidth(40), tui.WithHeight(8)).Text()
+			for _, want := range []string{test.label, "decide ✓ command, result"} {
+				if !strings.Contains(frame, want) {
+					t.Fatalf("missing %q at 40 columns:\n%s", want, frame)
+				}
+			}
+			if out := os.Getenv("DASHI_TERMINAL_EVIDENCE"); out != "" {
+				saveTerminalFrame(t, out, "tool-"+test.state+"-40x8", toolView(b), 40, 8)
+			}
+		})
+	}
+	b := Block{Kind: KindTool, Name: "bash", State: StateFailed,
+		Decide:       &decideMark{Check: "command", Flagged: true, Text: "severe 90% — flagged"},
+		DecideResult: &decideMark{Check: "result", Flagged: true, Text: "injection 99% — flagged, agent warned"}}
+	frame := tui.SprintScreen(toolView(b), tui.WithWidth(40), tui.WithHeight(10)).Text()
+	words := strings.Join(strings.Fields(frame), " ")
+	for _, want := range []string{"failed", "decide command: severe 90% — flagged", "decide result: injection 99% — flagged, agent warned"} {
+		if !strings.Contains(words, want) {
+			t.Fatalf("missing %q in wrapped checks:\n%s", want, frame)
+		}
+	}
+}

@@ -436,18 +436,21 @@ func toolView(b Block) tui.View {
 	views := []tui.View{icon, tui.Text(" "), tui.Text("%s", name).SourceOffset(0).Bold()}
 	if arg != "" {
 		views = append(views, tui.Text("%s", toolHeadSep),
-			tui.Text("%s", arg).SourceOffset(len(name)+len(toolHeadSep)).Style(mutedStyle).Flex(1))
+			tui.Text("%s", arg).SourceOffset(len(name)+len(toolHeadSep)).Style(mutedStyle).Wrap().Flex(1))
 	}
 	if arg == "" {
 		views = append(views, tui.Spacer())
 	}
 	views = append(views, tui.Text("  "))
-	if tick := decideTicks(b); tick != "" {
-		views = append(views, tui.Text("%s  ", tick).Style(mutedStyle))
-	}
-	head := tui.Group(append(views, state)...)
+	head := tui.Height(1, tui.Group(append(views, state)...))
 	offset := len(toolHeadSource(b)) + 1
 	var checks []tui.View
+	// Check badges belong with the check details. Keeping them out of the
+	// header reserves space for the tool state even on narrow terminals.
+	if tick := decideTicks(b); tick != "" {
+		checks = append(checks, tui.PaddingLTRB(2, 0, 0, 0,
+			tui.Text("%s", tick).Wrap().Style(mutedStyle)))
+	}
 	for _, mark := range decideLines(b) {
 		t := tui.Text("%s", mark.Text).Wrap()
 		if mark.Flagged {
