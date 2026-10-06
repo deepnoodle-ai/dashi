@@ -72,16 +72,33 @@ func TrustTools(names ...string) PolicyOption {
 	}
 }
 
-// Policy decides which tool calls need approval. It plugs into Runner.Hooks.
-// A Policy is safe for concurrent use. It asks one question at a time, so a
-// prompt from one call holds up the other calls of the same batch.
-type Policy struct {
-	ws      *Workspace
-	ask     ApprovalFunc
-	trusted []string
+// AskConcurrently lets the Policy call ask for several tool calls at once
+// instead of one at a time. Use it when ask does slow work, such as a network
+// check, before it shows a prompt. ask must then be safe to call from several
+// goroutines, and must show one prompt at a time itself. Calls that one
+// remembered answer would cover still wait for each other, so a remembered
+// allow applies to the calls behind it.
+func AskConcurrently() PolicyOption {
+	return func(p *Policy) {
+		p.concurrent = true
+	}
+}
 
-	mu    sync.Mutex // held while asking, so prompts do not overlap
-	rules map[string]bool
+// Policy decides which tool calls need approval. It plugs into Runner.Hooks.
+// A Policy is safe for concurrent use. By default it asks one question at a
+// time, so a prompt from one call holds up the other calls of the same
+// batch; AskConcurrently changes that.
+type Policy struct {
+	ws         *Workspace
+	ask        ApprovalFunc
+	trusted    []string
+	concurrent bool
+
+	one sync.Mutex // held while asking, unless concurrent
+
+	mu     sync.Mutex // guards rules and asking
+	rules  map[string]bool
+	asking map[string]chan struct{} // closed when the ask for a rule key ends
 }
 
 // Policy returns the approval Policy for this Workspace. It asks through ask.
@@ -94,7 +111,7 @@ type Policy struct {
 // that has the same name, such as an MCP tool, still asks. It reads files in
 // the Workspace directory to build previews.
 func (w *Workspace) Policy(ask ApprovalFunc, opts ...PolicyOption) *Policy {
-	p := &Policy{ws: w, ask: ask, rules: map[string]bool{}}
+	p := &Policy{ws: w, ask: ask, rules: map[string]bool{}, asking: map[string]chan struct{}{}}
 	for _, opt := range opts {
 		opt(p)
 	}
@@ -131,13 +148,26 @@ func (p *Policy) decide(
 	if p.ask == nil {
 		return dashi.NeedsApproval("The call needs approval."), nil
 	}
+	if !p.concurrent {
+		p.one.Lock()
+		defer p.one.Unlock()
+	}
 	key := ruleKey(owned, plan.Call.Name, plan.Call.Args)
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.rules[key] {
+	remembered, err := p.claim(ctx, key)
+	if err != nil {
+		return dashi.ToolDecision{}, err
+	}
+	if remembered {
 		return dashi.Allow("allowed by a remembered answer"), nil
 	}
 	a, err := p.ask(ctx, p.request(plan, owned))
+	p.mu.Lock()
+	if err == nil && a.Allow && a.Remember {
+		p.rules[key] = true
+	}
+	close(p.asking[key])
+	delete(p.asking, key)
+	p.mu.Unlock()
 	if err != nil {
 		return dashi.ToolDecision{}, err
 	}
@@ -149,10 +179,32 @@ func (p *Policy) decide(
 		}
 		return dashi.Deny(reason), nil
 	}
-	if a.Remember {
-		p.rules[key] = true
-	}
 	return dashi.Allow("approved by the user"), nil
+}
+
+// claim waits until no other call asks under key. It reports true when a
+// remembered answer covers key. Otherwise the caller now asks under key and
+// must close and delete p.asking[key] when the ask ends.
+func (p *Policy) claim(ctx context.Context, key string) (remembered bool, err error) {
+	for {
+		p.mu.Lock()
+		if p.rules[key] {
+			p.mu.Unlock()
+			return true, nil
+		}
+		done, busy := p.asking[key]
+		if !busy {
+			p.asking[key] = make(chan struct{})
+			p.mu.Unlock()
+			return false, nil
+		}
+		p.mu.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}
 }
 
 // ruleKey names what a remembered answer covers: the whole tool for the file

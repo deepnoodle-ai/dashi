@@ -53,6 +53,9 @@ type taskFixtureClient struct {
 	parentMessageCalls []int
 	// parentInputs holds the text of each parent model call's messages.
 	parentInputs []string
+	// childCommand, when set, is a bash command the child's first model
+	// call runs.
+	childCommand string
 }
 
 // startedTaskID returns the task ID that a task tool result in the request
@@ -149,6 +152,9 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 				args += `,"deliver":"` + c.messageDeliver + `"`
 			}
 			return callTool("message-call", "message_parent", args+"}")(ctx, call)
+		}
+		if c.childCommand != "" && n == 0 {
+			return callTool("child-bash", "bash", `{"command":"`+c.childCommand+`"}`)(ctx, call)
 		}
 		if c.effect && n == 0 {
 			return callTool("effect-call", "external_effect", `{"target":"once"}`)(ctx, call)

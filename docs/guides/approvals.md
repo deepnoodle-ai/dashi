@@ -127,6 +127,14 @@ gate with durable linkage and shared accounting. Use the existing
 [durable-approval](../../examples/durable_approval/main.go) examples as the
 building blocks.
 
+For a fast second opinion on shell commands, `toolcheck.CommandRisk.Check`
+asks a decision model and returns a verdict a host can show in its own
+prompt. The dashi CLI does this inside its approval callback with
+`--decide command_risk`: the check adds a line to the prompt, or a prompt in
+bypass mode, and never approves. It sends each checked command to the
+provider; bypass mode still skips edits, writes, and MCP calls. See
+[decide checks in the CLI](cli-decide.md).
+
 ## Approving coding tools
 
 [Coding tools](coding-tools.md) includes a ready-made hook. It runs read-only

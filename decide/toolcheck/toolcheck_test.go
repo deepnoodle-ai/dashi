@@ -703,7 +703,7 @@ func TestNoAPIKey(t *testing.T) {
 		dashitest.Reply("done"),
 	)
 	w := warnings(out)
-	if len(ran) != 1 || len(w) != 1 || !strings.Contains(w[0], decide.ErrNoAPIKey.Error()) {
+	if len(ran) != 1 || len(w) != 1 || !strings.Contains(w[0], "no credentials: set TYPESAFE_API_KEY") {
 		t.Fatalf("ran %q, warnings %q", ran, w)
 	}
 }

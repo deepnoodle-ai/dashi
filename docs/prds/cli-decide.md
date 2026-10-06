@@ -1,7 +1,7 @@
 # Turn on decide checks in the dashi CLI
 
 Status: Draft\
-PRD PR: [#206](https://github.com/deepnoodle-ai/dashi/pull/206) · Implementation PR: pending · Updated: 2026-10-06\
+PRD PR: [#206](https://github.com/deepnoodle-ai/dashi/pull/206) · Implementation PR: [#209](https://github.com/deepnoodle-ai/dashi/pull/209) · Updated: 2026-10-06\
 Tech spec: [docs/design/cli-decide.md](../design/cli-decide.md)
 
 ## Problem
@@ -61,10 +61,12 @@ commands sent to a third party without their consent.
 - **Selective compaction**: keeps old messages that are still needed word
   for word, and summarizes only the rest.
 - **Unchecked**: a call decide could not answer. Two kinds differ. An
-  **outage** (no key, auth failure, rate limit, server error, network
-  error) **pauses** the check for a minute. A **suspect** failure is one the
-  command text can cause (timeout, input too large, request rejected); it
-  never pauses.
+  **outage** (auth failure, server error, network error) **pauses** the
+  check for a minute. A **suspect** failure is one the command text can
+  cause (timeout, input too large, rate limit, request rejected); it never
+  pauses.
+- **Setup error**: no credentials or an unknown `DECIDE_PROVIDER`. It is
+  not an outage: dashi finds it at start and turns the checks off.
 
 ## Use cases
 
@@ -78,7 +80,7 @@ Acceptance:
       sends no decide request.
 - [ ] `/settings` has a "decide" section: each feature on or off with its
       source, the line `command_risk: shell commands only`, the provider
-      state (`not used yet`, `ready: typesafe jev-1.13.0`, or
+      state (`typesafe, not used yet`, `ready: typesafe jev-1.13.0`, or
       `off: no credentials`), and this run's requests, input and
       output tokens, checked, flagged, and unchecked. `--json` has the same
       fields under `decide`.
@@ -86,9 +88,10 @@ Acceptance:
 
 ### UC-2: A prompt shows the command-risk answer
 
-Default mode, `command_risk` on. The agent proposes `rm -rf build/ ~/.cache`.
-The prompt shows at once with `decide: checking…`. Under a second later that
-line reads `decide: severe 91% — flagged`. The user answers `n`.
+Default mode, `command_risk` on. The agent proposes
+`git push --force origin main`. The prompt shows at once with
+`decide: checking…`. Under a second later that line reads
+`decide: severe 90% — flagged`. The user answers `n`.
 
 Acceptance:
 - [ ] The prompt never waits for decide. `y` and `n` work at once; an answer
@@ -128,9 +131,12 @@ A feature is on, and `TYPESAFE_API_KEY` is not set. Later, with a key, a
 request times out.
 
 Acceptance:
-- [ ] Missing credentials give exactly one warning per launch, at the first
-      check, naming the variables to set. The status area then shows
-      `decide: off (no credentials)`.
+- [ ] A setup error gives exactly one warning per launch, before the first
+      turn, naming the variables to set. The status area then shows
+      `decide: off (no credentials)`. No prompt, row, or footer shows
+      decide, and the check never pauses.
+- [ ] `dashi run --yes` with `command_risk` on and a setup error refuses
+      to start, naming the variable to set.
 - [ ] In default mode an unchecked prompt reads `decide: unchecked
       (timeout)`; the user answers as usual.
 - [ ] Only an outage pauses a check. While paused, the status area shows
@@ -171,7 +177,8 @@ cause in the compaction line.
   valid names.
 - R-3: A `decide` key in a project `.dashi/settings.json` is ignored with
   one warning.
-- R-4: The library's default decide client chooses the provider:
+- R-4: The library's default decide client chooses the provider, and
+  reports it and any setup error before a request:
   `DECIDE_PROVIDER` (`typesafe` or `cloudflare`), then `TYPESAFE_API_KEY`
   and `TYPESAFE_BASE_URL`, or `CLOUDFLARE_AUTH_TOKEN`,
   `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_BASE_URL`, as the decide CLI
@@ -236,9 +243,13 @@ cause in the compaction line.
 - **Provider choice lives in the library's default client.** Every host
   gets Cloudflare by setting variables. Rejected: build the client in the
   CLI, which every other host would have to copy.
-- **The missing-key warning comes at the first check.** The CLI never reads
-  decide's variables, so it learns of a missing key from the first skipped
-  check. Rejected: a public "is decide ready" call, new API for one line.
+- **A setup error is found at start, through the library.**
+  `defaultclient.Load` builds the default client without a request and
+  reports the provider and any setup error, so the CLI still reads no
+  decide variable. Interactive modes warn and continue; `dashi run --yes`
+  refuses to start, because nobody watches its output. Rejected: learn it
+  at the first check, which made an unknown provider look like an outage
+  and ran the first command before the warning.
 - **Three implementation PRs.** PR 1: the client helper, settings, flag,
   `/settings`, warnings, footer, row marks, and the command-risk check. PR
   2: prompt-injection check and turn watcher. PR 3: selective compaction,

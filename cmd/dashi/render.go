@@ -55,6 +55,11 @@ const (
 	StateFailed  = "failed"
 	StateDenied  = "denied"
 	StateWaiting = "waiting"
+	// StateChecking is a bash call in bypass mode while decide checks it,
+	// and StateWaitingForYou one the check holds for the person's answer.
+	// Neither has started.
+	StateChecking      = "checking"
+	StateWaitingForYou = "waiting for you"
 )
 
 // Steer line states.
@@ -98,6 +103,8 @@ type Block struct {
 	// Task is the task status line drawn under a tool line. Transcript sets
 	// it when a KindTaskStatus block names this tool block as its Parent.
 	Task *Block
+	// Decide is the decide answer of a checked tool call, or nil.
+	Decide *decideMark
 }
 
 // Renderer turns Dashi events into blocks. The screen, line mode, and the run
@@ -126,6 +133,7 @@ type callState struct {
 	arg     string
 	started time.Time
 	denied  string
+	decide  *decideMark
 }
 
 // NewRenderer returns a renderer for turn number n. The model is what the
@@ -204,11 +212,12 @@ func (r *Renderer) progress(p *dashi.ToolProgress) []Block {
 
 func (r *Renderer) toolBlock(id string, c *callState, state string) Block {
 	return Block{
-		ID:    "t:" + id,
-		Kind:  KindTool,
-		Name:  c.name,
-		Arg:   c.arg,
-		State: state,
+		ID:     "t:" + id,
+		Kind:   KindTool,
+		Name:   c.name,
+		Arg:    c.arg,
+		State:  state,
+		Decide: c.decide,
 	}
 }
 
@@ -382,8 +391,10 @@ func (r *Renderer) toolCall(s dashi.Step) *callState {
 
 func (r *Renderer) toolDecision(s dashi.Step) []Block {
 	c := r.toolCall(s)
+	c.decide = markFromRecord(s.Tool.Verdict)
 	if s.Tool.Verdict.Kind == dashi.DecisionDeny {
-		c.denied = s.Tool.Verdict.Reason
+		// The row shows the decide answer on its own line.
+		c.denied, _, _ = splitDecide(s.Tool.Verdict)
 	}
 	return nil
 }
@@ -498,10 +509,17 @@ type footerFacts struct {
 	Tokens          int
 	UsageIncomplete bool
 	Cost            string
+	// DecideChecked, DecideFlagged, and DecideUnchecked count the turn's
+	// calls that decide checked, flagged, and could not check.
+	DecideChecked, DecideFlagged, DecideUnchecked int
 }
 
 func newFooterFacts(turn int, model string, v dashi.TurnView) footerFacts {
+	checked, flagged, unchecked := decideCounts(v)
 	return footerFacts{
+		DecideChecked:   checked,
+		DecideFlagged:   flagged,
+		DecideUnchecked: unchecked,
 		Turn:            turn,
 		Model:           model,
 		Calls:           v.ModelCalls,
@@ -516,6 +534,9 @@ func newFooterFacts(turn int, model string, v dashi.TurnView) footerFacts {
 type footerPart struct {
 	text string
 	kind footerKind
+	// drop orders the parts a narrow screen leaves out, highest first. Zero
+	// is never left out.
+	drop int
 }
 
 type footerKind int
@@ -528,20 +549,40 @@ const (
 )
 
 func (f footerFacts) parts() []footerPart {
-	parts := []footerPart{{fmt.Sprintf("turn %d", f.Turn), footerMeta}}
+	parts := []footerPart{{fmt.Sprintf("turn %d", f.Turn), footerMeta, 0}}
 	if f.Model != "" {
-		parts = append(parts, footerPart{f.Model, footerValue})
+		parts = append(parts, footerPart{f.Model, footerValue, 3})
 	}
-	parts = append(parts, footerPart{fmt.Sprintf("%d model %s", f.Calls, plural(f.Calls, "call")), footerMeta})
+	parts = append(parts, footerPart{fmt.Sprintf("%d model %s", f.Calls, plural(f.Calls, "call")), footerMeta, 4})
 	if f.UsageIncomplete {
-		parts = append(parts, footerPart{"usage incomplete", footerWarn})
+		parts = append(parts, footerPart{"usage incomplete", footerWarn, 0})
 	} else {
-		parts = append(parts, footerPart{groupDigits(f.Tokens) + " tokens", footerValue})
+		parts = append(parts, footerPart{groupDigits(f.Tokens) + " tokens", footerValue, 2})
 	}
 	if f.Cost != "" {
-		parts = append(parts, footerPart{f.Cost, footerCost})
+		parts = append(parts, footerPart{f.Cost, footerCost, 1})
+	}
+	if f.DecideChecked+f.DecideUnchecked > 0 {
+		kind := footerMeta
+		if f.DecideFlagged > 0 {
+			kind = footerWarn
+		}
+		parts = append(parts, footerPart{f.decideText(), kind, 0})
 	}
 	return parts
+}
+
+// decideText is the footer's decide counts, such as "decide 4 checked, 1
+// flagged". A zero flagged or unchecked count is left out.
+func (f footerFacts) decideText() string {
+	text := fmt.Sprintf("decide %d checked", f.DecideChecked)
+	if f.DecideFlagged > 0 {
+		text += fmt.Sprintf(", %d flagged", f.DecideFlagged)
+	}
+	if f.DecideUnchecked > 0 {
+		text += fmt.Sprintf(", %d unchecked", f.DecideUnchecked)
+	}
+	return text
 }
 
 // String is the plain form: "── turn 3 · model · 2 model calls · ...".
@@ -742,10 +783,19 @@ func formatTool(b Block) string {
 	if b.State == StateOK || b.State == StateFailed {
 		right += fmt.Sprintf("  %.1fs", b.Elapsed.Seconds())
 	}
-	if b.State == StateRunning {
+	switch b.State {
+	case StateRunning:
 		right = "..."
+	case StateChecking:
+		right = "decide: checking…"
+	}
+	if b.Decide.tick(b.State) {
+		right += "  decide ✓"
 	}
 	line := fmt.Sprintf("%-*s %s", toolLineWidth, left, right)
+	if text := b.Decide.line(b.State); text != "" {
+		line += "\n    " + text
+	}
 	for _, l := range b.Lines {
 		line += "\n    " + l
 	}
@@ -831,6 +881,11 @@ func printable(b Block) Block {
 	if b.Task != nil {
 		task := printable(*b.Task)
 		b.Task = &task
+	}
+	if b.Decide != nil {
+		mark := *b.Decide
+		mark.Text = workspace.PrintableText(mark.Text)
+		b.Decide = &mark
 	}
 	if b.Lines != nil {
 		lines := make([]string, len(b.Lines))

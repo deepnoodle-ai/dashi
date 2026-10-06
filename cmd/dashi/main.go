@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
+	"github.com/deepnoodle-ai/dashi/decide/defaultclient"
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/cli"
 	"github.com/deepnoodle-ai/wonton/tui"
@@ -138,6 +139,9 @@ func runLines(
 	if notice != "" {
 		fmt.Fprintln(stdout, workspace.PrintableText(notice))
 	}
+	if w := cfg.DecideSetup.warning(); w != "" {
+		a.ctrl.emit(warnBlock("%s", w))
+	}
 	a.ctrl.Open()
 	ui.SetLive()
 	startupCtx, cancelStartup := context.WithCancel(ctx)
@@ -232,6 +236,9 @@ func runScreen(
 	if notice != "" {
 		scr.Emit(Block{Kind: KindNotice, Text: notice, Done: true})
 	}
+	if w := cfg.DecideSetup.warning(); w != "" {
+		scr.Emit(warnBlock("%s", w))
+	}
 	a.ctrl.Open()
 	var inline *inlineScreen
 	if o.Inline {
@@ -280,6 +287,21 @@ func loadCLIConfig(o Options, home, dir, invocation string, stdin io.Reader, std
 	}
 	warnPreferenceSources(stderr, user, project)
 	warnEnvironmentSettings(stderr, origins)
+	envDecide, envDecideSet := os.LookupEnv("DASHI_DECIDE")
+	decideOn, err := resolveDecide(o.Decide, o.DecideSet, envDecide, envDecideSet, user)
+	if err != nil {
+		return appConfig{}, err
+	}
+	warnDecideSettings(stderr, decideOn, project)
+	unattended := automationOneShot(o, stdin)
+	decideReady, err := loadDecideSetup(decideOn, unattended, o.Yes, defaultclient.Load)
+	if err != nil {
+		return appConfig{}, err
+	}
+	if w := decideReady.warning(); w != "" && unattended {
+		// An interactive session shows it in the transcript instead.
+		fmt.Fprintf(stderr, "dashi: warning: %s\n", w)
+	}
 	store := sessionstore.NewStore(filepath.Join(home, ".dashi", "sessions"))
 	reopened, err := loadReopenedPreferences(store, dir, o)
 	if err != nil {
@@ -296,6 +318,6 @@ func loadCLIConfig(o Options, home, dir, invocation string, stdin io.Reader, std
 	preferences.resolveSession = func(saved preferenceFile) (launchPreferences, error) {
 		return resolveLaunchPreferences(o, registry, trusted, user, project, saved, os.LookupEnv)
 	}
-	cfg := appConfig{Dir: dir, HomeDir: home, InvocationDir: invocation, MCPFiles: o.MCPFiles, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences, ApproveAll: o.Yes, CompactionThreshold: o.CompactionThreshold}
+	cfg := appConfig{Dir: dir, HomeDir: home, InvocationDir: invocation, MCPFiles: o.MCPFiles, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences, ApproveAll: o.Yes, CompactionThreshold: o.CompactionThreshold, Decide: decideOn, DecideSetup: decideReady}
 	return cfg, nil
 }

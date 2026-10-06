@@ -24,6 +24,8 @@ github.com/deepnoodle-ai/dashi/mcp v0.2.0/go.mod h1:UjRfArvqAd5RdMZwasPMAAFD9dCN
 github.com/deepnoodle-ai/dashi/providers/google/gemini v0.1.0 h1:QDo+3/OOnh9AWJzt9tRHkWU0YHZMkpUgXu+V1hDhaJI=
 github.com/deepnoodle-ai/dashi/providers/google/gemini v0.1.0/go.mod h1:4QsnR2+55Qiknd/Uix4iGN4kOBw1Jf93YT42cuvBkjI=
 github.com/deepnoodle-ai/dashi/providers/google/gemini v0.2.0/go.mod h1:0e/Pe9s0rZtrn9yMCKCx8uTxtMCmdInUCleAtkBzpTk=
+github.com/deepnoodle-ai/decide v0.3.0 h1:jpPF/HxOh095f2Yfz9OexxmPAsSEvVCzpDxDexxZZMo=
+github.com/deepnoodle-ai/decide v0.3.0/go.mod h1:1ipa8271yR+qXkjZ7gOyIZptnUOhYpdjp9vvObc/Lj4=
 github.com/deepnoodle-ai/wonton v0.4.0 h1:vKRD8gozGl/3yyxoWS4EptzXbTHL82geGjGa3YDArgg=
 github.com/deepnoodle-ai/wonton v0.4.0/go.mod h1:G3fVZXXX/Oo01ATag//PH/6khtBNlDmxznXjORuG9gE=
 github.com/deepnoodle-ai/wonton v0.5.0 h1:GTpApR0tY1wtdNW2dw6YHWKCBQL+4Gw7vDTo1PsDKHw=

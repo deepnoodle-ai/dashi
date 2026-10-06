@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -92,6 +93,8 @@ type approvalPrompt struct {
 	expanded    bool
 	laidOut     *approvalLayout
 	layoutWidth int
+	// layoutRemember is offersRemember when the layout was built.
+	layoutRemember bool
 }
 
 type askPrompt struct {
@@ -284,6 +287,9 @@ func (s *screen) Item(i int) tui.View {
 		return nil
 	}
 	b := s.tr.Blocks[i]
+	if b.Kind == KindFooter {
+		return footerView(b, s.width)
+	}
 	if b.Kind == KindTool && b.Detail != "" {
 		if s.expanded[i] {
 			b.Expanded = true
@@ -318,7 +324,7 @@ func (s *screen) Source(i int) (string, bool) {
 	case KindDiff:
 		return strings.Join(b.Lines, "\n"), true
 	case KindFooter:
-		return footerSource(b), true
+		return footerSource(b, s.width), true
 	case KindPending:
 		if b.Done {
 			return "", true
@@ -678,6 +684,9 @@ func (s *screen) footer() tui.View {
 			tui.Text(" %s", s.inputHint(mode)).Wrap().Style(hintStyle),
 			tui.Divider(), s.inputView(mode), tui.Divider())
 	}
+	if line := s.decideStatus(); line != "" {
+		views = append(views, tui.Text(" %s", line).Fg(tui.ColorYellow))
+	}
 	views = append(views, s.statusView())
 	return tui.Stack(views...).Gap(0)
 }
@@ -774,6 +783,15 @@ func (s *screen) workingView() tui.View {
 		tui.Text(" %s", frame).Fg(tui.ColorCyan),
 		tui.Text(" Working. Ctrl-C interrupts.").Style(hintStyle),
 	)
+}
+
+// decideStatus is the decide line of the status area, shown only while a
+// check is off or paused.
+func (s *screen) decideStatus() string {
+	if s.ctrl == nil {
+		return ""
+	}
+	return s.ctrl.decide.status()
 }
 
 func (s *screen) statusView() tui.View {
@@ -893,7 +911,7 @@ func blockView(b Block) tui.View {
 	case KindStop:
 		return sourceLabel("■ ", b.Text, tui.ColorYellow)
 	case KindFooter:
-		return footerView(b)
+		return footerView(b, 0)
 	case KindHelp:
 		if b.Help != nil {
 			return helpView(*b.Help)
@@ -908,18 +926,61 @@ func blockView(b Block) tui.View {
 	return tui.Text("%s", b.Text).SourceOffset(0).Wrap()
 }
 
-// footerSource is the copyable text of a footer: its plain form without the
-// leading rule.
-func footerSource(b Block) string {
+// footerSource is the copyable text of a footer at width columns: its
+// values and separators, without the leading rule.
+func footerSource(b Block, width int) string {
 	if b.Footer == nil {
 		return b.Text
 	}
-	return strings.TrimPrefix(b.Footer.String(), footerRule+" ")
+	parts := b.Footer.fit(width)
+	texts := make([]string, len(parts))
+	for i, p := range parts {
+		texts[i] = p.text
+	}
+	return strings.Join(texts, footerSep)
+}
+
+// footerMinRule is the shortest rule a fitted footer keeps after its
+// values.
+const footerMinRule = 3
+
+// fit returns the footer parts that fit in width columns, leaving out the
+// parts a reader needs least first: the model call count, the model, the
+// token count, then the cost. The turn number, an incomplete-usage
+// warning, and the decide counts stay. Zero width keeps every part.
+func (f footerFacts) fit(width int) []footerPart {
+	parts := f.parts()
+	if width <= 0 {
+		return parts
+	}
+	used := func() int {
+		n := runewidth.StringWidth(footerRule) + 1 + 1 + footerMinRule
+		for i, p := range parts {
+			if i > 0 {
+				n += runewidth.StringWidth(footerSep)
+			}
+			n += runewidth.StringWidth(p.text)
+		}
+		return n
+	}
+	for used() > width {
+		worst := -1
+		for i, p := range parts {
+			if p.drop > 0 && (worst < 0 || p.drop > parts[worst].drop) {
+				worst = i
+			}
+		}
+		if worst < 0 {
+			break
+		}
+		parts = slices.Delete(parts, worst, worst+1)
+	}
+	return parts
 }
 
 // footerView draws the turn footer as a quiet rule. The values stand out
 // a little from the rule and separators; incomplete usage stands out more.
-func footerView(b Block) tui.View {
+func footerView(b Block, width int) tui.View {
 	if b.Footer == nil {
 		return tui.Text("%s", b.Text).SourceOffset(0).Style(mutedStyle)
 	}
@@ -927,7 +988,7 @@ func footerView(b Block) tui.View {
 	// which are footerSource.
 	views := []tui.View{tui.Text("%s ", footerRule).Style(mutedStyle)}
 	offset := 0
-	for i, p := range b.Footer.parts() {
+	for i, p := range b.Footer.fit(width) {
 		if i > 0 {
 			views = append(views, tui.Text("%s", footerSep).SourceOffset(offset).Style(mutedStyle))
 			offset += len(footerSep)
@@ -965,6 +1026,12 @@ func toolView(b Block) tui.View {
 	case StateWaiting:
 		icon = tui.Text("  …").Fg(tui.ColorYellow)
 		state = tui.Text("waiting").Fg(tui.ColorYellow)
+	case StateChecking:
+		icon = tui.Text("  ⠋").Fg(tui.ColorCyan)
+		state = tui.Text("decide: checking…").Style(mutedStyle)
+	case StateWaitingForYou:
+		icon = tui.Text("  ?").Fg(tui.ColorYellow)
+		state = tui.Text("waiting for you").Fg(tui.ColorYellow)
 	default:
 		icon = tui.Text("  ⠋").Fg(tui.ColorCyan)
 		state = tui.Text("running").Style(mutedStyle)
@@ -977,16 +1044,37 @@ func toolView(b Block) tui.View {
 		views = append(views, tui.Text("%s", toolHeadSep),
 			tui.Text("%s", arg).SourceOffset(len(name)+len(toolHeadSep)).Style(mutedStyle))
 	}
-	head := tui.Group(append(views, tui.Spacer(), state)...)
-	offset := len(toolHeadSource(b)) + 1
-	if b.Expanded && b.Detail != "" {
-		return tui.Stack(head, tui.PaddingLTRB(6, 0, 0, 0,
-			tui.Text("%s", b.Detail).SourceOffset(offset).Wrap().Style(mutedStyle))).Gap(0)
+	views = append(views, tui.Spacer())
+	if b.Decide.tick(b.State) {
+		views = append(views, tui.Text("decide ✓  ").Style(mutedStyle))
 	}
-	if len(b.Lines) == 0 {
+	head := tui.Group(append(views, state)...)
+	offset := len(toolHeadSource(b)) + 1
+	var check tui.View
+	if text := b.Decide.line(b.State); text != "" {
+		t := tui.Text("%s", text).Wrap()
+		if b.Decide.Flagged {
+			t = t.Fg(tui.ColorYellow)
+		} else {
+			t = t.Style(mutedStyle)
+		}
+		check = tui.PaddingLTRB(6, 0, 0, 0, t)
+	}
+	if b.Expanded && b.Detail != "" {
+		views = []tui.View{head}
+		if check != nil {
+			views = append(views, check)
+		}
+		return tui.Stack(append(views, tui.PaddingLTRB(6, 0, 0, 0,
+			tui.Text("%s", b.Detail).SourceOffset(offset).Wrap().Style(mutedStyle)))...).Gap(0)
+	}
+	if len(b.Lines) == 0 && check == nil {
 		return head
 	}
 	views = []tui.View{head}
+	if check != nil {
+		views = append(views, check)
+	}
 	for _, l := range b.Lines {
 		views = append(views, tui.PaddingLTRB(6, 0, 0, 0,
 			tui.Text("%s", l).SourceOffset(offset).Wrap().Style(mutedStyle)))

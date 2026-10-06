@@ -5,12 +5,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
+	"github.com/deepnoodle-ai/dashi/decide/defaultclient"
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/workspace"
+	"github.com/deepnoodle-ai/decide"
 )
 
 // appConfig holds what buildApp needs.
@@ -30,7 +33,16 @@ type appConfig struct {
 	// CompactionThreshold is the token count at which history is compacted;
 	// zero means the compaction default.
 	CompactionThreshold int
-	parentStopped       func(int)
+	// Decide is which decide features are on, and DecideSetup the default
+	// decide client they use.
+	Decide        decideSettings
+	DecideSetup   decideSetup
+	parentStopped func(int)
+
+	// decideClient replaces the default decide client; tests use it.
+	decideClient *decide.Client
+	// decideWait replaces the decide check's time limit; tests use it.
+	decideWait time.Duration
 
 	// recorder wraps each session's recorder; tests use it.
 	recorder func(*filerecorder.Recorder) dashi.Recorder
@@ -113,6 +125,18 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 	resources.warning = eng.warn
 	ctrl = NewController(ctx, eng, ui, cfg.Store, cfg.Dir)
 	ctrl.approveAll = cfg.ApproveAll
+	ctrl.decideOn = cfg.Decide
+	setup := cfg.DecideSetup
+	if cfg.decideClient != nil {
+		setup = decideSetup{Setup: defaultclient.Setup{Provider: defaultclient.ProviderTypeSafe, Client: cfg.decideClient}}
+	}
+	if rt := newDecideRuntime(cfg.Decide, setup); rt != nil {
+		rt.warn = func(text string) { ctrl.emit(warnBlock("%s", text)) }
+		if cfg.decideWait > 0 {
+			rt.wait, rt.risk.Timeout = cfg.decideWait, cfg.decideWait
+		}
+		ctrl.decide = rt
+	}
 	eng.taskWake = ctrl.scheduleTaskNotices
 	if cfg.Preferences != nil {
 		cfg.Preferences.ask = ctrl.Ask

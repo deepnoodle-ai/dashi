@@ -62,7 +62,7 @@ type Compactor struct {
 	// Base's Start.
 	Base compaction.Compactor
 
-	// Client asks Decide. Nil means decide.NewClient() from the
+	// Client asks Decide. Nil means defaultclient.Load, which reads the
 	// environment; when that fails, Start falls back to Base.
 	Client *decide.Client
 

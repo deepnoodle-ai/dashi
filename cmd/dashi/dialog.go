@@ -75,9 +75,13 @@ func (p *approvalPrompt) layout(width int) approvalLayout {
 		width = 80
 	}
 	width = max(20, width-4)
-	if p.laidOut == nil || p.layoutWidth != width {
+	remember := p.req.offersRemember()
+	if p.laidOut == nil || p.layoutWidth != width || p.layoutRemember != remember {
+		if p.laidOut != nil && p.layoutRemember != remember {
+			p.vp.InvalidateAll()
+		}
 		l := layoutApproval(p.req, width, p.expanded)
-		p.laidOut, p.layoutWidth = &l, width
+		p.laidOut, p.layoutWidth, p.layoutRemember = &l, width, remember
 	}
 	return *p.laidOut
 }
@@ -104,6 +108,9 @@ func (s *screen) approvalView() tui.View {
 	if height > 0 {
 		views = append(views, tui.Height(height, tui.Viewport(&p.vp, approvalRows(l.rows)).Gap(0)))
 	}
+	if line := p.req.checkLine(); line != "" {
+		views = append(views, checkLineView(line, p.req.Check.flagged() || p.req.Hold))
+	}
 	views = append(views, tui.Text(""))
 	if p.denying {
 		return tui.Stack(append(views,
@@ -121,17 +128,29 @@ func (s *screen) approvalView() tui.View {
 	}
 	hints = append(hints, "/ commands", "Esc interrupts")
 	return tui.Stack(append(views,
-		approvalChoices(),
+		approvalChoices(p.req.offersRemember()),
 		tui.Text(" %s", strings.Join(hints, " · ")).Style(hintStyle))...).Gap(0)
 }
 
-func approvalChoices() tui.View {
+// checkLineView is the decide line of a prompt. A flagged or held command
+// stands out; any other answer is quiet.
+func checkLineView(line string, warn bool) tui.View {
+	t := tui.Text("   %s", line)
+	if warn {
+		return t.Fg(tui.ColorYellow).Bold()
+	}
+	return t.Style(mutedStyle)
+}
+
+// approvalChoices are the keys of a prompt. remember offers "allow for this
+// run"; a command decide flagged or held offers allow once and deny only.
+func approvalChoices(remember bool) tui.View {
 	key := func(k string) tui.View { return tui.Text("[%s]", k).Fg(tui.ColorCyan).Bold() }
-	return tui.Group(
-		tui.Text(" "), key("y"), tui.Text(" Allow once    "),
-		key("a"), tui.Text(" Allow for this Dashi run    "),
-		key("n"), tui.Text(" Deny"),
-	)
+	views := []tui.View{tui.Text(" "), key("y"), tui.Text(" Allow once    ")}
+	if remember {
+		views = append(views, key("a"), tui.Text(" Allow for this Dashi run    "))
+	}
+	return tui.Group(append(views, key("n"), tui.Text(" Deny"))...)
 }
 
 func scrollDialog(vp *tui.ViewportState, e tui.KeyEvent) bool {
@@ -176,6 +195,9 @@ func (s *screen) approvalKey(e tui.KeyEvent) []tui.Cmd {
 	case 'y', 'Y':
 		s.finishApproval(Approval{Allow: true})
 	case 'a', 'A':
+		if !p.req.offersRemember() {
+			return nil
+		}
 		s.finishApproval(Approval{Allow: true, Remember: true})
 	case 'n', 'N':
 		p.denying = true

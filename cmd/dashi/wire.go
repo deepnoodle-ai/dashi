@@ -92,7 +92,7 @@ func workspaceWiring(env Env) (wiring, error) {
 		}
 		scopes[entry.Definition.Name] = scope
 	}
-	return wiring{Tools: tools, Hooks: ws.Policy(env.Approve, resourcePolicyOptions(env.Resources)...).Hooks(), Scopes: scopes}, nil
+	return wiring{Tools: tools, Hooks: ws.Policy(env.Approve, policyOptions(env.Resources)...).Hooks(), Scopes: scopes}, nil
 }
 
 // buildWiring runs every adapter and joins the results. Close releases every
@@ -160,11 +160,16 @@ func resourceWiring(env Env) (wiring, error) {
 		"read_skill_file": "selected canonical skill folders; approval required; remembers exact canonical arguments for this run",
 	}}, nil
 }
-func resourcePolicyOptions(resources *resourceManager) []workspace.PolicyOption {
-	if resources == nil {
-		return nil
+
+// policyOptions configures the workspace policy. The approval broker shows
+// one prompt at a time, so the policy may ask for several calls at once; a
+// decide check in bypass mode then holds up no other call.
+func policyOptions(resources *resourceManager) []workspace.PolicyOption {
+	opts := []workspace.PolicyOption{workspace.AskConcurrently()}
+	if resources != nil {
+		opts = append(opts, workspace.TrustTools("load_skill"))
 	}
-	return []workspace.PolicyOption{workspace.TrustTools("load_skill")}
+	return opts
 }
 
 func mcpWiring(env Env) (wiring, error) {

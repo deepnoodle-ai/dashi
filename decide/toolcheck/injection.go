@@ -44,8 +44,8 @@ var fetches = regexp.MustCompile("(^|[\\s|;&(`$/])(gh|curl|wget|http|https)(\\s|
 //
 // The zero value works. One PromptInjection serves many turns at once.
 type PromptInjection struct {
-	// Client asks the decision model. Nil means decide.NewClient() from the
-	// environment, such as TYPESAFE_API_KEY.
+	// Client asks the decision model. Nil means defaultclient.Load, which reads
+	// the environment, such as TYPESAFE_API_KEY.
 	Client *decide.Client
 	// ShellTools names the tools whose "command" argument is a shell
 	// command; their results are checked only when the command fetches.

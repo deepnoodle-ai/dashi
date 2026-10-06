@@ -13,6 +13,9 @@ import (
 func nativeBlockText(b Block, width int, useColor bool) (string, bool) {
 	b = printable(b)
 	view := blockView(b)
+	if b.Kind == KindFooter {
+		view = footerView(b, width)
+	}
 	if view == nil {
 		return "", false
 	}

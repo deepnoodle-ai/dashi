@@ -15,6 +15,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   agent. Both fail open with a `hook_failed` warning when Decide is down; a
   command whose check the input breaks, such as by a timeout, is held for
   approval. `Check` lets a host ask the user in its own approval hook.
+- **`dashi --decide command_risk`** (or `DASHI_DECIDE`, or `"decide":
+  ["command_risk"]` in `~/.dashi/settings.json`) checks each shell command
+  with a decision model before it runs. The prompt shows the answer, a
+  flagged command offers allow once and deny only, and in
+  `--dangerously-skip-permissions` mode a flagged command still asks.
+  `dashi run --yes` refuses it. Every decide feature is off by default, and a
+  project settings file cannot turn one on. `/settings` shows a `decide`
+  section and the provider, and tool rows and the turn footer show the
+  answers. Missing credentials or an unknown `DECIDE_PROVIDER` give one
+  warning at start and turn the checks off; `dashi run --yes` refuses to
+  start instead.
+- **Cloudflare for every decide package.** With a nil `Client`, the decide
+  packages read `DECIDE_PROVIDER` as the `decide` command does:
+  `cloudflare` uses `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and
+  `CLOUDFLARE_BASE_URL`; `typesafe`, the default, uses `TYPESAFE_*`.
+  `defaultclient.Load` makes that client without a request and reports the
+  provider, or an error that wraps `defaultclient.ErrSetup` for missing
+  credentials or an unknown provider, so a host can warn at startup.
+- **`workspace.AskConcurrently()`** lets a `Policy` call its approval
+  callback for several tool calls at once, for a host that queues its own
+  prompts or does slow work before it shows one. Calls that one remembered
+  answer would cover still wait for each other. The `dashi` CLI uses it, so a
+  decide check in bypass mode no longer holds up other tool calls.
 - **`FailOpen` on `BeforeTool` hooks.** A failing hook then counts as no
   opinion, with a `hook_failed` warning, instead of denying the call. Use it
   only for advice, never for a permission policy.

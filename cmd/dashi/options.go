@@ -29,6 +29,10 @@ type Options struct {
 	// CompactionThreshold is the token count at which history is compacted.
 	// Zero means the compaction default, a share of the model's window.
 	CompactionThreshold int
+	// Decide is the --decide value, or DASHI_DECIDE's; DecideSet reports
+	// that either was given.
+	Decide    string
+	DecideSet bool
 
 	// Resume reopens a saved session: ResumeID, or the last session of this
 	// directory when ResumeID is empty.
@@ -57,7 +61,7 @@ type Options struct {
 // settingsHelp is the long help of the app: where settings come from.
 const settingsHelp = `Settings: a flag wins over its DASHI_* variable (DASHI_PROVIDER, DASHI_MODEL,
 DASHI_THINKING_EFFORT, DASHI_SHOW_THINKING, DASHI_TEMPERATURE, DASHI_MAX_TOKENS,
-DASHI_COMPACTION_THRESHOLD).
+DASHI_COMPACTION_THRESHOLD, DASHI_DECIDE).
 Then come a reopened session's own choices, the workspace .dashi/settings.json,
 ~/.dashi/settings.json, and the defaults. --env-file is read after the command
 line, so it supplies credentials but not DASHI_* settings.`
@@ -74,7 +78,7 @@ var controlFlags = []struct{ flag, env string }{
 var settingsVariables = []string{
 	"DASHI_PROVIDER", "DASHI_MODEL", "DASHI_THINKING_EFFORT",
 	"DASHI_SHOW_THINKING", "DASHI_TEMPERATURE", "DASHI_MAX_TOKENS",
-	"DASHI_COMPACTION_THRESHOLD",
+	"DASHI_COMPACTION_THRESHOLD", "DASHI_DECIDE",
 }
 
 // clearEmptySettings unsets each empty settings variable, so it sets
@@ -204,6 +208,8 @@ func agentFlags() []cli.Flag {
 			Help("compact history once a model call uses this many tokens (default: 80% of the model's window)"),
 		cli.Bool("dangerously-skip-permissions").
 			Help("approve every tool call; use only in an externally sandboxed environment"),
+		cli.String("decide").Env("DASHI_DECIDE").ValidateWith(decideSyntax).
+			Help("turn on decide checks, such as command_risk; off turns them all off"),
 	}
 }
 
@@ -219,6 +225,11 @@ func validateAgent(ctx *cli.Context) error {
 	}
 	if _, err := compactionThreshold(ctx); err != nil {
 		return err
+	}
+	if ctx.IsSet("decide") {
+		if _, err := parseDecideList(ctx.String("decide")); err != nil {
+			return fmt.Errorf("invalid --decide or DASHI_DECIDE: %w", err)
+		}
 	}
 	return needsValues(ctx, "env-file", "mcp-config")
 }
@@ -236,6 +247,8 @@ func agentOptions(ctx *cli.Context) Options {
 		EnvFiles:     ctx.Strings("env-file"),
 		MCPFiles:     ctx.Strings("mcp-config"),
 		Yes:          ctx.Bool("dangerously-skip-permissions"),
+		Decide:       ctx.String("decide"),
+		DecideSet:    ctx.IsSet("decide"),
 	}
 	o.Controls, _ = controls(ctx)
 	o.CompactionThreshold, _ = compactionThreshold(ctx)
@@ -280,6 +293,15 @@ func controls(ctx *cli.Context) (generationPreferences, error) {
 		}
 	}
 	return p, nil
+}
+
+// decideSyntax validates --decide.
+func decideSyntax(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return errors.New("needs a value: feature names, such as command_risk, or off")
+	}
+	_, err := parseDecideList(value)
+	return err
 }
 
 // needsValue rejects a blank flag value.

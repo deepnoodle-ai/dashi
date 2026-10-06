@@ -44,9 +44,9 @@ const (
 // the environment and uses the defaults below. One Watcher serves many
 // turns at once; it keeps no state between calls.
 type Watcher struct {
-	// Client asks the decision model. Nil means decide.NewClient() from the
-	// environment, such as TYPESAFE_API_KEY; if that fails, every check
-	// fails open with the error.
+	// Client asks the decision model. Nil means defaultclient.Load,
+	// which reads the environment, such as TYPESAFE_API_KEY; if that
+	// fails, every check fails open with the error.
 	Client *decide.Client
 	// MinProbability is the P(yes) a question's answer must reach to be
 	// confirmed. Zero means the model leans yes: P(yes) above 0.5. A

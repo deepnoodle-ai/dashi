@@ -119,4 +119,7 @@ command text only. A prefix rule is unsafe: `go test ./... && rm -rf ~` starts
 with `go test`. A refusal is never remembered.
 
 The policy asks one question at a time. A prompt holds up the other calls of
-its batch.
+its batch. When your callback queues its own prompts, or does slow work before
+it shows one, pass `workspace.AskConcurrently()`. The policy then calls it for
+several calls at once. Calls that one remembered answer would cover still wait
+for each other.
