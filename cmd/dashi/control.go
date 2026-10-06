@@ -65,7 +65,11 @@ type Controller struct {
 	eng *Engine
 	// approveAll approves every tool call without asking, for
 	// --dangerously-skip-permissions.
-	approveAll     bool
+	approveAll bool
+	// decide runs the decide checks; nil when every feature is off.
+	decide *decideRuntime
+	// decideOn is which decide features are on, for /settings.
+	decideOn       decideSettings
 	ui             UI
 	store          *sessionstore.Store
 	dir            string
@@ -94,6 +98,10 @@ type Controller struct {
 	autoTaskDelivery bool
 	// knownNames caches command names for highlighting in the composer.
 	knownNames commandNameCache
+	// decideWarned is the end of the last pause warned about; a pause
+	// that starts before it ends gets no second warning.
+	decideMu     sync.Mutex
+	decideWarned time.Time
 }
 
 // NewController returns a controller. base ends every run when it is done.
@@ -192,13 +200,119 @@ func (c *Controller) approveUI(
 	r ApprovalRequest,
 	task string,
 ) (Approval, error) {
+	slot := c.decide.checkedCommand(ctx, r)
 	if c.approveAll {
-		return Approval{Allow: true}, nil
+		if slot == nil {
+			return Approval{Allow: true}, nil
+		}
+		return c.approveHeld(ctx, r, task, slot)
+	}
+	if slot != nil && !c.canAnswer() {
+		// Every approval is refused here; a check would spend for nothing.
+		slot = nil
 	}
 	c.setMode(ModeApproval)
 	defer c.endDialog()
 	// The request text is the model's. The UI gets the printable form only.
-	return c.ui.Approve(ctx, toolApproval{ApprovalRequest: r.Printable(), Task: task})
+	a := toolApproval{ApprovalRequest: r.Printable(), Task: task}
+	if slot != nil {
+		// The prompt shows at once; the check's answer joins it.
+		a.Check = c.decide.startCheck(ctx, slot.plan)
+	}
+	answer, err := c.ui.Approve(ctx, a)
+	if slot != nil {
+		result := a.Check.finish()
+		slot.set(result)
+		if result.Flagged {
+			answer.Remember = false
+		}
+	}
+	return answer, err
+}
+
+// canAnswer reports whether a person can answer a prompt. The run command
+// has no one to ask.
+func (c *Controller) canAnswer() bool {
+	_, print := c.ui.(*printUI)
+	return !print
+}
+
+// approveHeld decides a shell command in bypass mode with the command-risk
+// check on. A command decide flags, or cannot check for a reason the command
+// itself can cause, asks; with no one to ask, it is refused. Any other
+// command runs. Model advice never approves: bypass mode, which the person
+// chose, does.
+func (c *Controller) approveHeld(ctx context.Context, r ApprovalRequest, task string, slot *decideSlot) (Approval, error) {
+	row := task == "" && c.canAnswer()
+	if row {
+		c.emit(c.checkingRow(slot.plan, "decide: checking…"))
+	}
+	result := c.decide.check(ctx, slot.plan)
+	if err := ctx.Err(); err != nil {
+		return Approval{}, err
+	}
+	slot.set(result)
+	if row {
+		c.emit(c.checkingRow(slot.plan, result.screenLine()))
+	}
+	if !result.holds() {
+		if result.Outage && !c.isScreen() {
+			c.warnPause()
+		}
+		return Approval{Allow: true}, nil
+	}
+	if !c.canAnswer() {
+		what := "flagged this command (severe " + percent(result.Severe) + ")"
+		if !result.Flagged {
+			what = "could not check this command (" + result.Cause + ")"
+		}
+		return Approval{Reason: "The decide command-risk check " + what + ", and no one can " +
+			"approve it in a non-interactive run. Do not retry it. Tell the user what you " +
+			"wanted to run and why, so they can run it themselves."}, nil
+	}
+	c.setMode(ModeApproval)
+	defer c.endDialog()
+	answer, err := c.ui.Approve(ctx, toolApproval{ApprovalRequest: r.Printable(), Task: task, Check: doneCheck(result), Hold: true})
+	answer.Remember = false
+	return answer, err
+}
+
+// checkingRow is the tool row of a bash call while decide checks it in
+// bypass mode, before the call starts. The renderer's row replaces it.
+func (c *Controller) checkingRow(plan dashi.ToolPlan, line string) Block {
+	return Block{
+		ID:    "t:" + plan.Call.ID,
+		Kind:  KindTool,
+		Name:  plan.Call.Name,
+		Arg:   mainArg(plan.Call.Args, c.dir),
+		State: StateRunning,
+		Lines: []string{line},
+	}
+}
+
+// isScreen reports whether the UI has a status area.
+func (c *Controller) isScreen() bool {
+	_, ok := c.ui.(*screen)
+	return ok
+}
+
+// warnPause says once per pause, where there is no status area, that
+// commands run unchecked.
+func (c *Controller) warnPause() {
+	until, cause, ok := c.decide.pausedUntil()
+	if !ok {
+		return
+	}
+	c.decideMu.Lock()
+	seen := c.decideWarned.After(time.Now())
+	if !seen {
+		c.decideWarned = until
+	}
+	c.decideMu.Unlock()
+	if !seen {
+		c.emit(warnBlock("decide: command_risk paused (%s); shell commands run unchecked until %s.",
+			cause, until.Format(time.TimeOnly)))
+	}
 }
 
 // askUI asks the UI a question for the model. task is the short ID of the

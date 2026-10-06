@@ -140,22 +140,49 @@ func (u *lineUI) Approve(ctx context.Context, a toolApproval) (Approval, error) 
 		u.midLine = false
 	}
 	fmt.Fprint(u.out, approvalText(a))
-	fmt.Fprint(u.out, "Allow once / allow for this Dashi run / deny? [y/a/n or n REASON] ")
+	if line := a.checkLine(); line != "" {
+		fmt.Fprintln(u.out, "  "+line)
+	}
+	fmt.Fprint(u.out, approvalQuestion(a))
 	u.mu.Unlock()
+	// A check that is still running prints its answer on a new line when it
+	// comes, then asks again.
+	var checked <-chan struct{}
+	if _, done := a.Check.Result(); a.Check != nil && !done {
+		checked = a.Check.done
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return Approval{}, ctx.Err()
+		case <-checked:
+			checked = nil
+			u.mu.Lock()
+			fmt.Fprintf(u.out, "\n  %s\n%s", a.checkLine(), approvalQuestion(a))
+			u.mu.Unlock()
 		case line := <-u.ctrl.Answers():
-			if a, ok := parseAnswer(line); ok {
-				return a, nil
+			if answer, ok := parseAnswer(line); ok && (!answer.Remember || a.offersRemember()) {
+				return answer, nil
 			}
 			u.mu.Lock()
-			fmt.Fprint(u.out, "Type y, a, or n REASON: ")
+			if a.offersRemember() {
+				fmt.Fprint(u.out, "Type y, a, or n REASON: ")
+			} else {
+				fmt.Fprint(u.out, "Type y, or n REASON: ")
+			}
 			u.mu.Unlock()
 			u.ctrl.answerPending.Store(false)
 		}
 	}
+}
+
+// approvalQuestion is line mode's question for a. A command decide flagged
+// or held offers allow once and deny only.
+func approvalQuestion(a toolApproval) string {
+	if !a.offersRemember() {
+		return "Allow once / deny? [y/n or n REASON] "
+	}
+	return "Allow once / allow for this Dashi run / deny? [y/a/n or n REASON] "
 }
 
 // parseAnswer maps an approval answer to an Approval.

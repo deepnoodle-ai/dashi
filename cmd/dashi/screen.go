@@ -92,6 +92,8 @@ type approvalPrompt struct {
 	expanded    bool
 	laidOut     *approvalLayout
 	layoutWidth int
+	// layoutRemember is offersRemember when the layout was built.
+	layoutRemember bool
 }
 
 type askPrompt struct {
@@ -678,6 +680,9 @@ func (s *screen) footer() tui.View {
 			tui.Text(" %s", s.inputHint(mode)).Wrap().Style(hintStyle),
 			tui.Divider(), s.inputView(mode), tui.Divider())
 	}
+	if line := s.decideStatus(); line != "" {
+		views = append(views, tui.Text(" %s", line).Fg(tui.ColorYellow))
+	}
 	views = append(views, s.statusView())
 	return tui.Stack(views...).Gap(0)
 }
@@ -774,6 +779,15 @@ func (s *screen) workingView() tui.View {
 		tui.Text(" %s", frame).Fg(tui.ColorCyan),
 		tui.Text(" Working. Ctrl-C interrupts.").Style(hintStyle),
 	)
+}
+
+// decideStatus is the decide line of the status area, shown only while a
+// check is off or paused.
+func (s *screen) decideStatus() string {
+	if s.ctrl == nil {
+		return ""
+	}
+	return s.ctrl.decide.status()
 }
 
 func (s *screen) statusView() tui.View {
@@ -977,16 +991,37 @@ func toolView(b Block) tui.View {
 		views = append(views, tui.Text("%s", toolHeadSep),
 			tui.Text("%s", arg).SourceOffset(len(name)+len(toolHeadSep)).Style(mutedStyle))
 	}
-	head := tui.Group(append(views, tui.Spacer(), state)...)
-	offset := len(toolHeadSource(b)) + 1
-	if b.Expanded && b.Detail != "" {
-		return tui.Stack(head, tui.PaddingLTRB(6, 0, 0, 0,
-			tui.Text("%s", b.Detail).SourceOffset(offset).Wrap().Style(mutedStyle))).Gap(0)
+	views = append(views, tui.Spacer())
+	if b.Decide != nil && b.Decide.OK {
+		views = append(views, tui.Text("decide ✓  ").Style(mutedStyle))
 	}
-	if len(b.Lines) == 0 {
+	head := tui.Group(append(views, state)...)
+	offset := len(toolHeadSource(b)) + 1
+	var check tui.View
+	if b.Decide != nil && !b.Decide.OK {
+		t := tui.Text("%s", b.Decide.Text).Wrap()
+		if b.Decide.Flagged {
+			t = t.Fg(tui.ColorYellow)
+		} else {
+			t = t.Style(mutedStyle)
+		}
+		check = tui.PaddingLTRB(6, 0, 0, 0, t)
+	}
+	if b.Expanded && b.Detail != "" {
+		views = []tui.View{head}
+		if check != nil {
+			views = append(views, check)
+		}
+		return tui.Stack(append(views, tui.PaddingLTRB(6, 0, 0, 0,
+			tui.Text("%s", b.Detail).SourceOffset(offset).Wrap().Style(mutedStyle)))...).Gap(0)
+	}
+	if len(b.Lines) == 0 && check == nil {
 		return head
 	}
 	views = []tui.View{head}
+	if check != nil {
+		views = append(views, check)
+	}
 	for _, l := range b.Lines {
 		views = append(views, tui.PaddingLTRB(6, 0, 0, 0,
 			tui.Text("%s", l).SourceOffset(offset).Wrap().Style(mutedStyle)))

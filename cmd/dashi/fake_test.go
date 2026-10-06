@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
@@ -15,6 +16,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
+	"github.com/deepnoodle-ai/decide"
 )
 
 // reply is one scripted model answer.
@@ -210,6 +212,10 @@ type harness struct {
 	recorder func(*filerecorder.Recorder) dashi.Recorder
 	// notes counts runs of the write_note tool.
 	notes atomic.Int32
+	// decide settings for the next build.
+	decideOn     decideSettings
+	decideClient *decide.Client
+	decideWait   time.Duration
 }
 
 func newHarness(t *testing.T, script ...reply) *harness {
@@ -256,6 +262,9 @@ func (h *harness) build(o Options) {
 
 		CompactionThreshold: o.CompactionThreshold,
 		recorder:            h.recorder,
+		Decide:              h.decideOn,
+		decideClient:        h.decideClient,
+		decideWait:          h.decideWait,
 	}, h.ui)
 	if err != nil {
 		h.t.Fatal(err)

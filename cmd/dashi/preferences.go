@@ -40,9 +40,12 @@ type preferenceFile struct {
 	modelSelection
 	generationPreferences
 	Providers map[string]destinationDefinition `json:"providers"`
-	Source    string                           `json:"-"`
-	Project   bool                             `json:"-"`
-	LoadError string                           `json:"-"`
+	// Decide is the raw "decide" list; resolveDecide reads it from the
+	// user file only.
+	Decide    json.RawMessage `json:"decide"`
+	Source    string          `json:"-"`
+	Project   bool            `json:"-"`
+	LoadError string          `json:"-"`
 }
 
 // preferenceSourceError identifies a source whose bytes cannot be read or

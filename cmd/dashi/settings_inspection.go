@@ -34,6 +34,8 @@ type settingsInspection struct {
 	// ActiveTurnWindow is the last Turn's recorded Active-Turn protection
 	// window, or zero when that Turn had no protection.
 	ActiveTurnWindow int `json:"active_turn_window,omitempty"`
+	// Decide is the decide features and this run's checks.
+	Decide *decideInspection `json:"decide,omitempty"`
 }
 type inspectedKnowledge struct {
 	ContextWindow   int                         `json:"context_window,omitempty"`
@@ -172,6 +174,7 @@ func (c *Controller) settings(ctx context.Context, arg string) {
 		return
 	}
 	view := c.eng.inspectSettings(ctx)
+	view.Decide = c.inspectDecide()
 	if arg == "--json" {
 		raw, _ := json.MarshalIndent(view, "", "  ")
 		c.notice("%s", string(raw))
@@ -230,5 +233,6 @@ func (c *Controller) settings(ctx context.Context, arg string) {
 			fmt.Fprintf(&text, "\nRecorded %s: %s", label, value)
 		}
 	}
+	writeDecideInspection(&text, *view.Decide)
 	c.notice("%s", text.String())
 }

@@ -4,6 +4,7 @@ go 1.27
 
 require (
 	github.com/deepnoodle-ai/dashi v0.3.0
+	github.com/deepnoodle-ai/decide v0.3.0
 	github.com/deepnoodle-ai/wonton v0.7.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	golang.org/x/term v0.46.0

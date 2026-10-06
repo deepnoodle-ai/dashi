@@ -280,6 +280,12 @@ func loadCLIConfig(o Options, home, dir, invocation string, stdin io.Reader, std
 	}
 	warnPreferenceSources(stderr, user, project)
 	warnEnvironmentSettings(stderr, origins)
+	envDecide, envDecideSet := os.LookupEnv("DASHI_DECIDE")
+	decideOn, err := resolveDecide(o.Decide, o.DecideSet, envDecide, envDecideSet, user)
+	if err != nil {
+		return appConfig{}, err
+	}
+	warnDecideSettings(stderr, decideOn, project)
 	store := sessionstore.NewStore(filepath.Join(home, ".dashi", "sessions"))
 	reopened, err := loadReopenedPreferences(store, dir, o)
 	if err != nil {
@@ -296,6 +302,6 @@ func loadCLIConfig(o Options, home, dir, invocation string, stdin io.Reader, std
 	preferences.resolveSession = func(saved preferenceFile) (launchPreferences, error) {
 		return resolveLaunchPreferences(o, registry, trusted, user, project, saved, os.LookupEnv)
 	}
-	cfg := appConfig{Dir: dir, HomeDir: home, InvocationDir: invocation, MCPFiles: o.MCPFiles, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences, ApproveAll: o.Yes, CompactionThreshold: o.CompactionThreshold}
+	cfg := appConfig{Dir: dir, HomeDir: home, InvocationDir: invocation, MCPFiles: o.MCPFiles, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences, ApproveAll: o.Yes, CompactionThreshold: o.CompactionThreshold, Decide: decideOn}
 	return cfg, nil
 }

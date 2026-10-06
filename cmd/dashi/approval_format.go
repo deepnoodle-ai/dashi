@@ -20,6 +20,28 @@ type toolApproval struct {
 	// Task is the short ID of the delegated task whose call asks. It is
 	// empty for a call of the foreground conversation.
 	Task string
+	// Check is the decide command-risk check of a shell command, or nil.
+	Check *pendingCheck
+	// Hold is set when decide holds the call in bypass mode. The prompt
+	// then offers allow once and deny only.
+	Hold bool
+}
+
+// offersRemember reports whether the prompt offers "allow for this run". A
+// command decide flagged, or held, is never remembered.
+func (a toolApproval) offersRemember() bool {
+	return !a.Hold && !a.Check.flagged()
+}
+
+// checkLine is the decide line of the prompt, or empty without a check.
+func (a toolApproval) checkLine() string {
+	if a.Check == nil {
+		return ""
+	}
+	if r, ok := a.Check.Result(); ok {
+		return r.screenLine()
+	}
+	return "decide: checking…"
 }
 
 // clippedValueRows is how many rows one argument shows before the rest
@@ -102,7 +124,7 @@ func layoutApproval(a toolApproval, width int, expanded bool) approvalLayout {
 	case a.Arguments != "":
 		b.text(0, "", a.Arguments, rowText)
 	}
-	if a.RememberScope != "" {
+	if a.RememberScope != "" && a.offersRemember() {
 		b.text(0, "", "Allow for this Dashi run covers "+lowerFirst(a.RememberScope), rowMuted)
 	}
 	return approvalLayout{summary: summary, rows: b.rows, clipped: b.clipped}

@@ -1,0 +1,465 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/decide/toolcheck"
+	"github.com/deepnoodle-ai/decide"
+	"github.com/deepnoodle-ai/decide/decidetest"
+)
+
+// decideHarness is a harness with the command-risk check on, answered by a
+// fake decide server that does not retry.
+func decideHarness(t *testing.T, o Options, script ...reply) (*harness, *decidetest.Server) {
+	t.Helper()
+	srv := decidetest.NewServer(t)
+	h := newHarness(t, script...)
+	h.decideOn = decideSettings{On: []string{decideCommandRisk}, Source: "--decide"}
+	h.decideClient = srv.Client(t, decide.WithMaxRetries(0))
+	h.decideWait = 2 * time.Second
+	h.build(o)
+	return h, srv
+}
+
+// lastApproval returns the last prompt the UI showed.
+func (u *recorderUI) lastApproval() toolApproval {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.approvals[len(u.approvals)-1]
+}
+
+// decideVerdict returns the recorded BeforeTool verdict of call id in
+// turn n.
+func decideVerdict(t *testing.T, h *harness, n int, id string) dashi.ToolVerdict {
+	t.Helper()
+	v, err := h.turn(n).View()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v.Tools[id].Verdict
+}
+
+// In default mode the prompt shows with the check; a flagged command
+// offers allow once and deny only, and the record keeps the answer.
+func TestDecideFlagsCommandInPrompt(t *testing.T) {
+	h, srv := decideHarness(t, Options{},
+		callTool("c1", "bash", `{"command":"echo flagged"}`), say("Stopped."))
+	srv.Answer("severe", decidetest.NoulAnswer(0.91))
+	var remember bool
+	h.ui.answer = func(context.Context, ApprovalRequest) (Approval, error) {
+		a := h.ui.lastApproval()
+		<-a.Check.done
+		remember = a.offersRemember()
+		mustHave(t, a.checkLine(), "decide: severe 91% — flagged")
+		return Approval{Reason: declinedReason}, nil
+	}
+	h.input("clean up")
+	if remember {
+		t.Fatal("a flagged prompt offered allow for this run")
+	}
+	v := decideVerdict(t, h, 1, "c1")
+	if v.Kind != dashi.DecisionDeny || !strings.HasPrefix(v.Reason, declinedReason+"; decide: severe 91% flagged (") ||
+		!strings.HasPrefix(v.RulesVersion, "decide/") {
+		t.Fatalf("verdict = %+v", v)
+	}
+	text := h.ui.text()
+	mustHave(t, text, "decide: severe 91% — flagged")
+	mustHave(t, text, "decide 1 checked, 1 flagged")
+	mustHave(t, inputText(h.client.inputAt(1)), "; decide: severe 91% flagged")
+	if strings.Contains(text, declinedReason+";") {
+		t.Fatalf("the row repeats the decide line in the denial:\n%s", text)
+	}
+}
+
+// An answer given before the check cancels it, and the record says so.
+func TestDecideAnsweredFirst(t *testing.T) {
+	h, srv := decideHarness(t, Options{},
+		callTool("c1", "bash", `{"command":"echo first"}`), say("Done."))
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	srv.Respond(func(*decide.Request) (*decide.Response, error) {
+		<-release
+		return nil, errors.New("late")
+	})
+	h.ui.answer = func(context.Context, ApprovalRequest) (Approval, error) {
+		return Approval{Allow: true}, nil
+	}
+	h.input("go")
+	v := decideVerdict(t, h, 1, "c1")
+	if !strings.HasSuffix(v.Reason, "; decide: not checked (answered first)") || v.RulesVersion != "decide/unchecked" {
+		t.Fatalf("verdict = %+v", v)
+	}
+	mustHave(t, h.ui.text(), "first")
+}
+
+// A command remembered with "a" runs again without a check.
+func TestDecideRememberedCommandIsNotChecked(t *testing.T) {
+	h, srv := decideHarness(t, Options{},
+		callTool("c1", "bash", `{"command":"echo again"}`), say("One."),
+		callTool("c2", "bash", `{"command":"echo again"}`), say("Two."))
+	srv.Answer("severe", decidetest.NoulAnswer(0.02))
+	h.ui.answer = func(context.Context, ApprovalRequest) (Approval, error) {
+		<-h.ui.lastApproval().Check.done
+		return Approval{Allow: true, Remember: true}, nil
+	}
+	h.input("first")
+	h.input("second")
+	if n := len(srv.Requests()); n != 1 {
+		t.Fatalf("decide requests = %d; want 1", n)
+	}
+	if len(h.ui.approvals) != 1 {
+		t.Fatalf("approvals = %d; want 1", len(h.ui.approvals))
+	}
+	mustHave(t, h.ui.text(), "decide ✓")
+}
+
+// Bypass mode runs a command decide does not flag, and asks about one it
+// flags, with allow once and deny only.
+func TestDecideBypassHoldsFlaggedCommand(t *testing.T) {
+	h, srv := decideHarness(t, Options{Yes: true},
+		callTool("c1", "bash", `{"command":"echo routine"}`),
+		callTool("c2", "bash", `{"command":"echo severe"}`),
+		say("Done."))
+	srv.Respond(func(req *decide.Request) (*decide.Response, error) {
+		p := 0.03
+		if strings.Contains(string(mustJSON(t, req)), "echo severe") {
+			p = 0.89
+		}
+		return &decide.Response{Model: "jev-test", RequestID: "r_1",
+			Answers: map[string]decide.Answer{"severe": &decide.NoulAnswer{Noul: p}}}, nil
+	})
+	h.ui.answer = func(context.Context, ApprovalRequest) (Approval, error) {
+		return Approval{Reason: declinedReason}, nil
+	}
+	h.input("work")
+	if len(h.ui.approvals) != 1 {
+		t.Fatalf("approvals = %d; want 1", len(h.ui.approvals))
+	}
+	a := h.ui.approvals[0]
+	if !a.Hold || a.offersRemember() || a.Command != "echo severe" {
+		t.Fatalf("approval = %+v", a)
+	}
+	if v := decideVerdict(t, h, 1, "c1"); v.Kind != dashi.DecisionAllow || !strings.Contains(v.Reason, "decide: severe 3% (jev-test, request ") {
+		t.Fatalf("routine verdict = %+v", v)
+	}
+	if v := decideVerdict(t, h, 1, "c2"); v.Kind != dashi.DecisionDeny {
+		t.Fatalf("severe verdict = %+v", v)
+	}
+	text := h.ui.text()
+	mustHave(t, text, "decide ✓")
+	mustHave(t, text, "decide 2 checked, 1 flagged")
+}
+
+// mustJSON encodes v for a test to search.
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// In bypass mode a timeout asks, as a flag does; it never pauses.
+func TestDecideBypassAsksOnTimeout(t *testing.T) {
+	h, srv := decideHarness(t, Options{Yes: true},
+		callTool("c1", "bash", `{"command":"echo slow"}`), say("Done."))
+	h.decideWait = 50 * time.Millisecond
+	h.build(Options{Yes: true})
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	srv.Respond(func(*decide.Request) (*decide.Response, error) {
+		<-release
+		return nil, errors.New("late")
+	})
+	h.ui.answer = func(context.Context, ApprovalRequest) (Approval, error) {
+		return Approval{Allow: true}, nil
+	}
+	h.input("go")
+	if len(h.ui.approvals) != 1 || h.ui.approvals[0].checkLine() != "decide: unchecked (timeout)" {
+		t.Fatalf("approvals = %+v", h.ui.approvals)
+	}
+	if s := h.app.ctrl.decide.status(); s != "" {
+		t.Fatalf("status = %q; a timeout must not pause", s)
+	}
+}
+
+// An outage pauses the check: bypass mode runs the command, and the status
+// area shows the pause.
+func TestDecideBypassRunsDuringOutage(t *testing.T) {
+	h, srv := decideHarness(t, Options{Yes: true},
+		callTool("c1", "bash", `{"command":"echo outage"}`), say("Done."))
+	srv.FailNext(http.StatusInternalServerError)
+	h.input("go")
+	if len(h.ui.approvals) != 0 {
+		t.Fatalf("approvals = %d; want 0", len(h.ui.approvals))
+	}
+	mustHave(t, h.ui.text(), "decide: unchecked (server error)")
+	status := h.app.ctrl.decide.status()
+	if !strings.HasPrefix(status, "decide: command_risk paused (server error), resumes in ") {
+		t.Fatalf("status = %q", status)
+	}
+}
+
+// With no one to answer, run --yes refuses a flagged command with a reason
+// that names the check.
+func TestDecideRunYesRefusesFlaggedCommand(t *testing.T) {
+	srv := decidetest.NewServer(t)
+	srv.Answer("severe", decidetest.NoulAnswer(0.95))
+	h := newHarness(t, callTool("c1", "bash", `{"command":"echo nope"}`), say("Refused."))
+	var stdout, stderr bytes.Buffer
+	cfg := appConfig{
+		Dir: h.dir, HomeDir: h.home, Model: "fixture", Client: h.client, Store: h.store,
+		ApproveAll:   true,
+		Decide:       decideSettings{On: []string{decideCommandRisk}, Source: "--decide"},
+		decideClient: srv.Client(t, decide.WithMaxRetries(0)),
+	}
+	if code := runPrint(t.Context(), cfg, Options{Run: true, Prompt: "go", Yes: true}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code = %d\nstderr:\n%s", code, stderr.String())
+	}
+	in := inputText(h.client.inputAt(1))
+	mustHave(t, in, "The decide command-risk check flagged this command (severe 95%)")
+	mustHave(t, in, "; decide: severe 95% flagged")
+}
+
+// The record line is a format the renderer parses on reopen; this pins it.
+func TestDecideRecordFormat(t *testing.T) {
+	cases := []struct {
+		r          decideResult
+		line, rule string
+		mark       decideMark
+	}{
+		{decideResult{Checked: true, Flagged: true, Severe: 0.919, Model: "jev-1.13.0", Request: "r_12"},
+			"severe 91% flagged (jev-1.13.0, request r_12)", "decide/jev-1.13.0",
+			decideMark{Flagged: true, Text: "decide: severe 91% — flagged"}},
+		{decideResult{Checked: true, Severe: 0.7999, Model: "jev-1.13.0", Request: "r_13"},
+			"severe 79% (jev-1.13.0, request r_13)", "decide/jev-1.13.0", decideMark{OK: true}},
+		{decideResult{Cause: "timeout"}, "unchecked (timeout)", "decide/unchecked",
+			decideMark{Text: "decide: unchecked (timeout)"}},
+		{decideResult{AnsweredFirst: true}, "not checked (answered first)", "decide/unchecked",
+			decideMark{Text: "decide: not checked (answered first)"}},
+	}
+	for _, tc := range cases {
+		if got := tc.r.recordLine(); got != tc.line {
+			t.Errorf("recordLine = %q; want %q", got, tc.line)
+		}
+		v := dashi.ToolVerdict{Reason: withDecide("approved by the user", tc.r.recordLine()), RulesVersion: tc.r.rulesVersion()}
+		if v.RulesVersion != tc.rule {
+			t.Errorf("rulesVersion = %q; want %q", v.RulesVersion, tc.rule)
+		}
+		if m := markFromRecord(v); m == nil || *m != tc.mark {
+			t.Errorf("mark of %q = %+v; want %+v", v.Reason, m, tc.mark)
+		}
+		if reason, _, _ := splitDecide(v); reason != "approved by the user" {
+			t.Errorf("split reason = %q", reason)
+		}
+	}
+	if markFromRecord(dashi.ToolVerdict{Reason: "approved by the user; decide: x"}) != nil {
+		t.Error("a reason without the decide rules version was read as checked")
+	}
+}
+
+// Errors sort into outages, which pause, and failures the command can
+// cause, which ask.
+func TestDecideCause(t *testing.T) {
+	cases := []struct {
+		err    error
+		cause  string
+		outage bool
+	}{
+		{context.DeadlineExceeded, "timeout", false},
+		{toolcheck.ErrTooLarge, "too large", false},
+		{fmt.Errorf("x: %w", decide.ErrNoAPIKey), "no credentials", true},
+		{fmt.Errorf("x: %w", decide.ErrServer), "server error", true},
+		{fmt.Errorf("x: %w", decide.ErrInvalidAnswer), "invalid answer", false},
+		{&toolcheck.PausedError{Until: time.Now(), Cause: fmt.Errorf("x: %w", decide.ErrAuth)}, "auth failed", true},
+	}
+	for _, tc := range cases {
+		if got := decideCause(tc.err); got != tc.cause {
+			t.Errorf("decideCause(%v) = %q; want %q", tc.err, got, tc.cause)
+		}
+		if got := toolcheck.IsOutage(tc.err); got != tc.outage {
+			t.Errorf("IsOutage(%v) = %v; want %v", tc.err, got, tc.outage)
+		}
+	}
+}
+
+// An MCP tool named bash is never checked as a shell, and nothing is
+// checked with the feature off.
+func TestDecideChecksOnlyWorkspaceBash(t *testing.T) {
+	rt := newDecideRuntime(decideSettings{On: []string{decideCommandRisk}})
+	plan := dashi.ToolPlan{}
+	plan.Call.Name = "bash"
+	ctx := context.WithValue(t.Context(), decideSlotKey{}, &decideSlot{plan: plan})
+	if rt.checkedCommand(ctx, ApprovalRequest{Tool: "bash", Command: "ls"}) == nil {
+		t.Fatal("workspace bash was not checked")
+	}
+	if rt.checkedCommand(ctx, ApprovalRequest{Tool: "bash"}) != nil {
+		t.Fatal("an MCP tool named bash was checked")
+	}
+	if newDecideRuntime(decideSettings{}) != nil {
+		t.Fatal("a runtime was made with every feature off")
+	}
+	var off *decideRuntime
+	if off.checkedCommand(ctx, ApprovalRequest{Tool: "bash", Command: "ls"}) != nil || off.status() != "" {
+		t.Fatal("a nil runtime checked or reported")
+	}
+}
+
+// The flag beats DASHI_DECIDE's source name, which beats the user file; a
+// project file is ignored with a warning.
+func TestResolveDecide(t *testing.T) {
+	user := preferenceFile{Source: "/home/u/.dashi/settings.json", Decide: json.RawMessage(`["command_risk"]`)}
+	cases := []struct {
+		name             string
+		flag             string
+		flagSet          bool
+		env              string
+		envSet           bool
+		user             preferenceFile
+		want, wantSource string
+		wantErr          string
+	}{
+		{name: "nothing", want: "", wantSource: ""},
+		{name: "user file", user: user, want: "command_risk", wantSource: user.Source},
+		{name: "flag replaces file", flag: "off", flagSet: true, user: user, want: "", wantSource: "--decide"},
+		{name: "variable", flag: "command_risk,turn_watcher", flagSet: true, env: "command_risk,turn_watcher", envSet: true,
+			want: "command_risk,turn_watcher", wantSource: "DASHI_DECIDE"},
+		{name: "unknown", flag: "commands", flagSet: true, wantErr: `unknown decide feature "commands"; use command_risk`},
+		{name: "off mixed", flag: "off,command_risk", flagSet: true, wantErr: "cannot be combined"},
+		{name: "bad file", user: preferenceFile{Source: "s.json", Decide: json.RawMessage(`"command_risk"`)}, wantErr: "must be a list"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveDecide(tc.flag, tc.flagSet, tc.env, tc.envSet, tc.user)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v; want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || strings.Join(got.On, ",") != tc.want || got.Source != tc.wantSource {
+				t.Fatalf("got %+v, %v; want %q from %q", got, err, tc.want, tc.wantSource)
+			}
+		})
+	}
+	var w bytes.Buffer
+	warnDecideSettings(&w, decideSettings{On: []string{decideTurnWatcher}},
+		preferenceFile{Source: "/repo/.dashi/settings.json", Project: true, Decide: json.RawMessage(`[]`)})
+	mustHave(t, w.String(), `/repo/.dashi/settings.json: "decide" is ignored in a project settings file`)
+	mustHave(t, w.String(), "turn_watcher is not available in this version")
+}
+
+// --decide with an unknown name is a command-line error that lists the
+// valid names.
+func TestDecideFlagValidation(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	started := false
+	app := newApp(&stdout, &stderr, func(Options) error { started = true; return nil })
+	err := app.ExecuteContext(t.Context(), []string{"--decide", "nope"})
+	if err == nil || started || !strings.Contains(err.Error(), "command_risk, prompt_injection, turn_watcher, selective_compaction, or off") {
+		t.Fatalf("err = %v, started = %v", err, started)
+	}
+	var got Options
+	app = newApp(&stdout, &stderr, func(o Options) error { got = o; return nil })
+	if err := app.ExecuteContext(t.Context(), []string{"--decide", "command_risk"}); err != nil || got.Decide != "command_risk" || !got.DecideSet {
+		t.Fatalf("err = %v, options = %+v", err, got)
+	}
+}
+
+// /settings shows every feature, the command-risk scope, the provider, and
+// this run's counts; --json has the same fields under decide.
+func TestDecideSettingsSection(t *testing.T) {
+	h, srv := decideHarness(t, Options{Yes: true},
+		callTool("c1", "bash", `{"command":"echo hi"}`), say("Done."))
+	srv.Respond(func(*decide.Request) (*decide.Response, error) {
+		return &decide.Response{Model: "jev-1.13.0", RequestID: "r_1", Usage: decide.Usage{InputTokens: 120, OutputTokens: 2},
+			Answers: map[string]decide.Answer{"severe": &decide.NoulAnswer{Noul: 0.01}}}, nil
+	})
+	h.input("go")
+	view := h.app.ctrl.inspectDecide()
+	var text strings.Builder
+	writeDecideInspection(&text, *view)
+	for _, want := range []string{
+		"command_risk: on (--decide); shell commands only",
+		"turn_watcher: off (--decide)",
+		"bypass mode: write_file, edit_file, and MCP calls run without a prompt or a check",
+		"provider: ready: jev-1.13.0",
+		"this run: 1 request, 120 input and 2 output tokens, 1 checked, 0 flagged, 0 unchecked",
+	} {
+		mustHave(t, text.String(), want)
+	}
+	raw := string(mustJSON(t, settingsInspection{Decide: view}))
+	for _, want := range []string{`"decide":{`, `"command_risk":{"on":true`, `"provider":"ready: jev-1.13.0"`, `"input_tokens":120`, `"checked":1`} {
+		mustHave(t, raw, want)
+	}
+}
+
+// With every feature off, nothing about decide shows.
+func TestDecideOffChangesNothing(t *testing.T) {
+	h := newHarness(t, callTool("c1", "bash", `{"command":"echo off"}`), say("Done."))
+	h.input("go")
+	if h.app.ctrl.decide != nil || strings.Contains(h.ui.text(), "decide") {
+		t.Fatalf("decide showed with every feature off:\n%s", h.ui.text())
+	}
+	if v := decideVerdict(t, h, 1, "c1"); strings.Contains(v.Reason, "decide") || v.RulesVersion != "" {
+		t.Fatalf("verdict = %+v", v)
+	}
+}
+
+// Line mode offers y/n only for a flagged or held command.
+func TestDecideLineModeQuestion(t *testing.T) {
+	if q := approvalQuestion(toolApproval{Hold: true}); q != "Allow once / deny? [y/n or n REASON] " {
+		t.Fatalf("held question = %q", q)
+	}
+	flagged := doneCheck(decideResult{Checked: true, Flagged: true, Severe: 0.9})
+	if q := approvalQuestion(toolApproval{Check: flagged}); !strings.HasPrefix(q, "Allow once / deny?") {
+		t.Fatalf("flagged question = %q", q)
+	}
+	if q := approvalQuestion(toolApproval{}); !strings.Contains(q, "allow for this Dashi run") {
+		t.Fatalf("plain question = %q", q)
+	}
+}
+
+// With no credentials, the first check warns once and names the variables;
+// the status area then says decide is off, and commands run as without it.
+// The library's environment client is made once per process, so this is
+// the only test that uses it.
+func TestDecideNoCredentials(t *testing.T) {
+	t.Setenv("TYPESAFE_API_KEY", "")
+	t.Setenv("DECIDE_PROVIDER", "")
+	h := newHarness(t,
+		callTool("c1", "bash", `{"command":"echo one"}`),
+		callTool("c2", "bash", `{"command":"echo two"}`),
+		say("Done."))
+	h.decideOn = decideSettings{On: []string{decideCommandRisk}, Source: "DASHI_DECIDE"}
+	h.build(Options{Yes: true})
+	h.input("go")
+	text := h.ui.text()
+	if n := strings.Count(text, "warning: decide: no credentials"); n != 1 {
+		t.Fatalf("warnings = %d; want 1:\n%s", n, text)
+	}
+	mustHave(t, text, "TYPESAFE_API_KEY")
+	mustHave(t, text, "CLOUDFLARE_AUTH_TOKEN")
+	if strings.Contains(text, "WithAPIKey") {
+		t.Fatalf("the warning names a Go option:\n%s", text)
+	}
+	if s := h.app.ctrl.decide.status(); s != "decide: off (no credentials)" {
+		t.Fatalf("status = %q", s)
+	}
+	if len(h.ui.approvals) != 0 || strings.Count(text, "decide: unchecked (no credentials)") != 2 {
+		t.Fatalf("approvals = %d:\n%s", len(h.ui.approvals), text)
+	}
+	if got := h.app.ctrl.decide.providerState(); got != "off: no credentials" {
+		t.Fatalf("provider = %q", got)
+	}
+}
