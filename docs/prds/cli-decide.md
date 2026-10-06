@@ -15,7 +15,9 @@ summary drops exact paths and error strings, and nothing notices when the
 agent repeats a failing call.
 
 Dashi has decision-model packages for these jobs (`turnwatch`, `selective`,
-and `toolcheck` from track decide-tool-gate), but the CLI cannot use them.
+and the `toolcheck` package specified in
+[docs/prds/decide-tool-gate.md](decide-tool-gate.md)), but the CLI cannot
+use them.
 Our decide plugin for Claude Code proves the design in another agent.
 
 ## Context
@@ -30,9 +32,8 @@ Our decide plugin for Claude Code proves the design in another agent.
   hiding the result, shows a footer count and a mark on each checked row,
   fails open, and pauses a check for a minute after a failure. It dropped
   its reply check, which flagged one honest reply in five.
-- **Others.** Claude Code auto mode lets a classifier model approve calls
-  with no person involved. Codex CLI pairs approvals with an OS sandbox.
-  OpenCode and Cursor use static allow and deny patterns.
+- **Others.** Claude Code auto mode lets a classifier model approve calls.
+  Codex CLI pairs approvals with an OS sandbox.
 - **Selective compaction eval:** needle recall 100% against 75% for stock,
   at about 8% of the summary's cost, on generated sessions only.
 
@@ -59,8 +60,11 @@ commands sent to a third party without their consent.
   decide, and gives the agent a short reminder.
 - **Selective compaction**: keeps old messages that are still needed word
   for word, and summarizes only the rest.
-- **Unchecked**: a call decide could not answer (no key, timeout, provider
-  error, or a **paused** check). It goes on as if the check were off.
+- **Unchecked**: a call decide could not answer. Two kinds differ. An
+  **outage** (no key, auth failure, rate limit, server error, network
+  error) **pauses** the check for a minute. A **suspect** failure is one the
+  command text can cause (timeout, input too large, request rejected); it
+  never pauses.
 
 ## Use cases
 
@@ -108,8 +112,11 @@ Acceptance:
       same way.
 - [ ] `write_file`, `edit_file`, and MCP calls still run without a prompt;
       the guide and `/settings` say so.
-- [ ] `dashi run --yes --decide command_risk` refuses a flagged command;
-      the model reads a reason that names the check. Other commands run.
+- [ ] A suspect failure asks, like a flag, with the line
+      `decide: unchecked (timeout)`.
+- [ ] `dashi run --yes --decide command_risk` refuses a flagged command and
+      a suspect failure; the model reads a reason that names the check.
+      Other commands run.
 - [ ] A checked row ends with `decide ✓`, or shows one line under it with
       the flagged question and probability. The turn footer adds
       `decide 4 checked, 1 flagged`. A reopened session shows the answers
@@ -124,11 +131,11 @@ Acceptance:
 - [ ] Missing credentials give exactly one warning per launch, at the first
       check, naming the variables to set. The status area then shows
       `decide: off (no credentials)`.
-- [ ] A failed check lets the call go on; the row shows
-      `decide: unchecked (timeout)`.
-- [ ] While a check is paused, the status area shows
-      `decide: command_risk paused (timeout), resumes in 45s`. The guide
-      says bypass mode does not ask during a pause.
+- [ ] In default mode an unchecked prompt reads `decide: unchecked
+      (timeout)`; the user answers as usual.
+- [ ] Only an outage pauses a check. While paused, the status area shows
+      `decide: command_risk paused (server error), resumes in 45s`, and
+      bypass mode runs commands without asking. The guide says so.
 - [ ] The status area is quiet when every check is answering.
 
 ### UC-5: Outside content gets a warning (PR 2)
@@ -208,13 +215,18 @@ cause in the compaction line.
   line to the prompt the user sees anyway; in bypass mode it adds a prompt
   for a flagged command. Rejected: bypass mode only, as the plugin does;
   the brief's main case is the default mode.
-- **The prompt shows at once.** Keys work before the answer arrives.
-  Rejected: wait for decide; a slow provider would freeze the prompt.
+- **The prompt shows at once.** Rejected: wait for decide, which freezes
+  the prompt.
 - **`dashi run --yes` refuses a flagged command.** Nobody can answer.
   Rejected: let it run; then the check does nothing in CI.
-- **Checks fail open, with one warning and visible unchecked and paused
-  states.** It matches the shared decide design and the plugin. Rejected:
-  fail closed; an outage would stop all bypass-mode work.
+- **Checks fail open only for an outage.** An outage pauses the check, the
+  status area shows the pause, and bypass mode runs commands unasked. A
+  suspect failure (timeout, input too large, request rejected) asks, even
+  in bypass mode, and `run --yes` refuses it. Injected text can make the
+  model write a huge command that times out; failing open there would open
+  an unchecked window on demand. Timeouts and cancels never pause.
+  Rejected: fail open on every failure, as the plugin does; fail closed on
+  every failure, which an outage would turn into a prompt per command.
 - **User settings, flag, and variable only.** A project file that turns a
   feature on would send the user's commands to a third party with the
   user's key. Rejected: honor project settings, as for model controls.
@@ -227,7 +239,6 @@ cause in the compaction line.
 - **The missing-key warning comes at the first check.** The CLI never reads
   decide's variables, so it learns of a missing key from the first skipped
   check. Rejected: a public "is decide ready" call, new API for one line.
-- **Tokens and counts, not dollars.** A price copied into dashi would drift.
 - **Three implementation PRs.** PR 1: the client helper, settings, flag,
   `/settings`, warnings, footer, row marks, and the command-risk check. PR
   2: prompt-injection check and turn watcher. PR 3: selective compaction,
@@ -236,11 +247,12 @@ cause in the compaction line.
 
 ## Dependencies
 
-- Track decide-in-root: decide packages in the root module, decide v0.3.0.
-- Track decide-tool-gate: `toolcheck.CommandRisk.Check(ctx, dashi.ToolPlan)
+- #204: decide packages in the root module, on decide v0.3.0.
+- The `toolcheck` package: `CommandRisk.Check(ctx, dashi.ToolPlan)
   (Verdict, error)`, where `Verdict` holds flagged, probability, request ID,
-  model version, a one-line reason, and usage; an error that says a check
-  is paused and until when; and `PromptInjection` with an `OnCheck`.
+  model version, a one-line reason, and usage; a typed paused error with
+  its end time; an error kind that tells an outage from a suspect failure;
+  and `PromptInjection` with an `OnCheck`.
 
 ## Success
 

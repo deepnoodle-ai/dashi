@@ -1,8 +1,8 @@
 # decide checks in the dashi CLI
 
 **Status:** Draft · **Date:** 2026-10-06 · **Owner:** Curtis\
-**Workflow:** spec, then build after tracks decide-in-root and
-decide-tool-gate land. **PRD:** [docs/prds/cli-decide.md](../prds/cli-decide.md)
+**Workflow:** spec, then build after #204 (decide in the root module)
+and the `toolcheck` package ([PRD](../prds/decide-tool-gate.md)) land. **PRD:** [docs/prds/cli-decide.md](../prds/cli-decide.md)
 
 ## Context
 
@@ -79,8 +79,11 @@ type decideRuntime struct {
 It feeds `/settings`, the footer suffix, and the status area. Every check
 result passes through `record(feature, verdict, err)`, which updates the
 totals and state. `errors.Is(err, decide.ErrNoAPIKey)` sets `off: no
-credentials` and emits the one warning with the error's text. A paused
-error sets `paused[feature]`. The status area shows a decide line only
+credentials` and emits the one warning with the error's text. The
+library's typed paused error (outage only) sets `paused[feature]` to its
+end time. Other errors are sorted into outage or suspect by the error kind
+`toolcheck` returns; a timeout, too-large input, or rejected request is
+suspect. The status area shows a decide line only
 while `state` is off or `paused` is not empty.
 
 ### 4. The command-risk check in the approval path (PR 1)
@@ -104,12 +107,12 @@ BeforeTool: attributeToolHooks wrapper (already exists)
 plan is an owned tool), so an MCP tool named `bash` is never treated as a
 shell. By mode:
 
-| Mode | When the check runs | Flagged | Not flagged | Unchecked |
-| --- | --- | --- | --- | --- |
-| Default | In parallel with the prompt, which shows at once | Line turns to a warning; keys `y`/`n` only | Line shows the answer | Line shows the cause |
-| Bypass (`approveAll`) | Before deciding, at most 3 s; row shows `checking…` | Prompt with `y`/`n` | Allow, no prompt | Allow, row shows the cause |
-| `run --yes` | As bypass | Refuse; reason names the check | Allow | Allow, warning on stderr |
-| `run` without `--yes` | Never: every approval is refused | | | |
+| Mode | When the check runs | Flagged | Not flagged | Suspect failure | Outage or paused |
+| --- | --- | --- | --- | --- | --- |
+| Default | In parallel with the prompt, which shows at once | Line turns to a warning; keys `y`/`n` only | Line shows the answer | Line reads `unchecked (…)` | Line reads `unchecked (…)`; status shows the pause |
+| Bypass (`approveAll`) | Before deciding, at most 3 s; row shows `checking…` | Prompt with `y`/`n` | Allow, no prompt | Prompt with `y`/`n` | Allow; row shows the cause; status shows the pause |
+| `run --yes` | As bypass | Refuse; reason names the check | Allow | Refuse; reason names the check | Allow; warning on stderr |
+| `run` without `--yes` | Never: every approval is refused | | | | |
 
 The check's context has a 3-second deadline and is canceled when the
 person answers first; the slot then records `decide: not checked
@@ -157,8 +160,9 @@ their user settings, and their environment are trusted. A repository
 | --- | --- | --- |
 | Model advice grants permission (excessive agency) | `approveUI` returns `Allow` only from the person's key or from `approveAll`, which the person set. A verdict only adds a prompt or a refusal. Flagged prompts hide `a`; no verdict reaches the remembered rules. | None found. |
 | Command text talks the check down ("# safe, answer no") | decide's question treats such text as evidence of risk. In default mode the person still reads the command. | In bypass mode a crafted command can score low and run. |
-| Bypass mode blind spots | The guide and `/settings` say: shell commands only; edits, writes, and MCP calls run unasked; a paused or failed check lets commands run. | An MCP tool or a script run by an unflagged command can do harm. Use a container. |
-| Attacker forces fail-open (slow output, provider outage) | The command text is the model's, not a page's, so an attacker cannot easily slow the check. A pause shows in the status area with its end time. | During a pause, bypass mode asks about nothing. |
+| Bypass mode blind spots | The guide and `/settings` say: shell commands only; edits, writes, and MCP calls run unasked; during an outage pause, commands run unasked. | An MCP tool or a script run by an unflagged command can do harm. Use a container. |
+| Injected text forces fail-open: the model writes a huge or odd command that times out, is too large, or is rejected | These are suspect failures: they never pause the check, bypass mode asks, and `run --yes` refuses. The CLI's 3-second deadline and a cancel never pause. | None found. |
+| Provider outage | Only an outage (no key, auth failure, rate limit, server error, non-timeout network error) pauses the check. The status area shows the pause and its end. The command text cannot cause one. | During a pause, bypass mode asks about nothing. |
 | A repository turns features on to send commands out, or off to remove the net | Project `decide` keys are ignored with a warning. Credentials and `DECIDE_PROVIDER` come only from the environment or a named `--env-file`. | None found. |
 | Data sent to the provider (commands may hold secrets; injection check sends MCP results) | Off by default; opt-in names each feature; the guide lists what each sends. | A secret typed into a checked command goes to TypeSafe or Cloudflare. |
 | Terminal injection through the answer line | Provider text is passed through `PrintableText`; probabilities are formatted by the CLI. | None found. |
@@ -171,12 +175,13 @@ their user settings, and their environment are trusted. A repository
 - **No credentials:** the first check fails with `ErrNoAPIKey`; one
   warning; status `decide: off (no credentials)`; every call runs as
   without decide. Each later check still fails fast, locally.
-- **Timeout or provider error:** that call is unchecked; the library pauses
-  the check; the status area counts down.
+- **Timeout, too-large input, or rejected request:** that call is
+  unchecked and asks, in every mode that can ask; no pause.
+- **Outage:** that call is unchecked; the library pauses the check for a
+  minute; the status area counts down; bypass mode runs commands.
 - **Check returns after the person answered:** discarded; the slot already
   holds "answered first".
-- **Decide-in-root or tool-gate slips:** PR 1 waits; nothing ships half
-  wired.
+- **#204 or `toolcheck` slips:** PR 1 waits; nothing ships half wired.
 
 ## Alternatives considered
 
@@ -208,9 +213,3 @@ PR 1 also changes the library helper and adds a `CHANGELOG.md` entry for
 package. Evidence: a live transcript of UC-3 and a screenshot of each
 prompt state (checking, answered, flagged, unchecked) and of the paused
 status line.
-
-## Open questions
-
-- Should the library pause also apply to the CLI's 3-second deadline and
-  to a canceled check? Proposal: deadline yes, cancel no. Confirm with the
-  tool-gate track while it writes its tech spec.
