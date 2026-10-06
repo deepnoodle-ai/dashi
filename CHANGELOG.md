@@ -69,6 +69,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Large terminal input stays responsive when deleting text.** Wonton v0.7.2
+  fixes Ctrl-U, Ctrl-K, and Ctrl-W stalls on long pasted lines.
+
 - **The Dashi terminal interface uses a quieter layout:** a compact header,
   shaded prompt and input bands, indented tool details, and compact status.
   Narrow terminals keep approval choices visible; inline output uses the
