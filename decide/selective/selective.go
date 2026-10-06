@@ -14,10 +14,10 @@
 // summarize falls back to the stock Start, and OnSelection receives the
 // cause in Selection.Fallback and Selection.Cause.
 //
-// Experimental: on generated sessions it kept more needed details than the
-// stock compactor, but its lead over a stock compactor that also sees the
-// latest request is within noise. It may change or be removed after runs on
-// recorded sessions; see docs/dev/selective-compaction-eval.md.
+// Experimental: on generated sessions and on recorded dashi CLI sessions
+// it kept more needed details than the stock compactor, but on recorded
+// sessions keeping the newest older segments without Decide did as well.
+// It may change or be removed; see docs/dev/selective-compaction-eval.md.
 package selective
 
 import (

@@ -1,7 +1,7 @@
 # Turn on decide checks in the dashi CLI
 
 Status: Draft\
-PRD PR: [#206](https://github.com/deepnoodle-ai/dashi/pull/206) · Implementation PRs: [#209](https://github.com/deepnoodle-ai/dashi/pull/209), [#212](https://github.com/deepnoodle-ai/dashi/pull/212) · Updated: 2026-10-06\
+PRD PR: [#206](https://github.com/deepnoodle-ai/dashi/pull/206) · Implementation PRs: [#209](https://github.com/deepnoodle-ai/dashi/pull/209), [#212](https://github.com/deepnoodle-ai/dashi/pull/212), [#220](https://github.com/deepnoodle-ai/dashi/pull/220) · Updated: 2026-10-06\
 Tech spec: [docs/design/cli-decide.md](../design/cli-decide.md)
 
 ## Problem
@@ -34,8 +34,10 @@ Our decide plugin for Claude Code proves the design in another agent.
   its reply check, which flagged one honest reply in five.
 - **Others.** Claude Code auto mode lets a classifier model approve calls.
   Codex CLI pairs approvals with an OS sandbox.
-- **Selective compaction eval:** needle recall 100% against 75% for stock,
-  at about 8% of the summary's cost, on generated sessions only.
+- **Selective compaction eval:** needle recall 100% against 75% for stock
+  on generated sessions. On 14 recorded CLI compactions: 50% against 39%
+  for stock, but recency, which keeps the newest older messages without
+  decide, also scored 50%.
 
 ## Users and job
 
@@ -170,11 +172,13 @@ shows `decide: reminded the agent (repeating a failed approach, 88%)`, live
 and on reopen. A check that fails adds nothing; line mode and `dashi run`
 warn once per cause.
 
-### UC-7: Compaction keeps exact details (PR 3)
+### UC-7: Compaction keeps exact details — not shipped
 
-`selective_compaction` on. Automatic compaction and `/compact` use it.
-`/settings` marks it experimental. A fallback to stock compaction shows its
-cause in the compaction line.
+`selective_compaction` stays off and warns that it is not available. Its
+eval on recorded CLI sessions missed the bar set before the run: selective
+recalled 50% of exact details, the same as recency, which needs no decide
+request ([eval](../dev/selective-compaction-eval.md)). The design drops the feature when
+recency matches. PR 3 ships the eval and its result instead.
 
 ## Requirements
 
@@ -262,8 +266,9 @@ cause in the compaction line.
   and ran the first command before the warning.
 - **Three implementation PRs.** PR 1: the client helper, settings, flag,
   `/settings`, warnings, footer, row marks, and the command-risk check. PR
-  2: prompt-injection check and turn watcher. PR 3: selective compaction,
-  experimental until its eval passes on recorded CLI sessions. Rejected:
+  2: prompt-injection check and turn watcher. PR 3: the selective
+  compaction eval on recorded CLI sessions; the feature ships only if it
+  passes, and it did not. Rejected:
   one PR that waits on every dependency.
 
 ## Dependencies

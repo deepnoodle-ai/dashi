@@ -40,9 +40,11 @@ party with your key, or turn off your check.
 | `command_risk` | Checks each shell command for severe harm that is hard to undo | Available |
 | `prompt_injection` | Warns the model about a tool result that tries to take it over | Available |
 | `turn_watcher` | Reminds the agent when it repeats a failing call | Available |
-| `selective_compaction` | Keeps needed messages word for word when it compacts | Later release |
+| `selective_compaction` | Keeps needed messages word for word when it compacts | Not available |
 
-A feature from a later release stays off, with a warning.
+`selective_compaction` stays off, with a warning: on recorded sessions it
+kept no more needed details than keeping the newest messages, so it is not
+worth a decide request ([eval](../dev/selective-compaction-eval.md)).
 
 ## Credentials and provider
 
