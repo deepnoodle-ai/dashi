@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/decide/defaultclient"
 	"github.com/deepnoodle-ai/dashi/decide/toolcheck"
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/decide"
@@ -37,15 +39,20 @@ type decideRuntime struct {
 	warn func(string)
 	now  func() time.Time
 
+	// provider is the provider the checks use, such as "typesafe".
+	provider string
+	// off says why every check is off for this run, such as "no
+	// credentials", or is empty. Startup sets it from a setup error.
+	off string
+
 	mu     sync.Mutex
 	totals decideTotals
 	// model is the decision model that last answered.
 	model string
 	// asked reports that a check was attempted.
 	asked bool
-	// off is set once a check finds no credentials.
-	off bool
-	// warned is set once a warning about the provider was shown.
+	// warned is set once a warning about an outage of unknown kind was
+	// shown.
 	warned bool
 	paused map[string]decidePause
 }
@@ -69,22 +76,75 @@ type decidePause struct {
 	Cause string
 }
 
+// decideSetup is the library's default decide client, which chooses the
+// provider from the environment. The CLI reads no decide variable.
+type decideSetup struct {
+	defaultclient.Setup
+	// Err is a setup error, such as no credentials. It turns every check
+	// off for the run.
+	Err error
+}
+
+// loadDecideSetup loads the default decide client when a feature is on,
+// before the first turn and without a request. A setup error warns once
+// on w. It stops the launch instead for dashi run --yes with command_risk
+// on: nobody watches that output, and the user asked for the guard. load
+// is defaultclient.Load outside tests.
+func loadDecideSetup(s decideSettings, o Options, w io.Writer, load func() (defaultclient.Setup, error)) (decideSetup, error) {
+	if !s.any() {
+		return decideSetup{}, nil
+	}
+	setup, err := load()
+	if err == nil {
+		return decideSetup{Setup: setup}, nil
+	}
+	text := setupErrorText(err)
+	if o.Run && o.Yes && s.enabled(decideCommandRisk) {
+		return decideSetup{}, fmt.Errorf("decide command_risk is on, but its checks cannot run: %s. "+
+			"Set the variable, or turn the check off with --decide off", text)
+	}
+	fmt.Fprintf(w, "dashi: warning: decide checks are off for this run: %s.\n", text)
+	return decideSetup{Setup: setup, Err: err}, nil
+}
+
+// setupErrorText is a setup error as a person reads it, without the
+// library's "decide: " prefix.
+func setupErrorText(err error) string {
+	return workspace.PrintableText(strings.TrimPrefix(err.Error(), "decide: "))
+}
+
+// offReason names a setup error in a few words, for the status area.
+func offReason(s decideSetup) string {
+	switch {
+	case s.Err == nil:
+		return ""
+	case errors.Is(s.Err, decide.ErrNoAPIKey):
+		return "no credentials"
+	case errors.Is(s.Err, defaultclient.ErrUnknownProvider):
+		return fmt.Sprintf("unknown DECIDE_PROVIDER %q", workspace.PrintableText(s.Provider))
+	}
+	return "not set up"
+}
+
 // newDecideRuntime returns the runtime for s, or nil when no built feature
-// is on, so that nothing changes with every feature off.
-func newDecideRuntime(s decideSettings) *decideRuntime {
+// is on, so that nothing changes with every feature off. With a setup
+// error, every check is off, and only /settings and the status area say
+// so.
+func newDecideRuntime(s decideSettings, setup decideSetup) *decideRuntime {
 	if !s.any() {
 		return nil
 	}
-	rt := &decideRuntime{settings: s, wait: decideWait, now: time.Now, paused: map[string]decidePause{}}
-	// A nil Client is the library's default client, which chooses the
-	// provider from the environment. The CLI reads no decide variable.
-	rt.risk = toolcheck.CommandRisk{Timeout: decideWait}
+	rt := &decideRuntime{
+		settings: s, wait: decideWait, now: time.Now, paused: map[string]decidePause{},
+		provider: setup.Provider, off: offReason(setup),
+	}
+	rt.risk = toolcheck.CommandRisk{Client: setup.Client, Timeout: decideWait}
 	return rt
 }
 
-// checksCommands reports whether the command-risk check is on.
+// checksCommands reports whether the command-risk check is on and can run.
 func (rt *decideRuntime) checksCommands() bool {
-	return rt != nil && rt.settings.enabled(decideCommandRisk)
+	return rt != nil && rt.off == "" && rt.settings.enabled(decideCommandRisk)
 }
 
 // decideResult is what the command-risk check found for one call.
@@ -200,23 +260,16 @@ func (rt *decideRuntime) record(ctx context.Context, v toolcheck.Verdict, err er
 	r = decideResult{Cause: decideCause(err), Outage: toolcheck.IsOutage(err)}
 	rt.totals.Unchecked++
 	paused, isPause := errors.AsType[*toolcheck.PausedError](err)
-	if !isPause && !errors.Is(err, decide.ErrNoAPIKey) {
+	if !isPause {
 		rt.totals.Requests++
 	}
 	switch {
-	case errors.Is(err, decide.ErrNoAPIKey):
-		rt.off = true
-		if !rt.warned {
-			rt.warned = true
-			warning = "decide: no credentials, so decide checks are off for this run. " + errorText(err)
-		}
 	case isPause:
 		rt.paused[decideCommandRisk] = decidePause{Until: paused.Until, Cause: r.Cause}
 	case r.Outage:
 		rt.paused[decideCommandRisk] = decidePause{Until: rt.now().Add(decidePauseFor), Cause: r.Cause}
 		if r.Cause == "error" && !rt.warned {
-			// An outage with no known kind, such as an unknown
-			// DECIDE_PROVIDER: say what it was, once.
+			// An outage with no known kind: say what it was, once.
 			rt.warned = true
 			warning = "decide: " + errorText(err)
 		}
@@ -234,9 +287,6 @@ func errorText(err error) string {
 	if i := strings.LastIndex(text, "decide: "); i >= 0 {
 		text = text[i+len("decide: "):]
 	}
-	// decide.ErrNoAPIKey names a Go option; a person running dashi sets
-	// the variables instead.
-	text = strings.Replace(text, " or use WithAPIKey;", ",", 1)
 	return workspace.PrintableText(text)
 }
 
@@ -280,11 +330,11 @@ func (rt *decideRuntime) status() string {
 	if rt == nil {
 		return ""
 	}
+	if rt.off != "" {
+		return "decide: off (" + rt.off + ")"
+	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	if rt.off {
-		return "decide: off (no credentials)"
-	}
 	now := rt.now()
 	var parts []string
 	for _, f := range decideFeatureNames {
@@ -318,8 +368,8 @@ func (rt *decideRuntime) providerState() string {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	switch {
-	case rt.off:
-		return "off: no credentials"
+	case rt.off != "":
+		return "off: " + rt.off
 	case rt.model != "":
 		return "ready: " + workspace.PrintableText(rt.model)
 	case rt.asked:

@@ -214,6 +214,7 @@ type harness struct {
 	notes atomic.Int32
 	// decide settings for the next build.
 	decideOn     decideSettings
+	decideSetup  decideSetup
 	decideClient *decide.Client
 	decideWait   time.Duration
 }
@@ -263,6 +264,7 @@ func (h *harness) build(o Options) {
 		CompactionThreshold: o.CompactionThreshold,
 		recorder:            h.recorder,
 		Decide:              h.decideOn,
+		DecideSetup:         h.decideSetup,
 		decideClient:        h.decideClient,
 		decideWait:          h.decideWait,
 	}, h.ui)

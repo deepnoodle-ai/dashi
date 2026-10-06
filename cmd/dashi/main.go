@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
+	"github.com/deepnoodle-ai/dashi/decide/defaultclient"
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/cli"
 	"github.com/deepnoodle-ai/wonton/tui"
@@ -286,6 +287,10 @@ func loadCLIConfig(o Options, home, dir, invocation string, stdin io.Reader, std
 		return appConfig{}, err
 	}
 	warnDecideSettings(stderr, decideOn, project)
+	decideReady, err := loadDecideSetup(decideOn, o, stderr, defaultclient.Load)
+	if err != nil {
+		return appConfig{}, err
+	}
 	store := sessionstore.NewStore(filepath.Join(home, ".dashi", "sessions"))
 	reopened, err := loadReopenedPreferences(store, dir, o)
 	if err != nil {
@@ -302,6 +307,6 @@ func loadCLIConfig(o Options, home, dir, invocation string, stdin io.Reader, std
 	preferences.resolveSession = func(saved preferenceFile) (launchPreferences, error) {
 		return resolveLaunchPreferences(o, registry, trusted, user, project, saved, os.LookupEnv)
 	}
-	cfg := appConfig{Dir: dir, HomeDir: home, InvocationDir: invocation, MCPFiles: o.MCPFiles, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences, ApproveAll: o.Yes, CompactionThreshold: o.CompactionThreshold, Decide: decideOn}
+	cfg := appConfig{Dir: dir, HomeDir: home, InvocationDir: invocation, MCPFiles: o.MCPFiles, Model: launch.Selection.Model, Client: preferences.client, Store: store, Preferences: preferences, ApproveAll: o.Yes, CompactionThreshold: o.CompactionThreshold, Decide: decideOn, DecideSetup: decideReady}
 	return cfg, nil
 }

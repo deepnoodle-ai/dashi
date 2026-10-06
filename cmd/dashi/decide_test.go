@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/decide/defaultclient"
 	"github.com/deepnoodle-ai/dashi/decide/toolcheck"
 	"github.com/deepnoodle-ai/decide"
 	"github.com/deepnoodle-ai/decide/decidetest"
@@ -297,7 +298,7 @@ func TestDecideCause(t *testing.T) {
 // An MCP tool named bash is never checked as a shell, and nothing is
 // checked with the feature off.
 func TestDecideChecksOnlyWorkspaceBash(t *testing.T) {
-	rt := newDecideRuntime(decideSettings{On: []string{decideCommandRisk}})
+	rt := newDecideRuntime(decideSettings{On: []string{decideCommandRisk}}, decideSetup{})
 	plan := dashi.ToolPlan{}
 	plan.Call.Name = "bash"
 	ctx := context.WithValue(t.Context(), decideSlotKey{}, &decideSlot{plan: plan})
@@ -307,7 +308,7 @@ func TestDecideChecksOnlyWorkspaceBash(t *testing.T) {
 	if rt.checkedCommand(ctx, ApprovalRequest{Tool: "bash"}) != nil {
 		t.Fatal("an MCP tool named bash was checked")
 	}
-	if newDecideRuntime(decideSettings{}) != nil {
+	if newDecideRuntime(decideSettings{}, decideSetup{}) != nil {
 		t.Fatal("a runtime was made with every feature off")
 	}
 	var off *decideRuntime
@@ -431,36 +432,65 @@ func TestDecideLineModeQuestion(t *testing.T) {
 	}
 }
 
-// With no credentials, the first check warns once and names the variables;
-// the status area then says decide is off, and commands run as without it.
-// The library's environment client is made once per process, so this is
-// the only test that uses it.
-func TestDecideNoCredentials(t *testing.T) {
-	t.Setenv("TYPESAFE_API_KEY", "")
-	t.Setenv("DECIDE_PROVIDER", "")
+// A setup error turns every check off before the first turn: no prompt,
+// row, or footer shows decide, and the status area says why. Bypass mode
+// runs commands as it would without decide.
+func TestDecideSetupErrorTurnsChecksOff(t *testing.T) {
 	h := newHarness(t,
 		callTool("c1", "bash", `{"command":"echo one"}`),
 		callTool("c2", "bash", `{"command":"echo two"}`),
 		say("Done."))
 	h.decideOn = decideSettings{On: []string{decideCommandRisk}, Source: "DASHI_DECIDE"}
+	h.decideSetup = decideSetup{
+		Setup: defaultclient.Setup{Provider: "cloudfare"},
+		Err:   fmt.Errorf("decide: unknown DECIDE_PROVIDER: %w", defaultclient.ErrUnknownProvider),
+	}
 	h.build(Options{Yes: true})
 	h.input("go")
-	text := h.ui.text()
-	if n := strings.Count(text, "warning: decide: no credentials"); n != 1 {
-		t.Fatalf("warnings = %d; want 1:\n%s", n, text)
+	if text := h.ui.text(); strings.Contains(text, "decide") || len(h.ui.approvals) != 0 {
+		t.Fatalf("approvals = %d; decide showed with its checks off:\n%s", len(h.ui.approvals), text)
 	}
-	mustHave(t, text, "TYPESAFE_API_KEY")
-	mustHave(t, text, "CLOUDFLARE_AUTH_TOKEN")
-	if strings.Contains(text, "WithAPIKey") {
-		t.Fatalf("the warning names a Go option:\n%s", text)
-	}
-	if s := h.app.ctrl.decide.status(); s != "decide: off (no credentials)" {
+	rt := h.app.ctrl.decide
+	if s := rt.status(); s != `decide: off (unknown DECIDE_PROVIDER "cloudfare")` {
 		t.Fatalf("status = %q", s)
 	}
-	if len(h.ui.approvals) != 0 || strings.Count(text, "decide: unchecked (no credentials)") != 2 {
-		t.Fatalf("approvals = %d:\n%s", len(h.ui.approvals), text)
-	}
-	if got := h.app.ctrl.decide.providerState(); got != "off: no credentials" {
+	if got := rt.providerState(); got != `off: unknown DECIDE_PROVIDER "cloudfare"` {
 		t.Fatalf("provider = %q", got)
+	}
+	if v := decideVerdict(t, h, 1, "c1"); v.Kind != dashi.DecisionAllow || strings.Contains(v.Reason, "decide") {
+		t.Fatalf("verdict = %+v", v)
+	}
+}
+
+// A setup error warns once at startup and names the variables to set;
+// dashi run --yes with command_risk on refuses to start instead.
+func TestLoadDecideSetup(t *testing.T) {
+	noKey := func() (defaultclient.Setup, error) {
+		return defaultclient.Setup{Provider: "typesafe"}, fmt.Errorf("decide: no credentials: set TYPESAFE_API_KEY: %w %w",
+			defaultclient.ErrSetup, decide.ErrNoAPIKey)
+	}
+	on := decideSettings{On: []string{decideCommandRisk}, Source: "--decide"}
+	for _, o := range []Options{{}, {Yes: true}, {Run: true}} {
+		var w bytes.Buffer
+		setup, err := loadDecideSetup(on, o, &w, noKey)
+		if err != nil || offReason(setup) != "no credentials" {
+			t.Fatalf("%+v: setup = %+v, %v", o, setup, err)
+		}
+		if got := w.String(); strings.Count(got, "\n") != 1 ||
+			!strings.HasPrefix(got, "dashi: warning: decide checks are off for this run: no credentials: set TYPESAFE_API_KEY") {
+			t.Fatalf("%+v: warning = %q", o, got)
+		}
+	}
+	var w bytes.Buffer
+	_, err := loadDecideSetup(on, Options{Run: true, Yes: true}, &w, noKey)
+	if err == nil || !strings.Contains(err.Error(), "TYPESAFE_API_KEY") || w.Len() != 0 {
+		t.Fatalf("run --yes: err = %v, warning = %q", err, w.String())
+	}
+	loaded := false
+	if _, err := loadDecideSetup(decideSettings{}, Options{}, &w, func() (defaultclient.Setup, error) {
+		loaded = true
+		return defaultclient.Setup{}, nil
+	}); err != nil || loaded {
+		t.Fatal("the decide client was loaded with every feature off")
 	}
 }
