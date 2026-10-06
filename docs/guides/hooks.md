@@ -110,6 +110,50 @@ tool not marked read-only for approval, see
 For advisory model review, use a separately recorded turn and required host
 approval. See [using a model's advice](approvals.md#using-a-models-advice).
 
+## Decision-model checks
+
+Package `decide/toolcheck` gives two ready-made checks that ask a decision
+model, through [Decide](https://github.com/deepnoodle-ai/decide), for a
+second opinion. Both zero values work, with `TYPESAFE_API_KEY` from the
+environment:
+
+```go
+runner.Hooks = dashi.JoinHooks(
+	toolcheck.CommandRisk{},     // holds a likely disaster for approval
+	toolcheck.PromptInjection{}, // warns the model about a likely attack
+	policy,
+)
+```
+
+- `CommandRisk` reads the `command` argument of `bash` (`ShellTools` names
+  other shells) and holds a command that could likely cause severe harm,
+  such as `rm -rf ~` or a force push to `main`, as a `PendingApproval` named
+  `toolcheck-command-risk`. It checks every shell call, because a hook does
+  not see other hooks' answers, so add it where no other hook asks about
+  each command, such as an agent that runs commands without approval.
+- `PromptInjection` reads tool results and puts a warning before one that
+  likely tries to take over the agent or hides text from a person. The
+  record keeps the raw output.
+
+They are advice, not a sandbox: neither ever allows a call. Both fail open:
+with no key, or when Decide fails, the call runs and the result reaches the
+model unchanged, with a `hook_failed` warning. After an outage a check
+pauses for a minute; a timeout or a rejected input never pauses it. A host
+that asks the user in its own `BeforeTool` hook calls `CommandRisk.Check`
+there and shows one prompt; `toolcheck.IsOutage` tells an outage from a
+failure the input could cause.
+
+The checks cover client tools only. A provider-run tool, such as a
+provider's web search or fetch, never reaches `AfterTool`. The checked
+commands and results go to the decision model's provider with your Decide
+key. `PromptInjection` reads every result except those of tools whose
+open-world hint is false; the workspace file tools and `ask_user` set it.
+To keep a trusted tool's results local, set it on that tool:
+
+```go
+t.Definition.Annotations.OpenWorld = new(false)
+```
+
 ## Adding messages and vetoing replies
 
 `BeforeModel` runs before every model call. `dashi.SeedContext(item)` adds a

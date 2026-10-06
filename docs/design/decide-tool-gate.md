@@ -1,6 +1,6 @@
 # Decision-model checks on tool calls
 
-Status: Draft · Author: Claude · Date: 2026-10-06\
+Status: Approved · Author: Claude · Date: 2026-10-06\
 Workflow: Spec, then build in parallel; the PRD PR carries both.
 
 ## Context
@@ -144,9 +144,9 @@ error, with no request and no `OnCheck`, unless the call's tool is in
 `ShellTools` and `command` is a nonempty string. Then:
 
 1. If paused, return a `*PausedError`.
-2. Get the client with `internal/client.Default`. Send one request:
-   state is the command text, one question `severe`. Bound it by
-   `Timeout`.
+2. Get the client with `internal/client.Default`. Send one request
+   (see "Long text"): state is the command text, one question `severe`.
+   Bound it by `Timeout`.
 3. On an error: pause if `IsOutage`, and return the error. A missing,
    mistyped, or out-of-range `severe` answer is an error that wraps
    `decide.ErrInvalidAnswer`, so it never pauses and never passes.
@@ -167,8 +167,9 @@ error; and the text blocks of `ResultPlan.Result` (what earlier hooks
 left) hold 80 characters or more. Then:
 
 1. Over 1,000,000 characters: return `ErrTooLarge`, with no pause.
-2. If paused: return a `*PausedError`. Otherwise send one request: state is the
-   joined text, questions `injection` and `hidden`.
+2. If paused: return a `*PausedError`. Otherwise send one request (see
+   "Long text"): state is the joined text, questions `injection` and
+   `hidden`.
 3. Both `injection` and `hidden` must have a valid answer: a P(yes) in
    [0, 1]. A missing, mistyped, or out-of-range answer is an error that
    wraps `decide.ErrInvalidAnswer`: `IsOutage` is false, `OnCheck` sees
@@ -185,6 +186,15 @@ left) hold 80 characters or more. Then:
 
 `Display`, `IsError`, and the non-text blocks stay as they were. The
 record keeps the raw output, as for every `AfterTool` replacement.
+
+**Long text.** Jev reads at most 32,000 tokens, so decide's own command
+cuts an item over 64 KiB into parts. Both checks do the same: a text
+whose JSON encoding passes 60 KiB is cut into parts, preferably at a line
+break, and the parts are asked four at a time within one `Timeout`. Each
+question takes the highest P(yes) of any part, so a text is flagged when
+any part is; `Usage` adds up, and `Model` and `RequestID` name the part
+with the highest P(yes). Without this, padding a page past the limit
+would make Decide reject it, and the check would skip it every time.
 
 **Questions.** `questions.go` holds the three question texts copied from
 decide v0.3.0's `command-risk` and `prompt-injection` templates, with a
@@ -266,5 +276,7 @@ open-world hint.
 
 ## Open questions
 
-- Does asking `severe` alone move its scores? The live test answers it
-  during the build; if the demo results change, ask all four questions.
+None. Asking `severe` alone keeps its scores: in the live test on
+2026-10-06, the force push scored 89%, the `DROP TABLE` 88%, and the
+credentials upload 96%, while `git checkout -- .` scored 2% and every
+routine command 21% or less.
