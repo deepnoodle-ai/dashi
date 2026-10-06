@@ -108,3 +108,50 @@ func TestMineChecksAnswers(t *testing.T) {
 		t.Fatalf("needles = %v", answers)
 	}
 }
+
+// A live run sends each recorded case to its own provider, or stops: an
+// OpenAI case without OPENAI_API_KEY and a case of an unsupported
+// provider are errors, not runs on Claude.
+func TestProviderError(t *testing.T) {
+	for _, tt := range []struct {
+		provider   string
+		haveOpenAI bool
+		want       string // error text; empty means no error
+	}{
+		{"", false, ""},
+		{"anthropic", false, ""},
+		{"openai", true, ""},
+		{"openai", false, "set OPENAI_API_KEY"},
+		{"google", true, `provider "google", which the eval does not support`},
+	} {
+		err := providerError(tt.provider, tt.haveOpenAI)
+		if tt.want == "" && err != nil || tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)) {
+			t.Errorf("providerError(%q, %v) = %v, want %q", tt.provider, tt.haveOpenAI, err, tt.want)
+		}
+	}
+}
+
+// recordedWithNeedles checks every case's provider before it mines or
+// runs anything. The scripted client records provider "dashitest".
+func TestRecordedChecksProviders(t *testing.T) {
+	folder := filepath.Join(t.TempDir(), "20261006-000000-abc123")
+	rec, err := filerecorder.New(filerecorder.Config{Dir: filepath.Join(folder, "turns"), DisableSync: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := dashi.Runner{Client: dashitest.NewClient(dashitest.Reply("ok")), Recorder: rec}
+	if _, err := runner.Run(context.Background(), dashi.NewTurn(dashisession.TurnID(filepath.Base(folder), 1)), dashi.Start{
+		CommandID: "run", Agent: dashi.Agent{Model: dashitest.Model},
+		Input: []llm.Message{llm.UserMessage(llm.Text("Find why the build fails.\n" +
+			strings.Repeat("log line without anything to find\n", 3000)))},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e := &env{
+		cfg:           config{live: true, recorded: []string{filepath.Dir(folder)}, needles: filepath.Join(t.TempDir(), "needles.json")},
+		checkProvider: func(p string) error { return providerError(p, true) },
+	}
+	if _, err := e.recordedWithNeedles(context.Background()); err == nil || !strings.Contains(err.Error(), `provider "dashitest"`) {
+		t.Fatalf("err = %v, want an unsupported provider error", err)
+	}
+}

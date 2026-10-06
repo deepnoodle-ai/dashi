@@ -367,6 +367,13 @@ func (e *env) recordedWithNeedles(ctx context.Context) ([]session, error) {
 	if err != nil {
 		return nil, err
 	}
+	if e.checkProvider != nil {
+		for _, s := range cases {
+			if err := e.checkProvider(s.provider); err != nil {
+				return nil, fmt.Errorf("case %s: %w", s.name, err)
+			}
+		}
+	}
 	changed := false
 	var out []session
 	for _, s := range cases {

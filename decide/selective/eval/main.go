@@ -43,7 +43,10 @@
 // 120,000 estimated tokens is one case, compacted for a window that the
 // history fills to 80%. Its needles are mined once by -mine-model from the
 // part every arm compacts, checked word for word in code, and saved to
-// -needles before any arm runs; a later run reads that file.
+// -needles before any arm runs; a later run reads that file. Each case is
+// summarized and probed by its own recorded model: a case recorded with
+// OpenAI needs OPENAI_API_KEY, and a case of another provider stops the
+// run.
 //
 //	go run ./decide/selective/eval
 //	go run ./decide/selective/eval -live -sessions 4
@@ -146,13 +149,15 @@ type env struct {
 	model  string
 	tools  tool.List
 	// client returns the model client for one call to provider. Live, it
-	// is the shared Claude client, or the OpenAI client for a recorded
-	// OpenAI session.
-	// Claude client; keyless, a scripted client that replies with reply.
-	client  func(provider, reply string) llm.Client
-	judge   *decide.Client // selective's Decide
-	recency *decide.Client // scores by position
-	broken  *decide.Client // a Decide that cannot be reached (keyless)
+	// is the Claude client, or the OpenAI client for a recorded OpenAI
+	// case; keyless, a scripted client that replies with reply.
+	client func(provider, reply string) llm.Client
+	// checkProvider returns an error when client has no client for
+	// provider. Keyless, it is nil: the scripted client stands for any.
+	checkProvider func(provider string) error
+	judge         *decide.Client // selective's Decide
+	recency       *decide.Client // scores by position
+	broken        *decide.Client // a Decide that cannot be reached (keyless)
 }
 
 // outcome is one arm's result for one session.
@@ -276,11 +281,12 @@ func newEnv(cfg config) (*env, func(), error) {
 			}
 		}
 		e.client = func(provider, _ string) llm.Client {
-			if provider == "openai" && openai != nil {
+			if provider == "openai" {
 				return openai
 			}
 			return claude
 		}
+		e.checkProvider = func(provider string) error { return providerError(provider, openai != nil) }
 		if e.judge, err = decide.NewClient(); err != nil { // reads TYPESAFE_API_KEY
 			cleanup()
 			return nil, nil, err
@@ -313,6 +319,22 @@ func newEnv(cfg config) (*env, func(), error) {
 		return nil, nil, err
 	}
 	return e, cleanup, nil
+}
+
+// providerError returns why a live run cannot send a recorded case of
+// provider to its own model, or nil. Empty is a generated session, which
+// uses Claude.
+func providerError(provider string, haveOpenAI bool) error {
+	switch provider {
+	case "", "anthropic":
+		return nil
+	case "openai":
+		if !haveOpenAI {
+			return errors.New("the case was recorded with OpenAI; set OPENAI_API_KEY")
+		}
+		return nil
+	}
+	return fmt.Errorf("the case was recorded with provider %q, which the eval does not support", provider)
 }
 
 var segmentKey = regexp.MustCompile(`^s(\d+)\.(needed|verbatim)$`)
