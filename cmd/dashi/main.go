@@ -228,11 +228,7 @@ func runScreen(
 		}
 		return 1
 	}
-	scr.Emit(Block{
-		Kind: KindNotice,
-		Text: fmt.Sprintf("dashi  %s  %s", workspace.PrintableText(a.modelLabel()), workspace.PrintableText(cfg.Dir)),
-		Done: true,
-	})
+	scr.Emit(startupBlock(cfg.Dir))
 	if notice != "" {
 		scr.Emit(Block{Kind: KindNotice, Text: notice, Done: true})
 	}

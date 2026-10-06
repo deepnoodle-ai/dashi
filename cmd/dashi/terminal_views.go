@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -16,14 +15,20 @@ import (
 
 // View implements tui.Application.
 func (s *screen) View() tui.View {
-	return tui.Stack(
-		tui.PaddingLTRB(1, 0, 1, 0, tui.Viewport(&s.vp, s).Gap(1)),
-		s.footer(),
+	view := tui.Stack(
+		tui.PaddingLTRB(1, 0, 1, 0, tui.Viewport(&s.vp, s).Gap(1)), s.footer(),
 	).Gap(0)
+	if s.noColor {
+		return withoutColors(view, s.height)
+	}
+	return view
 }
 
 func (s *screen) footer() tui.View {
 	views := make([]tui.View, 0, 10)
+	if hint := s.selectionHint(); hint != "" {
+		views = append(views, tui.Text(" %s", hint).Wrap().Style(hintStyle))
+	}
 	if !s.vp.AtBottom && s.vp.LinesBelow > 0 {
 		views = append(views, tui.Text(" %d lines below · Ctrl+End returns to live output", s.vp.LinesBelow).Style(hintStyle))
 	}
@@ -39,14 +44,15 @@ func (s *screen) footer() tui.View {
 	default:
 		mode := s.ctrl.Mode()
 		if mode == ModeRunning {
-			views = append(views, tui.Text(""), s.workingView(), tui.Text(""))
+			views = append(views, tui.Text(""), s.workingView())
 		}
 		for _, row := range attachmentPreviewRows(&s.attachments, s.ctrl.attachmentRoot) {
 			views = append(views, tui.Text(" %s", row).Style(mutedStyle))
 		}
-		views = append(views,
-			tui.Text(" %s", s.inputHint(mode)).Wrap().Style(hintStyle),
-			tui.Divider(), s.inputView(mode), tui.Divider())
+		if hint := s.inputHint(mode); hint != "" {
+			views = append(views, tui.Text(" %s", hint).Wrap().Style(hintStyle))
+		}
+		views = append(views, tui.Text(""), tui.Panel(tui.PaddingLTRB(1, 1, 1, 1, s.inputView(mode))).Style(promptStyle))
 	}
 	if line := s.decideStatus(); line != "" {
 		views = append(views, tui.Text(" %s", line).Fg(tui.ColorYellow))
@@ -56,19 +62,23 @@ func (s *screen) footer() tui.View {
 }
 
 func (s *screen) inputView(mode Mode) tui.View {
-	maxHeight := 8
+	height := s.height
+	if height <= 0 {
+		height = 24
+	}
+	maxHeight := max(1, min(8, height/3))
 	if len(s.attachments.entries) > 0 {
-		// Inline output uses eight rows. Keep composer and status visible on
-		// an 80×24 terminal, including the running-work indicator.
-		maxHeight = 6
+		maxHeight = max(1, maxHeight-2)
 	}
 	// The hint line above the field says what input means now; the
 	// placeholder stays neutral.
 	return tui.InputField(&s.input).
 		ID(inputID).
 		Prompt("❯").
-		PromptStyle(tui.NewStyle().WithForeground(tui.ColorCyan).WithBold()).
-		Placeholder("Type a message...").
+		PromptStyle(promptStyle.WithBold()).
+		TextStyle(promptStyle).
+		PlaceholderStyle(mutedStyle.WithBackground(promptBackground)).
+		Placeholder("Ask Dashi to do anything").
 		History(s.history).
 		Multiline(true).
 		MaxHeight(maxHeight).
@@ -144,8 +154,8 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 func (s *screen) workingView() tui.View {
 	frame := spinnerFrames[int(s.frame/3)%len(spinnerFrames)]
 	return tui.Group(
-		tui.Text(" %s", frame).Fg(tui.ColorCyan),
-		tui.Text(" Working. Ctrl-C interrupts.").Style(hintStyle),
+		tui.Text(" %s", frame).Style(mutedStyle),
+		tui.Text(" Working · Esc interrupts").Style(mutedStyle),
 	)
 }
 
@@ -159,24 +169,38 @@ func (s *screen) decideStatus() string {
 }
 
 func (s *screen) statusView() tui.View {
-	id := ""
-	if sess := s.eng.Session(); sess != nil {
-		id = sess.ID
-	}
-	left := workspace.PrintableText(fmt.Sprintf(" %s · %s · %s", s.model(), shortDir(s.dir), id))
-	// Inline mode learns its width only on a resize, so measure at render.
-	// The hint yields to a narrow terminal; the session facts never do.
+	model := workspace.PrintableText(s.model())
+	dir := workspace.PrintableText(shortDir(s.dir))
 	return tui.CanvasContext(func(ctx *tui.RenderContext) {
 		width, _ := ctx.Size()
-		ctx.PrintTruncated(0, 0, left, mutedStyle)
-		hint := runewidth.StringWidth(statusHint)
-		if runewidth.StringWidth(left)+2+hint <= width {
-			ctx.PrintStyled(width-hint, 0, statusHint, mutedStyle)
+		help := " " + statusHint + " "
+		budget := max(1, width-runewidth.StringWidth(help)-1)
+		left := model + " · " + dir
+		ctx.PrintTruncated(1, 0, runewidth.Truncate(left, budget, "…"), mutedStyle)
+		if width >= 16 {
+			ctx.PrintStyled(width-runewidth.StringWidth(help), 0, help, mutedStyle)
 		}
 	}).Height(1)
 }
 
-const statusHint = "/help lists commands "
+const statusHint = "/help"
+
+// startupBlock is presentation-only and does not enter recorded Turn history.
+func startupBlock(dir string) Block {
+	title := "Dashi"
+	if version := buildVersion(); version != "" {
+		title += " v" + version
+	}
+	return Block{ID: "cli-header", Kind: KindNotice, Text: title + "\n" + workspace.PrintableText(dir), Done: true}
+}
+
+func headerView(b Block) tui.View {
+	title, dir, _ := strings.Cut(b.Text, "\n")
+	return tui.Stack(
+		tui.Group(tui.Text(">_ ").Fg(tui.ColorCyan), tui.Text("%s", title).SourceOffset(0).Bold()),
+		tui.PaddingLTRB(3, 0, 0, 0, tui.Text("%s", dir).SourceOffset(len(title)+1).Wrap().Style(mutedStyle)),
+	).Gap(0)
+}
 
 // shortDir shows the last two parts of a path.
 func shortDir(dir string) string {
@@ -216,12 +240,15 @@ func pickerView(p *pickerState) tui.View {
 
 // blockView draws one transcript block.
 func blockView(b Block) tui.View {
+	if b.ID == "cli-header" {
+		return headerView(b)
+	}
 	switch b.Kind {
 	case KindUser:
-		return tui.Group(
-			tui.Text("❯ ").Fg(tui.ColorCyan).Bold(),
-			tui.Text("%s", b.Text).SourceOffset(0).Wrap().Bold().Flex(1),
-		)
+		return tui.Panel(tui.PaddingLTRB(0, 1, 0, 1, tui.Group(
+			tui.Text("❯ ").Style(promptStyle).Bold(),
+			tui.Text("%s", b.Text).SourceOffset(0).Wrap().Style(promptStyle).Flex(1),
+		))).Style(promptStyle)
 	case KindAssistant:
 		text := b.Text
 		if strings.TrimSpace(text) == "" {
@@ -229,13 +256,13 @@ func blockView(b Block) tui.View {
 		}
 		return tui.ZStack(
 			tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(text, nil).SourceOffset(0)),
-			tui.Text("⏺").Fg(tui.ColorCyan),
+			tui.Text("•").Style(mutedStyle),
 		).Align(tui.AlignLeft)
 	case KindReasoning:
 		if strings.TrimSpace(b.Text) == "" {
 			return nil
 		}
-		return tui.Stack(tui.Text("  Reasoning").Fg(tui.ColorCyan), tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(b.Text, nil).SourceOffset(0))).Gap(0)
+		return tui.Stack(tui.Text("  Reasoning").Style(mutedStyle), tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(b.Text, nil).SourceOffset(0))).Gap(0)
 	case KindTool:
 		return withTaskLine(toolView(b), b)
 	case KindTaskStatus, KindTaskResult:
@@ -379,28 +406,28 @@ func toolView(b Block) tui.View {
 	var state *tui.TextView
 	switch b.State {
 	case StateOK:
-		icon = tui.Text("  ✓").Fg(tui.ColorGreen)
+		icon = tui.Text("•").Fg(tui.ColorGreen)
 		state = tui.Text("ok  %.1fs", b.Elapsed.Seconds()).Style(mutedStyle)
 	case StateFailed:
-		icon = tui.Text("  ✗").Fg(tui.ColorRed)
+		icon = tui.Text("✗").Fg(tui.ColorRed)
 		state = tui.Text("failed  %.1fs", b.Elapsed.Seconds()).Fg(tui.ColorRed)
 	case StateDenied:
-		icon = tui.Text("  ✗").Fg(tui.ColorYellow)
+		icon = tui.Text("✗").Fg(tui.ColorYellow)
 		state = tui.Text("denied").Fg(tui.ColorYellow)
 	case StateWaiting:
-		icon = tui.Text("  …").Fg(tui.ColorYellow)
+		icon = tui.Text("•").Fg(tui.ColorYellow)
 		state = tui.Text("waiting").Fg(tui.ColorYellow)
 	case StateChecking:
-		icon = tui.Text("  ⠋").Fg(tui.ColorCyan)
+		icon = tui.Text("•").Fg(tui.ColorCyan)
 		state = tui.Text("decide: checking command…").Style(mutedStyle)
 	case StateCheckingResult:
-		icon = tui.Text("  ⠋").Fg(tui.ColorCyan)
+		icon = tui.Text("•").Fg(tui.ColorCyan)
 		state = tui.Text("decide: checking result…").Style(mutedStyle)
 	case StateWaitingForYou:
-		icon = tui.Text("  ?").Fg(tui.ColorYellow)
+		icon = tui.Text("?").Fg(tui.ColorYellow)
 		state = tui.Text("waiting for you").Fg(tui.ColorYellow)
 	default:
-		icon = tui.Text("  ⠋").Fg(tui.ColorCyan)
+		icon = tui.Text("•").Fg(tui.ColorCyan)
 		state = tui.Text("running").Style(mutedStyle)
 	}
 	// The name and argument are the tool line's text, so a selection copies
@@ -409,9 +436,12 @@ func toolView(b Block) tui.View {
 	views := []tui.View{icon, tui.Text(" "), tui.Text("%s", name).SourceOffset(0).Bold()}
 	if arg != "" {
 		views = append(views, tui.Text("%s", toolHeadSep),
-			tui.Text("%s", arg).SourceOffset(len(name)+len(toolHeadSep)).Style(mutedStyle))
+			tui.Text("%s", arg).SourceOffset(len(name)+len(toolHeadSep)).Style(mutedStyle).Flex(1))
 	}
-	views = append(views, tui.Spacer())
+	if arg == "" {
+		views = append(views, tui.Spacer())
+	}
+	views = append(views, tui.Text("  "))
 	if tick := decideTicks(b); tick != "" {
 		views = append(views, tui.Text("%s  ", tick).Style(mutedStyle))
 	}
@@ -425,11 +455,11 @@ func toolView(b Block) tui.View {
 		} else {
 			t = t.Style(mutedStyle)
 		}
-		checks = append(checks, tui.PaddingLTRB(6, 0, 0, 0, t))
+		checks = append(checks, tui.PaddingLTRB(2, 0, 0, 0, t))
 	}
 	if b.Expanded && b.Detail != "" {
 		views = append([]tui.View{head}, checks...)
-		return tui.Stack(append(views, tui.PaddingLTRB(6, 0, 0, 0,
+		return tui.Stack(append(views, tui.PaddingLTRB(2, 0, 0, 0,
 			tui.Text("%s", b.Detail).SourceOffset(offset).Wrap().Style(mutedStyle)))...).Gap(0)
 	}
 	if len(b.Lines) == 0 && len(checks) == 0 {
@@ -437,7 +467,7 @@ func toolView(b Block) tui.View {
 	}
 	views = append([]tui.View{head}, checks...)
 	for _, l := range b.Lines {
-		views = append(views, tui.PaddingLTRB(6, 0, 0, 0,
+		views = append(views, tui.PaddingLTRB(2, 0, 0, 0,
 			tui.Text("%s", l).SourceOffset(offset).Wrap().Style(mutedStyle)))
 		offset += len(l) + 1
 	}
@@ -463,12 +493,14 @@ func toolHeadSource(b Block) string {
 
 // Secondary text uses 256-color gray 248 (#a8a8a8) without dim. Wonton's
 // Hint and Muted add dim to bright black, which nearly disappears on dark
-// themes, and darker grays read poorly there too. Italic marks only key and
-// command help. Footer costs use a soft green (#87af87).
+// themes, and darker grays read poorly there too. Footer costs use a soft
+// green (#87af87); input bands retain readable contrast across themes.
 var (
-	mutedStyle = tui.NewStyle().WithForeground(tui.Color(248))
-	hintStyle  = mutedStyle.WithItalic()
-	costColor  = tui.Color(108)
+	mutedStyle       = tui.NewStyle().WithForeground(tui.Color(248))
+	hintStyle        = mutedStyle
+	costColor        = tui.Color(108)
+	promptBackground = tui.Color(236)
+	promptStyle      = tui.NewStyle().WithForeground(tui.Color(252)).WithBackground(promptBackground)
 )
 
 func sourceLabel(label, source string, color tui.Color) tui.View {
@@ -493,4 +525,17 @@ func diffSourceLineView(line string, offset int) tui.View {
 		return t.Fg(tui.ColorCyan)
 	}
 	return t.Style(mutedStyle)
+}
+
+// withoutColors removes color while keeping emphasis, selection, and source mapping.
+func withoutColors(view tui.View, height int) tui.View {
+	return tui.ZStack(view, tui.CanvasContext(func(ctx *tui.RenderContext) {
+		width, height := ctx.Size()
+		for y := range height {
+			for x := range width {
+				style := ctx.Cell(x, y).Style.WithForeground(tui.ColorDefault).WithBackground(tui.ColorDefault)
+				ctx.RestyleCell(x, y, style)
+			}
+		}
+	}).Height(height)).Align(tui.AlignLeft)
 }

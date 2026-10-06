@@ -48,7 +48,7 @@ func TestHelpGroupsCommandsAndListsSkillsSeparately(t *testing.T) {
 		"  • /status [ID]                  inspect recorded status and own-session spend",
 		"    /deploy <env>                 Fixture skill",
 		"mention tokens\n\n  • also works while a turn runs",
-		"    Ctrl+C        interrupt; press twice to exit when idle",
+		"    Ctrl+C        copy selection; otherwise interrupt or press twice to exit",
 	} {
 		if !strings.Contains(text, line+"\n") {
 			t.Fatalf("missing %q in:\n%s", line, text)
@@ -80,7 +80,7 @@ func TestHelpBlockRendersStyledWithPlainSource(t *testing.T) {
 	if !ok {
 		t.Fatal("no native text")
 	}
-	for _, want := range []string{"\x1b[0;1;36mSession", "\x1b[0;1m/status", "\x1b[0;38;5;248m [ID]", "\n \n\x1b[0m\x1b[0;3;38;5;248m  • legend"} {
+	for _, want := range []string{"\x1b[0;1;36mSession", "\x1b[0;1m/status", "\x1b[0;38;5;248m [ID]", "\n \n\x1b[0m\x1b[0;38;5;248m  • legend"} {
 		if !strings.Contains(styled, want) {
 			t.Fatalf("missing %q in %q", want, styled)
 		}

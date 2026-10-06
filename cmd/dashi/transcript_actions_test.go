@@ -466,9 +466,9 @@ func TestDragAcrossATurnMatchesTheHighlight(t *testing.T) {
 		t.Errorf("gap rows highlight %q", got)
 	}
 
-	// The drag may start on decoration: the ⏺ glyph, a list bullet, the
+	// The drag may start on decoration: the • glyph, a list bullet, the
 	// footer rule, or the gap row above a block.
-	gx, gy := cellOf(t, rows, "⏺ Second")
+	gx, gy := cellOf(t, rows, "• Second")
 	ex, _ := cellOf(t, rows, "answer.")
 	bx, by := cellOf(t, rows, "• second")
 	ix, _ := cellOf(t, rows, "second item")

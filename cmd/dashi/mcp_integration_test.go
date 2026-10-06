@@ -201,7 +201,7 @@ func TestMCPReopenApprovalDoesNotRepeatFinishedSearch(t *testing.T) {
 func TestMCPWontonInventoryEmpty(t *testing.T) {
 	h := newTranscriptRuntime(t)
 	h.wait(func(s transcriptState) bool {
-		return s.mode == ModeIdle && strings.Contains(s.text, "Type a message...")
+		return s.mode == ModeIdle && strings.Contains(s.text, "Ask Dashi to do anything")
 	})
 	h.typeText("/mc")
 	h.key(tui.KeyEvent{Key: tui.KeyTab})
