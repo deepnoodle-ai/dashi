@@ -216,7 +216,9 @@ func (r decideResult) screenLine() string {
 	case r.Flagged:
 		return "decide: severe " + percent(r.Severe) + " — flagged"
 	}
-	return "decide: severe " + percent(r.Severe)
+	// Below the threshold, the line still ends in a verdict, so a person
+	// who does not know the threshold reads it as an answer.
+	return "decide: severe " + percent(r.Severe) + " — ok"
 }
 
 // check runs the command-risk check on plan within rt.wait, and records
