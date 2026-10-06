@@ -1,7 +1,7 @@
 # Turn on decide checks in the dashi CLI
 
 Status: Draft\
-PRD PR: [#206](https://github.com/deepnoodle-ai/dashi/pull/206) · Implementation PR: [#209](https://github.com/deepnoodle-ai/dashi/pull/209) · Updated: 2026-10-06\
+PRD PR: [#206](https://github.com/deepnoodle-ai/dashi/pull/206) · Implementation PRs: [#209](https://github.com/deepnoodle-ai/dashi/pull/209), [#212](https://github.com/deepnoodle-ai/dashi/pull/212) · Updated: 2026-10-06\
 Tech spec: [docs/design/cli-decide.md](../design/cli-decide.md)
 
 ## Problem
