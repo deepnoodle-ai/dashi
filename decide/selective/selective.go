@@ -119,7 +119,9 @@ type Selection struct {
 	// Segments holds one choice per judged segment, in history order.
 	Segments []SegmentChoice
 
-	// Requests counts the Decide requests sent, failed ones included.
+	// Requests counts the Decide requests started, failed and canceled
+	// ones included. A request canceled as it starts can be counted
+	// although Decide never received it.
 	Requests int
 
 	// Usage is the token usage of every Decide request.

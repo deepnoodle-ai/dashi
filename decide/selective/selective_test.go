@@ -386,6 +386,23 @@ func TestFallbacks(t *testing.T) {
 	}
 }
 
+// A request that was started and then canceled is counted, because the
+// provider can still bill it.
+func TestRequestsCountsCanceled(t *testing.T) {
+	srv, client := judge(t, nil)
+	srv.SetLatency(time.Second)
+	var got []Selection
+	c := &Compactor{Base: smallWindow(), Client: client, OnSelection: func(s Selection) { got = append(got, s) }}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(50*time.Millisecond, cancel)
+	if _, err := c.Start(ctx, history()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if len(got) != 1 || got[0].Cause != CauseCanceled || got[0].Requests != 1 {
+		t.Fatalf("selections = %+v, want one canceled with 1 request", got)
+	}
+}
+
 func TestStartEndsWithContext(t *testing.T) {
 	_, client := judge(t, nil)
 	var got []Selection
