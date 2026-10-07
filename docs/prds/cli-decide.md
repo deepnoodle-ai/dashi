@@ -172,13 +172,12 @@ shows `decide: reminded the agent (repeating a failed approach, 88%)`, live
 and on reopen. A check that fails adds nothing; line mode and `dashi run`
 warn once per cause.
 
-### UC-7: Compaction keeps exact details — not shipped
+### UC-7: Compaction keeps exact details — removed
 
-`selective_compaction` stays off and warns that it is not available. Its
-eval on recorded CLI sessions missed the bar set before the run: selective
-recalled 50% of exact details, the same as recency, which needs no decide
-request ([decision](../../design/decide/README.md#removed-selective-compaction)). The design drops the feature when
-recency matches. PR 3 ships the eval and its result instead.
+Selective compaction was removed after testing: it recalled fewer exact
+details (37.5%) than keeping the newest messages word for word (45.3%).
+`selective_compaction` is no longer a feature name
+([decision](../../design/decide/README.md#removed-selective-compaction)).
 
 ## Requirements
 
