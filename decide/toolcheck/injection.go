@@ -75,7 +75,10 @@ type PromptInjection struct {
 // take over the agent or hides text. For a result the check does not read,
 // it makes no request and returns a Verdict with Checked false and no
 // error. A long text is checked at its start and end only, and the
-// verdict is Partial. Errors are as for CommandRisk.Check.
+// verdict is Partial. An error means the check was skipped; IsOutage
+// tells an outage from a failure the input could cause. When Decide is not
+// set up, or returns a server or connection error, the check pauses for a
+// minute and returns a *PausedError, as it does during the pause.
 func (c PromptInjection) Check(ctx context.Context, p dashi.ResultPlan) (Verdict, error) {
 	v := Verdict{Call: p.Call.Clone()}
 	text, ok := c.reads(p)
@@ -87,7 +90,7 @@ func (c PromptInjection) Check(ctx context.Context, p dashi.ResultPlan) (Verdict
 	}
 	a, err := ask(ctx, c.Client, "prompt-injection",
 		cmp.Or(c.Timeout, defaultContentTimeout),
-		"content", text, contentQuestions, false)
+		"content", text, contentQuestions, false, unavailable)
 	v.Requests, v.Usage = a.requests, a.usage
 	if err != nil {
 		c.report(v, err)

@@ -1,6 +1,7 @@
 # Keep command-specific failures from disabling command checks
 
-Status: Approved\
+Status: Superseded. A failed command check now needs approval, with no
+confirmation request and no pause.\
 PRD PR: #231 · Implementation PR: #234 · Updated: 2026-10-07
 
 ## Problem

@@ -141,34 +141,19 @@ line mode and `dashi run` warn once per cause, such as a revoked key, and
 
 An unchecked call has one of two kinds of cause:
 
-- **Suspect:** a timeout, a command too large to check, a rate limit, or a
-  rejected request or answer, or an unconfirmed server or connection
-  failure. The command text can cause these, so the call
-  asks even in bypass mode, and `run --yes` refuses it. They never pause the
-  check.
-- **Outage:** a failed login, or a confirmed server or connection failure.
-  Before a command failure pauses `command_risk`, the check asks the same
-  provider about the fixed command `true`. This is only an availability
-  check; the command is never run. If that request also fails with an
-  outage, the check pauses for a minute, and the status area counts down:
-  `decide: command_risk paused (server error), resumes in 45s`. During the
+- **Suspect:** a server error, a dropped connection, a timeout, a command
+  too large to check, a rate limit, or a rejected request or answer. The
+  command text can cause these, so the call asks even in bypass mode, and
+  `run --yes` refuses it. They never pause `command_risk`.
+- **Outage:** decide is not set up, such as after a failed login. The
+  check pauses for a minute, and the status area counts down:
+  `decide: command_risk paused (auth failed), resumes in 45s`. During the
   pause, bypass mode runs commands without asking, and results reach the
   agent unchecked. Line mode and `dashi run` print one warning per pause
-  instead. The two checks pause on their own.
+  instead.
 
-The command and availability requests share the original three-second
-deadline. They have no SDK retries: at most eight command parts plus one
-small availability request. A valid answer or a non-outage availability
-failure leaves the original command suspect and requires approval. A slow
-first request can leave no time for confirmation; that also asks. No timeout
-or cancellation starts a pause. A suspect failure in any command part
-prevents confirmation, even if another part returned an outage error first.
-Prompt-injection checks keep their existing
-outage behavior. The turn watcher never pauses.
-
-A command that causes a service-wide failure can also break the availability
-request. This still starts the accepted fail-open pause. During that minute,
-bypass mode runs every shell command unchecked, delegated tasks' too.
+`prompt_injection` also pauses on a server error or a dropped connection.
+The two checks pause on their own. The turn watcher never pauses.
 
 The status area is quiet while every check answers.
 
@@ -190,10 +175,7 @@ The status area is quiet while every check answers.
 - `/settings` has a `decide` section: each feature with its source, what
   each feature reads, what bypass mode skips, the provider state (`typesafe,
   not used yet`, `ready: typesafe jev-1.13.0`, or `off: no credentials`), this
-  run's logical Decide calls and observed tokens, and each feature's counts.
-  Calls include command availability checks, even when the command remains
-  unchecked. They do not count SDK retries or prove HTTP dispatch or receipt.
-  Observed tokens include successful responses before a later failure.
+  run's requests and tokens, and each feature's counts.
   `/settings --json` has the same fields under `decide`.
 
 The turn record keeps each answer in the approval decision: its reason gets
@@ -204,8 +186,8 @@ version names `decide/` and the model.
 
 Each feature sends text to TypeSafe or Cloudflare, with your key:
 
-- `command_risk`: each checked command, plus the fixed text `true` after a
-  server or connection failure. A secret typed into a command goes too.
+- `command_risk`: each checked command. A secret typed into a command goes
+  too.
 - `prompt_injection`: each result it reads, as described above, up to 8
   parts of 60 KiB. A page or MCP result that holds private data goes too.
 - `turn_watcher`, only when a repeat triggers it: your request and the

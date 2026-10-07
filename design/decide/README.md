@@ -48,10 +48,9 @@ use step (a recorded `dashi.Step`), notice (an agent message), evidence
    timeout, a rate limit, a command too long to check, a rejected request,
    or an invalid answer), its hook holds the call for approval, since an
    attacker could otherwise shape a command to skip the check. A hold is
-   advice, which decision 2 allows. Server and connection failures require
-   one fixed benign availability request under the same deadline. Only a
-   second outage confirms the command pause. Command calls disable SDK
-   retries; the check sends at most eight parts plus one confirmation.
+   advice, which decision 2 allows. A server or connection error holds the
+   call too: a command can cause one, so it never pauses the command check.
+   Only a setup failure, such as no key, does.
 4. **Zero means the most likely answer wins.** No package ships a tuned
    threshold. A zero floor means "the model leans yes": P(yes) above 0.5.
    A pick takes the top choice; a match on a choice needs P above 0.5.

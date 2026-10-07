@@ -1,6 +1,8 @@
 # Command-risk outage confirmation
 
-Status: Accepted · Author: Codex · Date: 2026-10-07\
+Status: Superseded. A failed command check now needs approval, with no
+confirmation request and no pause.\
+Author: Codex · Date: 2026-10-07\
 Workflow: Spec, then build after independent PRD review.\
 Reviewers: independent PRD reviewer and security implementation reviewer.\
 PRD: [command-risk-outages.md](../prds/command-risk-outages.md)

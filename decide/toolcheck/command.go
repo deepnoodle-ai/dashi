@@ -40,10 +40,8 @@ type CommandRisk struct {
 	// means 0.8. A negative value never flags, but still checks, so a host
 	// can watch OnCheck first.
 	MinProbability float64
-	// Timeout bounds the whole check, including outage confirmation. Zero
-	// means 10 seconds. A timeout never pauses the check; the hook holds
-	// the call for approval. At most eight parts plus one fixed benign
-	// request are sent, with no SDK retries.
+	// Timeout bounds each check. Zero means 10 seconds. A timeout never
+	// pauses the check; the hook holds the call for approval.
 	Timeout time.Duration
 	// OnCheck, if set, sees each check's verdict and error, from
 	// Check and from the hook. It is not called for a call the check does
@@ -55,21 +53,19 @@ type CommandRisk struct {
 // For a call the check does not read, such as read_file, it makes no
 // request and returns a Verdict with Checked false and no error. An error
 // means the check was skipped; IsOutage tells an outage from a failure the
-// input could cause. Server and connection failures require one fixed
-// benign request to confirm the outage under the same deadline. A valid
-// benign answer never passes the command. An input-specific failure in
-// any command part prevents confirmation and preserves every part's cause.
-// Check returns a *PausedError
-// when it starts a confirmed pause or skips a check during that pause.
+// input could cause. Only a setup failure, such as no key or a failed
+// login, pauses the check for a minute; Check then returns a *PausedError,
+// as it does during the pause. A Decide server or connection error never
+// pauses it, so a command cannot turn off the check for other commands.
 func (c CommandRisk) Check(ctx context.Context, p dashi.ToolPlan) (Verdict, error) {
 	v := Verdict{Call: p.Call.Clone()}
 	command, ok := shellCommand(p.Call, c.ShellTools)
 	if !ok {
 		return v, nil
 	}
-	a, err := ask(ctx, c.Client, commandRiskKind,
+	a, err := ask(ctx, c.Client, "command-risk",
 		cmp.Or(c.Timeout, defaultCommandTimeout),
-		"command", command, commandQuestions, true)
+		"command", command, commandQuestions, true, notSetUp)
 	v.Requests, v.Usage = a.requests, a.usage
 	if err != nil {
 		c.report(v, err)
@@ -92,11 +88,11 @@ func (c CommandRisk) report(v Verdict, err error) {
 
 // Hooks returns a BeforeTool hook named CommandRiskName. A flagged command
 // is held for approval with the verdict's Reason; a passed or unread call
-// gets no opinion. A failure the input can cause, such as a timeout, a
-// rate limit, a command too long to check, a rejected request, or an
-// invalid answer, also holds the call, with a Reason that says why it was
-// not checked. Only an outage (see IsOutage) fails open: the call runs and
-// Dashi records a hook_failed warning. It never allows a call.
+// gets no opinion. Any other failure, such as a server error, a timeout,
+// or a command too long to check, also holds the call, with a Reason that
+// says why it was not checked. Only an outage (see IsOutage) fails open:
+// the call runs and Dashi records a hook_failed warning. It never allows a
+// call.
 func (c CommandRisk) Hooks() dashi.Hooks {
 	return dashi.ToolHook{
 		Name:     CommandRiskName,
@@ -119,7 +115,7 @@ func (c CommandRisk) Hooks() dashi.Hooks {
 }
 
 // uncheckedReason is the Reason for a command held because its check
-// failed in a way the input can cause.
+// failed.
 func uncheckedReason(err error) string {
 	why := "the check failed"
 	switch {
