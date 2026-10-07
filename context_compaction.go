@@ -67,7 +67,7 @@ func (r *runtime) retryActiveSummary(s *replayState) (RunResult, bool) {
 	if finished.Interrupted != InterruptNone || finished.ResultUnknown || finished.SendStatus != "" || finished.Result.Stop.Kind != llm.StopOutputLimit {
 		return r.stop(StopFailed, StopReasonCompactionFailed), false
 	}
-	if validateModelResult(*finished.Result, r.agent) != nil || activeSummaryHasTools(finished.Result) || summaryStarts(s, started.Compaction) != 1 {
+	if validateModelResult(*finished.Result, r.agent) != nil || activeSummaryHasTools(finished.Result) || activeSummaryText(finished.Result) == "" || summaryStarts(s, started.Compaction) != 1 {
 		return r.stop(StopFailed, StopReasonCompactionFailed), false
 	}
 	if stop := budgetSpentStop(s); stop != nil {

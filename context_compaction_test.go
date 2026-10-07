@@ -126,6 +126,53 @@ func TestActiveCompactionOutputLimitRetryStops(t *testing.T) {
 	}
 }
 
+func TestActiveCompactionOutputLimitRejectsEmptySummary(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		message llm.Message
+	}{
+		{"empty", llm.AssistantMessage(llm.Text(""))},
+		{"whitespace", llm.AssistantMessage(llm.Text(" \n\t "))},
+		{"empty tags", llm.AssistantMessage(llm.Text("<summary> \n </summary>"))},
+		{"reasoning only", llm.AssistantMessage(llm.Content{Kind: llm.ContentReasoning, Reasoning: &llm.Reasoning{Text: "reasoning without a summary"}})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, a := activeFixture()
+			c.results[2] = outputLimitedSummary()
+			c.results[2].Message = tc.message
+			calls := 0
+			out, err := (Runner{Client: c, Tools: activeTools(&calls)}).Run(t.Context(), Turn{ID: "empty-summary"}, activeStart(a))
+			if err != nil || out.Stop.Kind != StopFailed || out.Stop.Reason != StopReasonCompactionFailed || c.sends != 3 || calls != 2 || len(out.ContextCompactions) != 0 || out.Reply != "" {
+				t.Fatalf("stop=%+v sends=%d effects=%d applied=%d err=%v", out.Stop, c.sends, calls, len(out.ContextCompactions), err)
+			}
+			starts := 0
+			for _, step := range out.Turn.Steps {
+				if step.Kind == StepModelCallStarted && step.Model.Purpose == ModelPurposeCompaction {
+					starts++
+				}
+			}
+			if starts != 1 || out.ModelCalls != 3 || out.Spend.Usage.InputTokens != 300 {
+				t.Fatalf("summary starts=%d calls=%d usage=%+v", starts, out.ModelCalls, out.Spend.Usage)
+			}
+			full, err := TurnMessagesFull(out.Turn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			projected, err := TurnMessages(out.Turn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !canonjson.SameValue(full, projected) {
+				t.Fatal("empty rejected summary changed prior context")
+			}
+			b, _ := json.Marshal(projected)
+			if !strings.Contains(string(b), "Evidence 1") || !strings.Contains(string(b), "Evidence 2") {
+				t.Fatal("finished work disappeared from prior context")
+			}
+		})
+	}
+}
+
 type retryAcknowledgementFault struct {
 	Recorder
 	kind  StepKind

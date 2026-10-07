@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/internal/llmtext"
@@ -243,11 +242,15 @@ func validActiveSummary(result *llm.Result) (string, error) {
 	if activeSummaryHasTools(result) {
 		return "", errors.New("summary requested tool work")
 	}
-	text := compactiontext.Summary(llmtext.Join(result.Message.Content))
-	if strings.TrimSpace(text) == "" {
+	text := activeSummaryText(result)
+	if text == "" {
 		return "", errors.New("summary is empty")
 	}
 	return text, nil
+}
+
+func activeSummaryText(result *llm.Result) string {
+	return compactiontext.Summary(llmtext.Join(result.Message.Content))
 }
 
 func activeSummaryHasTools(result *llm.Result) bool {
