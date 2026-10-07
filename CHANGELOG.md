@@ -66,13 +66,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   request counts from error types.
 - **OpenAI Responses results include the service tier** the request ran on
   (`Result.ServiceTier`), in blocking and streaming calls.
-- **Anthropic tools with no arguments accept empty stream fragments.** A
-  completed empty-object MCP call retains `{}` and runs normally. Malformed
-  nonempty JSON and interrupted tool blocks still fail without execution.
-- **Retained Anthropic direct-tool history can continue on another provider.**
-  Preparation recognizes `caller: {"type":"direct"}`, preserves saved
-  messages, and records portable replay stripping. Programmatic callers and
-  unfamiliar replay dependencies remain rejected.
+- **Tools with no arguments now run on Anthropic when streaming.**
+- **Conversations that used tools on Anthropic can continue on another
+  provider.** Tool calls made by Anthropic's code execution tool still can't be moved.
 - **Active summaries state their output allowance and retry once after an
   output limit.** Both calls use the Turn's limits, budget, and accounting.
   Empty or refused summaries do not retry. Rejected partial summaries never
