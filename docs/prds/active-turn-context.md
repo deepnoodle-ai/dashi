@@ -125,8 +125,8 @@ Dashi stops with the work already performed visible and an actionable explanatio
 - [ ] Empty, failed, or non-shrinking summaries leave the previous model context unchanged.
   They do not erase evidence or create an applied-compaction marker.
   The failure remains recorded with any incurred usage and charge.
-- [ ] Dashi makes at most one summary attempt for the same candidate request during one run.
-  Failure stops further ordinary dispatch. An explicit continuation may make a new admitted attempt.
+- [ ] Dashi makes one summary attempt, with one shorter retry for a known output limit under the [recovery amendment](compaction-recovery.md).
+  Other failure stops further ordinary dispatch. An explicit continuation may make a new admitted attempt.
 - [ ] For text-only candidates, stop before dispatch when protected input or an indivisible exchange exceeds allowance and no legal compaction can make it fit.
   Return `LimitContextWindow` for this case.
   Identify the cause and suggest a smaller input, a larger window, or between-Turn compaction where applicable.

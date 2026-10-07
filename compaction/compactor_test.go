@@ -111,7 +111,7 @@ func TestCompactorSummaryRequestKeepsAgentMail(t *testing.T) {
 
 func TestCompactorNeeded(t *testing.T) {
 	c := New(policyWith(1_000))
-	history, _ := conversation(2, 10)
+	history := []llm.Message{llm.UserMessage(llm.Text("Hello")), llm.AssistantMessage(llm.Text("Hi"))}
 	if !c.Needed(history, llm.Usage{InputTokens: 800}) {
 		t.Fatal("not needed at 80%")
 	}

@@ -49,10 +49,11 @@ func New(policy Policy) *Compactor {
 	return &Compactor{Policy: policy}
 }
 
-// Needed reports whether Policy.Due(last) and messages, the history the
-// next turn would get, has a message to summarize.
+// Needed checks reported usage and projected text history, including tool
+// output produced after the last model call. Encoded media bytes do not
+// trigger it; media history uses reported usage only.
 func (c *Compactor) Needed(messages []llm.Message, last llm.Usage) bool {
-	return c.Policy.Due(last) && len(withoutAuthoritative(messages)) > 0
+	return c.Policy.dueHistory(messages, last) && len(withoutAuthoritative(messages)) > 0
 }
 
 // Start builds the compaction turn's Start. It keeps the newest messages

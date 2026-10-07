@@ -157,6 +157,9 @@ work; ordinary session lists still require a Turn.
 - A second `dashi` cannot open a session that is open in another terminal.
 
 `dashi run "prompt"` runs one request and prints its last parent reply.
+After `compaction_failed` or `context_window`, `dashi run -c "smaller prompt"`
+can close settled work and compact retained history before the new request.
+Pending effects, approvals, and unresolved child tasks still require recovery.
 Redirected stdin supplies one literal payload. `--output-format
 text|json|jsonl` (`-o`) selects the output format. See [script input, response formats,
 resuming, and exit codes](cli-automation.md), including a CI example that keeps

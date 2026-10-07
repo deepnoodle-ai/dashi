@@ -48,6 +48,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Active summaries state their output allowance and retry once after an
+  output limit.** Both calls use the Turn's limits, budget, and accounting.
+  Rejected partial summaries never replace context.
+- **Sessions can accept new requests after settled compaction failures or
+  context limits.** Configured history compaction considers finished tool
+  output as well as last-model usage. `dashi run -c` uses the same recovery
+  path while retaining unresolved parent and child checks.
+- **Print and plain modes show each compaction completion once.** Repeated
+  stop and outcome events no longer duplicate the same notice.
+
 - **The Anthropic Messages client sends reasoning effort `xhigh`** as
   `output_config.effort`. It refused `xhigh` before, although the catalog
   lists it for models such as Opus 5.5 and Sonnet 5.5. A model whose catalog

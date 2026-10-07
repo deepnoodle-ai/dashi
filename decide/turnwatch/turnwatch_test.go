@@ -788,7 +788,7 @@ func TestActiveCompaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	if out.Stop.Kind != dashi.StopCompleted || len(out.ContextCompactions) != 1 {
-		t.Fatalf("stop %s, %d compactions", out.Stop.Kind, len(out.ContextCompactions))
+		t.Fatalf("stop %+v, %d compactions, warnings=%+v", out.Stop, len(out.ContextCompactions), out.Warnings)
 	}
 	all := seen.all()
 	if len(srv.Requests()) != 2 || len(all) != 2 ||

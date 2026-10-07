@@ -1,9 +1,12 @@
 package session_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/png"
 	"slices"
 	"strings"
 	"sync"
@@ -12,10 +15,126 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/compaction"
+	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
+
+type sizedRecoveryClient struct{ *dashitest.Client }
+
+func (c *sizedRecoveryClient) Prepare(_ context.Context, in llm.Input) (llm.Request, error) {
+	body, err := json.Marshal(in)
+	if err != nil {
+		return llm.Request{}, err
+	}
+	return llm.NewRequest(llm.RequestSnapshot{
+		Origin: content.Origin{Provider: dashitest.Provider, API: dashitest.API, Model: in.Model, Scope: "fixture"},
+		Input:  in, Effective: in.Settings, Body: body,
+	})
+}
+
+func TestSessionCompactionRecoversSettledContextStops(t *testing.T) {
+	for _, reason := range []string{"context window", "failed retry"} {
+		t.Run(reason, func(t *testing.T) {
+			first := used("unfinished", 100)
+			first.Stop.Kind = llm.StopContextLimit
+			results := []llm.Result{usedToolCall(), first}
+			agent := dashi.Agent{Model: dashitest.Model, Settings: llm.Settings{MaxTokens: 256}, Limits: dashi.Limits{ModelCalls: 8}}
+			if reason == "failed retry" {
+				first.Stop.Kind = llm.StopOutputLimit
+				results = []llm.Result{usedToolCall(), first, first}
+				agent.ActiveCompaction = &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}
+			}
+			results = append(results, used("<summary>Read the evidence. The saved finding is 42.</summary>", 100), used("The saved finding is 42.", 100))
+			client := &sizedRecoveryClient{dashitest.NewClient(results...)}
+			calls := 0
+			tools := tool.List{tool.MustFunc("read", "Read evidence", func(context.Context, tool.Call, struct{}) (tool.Outcome, error) {
+				calls++
+				return tool.Succeeded("saved finding: 42\n" + strings.Repeat("x", 18000)), nil
+			})}
+			rec := jsonContextRecorder{dashi.NewMemoryRecorder()}
+			s := &session.Session{ID: "recovery", New: true, Runner: dashi.Runner{Client: client, Recorder: rec, Tools: tools}, Agent: agent}
+			out, err := s.Send(t.Context(), "Read the evidence.")
+			if err != nil || out.Stop.Reason != map[string]string{"context window": string(dashi.LimitContextWindow), "failed retry": dashi.StopReasonCompactionFailed}[reason] || calls != 1 {
+				t.Fatalf("stop=%+v effects=%d err=%v", out.Stop, calls, err)
+			}
+			// A fresh handle sees only durable facts, including rejected summaries.
+			agent.ActiveCompaction = &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}
+			policy := compaction.Policy{Model: llm.ModelInfo{Capabilities: llm.Capabilities{ContextWindow: 16000}}}
+			fresh := &session.Session{ID: s.ID, Runner: s.Runner, Agent: agent, Compactor: compaction.New(policy)}
+			var stops []string
+			for ev, err := range fresh.Stream(t.Context(), dashi.Say("What was the saved finding?")) {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if ev.Step != nil && ev.Step.Kind == dashi.StepTurnStopped {
+					stops = append(stops, ev.Step.TurnID)
+				}
+				if ev.Result != nil {
+					out = *ev.Result
+				}
+			}
+			if out.Stop.Kind != dashi.StopCompleted || out.Turn.ID != "recovery-3" || out.Reply != "The saved finding is 42." || calls != 1 {
+				t.Fatalf("out=%+v effects=%d", out.TurnView, calls)
+			}
+			if len(stops) != 3 || stops[0] != "recovery-1" {
+				t.Fatalf("closing events=%v", stops)
+			}
+			history, _ := fresh.History(t.Context())
+			next, _ := fresh.NextHistory(t.Context())
+			full, _ := json.Marshal(history)
+			short, _ := json.Marshal(next)
+			if len(full) < 18000 || len(short) > 3000 || !strings.Contains(string(short), "saved finding is 42") || strings.Contains(string(short), "unfinished") {
+				t.Fatal("history lost source work or included rejected summary")
+			}
+			view, _ := loadTurn(t, rec, "recovery-2").View()
+			if view.Origin != dashi.StartCompaction || view.Stop.Kind != dashi.StopCompleted {
+				t.Fatal("replacement was not durably recorded")
+			}
+		})
+	}
+}
+
+func usedToolCall() llm.Result {
+	r := dashitest.CallTool("read-1", "read", `{}`)
+	r.Usage = &llm.Usage{InputTokens: 100, OutputTokens: 2}
+	return r
+}
+
+func TestSessionCompactionMediaUsesReportedUsage(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 512, 512))
+	var noise uint32 = 1
+	for i := range img.Pix {
+		noise ^= noise << 13
+		noise ^= noise >> 17
+		noise ^= noise << 5
+		img.Pix[i] = byte(noise)
+	}
+	var data bytes.Buffer
+	if err := png.Encode(&data, img); err != nil {
+		t.Fatal(err)
+	}
+	if data.Len() < 512000 {
+		t.Fatal("fixture PNG is too small")
+	}
+	media := llm.UserMessage(llm.Block(content.ImageBlock(content.Source{MIMEType: "image/png", Data: data.Bytes()})))
+	client := &sizedRecoveryClient{dashitest.NewClient(used("image read", 100), used("next answer", 100))}
+	policy := compaction.Policy{Model: llm.ModelInfo{Capabilities: llm.Capabilities{ContextWindow: 16000}}}
+	s := &session.Session{ID: "media", New: true, Runner: dashi.Runner{Client: client}, Agent: dashi.Agent{Model: dashitest.Model, ActiveCompaction: &dashi.ActiveCompactionPolicy{Window: 16000}}, Compactor: compaction.New(policy)}
+	if out, err := s.Run(t.Context(), dashi.Start{Input: []llm.Message{media}}); err != nil || out.Stop.Kind != dashi.StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	out, err := s.Send(t.Context(), "continue")
+	if err != nil || out.Stop.Kind != dashi.StopCompleted || out.Turn.ID != "media-2" || len(client.Inputs()) != 2 {
+		t.Fatalf("stop=%+v id=%s sends=%d err=%v", out.Stop, out.Turn.ID, len(client.Inputs()), err)
+	}
+	if !slices.Contains(codes(out.Warnings), dashi.WarningActiveCompactionMediaEstimateUnavailable) {
+		t.Fatal("media limitation warning missing")
+	}
+}
 
 // keepLast is a Compactor that compacts once the last call used at least
 // limit tokens, keeping the last keep messages after the summary.

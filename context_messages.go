@@ -240,16 +240,23 @@ func validActiveSummary(result *llm.Result) (string, error) {
 	if result == nil || result.Stop.Kind != llm.StopFinished {
 		return "", errors.New("summary did not finish")
 	}
-	for _, c := range result.Message.Content {
-		if c.Kind == llm.ContentToolCall || c.Kind == llm.ContentProviderToolUse || c.Kind == llm.ContentProviderToolResult || c.Kind == llm.ContentProviderToolApprovalRequest || c.Kind == llm.ContentProviderToolApprovalResponse {
-			return "", errors.New("summary requested tool work")
-		}
+	if activeSummaryHasTools(result) {
+		return "", errors.New("summary requested tool work")
 	}
 	text := compactiontext.Summary(llmtext.Join(result.Message.Content))
 	if strings.TrimSpace(text) == "" {
 		return "", errors.New("summary is empty")
 	}
 	return text, nil
+}
+
+func activeSummaryHasTools(result *llm.Result) bool {
+	for _, c := range result.Message.Content {
+		if c.Kind == llm.ContentToolCall || c.Kind == llm.ContentProviderToolUse || c.Kind == llm.ContentProviderToolResult || c.Kind == llm.ContentProviderToolApprovalRequest || c.Kind == llm.ContentProviderToolApprovalResponse {
+			return true
+		}
+	}
+	return false
 }
 func (s *replayState) applyContextCompaction(step Step) error {
 	f := step.Compacted
