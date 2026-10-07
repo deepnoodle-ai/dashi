@@ -25,21 +25,14 @@ import (
 	"math"
 	"strings"
 
-	"github.com/deepnoodle-ai/dashi/internal/compactionrules"
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
 )
 
-const (
-	// bytesPerToken converts encoded size to a token estimate. The estimate is
-	// rough and only guides where to cut.
-	bytesPerToken = compactionrules.BytesPerToken
-
-	// DefaultTailFraction is the share of the context window that a
-	// Compactor keeps as verbatim recent messages.
-	DefaultTailFraction = 0.25
-)
+// DefaultTailFraction is the share of the context window that a Compactor
+// keeps as verbatim recent messages.
+const DefaultTailFraction = 0.25
 
 // ErrNothingToCompact means the history has nothing to summarize. No turn
 // was built and no model call was made.
@@ -90,25 +83,6 @@ func withoutAuthoritative(messages []llm.Message) []llm.Message {
 	}
 	return out
 }
-
-// withoutReminders copies messages and removes reminder content that has no
-// sender, as compactionrules.WithoutReminders does. A message left with no
-// content is dropped.
-func withoutReminders(messages []llm.Message) []llm.Message {
-	out := make([]llm.Message, 0, len(messages))
-	for _, m := range messages {
-		if m, ok := compactionrules.WithoutReminders(m); ok {
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-// estimate returns a rough token count for one message.
-func estimate(m llm.Message) int { return compactionrules.Estimate(m) }
-
-// referenceWireSize estimates the inline base64 bytes of a declared reference.
-func referenceWireSize(size int64) int { return compactionrules.ReferenceWireSize(size) }
 
 // usedTokens counts the tokens one model call used: all input, cached input
 // included, plus output. It saturates instead of overflowing.
