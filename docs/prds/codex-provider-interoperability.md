@@ -1,7 +1,7 @@
 # Run empty tools and continue portable history across providers
 
 Status: Approved\
-PRD PR: [#228](https://github.com/deepnoodle-ai/dashi/pull/228) · Implementation PR: pending · Updated: 2026-10-07
+PRD PR: [#228](https://github.com/deepnoodle-ai/dashi/pull/228) · Implementation PR: [#233](https://github.com/deepnoodle-ai/dashi/pull/233) · Updated: 2026-10-07
 
 ## Problem and context
 
