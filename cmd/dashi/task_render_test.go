@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/delegate"
@@ -308,23 +308,54 @@ func deliveryNotices(u *recorderUI) []Block {
 	return out
 }
 
+// taskWakeDone acknowledges the host's asynchronous wake after it has checked
+// whether task delivery can run. The tests can assert silence after the check.
+func taskWakeDone(a *app) <-chan struct{} {
+	done := make(chan struct{})
+	var once sync.Once
+	host := a.eng.taskHost()
+	host.mu.Lock()
+	host.wake = func() {
+		a.ctrl.scheduleTaskNotices()
+		once.Do(func() { close(done) })
+	}
+	host.mu.Unlock()
+	return done
+}
+
+func waitTaskSignal(t *testing.T, what string, done <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-t.Context().Done():
+		t.Fatalf("waiting for %s: %v", what, t.Context().Err())
+	}
+}
+
 // A task that ends while its parent turn runs says nothing about a stopped
 // parent: its result is sent when the turn ends.
 func TestTaskEndDuringARunningParentShowsNoDeliveryNotice(t *testing.T) {
 	hold := make(chan struct{})
-	client := &taskFixtureClient{parentHold: hold}
+	childHold := make(chan struct{})
+	parentHeld := make(chan struct{})
+	client := &taskFixtureClient{parentHold: hold, parentHeld: parentHeld, childHold: childHold}
 	ui := newRecorderUI()
 	a, _ := taskTestApp(t, client, ui)
+	wakeDone := taskWakeDone(a)
 	a.ctrl.mu.Lock()
 	a.ctrl.autoTaskDelivery = true
 	a.ctrl.mu.Unlock()
 	a.ctrl.Input("Delegate this job")
-	waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopCompleted) })
+	// Finish the child only after the parent is inside its held model call.
+	waitTaskSignal(t, "parent model call", parentHeld)
+	close(childHold)
+	waitTaskSignal(t, "child completion wake", wakeDone)
 	if _, err := a.eng.taskHost().tasks.Wait(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	// The end's wake-up runs in the background; give it time to speak.
-	time.Sleep(100 * time.Millisecond)
+	if tasks := a.eng.taskHost().tasks.List(); len(tasks) != 1 || tasks[0].State != delegate.TaskState(dashi.StopCompleted) {
+		t.Fatalf("child did not complete: %+v", tasks)
+	}
 	if a.ctrl.Mode() != ModeRunning {
 		t.Fatalf("mode=%v, want the parent still running", a.ctrl.Mode())
 	}
@@ -332,11 +363,6 @@ func TestTaskEndDuringARunningParentShowsNoDeliveryNotice(t *testing.T) {
 		t.Fatalf("notice while the parent runs: %q", got[0].Text)
 	}
 	close(hold)
-	a.ctrl.Wait()
-	deadline := time.Now().Add(5 * time.Second)
-	for parent, _ := client.counts(); parent < 3 && time.Now().Before(deadline); parent, _ = client.counts() {
-		time.Sleep(time.Millisecond)
-	}
 	a.ctrl.Wait()
 	if parent, _ := client.counts(); parent != 3 {
 		t.Fatalf("parent calls=%d: the result was not delivered after the turn", parent)
@@ -349,7 +375,8 @@ func TestTaskEndDuringARunningParentShowsNoDeliveryNotice(t *testing.T) {
 // A stopped parent holds task results. The line says how to send them, in
 // plain words, as a quiet indented line.
 func TestStoppedParentDeliveryNoticeIsPlainAndQuiet(t *testing.T) {
-	client := &taskFixtureClient{}
+	childHold := make(chan struct{})
+	client := &taskFixtureClient{childHold: childHold}
 	ui := newRecorderUI()
 	cfg := testConfig(t)
 	cfg.Client = client
@@ -362,22 +389,23 @@ func TestStoppedParentDeliveryNoticeIsPlainAndQuiet(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { a.ctrl.CancelWork(); a.eng.closeTasks(); a.ctrl.Wait(); a.eng.Close() })
+	wakeDone := taskWakeDone(a)
 	a.ctrl.Input("Delegate this job")
 	a.ctrl.Wait()
-	waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopCompleted) })
-	if _, err := a.eng.taskHost().tasks.Wait(t.Context()); err != nil {
-		t.Fatal(err)
-	}
 	if last := a.eng.Last(t.Context()); !last.Open() || !last.CanGoOn() {
 		t.Fatalf("parent not stopped: %+v", last)
 	}
-	var got []Block
-	deadline := time.Now().Add(5 * time.Second)
-	for len(got) == 0 && time.Now().Before(deadline) {
-		a.ctrl.scheduleTaskNotices()
-		got = deliveryNotices(ui)
-		time.Sleep(5 * time.Millisecond)
+	// Release the result after the parent stops, then observe the actual
+	// host wake instead of repeatedly asking it to schedule delivery.
+	close(childHold)
+	waitTaskSignal(t, "child completion wake", wakeDone)
+	if _, err := a.eng.taskHost().tasks.Wait(t.Context()); err != nil {
+		t.Fatal(err)
 	}
+	if tasks := a.eng.taskHost().tasks.List(); len(tasks) != 1 || tasks[0].State != delegate.TaskState(dashi.StopCompleted) {
+		t.Fatalf("child did not complete: %+v", tasks)
+	}
+	got := deliveryNotices(ui)
 	if len(got) == 0 {
 		t.Fatal("no delivery notice for the stopped parent")
 	}
