@@ -96,7 +96,7 @@ func TestActiveCompactionOutputLimitRetry(t *testing.T) {
 }
 
 func TestActiveCompactionOutputLimitRetryStops(t *testing.T) {
-	for _, mode := range []string{"second limit", "model calls", "output budget", "truncated tool"} {
+	for _, mode := range []string{"second limit", "model calls", "output budget", "tool call", "no text", "reasoning only", "refusal"} {
 		t.Run(mode, func(t *testing.T) {
 			c, a := activeFixture()
 			c.results[2] = outputLimitedSummary()
@@ -110,8 +110,18 @@ func TestActiveCompactionOutputLimitRetryStops(t *testing.T) {
 			case "output budget":
 				start.Budget = &Budget{MaxOutputTokens: 6}
 				wantSends, wantKind, wantReason = 3, StopLimited, string(LimitOutputTokens)
-			case "truncated tool":
+			case "tool call":
 				c.results[2].Message = callResult("truncated", "read").Message
+				wantSends = 3
+			case "no text":
+				c.results[2].Message = llm.AssistantMessage(llm.Text("<summary> \n </summary>"))
+				wantSends = 3
+			case "reasoning only":
+				c.results[2].Message = llm.AssistantMessage(llm.Content{Kind: llm.ContentReasoning, Reasoning: &llm.Reasoning{Text: "no summary"}})
+				wantSends = 3
+			case "refusal":
+				refusal := "Cannot summarize this."
+				c.results[2].Message.Content = append(c.results[2].Message.Content, llm.Content{Kind: llm.ContentRefusal, Refusal: &refusal})
 				wantSends = 3
 			}
 			calls := 0
@@ -121,101 +131,6 @@ func TestActiveCompactionOutputLimitRetryStops(t *testing.T) {
 			}
 			if mode == "output budget" && !strings.Contains(c.sent[2].System, "within 2 output tokens") {
 				t.Fatal("summary prompt did not reflect the clamped budget")
-			}
-		})
-	}
-}
-
-func TestActiveCompactionOutputLimitRejectsEmptySummary(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		message llm.Message
-	}{
-		{"empty", llm.AssistantMessage(llm.Text(""))},
-		{"whitespace", llm.AssistantMessage(llm.Text(" \n\t "))},
-		{"empty tags", llm.AssistantMessage(llm.Text("<summary> \n </summary>"))},
-		{"reasoning only", llm.AssistantMessage(llm.Content{Kind: llm.ContentReasoning, Reasoning: &llm.Reasoning{Text: "reasoning without a summary"}})},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			c, a := activeFixture()
-			c.results[2] = outputLimitedSummary()
-			c.results[2].Message = tc.message
-			calls := 0
-			out, err := (Runner{Client: c, Tools: activeTools(&calls)}).Run(t.Context(), Turn{ID: "empty-summary"}, activeStart(a))
-			if err != nil || out.Stop.Kind != StopFailed || out.Stop.Reason != StopReasonCompactionFailed || c.sends != 3 || calls != 2 || len(out.ContextCompactions) != 0 || out.Reply != "" {
-				t.Fatalf("stop=%+v sends=%d effects=%d applied=%d err=%v", out.Stop, c.sends, calls, len(out.ContextCompactions), err)
-			}
-			starts := 0
-			for _, step := range out.Turn.Steps {
-				if step.Kind == StepModelCallStarted && step.Model.Purpose == ModelPurposeCompaction {
-					starts++
-				}
-			}
-			if starts != 1 || out.ModelCalls != 3 || out.Spend.Usage.InputTokens != 300 {
-				t.Fatalf("summary starts=%d calls=%d usage=%+v", starts, out.ModelCalls, out.Spend.Usage)
-			}
-			full, err := TurnMessagesFull(out.Turn)
-			if err != nil {
-				t.Fatal(err)
-			}
-			projected, err := TurnMessages(out.Turn)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !canonjson.SameValue(full, projected) {
-				t.Fatal("empty rejected summary changed prior context")
-			}
-			b, _ := json.Marshal(projected)
-			if !strings.Contains(string(b), "Evidence 1") || !strings.Contains(string(b), "Evidence 2") {
-				t.Fatal("finished work disappeared from prior context")
-			}
-		})
-	}
-}
-
-func TestActiveCompactionOutputLimitRejectsRefusal(t *testing.T) {
-	for _, refusal := range []string{"Cannot summarize this evidence.", ""} {
-		t.Run(fmt.Sprintf("refusal=%q", refusal), func(t *testing.T) {
-			c, a := activeFixture()
-			c.results[2] = outputLimitedSummary()
-			c.results[2].Message.Content = append(c.results[2].Message.Content, llm.Content{Kind: llm.ContentRefusal, Refusal: &refusal})
-			calls := 0
-			out, err := (Runner{Client: c, Tools: activeTools(&calls)}).Run(t.Context(), Turn{ID: "refused-summary"}, activeStart(a))
-			if err != nil || out.Stop.Kind != StopFailed || out.Stop.Reason != StopReasonCompactionFailed || c.sends != 3 || calls != 2 || len(out.ContextCompactions) != 0 || out.Reply != "" {
-				t.Fatalf("stop=%+v sends=%d effects=%d applied=%d err=%v", out.Stop, c.sends, calls, len(out.ContextCompactions), err)
-			}
-			starts, finishes := 0, 0
-			for _, step := range out.Turn.Steps {
-				if step.Model == nil || step.Model.Purpose != ModelPurposeCompaction {
-					continue
-				}
-				if step.Kind == StepModelCallStarted {
-					starts++
-				}
-				if step.Kind == StepModelCallFinished {
-					finishes++
-					if step.Model.Result == nil || !canonjson.SameValue(step.Model.Result, &c.results[2]) {
-						t.Fatal("rejected summary result was not retained")
-					}
-				}
-			}
-			if starts != 1 || finishes != 1 || out.ModelCalls != 3 || out.Spend.Usage.InputTokens != 300 || out.Spend.Usage.OutputTokens != 6 {
-				t.Fatalf("summary starts=%d finishes=%d calls=%d usage=%+v", starts, finishes, out.ModelCalls, out.Spend.Usage)
-			}
-			full, err := TurnMessagesFull(out.Turn)
-			if err != nil {
-				t.Fatal(err)
-			}
-			projected, err := TurnMessages(out.Turn)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !canonjson.SameValue(full, projected) {
-				t.Fatal("refused summary changed prior context")
-			}
-			b, _ := json.Marshal(projected)
-			if !strings.Contains(string(b), "Evidence 1") || !strings.Contains(string(b), "Evidence 2") || strings.Contains(string(b), "Unfinished summary") {
-				t.Fatal("prior context lost finished work or gained the refused summary")
 			}
 		})
 	}

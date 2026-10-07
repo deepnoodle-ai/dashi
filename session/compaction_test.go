@@ -63,7 +63,7 @@ func TestSessionCompactionRecoversSettledContextStops(t *testing.T) {
 			}
 			// A fresh handle sees only durable facts, including rejected summaries.
 			agent.ActiveCompaction = &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}
-			policy := compaction.Policy{Model: llm.ModelInfo{Capabilities: llm.Capabilities{ContextWindow: 16000}}}
+			policy := compaction.Policy{Model: llm.ModelInfo{Capabilities: llm.Capabilities{ContextWindow: 4000}}}
 			fresh := &session.Session{ID: s.ID, Runner: s.Runner, Agent: agent, Compactor: compaction.New(policy)}
 			var stops []string
 			for ev, err := range fresh.Stream(t.Context(), dashi.Say("What was the saved finding?")) {

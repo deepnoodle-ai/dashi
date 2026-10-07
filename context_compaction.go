@@ -26,53 +26,50 @@ func (r *runtime) summaryMaxTokens(ordinary int) int {
 	return n
 }
 
-func activeSummaryAllowance(maxTokens int) string {
+// summaryLengthNote tells the model how long its summary may be.
+func summaryLengthNote(maxTokens int) string {
 	return fmt.Sprintf("\nYour entire response must fit within %d output tokens. Aim for at most %d tokens, including the summary tags.", maxTokens, max(1, maxTokens/2))
 }
 
 func activeSummaryInstructions(s *replayState, maxTokens int) string {
-	prompt := activeSummaryAllowance(maxTokens)
-	if len(s.modelOrder) == 0 {
-		return prompt
+	if start, _ := lastSummaryCutOff(s); start != nil {
+		return summaryLengthNote(maxTokens) + activeSummaryRetryPrompt
 	}
-	id := s.modelOrder[len(s.modelOrder)-1]
-	f := s.modelFinishes[id]
-	if start := s.startedModelCalls[id]; start != nil && start.Purpose == ModelPurposeCompaction && f != nil && f.Result != nil && f.Result.Stop.Kind == llm.StopOutputLimit {
-		prompt += activeSummaryRetryPrompt
-	}
-	return prompt
+	return summaryLengthNote(maxTokens)
 }
 
-// summaryStarts counts admitted calls for the same evidence, including a
-// call whose result was lost. Reload cannot reset the automatic retry bound.
-func summaryStarts(s *replayState, plan *ContextCompactionPlan) int {
-	n := 0
+// lastSummaryCutOff returns the last model call when it was a summary that
+// stopped at its output limit.
+func lastSummaryCutOff(s *replayState) (start, finish *ModelFact) {
+	if len(s.modelOrder) == 0 {
+		return nil, nil
+	}
+	id := s.modelOrder[len(s.modelOrder)-1]
+	start, finish = s.startedModelCalls[id], s.modelFinishes[id]
+	if start == nil || start.Purpose != ModelPurposeCompaction || start.Compaction == nil ||
+		finish == nil || finish.Result == nil || finish.Result.Stop.Kind != llm.StopOutputLimit {
+		return nil, nil
+	}
+	return start, finish
+}
+
+// retrySummary asks once for a shorter summary when the last summary was cut
+// off at its output limit, has text, and made no tool calls. It counts the
+// recorded summary calls, so reloading the Turn cannot allow a second retry.
+func (r *runtime) retrySummary(s *replayState) (RunResult, bool) {
+	start, finish := lastSummaryCutOff(s)
+	if start == nil || finish.Interrupted != InterruptNone || finish.ResultUnknown || finish.SendStatus != "" {
+		return r.stop(StopFailed, StopReasonCompactionFailed), false
+	}
+	res := finish.Result
+	refused := slices.ContainsFunc(res.Message.Content, func(c llm.Content) bool { return c.Kind == llm.ContentRefusal })
+	tries := 0
 	for _, call := range s.startedModelCalls {
-		if p := call.Compaction; call.Purpose == ModelPurposeCompaction && p != nil && p.Hash == plan.Hash && slices.Equal(p.Covered, plan.Covered) {
-			n++
+		if p := call.Compaction; call.Purpose == ModelPurposeCompaction && p != nil && p.Hash == start.Compaction.Hash && slices.Equal(p.Covered, start.Compaction.Covered) {
+			tries++
 		}
 	}
-	return n
-}
-
-func (r *runtime) retryActiveSummary(s *replayState) (RunResult, bool) {
-	if len(s.modelOrder) == 0 {
-		return r.stop(StopFailed, StopReasonCompactionFailed), false
-	}
-	id := s.modelOrder[len(s.modelOrder)-1]
-	started, finished := s.startedModelCalls[id], s.modelFinishes[id]
-	if started == nil || started.Purpose != ModelPurposeCompaction || started.Compaction == nil || finished == nil || finished.Result == nil {
-		return r.stop(StopFailed, StopReasonCompactionFailed), false
-	}
-	if finished.Interrupted != InterruptNone || finished.ResultUnknown || finished.SendStatus != "" || finished.Result.Stop.Kind != llm.StopOutputLimit {
-		return r.stop(StopFailed, StopReasonCompactionFailed), false
-	}
-	for _, c := range finished.Result.Message.Content {
-		if c.Kind == llm.ContentRefusal {
-			return r.stop(StopFailed, StopReasonCompactionFailed), false
-		}
-	}
-	if validateModelResult(*finished.Result, r.agent) != nil || activeSummaryHasTools(finished.Result) || activeSummaryText(finished.Result) == "" || summaryStarts(s, started.Compaction) != 1 {
+	if refused || tries != 1 || activeSummaryText(res) == "" || activeSummaryHasTools(res) || validateModelResult(*res, r.agent) != nil {
 		return r.stop(StopFailed, StopReasonCompactionFailed), false
 	}
 	if stop := budgetSpentStop(s); stop != nil {
@@ -81,8 +78,9 @@ func (r *runtime) retryActiveSummary(s *replayState) (RunResult, bool) {
 	if s.modelCallCap-s.ModelCalls < 2 {
 		return r.stop(StopLimited, string(LimitModelCalls)), false
 	}
-	return r.modelPurpose(s, ModelPurposeCompaction, started.Compaction)
+	return r.modelPurpose(s, ModelPurposeCompaction, start.Compaction)
 }
+
 func (r *runtime) contextLimit(s *replayState, req llm.Request, reason string) RunResult {
 	used := llm.EstimatedInputTokens(req)
 	reserve := req.Snapshot().Effective.MaxTokens
@@ -212,9 +210,8 @@ func (r *runtime) activeSummaryMessages(plan *ContextCompactionPlan) ([]llm.Mess
 	// The sender checks the final provider body too; leave room for settings and
 	// hooks here. Every shortened item carries a visible omission marker.
 	maxTokens := r.summaryMaxTokens(r.agent.Settings.MaxTokens)
-	// Reserve the longer retry instructions too, so both admitted attempts
-	// fit the same bounded evidence without silently dropping a second slice.
-	promptSize := len(activeSummaryPrompt) + len(activeSummaryAllowance(maxTokens)) + len(activeSummaryRetryPrompt)
+	// Leave room for the retry note too, so a retry summarizes the same text.
+	promptSize := len(activeSummaryPrompt) + len(summaryLengthNote(maxTokens)) + len(activeSummaryRetryPrompt)
 	budget := max(0, plan.Window-maxTokens-promptSize-2048)
 	evidence, err = compactiontext.FitTranscript(evidence, budget)
 	if err != nil {

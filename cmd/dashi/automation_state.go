@@ -265,12 +265,10 @@ func (s automationSnapshot) canContinue() bool {
 	return true
 }
 func (s automationSnapshot) blocksNew() bool {
-	// These stopped parents may be closed by Session before the new Start.
-	// Session's worker/unknown-effect predicate still owns actual admission.
-	recoverContext := s.latest.Stop.Kind == dashi.StopFailed && s.latest.Stop.Reason == dashi.StopReasonCompactionFailed ||
-		s.latest.Stop.Kind == dashi.StopLimited && s.latest.Stop.Reason == string(dashi.LimitContextWindow)
-	recoverContext = recoverContext && len(s.latest.Pending) == 0
-	if s.latest.Next() != dashi.NextNone && !recoverContext || s.missingNotice {
+	// The Session closes a Turn that stopped for context; pending work
+	// still blocks a new request.
+	closable := session.StoppedForContext(s.latest) && len(s.latest.Pending) == 0
+	if s.latest.Next() != dashi.NextNone && !closable || s.missingNotice {
 		return true
 	}
 	for _, a := range s.affected {

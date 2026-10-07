@@ -1,6 +1,7 @@
 package compaction
 
 import (
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -124,6 +125,23 @@ func TestCompactorNeeded(t *testing.T) {
 	}
 	if _, err := c.Start(t.Context(), only); !errors.Is(err, ErrNothingToCompact) {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+// Needed estimates tokens from history size, so tool output added after the
+// last model call counts. 800 tokens is about 3,200 bytes of history.
+func TestCompactorNeededHistorySize(t *testing.T) {
+	c := New(policyWith(1_000))
+	sized := func(bytes int) []llm.Message {
+		m := []llm.Message{llm.UserMessage(llm.Text(""))}
+		b, _ := json.Marshal(m)
+		return []llm.Message{llm.UserMessage(llm.Text(strings.Repeat("x", bytes-len(b))))}
+	}
+	if c.Needed(sized(3_196), llm.Usage{}) {
+		t.Fatal("needed just under 80%")
+	}
+	if !c.Needed(sized(3_200), llm.Usage{}) {
+		t.Fatal("not needed at 80%")
 	}
 }
 

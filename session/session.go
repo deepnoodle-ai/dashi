@@ -506,7 +506,7 @@ func (s *Session) planStart(
 	var p startPlan
 	upTo := last // the turns the history holds
 	closed := false
-	recoverContext := false
+	stoppedForContext := false
 	if last > 0 {
 		t, skip, err := s.readLast(ctx, last)
 		if err != nil {
@@ -516,8 +516,7 @@ func (s *Session) planStart(
 			p.warnings = append(p.warnings, *skip)
 			upTo = last - 1
 		} else {
-			recoverContext = t.view.Stop.Kind == dashi.StopFailed && t.view.Stop.Reason == dashi.StopReasonCompactionFailed ||
-				t.view.Stop.Kind == dashi.StopLimited && t.view.Stop.Reason == string(dashi.LimitContextWindow)
+			stoppedForContext = StoppedForContext(t.view)
 			var events []dashi.Event
 			closed, events, err = s.closeLast(ctx, last, t, opts, stream)
 			p.closing = events
@@ -530,10 +529,10 @@ func (s *Session) planStart(
 		}
 	}
 	history, unreadable := s.history(ctx, upTo)
-	// A context stop keeps finished work that may make later history too
-	// large. After safe closure it can compact; other closed work still skips.
-	if upTo == last && !compacted && (!closed || recoverContext) {
-		if cp := s.planCompaction(ctx, last, history, c.Budget, recoverContext); cp != nil {
+	// A Turn this Start closed did not complete as its caller meant, so no
+	// compaction follows it, unless it stopped because history grew too big.
+	if upTo == last && !compacted && (!closed || stoppedForContext) {
+		if cp := s.planCompaction(ctx, last, history, c.Budget, stoppedForContext); cp != nil {
 			cp.closing, cp.warnings = p.closing, p.warnings
 			return *cp, nil
 		}
@@ -551,6 +550,15 @@ func (s *Session) planStart(
 	s.running[p.id]++
 	s.driving = p.id
 	return p, nil
+}
+
+// StoppedForContext reports whether the Turn stopped because its history no
+// longer fit the model's context window, or because summarizing it failed.
+// The next Send closes such a Turn and, with a Compactor, summarizes older
+// history before the new request.
+func StoppedForContext(v dashi.TurnView) bool {
+	return v.Stop.Kind == dashi.StopFailed && v.Stop.Reason == dashi.StopReasonCompactionFailed ||
+		v.Stop.Kind == dashi.StopLimited && v.Stop.Reason == string(dashi.LimitContextWindow)
 }
 
 // closedWarning is the warning for a last turn a new turn closed: a

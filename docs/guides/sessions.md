@@ -67,10 +67,9 @@ and does one of three things:
   `turn_closed`. Closing an interrupted turn keeps a zero-value session
   usable after an Esc or the default model-call limit.
 
-After safely closing `compaction_failed` or `context_window` work, a configured
-`Compactor` can summarize the retained projected history before the new request.
-The stock compactor considers text history size and last-model usage.
-Completed effects remain recorded and never run again because of compaction.
+When the closed turn stopped because its history no longer fit
+(`session.StoppedForContext`), a session with a `Compactor` summarizes older
+history before the new turn. Finished tools do not run again.
 
 A turn with no recorded stop is running or crashed, and the session cannot
 tell which by itself. It is running when this handle runs it, or when the
