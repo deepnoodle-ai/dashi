@@ -1,6 +1,6 @@
 # Reliable selective compaction and recorded evaluation
 
-Status: Draft
+Status: Approved
 PRD PR: Pending · Implementation PR: Pending · Updated: 2026-10-07
 
 ## Problem
@@ -58,6 +58,9 @@ The maintainer supplies recorded folders and the existing needles file.
 - [ ] Original-corpus checks complete without paid calls or new mining.
 - [ ] Checks still detect broken pairing, replay, fallback, and selected-content preservation.
 - [ ] Reports distinguish plumbing evidence from model recall quality.
+- [ ] Public reports contain aggregate results and safe case identifiers only.
+- [ ] A synthetic private-needle failure never exposes the needle in public output.
+- [ ] Raw diagnostics and saved needles stay outside Git with mode 0600.
 
 ### UC-3: Refresh affordable evidence
 
@@ -71,7 +74,10 @@ The maintainer chooses cheaper models while retaining recorded inputs and needle
 - [ ] This run spends at most $0.90. It reuses needles and disables paid retries and extra smoke calls.
 - [ ] A cheaper-model or partial comparison appears separately from the historical totals.
 - [ ] The docs state whether the requested original comparison remains unperformed.
-- [ ] Issue #221 stays open unless its required comparison is complete.
+- [ ] All five arms on the corrected original 13-case, 64-needle corpus can close #221 with cheaper models.
+- [ ] An incomplete corpus or matrix keeps #221 open.
+- [ ] A selective recall lead over recency of 10 points requires ship-decision review.
+- [ ] Credentials and private session or needle text never enter Git or PR evidence.
 
 ## Decisions
 
@@ -82,7 +88,7 @@ The maintainer chooses cheaper models while retaining recorded inputs and needle
 - Prefer `claude-haiku-5-5`, `gpt-6-luna`, and pinned `jev-1.13.0`, subject to verified request prices.
   Reject rerunning expensive recorded models within this assignment.
 - Use a conservative guard even if it limits the run to fewer cases. Reject an estimated total without dispatch enforcement.
-- Preserve the experimental library decision. Changed-model evidence cannot silently replace the original benchmark or authorize CLI shipping.
+- Preserve the experimental library decision. A complete cheaper-model comparison resolves #221. Keep the old benchmark separate and review any new ship-decision evidence.
 
 ## Not in scope
 
