@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
@@ -270,6 +271,51 @@ func TestUnknownChargeCancelsRunAndPreventsMoreDispatch(t *testing.T) {
 func (c *countedModel) Send(context.Context, llm.Call) (llm.Result, error) {
 	c.calls++
 	return llm.Result{}, errors.New("ambiguous model failure")
+}
+
+func TestModelGuardRejectsOpaqueMediaBeforeReservationOrDispatch(t *testing.T) {
+	provider, _ := responses.New(responses.Config{})
+	request, err := provider.Prepare(t.Context(), llm.Input{
+		Model: "gpt-6-luna", Settings: llm.Settings{MaxTokens: 64},
+		Messages: []llm.Message{llm.UserMessage(llm.Text("test"))},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opaque := &llm.Opaque{Version: 1, Origin: request.Snapshot().Origin,
+		Type: "image", Unit: llm.OpaqueUnitContentBlock,
+		Raw: json.RawMessage(`{"type":"image","source":{"type":"url","url":"https://example.com/image.png"}}`)}
+	replayedText := llm.Text("display text")
+	replayedText.Replay = opaque
+	for name, part := range map[string]llm.Content{
+		"opaque media":            {Kind: llm.ContentOpaque, Opaque: opaque},
+		"text with opaque replay": replayedText,
+		"provider content": {Kind: llm.ContentProviderToolUse, ProviderToolUse: &llm.ProviderToolUse{
+			ID: "provider-call", Name: "provider-tool", Type: "provider-tool", Origin: opaque.Origin,
+			Output: []content.Block{content.TextBlock("display text")},
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			snapshot := request.Snapshot()
+			snapshot.Input.Messages = []llm.Message{llm.AssistantMessage(part)}
+			unsafe, err := llm.NewRequest(snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			base := &countedModel{Client: provider}
+			limit := &spendLimit{cap: money.MustParseAmount("0.1")}
+			guard := &limitedClient{Client: base, limit: limit}
+			if _, err := guard.Send(t.Context(), llm.Call{Request: unsafe}); err == nil || !strings.Contains(err.Error(), "text-only input") {
+				t.Fatalf("unproven text input accepted: %v", err)
+			}
+			if got := limit.snapshot(); base.calls != 0 || got.requests != 0 || got.reserved != 0 {
+				t.Fatalf("rejected content reached reservation or dispatch: calls %d, spending %+v", base.calls, got)
+			}
+		})
+	}
+	if textInput(llm.Input{Messages: []llm.Message{llm.UserMessage(llm.Content{Kind: "future-provider-kind"})}}) {
+		t.Fatal("unknown content kind accepted")
+	}
 }
 
 func TestModelGuardReservesFullOutputAndFailedCalls(t *testing.T) {

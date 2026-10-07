@@ -355,6 +355,9 @@ func run(ctx context.Context, cfg config, out io.Writer) (*report, error) {
 }
 
 func newEnv(cfg config) (*env, func(), error) {
+	if cfg.live && cfg.provider == "openai" && strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) == "" {
+		return nil, nil, errors.New("-provider openai requires OPENAI_API_KEY for a live evaluation")
+	}
 	e := &env{cfg: cfg}
 	if cfg.live || cfg.preflight {
 		var err error
@@ -396,6 +399,9 @@ func newEnv(cfg config) (*env, func(), error) {
 			var client llm.Client = claude
 			if provider == "openai" {
 				client = openai
+			}
+			if client == nil {
+				return nil
 			}
 			return &limitedClient{Client: client, limit: e.limit, preflight: cfg.preflight, reply: reply}
 		}

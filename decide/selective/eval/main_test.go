@@ -16,6 +16,35 @@ import (
 	"github.com/deepnoodle-ai/decide"
 )
 
+func TestGeneratedLiveOpenAIRequiresAPIKeyBeforeEvaluation(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("TYPESAFE_API_KEY", "")
+	var output bytes.Buffer
+	r, err := run(t.Context(), config{
+		live: true, provider: "openai", model: "gpt-6-luna", maxCost: "0.1",
+		sessions: 1, window: 16_000,
+	}, &output)
+	if err == nil || !strings.Contains(err.Error(), "OPENAI_API_KEY") {
+		t.Fatalf("missing OpenAI key did not produce a configuration error: %v", err)
+	}
+	if r != nil || output.Len() != 0 {
+		t.Fatal("evaluation started without its configured provider key")
+	}
+}
+
+func TestUnconfiguredOpenAIClientIsNotWrapped(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("TYPESAFE_API_KEY", "test-key-00000000")
+	e, cleanup, err := newEnv(config{live: true, provider: "anthropic", maxCost: "0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if e.client("openai", "") != nil || e.checkProvider("openai") == nil {
+		t.Fatal("unconfigured recorded provider produced a client")
+	}
+}
+
 // The keyless run checks the plumbing: every needle survives selective
 // compaction word for word, every tool call keeps its results, an
 // unreachable Decide falls back to the stock compactor, and each recorded

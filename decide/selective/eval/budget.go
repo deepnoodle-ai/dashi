@@ -291,29 +291,28 @@ func completedText(result llm.Result, provider, model string) bool {
 	return true
 }
 
-// Remote media can consume more tokens than its encoded URL. This eval's
-// byte bound therefore admits text only, including text tool results.
+// Remote media can consume more tokens than its encoded URL. Admit only
+// canonical text payloads; provider replay does not prove text-only cost.
 func textInput(input llm.Input) bool {
-	textBlocks := func(blocks []content.Block) bool {
-		for _, block := range blocks {
-			if block.Text == nil {
-				return false
-			}
-		}
-		return true
-	}
 	for _, message := range input.Messages {
 		for _, part := range message.Content {
-			if part.Block != nil && part.Block.Text == nil {
+			if part.Validate() != nil || part.Replay != nil {
 				return false
 			}
-			if part.ToolResult != nil && !textBlocks(part.ToolResult.Output.Content) {
-				return false
-			}
-			if part.ProviderToolResult != nil && !textBlocks(part.ProviderToolResult.Output) {
-				return false
-			}
-			if part.ProviderToolUse != nil && !textBlocks(part.ProviderToolUse.Output) {
+			switch part.Kind {
+			case llm.ContentBlock:
+				if part.Block.Kind != content.KindText {
+					return false
+				}
+			case llm.ContentToolResult:
+				for _, block := range part.ToolResult.Output.Content {
+					if block.Kind != content.KindText {
+						return false
+					}
+				}
+			case llm.ContentToolCall, llm.ContentReasoning, llm.ContentRefusal, llm.ContentReminder:
+				// These canonical payloads encode only JSON or text.
+			default:
 				return false
 			}
 		}
