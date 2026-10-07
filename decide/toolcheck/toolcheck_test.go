@@ -347,6 +347,7 @@ func TestHooksFailOpen(t *testing.T) {
 	f := newFixture(t)
 	f.srv.FailNext(http.StatusInternalServerError)
 	f.srv.FailNext(http.StatusInternalServerError)
+	f.srv.FailNext(http.StatusInternalServerError)
 	risk := toolcheck.CommandRisk{Client: f.client}
 	check := toolcheck.PromptInjection{Client: f.client}
 	var ran []string
@@ -545,6 +546,7 @@ func TestPromptInjectionHookNotesAnUncheckedResult(t *testing.T) {
 func TestOutagePausesForAMinute(t *testing.T) {
 	f := newFixture(t)
 	f.srv.FailNext(http.StatusServiceUnavailable)
+	f.srv.FailNext(http.StatusServiceUnavailable)
 	var seen checks
 	risk := toolcheck.CommandRisk{Client: f.client, OnCheck: seen.add}
 	_, err := risk.Check(t.Context(), bashPlan("ls"))
@@ -560,7 +562,7 @@ func TestOutagePausesForAMinute(t *testing.T) {
 		!strings.Contains(err.Error(), "paused until 14:32:00") {
 		t.Fatalf("err = %v", err)
 	}
-	if f.requests() != 1 {
+	if f.requests() != 2 {
 		t.Fatalf("requests = %d while paused", f.requests())
 	}
 	// The other check kind is not paused.
@@ -608,6 +610,7 @@ func TestEndedPausesAreDropped(t *testing.T) {
 	for range 3 {
 		other := decidetest.NewServer(t)
 		other.FailNext(http.StatusServiceUnavailable)
+		other.FailNext(http.StatusServiceUnavailable)
 		toolcheck.CommandRisk{Client: other.Client(t, decide.WithMaxRetries(0))}.
 			Check(t.Context(), bashPlan("ls"))
 	}
@@ -615,6 +618,7 @@ func TestEndedPausesAreDropped(t *testing.T) {
 		t.Fatalf("pauses = %d, want 3", n)
 	}
 	f.clock = f.clock.Add(2 * time.Minute)
+	f.srv.FailNext(http.StatusServiceUnavailable)
 	f.srv.FailNext(http.StatusServiceUnavailable)
 	toolcheck.CommandRisk{Client: f.client}.Check(t.Context(), bashPlan("ls"))
 	if n := toolcheck.PauseCount(); n != 1 {
@@ -640,6 +644,9 @@ func TestOutageKinds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
 			tc.fail(f.srv)
+			if tc.outage && tc.name != "auth" {
+				tc.fail(f.srv)
+			}
 			risk := toolcheck.CommandRisk{Client: f.client}
 			_, err := risk.Check(t.Context(), bashPlan("ls"))
 			if err == nil || toolcheck.IsOutage(err) != tc.outage {
@@ -720,7 +727,10 @@ func TestNoAPIKey(t *testing.T) {
 	t.Setenv("TYPESAFE_API_KEY", "")
 	clock := time.Now()
 	toolcheck.SetClock(t, &clock)
-	_, err := toolcheck.CommandRisk{}.Check(t.Context(), bashPlan("rm -rf ~"))
+	v, err := toolcheck.CommandRisk{}.Check(t.Context(), bashPlan("rm -rf ~"))
+	if v.Requests != 0 {
+		t.Fatal("a setup failure counted a Decide call")
+	}
 	if !errors.Is(err, decide.ErrNoAPIKey) || !toolcheck.IsOutage(err) {
 		t.Fatalf("err = %v", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -15,6 +16,36 @@ import (
 	"github.com/deepnoodle-ai/decide"
 	"github.com/deepnoodle-ai/decide/decidetest"
 )
+
+// The original request fails, but the provider answers the fixed benign
+// request. The command stays unchecked; observations include the probe.
+func ExampleCommandRisk_Check_outage() {
+	srv, err := decidetest.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer srv.Close()
+	srv.FailNext(http.StatusInternalServerError)
+	srv.Respond(func(*decide.Request) (*decide.Response, error) {
+		return &decide.Response{
+			Answers: map[string]decide.Answer{"severe": decidetest.NoulAnswer(0.01)},
+			Usage:   decide.Usage{InputTokens: 5, OutputTokens: 1},
+		}, nil
+	})
+	judge, err := srv.NewClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+	risk := toolcheck.CommandRisk{Client: judge}
+	v, err := risk.Check(context.Background(), dashi.ToolPlan{
+		Call: tool.Call{Name: "bash", Args: json.RawMessage(`{"command":"echo hello"}`)},
+	})
+	fmt.Println("checked:", v.Checked, "outage:", toolcheck.IsOutage(err))
+	fmt.Println("calls:", v.Requests, "tokens:", v.Usage.InputTokens, v.Usage.OutputTokens)
+	// Output:
+	// checked: false outage: false
+	// calls: 2 tokens: 5 1
+}
 
 // The model runs go test ./..., then rm -rf ~. The command-risk check lets
 // the first run and holds the second for approval. A fake Decide server and

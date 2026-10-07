@@ -48,6 +48,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Command-specific Decide failures no longer pause every command check.**
+  `toolcheck.CommandRisk` confirms server and connection failures with one
+  fixed benign request under the original deadline. An unconfirmed failure
+  requires approval, including in CLI bypass mode. Commands send at most
+  eight parts plus one confirmation request, without SDK retries.
+- **`toolcheck.Verdict.Requests` counts logical Decide calls initiated,**
+  including command outage confirmation. `Usage` retains observed tokens
+  on failed checks. The CLI uses these observations instead of guessing
+  request counts from error types.
+
 - **The Anthropic Messages client sends reasoning effort `xhigh`** as
   `output_config.effort`. It refused `xhigh` before, although the catalog
   lists it for models such as Opus 5.5 and Sonnet 5.5. A model whose catalog

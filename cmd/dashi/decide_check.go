@@ -79,7 +79,9 @@ type decideRuntime struct {
 // decideTotals are this run's decide requests and tokens, for every
 // feature together.
 type decideTotals struct {
-	// Requests counts the checks sent to the provider.
+	// Requests counts logical Decide calls initiated, including command
+	// outage confirmation. It does not count hidden SDK retries or prove
+	// dispatch or receipt.
 	Requests     int `json:"requests"`
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
@@ -202,8 +204,8 @@ type decideResult struct {
 	Request string
 	// Cause says why the call is unchecked, such as "timeout".
 	Cause string
-	// Outage is true when Cause is an outage, which no command text can
-	// cause; any other unchecked call is suspect.
+	// Outage is true for a confirmed provider outage or setup/auth failure.
+	// Any other unchecked call is suspect.
 	Outage bool
 	// AnsweredFirst is true when the person answered before the check did.
 	AnsweredFirst bool
@@ -288,31 +290,31 @@ func (rt *decideRuntime) record(feature string, counts *decideCheckCounts, cance
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	rt.asked = true
+	rt.totals.Requests += v.Requests
+	rt.totals.InputTokens += v.Usage.InputTokens
+	rt.totals.OutputTokens += v.Usage.OutputTokens
 	if err == nil {
-		rt.totals.Requests++
-		rt.totals.InputTokens += v.Usage.InputTokens
-		rt.totals.OutputTokens += v.Usage.OutputTokens
 		counts.Checked++
 		if v.Flagged {
 			counts.Flagged++
 		}
 		rt.model = v.Model
-		delete(rt.paused, feature)
+		// A command started before a concurrent outage can answer after
+		// its pause was recorded. Only the recorded expiry ends that pause.
+		if feature != decideCommandRisk {
+			delete(rt.paused, feature)
+		}
 		return decideResult{
 			Checked: true, Flagged: v.Flagged, Severe: v.Probabilities[toolcheck.QuestionSevere],
 			Model: v.Model, Request: v.RequestID,
 		}, ""
 	}
 	if canceled {
-		rt.totals.Requests++
 		return decideResult{AnsweredFirst: true}, ""
 	}
 	r = decideResult{Cause: decideCause(err), Outage: toolcheck.IsOutage(err)}
 	counts.Unchecked++
 	paused, isPause := errors.AsType[*toolcheck.PausedError](err)
-	if !isPause {
-		rt.totals.Requests++
-	}
 	switch {
 	case isPause:
 		rt.paused[feature] = decidePause{Until: paused.Until, Cause: r.Cause}

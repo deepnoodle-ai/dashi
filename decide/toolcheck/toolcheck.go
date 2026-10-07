@@ -16,10 +16,11 @@
 // server error, the call runs and the result reaches the model as if the
 // check were not there: the command check's hook gives Dashi a hook_failed
 // warning, and the content check's hook records the result as unchecked.
-// When the command check fails in a way the input can cause, such as a
-// timeout, its hook holds the call for approval instead. A host that asks the user in
-// its own BeforeTool hook calls Check from there instead, so the user sees
-// one prompt.
+// CommandRisk confirms server and connection failures with one fixed benign
+// request under the same deadline. An unconfirmed failure, or one the input
+// can cause, such as a timeout, holds the call for approval instead. A host
+// that asks the user in its own BeforeTool hook calls Check from there,
+// so the user sees one prompt.
 //
 // The checked text goes to the decision model's provider, with the key of
 // the Decide client.
@@ -51,10 +52,12 @@ var defaultShellTools = []string{workspace.ToolBash}
 const (
 	CommandRiskName     = "toolcheck-command-risk"
 	PromptInjectionName = "toolcheck-prompt-injection"
+	commandRiskKind     = "command-risk"
 )
 
 // Verdict is what one check found for one call. Checked is false when the
-// check does not read the call and made no request.
+// call was unread or any required answer failed. Requests and Usage still
+// describe calls initiated and observed responses on a failure.
 type Verdict struct {
 	// Call is the tool call checked: its ID, Name, and Args.
 	Call    tool.Call
@@ -69,8 +72,12 @@ type Verdict struct {
 	// Model is the resolved decision model version, such as "jev-1.13.0".
 	Model     string
 	RequestID string
-	// Usage holds the tokens of the request, or of every request when a
-	// long text was checked in parts.
+	// Requests counts logical Decide calls initiated, including command
+	// outage confirmation. It does not count SDK retries or prove HTTP
+	// dispatch or receipt. Paused, unread, and setup failures count zero.
+	Requests int
+	// Usage holds observed tokens from all responses, including responses
+	// received before a failure and a command outage confirmation.
 	Usage decide.Usage
 	// Partial is true when a result was too long to check whole: the check
 	// read its first and last parts and skipped the middle. The
@@ -108,9 +115,11 @@ func (e *PausedError) Unwrap() error { return e.Cause }
 // key, which no input can cause.
 var errNoClient = errors.New("toolcheck: no decide client")
 
-// IsOutage reports whether err came from Decide being unreachable or
-// unusable, whatever the input: no key, a failed login, a server error, a
-// network error that is not a timeout, or a *PausedError. Any other error
+// IsOutage reports whether err permits a check's outage behavior. No key,
+// a failed login, a server error, a network error that is not a timeout,
+// and a *PausedError normally qualify. CommandRisk wraps an unconfirmed
+// server or connection failure so IsOutage returns false while errors.Is
+// and errors.As still reach the original cause. Any other error
 // may come from the input, which an attacker can shape: a timeout, a rate
 // limit, ErrTooLarge, a rejected request, or a missing or invalid answer.
 // A rate limit is in that group because the input sets how many requests
@@ -118,6 +127,9 @@ var errNoClient = errors.New("toolcheck: no decide client")
 // ask the user about the call in that case.
 func IsOutage(err error) bool {
 	if err == nil {
+		return false
+	}
+	if _, ok := errors.AsType[*unconfirmedError](err); ok {
 		return false
 	}
 	if _, ok := errors.AsType[*PausedError](err); ok {
@@ -192,6 +204,11 @@ func paused(key pauseKey) *PausedError {
 func pause(key pauseKey, cause error) {
 	pauses.Lock()
 	defer pauses.Unlock()
+	pauseLocked(key, cause)
+}
+
+// pauseLocked requires the pause table's mutex.
+func pauseLocked(key pauseKey, cause error) *PausedError {
 	t := now()
 	for k, p := range pauses.m {
 		if !t.Before(p.Until) {
@@ -199,6 +216,7 @@ func pause(key pauseKey, cause error) {
 		}
 	}
 	pauses.m[key] = &PausedError{Until: t.Add(pauseFor), Cause: cause}
+	return pauses.m[key]
 }
 
 // Limits on the text one check sends.
@@ -222,6 +240,7 @@ type asked struct {
 	model         string
 	requestID     string
 	usage         decide.Usage
+	requests      int
 	// partial is true when the middle of the text was not sent.
 	partial bool
 }
@@ -230,7 +249,8 @@ type asked struct {
 // bounded by timeout and the caller's deadline. field names the text in
 // the state the decision model reads. A text too long to send whole is
 // sent as its start and end, or, when whole is set, returns ErrTooLarge.
-// An outage starts a pause for kind; no other error does.
+// Command outages require independent confirmation. Content outages pause
+// directly. Known input failures never start a pause.
 func ask(
 	ctx context.Context,
 	given *decide.Client,
@@ -240,6 +260,10 @@ func ask(
 	questions []question,
 	whole bool,
 ) (asked, error) {
+	command := kind == commandRiskKind
+	if command && ctx.Err() != nil {
+		return asked{}, ctx.Err()
+	}
 	parts, partial := pick(text, partBytes)
 	if partial && whole {
 		return asked{}, ErrTooLarge
@@ -247,10 +271,16 @@ func ask(
 	c, err := client.Default(given)
 	key := pauseKey{client: c, kind: kind}
 	if p := paused(key); p != nil {
+		if command && ctx.Err() != nil {
+			return asked{}, ctx.Err()
+		}
 		return asked{}, p
 	}
 	if err != nil {
 		err = fmt.Errorf("%w: %w", errNoClient, err)
+		if command {
+			return asked{}, pauseCommand(ctx, key, err)
+		}
 		pause(key, err)
 		return asked{}, err
 	}
@@ -259,14 +289,25 @@ func ask(
 	}
 	rctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	a, err := askParts(rctx, c, field, parts, questions)
+	var opts []decide.CallOption
+	if command {
+		// The command policy owns confirmation, without hidden retries.
+		opts = []decide.CallOption{decide.WithCallMaxRetries(0)}
+	}
+	a, err := askParts(rctx, c, field, parts, questions, opts...)
+	if command && rctx.Err() != nil {
+		return a, errors.Join(rctx.Err(), err)
+	}
 	if err != nil {
 		err = fmt.Errorf("toolcheck: %s: %w", kind, err)
+		if command {
+			return confirmCommandOutage(rctx, c, key, a, err)
+		}
 		// The caller's deadline or cancel never starts a pause.
 		if ctx.Err() == nil && IsOutage(err) {
 			pause(key, err)
 		}
-		return asked{}, err
+		return a, err
 	}
 	a.partial = partial
 	return a, nil
@@ -282,6 +323,7 @@ func askParts(
 	field string,
 	parts []string,
 	questions []question,
+	opts ...decide.CallOption,
 ) (asked, error) {
 	results := make([]asked, len(parts))
 	errs := make([]error, len(parts))
@@ -293,15 +335,17 @@ func askParts(
 			state["part"] = fmt.Sprintf("%d of %d", i+1, len(parts))
 		}
 		wg.Go(func() {
-			sem <- struct{}{}
+			select {
+			case <-ctx.Done():
+				errs[i] = ctx.Err()
+				return
+			case sem <- struct{}{}:
+			}
 			defer func() { <-sem }()
-			results[i], errs[i] = askOne(ctx, c, state, questions)
+			results[i], errs[i] = askOne(ctx, c, state, questions, opts...)
 		})
 	}
 	wg.Wait()
-	if err := firstError(errs); err != nil {
-		return asked{}, err
-	}
 	out := asked{probabilities: map[string]float64{}}
 	best := -1.0
 	for _, r := range results {
@@ -316,8 +360,9 @@ func askParts(
 		}
 		out.usage.InputTokens += r.usage.InputTokens
 		out.usage.OutputTokens += r.usage.OutputTokens
+		out.requests += r.requests
 	}
-	return out, nil
+	return out, firstError(errs)
 }
 
 func firstError(errs []error) error {
@@ -337,25 +382,29 @@ func askOne(
 	c *decide.Client,
 	state map[string]string,
 	questions []question,
+	opts ...decide.CallOption,
 ) (asked, error) {
+	if err := ctx.Err(); err != nil {
+		return asked{}, err
+	}
 	req := decide.NewRequest(state)
 	for _, q := range questions {
 		decide.Ask(req, q.key, q.q)
 	}
-	resp, err := c.SystemOne(ctx, req)
+	resp, err := c.SystemOne(ctx, req, opts...)
+	out := asked{requests: 1}
+	if resp != nil {
+		out.usage = resp.Usage
+	}
 	if err != nil {
-		return asked{}, err
+		return out, err
 	}
-	out := asked{
-		probabilities: make(map[string]float64, len(questions)),
-		model:         resp.Model,
-		requestID:     resp.RequestID,
-		usage:         resp.Usage,
-	}
+	out.probabilities = make(map[string]float64, len(questions))
+	out.model, out.requestID = resp.Model, resp.RequestID
 	for _, q := range questions {
 		a, ok := resp.Answers[q.key].(*decide.NoulAnswer)
 		if !ok || a == nil || math.IsNaN(a.Noul) || a.Noul < 0 || a.Noul > 1 {
-			return asked{}, fmt.Errorf("%w: no valid %s answer (request %s)",
+			return out, fmt.Errorf("%w: no valid %s answer (request %s)",
 				decide.ErrInvalidAnswer, q.key, resp.RequestID)
 		}
 		out.probabilities[q.key] = a.Noul

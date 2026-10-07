@@ -148,13 +148,25 @@ result reaches the model unchanged; the command check gives a
 unchecked. When the
 command check fails in a way the input can cause (a timeout, a rate limit, a
 command too long to check, a rejected request, or an invalid answer), its
-hook holds the call for approval instead, with a `Reason` that says why. After an outage (no key,
-a failed login, a server error, or a lost connection) a check pauses for a
-minute; a timeout, a rate limit, or a rejected input never pauses it, and
+hook holds the call for approval instead, with a `Reason` that says why.
+Before a command server or connection failure starts a pause, `CommandRisk`
+asks about fixed benign text (`true`) to confirm availability. A valid or
+non-outage answer leaves the original command suspect. All requests share
+the same timeout; no SDK retries run. At most eight command parts plus one
+confirmation request are sent. Setup and authentication failures need no
+confirmation. After a confirmed outage a check pauses for a minute;
+a timeout, a rate limit, or a rejected input never pauses it, and
 the content check never pauses the command check. A host
 that asks the user in its own `BeforeTool` hook calls `CommandRisk.Check`
 there and shows one prompt; `toolcheck.IsOutage` tells an outage from a
 failure the input could cause.
+
+`Verdict.Requests` counts logical Decide calls initiated, including command
+confirmation. It does not count SDK retries or prove HTTP dispatch or
+receipt. Unread, paused, and setup failures count zero. `Verdict.Usage`
+keeps observed tokens from successful responses, including before a later
+failure. `OnCheck` runs once per logical check, including an unchecked one.
+See the runnable [outage example](../../decide/toolcheck/example_test.go).
 
 `PromptInjection` does not see everything outside text can reach the model
 through. It does not check:
