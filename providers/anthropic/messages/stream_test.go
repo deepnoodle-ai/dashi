@@ -18,10 +18,12 @@ func TestStreamToolCallWithNoArguments(t *testing.T) {
 		fragments []string
 		want      string
 		cut       bool // the stream ends before the block closes
+		bad       bool // the block closes with invalid arguments
 	}{
 		{name: "empty fragments", fragments: []string{"", ""}, want: `{}`},
 		{name: "mixed fragments", fragments: []string{"", `{"n":`, "", `1}`}, want: `{"n":1}`},
 		{name: "interrupted", fragments: []string{""}, cut: true},
+		{name: "malformed", fragments: []string{"", `{"n":`}, bad: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			events := []string{
@@ -46,6 +48,12 @@ func TestStreamToolCallWithNoArguments(t *testing.T) {
 				if !errors.Is(err, io.ErrUnexpectedEOF) || len(result.Message.Content) != 1 ||
 					result.Message.Content[0].Replay == nil || !result.Message.Content[0].Replay.Partial {
 					t.Fatalf("interrupted call: err = %v, result = %+v", err, result)
+				}
+				return
+			}
+			if tc.bad {
+				if err == nil {
+					t.Fatalf("malformed arguments were accepted: %+v", result)
 				}
 				return
 			}
