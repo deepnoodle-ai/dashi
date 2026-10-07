@@ -69,16 +69,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Tools with no arguments now run on Anthropic when streaming.**
 - **Conversations that used tools on Anthropic can continue on another
   provider.** Tool calls made by Anthropic's code execution tool still can't be moved.
-- **Active summaries state their output allowance and retry once after an
-  output limit.** Both calls use the Turn's limits, budget, and accounting.
-  Empty or refused summaries do not retry. Rejected partial summaries never
-  replace context.
-- **Sessions can accept new requests after settled compaction failures or
-  context limits.** Configured history compaction considers finished tool
-  output as well as last-model usage. `dashi run -c` uses the same recovery
-  path while retaining unresolved parent and child checks.
-- **Print and plain modes show each compaction completion once.** Repeated
-  stop and outcome events no longer duplicate the same notice.
+- **If a conversation outgrows the model's context window, the next message
+  now summarizes older history first** instead of failing every time. Library
+  sessions need a `Compactor` for this; the CLI always has one, including
+  `dashi run -c`. History size now counts large tool results
+  added after the last model call.
+- **If a history summary is cut off for length, Dashi asks once for a shorter
+  one.**
+- **Print and plain modes show "Compaction completed." once** instead of
+  repeating it.
 
 - **The Anthropic Messages client sends reasoning effort `xhigh`** as
   `output_config.effort`. It refused `xhigh` before, although the catalog
