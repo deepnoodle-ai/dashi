@@ -1,6 +1,6 @@
 # Continue after compaction or context limits
 
-Status: Draft\
+Status: Approved\
 PRD PR: pending · Implementation PR: pending · Updated: 2026-10-07
 
 ## Problem and context
@@ -47,6 +47,8 @@ All earlier dispatched work has settled. Session closes the stopped Turn through
 - [ ] A separate fixture exhausts both output-limited summary attempts, reloads, and completes a smaller next prompt after history compaction.
   The failed retry does not trap future requests once work settles.
 - [ ] Compaction considers current projected history size as well as reported usage. Failed and context-limited finished work can qualify after safe closure.
+- [ ] Large encoded media with low reported usage does not trigger byte-based history compaction or a false context-fit claim.
+  Reported usage can still trigger existing between-Turn compaction. Media protection retains its documented limitations.
 - [ ] Full conversation history and source facts remain available. Reload applies the recorded replacement once. Completed effects never run again.
 - [ ] A running worker, unresolved effect, pending approval, unresolved child task, or missing task notice still blocks a new request.
   Summary failure retains history and reports why the request cannot fit. Recovery never fabricates an answer or silently drops work.
