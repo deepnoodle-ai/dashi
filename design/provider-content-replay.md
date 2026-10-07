@@ -72,10 +72,10 @@ and foreign Gemini private replay remains unsupported. A signed call without a
 provider ID keeps Dashi's internal call/result correlation while its wire
 function response omits the ID.
 
-Anthropic tool replay recognizes an absent `caller` or exactly
-`{"type":"direct"}`. The direct marker adds no semantics beyond a canonical
-tool call. Programmatic callers and unfamiliar nested fields remain rejected
-for stripping or edits because they can depend on a code-execution run.
+An Anthropic tool call can move to another provider when its `caller` field
+is missing or `{"type":"direct"}`, meaning the model called the tool itself.
+A call made by Anthropic's code sandbox depends on that sandbox, so it cannot
+move.
 
 A known content kind alone does not establish portability. Unrecognized fields,
 nonempty output-phase metadata, and unmodeled semantics prevent automatic

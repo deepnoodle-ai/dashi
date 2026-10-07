@@ -231,13 +231,6 @@ Recognized portable history can be re-encoded for another model with each
 replay strip recorded. Message source remains intact and file IDs require
 origin. `Input.ContentPolicy.UnreplayableReasoning` can explicitly permit
 recorded reasoning omission; other unsupported content losses are rejected.
-This applies to retained compaction messages and unchanged conversation
-history alike. Keep their original replay attachments. Preparation recognizes
-ordinary Anthropic tool calls with exactly `caller: {"type":"direct"}` and
-preserves their canonical call/result pairing on a provider switch.
-Programmatic callers and unfamiliar caller fields still require their original
-destination because they can carry dependencies that a direct call cannot
-represent.
 See [content replay](../../design/provider-content-replay.md) for supported
 conversions and stored-record changes.
 

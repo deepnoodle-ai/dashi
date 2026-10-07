@@ -87,7 +87,7 @@ func checkReplay(c, original llm.Content, role llm.Role, foreign bool) error {
 		case o.Origin.API == "anthropic.messages" &&
 			kind == "tool_use":
 			known = only(fields, "type", "id", "name", "input", "caller") &&
-				anthropicDirectCaller(fields["caller"])
+				isDirectCaller(fields["caller"])
 			id, args = fields["id"], fields["input"]
 		case o.Origin.API == "openai.responses" &&
 			kind == "function_call":
@@ -170,9 +170,11 @@ func checkReplay(c, original llm.Content, role llm.Role, foreign bool) error {
 	return nil
 }
 
-// A direct caller adds no meaning beyond the canonical tool call. Other
-// callers can depend on a provider code-execution run that we cannot discard.
-func anthropicDirectCaller(raw json.RawMessage) bool {
+// isDirectCaller reports whether an Anthropic tool call's caller field is
+// missing or {"type":"direct"}, meaning the model called the tool itself.
+// Calls made by Anthropic's code sandbox depend on that sandbox, so they
+// cannot move to another provider.
+func isDirectCaller(raw json.RawMessage) bool {
 	if len(raw) == 0 {
 		return true
 	}
