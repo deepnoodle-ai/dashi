@@ -146,6 +146,41 @@ func TestCompactionPrintAndPlainOutputBoundaries(t *testing.T) {
 				strings.Contains(out.String()+diagnostics.String(), "<conversation>") {
 				t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), diagnostics.String())
 			}
+			if got := strings.Count(out.String()+diagnostics.String(), "Compaction completed."); got != 1 {
+				t.Fatalf("completion notices=%d stdout=%q stderr=%q", got, out.String(), diagnostics.String())
+			}
+		})
+	}
+}
+
+func TestManualCompactionPrintAndPlainCompletionOnce(t *testing.T) {
+	for _, mode := range []string{"print", "plain"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := testConfig(t, fullWindow, say("<summary>Kept fact.</summary>"))
+			compactWindow(cfg.Client.(*fakeClient))
+			var output bytes.Buffer
+			var ui UI = newLineUI(&output)
+			if mode == "print" {
+				ui = &printUI{err: &output}
+			}
+			a, err := buildApp(t.Context(), cfg, ui)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer a.eng.Close()
+			if _, err = a.openSession(cfg.Store, cfg.Dir, Options{}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = a.eng.Prompt(t.Context(), compactionSeed()); err != nil {
+				t.Fatal(err)
+			}
+			output.Reset()
+			if _, err = a.eng.Compact(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Count(output.String(), "Compaction completed."); got != 1 {
+				t.Fatalf("notices=%d output=%q", got, output.String())
+			}
 		})
 	}
 }

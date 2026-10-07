@@ -299,24 +299,6 @@ func TestFallbacks(t *testing.T) {
 			want: "deadline exceeded", cause: CauseTimeout, requests: 1,
 		},
 		{
-			// JSON escapes each < and > as six bytes, so the user's words
-			// encode to a state over the Decide limit; nothing is sent.
-			name: "state too large",
-			setup: func(t *testing.T) *Compactor {
-				_, client := judge(t, nil)
-				base := smallWindow()
-				base.Policy.Model.Capabilities.ContextWindow = 20_000
-				return &Compactor{Base: base, Client: client}
-			},
-			messages: func() []llm.Message {
-				m := history()
-				m[1] = user(strings.Repeat("<", 3_100))
-				m[7] = user(strings.Repeat(">", 3_100))
-				return m
-			},
-			want: "too large for the request limits", cause: CauseTooLarge,
-		},
-		{
 			// Every segment is dropped, so the summary covers the task and
 			// all eight results. With the pinned task's mark, that is just
 			// over the summarizer's minimum transcript; without it (stock),

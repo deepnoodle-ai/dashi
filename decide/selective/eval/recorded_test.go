@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -78,6 +79,65 @@ func TestRecordedCases(t *testing.T) {
 		if size := keptTokens(c.messages, &dashi.CompactionFact{SummaryAt: -1}); c.window != int(float64(size)/caseFill) {
 			t.Errorf("%s: window %d for %d tokens", c.name, c.window, size)
 		}
+	}
+}
+
+// A saved non-generated needle is judged from decoded segment text and
+// survives the recorded path without keys, even when JSON must escape it.
+func TestKeylessRecordedNeedles(t *testing.T) {
+	ctx := context.Background()
+	folder := filepath.Join(t.TempDir(), "private-session-name")
+	rec, err := filerecorder.New(filerecorder.Config{Dir: filepath.Join(folder, "turns"), DisableSync: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer := `PRIVATE<ZX-9917>"`
+	fixed, err := tool.Func("bash", "Returns a recorded build log.", func(context.Context, tool.Call, struct{}) (tool.Outcome, error) {
+		return tool.Succeeded(answer + "\n" + strings.Repeat("ordinary log line\n", 6000)), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := dashi.Runner{Client: dashitest.NewClient(dashitest.CallTool("c1", "bash", `{}`), dashitest.Reply("The build failed."), dashitest.Reply("ready")), Recorder: rec, Tools: tool.List{fixed}}
+	var turns []dashi.Turn
+	for i, request := range []string{"Find why the build fails.", "Keep going."} {
+		history, _ := dashi.BuildHistory(turns)
+		out, err := runner.Run(ctx, dashi.NewTurn(dashisession.TurnID(filepath.Base(folder), i+1)), dashi.Start{
+			CommandID: "run", Agent: dashi.Agent{Model: dashitest.Model, Limits: dashi.Limits{ToolResultBytes: -1}}, History: history, Input: []llm.Message{llm.UserMessage(llm.Text(request))},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		turns = append(turns, out.Turn)
+	}
+	path := filepath.Join(t.TempDir(), "needles.json")
+	if err := writeNeedles(path, minedNeedles{filepath.Base(folder) + "/t1": {}, filepath.Base(folder) + "/t2": {{Kind: "error", Answer: answer, Question: "Which error occurred?"}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "TYPESAFE_API_KEY"} {
+		t.Setenv(name, "")
+	}
+	cases, err := recordedSessions(ctx, []string{folder})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) != 2 {
+		t.Fatalf("recorded cases %d", len(cases))
+	}
+	if len(stillValid(cases[1], []needle{{Answer: answer}})) != 1 {
+		t.Fatal("second case has no valid needle")
+	}
+	var out bytes.Buffer
+	cfg := config{recorded: []string{folder}, needles: path}
+	r, err := run(ctx, cfg, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.sessions) != 1 || !r.results[armSelective][0].found[answer] {
+		t.Fatal("recorded needle was not retained")
+	}
+	if strings.Contains(out.String(), answer) || strings.Contains(out.String(), "private-session-name") || strings.Contains(out.String(), folder) {
+		t.Fatalf("private recorded data in public output: %s", out.String())
 	}
 }
 

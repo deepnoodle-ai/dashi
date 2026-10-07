@@ -6,16 +6,46 @@ Run it from `decide/`:
 
 ```sh
 go run ./selective/eval              # keyless: plumbing checks only
-go run ./selective/eval -live        # Claude (ANTHROPIC_API_KEY) and Jev (TYPESAFE_API_KEY)
-go run ./selective/eval -live -vague # the latest request is "Keep going."
+go run ./selective/eval -live -max-cost 1 # models and Jev; conservative cap in USD
+go run ./selective/eval -live -max-cost 1 -vague # the latest request is "Keep going."
 go run ./selective/eval -long-turn   # a large file read in the last turn
-go run ./selective/eval -live -recorded ~/.dashi/sessions -needles needles.json
+go run ./selective/eval -live -max-cost 1 -recorded ~/.dashi/sessions -needles needles.json
 ```
 
 A recorded case runs on its own provider: an OpenAI case needs
 `OPENAI_API_KEY`, and a case of another provider stops the run.
 `needles.json` quotes private sessions; it is written with mode 0600 and
-ignored by Git.
+ignored by Git. Missing needles require explicit `-live -mine-needles`.
+
+`-live` requires `-max-cost`: one shared USD ledger reserves each request's
+conservative cost before dispatch, including full output and cache writes.
+Failed or unknown calls retain their full reserve. A complete successful model
+result settles unused risk only with verified model/tier and complete priced
+usage. Required numeric input, output, cache-read, and cache-write counters
+must be present and match normalized usage. Missing counters mean unknown
+charges, never measured zero; the [prompt caching guide](https://developers.openai.com/api/docs/guides/prompt-caching)
+shows the native cache counters. OpenAI requests explicitly use the default serving tier and verify the
+reported tier; see the [Responses reference](https://developers.openai.com/api/reference/resources/responses/methods/create).
+Decide reservations remain held in full. Reports separate held reserve,
+gross full reservations, and observed cost. SDK and HTTP transports perform zero
+retries. Safe failure diagnostics retain category, stage, status, and recognized
+code, plus canonical Turn/limit/model stop enums; raw provider errors and stop
+reasons stay private.
+`-preflight` prepares real provider requests with scripted replies and fake
+selection. It makes no paid calls. Its reservation total covers those payloads;
+real model output can change later payloads, so the live guard checks them again.
+Use the provider configuration intended for the live run: credentials qualify
+saved private replay, so changing that namespace can reject opaque content.
+
+By default recorded cases keep their own model and provider. An explicit
+`-override-recorded-model -provider openai -model gpt-6-luna` compares all cases
+on a cheaper common model. `-summary-tokens`, `-probe-tokens`, and
+`-reasoning-effort` control output ceilings and reasoning. Reports identify
+these changes. The optional `-provider-smoke` check also uses the same reserve.
+Public reports use per-run ordinal case IDs and never quote private needles.
+Keyless recorded checks validate selected-content preservation. Their oracle
+can identify a needle while its segment still exceeds a request or history
+budget; omitted needles count as recall misses, not plumbing failures.
 
 ## Setup
 
@@ -118,19 +148,20 @@ cause.
 The data shows that selective helps on these generated sessions; it does not
 yet show that the bar is met in general.
 
-On recorded CLI sessions the bar is not met. Selective beats the stock
-summary by 11 points, but keeping the newest older messages without Decide
-recalls as much, so Decide's choice has not yet earned its place; the
-design says to drop the package in that case. So the dashi CLI does not
-ship it; the library package stays experimental.
+On the corrected recorded corpus, selective recalls 24/64 versus recency
+29/64. Its 7.8125-point deficit does not meet the 10-point lead required to
+ship. The dashi CLI does not ship it; the library package stays experimental.
+The earlier recorded comparison below remains historical because its window
+calculation and summary/probe models differ.
 
 ## Live run 3, 2026-10-06: recorded CLI sessions
 
 These totals came from an earlier window calculation that measured each
 case with reasoning, although every arm gets the history without it. The
 eval now measures the history without reasoning (13 cases, 64 needles from
-the same mined needles), but this run has not been repeated with it; see
-[#221](https://github.com/deepnoodle-ai/dashi/issues/221).
+the same mined needles). Live run 4 below repeats the complete corrected
+comparison with an explicitly cheaper summary/probe model; the expensive
+original-model comparison has not been rerun.
 
 `-recorded` reads dashi CLI session folders. Each turn end of 20,000 to
 120,000 estimated tokens is one case, compacted for a window its history
@@ -174,6 +205,15 @@ Against the bar: beats stock by +11 (met); beats request-aware stock by +9
 (not met); beats recency by +0 (not met); no fallbacks (met); Decide spend
 3% of the summary spend (met). Selective matched recency while keeping 38%
 fewer tokens, so later turns cost less; it did not recall more.
+
+## Live run 4, 2026-10-07: corrected recorded corpus, cheaper model
+
+All five arms completed all 13 corrected cases and 64 saved needles with
+GPT-6 Luna/none and pinned Jev. Selective recalled 24/64 (37.5%) versus
+recency 29/64 (45.3125%), with no fallbacks. The ship bar is not met; the
+library stays experimental without CLI integration. This complete comparison
+resolves #221 with explicitly changed models. See the [full dated evidence
+and three-attempt spending ledger](selective-compaction-eval-2026-10-07.md).
 
 ## Not yet run
 

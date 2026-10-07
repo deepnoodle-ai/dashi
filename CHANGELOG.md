@@ -57,6 +57,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   including command outage confirmation. `Usage` retains observed tokens
   on failed checks. The CLI uses these observations instead of guessing
   request counts from error types.
+- OpenAI Responses preserves the served service tier in blocking and
+  streaming results, so callers can verify the pricing tier.
+- Selective compaction bounds focus text after JSON encoding, so escaping
+  does not cause unnecessary Decide fallbacks.
+- Recorded selective evaluation judges saved case needles in keyless runs.
+  Paid runs require a conservative shared cost reserve. Preflight, explicit
+  cheaper-model overrides, and output limits make comparisons reviewable.
+  Reports omit private needle text and source session identifiers.
+- **Anthropic tools with no arguments accept empty stream fragments.** A
+  completed empty-object MCP call retains `{}` and runs normally. Malformed
+  nonempty JSON and interrupted tool blocks still fail without execution.
+- **Retained Anthropic direct-tool history can continue on another provider.**
+  Preparation recognizes `caller: {"type":"direct"}`, preserves saved
+  messages, and records portable replay stripping. Programmatic callers and
+  unfamiliar replay dependencies remain rejected.
+- **Active summaries state their output allowance and retry once after an
+  output limit.** Both calls use the Turn's limits, budget, and accounting.
+  Empty or refused summaries do not retry. Rejected partial summaries never
+  replace context.
+- **Sessions can accept new requests after settled compaction failures or
+  context limits.** Configured history compaction considers finished tool
+  output as well as last-model usage. `dashi run -c` uses the same recovery
+  path while retaining unresolved parent and child checks.
+- **Print and plain modes show each compaction completion once.** Repeated
+  stop and outcome events no longer duplicate the same notice.
 
 - **The Anthropic Messages client sends reasoning effort `xhigh`** as
   `output_config.effort`. It refused `xhigh` before, although the catalog

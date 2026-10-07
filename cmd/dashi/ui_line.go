@@ -88,6 +88,12 @@ func (u *lineUI) Emit(b Block) {
 		if !b.Done {
 			return
 		}
+	case KindCompaction:
+		text := FormatBlock(b)
+		if u.printed[b.ID] == text {
+			return
+		}
+		u.printed[b.ID] = text
 	case KindNotice, KindHint:
 		if b.ID == "task-delivery" {
 			if u.printed[b.ID] == b.Text {
@@ -315,7 +321,8 @@ type printUI struct {
 	yes bool
 	mu  sync.Mutex
 	// taskPrinted holds the last state printed for each task status line.
-	taskPrinted map[string]string
+	taskPrinted       map[string]string
+	compactionPrinted map[string]string
 }
 
 func (u *printUI) Emit(b Block) {
@@ -337,6 +344,16 @@ func (u *printUI) Emit(b Block) {
 	}
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if b.Kind == KindCompaction {
+		text := FormatBlock(b)
+		if u.compactionPrinted[b.ID] == text {
+			return
+		}
+		if u.compactionPrinted == nil {
+			u.compactionPrinted = map[string]string{}
+		}
+		u.compactionPrinted[b.ID] = text
+	}
 	if b.Kind == KindTaskStatus {
 		// Only the end of a task, once.
 		if !b.Done || u.taskPrinted[b.ID] == b.Name {

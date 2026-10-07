@@ -377,18 +377,18 @@ func (e *env) recordedWithNeedles(ctx context.Context) ([]session, error) {
 	}
 	if e.checkProvider != nil {
 		for _, s := range cases {
-			if err := e.checkProvider(s.provider); err != nil {
+			if err := e.checkProvider(e.providerFor(s)); err != nil {
 				return nil, fmt.Errorf("case %s: %w", s.name, err)
 			}
 		}
 	}
 	changed := false
 	var out []session
-	for _, s := range cases {
+	for i, s := range cases {
 		n, ok := mined[s.name]
 		if !ok {
-			if !e.cfg.live {
-				return nil, fmt.Errorf("case %s has no needles in %s; mine them with -live", s.name, e.cfg.needles)
+			if !e.cfg.live || !e.cfg.mineNeedles {
+				return nil, fmt.Errorf("recorded case %d has no saved needles; mining requires -live -mine-needles", i+1)
 			}
 			if n, err = e.mine(ctx, s); err != nil {
 				return nil, fmt.Errorf("case %s: %w", s.name, err)
@@ -398,8 +398,7 @@ func (e *env) recordedWithNeedles(ctx context.Context) ([]session, error) {
 		}
 		valid := stillValid(s, n)
 		if dropped := len(n) - len(valid); dropped > 0 {
-			fmt.Fprintf(os.Stderr, "case %s: %d of %d needles are no longer only in the compacted part; left out\n",
-				s.name, dropped, len(n))
+			fmt.Fprintf(os.Stderr, "%d of %d saved needles for a recorded case are no longer only in the compacted part; left out\n", dropped, len(n))
 		}
 		if len(valid) == 0 {
 			continue

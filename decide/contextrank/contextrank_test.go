@@ -410,9 +410,8 @@ func TestItemInKeptTailStaysPresent(t *testing.T) {
 	policy := compaction.Policy{}
 	policy.Model.Capabilities.ContextWindow = 1_000
 	s := &session.Session{
-		Runner:    dashi.Runner{Client: model, Hooks: ranker.Hook().Hooks()},
-		Agent:     dashi.Agent{Model: dashitest.Model},
-		Compactor: compaction.New(policy), // keeps a quarter-window tail
+		Runner: dashi.Runner{Client: model, Hooks: ranker.Hook().Hooks()},
+		Agent:  dashi.Agent{Model: dashitest.Model},
 	}
 	// Turn 1 is long, so it is summarized; turn 2, with the item, is kept.
 	for _, text := range []string{
@@ -423,6 +422,9 @@ func TestItemInKeptTailStaysPresent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Enable compaction after seeding both Turns. Projected-history sizing
+	// can otherwise compact the deliberately long first Turn early.
+	s.Compactor = compaction.New(policy) // keeps a quarter-window tail
 	out, err := s.Send(t.Context(), "Is it still 8443?")
 	if err != nil {
 		t.Fatal(err)

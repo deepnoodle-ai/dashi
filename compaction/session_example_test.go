@@ -4,13 +4,45 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/compaction"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
+
+// Finished tool output can fill history even when last-model usage is low.
+func ExampleCompactor_finishedToolOutput() {
+	client := dashitest.NewClient(dashitest.CallTool("read-1", "read", `{}`),
+		dashitest.Reply("Read the evidence."), dashitest.Reply("<summary>The finding is 42.</summary>"), dashitest.Reply("The finding is 42."))
+	policy := compaction.Policy{Model: llm.ModelInfo{Capabilities: llm.Capabilities{ContextWindow: 4000}}}
+	calls := 0
+	s := &session.Session{ID: "chat", New: true, Runner: dashi.Runner{Client: client, Tools: tool.List{
+		tool.MustFunc("read", "Read evidence", func(context.Context, tool.Call, struct{}) (tool.Outcome, error) {
+			calls++
+			return tool.Succeeded("Finding: 42\n" + strings.Repeat("detail ", 600)), nil
+		}),
+	}}, Agent: dashi.Agent{Model: dashitest.Model}, Compactor: compaction.New(policy)}
+	ctx := context.Background()
+	_, err := s.Send(ctx, "Read the evidence.")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	out, err := s.Send(ctx, "What was the finding?")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(out.Turn.ID, out.Reply)
+	fmt.Println("finished reads:", calls)
+	// Output:
+	// chat-3 The finding is 42.
+	// finished reads: 1
+}
 
 // A Session with a Compactor runs a compaction turn when the last model
 // call used 80% of the window. A handle with no Compactor builds the same
