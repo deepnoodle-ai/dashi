@@ -102,6 +102,11 @@ carries the tokens of the request, so a host can total them. A `Check`
 error means skipped; on an outage the hooks let the action go on, and
 the command hook holds the call on any other error.
 
+> Since PR #239, `IsOutage` is `IsPaused`, and the command check pauses
+> only when Decide is not set up; a server or connection error holds the
+> command. See the [hooks guide](../guides/hooks.md). The Errors section
+> below records the original design and is out of date.
+
 **Errors.** A host must tell an outage from a failure that the input
 could cause, since an attacker can shape the input. Every `Check` error
 wraps its cause, so `errors.Is` and `errors.As` see decide's errors.

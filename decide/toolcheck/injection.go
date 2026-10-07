@@ -75,7 +75,10 @@ type PromptInjection struct {
 // take over the agent or hides text. For a result the check does not read,
 // it makes no request and returns a Verdict with Checked false and no
 // error. A long text is checked at its start and end only, and the
-// verdict is Partial. Errors are as for CommandRisk.Check.
+// verdict is Partial. An error means the check was skipped; IsPaused
+// tells a paused check from a failure the input could cause. When Decide is not
+// set up, or returns a server or connection error, the check pauses for a
+// minute and returns a *PausedError, as it does during the pause.
 func (c PromptInjection) Check(ctx context.Context, p dashi.ResultPlan) (Verdict, error) {
 	v := Verdict{Call: p.Call.Clone()}
 	text, ok := c.reads(p)
@@ -87,7 +90,7 @@ func (c PromptInjection) Check(ctx context.Context, p dashi.ResultPlan) (Verdict
 	}
 	a, err := ask(ctx, c.Client, "prompt-injection",
 		cmp.Or(c.Timeout, defaultContentTimeout),
-		"content", text, contentQuestions, false)
+		"content", text, contentQuestions, false, contentPauses)
 	v.Requests, v.Usage = a.requests, a.usage
 	if err != nil {
 		c.report(v, err)
@@ -142,7 +145,7 @@ func (c PromptInjection) report(v Verdict, err error) {
 //   - For a Partial verdict, the model also reads a fixed notice that part
 //     of the result was too large to check and must be treated as
 //     untrusted.
-//   - When Decide cannot answer because of an outage, the result reaches
+//   - While the check is paused, the result reaches
 //     the model as it was, recorded as no_change with the cause, such as
 //     "unchecked: server error".
 //   - When it cannot answer for a reason the input can cause, such as a
@@ -166,7 +169,7 @@ func (c PromptInjection) Hooks() dashi.Hooks {
 				return dashi.ResultDecision{}, err
 			case err != nil:
 				d := dashi.ResultDecision{Reason: uncheckedPrefix + string(CauseOf(err))}
-				if !IsOutage(err) {
+				if !IsPaused(err) {
 					// The input may have broken the check, such as a page
 					// built to time it out, so the model is told.
 					replace := p.Result

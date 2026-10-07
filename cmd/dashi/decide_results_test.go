@@ -224,9 +224,9 @@ func TestDecidePromptInjectionChecksMCPToolMarkedClosedWorld(t *testing.T) {
 	mustHave(t, inputText(h.client.inputAt(1)), "decide checked this mcp__docs__fetch result: 96% likely")
 }
 
-// An outage leaves the result unchecked and pauses the check: the row
+// A server error leaves the result unchecked and pauses the check: the row
 // says so, line mode warns once, and no hook warning shows.
-func TestDecidePromptInjectionOutage(t *testing.T) {
+func TestDecidePromptInjectionPauses(t *testing.T) {
 	h, srv := decideFeatureHarness(t, []string{decidePromptInjection},
 		callTool("c1", "bash", fetchCommand),
 		callTool("c2", "bash", fetchCommand),

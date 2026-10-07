@@ -12,15 +12,15 @@
 // and tell the user what it tried to get you to do.
 //
 // Both are advice, not a sandbox. They never approve a call; only a person
-// or the host's own policy can. On an outage, such as no key or a Decide
-// server error, the call runs and the result reaches the model as if the
-// check were not there: the command check's hook gives Dashi a hook_failed
-// warning, and the content check's hook records the result as unchecked.
-// CommandRisk confirms server and connection failures with one fixed benign
-// request under the same deadline. An unconfirmed failure, or one the input
-// can cause, such as a timeout, holds the call for approval instead. A host
-// that asks the user in its own BeforeTool hook calls Check from there,
-// so the user sees one prompt.
+// or the host's own policy can. When Decide is not set up, such as with no
+// key or a failed login, a check pauses for a minute and the call runs as
+// if the check were not there: the command check's hook gives Dashi a
+// hook_failed warning, and the content check's hook records the result as
+// unchecked. The content check also pauses on a Decide server or
+// connection error. When the command check fails for any other reason,
+// such as a server error or a timeout, its hook holds the call for
+// approval. A host that asks the user in its own BeforeTool hook calls
+// Check from there, so the user sees one prompt.
 //
 // The checked text goes to the decision model's provider, with the key of
 // the Decide client.
@@ -52,12 +52,11 @@ var defaultShellTools = []string{workspace.ToolBash}
 const (
 	CommandRiskName     = "toolcheck-command-risk"
 	PromptInjectionName = "toolcheck-prompt-injection"
-	commandRiskKind     = "command-risk"
 )
 
 // Verdict is what one check found for one call. Checked is false when the
-// call was unread or any required answer failed. Requests and Usage still
-// describe calls initiated and observed responses on a failure.
+// check did not read the call or could not answer. Requests and Usage are
+// set even when the check failed.
 type Verdict struct {
 	// Call is the tool call checked: its ID, Name, and Args.
 	Call    tool.Call
@@ -72,12 +71,11 @@ type Verdict struct {
 	// Model is the resolved decision model version, such as "jev-1.13.0".
 	Model     string
 	RequestID string
-	// Requests counts logical Decide calls initiated, including command
-	// outage confirmation. It does not count SDK retries or prove HTTP
-	// dispatch or receipt. Paused, unread, and setup failures count zero.
+	// Requests is how many requests the check sent to Decide, not counting
+	// automatic retries.
 	Requests int
-	// Usage holds observed tokens from all responses, including responses
-	// received before a failure and a command outage confirmation.
+	// Usage holds the tokens of every answer Decide gave, even when another
+	// part of a long text failed.
 	Usage decide.Usage
 	// Partial is true when a result was too long to check whole: the check
 	// read its first and last parts and skipped the middle. The
@@ -95,12 +93,15 @@ type Verdict struct {
 // the start and end of a long result instead.
 var ErrTooLarge = errors.New("toolcheck: input too large to check")
 
-// PausedError is returned while a check is paused after an outage. It
-// unwraps to the outage that started the pause.
+// PausedError is returned when a check pauses, and while it stays paused:
+// for a minute the check sends nothing and the call runs unchecked. A check
+// pauses when Decide is not set up, such as no key or a failed login. The
+// content check also pauses when Decide cannot be reached. PausedError
+// unwraps to the error that started the pause.
 type PausedError struct {
 	// Until is when the check asks Decide again.
 	Until time.Time
-	// Cause is the outage that started the pause.
+	// Cause is the error that started the pause.
 	Cause error
 }
 
@@ -115,36 +116,37 @@ func (e *PausedError) Unwrap() error { return e.Cause }
 // key, which no input can cause.
 var errNoClient = errors.New("toolcheck: no decide client")
 
-// IsOutage reports whether err permits a check's outage behavior. No key,
-// a failed login, a server error, a network error that is not a timeout,
-// and a *PausedError normally qualify. CommandRisk wraps an unconfirmed
-// server or connection failure so IsOutage returns false while errors.Is
-// and errors.As still reach the original cause. Any other error
-// may come from the input, which an attacker can shape: a timeout, a rate
-// limit, ErrTooLarge, a rejected request, or a missing or invalid answer.
-// A rate limit is in that group because the input sets how many requests
-// the checks send: a long result is checked in several parts. A host can
-// ask the user about the call in that case.
-func IsOutage(err error) bool {
-	if err == nil {
-		return false
-	}
-	if _, ok := errors.AsType[*unconfirmedError](err); ok {
-		return false
-	}
-	if _, ok := errors.AsType[*PausedError](err); ok {
-		return true
-	}
+// IsPaused reports whether err is a *PausedError: the check is paused and
+// the call ran unchecked. Any other error may come from the input, which
+// an attacker can shape. A host can ask the user about the call in that
+// case.
+func IsPaused(err error) bool {
+	_, ok := errors.AsType[*PausedError](err)
+	return ok
+}
+
+// notSetUp reports whether err means Decide is not set up: no client, no
+// key, or a failed login. No input can cause these. Both checks pause on
+// these.
+func notSetUp(err error) bool {
+	return errors.Is(err, errNoClient) ||
+		errors.Is(err, decide.ErrNoAPIKey) ||
+		errors.Is(err, decide.ErrAuth)
+}
+
+// contentPauses reports whether the content check pauses on err: Decide
+// is not set up, or it could not be reached (a server error, or a network
+// error that is not a timeout). A timeout, a rate limit, or
+// a rejected request does not count, since the input can cause them: a
+// long result is checked in several parts, so it sets how many requests
+// the check sends.
+func contentPauses(err error) bool {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded),
 		errors.Is(err, context.Canceled),
-		errors.Is(err, ErrTooLarge),
 		errors.Is(err, decide.ErrRateLimited):
 		return false
-	case errors.Is(err, errNoClient),
-		errors.Is(err, decide.ErrNoAPIKey),
-		errors.Is(err, decide.ErrAuth),
-		errors.Is(err, decide.ErrServer):
+	case notSetUp(err), errors.Is(err, decide.ErrServer):
 		return true
 	}
 	if _, ok := errors.AsType[*decide.APIError](err); ok {
@@ -163,13 +165,13 @@ func IsOutage(err error) bool {
 	return false
 }
 
-// pauseFor is how long a check skips Decide after an outage.
+// pauseFor is how long a check stays paused.
 const pauseFor = time.Minute
 
 // now is the clock; tests replace it.
 var now = time.Now
 
-// pauseKey names one check kind on one client. A Decide outage is
+// pauseKey names one check kind on one client. A pause is
 // process-wide, so every config and turn sharing a client shares a pause.
 // Each kind pauses on its own, so a failing content check never pauses the
 // command check.
@@ -198,17 +200,12 @@ func paused(key pauseKey) *PausedError {
 	return p
 }
 
-// pause starts a pause for key. It first drops every pause that has
-// ended, so a host that makes a client per tenant or per request does not
-// keep old clients in the table.
-func pause(key pauseKey, cause error) {
+// pause starts a pause for key and returns it. It first drops every pause
+// that has ended, so a host that makes a client per tenant or per request
+// does not keep old clients in the table.
+func pause(key pauseKey, cause error) *PausedError {
 	pauses.Lock()
 	defer pauses.Unlock()
-	pauseLocked(key, cause)
-}
-
-// pauseLocked requires the pause table's mutex.
-func pauseLocked(key pauseKey, cause error) *PausedError {
 	t := now()
 	for k, p := range pauses.m {
 		if !t.Before(p.Until) {
@@ -249,8 +246,8 @@ type asked struct {
 // bounded by timeout and the caller's deadline. field names the text in
 // the state the decision model reads. A text too long to send whole is
 // sent as its start and end, or, when whole is set, returns ErrTooLarge.
-// Command outages require independent confirmation. Content outages pause
-// directly. Known input failures never start a pause.
+// When pauseOn(err) is true for a failure, ask starts a pause for kind
+// and returns the *PausedError; no other failure starts a pause.
 func ask(
 	ctx context.Context,
 	given *decide.Client,
@@ -259,10 +256,11 @@ func ask(
 	field, text string,
 	questions []question,
 	whole bool,
+	pauseOn func(error) bool,
 ) (asked, error) {
-	command := kind == commandRiskKind
-	if command && ctx.Err() != nil {
-		return asked{}, ctx.Err()
+	// A canceled caller gets its own error, never a pause.
+	if err := ctx.Err(); err != nil {
+		return asked{}, err
 	}
 	parts, partial := pick(text, partBytes)
 	if partial && whole {
@@ -271,45 +269,19 @@ func ask(
 	c, err := client.Default(given)
 	key := pauseKey{client: c, kind: kind}
 	if p := paused(key); p != nil {
-		if command && ctx.Err() != nil {
-			return asked{}, ctx.Err()
-		}
 		return asked{}, p
 	}
 	if err != nil {
-		err = fmt.Errorf("%w: %w", errNoClient, err)
-		if command {
-			return asked{}, pauseCommand(ctx, key, err)
-		}
-		pause(key, err)
-		return asked{}, err
-	}
-	if err := ctx.Err(); err != nil {
-		return asked{}, err
+		return asked{}, pause(key, fmt.Errorf("%w: %w", errNoClient, err))
 	}
 	rctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	var opts []decide.CallOption
-	if command {
-		// The command policy owns confirmation, without hidden retries.
-		opts = []decide.CallOption{decide.WithCallMaxRetries(0)}
-	}
-	a, partErrors := askParts(rctx, c, field, parts, questions, opts...)
-	err = firstError(partErrors)
-	if command {
-		err = commandPartsError(partErrors)
-	}
-	if command && rctx.Err() != nil {
-		return a, errors.Join(rctx.Err(), err)
-	}
+	a, err := askParts(rctx, c, field, parts, questions)
 	if err != nil {
 		err = fmt.Errorf("toolcheck: %s: %w", kind, err)
-		if command {
-			return confirmCommandOutage(rctx, c, key, a, err)
-		}
 		// The caller's deadline or cancel never starts a pause.
-		if ctx.Err() == nil && IsOutage(err) {
-			pause(key, err)
+		if ctx.Err() == nil && pauseOn(err) {
+			return a, pause(key, err)
 		}
 		return a, err
 	}
@@ -320,16 +292,15 @@ func ask(
 // askParts asks about each part, a few at once, and combines the answers:
 // each question takes the highest P(yes) of any part, so a text is flagged
 // when any part is. The model and request are the part with the highest
-// P(yes); the usage is the sum. Errors stay in part order so the caller's
-// policy can consider every failure before permitting an outage pause.
+// P(yes); the usage and requests are the sums. The first error, in part
+// order, wins.
 func askParts(
 	ctx context.Context,
 	c *decide.Client,
 	field string,
 	parts []string,
 	questions []question,
-	opts ...decide.CallOption,
-) (asked, []error) {
+) (asked, error) {
 	results := make([]asked, len(parts))
 	errs := make([]error, len(parts))
 	sem := make(chan struct{}, parallelParts)
@@ -347,7 +318,7 @@ func askParts(
 			case sem <- struct{}{}:
 			}
 			defer func() { <-sem }()
-			results[i], errs[i] = askOne(ctx, c, state, questions, opts...)
+			results[i], errs[i] = askOne(ctx, c, state, questions)
 		})
 	}
 	wg.Wait()
@@ -367,7 +338,7 @@ func askParts(
 		out.usage.OutputTokens += r.usage.OutputTokens
 		out.requests += r.requests
 	}
-	return out, errs
+	return out, firstError(errs)
 }
 
 func firstError(errs []error) error {
@@ -387,7 +358,6 @@ func askOne(
 	c *decide.Client,
 	state map[string]string,
 	questions []question,
-	opts ...decide.CallOption,
 ) (asked, error) {
 	if err := ctx.Err(); err != nil {
 		return asked{}, err
@@ -396,7 +366,7 @@ func askOne(
 	for _, q := range questions {
 		decide.Ask(req, q.key, q.q)
 	}
-	resp, err := c.SystemOne(ctx, req, opts...)
+	resp, err := c.SystemOne(ctx, req)
 	out := asked{requests: 1}
 	if resp != nil {
 		out.usage = resp.Usage

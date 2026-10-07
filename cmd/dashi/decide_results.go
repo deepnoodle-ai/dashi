@@ -83,8 +83,8 @@ func (rt *decideRuntime) onInjection(v toolcheck.Verdict, err error) {
 	if warning != "" && rt.warn != nil {
 		rt.warn(warning)
 	}
-	if r.Outage && rt.outage != nil {
-		rt.outage(decidePromptInjection)
+	if r.Paused && rt.warnPause != nil {
+		rt.warnPause(decidePromptInjection)
 	}
 }
 

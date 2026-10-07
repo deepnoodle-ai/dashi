@@ -183,6 +183,27 @@ func TestCommandRiskCheck(t *testing.T) {
 	}
 }
 
+// A failed check still reports how many requests it sent and the tokens of
+// the answers it got.
+func TestFailedCheckKeepsRequestsAndUsage(t *testing.T) {
+	f := newFixture(t)
+	f.srv.Respond(func(req *decide.Request) (*decide.Response, error) {
+		if state, _ := json.Marshal(req.State); strings.Contains(string(state), `"part":"1 of 2"`) {
+			return nil, decide.ErrServer
+		}
+		return &decide.Response{
+			Answers: map[string]decide.Answer{"severe": decidetest.NoulAnswer(0.01)},
+			Usage:   decide.Usage{InputTokens: 5, OutputTokens: 1},
+		}, nil
+	})
+	risk := toolcheck.CommandRisk{Client: f.client}
+	v, err := risk.Check(t.Context(), bashPlan(strings.Repeat("x", toolcheck.PartBytes)+"echo hi"))
+	if err == nil || v.Checked || v.Requests != 2 ||
+		v.Usage.InputTokens != 5 || v.Usage.OutputTokens != 1 {
+		t.Fatalf("verdict = %+v, err = %v", v, err)
+	}
+}
+
 func TestCommandRiskSkipsCallsItDoesNotRead(t *testing.T) {
 	f := newFixture(t)
 	var seen checks
@@ -340,14 +361,13 @@ func TestCheckFromAHostHook(t *testing.T) {
 	}
 }
 
-// On an outage, such as a server error, every call runs and every result
+// When Decide is not set up, such as after a failed login, every call runs and every result
 // reaches the model unchanged. The command check gives a hook_failed
 // warning; the content check records the result as unchecked.
 func TestHooksFailOpen(t *testing.T) {
 	f := newFixture(t)
-	f.srv.FailNext(http.StatusInternalServerError)
-	f.srv.FailNext(http.StatusInternalServerError)
-	f.srv.FailNext(http.StatusInternalServerError)
+	f.srv.FailNext(http.StatusUnauthorized)
+	f.srv.FailNext(http.StatusUnauthorized)
 	risk := toolcheck.CommandRisk{Client: f.client}
 	check := toolcheck.PromptInjection{Client: f.client}
 	var ran []string
@@ -364,11 +384,11 @@ func TestHooksFailOpen(t *testing.T) {
 		t.Fatalf("model saw %q", resultText(got))
 	}
 	w := warnings(out)
-	if len(w) != 1 || !strings.Contains(w[0], toolcheck.CommandRiskName) || !strings.Contains(w[0], "500") {
+	if len(w) != 1 || !strings.Contains(w[0], toolcheck.CommandRiskName) || !strings.Contains(w[0], "401") {
 		t.Fatalf("warnings = %q", w)
 	}
 	if r := hookResults(out, toolcheck.PromptInjectionName); len(r) != 1 ||
-		r[0].Verdict != dashi.VerdictNoChange || r[0].Reason != "unchecked: server error" {
+		r[0].Verdict != dashi.VerdictNoChange || r[0].Reason != "unchecked: auth failed" {
 		t.Fatalf("content hook results = %+v", r)
 	}
 	for _, in := range model.Inputs() {
@@ -383,9 +403,11 @@ func TestHooksFailOpen(t *testing.T) {
 	}
 }
 
-// A failure the input can cause holds the command for approval with a
-// Reason that says why it was not checked; it never lets the call run.
-func TestCommandRiskHookHoldsWhenTheInputBreaksTheCheck(t *testing.T) {
+// A failed check that is not paused holds the command for approval
+// with a Reason that says why it was not checked; it never lets the call
+// run. A server or connection error holds the command too, so a command
+// that breaks Decide cannot turn the check off.
+func TestCommandRiskHookHoldsWhenTheCheckFails(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		setup func(*fixture, *toolcheck.CommandRisk) string
@@ -400,6 +422,14 @@ func TestCommandRiskHookHoldsWhenTheInputBreaksTheCheck(t *testing.T) {
 			f.srv.FailNext(http.StatusTooManyRequests)
 			return "rm -rf ~"
 		}, "Decide's rate limit was reached"},
+		{"server error", func(f *fixture, _ *toolcheck.CommandRisk) string {
+			f.srv.FailNext(http.StatusInternalServerError)
+			return "rm -rf ~"
+		}, "Decide returned a server error"},
+		{"connection", func(f *fixture, _ *toolcheck.CommandRisk) string {
+			f.srv.FailNextConn()
+			return "rm -rf ~"
+		}, "Decide's connection failed"},
 		{"rejected", func(f *fixture, _ *toolcheck.CommandRisk) string {
 			f.srv.FailNext(http.StatusUnprocessableEntity)
 			return "rm -rf ~"
@@ -447,7 +477,7 @@ func resultText(r llm.ToolResult) string {
 	return strings.Join(parts, "\n")
 }
 
-// A missing or invalid answer is an error that is not an outage, never a
+// A missing or invalid answer is an error that does not pause, never a
 // passed check, and it is visible to OnCheck and in the hook record.
 func TestMissingOrInvalidAnswerIsAnError(t *testing.T) {
 	cases := []struct {
@@ -482,14 +512,14 @@ func TestMissingOrInvalidAnswerIsAnError(t *testing.T) {
 				v, err = toolcheck.PromptInjection{Client: f.client, OnCheck: seen.add}.
 					Check(t.Context(), resultPlan("fetch_page", nil, page))
 			}
-			if err == nil || v.Checked || v.Flagged || toolcheck.IsOutage(err) ||
+			if err == nil || v.Checked || v.Flagged || toolcheck.IsPaused(err) ||
 				!errors.Is(err, decide.ErrInvalidAnswer) {
 				t.Fatalf("verdict = %+v, err = %v", v, err)
 			}
 			if got := seen.all(); len(got) != 1 || got[0].err == nil {
 				t.Fatalf("OnCheck saw %+v", got)
 			}
-			// Not an outage, so the next check asks again.
+			// Not paused, so the next check asks again.
 			before := f.requests()
 			toolcheck.CommandRisk{Client: f.client}.Check(t.Context(), bashPlan("ls"))
 			if f.requests() != before+1 {
@@ -541,16 +571,16 @@ func TestPromptInjectionHookNotesAnUncheckedResult(t *testing.T) {
 	}
 }
 
-// An outage pauses the check for a minute, for every config sharing the
-// client; each skip returns a *PausedError, and the check asks again after.
-func TestOutagePausesForAMinute(t *testing.T) {
+// A setup failure pauses the check for a minute, for every config sharing
+// the client; each skip returns a *PausedError, and the check asks again
+// after.
+func TestSetupFailurePausesForAMinute(t *testing.T) {
 	f := newFixture(t)
-	f.srv.FailNext(http.StatusServiceUnavailable)
-	f.srv.FailNext(http.StatusServiceUnavailable)
+	f.srv.FailNext(http.StatusUnauthorized)
 	var seen checks
 	risk := toolcheck.CommandRisk{Client: f.client, OnCheck: seen.add}
 	_, err := risk.Check(t.Context(), bashPlan("ls"))
-	if !toolcheck.IsOutage(err) || !errors.Is(err, decide.ErrServer) {
+	if !toolcheck.IsPaused(err) || !errors.Is(err, decide.ErrAuth) {
 		t.Fatalf("err = %v", err)
 	}
 	f.clock = f.clock.Add(30 * time.Second)
@@ -558,11 +588,11 @@ func TestOutagePausesForAMinute(t *testing.T) {
 	_, err = other.Check(t.Context(), bashPlan("ls"))
 	paused, ok := errors.AsType[*toolcheck.PausedError](err)
 	if !ok || !paused.Until.Equal(f.clock.Add(30*time.Second)) ||
-		!errors.Is(err, decide.ErrServer) || !toolcheck.IsOutage(err) ||
+		!errors.Is(err, decide.ErrAuth) || !toolcheck.IsPaused(err) ||
 		!strings.Contains(err.Error(), "paused until 14:32:00") {
 		t.Fatalf("err = %v", err)
 	}
-	if f.requests() != 2 {
+	if f.requests() != 1 {
 		t.Fatalf("requests = %d while paused", f.requests())
 	}
 	// The other check kind is not paused.
@@ -580,26 +610,46 @@ func TestOutagePausesForAMinute(t *testing.T) {
 }
 
 // A rate limit on content checks, which a long hostile page can cause,
-// never pauses either check, and a content outage never pauses the command
-// check.
+// never pauses either check, and a paused content check never pauses the
+// command check.
 func TestContentChecksNeverPauseTheCommandCheck(t *testing.T) {
 	f := newFixture(t)
 	check := toolcheck.PromptInjection{Client: f.client}
 	risk := toolcheck.CommandRisk{Client: f.client}
 	f.srv.FailNext(http.StatusTooManyRequests)
 	_, err := check.Check(t.Context(), resultPlan("fetch_page", nil, page))
-	if !errors.Is(err, decide.ErrRateLimited) || toolcheck.IsOutage(err) {
+	if !errors.Is(err, decide.ErrRateLimited) || toolcheck.IsPaused(err) {
 		t.Fatalf("rate limit: err = %v", err)
 	}
 	if _, err := check.Check(t.Context(), resultPlan("fetch_page", nil, page)); err != nil {
 		t.Fatalf("content check paused after a rate limit: %v", err)
 	}
 	f.srv.FailNext(http.StatusBadGateway)
-	if _, err := check.Check(t.Context(), resultPlan("fetch_page", nil, page)); !toolcheck.IsOutage(err) {
+	if _, err := check.Check(t.Context(), resultPlan("fetch_page", nil, page)); !toolcheck.IsPaused(err) {
 		t.Fatalf("server error: err = %v", err)
 	}
 	if _, err := risk.Check(t.Context(), bashPlan("rm -rf ~")); err != nil {
-		t.Fatalf("command check paused by a content outage: %v", err)
+		t.Fatalf("command check paused by the content check: %v", err)
+	}
+}
+
+// A canceled caller gets context.Canceled, not the pause in effect, and
+// nothing is sent.
+func TestCanceledCheckNeverPauses(t *testing.T) {
+	f := newFixture(t)
+	risk := toolcheck.CommandRisk{Client: f.client}
+	f.srv.FailNext(http.StatusUnauthorized)
+	if _, err := risk.Check(t.Context(), bashPlan("ls")); !toolcheck.IsPaused(err) {
+		t.Fatalf("err = %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	v, err := risk.Check(ctx, bashPlan("ls"))
+	if !errors.Is(err, context.Canceled) || toolcheck.IsPaused(err) || v.Requests != 0 {
+		t.Fatalf("during a pause: err = %v, requests = %d", err, v.Requests)
+	}
+	if f.requests() != 1 {
+		t.Fatalf("requests = %d", f.requests())
 	}
 }
 
@@ -609,8 +659,7 @@ func TestEndedPausesAreDropped(t *testing.T) {
 	f := newFixture(t)
 	for range 3 {
 		other := decidetest.NewServer(t)
-		other.FailNext(http.StatusServiceUnavailable)
-		other.FailNext(http.StatusServiceUnavailable)
+		other.FailNext(http.StatusUnauthorized)
 		toolcheck.CommandRisk{Client: other.Client(t, decide.WithMaxRetries(0))}.
 			Check(t.Context(), bashPlan("ls"))
 	}
@@ -618,44 +667,58 @@ func TestEndedPausesAreDropped(t *testing.T) {
 		t.Fatalf("pauses = %d, want 3", n)
 	}
 	f.clock = f.clock.Add(2 * time.Minute)
-	f.srv.FailNext(http.StatusServiceUnavailable)
-	f.srv.FailNext(http.StatusServiceUnavailable)
+	f.srv.FailNext(http.StatusUnauthorized)
 	toolcheck.CommandRisk{Client: f.client}.Check(t.Context(), bashPlan("ls"))
 	if n := toolcheck.PauseCount(); n != 1 {
 		t.Fatalf("pauses = %d, want 1", n)
 	}
 }
 
-func TestOutageKinds(t *testing.T) {
+// Which failures pause each check. The command check pauses only when
+// Decide is not set up. The content check also pauses on a server or
+// connection error.
+func TestPauseKinds(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		fail   func(*decidetest.Server)
-		outage bool
+		name             string
+		fail             func(*decidetest.Server)
+		command, content bool
 	}{
-		{"rate limit", func(s *decidetest.Server) { s.FailNext(http.StatusTooManyRequests) }, false},
-		{"auth", func(s *decidetest.Server) { s.FailNext(http.StatusUnauthorized) }, true},
-		{"server", func(s *decidetest.Server) { s.FailNext(http.StatusBadGateway) }, true},
-		{"overloaded", func(s *decidetest.Server) { s.Overloaded(1) }, true},
-		{"connection", func(s *decidetest.Server) { s.FailNextConn() }, true},
-		{"validation", func(s *decidetest.Server) { s.FailNext(http.StatusUnprocessableEntity) }, false},
-		{"bad request", func(s *decidetest.Server) { s.FailNext(http.StatusBadRequest) }, false},
-		{"too large", func(s *decidetest.Server) { s.FailNext(http.StatusRequestEntityTooLarge) }, false},
+		{"rate limit", func(s *decidetest.Server) { s.FailNext(http.StatusTooManyRequests) }, false, false},
+		{"auth", func(s *decidetest.Server) { s.FailNext(http.StatusUnauthorized) }, true, true},
+		{"server", func(s *decidetest.Server) { s.FailNext(http.StatusBadGateway) }, false, true},
+		{"overloaded", func(s *decidetest.Server) { s.Overloaded(1) }, false, true},
+		{"connection", func(s *decidetest.Server) { s.FailNextConn() }, false, true},
+		{"validation", func(s *decidetest.Server) { s.FailNext(http.StatusUnprocessableEntity) }, false, false},
+		{"bad request", func(s *decidetest.Server) { s.FailNext(http.StatusBadRequest) }, false, false},
+		{"too large", func(s *decidetest.Server) { s.FailNext(http.StatusRequestEntityTooLarge) }, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
-			tc.fail(f.srv)
-			if tc.outage && tc.name != "auth" {
-				tc.fail(f.srv)
-			}
 			risk := toolcheck.CommandRisk{Client: f.client}
-			_, err := risk.Check(t.Context(), bashPlan("ls"))
-			if err == nil || toolcheck.IsOutage(err) != tc.outage {
-				t.Fatalf("err = %v, outage = %v", err, toolcheck.IsOutage(err))
+			content := toolcheck.PromptInjection{Client: f.client}
+			checks := []struct {
+				pauses bool
+				check  func() error
+			}{
+				{tc.command, func() error {
+					_, err := risk.Check(t.Context(), bashPlan("ls"))
+					return err
+				}},
+				{tc.content, func() error {
+					_, err := content.Check(t.Context(), resultPlan("fetch_page", nil, page))
+					return err
+				}},
 			}
-			_, err = risk.Check(t.Context(), bashPlan("ls"))
-			_, isPaused := errors.AsType[*toolcheck.PausedError](err)
-			if isPaused != tc.outage {
-				t.Fatalf("second check err = %v", err)
+			for _, c := range checks {
+				tc.fail(f.srv)
+				err := c.check()
+				if err == nil || toolcheck.IsPaused(err) != c.pauses {
+					t.Fatalf("err = %v, paused = %v", err, toolcheck.IsPaused(err))
+				}
+				err = c.check()
+				if toolcheck.IsPaused(err) != c.pauses {
+					t.Fatalf("second check err = %v", err)
+				}
 			}
 		})
 	}
@@ -669,7 +732,7 @@ func TestTimeoutsNeverPause(t *testing.T) {
 	f.srv.SetLatency(500 * time.Millisecond)
 	risk := toolcheck.CommandRisk{Client: f.client, Timeout: 20 * time.Millisecond}
 	_, err := risk.Check(t.Context(), bashPlan("ls"))
-	if !errors.Is(err, context.DeadlineExceeded) || toolcheck.IsOutage(err) {
+	if !errors.Is(err, context.DeadlineExceeded) || toolcheck.IsPaused(err) {
 		t.Fatalf("timeout: err = %v", err)
 	}
 
@@ -678,7 +741,7 @@ func TestTimeoutsNeverPause(t *testing.T) {
 	defer cancel()
 	start := time.Now()
 	_, err = slow.Check(ctx, bashPlan("ls"))
-	if !errors.Is(err, context.DeadlineExceeded) || toolcheck.IsOutage(err) ||
+	if !errors.Is(err, context.DeadlineExceeded) || toolcheck.IsPaused(err) ||
 		time.Since(start) > 400*time.Millisecond {
 		t.Fatalf("caller deadline: err = %v after %v", err, time.Since(start))
 	}
@@ -686,7 +749,7 @@ func TestTimeoutsNeverPause(t *testing.T) {
 	ctx, cancel = context.WithCancel(t.Context())
 	go func() { time.Sleep(20 * time.Millisecond); cancel() }()
 	_, err = slow.Check(ctx, bashPlan("ls"))
-	if !errors.Is(err, context.Canceled) || toolcheck.IsOutage(err) {
+	if !errors.Is(err, context.Canceled) || toolcheck.IsPaused(err) {
 		t.Fatalf("cancel: err = %v", err)
 	}
 
@@ -696,42 +759,17 @@ func TestTimeoutsNeverPause(t *testing.T) {
 	}
 }
 
-func TestIsOutage(t *testing.T) {
-	for _, tc := range []struct {
-		err  error
-		want bool
-	}{
-		{nil, false},
-		{&toolcheck.PausedError{Cause: decide.ErrServer}, true},
-		{fmt.Errorf("x: %w", decide.ErrNoAPIKey), true},
-		{decide.ErrRateLimited, false},
-		{toolcheck.ErrTooLarge, false},
-		{context.DeadlineExceeded, false},
-		{errors.Join(context.DeadlineExceeded, decide.ErrServer), false},
-		{decide.ErrValidation, false},
-		{decide.ErrInvalidRequest, false},
-		{decide.ErrInvalidAnswer, false},
-		{errors.New("something else"), false},
-	} {
-		if got := toolcheck.IsOutage(tc.err); got != tc.want {
-			t.Errorf("IsOutage(%v) = %v", tc.err, got)
-		}
-	}
-}
-
 // With no TYPESAFE_API_KEY, a zero-value check skips with decide's
-// ErrNoAPIKey, an outage, and its hook lets the call run with a warning.
+// ErrNoAPIKey, which pauses it, and its hook lets the call run with a
+// warning.
 // The environment client is made once per process, so this is the only
 // test that uses a nil Client.
 func TestNoAPIKey(t *testing.T) {
 	t.Setenv("TYPESAFE_API_KEY", "")
 	clock := time.Now()
 	toolcheck.SetClock(t, &clock)
-	v, err := toolcheck.CommandRisk{}.Check(t.Context(), bashPlan("rm -rf ~"))
-	if v.Requests != 0 {
-		t.Fatal("a setup failure counted a Decide call")
-	}
-	if !errors.Is(err, decide.ErrNoAPIKey) || !toolcheck.IsOutage(err) {
+	_, err := toolcheck.CommandRisk{}.Check(t.Context(), bashPlan("rm -rf ~"))
+	if !errors.Is(err, decide.ErrNoAPIKey) || !toolcheck.IsPaused(err) {
 		t.Fatalf("err = %v", err)
 	}
 	toolcheck.ResetPauses()
@@ -933,7 +971,7 @@ func TestCommandTooLarge(t *testing.T) {
 	f := newFixture(t)
 	risk := toolcheck.CommandRisk{Client: f.client}
 	_, err := risk.Check(t.Context(), bashPlan(strings.Repeat("x", 600_000)+"; rm -rf ~"))
-	if !errors.Is(err, toolcheck.ErrTooLarge) || toolcheck.IsOutage(err) || f.requests() != 0 {
+	if !errors.Is(err, toolcheck.ErrTooLarge) || toolcheck.IsPaused(err) || f.requests() != 0 {
 		t.Fatalf("err = %v, requests = %d", err, f.requests())
 	}
 	if _, err := risk.Check(t.Context(), bashPlan(strings.Repeat("x", 400_000)+"; rm -rf ~")); err != nil {

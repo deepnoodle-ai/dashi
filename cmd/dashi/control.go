@@ -277,7 +277,7 @@ func (c *Controller) approveBypass(ctx context.Context, r ApprovalRequest) (Appr
 	}
 	slot.set(result)
 	if !result.holds() {
-		if result.Outage {
+		if result.Paused {
 			c.warnPause(decideCommandRisk)
 		}
 		return Approval{Allow: true}, nil

@@ -142,34 +142,26 @@ runner.Hooks = dashi.JoinHooks(
   cause, such as a timeout, gets the same note, at once.
 
 They are advice, not a sandbox: neither ever allows a call. Both fail open
-on an outage: with no key, or when Decide is down, the call runs and the
-result reaches the model unchanged; the command check gives a
-`hook_failed` warning, and the content check records the result as
-unchecked. When the
-command check fails in a way the input can cause (a timeout, a rate limit, a
-command too long to check, a rejected request, or an invalid answer), its
-hook holds the call for approval instead, with a `Reason` that says why.
-Before a command server or connection failure starts a pause, `CommandRisk`
-asks about fixed benign text (`true`) to confirm availability. A valid or
-non-outage answer leaves the original command suspect. All requests share
-the same timeout; no SDK retries run. At most eight command parts plus one
-confirmation request are sent. Setup and authentication failures need no
-confirmation. After a confirmed outage a check pauses for a minute.
-A timeout, a rate limit, or a rejected input never pauses it.
-An input-specific failure in any command part prevents confirmation, even if
-an earlier part returned a server or connection error. Every part's cause
-remains available through `errors.Is` and `errors.As`.
-The content check never pauses the command check. A host
-that asks the user in its own `BeforeTool` hook calls `CommandRisk.Check`
-there and shows one prompt; `toolcheck.IsOutage` tells an outage from a
-failure the input could cause.
+when Decide is not set up, such as with no key or a failed login: the
+check pauses for a minute, the call runs, and the result reaches the model
+unchanged. The command check gives a `hook_failed` warning, and the
+content check records the result as unchecked. The content check also
+pauses on a Decide server or connection error.
 
-`Verdict.Requests` counts logical Decide calls initiated, including command
-confirmation. It does not count SDK retries or prove HTTP dispatch or
-receipt. Unread, paused, and setup failures count zero. `Verdict.Usage`
-keeps observed tokens from successful responses, including before a later
-failure. `OnCheck` runs once per logical check, including an unchecked one.
-See the runnable [outage example](../../decide/toolcheck/example_test.go).
+When the command check fails for any other reason (a server error, a lost
+connection, a timeout, a rate limit, a command too long to check, a
+rejected request, or an invalid answer), its hook holds the call for
+approval, with a `Reason` that says why. Only a setup failure pauses it,
+so one command cannot turn the check off for others. The content check
+never pauses the command check. A host that asks the user in its own
+`BeforeTool` hook calls `CommandRisk.Check` there and shows one prompt;
+`toolcheck.IsPaused` tells a paused check from any other failure.
+
+`Verdict.Requests` is how many requests the check sent to Decide, not
+counting automatic retries, and `Verdict.Usage` holds their tokens, also
+when the check failed. A content check's first failure that pauses it
+returns a `*PausedError` too; use `Verdict.Requests` to tell whether a
+request was sent.
 
 `PromptInjection` does not see everything outside text can reach the model
 through. It does not check:

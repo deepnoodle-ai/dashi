@@ -217,20 +217,38 @@ func TestDecideBypassAsksOnTimeout(t *testing.T) {
 	}
 }
 
-// An outage pauses the check: bypass mode runs the command, and the status
-// area shows the pause.
-func TestDecideBypassRunsDuringOutage(t *testing.T) {
+// In bypass mode a server error asks, as a flag does; it never pauses, so
+// one command cannot turn the check off for the others.
+func TestDecideBypassAsksOnServerError(t *testing.T) {
 	h, srv := decideHarness(t, Options{Yes: true},
-		callTool("c1", "bash", `{"command":"echo outage"}`), say("Done."))
+		callTool("c1", "bash", `{"command":"echo broken"}`), say("Done."))
 	srv.FailNext(http.StatusInternalServerError)
-	srv.FailNext(http.StatusInternalServerError)
+	h.ui.answer = func(context.Context, ApprovalRequest) (Approval, error) {
+		return Approval{Allow: true}, nil
+	}
+	h.input("go")
+	if len(h.ui.approvals) != 1 || h.ui.approvals[0].checkLine() != "decide: unchecked (server error)" {
+		t.Fatalf("approvals = %+v", h.ui.approvals)
+	}
+	if s := h.app.ctrl.decide.status(); s != "" {
+		t.Fatalf("status = %q; a server error must not pause", s)
+	}
+}
+
+// When decide is not set up, such as after a failed login, the check
+// pauses: bypass mode runs the command, and the status area shows the
+// pause.
+func TestDecideBypassRunsWhilePaused(t *testing.T) {
+	h, srv := decideHarness(t, Options{Yes: true},
+		callTool("c1", "bash", `{"command":"echo paused"}`), say("Done."))
+	srv.FailNext(http.StatusUnauthorized)
 	h.input("go")
 	if len(h.ui.approvals) != 0 {
 		t.Fatalf("approvals = %d; want 0", len(h.ui.approvals))
 	}
-	mustHave(t, h.ui.text(), "decide command: unchecked (server error)")
+	mustHave(t, h.ui.text(), "decide command: unchecked (auth failed)")
 	status := h.app.ctrl.decide.status()
-	if !strings.HasPrefix(status, "decide: command_risk paused (server error), resumes in ") {
+	if !strings.HasPrefix(status, "decide: command_risk paused (auth failed), resumes in ") {
 		t.Fatalf("status = %q", status)
 	}
 }
@@ -294,18 +312,18 @@ func TestDecideRecordFormat(t *testing.T) {
 	}
 }
 
-// Errors sort into outages, which pause, and failures the command can
-// cause, which ask.
+// A pause, and failures the command can cause, which ask, each name their
+// cause.
 func TestDecideCause(t *testing.T) {
 	cases := []struct {
 		err    error
 		cause  string
-		outage bool
+		paused bool
 	}{
 		{context.DeadlineExceeded, "timeout", false},
 		{toolcheck.ErrTooLarge, "too large", false},
-		{fmt.Errorf("x: %w", decide.ErrNoAPIKey), "no credentials", true},
-		{fmt.Errorf("x: %w", decide.ErrServer), "server error", true},
+		{fmt.Errorf("x: %w", decide.ErrNoAPIKey), "no credentials", false},
+		{fmt.Errorf("x: %w", decide.ErrServer), "server error", false},
 		{fmt.Errorf("x: %w", decide.ErrRateLimited), "rate limited", false},
 		{fmt.Errorf("x: %w", decide.ErrInvalidAnswer), "invalid answer", false},
 		{&toolcheck.PausedError{Until: time.Now(), Cause: fmt.Errorf("x: %w", decide.ErrAuth)}, "auth failed", true},
@@ -314,8 +332,8 @@ func TestDecideCause(t *testing.T) {
 		if got := decideCause(tc.err); got != tc.cause {
 			t.Errorf("decideCause(%v) = %q; want %q", tc.err, got, tc.cause)
 		}
-		if got := toolcheck.IsOutage(tc.err); got != tc.outage {
-			t.Errorf("IsOutage(%v) = %v; want %v", tc.err, got, tc.outage)
+		if got := toolcheck.IsPaused(tc.err); got != tc.paused {
+			t.Errorf("IsPaused(%v) = %v; want %v", tc.err, got, tc.paused)
 		}
 	}
 }

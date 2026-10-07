@@ -83,10 +83,8 @@ result passes through `record(feature, verdict, err)`, which updates the
 totals and state. A setup error never reaches it: `loadCLIConfig` calls
 `defaultclient.Load` before the first turn, prints the one warning, and
 sets `off`, which turns every check off. `dashi run --yes` with
-`command_risk` on refuses to start instead. The library's typed paused
-error (outage only) sets `paused[feature]` to its
-end time. Other errors are sorted into outage or suspect by the error kind
-`toolcheck` returns; a timeout, too-large input, or rejected request is
+`command_risk` on refuses to start instead. The library's `*PausedError` sets
+`paused[feature]` to its end time. Any other error is suspect; a timeout, too-large input, or rejected request is
 suspect. The status area shows a decide line only
 while `state` is off or `paused` is not empty.
 
@@ -115,7 +113,7 @@ held call enters it. The CLI builds the workspace policy with
 `workspace.AskConcurrently()`, so the policy does not hold its lock across
 the check, and other calls never wait behind one. By mode:
 
-| Mode | When the check runs | Flagged | Not flagged | Suspect failure | Outage or paused |
+| Mode | When the check runs | Flagged | Not flagged | Suspect failure | Paused |
 | --- | --- | --- | --- | --- | --- |
 | Default | In parallel with the prompt, which shows at once | Line turns to a warning; keys `y`/`n` only | Line shows the answer | Line reads `unchecked (…)` | Line reads `unchecked (…)`; status shows the pause |
 | Bypass (`approveAll`) | Before the approval queue, at most 3 s; row shows `checking command…` | Queue, then prompt with `y`/`n`; row reads `waiting for you` | Allow, no prompt | As flagged | Allow; row shows the cause; status shows the pause |
@@ -189,9 +187,9 @@ their user settings, and their environment are trusted. A repository
 | --- | --- | --- |
 | Model advice grants permission (excessive agency) | `approveUI` returns `Allow` only from the person's key or from `approveAll`, which the person set. A verdict only adds a prompt or a refusal. Flagged prompts hide `a`; no verdict reaches the remembered rules. | None found. |
 | Command text talks the check down ("# safe, answer no") | decide's question treats such text as evidence of risk. In default mode the person still reads the command. | In bypass mode a crafted command can score low and run. |
-| Bypass mode blind spots | The guide and `/settings` say: shell commands only; edits, writes, and MCP calls run unasked; during an outage pause, commands run unasked. | An MCP tool or a script run by an unflagged command can do harm. Use a container. |
+| Bypass mode blind spots | The guide and `/settings` say: shell commands only; edits, writes, and MCP calls run unasked; while the check is paused, commands run unasked. | An MCP tool or a script run by an unflagged command can do harm. Use a container. |
 | Injected text forces fail-open: the model writes a huge or odd command that times out, is too large, or is rejected | These are suspect failures: they never pause the check, bypass mode asks, and `run --yes` refuses. The CLI's 3-second deadline and a cancel never pause. | None found. |
-| Provider outage | Only an outage (auth failure, server error, non-timeout network error) pauses the check. The status area shows the pause and its end. A setup error (no credentials, unknown provider) is found at start: checks are off with one warning, and `run --yes` refuses to start. | During a pause, bypass mode asks about nothing. A server error or dropped connection that the command's text caused still pauses the check; the guide calls this a known gap. |
+| Provider down or not set up | Only a failed login pauses the command check. A server error or dropped connection holds the command instead, so a command cannot turn the check off. The content check also pauses on those. The status area shows the pause and its end. A setup error (no credentials, unknown provider) is found at start: checks are off with one warning, and `run --yes` refuses to start. | During a pause, bypass mode asks about nothing. |
 | A repository turns features on to send commands out, or off to remove the net | Project `decide` keys are ignored with a warning. Credentials and `DECIDE_PROVIDER` come only from the environment or a named `--env-file`. | None found. |
 | Data sent to the provider (commands may hold secrets; injection check sends MCP results) | Off by default; opt-in names each feature; the guide lists what each sends. | A secret typed into a checked command goes to TypeSafe or Cloudflare. |
 | Terminal injection through the answer line | Provider text is passed through `PrintableText`; probabilities are formatted by the CLI. | None found. |
@@ -207,8 +205,8 @@ their user settings, and their environment are trusted. A repository
   `run --yes` with `command_risk` on refuses to start.
 - **Timeout, too-large input, or rejected request:** that call is
   unchecked and asks, in every mode that can ask; no pause.
-- **Outage:** that call is unchecked; the library pauses the check for a
-  minute; the status area counts down; bypass mode runs commands.
+- **Paused** (decide is not set up, such as after a failed login): that
+  call is unchecked; the library pauses the check for a minute; the status area counts down; bypass mode runs commands.
 - **Check returns after the person answered:** discarded; the slot already
   holds "answered first".
 - **`toolcheck` slips:** PR 1 waits; nothing ships half wired.

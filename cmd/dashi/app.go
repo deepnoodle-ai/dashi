@@ -87,7 +87,7 @@ func buildApp(ctx context.Context, cfg appConfig, ui UI) (*app, error) {
 	rt := newDecideRuntime(cfg.Decide, setup)
 	if rt != nil {
 		rt.warn = func(text string) { ctrl.emit(warnBlock("%s", text)) }
-		rt.outage = func(feature string) { ctrl.warnPause(feature) }
+		rt.warnPause = func(feature string) { ctrl.warnPause(feature) }
 		rt.watchFailed = func(cause string) { ctrl.warnWatchFailed(cause) }
 		rt.showRow = func(b Block) { emitToUI(ui, b) }
 		if cfg.decideWait > 0 {

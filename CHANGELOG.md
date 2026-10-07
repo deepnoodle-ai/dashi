@@ -55,15 +55,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
-- **Command-specific Decide failures no longer pause every command check.**
-  `toolcheck.CommandRisk` confirms server and connection failures with one
-  fixed benign request under the original deadline. An unconfirmed failure
-  requires approval, including in CLI bypass mode. Commands send at most
-  eight parts plus one confirmation request, without SDK retries.
-- **`toolcheck.Verdict.Requests` counts logical Decide calls initiated,**
-  including command outage confirmation. `Usage` retains observed tokens
-  on failed checks. The CLI uses these observations instead of guessing
-  request counts from error types.
+- **A failing command check no longer pauses checks for other commands.**
+  If Decide errors while checking a command, that command needs approval,
+  even in bypass mode. Checks pause only when Decide isn't set up (for
+  example, a missing key). `toolcheck.IsOutage` is now `IsPaused`.
+- `toolcheck.Verdict.Requests` is how many requests the check sent to
+  Decide, not counting automatic retries. `Verdict.Usage` keeps tokens when
+  a check fails.
 - **OpenAI Responses results include the service tier** the request ran on
   (`Result.ServiceTier`), in blocking and streaming calls.
 - **Tools with no arguments now run on Anthropic when streaming.**
