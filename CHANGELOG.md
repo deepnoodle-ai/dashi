@@ -42,6 +42,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `mistral-medium-latest` and `magistral-medium-latest`, as Mistral's pricing
   page now lists; the catalog previously stated the input rate.
 
+### Fixed
+
+- **The Anthropic Messages client sends reasoning effort `xhigh`** as
+  `output_config.effort`. It refused `xhigh` before, although the catalog
+  lists it for models such as Opus 5.5 and Sonnet 5.5. A model whose catalog
+  entry omits `xhigh` still gets `high` under the adjust policy, or an error
+  under strict.
+
 ## [0.4.0] - 2026-10-06
 
 ### Added

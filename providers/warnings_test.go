@@ -58,14 +58,14 @@ func TestPrepareClampsToNearestSupportedValue(t *testing.T) {
 			want     llm.Settings
 		}{
 			{
-				name:     "effort above Messages levels",
+				name:     "effort below Messages levels",
 				provider: "anthropic",
 				settings: llm.Settings{
-					Reasoning: &llm.ReasoningSettings{Effort: "xhigh"},
+					Reasoning: &llm.ReasoningSettings{Effort: "minimal"},
 				},
 				field: llm.SettingReasoning,
 				want: llm.Settings{
-					Reasoning: &llm.ReasoningSettings{Effort: "high"},
+					Reasoning: &llm.ReasoningSettings{Effort: "low"},
 				},
 			},
 			{

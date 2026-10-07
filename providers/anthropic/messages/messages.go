@@ -237,9 +237,7 @@ func (p *Client) Prepare(
 				"budget_tokens": s.BudgetTokens,
 			}
 		} else {
-			switch s.Effort {
-			case "low", "medium", "high", "max":
-			default:
+			if !slices.Contains(efforts, s.Effort) {
 				return llm.Request{}, wire.unsupported("reasoning effort %q", s.Effort)
 			}
 			body["thinking"] = map[string]any{"type": "adaptive"}
@@ -470,6 +468,10 @@ func (p *Client) cachePoint(
 	return point, adjustments
 }
 
+// efforts are the output_config.effort values the Messages API accepts from
+// some model. Fit narrows them to a known model's catalog reasoning_efforts.
+var efforts = []string{"low", "medium", "high", "xhigh", "max"}
+
 // limits states what the Messages API accepts from any model, so Fit can
 // adjust a request toward it. Every model takes, and requires, max_tokens.
 // Temperature is rejected alongside thinking; the adjust policy omits it
@@ -484,7 +486,7 @@ func (p *Client) limits(r llm.Input) llm.Capabilities {
 		maxTokens = min(maxTokens, limit)
 	}
 	api := llm.Capabilities{
-		ReasoningEfforts:   []string{"low", "medium", "high", "max"},
+		ReasoningEfforts:   efforts,
 		MinReasoningBudget: 1024,
 		// The thinking budget must stay below max_tokens.
 		MaxReasoningBudget: max(maxTokens-1, 1),
