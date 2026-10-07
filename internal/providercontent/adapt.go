@@ -26,6 +26,8 @@ type AdaptOptions struct {
 }
 
 // Adapt returns owned messages and decisions at original input positions.
+// The caller must validate input first, including replay completeness and
+// wrapper versions. Adapt checks whether validated content can change safely.
 // Provider encoders remain responsible for representing canonical values.
 func Adapt(
 	input llm.Input,

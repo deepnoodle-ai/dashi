@@ -48,6 +48,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Anthropic tools with no arguments accept empty stream fragments.** A
+  completed empty-object MCP call retains `{}` and runs normally. Malformed
+  nonempty JSON and interrupted tool blocks still fail without execution.
+- **Retained Anthropic direct-tool history can continue on another provider.**
+  Preparation recognizes `caller: {"type":"direct"}`, preserves saved
+  messages, and records portable replay stripping. Programmatic callers and
+  unfamiliar replay dependencies remain rejected.
+
 - **The Anthropic Messages client sends reasoning effort `xhigh`** as
   `output_config.effort`. It refused `xhigh` before, although the catalog
   lists it for models such as Opus 5.5 and Sonnet 5.5. A model whose catalog
