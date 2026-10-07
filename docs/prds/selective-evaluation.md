@@ -1,7 +1,7 @@
 # Reliable selective compaction and recorded evaluation
 
 Status: Approved
-PRD PR: Pending · Implementation PR: Pending · Updated: 2026-10-07
+PRD PR: #230 · Implementation PR: Pending · Updated: 2026-10-07
 
 ## Problem
 
