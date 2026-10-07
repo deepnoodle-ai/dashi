@@ -1,6 +1,6 @@
 # Run empty tools and continue portable history across providers
 
-Status: Draft\
+Status: Approved\
 PRD PR: pending · Implementation PR: pending · Updated: 2026-10-07
 
 ## Problem and context
@@ -12,8 +12,10 @@ The stock compactor retains the same replay attachments in its tail. Uncompacted
 
 The [accepted replay contract](../../design/provider-content-replay.md) already assigns conversion to offline provider preparation.
 `internal/providercontent` clones history, checks replay meaning, pairs tools, and records `strip_replay` changes.
-Existing fixtures accept recognized Anthropic text and completed tool exchanges across providers. The exact rejecting shape in #219 remains unconfirmed.
-Fix that gap with a sanitized regression before expanding recognized shapes. Keeping replay data in saved history is intentional.
+Existing fixtures accept recognized Anthropic text and completed tool exchanges across providers.
+The retained corpus adds `caller: {"type":"direct"}` to tool blocks, which the replay guard treats as unfamiliar.
+Anthropic [defines this shape](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling#the-caller-field-in-responses) as ordinary direct invocation.
+Use a sanitized regression to recognize this shape. Keeping replay data in saved history is intentional.
 
 Anthropic stream parsing currently rejects an empty accumulated argument string at block stop.
 Its [streaming contract](https://platform.claude.com/docs/en/agents-and-tools/tool-use/fine-grained-tool-streaming) separates the initial input object from streamed JSON fragments.
@@ -51,7 +53,7 @@ changes := request.ContentChanges()
 result, err := destination.Send(ctx, llm.Call{Request: request})
 ```
 
-- [ ] A sanitized fixture identifies the exact source shape behind #219 and demonstrates its preparation outcome.
+- [ ] A sanitized fixture reproduces #219's direct-caller replay rejection before the fix and demonstrates supported preparation afterward.
 - [ ] Recognized canonical text and completed tool exchanges prepare across Anthropic, OpenAI Responses, and Chat Completions destinations.
 - [ ] This holds for unchanged conversation history and retained messages from either compaction strategy. Compactors need no stripping rule.
 - [ ] Each stripped attachment records `strip_replay`, a reason, and its original message and content indices.
@@ -63,6 +65,7 @@ result, err := destination.Send(ctx, llm.Call{Request: request})
 
 - [ ] Foreign unfamiliar fields, citations, signatures, opaque content, partial wrappers, and unsupported wrapper versions remain rejected before dispatch.
 - [ ] A source field gains portability only when its semantics are modeled and canonical content preserves those semantics.
+- [ ] Anthropic `caller` is portable only as exactly `{"type":"direct"}` or when absent. Programmatic callers and additional nested fields remain unsupported for conversion.
 - [ ] Unchanged compatible replay retains unfamiliar provider fields. Editing content with unknown dependencies remains rejected.
 - [ ] Existing explicit reasoning omission stays narrow. This work does not authorize reasoning, citation, or opaque omission.
 - [ ] Unsafe #219 content receives a documented safe rejection outcome rather than blanket replay removal.
@@ -84,5 +87,5 @@ The empty-schema tool completes a recorded turn. Supported retained history need
 Unsafe content still fails before dispatch. Required independent review and `make check` pass.
 Fixtures establish library behavior, not live acceptance by every provider model or endpoint.
 
-The missing #219 payload is a discovery dependency for its implementation outcome.
-Inspect structural fields only, preserve private recordings outside Git, and replace all session text with synthetic values in regression fixtures.
+Structural inspection of the original corpus resolved the #219 shape without exposing session content.
+Keep private recordings outside Git and replace all session text with synthetic values in regression fixtures.
