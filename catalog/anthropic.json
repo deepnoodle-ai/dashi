@@ -2,7 +2,7 @@
   "provider": "anthropic",
   "source": "https://platform.claude.com/docs/en/about-claude/models/overview.md",
   "default": "claude-sonnet-5",
-  "small": "claude-haiku-4-5",
+  "small": "claude-haiku-5-5",
   "destinations": [
     {
       "api": "anthropic.messages",
@@ -398,6 +398,67 @@
       }
     },
     {
+      "model": "claude-haiku-5-5",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "note": "Priced by prompt length: a prompt over 100,000 tokens pays the tier rates for the whole request; Dashi counts uncached input, cache reads, and cache writes toward the threshold. Thinking type disabled is accepted only at effort high or below. Public summary request documented 2026-10-07: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "qualified_at": "2026-10-07",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "citations": "supported",
+          "tools": "supported",
+          "tool_choice": "supported",
+          "temperature": "unsupported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "unsupported",
+          "max_tokens": "supported",
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-10-07",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": "0.1",
+          "output": "0.5",
+          "cache_read": "0.01",
+          "cache_write": "0.125",
+          "cache_write_1h": "0.2"
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 100001,
+            "rates": {
+              "input": "0.5",
+              "output": "2.5",
+              "cache_read": "0.05",
+              "cache_write": "0.625",
+              "cache_write_1h": "1"
+            }
+          }
+        ],
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
+        }
+      }
+    },
+    {
       "model": "claude-opus-4-8",
       "apis": [
         "anthropic.messages"
@@ -687,8 +748,9 @@
       "apis": [
         "anthropic.messages"
       ],
+      "lifecycle": "deprecated",
       "snapshot": "claude-sonnet-4-5-20250929",
-      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "note": "Deprecated 2026-09-30; retires from the Claude API 2026-11-30. The recommended replacement is claude-sonnet-5-5. Documented 2026-10-07: https://platform.claude.com/docs/en/about-claude/model-deprecations. The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
       "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
@@ -729,7 +791,8 @@
       "apis": [
         "anthropic.messages"
       ],
-      "note": "The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
+      "lifecycle": "deprecated",
+      "note": "Deprecated 2026-09-30; retires from the Claude API 2026-11-30. The recommended replacement is claude-sonnet-5-5. Documented 2026-10-07: https://platform.claude.com/docs/en/about-claude/model-deprecations. The context window is 200K tokens without the 1M-context beta header, which Dashi's Messages client does not send. Public summary request documented 2026-09-30: https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.",
       "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {

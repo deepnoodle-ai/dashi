@@ -15,7 +15,9 @@
       "apis": [
         "openai.completions"
       ],
-      "qualified_at": "2026-09-27",
+      "snapshot": "mistral-medium-2604",
+      "note": "Points to Mistral Medium 3.5 (mistral-medium-2604).",
+      "qualified_at": "2026-10-07",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -25,12 +27,12 @@
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-08-15",
+        "updated_at": "2026-10-07",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
           "input": "1.5",
           "output": "7.5",
-          "cache_read": "1.5",
+          "cache_read": "0.15",
           "cache_write": "1.5"
         }
       }
@@ -40,8 +42,9 @@
       "apis": [
         "openai.completions"
       ],
-      "note": "Alias of mistral-medium-latest.",
-      "qualified_at": "2026-09-27",
+      "snapshot": "mistral-medium-2604",
+      "note": "Alias of mistral-medium-latest, which points to Mistral Medium 3.5 (mistral-medium-2604).",
+      "qualified_at": "2026-10-07",
       "capabilities": {
         "features": {
           "text": "supported",
@@ -51,12 +54,63 @@
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-09-09",
+        "updated_at": "2026-10-07",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
           "input": "1.5",
           "output": "7.5",
-          "cache_read": "1.5",
+          "cache_read": "0.15",
+          "cache_write": "1.5"
+        }
+      }
+    },
+    {
+      "model": "mistral-medium-2604",
+      "apis": [
+        "openai.completions"
+      ],
+      "qualified_at": "2026-10-07",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 262144
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-10-07",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": "1.5",
+          "output": "7.5",
+          "cache_read": "0.15",
+          "cache_write": "1.5"
+        }
+      }
+    },
+    {
+      "model": "mistral-medium-3-5",
+      "apis": [
+        "openai.completions"
+      ],
+      "note": "Mistral Medium 3.5; the same model as mistral-medium-2604.",
+      "qualified_at": "2026-10-07",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 262144
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-10-07",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": "1.5",
+          "output": "7.5",
+          "cache_read": "0.15",
           "cache_write": "1.5"
         }
       }
@@ -134,6 +188,61 @@
           "output": "0.6",
           "cache_read": "0.15",
           "cache_write": "0.15"
+        }
+      }
+    },
+    {
+      "model": "mistral-large-4",
+      "apis": [
+        "openai.completions"
+      ],
+      "lifecycle": "preview",
+      "snapshot": "mistral-large-4-0",
+      "note": "Public Preview. Mistral's changelog and model page state a 1M context window, but the models endpoint reports max_context_length 524,288, the smaller value the catalog records. Prices are the list prices; launch pricing is 50% off ($0.68 input, $0.07 cached input, $2.09 output) for two weeks from 2026-10-06, so until about 2026-10-20 (Mistral states no end date). Alias of mistral-large-4-0.",
+      "qualified_at": "2026-10-07",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 524288
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-10-06",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": "1.36",
+          "output": "4.18",
+          "cache_read": "0.14",
+          "cache_write": "1.36"
+        }
+      }
+    },
+    {
+      "model": "mistral-large-4-0",
+      "apis": [
+        "openai.completions"
+      ],
+      "lifecycle": "preview",
+      "note": "Public Preview. Mistral's changelog and model page state a 1M context window, but the models endpoint reports max_context_length 524,288, the smaller value the catalog records. Prices are the list prices; launch pricing is 50% off ($0.68 input, $0.07 cached input, $2.09 output) for two weeks from 2026-10-06, so until about 2026-10-20 (Mistral states no end date).",
+      "qualified_at": "2026-10-07",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "context_window": 524288
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-10-06",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": "1.36",
+          "output": "4.18",
+          "cache_read": "0.14",
+          "cache_write": "1.36"
         }
       }
     },

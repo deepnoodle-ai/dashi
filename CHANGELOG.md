@@ -15,6 +15,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (`UserPromptSubmit`), ends (`Stop` or `StopFailure`), or waits for you
   (`Notification`), in the field names of Claude Code hook inputs. The end
   is written before dashi takes the next prompt.
+- **`claude-haiku-5-5` in the model catalog,** with its 1M context window,
+  128K output limit, `low` to `max` effort ladder, and prices that depend on
+  prompt length: $0.10 input, $0.50 output, $0.01 cache read, $0.125
+  five-minute and $0.20 one-hour cache writes per MTok, rising to $0.50,
+  $2.50, $0.05, $0.625, and $1 above 100,000 input tokens, plus $10 per 1,000
+  web searches. Temperature and budget thinking are marked unsupported.
+- **`mistral-large-4` and `mistral-large-4-0` in the model catalog** as
+  preview models, with the 524,288-token context window Mistral's models
+  endpoint reports and list prices of $1.36 input, $0.14 cached input, and
+  $4.18 output per MTok. The launch discount of 50% until about 2026-10-20 is
+  left as a note.
+- **`mistral-medium-2604` and `mistral-medium-3-5` in the model catalog,**
+  the Mistral Medium 3.5 model that `mistral-medium-latest` and
+  `magistral-medium-latest` now name as their snapshot.
+
+### Changed
+
+- **`catalog.Small("anthropic")` is now `claude-haiku-5-5`,** replacing
+  `claude-haiku-4-5`. The vision, documents, and providers examples use it.
+- **Deprecated models are marked in the catalog:** `claude-sonnet-4-5` and
+  `claude-sonnet-4-5-20250929` (retire 2026-11-30; use `claude-sonnet-5-5`),
+  and `gpt-5.3-codex`, `gpt-5.1`, and `gpt-5.4-nano` (removed 2027-04-01; use
+  `gpt-6-sol`, `gpt-6-sol`, and `gpt-6-luna`).
+- **Mistral Medium cache reads cost $0.15 per MTok,** a tenth of input, on
+  `mistral-medium-latest` and `magistral-medium-latest`, as Mistral's pricing
+  page now lists; the catalog previously stated the input rate.
 
 ## [0.4.0] - 2026-10-06
 

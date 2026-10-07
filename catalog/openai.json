@@ -876,6 +876,8 @@
         "openai.responses",
         "openai.completions"
       ],
+      "lifecycle": "deprecated",
+      "note": "Deprecated 2026-10-01; removed from the API 2027-04-01. The recommended replacement is gpt-6-luna. Documented 2026-10-07: https://developers.openai.com/api/docs/deprecations.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
@@ -1012,6 +1014,8 @@
         "openai.responses",
         "openai.completions"
       ],
+      "lifecycle": "deprecated",
+      "note": "Deprecated 2026-10-01; removed from the API 2027-04-01. The recommended replacement is gpt-6-sol. Documented 2026-10-07: https://developers.openai.com/api/docs/deprecations.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
@@ -1440,6 +1444,8 @@
       "apis": [
         "openai.responses"
       ],
+      "lifecycle": "deprecated",
+      "note": "Deprecated 2026-10-01; removed from the API 2027-04-01. The recommended replacement is gpt-6-sol. Documented 2026-10-07: https://developers.openai.com/api/docs/deprecations.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {

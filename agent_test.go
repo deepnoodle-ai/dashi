@@ -363,7 +363,7 @@ func TestEmptyModelUsesCatalogDefault(t *testing.T) {
 }
 
 func TestContinueKeepsRecordedModel(t *testing.T) {
-	const small = "claude-haiku-4-5"
+	const small = "claude-haiku-5-5"
 	client := &catalogClient{
 		scriptedClient: scriptedClient{results: []llm.Result{
 			callResultFrom("anthropic", small),
