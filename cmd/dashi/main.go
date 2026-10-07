@@ -296,7 +296,7 @@ func loadCLIConfig(o Options, home, dir, invocation string, stdin io.Reader, std
 	if err != nil {
 		return appConfig{}, err
 	}
-	warnDecideSettings(stderr, decideOn, project)
+	warnDecideSettings(stderr, project)
 	unattended := automationOneShot(o, stdin)
 	decideReady, err := loadDecideSetup(decideOn, unattended, o.Yes, defaultclient.Load)
 	if err != nil {

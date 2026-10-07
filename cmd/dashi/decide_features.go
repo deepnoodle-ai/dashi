@@ -13,40 +13,13 @@ import (
 // The decide features, named after the library types that do the work.
 // Each one is off unless the user turns it on.
 const (
-	decideCommandRisk         = "command_risk"
-	decidePromptInjection     = "prompt_injection"
-	decideTurnWatcher         = "turn_watcher"
-	decideSelectiveCompaction = "selective_compaction"
+	decideCommandRisk     = "command_risk"
+	decidePromptInjection = "prompt_injection"
+	decideTurnWatcher     = "turn_watcher"
 )
 
 // decideFeatureNames lists every feature in the order /settings shows them.
-var decideFeatureNames = []string{
-	decideCommandRisk, decidePromptInjection, decideTurnWatcher, decideSelectiveCompaction,
-}
-
-// decideFeaturesBuilt are the features the CLI runs. A
-// feature that is named but not built stays off, with a warning.
-var decideFeaturesBuilt = []string{decideCommandRisk, decidePromptInjection, decideTurnWatcher}
-
-// decideNotBuiltReasons says, in one sentence, why a feature is not built.
-var decideNotBuiltReasons = map[string]string{
-	decideSelectiveCompaction: "On recorded sessions it kept no more needed details than keeping " +
-		"the newest messages; see https://github.com/deepnoodle-ai/dashi/blob/main/docs/dev/selective-compaction-eval.md",
-}
-
-// notBuiltFeatures names the features the CLI accepts but does not run.
-func notBuiltFeatures() string {
-	var names []string
-	for _, f := range decideFeatureNames {
-		if !slices.Contains(decideFeaturesBuilt, f) {
-			names = append(names, f)
-		}
-	}
-	if len(names) == 0 {
-		return ""
-	}
-	return " (" + strings.Join(names, ", ") + " is not available)"
-}
+var decideFeatureNames = []string{decideCommandRisk, decidePromptInjection, decideTurnWatcher}
 
 // decideOff is the list value that turns every feature off.
 const decideOff = "off"
@@ -55,28 +28,20 @@ const decideOff = "off"
 // from. The highest source present replaces the lower ones, so one source
 // covers the whole list.
 type decideSettings struct {
-	// On holds the features turned on, including ones the CLI does
-	// not build.
+	// On holds the features turned on.
 	On []string
 	// Source is "--decide", "DASHI_DECIDE", the user settings file, or
 	// empty when nothing set the list.
 	Source string
 }
 
-// enabled reports whether feature is on and built.
+// enabled reports whether feature is on.
 func (s decideSettings) enabled(feature string) bool {
-	return slices.Contains(s.On, feature) && slices.Contains(decideFeaturesBuilt, feature)
+	return slices.Contains(s.On, feature)
 }
 
-// any reports whether any built feature is on.
-func (s decideSettings) any() bool {
-	for _, f := range decideFeaturesBuilt {
-		if s.enabled(f) {
-			return true
-		}
-	}
-	return false
-}
+// any reports whether any feature is on.
+func (s decideSettings) any() bool { return len(s.On) > 0 }
 
 // parseDecideList reads a --decide or DASHI_DECIDE value: feature names
 // separated by commas, or "off".
@@ -98,8 +63,8 @@ func checkDecideNames(names []string) ([]string, error) {
 			}
 			return []string{}, nil
 		case !slices.Contains(decideFeatureNames, name):
-			return nil, fmt.Errorf("unknown decide feature %q; use %s, or %s%s",
-				workspace.PrintableText(name), strings.Join(decideFeaturesBuilt, ", "), decideOff, notBuiltFeatures())
+			return nil, fmt.Errorf("unknown decide feature %q; use %s, or %s",
+				workspace.PrintableText(name), strings.Join(decideFeatureNames, ", "), decideOff)
 		case !slices.Contains(out, name):
 			out = append(out, name)
 		}
@@ -139,20 +104,11 @@ func resolveDecide(flagValue string, flagSet bool, envValue string, envSet bool,
 }
 
 // warnDecideSettings warns about a "decide" key in the project settings
-// file, which is ignored, and about features the CLI does not build.
-func warnDecideSettings(w io.Writer, s decideSettings, project preferenceFile) {
+// file, which is ignored.
+func warnDecideSettings(w io.Writer, project preferenceFile) {
 	if len(project.Decide) != 0 {
 		fmt.Fprintf(w, "dashi: warning: %s: \"decide\" is ignored in a project settings file, "+
 			"because it would send your commands out with your key. Use ~/.dashi/settings.json, "+
 			"--decide, or DASHI_DECIDE.\n", workspace.PrintableText(project.Source))
-	}
-	for _, f := range s.On {
-		if !slices.Contains(decideFeaturesBuilt, f) {
-			fmt.Fprintf(w, "dashi: warning: the decide feature %s is not available; it stays off.", f)
-			if reason := decideNotBuiltReasons[f]; reason != "" {
-				fmt.Fprintf(w, " %s", reason)
-			}
-			fmt.Fprintln(w)
-		}
 	}
 }

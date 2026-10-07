@@ -177,7 +177,7 @@ warn once per cause.
 `selective_compaction` stays off and warns that it is not available. Its
 eval on recorded CLI sessions missed the bar set before the run: selective
 recalled 50% of exact details, the same as recency, which needs no decide
-request ([eval](../dev/selective-compaction-eval.md)). The design drops the feature when
+request ([decision](../../design/decide/README.md#removed-selective-compaction)). The design drops the feature when
 recency matches. PR 3 ships the eval and its result instead.
 
 ## Requirements

@@ -42,5 +42,3 @@ profile.cov
 __pycache__/
 /dashi
 
-# Needles mined by decide/selective/eval -recorded; they quote private sessions
-needles.json

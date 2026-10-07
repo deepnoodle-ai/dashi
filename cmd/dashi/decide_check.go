@@ -667,13 +667,8 @@ type decideFeatureCounts struct {
 // decideFeatureState is one feature in /settings.
 type decideFeatureState struct {
 	On bool `json:"on"`
-	// Requested is set when the user named the feature, even one the CLI
-	// does not run.
-	Requested bool `json:"requested"`
 	// Source is what turned it on, or "default" when off by default.
 	Source string `json:"source"`
-	// Available is false for a feature the CLI does not run.
-	Available bool `json:"available"`
 }
 
 // decideScopes says what each feature reads, for /settings.
@@ -701,10 +696,8 @@ func (c *Controller) inspectDecide() *decideInspection {
 	}
 	for _, f := range decideFeatureNames {
 		state := decideFeatureState{
-			On:        s.enabled(f),
-			Requested: slices.Contains(s.On, f),
-			Source:    "default",
-			Available: slices.Contains(decideFeaturesBuilt, f),
+			On:     s.enabled(f),
+			Source: "default",
 		}
 		if s.Source != "" {
 			state.Source = s.Source
@@ -741,8 +734,6 @@ func writeDecideInspection(text *strings.Builder, view decideInspection) {
 		switch {
 		case state.On:
 			value = "on (" + workspace.PrintableText(state.Source) + ")"
-		case state.Requested && !state.Available:
-			value = "off (not available)"
 		case state.Source != "default":
 			value = "off (" + workspace.PrintableText(state.Source) + ")"
 		}

@@ -45,6 +45,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   $0.05 on `mistral-large-latest`; $0.02, $0.015, and $0.01 on the
   `ministral-14b`, `ministral-8b`, and `ministral-3b` models (`-latest` and
   `-2512`); and $0.03 on `codestral-latest`.
+- **Compaction summaries quote the user's original request word for word.**
+  `compaction.DefaultPrompt` asks for it, so the task survives repeated
+  compactions without being paraphrased.
+
+### Removed
+
+- **`decide/selective` is removed.** In testing it kept fewer details than
+  plain summarization of recent history, so it wasn't worth its cost.
+  `dashi --decide selective_compaction` is now an unknown feature.
 
 ### Fixed
 
@@ -57,14 +66,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   including command outage confirmation. `Usage` retains observed tokens
   on failed checks. The CLI uses these observations instead of guessing
   request counts from error types.
-- OpenAI Responses preserves the served service tier in blocking and
-  streaming results, so callers can verify the pricing tier.
-- Selective compaction bounds focus text after JSON encoding, so escaping
-  does not cause unnecessary Decide fallbacks.
-- Recorded selective evaluation judges saved case needles in keyless runs.
-  Paid runs require a conservative shared cost reserve. Preflight, explicit
-  cheaper-model overrides, and output limits make comparisons reviewable.
-  Reports omit private needle text and source session identifiers.
+- **OpenAI Responses results include the service tier** the request ran on
+  (`Result.ServiceTier`), in blocking and streaming calls.
 - **Anthropic tools with no arguments accept empty stream fragments.** A
   completed empty-object MCP call retains `{}` and runs normally. Malformed
   nonempty JSON and interrupted tool blocks still fail without execution.
