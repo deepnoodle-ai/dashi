@@ -1,9 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
+	"strings"
 	"testing"
+
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/decide"
 )
 
 // The keyless run checks the plumbing: every needle survives selective
@@ -44,5 +50,50 @@ func TestKeyless(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCannedNeedlesAreCaseSpecificAndDecoded(t *testing.T) {
+	private := `PRIVATE<detail>"with\escapes`
+	first := []needle{{Answer: private}}
+	judge := cannedNeedles(first)
+	first[0].Answer = "changed later"
+	req := decide.NewRequest("state")
+	req.Questions["s0.needed"] = decide.Noul(map[string]string{"segment": private})
+	req.Questions["s0.verbatim"] = decide.Noul(map[string]string{"segment": private, "short_form": "omitted"})
+	resp, err := judge(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, answer := range resp.Answers {
+		if answer.(*decide.NoulAnswer).Noul < 0.5 {
+			t.Fatalf("%s did not recognize decoded needle", key)
+		}
+	}
+	other, err := cannedNeedles([]needle{{Answer: "other case"}})(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.Answers["s0.needed"].(*decide.NoulAnswer).Noul >= 0.5 {
+		t.Fatal("judge used another case's needles")
+	}
+}
+
+func TestPrivateNeedleFailureIsSafeToPrint(t *testing.T) {
+	secret := `PRIVATE<detail>"with\escapes`
+	needles := []needle{{Kind: "value", Answer: secret}}
+	err := survives([]llm.Message{llm.UserMessage(llm.Text("detail omitted"))}, needles)
+	if err == nil {
+		t.Fatal("lost needle was not detected")
+	}
+	r := &report{sessions: []string{"case-01"}, sizes: []int{100}, needles: [][]needle{needles}, results: map[string][]outcome{}, problems: []string{"case-01: " + err.Error()}}
+	for _, arm := range arms {
+		r.results[arm] = []outcome{{completed: true}}
+	}
+	var out bytes.Buffer
+	r.print(&out, config{})
+	encoded, _ := json.Marshal(secret)
+	if strings.Contains(out.String(), secret) || strings.Contains(out.String(), string(encoded)) || !strings.Contains(out.String(), "needle 1 did not survive") {
+		t.Fatalf("unsafe failure report: %s", out.String())
 	}
 }

@@ -6,16 +6,33 @@ Run it from `decide/`:
 
 ```sh
 go run ./selective/eval              # keyless: plumbing checks only
-go run ./selective/eval -live        # Claude (ANTHROPIC_API_KEY) and Jev (TYPESAFE_API_KEY)
-go run ./selective/eval -live -vague # the latest request is "Keep going."
+go run ./selective/eval -live -max-cost 1 # models and Jev; conservative cap in USD
+go run ./selective/eval -live -max-cost 1 -vague # the latest request is "Keep going."
 go run ./selective/eval -long-turn   # a large file read in the last turn
-go run ./selective/eval -live -recorded ~/.dashi/sessions -needles needles.json
+go run ./selective/eval -live -max-cost 1 -recorded ~/.dashi/sessions -needles needles.json
 ```
 
 A recorded case runs on its own provider: an OpenAI case needs
 `OPENAI_API_KEY`, and a case of another provider stops the run.
 `needles.json` quotes private sessions; it is written with mode 0600 and
-ignored by Git.
+ignored by Git. Missing needles require explicit `-live -mine-needles`.
+
+`-live` requires `-max-cost`: one shared USD ledger reserves each request's
+conservative cost before dispatch, including full output and cache writes.
+Failed calls retain their reserve. SDK and HTTP transports perform zero retries.
+`-preflight` prepares real provider requests with scripted replies and fake
+selection. It makes no paid calls. Its reservation total covers those payloads;
+real model output can change later payloads, so the live guard checks them again.
+
+By default recorded cases keep their own model and provider. An explicit
+`-override-recorded-model -provider openai -model gpt-6-luna` compares all cases
+on a cheaper common model. `-summary-tokens`, `-probe-tokens`, and
+`-reasoning-effort` control output ceilings and reasoning. Reports identify
+these changes. The optional `-provider-smoke` check also uses the same reserve.
+Public reports use per-run ordinal case IDs and never quote private needles.
+Keyless recorded checks validate selected-content preservation. Their oracle
+can identify a needle while its segment still exceeds a request or history
+budget; omitted needles count as recall misses, not plumbing failures.
 
 ## Setup
 
