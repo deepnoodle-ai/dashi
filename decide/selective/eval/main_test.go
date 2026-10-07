@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/compaction"
+	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/decide"
 )
@@ -95,5 +99,52 @@ func TestPrivateNeedleFailureIsSafeToPrint(t *testing.T) {
 	encoded, _ := json.Marshal(secret)
 	if strings.Contains(out.String(), secret) || strings.Contains(out.String(), string(encoded)) || !strings.Contains(out.String(), "needle 1 did not survive") {
 		t.Fatalf("unsafe failure report: %s", out.String())
+	}
+}
+
+func TestSemanticFailureContainsOnlyCanonicalMetadata(t *testing.T) {
+	secret := "PRIVATE-session-path-message-or-error"
+	out := dashi.RunResult{
+		Turn: dashi.Turn{ID: secret, Steps: []dashi.Step{{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{
+			ModelCallID: secret, Error: secret, Result: &llm.Result{Message: llm.AssistantMessage(llm.Text(secret)), Raw: []byte(secret), Stop: llm.Stop{Kind: llm.StopOutputLimit, Raw: secret}},
+		}}}},
+		TurnView: dashi.TurnView{Stop: dashi.Stop{Kind: dashi.StopLimited, Reason: secret, Limit: &dashi.LimitDetail{Kind: dashi.LimitOutputTokens, Code: secret}}},
+	}
+	failure := stoppedTurn("summary", out)
+	if failure.stage != "summary" || failure.stop != dashi.StopLimited || failure.limit != dashi.LimitOutputTokens || failure.modelStop != llm.StopOutputLimit {
+		t.Fatal("canonical failure metadata lost")
+	}
+	var printed bytes.Buffer
+	(&report{problems: []string{"case-01: " + failure.Error()}, incomplete: true}).print(&printed, config{})
+	if strings.Contains(printed.String(), secret) || !strings.Contains(printed.String(), `model stop "output_limit"`) {
+		t.Fatal("semantic failure report lost metadata or exposed private text")
+	}
+	out.Stop.Kind = dashi.StopKind(secret)
+	out.Stop.Limit.Kind = dashi.LimitKind(secret)
+	out.Turn.Steps[0].Model.Result.Stop.Kind = llm.StopKind(secret)
+	if strings.Contains(stoppedTurn(secret, out).Error(), secret) {
+		t.Fatal("unrecognized enum or stage was published")
+	}
+}
+
+func TestSummaryAndProbeSemanticStopsRetainDiagnostics(t *testing.T) {
+	for _, kind := range []llm.StopKind{llm.StopOutputLimit, llm.StopRefusal} {
+		result := dashitest.Reply("PRIVATE-model-message")
+		result.Stop = llm.Stop{Kind: kind, Raw: "PRIVATE-stop-reason"}
+		e := &env{model: dashitest.Model, client: func(_, _ string) llm.Client { return dashitest.NewClient(result) }}
+		s := newSession(0, 1, variant{})
+		c := compaction.Compactor{Model: dashitest.Model, Policy: compaction.Policy{Model: llm.ModelInfo{Capabilities: llm.Capabilities{ContextWindow: 16_000}}}}
+		start, err := c.Start(t.Context(), s.messages)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, summaryErr := e.compact(t.Context(), s, "PRIVATE-turn-id", start, s.messages)
+		_, _, probeErr := e.probe(t.Context(), s, "PRIVATE-turn-id", nil, s.needles)
+		for stage, err := range map[string]error{"summary": summaryErr, "probe": probeErr} {
+			failure, ok := errors.AsType[*semanticFailure](err)
+			if !ok || failure.stage != stage || failure.modelStop != kind || strings.Contains(err.Error(), "PRIVATE") {
+				t.Fatalf("%s did not retain safe stop metadata", stage)
+			}
+		}
 	}
 }

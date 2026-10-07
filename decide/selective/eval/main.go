@@ -213,6 +213,52 @@ type report struct {
 	incomplete bool
 }
 
+// semanticFailure retains only canonical enums from a stopped turn. It never
+// copies a turn/call ID, stop reason, model message, or provider error body.
+type semanticFailure struct {
+	stage     string
+	stop      dashi.StopKind
+	limit     dashi.LimitKind
+	modelStop llm.StopKind
+}
+
+func (f *semanticFailure) Error() string {
+	return fmt.Sprintf("stage %s; turn stop %q; limit %q; model stop %q (empty=unavailable)", f.stage, f.stop, f.limit, f.modelStop)
+}
+
+func stoppedTurn(stage string, out dashi.RunResult) *semanticFailure {
+	f := &semanticFailure{stage: "turn"}
+	if stage == "summary" || stage == "probe" {
+		f.stage = stage
+	}
+	if out.Stop.Kind != "" {
+		switch out.Stop.Kind {
+		case dashi.StopCompleted, dashi.StopWaiting, dashi.StopLimited, dashi.StopRefused,
+			dashi.StopCanceled, dashi.StopInterrupted, dashi.StopFailed, dashi.StopResultUnknown:
+			f.stop = out.Stop.Kind
+		}
+		if out.Stop.Limit != nil {
+			switch out.Stop.Limit.Kind {
+			case dashi.LimitModelCalls, dashi.LimitContextWindow, dashi.LimitDeadline, dashi.LimitResumes,
+				dashi.LimitProviderPauses, dashi.LimitOutputTokens, dashi.LimitTotalTokens, dashi.LimitCost, dashi.LimitHost:
+				f.limit = out.Stop.Limit.Kind
+			}
+		}
+	}
+	for _, step := range slices.Backward(out.Turn.Steps) {
+		if step.Kind != dashi.StepModelCallFinished || step.Model == nil || step.Model.Result == nil {
+			continue
+		}
+		switch step.Model.Result.Stop.Kind {
+		case llm.StopFinished, llm.StopToolUse, llm.StopOutputLimit, llm.StopContextLimit,
+			llm.StopRefusal, llm.StopPause, llm.StopIncomplete, llm.StopOther:
+			f.modelStop = step.Model.Result.Stop.Kind
+		}
+		break
+	}
+	return f
+}
+
 func run(ctx context.Context, cfg config, out io.Writer) (*report, error) {
 	if cfg.provider == "" {
 		cfg.provider = "anthropic"
@@ -269,8 +315,11 @@ func run(ctx context.Context, cfg config, out io.Writer) (*report, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil && firstErr == nil {
-				firstErr = fmt.Errorf("session %s: %w", s.name, err)
+				firstErr = fmt.Errorf("%s: %w", r.sessions[i], err)
 				cancel()
+			}
+			if failure, ok := errors.AsType[*semanticFailure](err); ok {
+				r.problems = append(r.problems, r.sessions[i]+": "+failure.Error())
 			}
 			for a, o := range res {
 				r.results[a][i] = o
@@ -614,7 +663,7 @@ func (e *env) compact(ctx context.Context, s session, id string, st dashi.Start,
 	}
 	hist, ok := out.TurnView.ReplacementHistory()
 	if !ok {
-		return nil, dashi.Spend{}, fmt.Errorf("compaction turn %s ended %s without a summary", id, out.Stop.Kind)
+		return nil, dashi.Spend{}, stoppedTurn("summary", out)
 	}
 	b, err := json.Marshal(out.Turn)
 	if err != nil {
@@ -673,7 +722,7 @@ func (e *env) probe(ctx context.Context, s session, id string, hist []llm.Messag
 		return nil, 0, err
 	}
 	if out.Stop.Kind != dashi.StopCompleted {
-		return nil, 0, fmt.Errorf("probe %s stopped %s: %s", id, out.Stop.Kind, out.Stop.Reason)
+		return nil, 0, stoppedTurn("probe", out)
 	}
 	reply := strings.ToLower(out.Reply)
 	found := map[string]bool{}
