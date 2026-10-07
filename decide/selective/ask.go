@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sort"
 	"strconv"
 
-	"github.com/deepnoodle-ai/dashi/decide/internal/state"
 	"github.com/deepnoodle-ai/dashi/internal/compactionrules"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/decide"
@@ -17,7 +17,7 @@ import (
 	"github.com/deepnoodle-ai/decide/patterns/fanout"
 )
 
-// State size limits, in bytes of text. Decide's request limits are in
+// State size limits, in bytes of JSON-encoded strings. Decide's request limits are in
 // tokens, and a token is at least one byte, so bytes bound them. The state
 // stays well under compact.Jev113's StateAndQuestion, leaving room for a
 // segment in each question.
@@ -41,23 +41,42 @@ func focusState(messages []llm.Message, cut int, p *plan) json.RawMessage {
 	var f focus
 	for _, m := range messages {
 		if m, ok := compactionrules.WithoutReminders(m); ok && ownWords(m) {
-			f.Task = state.Cut(m.Text(), taskBytes)
+			f.Task = cutEncoded(m.Text(), taskBytes, false)
 			break
 		}
 	}
 	for _, m := range slices.Backward(messages) {
 		if m, ok := compactionrules.WithoutReminders(m); ok && ownWords(m) {
-			f.LatestRequest = state.Cut(m.Text(), requestBytes)
+			f.LatestRequest = cutEncoded(m.Text(), requestBytes, false)
 			break
 		}
 	}
-	recent := render(messages[cut:])
-	if len(recent) > recentBytes {
-		recent = recent[runeStart(recent, len(recent)-recentBytes):]
-	}
-	f.RecentMessages = recent
+	f.RecentMessages = cutEncoded(render(messages[cut:]), recentBytes, true)
 	b, _ := json.Marshal(f)
 	return b
+}
+
+// cutEncoded keeps a prefix, or a suffix when keepEnd is true, whose JSON
+// string fits maxBytes. JSON quotes and escaping count toward the limit.
+func cutEncoded(text string, maxBytes int, keepEnd bool) string {
+	part := func(n int) string {
+		if !keepEnd {
+			return text[:runeStart(text, n)]
+		}
+		start := len(text) - n
+		for start < len(text) && runeStart(text, start) != start {
+			start++
+		}
+		return text[start:]
+	}
+	end := sort.Search(len(text)+1, func(n int) bool {
+		encoded, _ := json.Marshal(part(n))
+		return len(encoded) > maxBytes
+	})
+	if end == 0 {
+		return ""
+	}
+	return part(end - 1)
 }
 
 // questions asks Decide about segments against one state.

@@ -48,6 +48,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- OpenAI Responses preserves the served service tier in blocking and
+  streaming results, so callers can verify the pricing tier.
+- Selective compaction bounds focus text after JSON encoding, so escaping
+  does not cause unnecessary Decide fallbacks.
+- Recorded selective evaluation judges saved case needles in keyless runs.
+  Paid runs require a conservative shared cost reserve. Preflight, explicit
+  cheaper-model overrides, and output limits make comparisons reviewable.
+  Reports omit private needle text and source session identifiers.
 - **Anthropic tools with no arguments accept empty stream fragments.** A
   completed empty-object MCP call retains `{}` and runs normally. Malformed
   nonempty JSON and interrupted tool blocks still fail without execution.

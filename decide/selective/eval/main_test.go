@@ -1,10 +1,49 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
+	"strings"
 	"testing"
+
+	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/compaction"
+	"github.com/deepnoodle-ai/dashi/dashitest"
+	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/decide"
 )
+
+func TestGeneratedLiveOpenAIRequiresAPIKeyBeforeEvaluation(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("TYPESAFE_API_KEY", "")
+	var output bytes.Buffer
+	r, err := run(t.Context(), config{
+		live: true, provider: "openai", model: "gpt-6-luna", maxCost: "0.1",
+		sessions: 1, window: 16_000,
+	}, &output)
+	if err == nil || !strings.Contains(err.Error(), "OPENAI_API_KEY") {
+		t.Fatalf("missing OpenAI key did not produce a configuration error: %v", err)
+	}
+	if r != nil || output.Len() != 0 {
+		t.Fatal("evaluation started without its configured provider key")
+	}
+}
+
+func TestUnconfiguredOpenAIClientIsNotWrapped(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("TYPESAFE_API_KEY", "test-key-00000000")
+	e, cleanup, err := newEnv(config{live: true, provider: "anthropic", maxCost: "0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if e.client("openai", "") != nil || e.checkProvider("openai") == nil {
+		t.Fatal("unconfigured recorded provider produced a client")
+	}
+}
 
 // The keyless run checks the plumbing: every needle survives selective
 // compaction word for word, every tool call keeps its results, an
@@ -44,5 +83,97 @@ func TestKeyless(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCannedNeedlesAreCaseSpecificAndDecoded(t *testing.T) {
+	private := `PRIVATE<detail>"with\escapes`
+	first := []needle{{Answer: private}}
+	judge := cannedNeedles(first)
+	first[0].Answer = "changed later"
+	req := decide.NewRequest("state")
+	req.Questions["s0.needed"] = decide.Noul(map[string]string{"segment": private})
+	req.Questions["s0.verbatim"] = decide.Noul(map[string]string{"segment": private, "short_form": "omitted"})
+	resp, err := judge(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, answer := range resp.Answers {
+		if answer.(*decide.NoulAnswer).Noul < 0.5 {
+			t.Fatalf("%s did not recognize decoded needle", key)
+		}
+	}
+	other, err := cannedNeedles([]needle{{Answer: "other case"}})(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.Answers["s0.needed"].(*decide.NoulAnswer).Noul >= 0.5 {
+		t.Fatal("judge used another case's needles")
+	}
+}
+
+func TestPrivateNeedleFailureIsSafeToPrint(t *testing.T) {
+	secret := `PRIVATE<detail>"with\escapes`
+	needles := []needle{{Kind: "value", Answer: secret}}
+	err := survives([]llm.Message{llm.UserMessage(llm.Text("detail omitted"))}, needles)
+	if err == nil {
+		t.Fatal("lost needle was not detected")
+	}
+	r := &report{sessions: []string{"case-01"}, sizes: []int{100}, needles: [][]needle{needles}, results: map[string][]outcome{}, problems: []string{"case-01: " + err.Error()}}
+	for _, arm := range arms {
+		r.results[arm] = []outcome{{completed: true}}
+	}
+	var out bytes.Buffer
+	r.print(&out, config{})
+	encoded, _ := json.Marshal(secret)
+	if strings.Contains(out.String(), secret) || strings.Contains(out.String(), string(encoded)) || !strings.Contains(out.String(), "needle 1 did not survive") {
+		t.Fatalf("unsafe failure report: %s", out.String())
+	}
+}
+
+func TestSemanticFailureContainsOnlyCanonicalMetadata(t *testing.T) {
+	secret := "PRIVATE-session-path-message-or-error"
+	out := dashi.RunResult{
+		Turn: dashi.Turn{ID: secret, Steps: []dashi.Step{{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{
+			ModelCallID: secret, Error: secret, Result: &llm.Result{Message: llm.AssistantMessage(llm.Text(secret)), Raw: []byte(secret), Stop: llm.Stop{Kind: llm.StopOutputLimit, Raw: secret}},
+		}}}},
+		TurnView: dashi.TurnView{Stop: dashi.Stop{Kind: dashi.StopLimited, Reason: secret, Limit: &dashi.LimitDetail{Kind: dashi.LimitOutputTokens, Code: secret}}},
+	}
+	failure := stoppedTurn("summary", out)
+	if failure.stage != "summary" || failure.stop != dashi.StopLimited || failure.limit != dashi.LimitOutputTokens || failure.modelStop != llm.StopOutputLimit {
+		t.Fatal("canonical failure metadata lost")
+	}
+	var printed bytes.Buffer
+	(&report{problems: []string{"case-01: " + failure.Error()}, incomplete: true}).print(&printed, config{})
+	if strings.Contains(printed.String(), secret) || !strings.Contains(printed.String(), `model stop "output_limit"`) {
+		t.Fatal("semantic failure report lost metadata or exposed private text")
+	}
+	out.Stop.Kind = dashi.StopKind(secret)
+	out.Stop.Limit.Kind = dashi.LimitKind(secret)
+	out.Turn.Steps[0].Model.Result.Stop.Kind = llm.StopKind(secret)
+	if strings.Contains(stoppedTurn(secret, out).Error(), secret) {
+		t.Fatal("unrecognized enum or stage was published")
+	}
+}
+
+func TestSummaryAndProbeSemanticStopsRetainDiagnostics(t *testing.T) {
+	for _, kind := range []llm.StopKind{llm.StopOutputLimit, llm.StopRefusal} {
+		result := dashitest.Reply("PRIVATE-model-message")
+		result.Stop = llm.Stop{Kind: kind, Raw: "PRIVATE-stop-reason"}
+		e := &env{model: dashitest.Model, client: func(_, _ string) llm.Client { return dashitest.NewClient(result) }}
+		s := newSession(0, 1, variant{})
+		c := compaction.Compactor{Model: dashitest.Model, Policy: compaction.Policy{Model: llm.ModelInfo{Capabilities: llm.Capabilities{ContextWindow: 16_000}}}}
+		start, err := c.Start(t.Context(), s.messages)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, summaryErr := e.compact(t.Context(), s, "PRIVATE-turn-id", start, s.messages)
+		_, _, probeErr := e.probe(t.Context(), s, "PRIVATE-turn-id", nil, s.needles)
+		for stage, err := range map[string]error{"summary": summaryErr, "probe": probeErr} {
+			failure, ok := errors.AsType[*semanticFailure](err)
+			if !ok || failure.stage != stage || failure.modelStop != kind || strings.Contains(err.Error(), "PRIVATE") {
+				t.Fatalf("%s did not retain safe stop metadata", stage)
+			}
+		}
 	}
 }

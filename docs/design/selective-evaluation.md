@@ -51,13 +51,26 @@ uses `llm.WorstCaseCost` on the prepared request's exact body and price sheet.
 This existing bound covers the highest applicable input/cache rate, full output
 including reasoning, tiers, and unknown provider-tool charges. Unknown prices
 or charges reject dispatch. Reservations use `money.Amount` and a mutex.
-Retain reservations after failures or ambiguous outcomes.
+Retain reservations after failures or ambiguous outcomes. Settle unused model
+risk only after a finished, valid text result has complete usage, verified served
+model and tier, and a priced cost no greater than its bound. Required numeric
+input/output/cache counters must exist in the raw result and match normalized
+usage. Provider-tool meter completeness does not establish token completeness.
+Missing counters remain unknown, retain full risk, and stop the run. Retain Decide
+bounds in full. Pin OpenAI requests to `service_tier=default` and verify the
+reported tier, because an omitted request tier follows project settings. Report
+gross full reservations, held reserve, and observed cost
+separately.
 
 The Decide transport reserves encoded request bytes plus framing at the pinned
 Jev input rate. No layer may retry a paid call, including its transport.
 Disable Decide retries. Dashi provider clients already dispatch once, and the
 eval does not retry model turns. All paid calls share the same ledger. For this
-run the hard reserve is $0.90. Mining is forbidden in a capped run. A rejected
+final corrected run the hard reserve is $0.913183975; two prior incomplete
+attempts retain $0.086816025, so the task remains under the user's $1 ceiling.
+Successful verified settlements can release unused risk; the sum of all full
+reservations is a cumulative counter, not simultaneous exposure. Mining is
+forbidden. A rejected
 reservation stops the run and preserves an incomplete result.
 
 ### Private evidence
@@ -67,7 +80,11 @@ These ordinals do not derive from recorded session names, IDs, or paths.
 Raw session names, IDs, and paths stay local and never appear in public reports,
 diagnostics, or errors. Lost-needle messages use an index and kind, never the
 answer. Pairing errors omit private call IDs.
-Recorded model/provider errors omit raw provider bodies and replies. Keep any
+Recorded model/provider errors omit raw provider bodies and replies. Diagnostics
+retain classified category, stage, HTTP status, and allowlisted machine code
+with a catalog model identity. Semantic failures retain canonical Turn stop,
+limit, and model stop enums with the failing stage. They never print arbitrary
+error strings or raw stop reasons. Keep any
 raw diagnostics and needles outside Git, with mode 0600. Test synthetic secrets
 and session identifiers through failure reports.
 
@@ -96,4 +113,7 @@ Publish a separate corrected-window cheaper-model result. A complete 13-case,
 64-needle, five-arm matrix resolves #221. Keep historical results labeled.
 If the matrix stops early, report its boundary and keep #221 open. Review a
 selective lead of 10 points over recency before changing the ship decision.
-The library remains experimental throughout this work.
+The library remains experimental throughout this work. The final matrix
+completed all five arms: selective 24/64, recency 29/64, with no fallbacks.
+The 10-point recall bar is not met. The [dated evidence](../dev/selective-compaction-eval.md#live-run-4-2026-10-07-corrected-recorded-corpus-cheaper-model)
+records the model changes and all three spending ledgers.
