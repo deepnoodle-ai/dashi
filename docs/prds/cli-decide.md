@@ -181,9 +181,8 @@ details (37.5%) than keeping the newest messages word for word (45.3%).
 
 ## Requirements
 
-- R-1: Features: `command_risk`, `prompt_injection`, `turn_watcher`,
-  `selective_compaction`, named after the library types. Each is off unless
-  turned on.
+- R-1: Features: `command_risk`, `prompt_injection`, and `turn_watcher`,
+  named after the library types. Each is off unless turned on.
 - R-2: Sources, highest first: `--decide LIST`, then `DASHI_DECIDE`, then the
   `decide` list in `~/.dashi/settings.json`. A list replaces lower tiers.
   `off` turns all off. An unknown name is a startup error that lists the
