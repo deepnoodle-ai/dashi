@@ -155,10 +155,13 @@ approval, with a `Reason` that says why. Only a setup failure pauses it,
 so one command cannot turn the check off for others. The content check
 never pauses the command check. A host that asks the user in its own
 `BeforeTool` hook calls `CommandRisk.Check` there and shows one prompt;
-`toolcheck.IsOutage` tells an outage from any other failure.
+`toolcheck.IsPaused` tells a paused check from any other failure.
 
-`Verdict.Requests` is how many checks a call sent to Decide, and
-`Verdict.Usage` holds their tokens, also when the check failed.
+`Verdict.Requests` is how many requests the check sent to Decide, not
+counting automatic retries, and `Verdict.Usage` holds their tokens, also
+when the check failed. A content check's first failure that pauses it
+returns a `*PausedError` too; use `Verdict.Requests` to tell whether a
+request was sent.
 
 `PromptInjection` does not see everything outside text can reach the model
 through. It does not check:

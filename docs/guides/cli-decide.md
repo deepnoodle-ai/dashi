@@ -115,8 +115,8 @@ decide cannot answer for a reason the result itself can cause (a timeout,
 a rate limit, or a rejected request), the result reaches the agent at
 once, after a note that it was not checked and must be treated as
 untrusted; the row reads `decide result: unchecked (timeout) — agent
-warned`. After an outage the result reaches the agent as it was, and the
-row reads `decide result: unchecked (server error)`. It runs in every
+warned`. While the check is paused, the result reaches the agent as it
+was, and the row reads `decide result: unchecked (server error)`. It runs in every
 mode, delegated tasks' results too.
 
 ## The turn watcher
@@ -140,7 +140,7 @@ An unchecked call has one of two kinds of cause:
   too large to check, a rate limit, or a rejected request or answer. The
   command text can cause these, so the call asks even in bypass mode, and
   `run --yes` refuses it. They never pause `command_risk`.
-- **Outage:** decide is not set up, such as after a failed login. The
+- **Paused:** decide is not set up, such as after a failed login. The
   check pauses for a minute, and the status area counts down:
   `decide: command_risk paused (auth failed), resumes in 45s`. During the
   pause, bypass mode runs commands without asking, and results reach the

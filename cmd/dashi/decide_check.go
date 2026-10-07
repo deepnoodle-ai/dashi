@@ -32,9 +32,9 @@ type decideRuntime struct {
 	wait time.Duration
 	// warn shows one warning to the user.
 	warn func(string)
-	// outage is told about an outage of the prompt-injection check, so a
+	// warnPause is told when the prompt-injection check is paused, so a
 	// UI with no status area can say once that results go unchecked.
-	outage func(feature string)
+	warnPause func(feature string)
 	// watchFailed is told about each failed turn-watcher check, with its
 	// cause, so a UI with no status area can say once per cause that the
 	// watcher could not check.
@@ -65,7 +65,7 @@ type decideRuntime struct {
 	model string
 	// asked reports that a check was attempted.
 	asked bool
-	// warned is set once a warning about an outage of unknown kind was
+	// warned is set once a warning about a pause of unknown cause was
 	// shown.
 	warned bool
 	paused map[string]decidePause
@@ -74,7 +74,8 @@ type decideRuntime struct {
 // decideTotals are this run's decide requests and tokens, for every
 // feature together.
 type decideTotals struct {
-	// Requests counts the checks sent to Decide.
+	// Requests counts the requests sent to Decide, not counting automatic
+	// retries.
 	Requests     int `json:"requests"`
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
@@ -98,7 +99,7 @@ type decideWatchCounts struct {
 	Unchecked int `json:"unchecked"`
 }
 
-// decidePause is a check skipped after an outage until Until.
+// decidePause is a check that is paused until Until.
 type decidePause struct {
 	Until time.Time
 	Cause string
@@ -197,17 +198,18 @@ type decideResult struct {
 	Request string
 	// Cause says why the call is unchecked, such as "timeout".
 	Cause string
-	// Outage is true when decide is not set up, such as a failed login,
-	// and the check is paused. Any other unchecked call is suspect.
-	Outage bool
+	// Paused is true when the check is paused: decide is not set up, such
+	// as after a failed login, or, for the prompt-injection check, could
+	// not be reached. Any other unchecked call is suspect.
+	Paused bool
 	// AnsweredFirst is true when the person answered before the check did.
 	AnsweredFirst bool
 }
 
 // suspect reports a call decide could not answer for a reason other than
-// an outage, such as a server error, a timeout, or a rejected request.
+// a pause, such as a server error, a timeout, or a rejected request.
 func (r decideResult) suspect() bool {
-	return !r.Checked && !r.Outage && !r.AnsweredFirst
+	return !r.Checked && !r.Paused && !r.AnsweredFirst
 }
 
 // holds reports whether the call must be asked about even in bypass mode.
@@ -301,13 +303,13 @@ func (rt *decideRuntime) record(feature string, counts *decideCheckCounts, cance
 	if canceled {
 		return decideResult{AnsweredFirst: true}, ""
 	}
-	r = decideResult{Cause: decideCause(err), Outage: toolcheck.IsOutage(err)}
+	r = decideResult{Cause: decideCause(err), Paused: toolcheck.IsPaused(err)}
 	counts.Unchecked++
 	if paused, ok := errors.AsType[*toolcheck.PausedError](err); ok {
 		rt.paused[feature] = decidePause{Until: paused.Until, Cause: r.Cause}
 	}
-	if r.Outage && r.Cause == "error" && !rt.warned {
-		// An outage with no known kind: say what it was, once.
+	if r.Paused && r.Cause == "error" && !rt.warned {
+		// A pause of unknown cause: say what it was, once.
 		rt.warned = true
 		warning = "decide: " + errorText(err)
 	}

@@ -238,9 +238,9 @@ func TestDecideBypassAsksOnServerError(t *testing.T) {
 // When decide is not set up, such as after a failed login, the check
 // pauses: bypass mode runs the command, and the status area shows the
 // pause.
-func TestDecideBypassRunsDuringOutage(t *testing.T) {
+func TestDecideBypassRunsWhilePaused(t *testing.T) {
 	h, srv := decideHarness(t, Options{Yes: true},
-		callTool("c1", "bash", `{"command":"echo outage"}`), say("Done."))
+		callTool("c1", "bash", `{"command":"echo paused"}`), say("Done."))
 	srv.FailNext(http.StatusUnauthorized)
 	h.input("go")
 	if len(h.ui.approvals) != 0 {
@@ -312,17 +312,17 @@ func TestDecideRecordFormat(t *testing.T) {
 	}
 }
 
-// Errors sort into outages, which pause, and failures the command can
-// cause, which ask.
+// A pause, and failures the command can cause, which ask, each name their
+// cause.
 func TestDecideCause(t *testing.T) {
 	cases := []struct {
 		err    error
 		cause  string
-		outage bool
+		paused bool
 	}{
 		{context.DeadlineExceeded, "timeout", false},
 		{toolcheck.ErrTooLarge, "too large", false},
-		{fmt.Errorf("x: %w", decide.ErrNoAPIKey), "no credentials", true},
+		{fmt.Errorf("x: %w", decide.ErrNoAPIKey), "no credentials", false},
 		{fmt.Errorf("x: %w", decide.ErrServer), "server error", false},
 		{fmt.Errorf("x: %w", decide.ErrRateLimited), "rate limited", false},
 		{fmt.Errorf("x: %w", decide.ErrInvalidAnswer), "invalid answer", false},
@@ -332,8 +332,8 @@ func TestDecideCause(t *testing.T) {
 		if got := decideCause(tc.err); got != tc.cause {
 			t.Errorf("decideCause(%v) = %q; want %q", tc.err, got, tc.cause)
 		}
-		if got := toolcheck.IsOutage(tc.err); got != tc.outage {
-			t.Errorf("IsOutage(%v) = %v; want %v", tc.err, got, tc.outage)
+		if got := toolcheck.IsPaused(tc.err); got != tc.paused {
+			t.Errorf("IsPaused(%v) = %v; want %v", tc.err, got, tc.paused)
 		}
 	}
 }

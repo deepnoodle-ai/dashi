@@ -42,8 +42,8 @@ use step (a recorded `dashi.Step`), notice (an agent message), evidence
    without Decide.
 
    *Exception, for hostile input:* `toolcheck.CommandRisk` fails open only
-   on an outage. When its check fails in a way the command can cause (a
-   timeout, a rate limit, a command too long to check, a rejected request,
+   when Decide is not set up. When its check fails in a way the command
+   can cause (a timeout, a rate limit, a command too long to check, a rejected request,
    or an invalid answer), its hook holds the call for approval, since an
    attacker could otherwise shape a command to skip the check. A hold is
    advice, which decision 2 allows. A server or connection error holds the

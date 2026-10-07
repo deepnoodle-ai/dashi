@@ -52,10 +52,10 @@ type CommandRisk struct {
 // Check asks whether the command of a shell call could cause severe harm.
 // For a call the check does not read, such as read_file, it makes no
 // request and returns a Verdict with Checked false and no error. An error
-// means the check was skipped; IsOutage tells an outage from a failure the
-// input could cause. Only a setup failure, such as no key or a failed
-// login, pauses the check for a minute; Check then returns a *PausedError,
-// as it does during the pause. A Decide server or connection error never
+// means the check was skipped; IsPaused tells a paused check from a
+// failure the input could cause. Only a setup failure, such as no key or a
+// failed login, pauses the check for a minute; Check then returns a
+// *PausedError, as it does during the pause. A Decide server or connection error never
 // pauses it, so a command cannot turn off the check for other commands.
 func (c CommandRisk) Check(ctx context.Context, p dashi.ToolPlan) (Verdict, error) {
 	v := Verdict{Call: p.Call.Clone()}
@@ -90,8 +90,8 @@ func (c CommandRisk) report(v Verdict, err error) {
 // is held for approval with the verdict's Reason; a passed or unread call
 // gets no opinion. Any other failure, such as a server error, a timeout,
 // or a command too long to check, also holds the call, with a Reason that
-// says why it was not checked. Only an outage (see IsOutage) fails open:
-// the call runs and Dashi records a hook_failed warning. It never allows a
+// says why it was not checked. Only a paused check (see IsPaused) fails
+// open: the call runs and Dashi records a hook_failed warning. It never allows a
 // call.
 func (c CommandRisk) Hooks() dashi.Hooks {
 	return dashi.ToolHook{
@@ -100,7 +100,7 @@ func (c CommandRisk) Hooks() dashi.Hooks {
 		Func: func(ctx context.Context, p dashi.ToolPlan) (dashi.ToolDecision, error) {
 			v, err := c.Check(ctx, p)
 			switch {
-			case err != nil && (IsOutage(err) || ctx.Err() != nil):
+			case err != nil && (IsPaused(err) || ctx.Err() != nil):
 				return dashi.ToolDecision{}, err
 			case err != nil:
 				return dashi.NeedsApproval(uncheckedReason(err)), nil

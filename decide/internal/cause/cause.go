@@ -26,7 +26,7 @@ const (
 )
 
 // Of names why err stopped a Decide request. It follows wrapped errors,
-// so a pause error names the outage that started it. An error it does not
+// so a pause error names the error that started it. An error it does not
 // know is Error.
 func Of(err error) string {
 	switch {

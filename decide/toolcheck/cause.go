@@ -27,7 +27,7 @@ const (
 )
 
 // CauseOf names why err stopped a check, from Check or from a turnwatch
-// Check. A *PausedError names the outage that started the pause.
+// Check. A *PausedError names the error that started the pause.
 func CauseOf(err error) Cause {
 	if errors.Is(err, ErrTooLarge) {
 		return CauseTooLarge
