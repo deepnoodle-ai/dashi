@@ -29,6 +29,7 @@ type taskFixtureClient struct {
 	childHold, parentHold   <-chan struct{}
 	childStarted            chan struct{}
 	startOnce               sync.Once
+	parentHeld              chan struct{}
 	effect                  bool
 	secondTask              bool
 	childModelCalls         map[string]int
@@ -183,6 +184,9 @@ func (c *taskFixtureClient) Send(ctx context.Context, call llm.Call) (res llm.Re
 	}
 	if n == 1 {
 		if c.parentHold != nil {
+			if c.parentHeld != nil {
+				close(c.parentHeld)
+			}
 			select {
 			case <-c.parentHold:
 			case <-ctx.Done():
@@ -738,7 +742,16 @@ func TestTaskModelCallLimitRequiresExactConfirmedRaise(t *testing.T) {
 	if _, err := a.eng.Prompt(t.Context(), "delegate"); err != nil {
 		t.Fatal(err)
 	}
-	task := waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopLimited) })
+	// The child must finish all 32 recorded calls before it asks for a
+	// limit raise. Wait observes that stop without polling its live view.
+	var attention *delegate.AttentionError
+	if _, err := a.eng.taskHost().tasks.Wait(t.Context()); !errors.As(err, &attention) {
+		t.Fatalf("want task attention at the model-call limit, got %v", err)
+	}
+	if len(attention.Tasks) != 1 || attention.Tasks[0].State != delegate.TaskState(dashi.StopLimited) || attention.Tasks[0].ModelCalls != 32 {
+		t.Fatalf("limit attention=%+v", attention.Tasks)
+	}
+	task := attention.Tasks[0]
 	snapshot, err := a.eng.inspectTask(t.Context(), task.ID)
 	if err != nil || snapshot.View.Next() != dashi.NextRaiseModelCalls {
 		t.Fatalf("limit=%+v err=%v", snapshot.View.Stop, err)
