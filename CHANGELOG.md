@@ -73,8 +73,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   messages, and records portable replay stripping. Programmatic callers and
   unfamiliar replay dependencies remain rejected.
 - **If a conversation outgrows the model's context window, the next message
-  now summarizes older history first** instead of failing every time. This
-  also works with `dashi run -c`. History size now counts large tool results
+  now summarizes older history first** instead of failing every time. Library
+  sessions need a `Compactor` for this; the CLI always has one, including
+  `dashi run -c`. History size now counts large tool results
   added after the last model call.
 - **If a history summary is cut off for length, Dashi asks once for a shorter
   one.**

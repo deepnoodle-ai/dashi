@@ -211,8 +211,8 @@ func lastUsage(turn dashi.Turn) llm.Usage {
 // planCompaction runs the compaction check before turn last+1: when the
 // last turn completed and the Compactor asks for it, it reserves the slot
 // and returns the plan of a compaction turn, whose Start buildCompaction
-// makes outside mu. When stoppedForContext is true, the last turn need not
-// have completed (see StoppedForContext). The check is skipped after other
+// makes outside mu. When needsCompaction is true, the last turn need not
+// have completed (see NeedsCompaction). The check is skipped after other
 // turns that failed or were canceled, and after a compaction turn, so a
 // failing summary is tried at most once per turn. A non-nil budget, the
 // caller's Start.Budget, caps the compaction turn too. The caller holds mu.
@@ -221,13 +221,13 @@ func (s *Session) planCompaction(
 	last int,
 	messages []llm.Message,
 	budget *dashi.Budget,
-	stoppedForContext bool,
+	needsCompaction bool,
 ) *startPlan {
 	if s.Compactor == nil || last == 0 {
 		return nil
 	}
 	t, err := s.load(ctx, last)
-	if err != nil || !stoppedForContext && t.view.Stop.Kind != dashi.StopCompleted ||
+	if err != nil || !needsCompaction && t.view.Stop.Kind != dashi.StopCompleted ||
 		t.view.Origin == dashi.StartCompaction ||
 		!s.Compactor.Needed(messages, lastUsage(t.turn)) {
 		return nil

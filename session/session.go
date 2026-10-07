@@ -506,7 +506,7 @@ func (s *Session) planStart(
 	var p startPlan
 	upTo := last // the turns the history holds
 	closed := false
-	stoppedForContext := false
+	needsCompaction := false
 	if last > 0 {
 		t, skip, err := s.readLast(ctx, last)
 		if err != nil {
@@ -516,7 +516,7 @@ func (s *Session) planStart(
 			p.warnings = append(p.warnings, *skip)
 			upTo = last - 1
 		} else {
-			stoppedForContext = StoppedForContext(t.view)
+			needsCompaction = NeedsCompaction(t.view)
 			var events []dashi.Event
 			closed, events, err = s.closeLast(ctx, last, t, opts, stream)
 			p.closing = events
@@ -531,8 +531,8 @@ func (s *Session) planStart(
 	history, unreadable := s.history(ctx, upTo)
 	// A Turn this Start closed did not complete as its caller meant, so no
 	// compaction follows it, unless it stopped because history grew too big.
-	if upTo == last && !compacted && (!closed || stoppedForContext) {
-		if cp := s.planCompaction(ctx, last, history, c.Budget, stoppedForContext); cp != nil {
+	if upTo == last && !compacted && (!closed || needsCompaction) {
+		if cp := s.planCompaction(ctx, last, history, c.Budget, needsCompaction); cp != nil {
 			cp.closing, cp.warnings = p.closing, p.warnings
 			return *cp, nil
 		}
@@ -552,11 +552,11 @@ func (s *Session) planStart(
 	return p, nil
 }
 
-// StoppedForContext reports whether the Turn stopped because its history no
-// longer fit the model's context window, or because summarizing it failed.
+// NeedsCompaction reports whether view stopped because the history no longer
+// fit or could not be summarized, so the next request should summarize first.
 // The next Send closes such a Turn and, with a Compactor, summarizes older
 // history before the new request.
-func StoppedForContext(v dashi.TurnView) bool {
+func NeedsCompaction(v dashi.TurnView) bool {
 	return v.Stop.Kind == dashi.StopFailed && v.Stop.Reason == dashi.StopReasonCompactionFailed ||
 		v.Stop.Kind == dashi.StopLimited && v.Stop.Reason == string(dashi.LimitContextWindow)
 }

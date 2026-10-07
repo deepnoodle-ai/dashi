@@ -49,8 +49,8 @@ func New(policy Policy) *Compactor {
 	return &Compactor{Policy: policy}
 }
 
-// Needed reports whether compaction is due and messages, the history the
-// next turn would get, has a message to summarize. Compaction is due when the
+// Needed reports whether to compact messages, the history for the next Turn.
+// It returns false if nothing in messages can be summarized. Compaction is due when the
 // last model call's usage, or the estimated size of messages, reaches
 // Policy's share of the window. The size estimate catches tool output added
 // after the last model call. History with images, audio, video, or binary

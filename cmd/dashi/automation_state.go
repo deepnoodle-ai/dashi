@@ -265,9 +265,9 @@ func (s automationSnapshot) canContinue() bool {
 	return true
 }
 func (s automationSnapshot) blocksNew() bool {
-	// The Session closes a Turn that stopped for context; pending work
+	// The Session closes a Turn that needs compaction; pending work
 	// still blocks a new request.
-	closable := session.StoppedForContext(s.latest) && len(s.latest.Pending) == 0
+	closable := session.NeedsCompaction(s.latest) && len(s.latest.Pending) == 0
 	if s.latest.Next() != dashi.NextNone && !closable || s.missingNotice {
 		return true
 	}

@@ -67,8 +67,8 @@ and does one of three things:
   `turn_closed`. Closing an interrupted turn keeps a zero-value session
   usable after an Esc or the default model-call limit.
 
-When the closed turn stopped because its history no longer fit
-(`session.StoppedForContext`), a session with a `Compactor` summarizes older
+When the closed turn stopped because its history no longer fit or its summary
+failed (`session.NeedsCompaction`), a session with a `Compactor` summarizes older
 history before the new turn. Finished tools do not run again.
 
 A turn with no recorded stop is running or crashed, and the session cannot

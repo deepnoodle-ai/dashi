@@ -85,8 +85,9 @@ call reported its usage. History with images, audio, video, or binary
 documents skips the estimate, since its size says little about tokens.
 
 The session checks after a completed Turn. It also checks after a Turn that
-stopped because its history no longer fit (`session.StoppedForContext`): the
-next message closes that Turn and summarizes older history first. It skips
+stopped because its history no longer fit or its summary failed
+(`session.NeedsCompaction`): the next message closes that Turn and summarizes
+older history first. It skips
 the check after other failed or canceled Turns and after compaction Turns.
 
 ## When it fails
@@ -244,8 +245,9 @@ summary is cut off at that limit, Dashi asks once for a shorter summary of the
 same history. It does not retry when the cut-off summary has no text, calls a
 tool, or refuses. Reloading the Turn does not allow a second retry. Both calls
 count toward the Turn's limits and spend. A cut-off summary never replaces
-history. Other failed, empty, tool-calling, or too-long summaries stop the
-Turn with `compaction_failed`. Explicit `Continue` can allow a new summary call. After a summary call's result is recorded,
+history. Other failed, empty, or tool-calling summaries, and summaries cut off
+for length again, stop the Turn with `compaction_failed`. Explicit `Continue`
+can allow a new summary call. After a summary call's result is recorded,
 reload applies its replacement without another model call. An interrupted
 no-tools summary follows existing safe recovery. A recorder write with an
 unknown result requires reloading from the recorder before any further call
