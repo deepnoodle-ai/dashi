@@ -75,8 +75,10 @@ func checkDecideNames(names []string) ([]string, error) {
 // resolveDecide chooses the decide features: --decide (or DASHI_DECIDE,
 // which Wonton binds to the flag), then the "decide" list in the user
 // settings file. A project settings file never turns a feature on or off.
-// envValue and envSet describe DASHI_DECIDE, only to name the source.
-func resolveDecide(flagValue string, flagSet bool, envValue string, envSet bool, user preferenceFile) (decideSettings, error) {
+// envValue and envSet describe DASHI_DECIDE, only to name the source. An
+// unknown name in the settings file is ignored with a warning to w, so a
+// removed feature does not stop dashi from starting.
+func resolveDecide(w io.Writer, flagValue string, flagSet bool, envValue string, envSet bool, user preferenceFile) (decideSettings, error) {
 	if flagSet {
 		source := "--decide"
 		if envSet && envValue == flagValue {
@@ -96,6 +98,15 @@ func resolveDecide(flagValue string, flagSet bool, envValue string, envSet bool,
 		return decideSettings{}, fmt.Errorf("%s: \"decide\" must be a list of feature names, such as [%q]",
 			user.Source, decideCommandRisk)
 	}
+	names = slices.DeleteFunc(names, func(name string) bool {
+		name = strings.TrimSpace(name)
+		if name == decideOff || slices.Contains(decideFeatureNames, name) {
+			return false
+		}
+		fmt.Fprintf(w, "dashi: warning: %s: unknown decide feature %q is ignored\n",
+			workspace.PrintableText(user.Source), workspace.PrintableText(name))
+		return true
+	})
 	on, err := checkDecideNames(names)
 	if err != nil {
 		return decideSettings{}, fmt.Errorf("%s: %w", user.Source, err)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -366,7 +367,7 @@ func TestResolveDecide(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := resolveDecide(tc.flag, tc.flagSet, tc.env, tc.envSet, tc.user)
+			got, err := resolveDecide(io.Discard, tc.flag, tc.flagSet, tc.env, tc.envSet, tc.user)
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("err = %v; want %q", err, tc.wantErr)
@@ -381,6 +382,19 @@ func TestResolveDecide(t *testing.T) {
 	var w bytes.Buffer
 	warnDecideSettings(&w, preferenceFile{Source: "/repo/.dashi/settings.json", Project: true, Decide: json.RawMessage(`[]`)})
 	mustHave(t, w.String(), `/repo/.dashi/settings.json: "decide" is ignored in a project settings file`)
+}
+
+// An unknown name in the user settings file, such as a removed feature, is
+// ignored with a warning instead of stopping dashi.
+func TestResolveDecideIgnoresUnknownSettingsName(t *testing.T) {
+	user := preferenceFile{Source: "/home/u/.dashi/settings.json",
+		Decide: json.RawMessage(`["selective_compaction", "command_risk"]`)}
+	var w bytes.Buffer
+	got, err := resolveDecide(&w, "", false, "", false, user)
+	if err != nil || strings.Join(got.On, ",") != "command_risk" {
+		t.Fatalf("got %+v, %v; want command_risk", got, err)
+	}
+	mustHave(t, w.String(), `unknown decide feature "selective_compaction" is ignored`)
 }
 
 // --decide with an unknown name is a command-line error that lists the

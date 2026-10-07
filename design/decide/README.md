@@ -106,9 +106,9 @@ kept 37.5% of the details and recency 45.3%. The design said to drop the
 package if recency matched it, and nothing in the CLI used it, so we removed
 it.
 
-One idea stays. Summaries tend to paraphrase the user's task, so the stock
-compactor's prompt now asks the summary to quote the user's original request
-word for word.
+We did not keep a prompt change from this work: the stock prompt already
+asks for the user's core request, and a variant that added the latest request
+scored lower.
 
 ## Open questions
 

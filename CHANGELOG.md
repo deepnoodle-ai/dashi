@@ -45,15 +45,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   $0.05 on `mistral-large-latest`; $0.02, $0.015, and $0.01 on the
   `ministral-14b`, `ministral-8b`, and `ministral-3b` models (`-latest` and
   `-2512`); and $0.03 on `codestral-latest`.
-- **Compaction summaries quote the user's original request word for word.**
-  `compaction.DefaultPrompt` asks for it, so the task survives repeated
-  compactions without being paraphrased.
 
 ### Removed
 
 - **`decide/selective` is removed.** In testing it kept fewer details than
-  plain summarization of recent history, so it wasn't worth its cost.
-  `dashi --decide selective_compaction` is now an unknown feature.
+  simply keeping the newest messages word for word, so it was not worth a
+  Decide call. `dashi --decide selective_compaction` is now an unknown
+  feature; in `~/.dashi/settings.json` it is ignored with a warning.
 
 ### Fixed
 

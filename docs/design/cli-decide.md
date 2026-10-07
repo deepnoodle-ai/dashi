@@ -7,12 +7,12 @@ root module since #204. **PRD:** [docs/prds/cli-decide.md](../prds/cli-decide.md
 
 ## Context
 
-The PRD turns on four decide features in `cmd/dashi`: the command-risk
-check, the prompt-injection check, the turn watcher, and selective
-compaction. All are off by default. The hard part is the command-risk
+The PRD turns on three decide features in `cmd/dashi`: the command-risk
+check, the prompt-injection check, and the turn watcher. All are off by
+default. The hard part is the command-risk
 check: it must join the CLI's one approval prompt, never grant permission,
-and still guard `--dangerously-skip-permissions`. The other three wire
-existing library hooks and a compactor. This spec covers PR 1 in detail
+and still guard `--dangerously-skip-permissions`. The other two wire
+existing library hooks. This spec covers PR 1 in detail
 and PR 2 and PR 3 in outline.
 
 ## Goals
@@ -47,8 +47,8 @@ package uses when its `Client` is nil:
 func Load() (Setup, error) // Setup{Provider, Client}
 ```
 
-Every package with a nil `Client` (`toolcheck`, `turnwatch`, `selective`,
-`contextrank`, `listtool`) gets Cloudflare by environment alone, through
+Every package with a nil `Client` (`toolcheck`, `turnwatch`, `contextrank`,
+`listtool`) gets Cloudflare by environment alone, through
 `decide/internal/client`, which calls `Load`. The CLI calls `Load` at
 start, passes the client it returns, and reads no decide variable.
 

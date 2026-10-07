@@ -292,7 +292,7 @@ func loadCLIConfig(o Options, home, dir, invocation string, stdin io.Reader, std
 	warnPreferenceSources(stderr, user, project)
 	warnEnvironmentSettings(stderr, origins)
 	envDecide, envDecideSet := os.LookupEnv("DASHI_DECIDE")
-	decideOn, err := resolveDecide(o.Decide, o.DecideSet, envDecide, envDecideSet, user)
+	decideOn, err := resolveDecide(stderr, o.Decide, o.DecideSet, envDecide, envDecideSet, user)
 	if err != nil {
 		return appConfig{}, err
 	}

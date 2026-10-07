@@ -28,7 +28,6 @@ Write these sections. Be concise and complete. Include details that prevent repe
 1. Task overview
 - The core request of the user and the success criteria.
 - Clarifications and constraints that the user gave.
-- Quote the user's original request word for word. If it is long, quote its key sentences.
 
 2. Current state
 - What is done.
