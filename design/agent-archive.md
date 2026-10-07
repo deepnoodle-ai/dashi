@@ -3,8 +3,8 @@
 **Status:** Proposed · **Date:** 2026-10-03 · **Owner:** Curtis
 
 We want to study a year of real coding-agent work from Claude Code and
-Codex. The first use is to test selective compaction (`decide/selective`) on
-real sessions instead of generated ones. Phase 1 copies every session file
+Codex. The first use is to test compaction on real sessions instead of generated
+ones. Phase 1 copies every session file
 into an archive we control, phase 2 parses the sessions and converts them to
 Dashi messages, and phase 3 builds analysis tools.
 
@@ -167,10 +167,10 @@ Codex subagent's `session_id` to its root's id.
 
 ## Phase 3 outline: analysis tools
 
-- **Selective compaction on real sessions.** Cut a session where its lines
-  fill the window. *Needles* are exact strings (paths, error text, ids) the
-  agent used next that appeared only before the cut. Score whether each arm
-  keeps each needle; the app's own summary is one more arm.
+- **Compaction on real sessions.** Cut a session where its lines fill the
+  window. *Needles* are exact strings (paths, error text, ids) the agent used
+  next that appeared only before the cut. Score whether each compactor keeps
+  each needle; the app's own summary is one more.
 - **Tune `decide/turnwatch` and `decide/contextrank`.**
 - **Session stats:** tool error rates, cost per project (`git_remote_url`,
   else `working_dir`), compaction frequency.
