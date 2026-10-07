@@ -1,6 +1,11 @@
 package compaction
 
-import "github.com/deepnoodle-ai/dashi/llm"
+import (
+	"encoding/json"
+
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
+	"github.com/deepnoodle-ai/dashi/llm"
+)
 
 const (
 	// DefaultWindow is the context window in tokens when the model's window
@@ -48,4 +53,18 @@ func (p Policy) Due(last llm.Usage) bool {
 	window, _ := p.Window()
 	used := usedTokens(last)
 	return used > 0 && float64(used) >= fraction*float64(window)
+}
+
+// dueHistory also sees output produced after the last model call. Encoded
+// text bytes conservatively trigger compaction; they do not prove token fit.
+// Media history retains the reported-usage trigger without a byte estimate.
+func (p Policy) dueHistory(messages []llm.Message, last llm.Usage) bool {
+	if p.Due(last) {
+		return true
+	}
+	if compactiontext.HasMedia(messages) {
+		return false
+	}
+	b, err := json.Marshal(messages)
+	return err == nil && p.Due(llm.Usage{InputTokens: len(b)})
 }

@@ -540,7 +540,7 @@ func (s *Session) planQueue(
 	}
 	history, unreadable := s.history(ctx, last)
 	if !compacted {
-		if cp := s.planCompaction(ctx, last, history, nil); cp != nil {
+		if cp := s.planCompaction(ctx, last, history, nil, false); cp != nil {
 			return *cp, true, nil
 		}
 	}

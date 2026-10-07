@@ -24,8 +24,10 @@ printable stderr. Useful partial replies can accompany a nonzero exit.
 `dashi run -c` or `dashi run -r ID` with no request returns the relevant latest
 saved reply without live setup when work is complete or needs resolution. Ready
 interrupted work can continue through existing checks. Resume grants no approval,
-repeats no effect, and raises no limit. A new payload cannot close unfinished
-work implicitly.
+repeats no effect, and raises no limit. A new payload can close settled
+`compaction_failed` or `context_window` work, then compact retained history
+before the new request. Pending effects, approvals, unresolved children, and
+missing task notices still block it. Other unfinished work requires recovery.
 Stdin never supplies approval. `--yes` retains its existing tool policy.
 
 Exit codes are 0 for completion and written output, 1 for execution/setup/I/O
