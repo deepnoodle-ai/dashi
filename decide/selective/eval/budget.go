@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sync"
 
 	"github.com/deepnoodle-ai/dashi/catalog"
@@ -24,18 +25,20 @@ var (
 	errUnknownCharge = errors.New("evaluation stopped after an unknown charge")
 )
 
-// spendLimit owns the run's reservations, including failed calls. A later
-// result never releases a reservation for another paid request.
+// spendLimit owns full request reservations. Only a verified successful result
+// settles to its priced cost; failed and unknown requests retain their bounds.
 type spendLimit struct {
-	mu                      sync.Mutex
-	cap, reserved, observed money.Amount
-	requests, unknown       int
-	cancel                  context.CancelFunc
+	mu                                    sync.Mutex
+	cap, reserved, fullReserved, observed money.Amount
+	requests, unknown, settled            int
+	cancel                                context.CancelFunc
+	failures                              []dispatchFailure
 }
 
 type spending struct {
-	cap, reserved, observed money.Amount
-	requests, unknown       int
+	cap, reserved, fullReserved, observed money.Amount
+	requests, unknown, settled            int
+	failures                              []dispatchFailure
 }
 
 func newSpendLimit(limit string) (*spendLimit, error) {
@@ -56,11 +59,12 @@ func (b *spendLimit) reserve(cost money.Amount) error {
 		return errBudget
 	}
 	b.reserved += cost
+	b.fullReserved += cost
 	b.requests++
 	return nil
 }
 
-func (b *spendLimit) observe(cost money.Amount, known bool) {
+func (b *spendLimit) finish(bound, cost money.Amount, known, successful bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if !known {
@@ -71,12 +75,66 @@ func (b *spendLimit) observe(cost money.Amount, known bool) {
 		return
 	}
 	b.observed += cost
+	if successful && cost >= 0 && cost <= bound {
+		b.reserved -= bound - cost
+		b.settled++
+	}
 }
 
 func (b *spendLimit) snapshot() spending {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return spending{b.cap, b.reserved, b.observed, b.requests, b.unknown}
+	return spending{b.cap, b.reserved, b.fullReserved, b.observed, b.requests, b.unknown, b.settled, slices.Clone(b.failures)}
+}
+
+// dispatchFailure contains only public model identities and classified metadata.
+// Never retain an error string, body, source case ID, or request/response text.
+type dispatchFailure struct {
+	provider, model, stage, category, code string
+	status                                 int
+}
+
+func (b *spendLimit) failed(f dispatchFailure) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.failures = append(b.failures, f)
+}
+
+func modelFailure(provider, model string, err error) dispatchFailure {
+	f := dispatchFailure{provider: "unlisted", model: "unlisted", stage: "send", category: "unclassified"}
+	if provider == "openai" || provider == "anthropic" {
+		f.provider = provider
+	}
+	if _, found := catalog.Find(provider, model); found {
+		f.model = model
+	}
+	if failure, ok := errors.AsType[*llm.Error](err); ok {
+		switch failure.Category {
+		case llm.ErrorInvalidRequest, llm.ErrorUnsupported, llm.ErrorAuthentication,
+			llm.ErrorRateLimited, llm.ErrorOverloaded:
+			f.stage, f.category = "provider_response", string(failure.Category)
+		case llm.ErrorTransport:
+			f.stage, f.category = "transport", "transport"
+		case llm.ErrorProtocol:
+			f.stage, f.category = "response_decoding", "protocol"
+		}
+		if failure.Status >= 100 && failure.Status <= 599 {
+			f.status = failure.Status
+		}
+		// Provider codes are untrusted strings. Publish known machine codes only.
+		switch failure.Code {
+		case "invalid_api_key", "model_not_found", "permission_denied", "invalid_request_error",
+			"unsupported_parameter", "unsupported_value", "context_length_exceeded",
+			"rate_limit_exceeded", "insufficient_quota", "server_error", "overloaded_error":
+			f.code = failure.Code
+		}
+	}
+	if errors.Is(err, llm.ErrNoAPIKey) {
+		f.stage, f.category = "configuration", "authentication"
+	} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		f.stage, f.category = "transport", "context_ended"
+	}
+	return f
 }
 
 // limitedClient composes the framework's request cost bound with one
@@ -112,18 +170,53 @@ func (c *limitedClient) Send(ctx context.Context, call llm.Call) (llm.Result, er
 		return result, nil
 	}
 	result, err := c.Client.Send(ctx, call)
-	actual, known := price.Estimate(result.Usage)
+	actual, priced := price.Estimate(result.Usage)
 	served := result.Served.Model == snapshot.Origin.Model
 	if entry, found := catalog.Find(snapshot.Origin.Provider, snapshot.Origin.Model); found {
 		served = entry.Serves(result.Served.Model)
 	}
-	known = known && result.Served.Provider == snapshot.Origin.Provider && served &&
+	known := priced && !actual.Partial() && result.Served.Provider == snapshot.Origin.Provider && served &&
 		(result.ServiceTier == "" || result.ServiceTier == "default" || result.ServiceTier == "standard") && actual.Total <= cost.Total
-	c.limit.observe(actual.Total, known && err == nil)
+	if err != nil {
+		c.limit.failed(modelFailure(snapshot.Origin.Provider, snapshot.Origin.Model, err))
+	} else if !known {
+		failure := modelFailure(snapshot.Origin.Provider, snapshot.Origin.Model, nil)
+		failure.stage = "charge_verification"
+		switch {
+		case !priced:
+			failure.category = "usage_unpriced"
+		case actual.Partial():
+			failure.category = "unpriced_tool_charge"
+		case result.Served.Provider != snapshot.Origin.Provider || !served:
+			failure.category = "served_identity"
+		case result.ServiceTier != "" && result.ServiceTier != "default" && result.ServiceTier != "standard":
+			failure.category = "service_tier"
+		default:
+			failure.category = "cost_above_reserve"
+		}
+		c.limit.failed(failure)
+	}
+	c.limit.finish(cost.Total, actual.Total, known && err == nil, known && err == nil && completedText(result, snapshot.Origin.Provider, snapshot.Origin.Model))
 	if err == nil && !known {
 		return result, errUnknownCharge
 	}
 	return result, err
+}
+
+// Settlement is stricter than measurement: incomplete results and malformed
+// content retain their entire risk even when their token usage can be priced.
+func completedText(result llm.Result, provider, model string) bool {
+	if result.Stop.Kind != llm.StopFinished || result.Message.Role != llm.RoleAssistant ||
+		result.Requested.Provider != provider || result.Requested.Model != model ||
+		result.Usage == nil || !result.Usage.RequestsComplete || len(result.Message.Content) == 0 {
+		return false
+	}
+	for _, part := range result.Message.Content {
+		if part.Kind != llm.ContentBlock || part.Block == nil || part.Block.Text == nil || part.Validate() != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // Remote media can consume more tokens than its encoded URL. This eval's
@@ -180,17 +273,44 @@ func (t *limitedDecide) SystemOne(ctx context.Context, req *decide.Request) (*de
 	}
 	resp, err := t.Transport.SystemOne(ctx, req)
 	if !t.preflight {
+		if err != nil {
+			failure := dispatchFailure{provider: "typesafe", model: decisionModel, stage: "send", category: "unclassified"}
+			if api, ok := errors.AsType[*decide.APIError](err); ok {
+				failure.stage, failure.category = "provider_response", "http_error"
+				if api.StatusCode >= 100 && api.StatusCode <= 599 {
+					failure.status = api.StatusCode
+				}
+			} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				failure.stage, failure.category = "transport", "context_ended"
+			}
+			t.limit.failed(failure)
+		}
 		if resp == nil {
-			t.limit.observe(0, false)
+			t.limit.finish(bound, 0, false, false)
 		} else {
-			known := err == nil && resp.Model == decisionModel && resp.Usage.InputTokens >= 0 && money.Amount(resp.Usage.InputTokens)*42 <= bound
-			t.limit.observe(money.Amount(resp.Usage.InputTokens)*42, known)
+			known := err == nil && resp.Model == decisionModel && decideUsageComplete(resp) && resp.Usage.InputTokens >= 0 && money.Amount(resp.Usage.InputTokens)*42 <= bound
+			// Keep Decide bounds in full; they are small and answer validation
+			// happens in the SDK after this transport returns.
+			t.limit.finish(bound, money.Amount(resp.Usage.InputTokens)*42, known, false)
 			if err == nil && !known {
+				t.limit.failed(dispatchFailure{provider: "typesafe", model: decisionModel, stage: "charge_verification", category: "unverified"})
 				return resp, errUnknownCharge
 			}
 		}
 	}
 	return resp, err
+}
+
+func decideUsageComplete(resp *decide.Response) bool {
+	var raw struct {
+		Usage *struct {
+			InputTokens  *int `json:"input_tokens"`
+			OutputTokens *int `json:"output_tokens"`
+		} `json:"usage"`
+	}
+	return json.Unmarshal(resp.Raw, &raw) == nil && raw.Usage != nil && raw.Usage.InputTokens != nil &&
+		raw.Usage.OutputTokens != nil && *raw.Usage.InputTokens == resp.Usage.InputTokens &&
+		*raw.Usage.OutputTokens == resp.Usage.OutputTokens && resp.Usage.OutputTokens >= 0
 }
 
 // singleDispatchHTTP disables reuse and HTTP/2 connection retries. The SDK
@@ -200,5 +320,13 @@ func singleDispatchHTTP() *http.Client {
 	transport.DisableKeepAlives = true
 	transport.ForceAttemptHTTP2 = false
 	transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	transport.Protocols = new(http.Protocols)
+	transport.Protocols.SetHTTP1(true)
+	// Clone initializes the default transport's HTTP/2 configuration. Remove
+	// its copied ALPN advertisement as well as the HTTP/2 handler.
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = new(tls.Config)
+	}
+	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
 	return &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }

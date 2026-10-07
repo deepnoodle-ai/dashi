@@ -984,7 +984,10 @@ func (r *report) print(w io.Writer, cfg config) {
 		fmt.Fprintf(w, "configured model: %s/%s; override recorded model: %v; summary limit: %d (0=default); probe limit: %d (0=default); reasoning effort: %q (empty=default)\n", cfg.provider, cfg.model, cfg.overrideRecorded, cfg.summaryTokens, cfg.probeTokens, cfg.reasoningEffort)
 	}
 	if b := r.spending; b != nil {
-		fmt.Fprintf(w, "budget USD: assigned %s; reserved %s; observed %s; requests %d; unknown charges %d\n", b.cap, b.reserved, b.observed, b.requests, b.unknown)
+		fmt.Fprintf(w, "budget USD: assigned %s; reserved %s; fully reserved %s; observed %s; requests %d; settled %d; unknown charges %d\n", b.cap, b.reserved, b.fullReserved, b.observed, b.requests, b.settled, b.unknown)
+		for _, f := range b.failures {
+			fmt.Fprintf(w, "dispatch failure: model %s/%s; stage %s; category %s; HTTP %d (0=unavailable); code %q (empty=unavailable or unrecognized)\n", f.provider, f.model, f.stage, f.category, f.status, f.code)
+		}
 	}
 	if r.incomplete {
 		fmt.Fprintln(w, "INCOMPLETE: the matrix stopped before every case finished.")

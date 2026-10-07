@@ -51,13 +51,18 @@ uses `llm.WorstCaseCost` on the prepared request's exact body and price sheet.
 This existing bound covers the highest applicable input/cache rate, full output
 including reasoning, tiers, and unknown provider-tool charges. Unknown prices
 or charges reject dispatch. Reservations use `money.Amount` and a mutex.
-Retain reservations after failures or ambiguous outcomes.
+Retain reservations after failures or ambiguous outcomes. Settle unused model
+risk only after a finished, valid text result has complete usage, verified served
+model and tier, and a priced cost no greater than its bound. Retain Decide
+bounds in full. Report gross full reservations, held reserve, and observed cost
+separately.
 
 The Decide transport reserves encoded request bytes plus framing at the pinned
 Jev input rate. No layer may retry a paid call, including its transport.
 Disable Decide retries. Dashi provider clients already dispatch once, and the
 eval does not retry model turns. All paid calls share the same ledger. For this
-run the hard reserve is $0.99. Mining is forbidden in a capped run. A rejected
+corrected run the hard reserve is $0.960653; the prior attempt retains $0.039347,
+so the task remains under the user's $1 ceiling. Mining is forbidden. A rejected
 reservation stops the run and preserves an incomplete result.
 
 ### Private evidence
@@ -67,7 +72,9 @@ These ordinals do not derive from recorded session names, IDs, or paths.
 Raw session names, IDs, and paths stay local and never appear in public reports,
 diagnostics, or errors. Lost-needle messages use an index and kind, never the
 answer. Pairing errors omit private call IDs.
-Recorded model/provider errors omit raw provider bodies and replies. Keep any
+Recorded model/provider errors omit raw provider bodies and replies. Diagnostics
+retain classified category, stage, HTTP status, and allowlisted machine code
+with a catalog model identity. They never print arbitrary error strings. Keep any
 raw diagnostics and needles outside Git, with mode 0600. Test synthetic secrets
 and session identifiers through failure reports.
 
