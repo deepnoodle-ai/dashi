@@ -15,6 +15,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (`UserPromptSubmit`), ends (`Stop` or `StopFailure`), or waits for you
   (`Notification`), in the field names of Claude Code hook inputs. The end
   is written before dashi takes the next prompt.
+- **`claude-haiku-5-5` in the model catalog,** with its 1M context window,
+  128K output limit, `low` to `max` effort ladder, and prices that depend on
+  prompt length: $0.10 input, $0.50 output, $0.01 cache read, $0.125
+  five-minute and $0.20 one-hour cache writes per MTok, rising to $0.50,
+  $2.50, $0.05, $0.625, and $1 above 100,000 input tokens, plus $10 per 1,000
+  web searches. Temperature and budget thinking are marked unsupported.
+- **`mistral-large-4` and `mistral-large-4-0` in the model catalog** as
+  preview models, with the 524,288-token context window Mistral's models
+  endpoint reports and list prices of $1.36 input, $0.14 cached input, and
+  $4.18 output per MTok. The launch discount of 50% until about 2026-10-20 is
+  left as a note.
+- **`mistral-medium-2604` and `mistral-medium-3-5` in the model catalog,**
+  the Mistral Medium 3.5 model that `mistral-medium-latest` and
+  `magistral-medium-latest` now name as their snapshot.
+
+### Changed
+
+- **`catalog.Small("anthropic")` is now `claude-haiku-5-5`,** replacing
+  `claude-haiku-4-5`. The vision, documents, and providers examples use it.
+- **Deprecated models are marked in the catalog:** `claude-sonnet-4-5` and
+  `claude-sonnet-4-5-20250929` (retire 2026-11-30; use `claude-sonnet-5-5`),
+  and `gpt-5.3-codex`, `gpt-5.1`, and `gpt-5.4-nano` (removed 2027-04-01; use
+  `gpt-6-sol`, `gpt-6-sol`, and `gpt-6-luna`).
+- **Mistral cache reads cost a tenth of input,** as Mistral's pricing page now
+  lists; the catalog previously stated the input rate. Per MTok: $0.15 on
+  `mistral-medium-latest` and `magistral-medium-latest`; $0.015 on
+  `mistral-small-latest`, `magistral-small-latest`, and `mistral-small-2603`;
+  $0.05 on `mistral-large-latest`; $0.02, $0.015, and $0.01 on the
+  `ministral-14b`, `ministral-8b`, and `ministral-3b` models (`-latest` and
+  `-2512`); and $0.03 on `codestral-latest`.
+
+### Fixed
+
+- **The Anthropic Messages client sends reasoning effort `xhigh`** as
+  `output_config.effort`. It refused `xhigh` before, although the catalog
+  lists it for models such as Opus 5.5 and Sonnet 5.5. A model whose catalog
+  entry omits `xhigh` still gets `high` under the adjust policy, or an error
+  under strict.
 
 ## [0.4.0] - 2026-10-06
 

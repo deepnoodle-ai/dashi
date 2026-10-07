@@ -65,7 +65,7 @@ func TestEveryEntryBindsToEachDocumentedAPI(t *testing.T) {
 }
 
 func TestEntriesDateEveryClaim(t *testing.T) {
-	today := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
+	today := time.Date(2026, 10, 7, 0, 0, 0, 0, time.UTC)
 	for _, name := range Providers() {
 		for _, e := range Entries(name) {
 			if e.QualifiedAt.After(today) {
@@ -182,34 +182,41 @@ func TestSmallModelIsCurrentEntry(t *testing.T) {
 
 func TestAnthropicCacheWriteRates(t *testing.T) {
 	// Anthropic bills 5-minute writes at 1.25x input and one-hour writes at
-	// 2x input; see design/model-catalog.md.
+	// 2x input, in every price tier; see design/model-catalog.md.
 	for _, e := range Entries("anthropic") {
 		if e.Pricing == nil {
 			t.Fatalf("%s has no price", e.Model)
 		}
-		base := e.Pricing.Base
-		// Exact nanos make 1.25x an integer identity: 4w == 5i.
-		if base.CacheWrite*4 != base.Input*5 {
-			t.Fatalf(
-				"%s cache write %s is not 1.25x input %s",
-				e.Model,
-				base.CacheWrite,
-				base.Input,
-			)
+		rates := []llm.Rates{e.Pricing.Base}
+		for _, tier := range e.Pricing.Tiers {
+			// A tier above the context window is one the Messages client
+			// cannot reach, such as a 1M-context beta price.
+			if tier.MinInputTokens > e.Capabilities.ContextWindow {
+				t.Fatalf(
+					"%s has a tier the Messages client cannot reach",
+					e.Model,
+				)
+			}
+			rates = append(rates, tier.Rates)
 		}
-		if base.CacheWrite1h == nil || *base.CacheWrite1h != base.Input*2 {
-			t.Fatalf(
-				"%s one-hour cache write %v is not 2x input %s",
-				e.Model,
-				base.CacheWrite1h,
-				base.Input,
-			)
-		}
-		if len(e.Pricing.Tiers) > 0 {
-			t.Fatalf(
-				"%s has a tier the Messages client cannot reach",
-				e.Model,
-			)
+		for _, r := range rates {
+			// Exact nanos make 1.25x an integer identity: 4w == 5i.
+			if r.CacheWrite*4 != r.Input*5 {
+				t.Fatalf(
+					"%s cache write %s is not 1.25x input %s",
+					e.Model,
+					r.CacheWrite,
+					r.Input,
+				)
+			}
+			if r.CacheWrite1h == nil || *r.CacheWrite1h != r.Input*2 {
+				t.Fatalf(
+					"%s one-hour cache write %v is not 2x input %s",
+					e.Model,
+					r.CacheWrite1h,
+					r.Input,
+				)
+			}
 		}
 	}
 }

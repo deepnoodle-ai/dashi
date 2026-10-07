@@ -82,6 +82,7 @@ var (
 		"claude-opus-5",
 		"claude-sonnet-5-5",
 		"claude-sonnet-5",
+		"claude-haiku-5-5",
 		"claude-opus-4-8",
 		"claude-opus-4-7",
 		"claude-opus-4-6",
@@ -102,6 +103,7 @@ var (
 		"claude-opus-5",
 		"claude-sonnet-5-5",
 		"claude-sonnet-5",
+		"claude-haiku-5-5",
 		"claude-opus-4-8",
 		"claude-opus-4-7",
 	}
@@ -230,6 +232,14 @@ var claimSources = []claimSource{
 		support: llm.SupportUnsupported,
 	},
 	{
+		// "Omit temperature, top_p, and top_k, since a non-default value for
+		// any of them returns a 400 error."
+		url:     anthropicModelPage("claude-haiku-5-5"),
+		models:  []string{"claude-haiku-5-5"},
+		feature: llm.FeatureTemperature,
+		support: llm.SupportUnsupported,
+	},
+	{
 		// "The prefill and sampling-parameter restrictions ... carry over
 		// from Claude Opus 5 unchanged."
 		url:     anthropicFable5Migration,
@@ -248,11 +258,13 @@ var claimSources = []claimSource{
 	},
 	{
 		// The pricing table lists tool_choice any and tool for these
-		// models; forced choice is rejected on Opus 5.5 and the 5.1 models.
+		// models; forced choice is rejected on Opus 5.5, Sonnet 5.5, and the
+		// 5.1 models.
 		url: anthropicToolUse,
 		models: []string{
 			"claude-opus-5",
 			"claude-sonnet-5",
+			"claude-haiku-5-5",
 			"claude-opus-4-8",
 			"claude-opus-4-7",
 			"claude-opus-4-6",
@@ -520,6 +532,8 @@ var contextWindowSources = []contextWindowSource{
 		models: []string{
 			"mistral-medium-latest",
 			"magistral-medium-latest",
+			"mistral-medium-2604",
+			"mistral-medium-3-5",
 			"mistral-small-latest",
 			"magistral-small-latest",
 			"mistral-small-2603",
@@ -531,6 +545,13 @@ var contextWindowSources = []contextWindowSource{
 			"ministral-8b-2512",
 		},
 		window: 262_144,
+	},
+	{
+		// The changelog and model page say 1M; the endpoint, which the API
+		// enforces, reports the smaller value.
+		url:    mistralModels,
+		models: []string{"mistral-large-4", "mistral-large-4-0"},
+		window: 524_288,
 	},
 	{
 		url:    mistralModels,
@@ -613,6 +634,7 @@ var anthropicContextWindows = map[string]int{
 	"claude-opus-5":              1_000_000,
 	"claude-sonnet-5-5":          1_000_000,
 	"claude-sonnet-5":            1_000_000,
+	"claude-haiku-5-5":           1_000_000,
 	"claude-opus-4-8":            1_000_000,
 	"claude-opus-4-7":            1_000_000,
 	"claude-opus-4-6":            1_000_000,

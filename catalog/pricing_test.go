@@ -134,6 +134,33 @@ func TestCatalogEstimatesAreExact(t *testing.T) {
 			total: "0.038",
 		},
 		{
+			// A 14,000-token prompt: 1000×0.1 + 500×0.5 + 10000×0.01 +
+			// 2000×0.125 + 1000×0.2 = 900, plus one web search at 0.01.
+			provider: "anthropic",
+			model:    "claude-haiku-5-5",
+			usage: llm.Usage{
+				InputTokens:                1000,
+				OutputTokens:               500,
+				CacheReadInputTokens:       10000,
+				CacheCreationInputTokens:   3000,
+				CacheCreation1hInputTokens: 1000,
+				Requests:                   map[string]int{"web_search": 1},
+			},
+			total: "0.0109",
+		},
+		{
+			// A 100,001-token prompt, counting cache reads, pays the higher
+			// rates: 90000×0.5 + 10001×0.05 + 1000×2.5 = 48000.05.
+			provider: "anthropic",
+			model:    "claude-haiku-5-5",
+			usage: llm.Usage{
+				InputTokens:          90_000,
+				OutputTokens:         1000,
+				CacheReadInputTokens: 10_001,
+			},
+			total: "0.04800005",
+		},
+		{
 			// 1000×2 + 500×10 + 10000×0.1 + 1000×2.5 = 10500, plus one web
 			// search at 0.01. Cache reads are 5% of input on this model.
 			provider: "openai",
