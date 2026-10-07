@@ -1,6 +1,6 @@
 # Keep command-specific failures from disabling command checks
 
-Status: Draft\
+Status: Approved\
 PRD PR: pending · Implementation PR: pending · Updated: 2026-10-07
 
 ## Problem

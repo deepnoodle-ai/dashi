@@ -1,6 +1,6 @@
 # Command-risk outage confirmation
 
-Status: Draft · Author: Codex · Date: 2026-10-07\
+Status: Accepted · Author: Codex · Date: 2026-10-07\
 Workflow: Spec, then build after independent PRD review.\
 Reviewers: independent PRD reviewer and security implementation reviewer.\
 PRD: [command-risk-outages.md](../prds/command-risk-outages.md)
