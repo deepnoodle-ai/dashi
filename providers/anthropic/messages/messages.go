@@ -486,7 +486,7 @@ func (p *Client) limits(r llm.Input) llm.Capabilities {
 		maxTokens = min(maxTokens, limit)
 	}
 	api := llm.Capabilities{
-		ReasoningEfforts:   efforts,
+		ReasoningEfforts:   slices.Clone(efforts),
 		MinReasoningBudget: 1024,
 		// The thinking budget must stay below max_tokens.
 		MaxReasoningBudget: max(maxTokens-1, 1),

@@ -130,12 +130,12 @@
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-08-15",
+        "updated_at": "2026-10-07",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
           "input": "0.15",
           "output": "0.6",
-          "cache_read": "0.15",
+          "cache_read": "0.015",
           "cache_write": "0.15"
         }
       }
@@ -156,12 +156,12 @@
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-09-09",
+        "updated_at": "2026-10-07",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
           "input": "0.15",
           "output": "0.6",
-          "cache_read": "0.15",
+          "cache_read": "0.015",
           "cache_write": "0.15"
         }
       }
@@ -181,12 +181,12 @@
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-09-09",
+        "updated_at": "2026-10-07",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
           "input": "0.15",
           "output": "0.6",
-          "cache_read": "0.15",
+          "cache_read": "0.015",
           "cache_write": "0.15"
         }
       }
@@ -275,12 +275,12 @@
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-08-15",
+        "updated_at": "2026-10-07",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
           "input": "0.5",
           "output": "1.5",
-          "cache_read": "0.5",
+          "cache_read": "0.05",
           "cache_write": "0.5"
         }
       }
@@ -353,12 +353,12 @@
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-09-09",
+        "updated_at": "2026-10-07",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
           "input": "0.2",
           "output": "0.2",
-          "cache_read": "0.2",
+          "cache_read": "0.02",
           "cache_write": "0.2"
         }
       }
@@ -378,12 +378,12 @@
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-09-09",
+        "updated_at": "2026-10-07",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
           "input": "0.2",
           "output": "0.2",
-          "cache_read": "0.2",
+          "cache_read": "0.02",
           "cache_write": "0.2"
         }
       }
@@ -403,12 +403,12 @@
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-09-09",
+        "updated_at": "2026-10-07",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
           "input": "0.15",
           "output": "0.15",
-          "cache_read": "0.15",
+          "cache_read": "0.015",
           "cache_write": "0.15"
         }
       }
@@ -428,12 +428,12 @@
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-09-09",
+        "updated_at": "2026-10-07",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
           "input": "0.15",
           "output": "0.15",
-          "cache_read": "0.15",
+          "cache_read": "0.015",
           "cache_write": "0.15"
         }
       }
@@ -453,12 +453,12 @@
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-09-09",
+        "updated_at": "2026-10-07",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
           "input": "0.1",
           "output": "0.1",
-          "cache_read": "0.1",
+          "cache_read": "0.01",
           "cache_write": "0.1"
         }
       }
@@ -478,12 +478,12 @@
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-09-09",
+        "updated_at": "2026-10-07",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
           "input": "0.1",
           "output": "0.1",
-          "cache_read": "0.1",
+          "cache_read": "0.01",
           "cache_write": "0.1"
         }
       }
@@ -503,12 +503,12 @@
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2025-01-15",
+        "updated_at": "2026-10-07",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
           "input": "0.3",
           "output": "0.9",
-          "cache_read": "0.3",
+          "cache_read": "0.03",
           "cache_write": "0.3"
         }
       }

@@ -38,9 +38,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `claude-sonnet-4-5-20250929` (retire 2026-11-30; use `claude-sonnet-5-5`),
   and `gpt-5.3-codex`, `gpt-5.1`, and `gpt-5.4-nano` (removed 2027-04-01; use
   `gpt-6-sol`, `gpt-6-sol`, and `gpt-6-luna`).
-- **Mistral Medium cache reads cost $0.15 per MTok,** a tenth of input, on
-  `mistral-medium-latest` and `magistral-medium-latest`, as Mistral's pricing
-  page now lists; the catalog previously stated the input rate.
+- **Mistral cache reads cost a tenth of input,** as Mistral's pricing page now
+  lists; the catalog previously stated the input rate. Per MTok: $0.15 on
+  `mistral-medium-latest` and `magistral-medium-latest`; $0.015 on
+  `mistral-small-latest`, `magistral-small-latest`, and `mistral-small-2603`;
+  $0.05 on `mistral-large-latest`; $0.02, $0.015, and $0.01 on the
+  `ministral-14b`, `ministral-8b`, and `ministral-3b` models (`-latest` and
+  `-2512`); and $0.03 on `codestral-latest`.
 
 ### Fixed
 
