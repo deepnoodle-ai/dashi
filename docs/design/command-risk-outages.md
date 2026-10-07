@@ -65,6 +65,13 @@ command outage returns `PausedError` even on the initiating check, so the
 CLI uses the library's actual end rather than inventing another minute.
 Keep one `OnCheck` callback and one checked/unchecked command count per
 logical check. A benign answer is never recorded as a checked command.
+Add `Verdict.Requests` for logical Decide calls initiated, including the
+benign request. This does not count SDK retries or prove HTTP dispatch or
+receipt. Skipped, unread, and setup failures count zero. Keep observed
+response usage even on errors. The CLI uses these observations directly,
+instead of inferring requests from error types. A concurrent confirmation
+returns the existing pause identity and still unwraps its own original
+failure.
 
 ### Concurrent and delegated work
 

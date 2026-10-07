@@ -73,8 +73,13 @@ Acceptance:
   `CauseOf` must still name the original cause, such as `server error`.
 - R-3: Keep thresholds, whole-command checking, approval ownership, and
   prompt-injection behavior unchanged. Emit one callback per command check.
-- R-4: Document the confirmation rule, request bound, deadline, and
-  remaining fail-open tradeoff. Verify with keyless regression tests.
+- R-4: `Verdict.Requests` counts logical Decide calls initiated, including
+  confirmation. It excludes SDK retries and does not prove HTTP dispatch
+  or receipt. Skipped, unread, and setup failures count zero. Preserve
+  observed response tokens on failed checks. The CLI uses these fields.
+- R-5: Document the confirmation rule, request bound, deadline, and
+  remaining fail-open tradeoff. Verify with keyless regression tests and
+  a runnable example that reports requests and usage on an unchecked call.
 
 ## Decisions
 
