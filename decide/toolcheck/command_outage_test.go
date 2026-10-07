@@ -254,6 +254,118 @@ func TestCommandRiskKeepsObservedUsageWhenOnePartFails(t *testing.T) {
 	}
 }
 
+func TestCommandRiskAnyIneligiblePartVetoesOutageConfirmation(t *testing.T) {
+	for _, failure := range []struct {
+		name string
+		err  error
+	}{
+		{name: "SDK timeout"},
+		{name: "part cancellation", err: context.Canceled},
+		{name: "network timeout", err: &net.DNSError{IsTimeout: true}},
+		{name: "rate limit", err: decide.ErrRateLimited},
+		{name: "rejected request", err: decide.ErrInvalidRequest},
+		{name: "invalid answer", err: decide.ErrInvalidAnswer},
+		{name: "decode failure", err: decide.ErrDecode},
+		{name: "unknown failure", err: errors.New("input-specific failure")},
+	} {
+		for _, order := range []struct {
+			name   string
+			prefix string
+		}{
+			{name: "outage part first", prefix: "AB"},
+			{name: "ineligible part first", prefix: "BA"},
+		} {
+			t.Run(failure.name+"/"+order.name, func(t *testing.T) {
+				newFixture(t)
+				outage := &decide.APIError{StatusCode: 503, RequestID: "original-outage"}
+				allStarted, outageReturned := make(chan struct{}), make(chan struct{})
+				var mu sync.Mutex
+				started := 0
+				tr := &commandTransport{answer: func(ctx context.Context, text string) (*decide.Response, error) {
+					if text == "true" {
+						return nil, decide.ErrServer
+					}
+					if text == "next" {
+						return commandAnswer(), nil
+					}
+					mu.Lock()
+					started++
+					if started == 3 {
+						close(allStarted)
+					}
+					mu.Unlock()
+					select {
+					case <-allStarted:
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+					switch text[0] {
+					case 'A':
+						close(outageReturned)
+						return nil, outage
+					case 'B':
+						<-outageReturned
+						if failure.err == nil {
+							// The SDK timeout ends this attempt while the
+							// whole command-check context remains active.
+							<-ctx.Done()
+							return nil, ctx.Err()
+						}
+						return nil, failure.err
+					default:
+						return commandAnswer(), nil
+					}
+				}}
+				client, err := decide.NewClient(
+					decide.WithoutEnvironment(),
+					decide.WithTransport(tr),
+					decide.WithMaxRetries(5),
+					decide.WithAttemptTimeout(50*time.Millisecond),
+					decide.WithRetryBackoff(0, 0),
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				command := strings.Repeat(order.prefix[:1], toolcheck.PartBytes) +
+					strings.Repeat(order.prefix[1:], toolcheck.PartBytes) + "C observed"
+				var seen checks
+				risk := toolcheck.CommandRisk{
+					Client:  client,
+					Timeout: time.Second,
+					OnCheck: seen.add,
+				}
+				v, err := risk.Check(t.Context(), bashPlan(command))
+				if toolcheck.IsOutage(err) || v.Checked {
+					t.Fatalf("an ineligible part allowed an outage pause: %v", err)
+				}
+				want := failure.err
+				if want == nil {
+					want = context.DeadlineExceeded
+				}
+				if !errors.Is(err, want) || !errors.Is(err, outage) {
+					t.Fatalf("part causes were discarded: %v", err)
+				}
+				if t.Context().Err() != nil {
+					t.Fatal("the SDK timeout ended the outer context")
+				}
+				if v.Requests != 3 || v.Usage.InputTokens != 5 || v.Usage.OutputTokens != 1 {
+					t.Fatalf("part observations were discarded: %+v", v)
+				}
+				if toolcheck.PauseCount() != 0 || len(tr.calls()) != 3 {
+					t.Fatal("an ineligible part ran confirmation or started a pause")
+				}
+				if len(seen.all()) != 1 {
+					t.Fatal("OnCheck did not report one logical command check")
+				}
+				next, err := risk.Check(t.Context(), bashPlan("next"))
+				if err != nil || !next.Checked || next.Requests != 1 {
+					t.Fatalf("the next command was skipped: %+v, %v", next, err)
+				}
+			})
+		}
+	}
+}
+
 func TestCommandRiskCancellationBeforeAPauseSkipsAllRequests(t *testing.T) {
 	newFixture(t)
 	tr := &commandTransport{answer: func(context.Context, string) (*decide.Response, error) {

@@ -294,7 +294,11 @@ func ask(
 		// The command policy owns confirmation, without hidden retries.
 		opts = []decide.CallOption{decide.WithCallMaxRetries(0)}
 	}
-	a, err := askParts(rctx, c, field, parts, questions, opts...)
+	a, partErrors := askParts(rctx, c, field, parts, questions, opts...)
+	err = firstError(partErrors)
+	if command {
+		err = commandPartsError(partErrors)
+	}
 	if command && rctx.Err() != nil {
 		return a, errors.Join(rctx.Err(), err)
 	}
@@ -316,7 +320,8 @@ func ask(
 // askParts asks about each part, a few at once, and combines the answers:
 // each question takes the highest P(yes) of any part, so a text is flagged
 // when any part is. The model and request are the part with the highest
-// P(yes); the usage is the sum. The first error, in part order, wins.
+// P(yes); the usage is the sum. Errors stay in part order so the caller's
+// policy can consider every failure before permitting an outage pause.
 func askParts(
 	ctx context.Context,
 	c *decide.Client,
@@ -324,7 +329,7 @@ func askParts(
 	parts []string,
 	questions []question,
 	opts ...decide.CallOption,
-) (asked, error) {
+) (asked, []error) {
 	results := make([]asked, len(parts))
 	errs := make([]error, len(parts))
 	sem := make(chan struct{}, parallelParts)
@@ -362,7 +367,7 @@ func askParts(
 		out.usage.OutputTokens += r.usage.OutputTokens
 		out.requests += r.requests
 	}
-	return out, firstError(errs)
+	return out, errs
 }
 
 func firstError(errs []error) error {

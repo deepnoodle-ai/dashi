@@ -29,6 +29,9 @@ For `CommandRisk.Check`:
    eight parts run, with the existing four-part concurrency limit.
 3. On a valid whole-command answer, return the existing verdict. A timeout,
    rate limit, rejected request, or invalid answer remains suspect.
+   Consider every part's error before confirmation. Any suspect failure,
+   including an SDK attempt timeout while the whole-check context is live,
+   vetoes confirmation. Retain every original cause and observed usage.
 4. Authentication and setup failures are direct outages. They do not depend
    on command text and need no confirmation request.
 5. For a server or non-timeout network error, send one request with

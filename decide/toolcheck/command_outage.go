@@ -22,6 +22,21 @@ func (e *unconfirmedError) Unwrap() error {
 	return e.cause
 }
 
+// commandPartsError retains every cause. One input-specific failure vetoes
+// outage confirmation, even when another part returned an outage first.
+func commandPartsError(errs []error) error {
+	cause := errors.Join(errs...)
+	if cause == nil {
+		return nil
+	}
+	for _, err := range errs {
+		if err != nil && !IsOutage(err) {
+			return &unconfirmedError{cause: cause}
+		}
+	}
+	return cause
+}
+
 func confirmCommandOutage(
 	ctx context.Context,
 	c *decide.Client,

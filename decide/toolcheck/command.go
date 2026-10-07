@@ -57,7 +57,9 @@ type CommandRisk struct {
 // means the check was skipped; IsOutage tells an outage from a failure the
 // input could cause. Server and connection failures require one fixed
 // benign request to confirm the outage under the same deadline. A valid
-// benign answer never passes the command. Check returns a *PausedError
+// benign answer never passes the command. An input-specific failure in
+// any command part prevents confirmation and preserves every part's cause.
+// Check returns a *PausedError
 // when it starts a confirmed pause or skips a check during that pause.
 func (c CommandRisk) Check(ctx context.Context, p dashi.ToolPlan) (Verdict, error) {
 	v := Verdict{Call: p.Call.Clone()}

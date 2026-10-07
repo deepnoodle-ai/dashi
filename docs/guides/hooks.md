@@ -154,9 +154,12 @@ asks about fixed benign text (`true`) to confirm availability. A valid or
 non-outage answer leaves the original command suspect. All requests share
 the same timeout; no SDK retries run. At most eight command parts plus one
 confirmation request are sent. Setup and authentication failures need no
-confirmation. After a confirmed outage a check pauses for a minute;
-a timeout, a rate limit, or a rejected input never pauses it, and
-the content check never pauses the command check. A host
+confirmation. After a confirmed outage a check pauses for a minute.
+A timeout, a rate limit, or a rejected input never pauses it.
+An input-specific failure in any command part prevents confirmation, even if
+an earlier part returned a server or connection error. Every part's cause
+remains available through `errors.Is` and `errors.As`.
+The content check never pauses the command check. A host
 that asks the user in its own `BeforeTool` hook calls `CommandRisk.Check`
 there and shows one prompt; `toolcheck.IsOutage` tells an outage from a
 failure the input could cause.

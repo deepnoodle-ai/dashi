@@ -161,7 +161,9 @@ deadline. They have no SDK retries: at most eight command parts plus one
 small availability request. A valid answer or a non-outage availability
 failure leaves the original command suspect and requires approval. A slow
 first request can leave no time for confirmation; that also asks. No timeout
-or cancellation starts a pause. Prompt-injection checks keep their existing
+or cancellation starts a pause. A suspect failure in any command part
+prevents confirmation, even if another part returned an outage error first.
+Prompt-injection checks keep their existing
 outage behavior. The turn watcher never pauses.
 
 A command that causes a service-wide failure can also break the availability
