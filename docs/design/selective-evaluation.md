@@ -54,18 +54,22 @@ or charges reject dispatch. Reservations use `money.Amount` and a mutex.
 Retain reservations after failures or ambiguous outcomes.
 
 The Decide transport reserves encoded request bytes plus framing at the pinned
-Jev input rate. Disable Decide retries. Dashi provider clients already dispatch
-once, and the eval does not retry model turns. All paid calls share the same
-ledger. For this run the hard reserve is $0.90. Mining is forbidden in a capped
-run. A rejected reservation stops the run and preserves an incomplete result.
+Jev input rate. No layer may retry a paid call, including its transport.
+Disable Decide retries. Dashi provider clients already dispatch once, and the
+eval does not retry model turns. All paid calls share the same ledger. For this
+run the hard reserve is $0.90. Mining is forbidden in a capped run. A rejected
+reservation stops the run and preserves an incomplete result.
 
 ### Private evidence
 
-Public output uses aggregates and safe case identifiers. Lost-needle messages
-use an index and kind, never the answer. Pairing errors omit private call IDs.
+Public output uses aggregates and per-run case ordinals, such as `case-1`.
+These ordinals do not derive from recorded session names, IDs, or paths.
+Raw session names, IDs, and paths stay local and never appear in public reports,
+diagnostics, or errors. Lost-needle messages use an index and kind, never the
+answer. Pairing errors omit private call IDs.
 Recorded model/provider errors omit raw provider bodies and replies. Keep any
 raw diagnostics and needles outside Git, with mode 0600. Test synthetic secrets
-through failure reports.
+and session identifiers through failure reports.
 
 ## Alternatives and consequences
 

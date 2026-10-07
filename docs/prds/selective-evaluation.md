@@ -58,8 +58,9 @@ The maintainer supplies recorded folders and the existing needles file.
 - [ ] Original-corpus checks complete without paid calls or new mining.
 - [ ] Checks still detect broken pairing, replay, fallback, and selected-content preservation.
 - [ ] Reports distinguish plumbing evidence from model recall quality.
-- [ ] Public reports contain aggregate results and safe case identifiers only.
-- [ ] A synthetic private-needle failure never exposes the needle in public output.
+- [ ] Public reports and diagnostics use aggregate results and per-run case ordinals, such as `case-1`.
+- [ ] Raw recorded session names, IDs, and paths stay local and never appear in public reports, diagnostics, or errors.
+- [ ] Synthetic private-needle and session-identifier failures never expose private text in public output.
 - [ ] Raw diagnostics and saved needles stay outside Git with mode 0600.
 
 ### UC-3: Refresh affordable evidence
@@ -69,7 +70,8 @@ The maintainer chooses cheaper models while retaining recorded inputs and needle
 - [ ] Default recorded-model behavior remains available for the original comparison.
 - [ ] Changed models, output limits, cases, and needle counts appear in the report.
 - [ ] Every paid dispatch reserves its conservative maximum cost atomically.
-- [ ] The reserve covers full output, reasoning, cache creation, and retries.
+- [ ] The reserve covers full output, reasoning, and cache creation.
+- [ ] No paid call is retried, including transport-level retries.
 - [ ] Missing prices or exhausted reserves prevent dispatch. Failed calls retain their reserve.
 - [ ] This run spends at most $0.90. It reuses needles and disables paid retries and extra smoke calls.
 - [ ] A cheaper-model or partial comparison appears separately from the historical totals.
