@@ -196,30 +196,23 @@ func (c *limitedClient) Send(ctx context.Context, call llm.Call) (llm.Result, er
 		return result, nil
 	}
 	result, err := c.Client.Send(ctx, call)
-	// The Responses adapter does not yet lift this scalar into Result.
-	// Parse only tier metadata, never provider error bodies or text.
-	if snapshot.Origin.Provider == "openai" && result.ServiceTier == "" {
-		var fields struct {
-			ServiceTier string `json:"service_tier"`
-		}
-		if json.Unmarshal(result.Raw, &fields) == nil {
-			result.ServiceTier = fields.ServiceTier
-		}
-	}
 	actual, priced := price.Estimate(result.Usage)
+	complete := completeTokenUsage(result, snapshot.Origin.Provider)
 	served := result.Served.Model == snapshot.Origin.Model
 	if entry, found := catalog.Find(snapshot.Origin.Provider, snapshot.Origin.Model); found {
 		served = entry.Serves(result.Served.Model)
 	}
 	tier := (snapshot.Origin.Provider == "openai" && result.ServiceTier == "default") ||
 		(snapshot.Origin.Provider == "anthropic" && result.ServiceTier == "standard")
-	known := priced && !actual.Partial() && result.Served.Provider == snapshot.Origin.Provider && served && tier && actual.Total <= cost.Total
+	known := complete && priced && !actual.Partial() && result.Served.Provider == snapshot.Origin.Provider && served && tier && actual.Total <= cost.Total
 	if err != nil {
 		c.limit.failed(modelFailure(snapshot.Origin.Provider, snapshot.Origin.Model, err))
 	} else if !known {
 		failure := modelFailure(snapshot.Origin.Provider, snapshot.Origin.Model, nil)
 		failure.stage = "charge_verification"
 		switch {
+		case !complete:
+			failure.category = "usage_incomplete"
 		case !priced:
 			failure.category = "usage_unpriced"
 		case actual.Partial():
@@ -240,12 +233,54 @@ func (c *limitedClient) Send(ctx context.Context, call llm.Call) (llm.Result, er
 	return result, err
 }
 
+// Provider decoders accept absent counters as zero. Settlement needs explicit
+// numeric evidence for each billed token bucket, independent of tool meters.
+func completeTokenUsage(result llm.Result, provider string) bool {
+	if result.Usage == nil || result.Usage.Validate() != nil {
+		return false
+	}
+	var raw struct {
+		Usage *struct {
+			InputTokens         *int `json:"input_tokens"`
+			OutputTokens        *int `json:"output_tokens"`
+			TotalTokens         *int `json:"total_tokens"`
+			CacheReadTokens     *int `json:"cache_read_input_tokens"`
+			CacheCreationTokens *int `json:"cache_creation_input_tokens"`
+			InputDetails        *struct {
+				CachedTokens     *int `json:"cached_tokens"`
+				CacheWriteTokens *int `json:"cache_write_tokens"`
+			} `json:"input_tokens_details"`
+		} `json:"usage"`
+	}
+	if json.Unmarshal(result.Raw, &raw) != nil || raw.Usage == nil {
+		return false
+	}
+	u, v := result.Usage, raw.Usage
+	if v.InputTokens == nil || v.OutputTokens == nil || *v.InputTokens < 0 || *v.OutputTokens != u.OutputTokens {
+		return false
+	}
+	if v.TotalTokens != nil && *v.TotalTokens != u.TotalInputTokens()+u.OutputTokens {
+		return false
+	}
+	switch provider {
+	case "openai":
+		return v.InputDetails != nil && v.InputDetails.CachedTokens != nil && v.InputDetails.CacheWriteTokens != nil &&
+			*v.InputTokens == u.TotalInputTokens() && *v.InputDetails.CachedTokens == u.CacheReadInputTokens &&
+			*v.InputDetails.CacheWriteTokens == u.CacheCreationInputTokens
+	case "anthropic":
+		return v.CacheReadTokens != nil && v.CacheCreationTokens != nil && *v.InputTokens == u.InputTokens &&
+			*v.CacheReadTokens == u.CacheReadInputTokens && *v.CacheCreationTokens == u.CacheCreationInputTokens
+	default:
+		return false
+	}
+}
+
 // Settlement is stricter than measurement: incomplete results and malformed
 // content retain their entire risk even when their token usage can be priced.
 func completedText(result llm.Result, provider, model string) bool {
 	if result.Stop.Kind != llm.StopFinished || result.Message.Role != llm.RoleAssistant ||
 		result.Requested.Provider != provider || result.Requested.Model != model ||
-		result.Usage == nil || !result.Usage.RequestsComplete || len(result.Message.Content) == 0 {
+		result.Usage == nil || len(result.Message.Content) == 0 {
 		return false
 	}
 	for _, part := range result.Message.Content {

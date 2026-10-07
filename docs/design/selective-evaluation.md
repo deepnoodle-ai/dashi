@@ -53,7 +53,10 @@ including reasoning, tiers, and unknown provider-tool charges. Unknown prices
 or charges reject dispatch. Reservations use `money.Amount` and a mutex.
 Retain reservations after failures or ambiguous outcomes. Settle unused model
 risk only after a finished, valid text result has complete usage, verified served
-model and tier, and a priced cost no greater than its bound. Retain Decide
+model and tier, and a priced cost no greater than its bound. Required numeric
+input/output/cache counters must exist in the raw result and match normalized
+usage. Provider-tool meter completeness does not establish token completeness.
+Missing counters remain unknown, retain full risk, and stop the run. Retain Decide
 bounds in full. Pin OpenAI requests to `service_tier=default` and verify the
 reported tier, because an omitted request tier follows project settings. Report
 gross full reservations, held reserve, and observed cost

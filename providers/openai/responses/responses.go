@@ -860,6 +860,7 @@ func (wire codec) decodeWithPartial(raw []byte, requested llm.ModelRef, partial 
 		ID                string
 		Object            string
 		Model             string
+		ServiceTier       string `json:"service_tier"`
 		Status            string
 		Output            []json.RawMessage
 		Usage             *llm.Usage
@@ -883,6 +884,7 @@ func (wire codec) decodeWithPartial(raw []byte, requested llm.ModelRef, partial 
 		)
 	}
 	r.ID = v.ID
+	r.ServiceTier = v.ServiceTier
 	r.Served = llm.ModelRef{Provider: wire.origin.Provider, Model: v.Model}
 	if v.Model == "" {
 		r.Served = llm.ModelRef{}

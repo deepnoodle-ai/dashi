@@ -21,7 +21,10 @@ ignored by Git. Missing needles require explicit `-live -mine-needles`.
 conservative cost before dispatch, including full output and cache writes.
 Failed or unknown calls retain their full reserve. A complete successful model
 result settles unused risk only with verified model/tier and complete priced
-usage. OpenAI requests explicitly use the default serving tier and verify the
+usage. Required numeric input, output, cache-read, and cache-write counters
+must be present and match normalized usage. Missing counters mean unknown
+charges, never measured zero; the [prompt caching guide](https://developers.openai.com/api/docs/guides/prompt-caching)
+shows the native cache counters. OpenAI requests explicitly use the default serving tier and verify the
 reported tier; see the [Responses reference](https://developers.openai.com/api/reference/resources/responses/methods/create).
 Decide reservations remain held in full. Reports separate held reserve,
 gross full reservations, and observed cost. SDK and HTTP transports perform zero

@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -100,7 +101,8 @@ func TestModelSettlementRequiresCompleteVerifiedSuccessfulResult(t *testing.T) {
 		change  func(*llm.Result) error
 	}{
 		{"complete", true, func(*llm.Result) error { return nil }},
-		{"incomplete usage", false, func(r *llm.Result) error { r.Usage.RequestsComplete = false; return nil }},
+		{"incomplete usage", false, func(r *llm.Result) error { r.Raw = []byte(`{"usage":{}}`); return nil }},
+		{"tool counters incomplete", true, func(r *llm.Result) error { r.Usage.RequestsComplete = false; return nil }},
 		{"output limit", false, func(r *llm.Result) error { r.Stop.Kind = llm.StopOutputLimit; return nil }},
 		{"failed", false, func(*llm.Result) error { return errors.New("failed") }},
 		{"unknown usage", false, func(r *llm.Result) error { r.Usage = nil; return nil }},
@@ -113,7 +115,7 @@ func TestModelSettlementRequiresCompleteVerifiedSuccessfulResult(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ref := llm.ModelRef{Provider: "openai", Model: "gpt-6-luna"}
-			result := llm.Result{Requested: ref, Served: ref, ServiceTier: "default", Stop: llm.Stop{Kind: llm.StopFinished}, Message: llm.AssistantMessage(llm.Text("answer")), Usage: &llm.Usage{InputTokens: 100, OutputTokens: 10, RequestsComplete: true}}
+			result := llm.Result{Requested: ref, Served: ref, ServiceTier: "default", Raw: []byte(`{"usage":{"input_tokens":100,"output_tokens":10,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0}}}`), Stop: llm.Stop{Kind: llm.StopFinished}, Message: llm.AssistantMessage(llm.Text("answer")), Usage: &llm.Usage{InputTokens: 100, OutputTokens: 10, RequestsComplete: true}}
 			base := resultModel{Client: provider, err: tc.change(&result)}
 			base.result = result
 			limit := &spendLimit{cap: money.MustParseAmount("0.1")}
@@ -135,7 +137,7 @@ func TestOpenAIUsesAndVerifiesDefaultServingTier(t *testing.T) {
 	provider, _ := responses.New(responses.Config{})
 	limit := &spendLimit{cap: money.MustParseAmount("0.1")}
 	ref := llm.ModelRef{Provider: "openai", Model: "gpt-6-luna"}
-	result := llm.Result{Requested: ref, Served: ref, Raw: []byte(`{"service_tier":"default","output":"PRIVATE"}`), Stop: llm.Stop{Kind: llm.StopFinished}, Message: llm.AssistantMessage(llm.Text("answer")), Usage: &llm.Usage{InputTokens: 100, OutputTokens: 10, RequestsComplete: true}}
+	result := llm.Result{Requested: ref, Served: ref, ServiceTier: "default", Raw: []byte(`{"usage":{"input_tokens":100,"output_tokens":10,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0}},"output":"PRIVATE"}`), Stop: llm.Stop{Kind: llm.StopFinished}, Message: llm.AssistantMessage(llm.Text("answer")), Usage: &llm.Usage{InputTokens: 100, OutputTokens: 10, RequestsComplete: true}}
 	guard := &limitedClient{Client: resultModel{Client: provider, result: result}, limit: limit}
 	request, err := guard.Prepare(context.Background(), llm.Input{Model: "gpt-6-luna", Settings: llm.Settings{MaxTokens: 512}, Messages: []llm.Message{llm.UserMessage(llm.Text("test"))}})
 	if err != nil {
@@ -150,6 +152,81 @@ func TestOpenAIUsesAndVerifiesDefaultServingTier(t *testing.T) {
 	got, err := guard.Send(context.Background(), llm.Call{Request: request})
 	if err != nil || got.ServiceTier != "default" || limit.snapshot().settled != 1 {
 		t.Fatal("reported default tier was not verified")
+	}
+}
+
+func TestRealResponsesSettlementRequiresCompleteTokenEvidence(t *testing.T) {
+	complete := `{"input_tokens":20,"output_tokens":2,"total_tokens":22,"input_tokens_details":{"cached_tokens":3,"cache_write_tokens":2}}`
+	for _, stream := range []bool{false, true} {
+		for _, tc := range []struct {
+			name, usage, tier, model string
+			success                  bool
+		}{
+			{"complete", complete, "default", "gpt-6-luna", true},
+			{"missing usage", `null`, "default", "gpt-6-luna", false},
+			{"empty usage", `{}`, "default", "gpt-6-luna", false},
+			{"missing input", `{"output_tokens":2,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0}}`, "default", "gpt-6-luna", false},
+			{"missing output", `{"input_tokens":20,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0}}`, "default", "gpt-6-luna", false},
+			{"missing cache", `{"input_tokens":20,"output_tokens":2}`, "default", "gpt-6-luna", false},
+			{"missing cache write", `{"input_tokens":20,"output_tokens":2,"input_tokens_details":{"cached_tokens":0}}`, "default", "gpt-6-luna", false},
+			{"missing cache read", `{"input_tokens":20,"output_tokens":2,"input_tokens_details":{"cache_write_tokens":0}}`, "default", "gpt-6-luna", false},
+			{"negative cache", `{"input_tokens":20,"output_tokens":2,"input_tokens_details":{"cached_tokens":-1,"cache_write_tokens":0}}`, "default", "gpt-6-luna", false},
+			{"total mismatch", `{"input_tokens":20,"output_tokens":2,"total_tokens":23,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0}}`, "default", "gpt-6-luna", false},
+			{"priority", complete, "priority", "gpt-6-luna", false},
+			{"missing tier", complete, "", "gpt-6-luna", false},
+			{"wrong served model", complete, "default", "other-model", false},
+		} {
+			t.Run(fmt.Sprintf("stream=%v/%s", stream, tc.name), func(t *testing.T) {
+				var calls atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					calls.Add(1)
+					var request struct {
+						ServiceTier string `json:"service_tier"`
+					}
+					if json.NewDecoder(r.Body).Decode(&request) != nil || request.ServiceTier != "default" {
+						t.Error("wire request did not pin standard pricing")
+					}
+					response := fmt.Sprintf(`{"object":"response","status":"completed","model":%q,"service_tier":%q,"usage":%s,"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}]}`, tc.model, tc.tier, tc.usage)
+					if stream {
+						w.Header().Set("Content-Type", "text/event-stream")
+						fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":%s}\n\n", response)
+					} else {
+						w.Header().Set("Content-Type", "application/json")
+						fmt.Fprint(w, response)
+					}
+				}))
+				defer server.Close()
+				public, _ := responses.New(responses.Config{})
+				info, _ := public.ModelInfo("gpt-6-luna")
+				info.Evidence.Endpoint = server.URL
+				provider, err := responses.New(responses.Config{Provider: "openai", APIKey: "local-key", Endpoint: server.URL, Client: singleDispatchHTTP(), Models: map[string]llm.ModelInfo{"gpt-6-luna": info}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				limit := &spendLimit{cap: money.MustParseAmount("0.1")}
+				guard := &limitedClient{Client: provider, limit: limit}
+				request, err := guard.Prepare(context.Background(), llm.Input{Model: "gpt-6-luna", Stream: stream, Settings: llm.Settings{MaxTokens: 512}, Messages: []llm.Message{llm.UserMessage(llm.Text("test"))}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				bound, _ := llm.WorstCaseCost(request, *request.Snapshot().ModelInfo.Pricing)
+				_, err = guard.Send(context.Background(), llm.Call{Request: request})
+				got := limit.snapshot()
+				if tc.success {
+					if err != nil || got.settled != 1 || got.observed <= 0 || got.reserved != got.observed || got.fullReserved != bound.Total {
+						t.Fatalf("complete real result did not settle: %v, %+v", err, got)
+					}
+				} else {
+					if !errors.Is(err, errUnknownCharge) || got.settled != 0 || got.reserved != bound.Total || got.unknown != 1 {
+						t.Fatalf("incomplete real result released risk: %v, %+v", err, got)
+					}
+					guard.Send(context.Background(), llm.Call{Request: request})
+				}
+				if calls.Load() != 1 {
+					t.Fatal("failed call was dispatched again")
+				}
+			})
+		}
 	}
 }
 
