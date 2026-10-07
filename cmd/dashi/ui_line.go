@@ -89,11 +89,9 @@ func (u *lineUI) Emit(b Block) {
 			return
 		}
 	case KindCompaction:
-		text := FormatBlock(b)
-		if u.printed[b.ID] == text {
+		if alreadyPrinted(&u.printed, b.ID, FormatBlock(b)) {
 			return
 		}
-		u.printed[b.ID] = text
 	case KindNotice, KindHint:
 		if b.ID == "task-delivery" {
 			if u.printed[b.ID] == b.Text {
@@ -320,9 +318,9 @@ type printUI struct {
 	err io.Writer
 	yes bool
 	mu  sync.Mutex
-	// taskPrinted holds the last state printed for each task status line.
-	taskPrinted       map[string]string
-	compactionPrinted map[string]string
+	// printed holds the last text printed for each task status and
+	// compaction line.
+	printed map[string]string
 }
 
 func (u *printUI) Emit(b Block) {
@@ -344,27 +342,31 @@ func (u *printUI) Emit(b Block) {
 	}
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	if b.Kind == KindCompaction {
-		text := FormatBlock(b)
-		if u.compactionPrinted[b.ID] == text {
+	switch b.Kind {
+	case KindCompaction:
+		if alreadyPrinted(&u.printed, b.ID, FormatBlock(b)) {
 			return
 		}
-		if u.compactionPrinted == nil {
-			u.compactionPrinted = map[string]string{}
-		}
-		u.compactionPrinted[b.ID] = text
-	}
-	if b.Kind == KindTaskStatus {
+	case KindTaskStatus:
 		// Only the end of a task, once.
-		if !b.Done || u.taskPrinted[b.ID] == b.Name {
+		if !b.Done || alreadyPrinted(&u.printed, b.ID, b.Name) {
 			return
 		}
-		if u.taskPrinted == nil {
-			u.taskPrinted = map[string]string{}
-		}
-		u.taskPrinted[b.ID] = b.Name
 	}
 	fmt.Fprintln(u.err, FormatBlock(b))
+}
+
+// alreadyPrinted reports whether text is the last text printed for id. If
+// not, it records text as printed.
+func alreadyPrinted(printed *map[string]string, id, text string) bool {
+	if (*printed)[id] == text {
+		return true
+	}
+	if *printed == nil {
+		*printed = map[string]string{}
+	}
+	(*printed)[id] = text
+	return false
 }
 
 func (u *printUI) Reset() {}

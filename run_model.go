@@ -500,8 +500,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	}
 	if validationErr != nil {
 		if purpose == ModelPurposeCompaction {
-			// Let the run loop decide from the recorded result whether the
-			// one output-limit retry is still available.
+			// The run loop decides whether to ask once for a shorter summary.
 			return RunResult{}, true
 		}
 		return r.stop(StopFailed, validationErr.Error()), false

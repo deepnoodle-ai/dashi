@@ -79,16 +79,16 @@ model's catalog entry. If the model does not state one, it returns 128,000 and
 `known` is false. Warn the user once. A zero `Compactor` uses 128,000 whatever
 the session's model is, so pass the model's `ModelInfo` as above.
 
-`Compactor.Needed` also checks projected text history size. This sees tool output
-produced after the last model call. Encoded text bytes provide a conservative
-trigger, without guaranteeing provider token fit. History containing non-text
-media uses reported usage only; encoded media bytes are not context tokens.
+`Compactor.Needed` also estimates tokens from the history's size, at about 4
+bytes per token. This catches a large tool result added after the last model
+call reported its usage. History with images, audio, video, or binary
+documents skips the estimate, since its size says little about tokens.
 
-The session checks after a completed Turn, and after safely closing a Turn
-stopped by `compaction_failed` or `context_window`. Finished work can therefore
-be summarized before a smaller new request. Running workers, unknown effects,
-and pending host work still block new requests. Other failed/canceled Turns,
-other Turns the new request closes, and compaction Turns skip this check.
+The session checks after a completed Turn. It also checks after a Turn that
+stopped because its history no longer fit or its summary failed
+(`session.NeedsCompaction`): the next message closes that Turn and summarizes
+older history first. It skips
+the check after other failed or canceled Turns and after compaction Turns.
 
 ## When it fails
 
@@ -96,7 +96,7 @@ If the compaction turn does not complete with a summary, the session closes it
 (`Cancel` with command ID `close:` and its turn ID), keeps the previous
 history, and runs the caller's turn with the warning `compaction_failed` in
 `RunResult.SessionWarnings`. A failing summary is tried
-again only after a later eligible Turn. A compactor that cannot build its
+again only after a later Turn. A compactor that cannot build its
 request warns the same way, and no compaction turn is recorded. When two handles
 reach the compaction slot at once, one runs the compaction turn and the other
 uses its replacement history, with no warning.
@@ -240,14 +240,13 @@ actual summary usage and money remain in `Spend`. The two summary mechanisms
 can coexist: `Session.Compactor` works between Turns and never recursively
 starts active protection inside its own summary Turn.
 
-Summary prompts state the output allowance. A known output-limited summary
-can receive one shorter retry of the same evidence, through normal admission.
-Empty summary text, tool content, or refusal content blocks that retry.
-Recorded starts bound the retry even after reload. Both calls count toward
-the Turn's limits, usage, and charges, and leave an ordinary call available.
-Partial summaries never replace context. Other failed, empty, tool-requesting,
-or non-shrinking summaries record their result and stop with `compaction_failed`.
-Explicit `Continue`
+Summary prompts state how many output tokens the summary may use. If a
+summary is cut off at that limit, Dashi asks once for a shorter summary of the
+same history. It does not retry when the cut-off summary has no text, calls a
+tool, or refuses. Reloading the Turn does not allow a second retry. Both calls
+count toward the Turn's limits and spend. A cut-off summary never replaces
+history. Other failed, empty, or tool-calling summaries, and summaries cut off
+for length again, stop the Turn with `compaction_failed`. Explicit `Continue`
 can allow a new summary call. After a summary call's result is recorded,
 reload applies its replacement without another model call. An interrupted
 no-tools summary follows existing safe recovery. A recorder write with an

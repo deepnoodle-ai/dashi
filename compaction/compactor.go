@@ -48,9 +48,12 @@ func New(policy Policy) *Compactor {
 	return &Compactor{Policy: policy}
 }
 
-// Needed checks reported usage and projected text history, including tool
-// output produced after the last model call. Encoded media bytes do not
-// trigger it; media history uses reported usage only.
+// Needed reports whether to compact messages, the history for the next Turn.
+// It returns false if nothing in messages can be summarized. Compaction is due when the
+// last model call's usage, or the estimated size of messages, reaches
+// Policy's share of the window. The size estimate catches tool output added
+// after the last model call. History with images, audio, video, or binary
+// documents is not size-estimated.
 func (c *Compactor) Needed(messages []llm.Message, last llm.Usage) bool {
 	return c.Policy.dueHistory(messages, last) && len(withoutAuthoritative(messages)) > 0
 }

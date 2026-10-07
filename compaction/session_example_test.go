@@ -14,7 +14,9 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// Finished tool output can fill history even when last-model usage is low.
+// A large tool result can fill the window after the last model call reported
+// its usage. The next Send summarizes history first and does not rerun the
+// tool.
 func ExampleCompactor_finishedToolOutput() {
 	client := dashitest.NewClient(dashitest.CallTool("read-1", "read", `{}`),
 		dashitest.Reply("Read the evidence."), dashitest.Reply("<summary>The finding is 42.</summary>"), dashitest.Reply("The finding is 42."))
@@ -23,7 +25,7 @@ func ExampleCompactor_finishedToolOutput() {
 	s := &session.Session{ID: "chat", New: true, Runner: dashi.Runner{Client: client, Tools: tool.List{
 		tool.MustFunc("read", "Read evidence", func(context.Context, tool.Call, struct{}) (tool.Outcome, error) {
 			calls++
-			return tool.Succeeded("Finding: 42\n" + strings.Repeat("detail ", 600)), nil
+			return tool.Succeeded("Finding: 42\n" + strings.Repeat("detail ", 2000)), nil
 		}),
 	}}, Agent: dashi.Agent{Model: dashitest.Model}, Compactor: compaction.New(policy)}
 	ctx := context.Background()

@@ -55,9 +55,10 @@ func (p Policy) Due(last llm.Usage) bool {
 	return used > 0 && float64(used) >= fraction*float64(window)
 }
 
-// dueHistory also sees output produced after the last model call. Encoded
-// text bytes conservatively trigger compaction; they do not prove token fit.
-// Media history retains the reported-usage trigger without a byte estimate.
+// dueHistory also counts tool output added after the last model call, by
+// estimating tokens from the history's size. History with images, audio,
+// video, or binary documents uses only the last call's usage, since its byte
+// size says little about tokens.
 func (p Policy) dueHistory(messages []llm.Message, last llm.Usage) bool {
 	if p.Due(last) {
 		return true
@@ -66,5 +67,5 @@ func (p Policy) dueHistory(messages []llm.Message, last llm.Usage) bool {
 		return false
 	}
 	b, err := json.Marshal(messages)
-	return err == nil && p.Due(llm.Usage{InputTokens: len(b)})
+	return err == nil && p.Due(llm.Usage{InputTokens: len(b) / bytesPerToken})
 }
