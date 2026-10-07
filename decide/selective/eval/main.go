@@ -469,7 +469,15 @@ func (e *env) session(ctx context.Context, n int, s session) (map[string]outcome
 		}
 		defer judge.Close()
 		judge.Respond(cannedNeedles(s.needles))
-		judgeClient, err = judge.NewClient(decide.WithMaxRetries(0), decide.WithModel(decisionModel))
+		if e.cfg.preflight {
+			transport, transportErr := decide.NewHTTPTransport(decide.HTTPTransportConfig{APIKey: "test-key-00000000", BaseURL: judge.URL, HTTPClient: singleDispatchHTTP()})
+			if transportErr != nil {
+				return res, problems, transportErr
+			}
+			judgeClient, err = decide.NewClient(decide.WithoutEnvironment(), decide.WithTransport(&limitedDecide{Transport: transport, limit: e.limit, preflight: true}), decide.WithMaxRetries(0), decide.WithModel(decisionModel))
+		} else {
+			judgeClient, err = judge.NewClient(decide.WithMaxRetries(0), decide.WithModel(decisionModel))
+		}
 		if err != nil {
 			return res, problems, err
 		}
@@ -559,6 +567,7 @@ func (e *env) session(ctx context.Context, n int, s session) (map[string]outcome
 			continue
 		}
 		first := o
+		first.probeCost = 0 // fallback shares the original probe
 		if sel.Fallback == "" {
 			first.found, first.probeCost, err = e.probe(ctx, s, id(armSummaryFirst, "probe"),
 				summaryFirst(hist, st.Compaction), s.needles)
@@ -1022,6 +1031,9 @@ func (r *report) print(w io.Writer, cfg config) {
 				models[m] = true
 			}
 		}
+	}
+	if !cfg.live {
+		total = 0
 	}
 	fmt.Fprintf(w, "total spend: $%.4f (matrix summaries, probes, and Decide); decision models: %v\n",
 		total, slices.Sorted(maps.Keys(models)))

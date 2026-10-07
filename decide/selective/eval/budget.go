@@ -140,7 +140,8 @@ func textInput(input llm.Input) bool {
 // retries, so one invocation is at most one paid dispatch.
 type limitedDecide struct {
 	decide.Transport
-	limit *spendLimit
+	limit     *spendLimit
+	preflight bool
 }
 
 func (t *limitedDecide) SystemOne(ctx context.Context, req *decide.Request) (*decide.Response, error) {
@@ -158,10 +159,12 @@ func (t *limitedDecide) SystemOne(ctx context.Context, req *decide.Request) (*de
 		return nil, err
 	}
 	resp, err := t.Transport.SystemOne(ctx, req)
-	if resp == nil {
-		t.limit.observe(0, false)
-	} else {
-		t.limit.observe(money.Amount(resp.Usage.InputTokens)*42, err == nil)
+	if !t.preflight {
+		if resp == nil {
+			t.limit.observe(0, false)
+		} else {
+			t.limit.observe(money.Amount(resp.Usage.InputTokens)*42, err == nil)
+		}
 	}
 	return resp, err
 }

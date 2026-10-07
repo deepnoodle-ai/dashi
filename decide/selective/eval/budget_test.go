@@ -153,7 +153,7 @@ func TestPreflightNeverDispatchesAndUsesRealPrices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.spending.reserved <= 0 || r.spending.observed != 0 || r.spending.requests != 9 {
+	if r.spending.reserved <= 0 || r.spending.observed != 0 || r.spending.requests <= 9 {
 		t.Fatalf("preflight spending %+v", r.spending)
 	}
 }

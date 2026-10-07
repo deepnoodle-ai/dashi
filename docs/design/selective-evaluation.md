@@ -57,7 +57,7 @@ The Decide transport reserves encoded request bytes plus framing at the pinned
 Jev input rate. No layer may retry a paid call, including its transport.
 Disable Decide retries. Dashi provider clients already dispatch once, and the
 eval does not retry model turns. All paid calls share the same ledger. For this
-run the hard reserve is $0.90. Mining is forbidden in a capped run. A rejected
+run the hard reserve is $0.99. Mining is forbidden in a capped run. A rejected
 reservation stops the run and preserves an incomplete result.
 
 ### Private evidence

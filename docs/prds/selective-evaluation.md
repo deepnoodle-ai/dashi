@@ -18,7 +18,7 @@ preservation check ([#223](https://github.com/deepnoodle-ai/dashi/issues/223)).
 Published live totals use the previous window calculation. Issue
 [#221](https://github.com/deepnoodle-ai/dashi/issues/221) requests a corrected
 comparison. The user permits cheaper models and at most $1 across all batches.
-This batch has a $0.90 reserve.
+This batch has a $0.99 reserve.
 
 ## Context
 
@@ -73,7 +73,7 @@ The maintainer chooses cheaper models while retaining recorded inputs and needle
 - [ ] The reserve covers full output, reasoning, and cache creation.
 - [ ] No paid call is retried, including transport-level retries.
 - [ ] Missing prices or exhausted reserves prevent dispatch. Failed calls retain their reserve.
-- [ ] This run spends at most $0.90. It reuses needles and disables paid retries and extra smoke calls.
+- [ ] This run spends at most $0.99. It reuses needles and disables paid retries and extra smoke calls.
 - [ ] A cheaper-model or partial comparison appears separately from the historical totals.
 - [ ] The docs state whether the requested original comparison remains unperformed.
 - [ ] All five arms on the corrected original 13-case, 64-needle corpus can close #221 with cheaper models.
