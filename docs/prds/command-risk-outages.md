@@ -61,6 +61,9 @@ Acceptance:
 - [ ] Cancellation prevents further requests and never starts a pause.
 - [ ] A timeout during either request leaves the command suspect. The
       default prompt still opens immediately and accepts the user's answer.
+- [ ] A suspect failure in any command part prevents confirmation, even if
+      another part returned a server or connection failure first. A shorter
+      SDK attempt timeout cannot start a pause under a live check deadline.
 - [ ] A command check sends at most eight original parts plus one benign
       request. Command requests cannot multiply through SDK retries.
 
