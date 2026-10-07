@@ -86,7 +86,8 @@ func checkReplay(c, original llm.Content, role llm.Role, foreign bool) error {
 		switch {
 		case o.Origin.API == "anthropic.messages" &&
 			kind == "tool_use":
-			known = only(fields, "type", "id", "name", "input")
+			known = only(fields, "type", "id", "name", "input", "caller") &&
+				anthropicDirectCaller(fields["caller"])
 			id, args = fields["id"], fields["input"]
 		case o.Origin.API == "openai.responses" &&
 			kind == "function_call":
@@ -167,6 +168,19 @@ func checkReplay(c, original llm.Content, role llm.Role, foreign bool) error {
 		return errors.New("providercontent: edited content has unfamiliar dependent replay fields")
 	}
 	return nil
+}
+
+// A direct caller adds no meaning beyond the canonical tool call. Other
+// callers can depend on a provider code-execution run that we cannot discard.
+func anthropicDirectCaller(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return true
+	}
+	var caller map[string]json.RawMessage
+	return json.Unmarshal(raw, &caller) == nil &&
+		caller != nil &&
+		only(caller, "type") &&
+		stringField(caller, "type") == "direct"
 }
 
 // checkReasoningReplay classifies a complete, known source block before an
