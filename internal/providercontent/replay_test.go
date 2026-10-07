@@ -10,16 +10,19 @@ import (
 )
 
 // An Anthropic tool call can move to another provider unless Anthropic's code
-// sandbox made it.
+// execution tool made it. Every call stays usable on Anthropic.
 func TestAdaptAnthropicToolCallToAnotherProvider(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		caller string
+		stay   bool
 		ok     bool
 	}{
 		{name: "no caller", ok: true},
 		{name: "direct", caller: `,"caller":{"type":"direct"}`, ok: true},
-		{name: "code sandbox", caller: `,"caller":{"type":"code_execution_20260120","tool_id":"server"}`},
+		{name: "direct with extra fields", caller: `,"caller":{"type":"direct","tool_id":"server"}`},
+		{name: "code execution", caller: `,"caller":{"type":"code_execution_20260120","tool_id":"server"}`},
+		{name: "code execution on Anthropic", caller: `,"caller":{"type":"code_execution_20260120","tool_id":"server"}`, stay: true, ok: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			source := content.Origin{Provider: "anthropic", API: "anthropic.messages", Model: "fixture", Scope: "fixture"}
@@ -42,12 +45,15 @@ func TestAdaptAnthropicToolCallToAnotherProvider(t *testing.T) {
 				}),
 			}}
 			target := content.Origin{Provider: "openai", API: "openai.responses", Model: "fixture", Scope: "fixture"}
+			if tc.stay {
+				target = source
+			}
 			out, _, err := Adapt(input, target)
 			if (err == nil) != tc.ok {
 				t.Fatalf("Adapt error = %v, want ok = %v", err, tc.ok)
 			}
-			if err == nil && out.Messages[0].Content[0].Replay != nil {
-				t.Fatal("Anthropic replay data was sent to another provider")
+			if err == nil && (out.Messages[0].Content[0].Replay != nil) != tc.stay {
+				t.Fatalf("replay kept = %v, want %v", out.Messages[0].Content[0].Replay != nil, tc.stay)
 			}
 		})
 	}

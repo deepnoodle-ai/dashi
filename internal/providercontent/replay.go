@@ -172,8 +172,8 @@ func checkReplay(c, original llm.Content, role llm.Role, foreign bool) error {
 
 // isDirectCaller reports whether an Anthropic tool call's caller field is
 // missing or {"type":"direct"}, meaning the model called the tool itself.
-// Calls made by Anthropic's code sandbox depend on that sandbox, so they
-// cannot move to another provider.
+// Calls made by Anthropic's code execution tool depend on that tool's
+// container, so they cannot move to another provider.
 func isDirectCaller(raw json.RawMessage) bool {
 	if len(raw) == 0 {
 		return true

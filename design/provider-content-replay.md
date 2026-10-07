@@ -74,8 +74,8 @@ function response omits the ID.
 
 An Anthropic tool call can move to another provider when its `caller` field
 is missing or `{"type":"direct"}`, meaning the model called the tool itself.
-A call made by Anthropic's code sandbox depends on that sandbox, so it cannot
-move.
+A call made by Anthropic's code execution tool depends on that tool's
+container, so it cannot move.
 
 A known content kind alone does not establish portability. Unrecognized fields,
 nonempty output-phase metadata, and unmodeled semantics prevent automatic

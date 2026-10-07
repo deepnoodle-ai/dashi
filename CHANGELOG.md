@@ -67,7 +67,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Reports omit private needle text and source session identifiers.
 - **Tools with no arguments now run on Anthropic when streaming.**
 - **Conversations that used tools on Anthropic can continue on another
-  provider.** Tool calls made by Anthropic's code sandbox still can't be moved.
+  provider.** Tool calls made by Anthropic's code execution tool still can't be moved.
 - **Active summaries state their output allowance and retry once after an
   output limit.** Both calls use the Turn's limits, budget, and accounting.
   Empty or refused summaries do not retry. Rejected partial summaries never
