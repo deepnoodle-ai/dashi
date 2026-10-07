@@ -506,6 +506,7 @@ func (s *Session) planStart(
 	var p startPlan
 	upTo := last // the turns the history holds
 	closed := false
+	recoverContext := false
 	if last > 0 {
 		t, skip, err := s.readLast(ctx, last)
 		if err != nil {
@@ -515,6 +516,8 @@ func (s *Session) planStart(
 			p.warnings = append(p.warnings, *skip)
 			upTo = last - 1
 		} else {
+			recoverContext = t.view.Stop.Kind == dashi.StopFailed && t.view.Stop.Reason == dashi.StopReasonCompactionFailed ||
+				t.view.Stop.Kind == dashi.StopLimited && t.view.Stop.Reason == string(dashi.LimitContextWindow)
 			var events []dashi.Event
 			closed, events, err = s.closeLast(ctx, last, t, opts, stream)
 			p.closing = events
@@ -527,10 +530,11 @@ func (s *Session) planStart(
 		}
 	}
 	history, unreadable := s.history(ctx, upTo)
-	// A turn this Start closed did not complete as its caller meant, even
-	// when closing completed it, so no compaction follows it.
-	if upTo == last && !compacted && !closed {
-		if cp := s.planCompaction(ctx, last, history, c.Budget); cp != nil {
+	// A context stop keeps finished work that may make later history too
+	// large. After safe closure it can compact; other closed work still skips.
+	if upTo == last && !compacted && (!closed || recoverContext) {
+		if cp := s.planCompaction(ctx, last, history, c.Budget, recoverContext); cp != nil {
+			cp.closing, cp.warnings = p.closing, p.warnings
 			return *cp, nil
 		}
 	}

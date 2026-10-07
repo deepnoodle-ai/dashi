@@ -72,6 +72,11 @@ and foreign Gemini private replay remains unsupported. A signed call without a
 provider ID keeps Dashi's internal call/result correlation while its wire
 function response omits the ID.
 
+Anthropic tool replay recognizes an absent `caller` or exactly
+`{"type":"direct"}`. The direct marker adds no semantics beyond a canonical
+tool call. Programmatic callers and unfamiliar nested fields remain rejected
+for stripping or edits because they can depend on a code-execution run.
+
 A known content kind alone does not establish portability. Unrecognized fields,
 nonempty output-phase metadata, and unmodeled semantics prevent automatic
 stripping. Edits overlay canonical fields only when their dependencies are

@@ -13,15 +13,17 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi/compaction"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 func TestPrepareAdaptsPortableHistoryAndSendsRecordedBytes(t *testing.T) {
 	for _, source := range cases(t) {
 		_, generated := portableHistory(t, source)
-		for _, target := range cases(t) {
+		for _, target := range portableTargets(t) {
 			for _, stream := range []bool{false, true} {
 				t.Run(
 					fmt.Sprintf("%s/%s/stream=%t", source.name, target.name, stream),
@@ -135,6 +137,102 @@ func TestPrepareAdaptsPortableHistoryAndSendsRecordedBytes(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestPrepareStockTailRetainsPortableDirectCallerReplay(t *testing.T) {
+	_, generated := portableHistory(t, cases(t)[0])
+	history := []llm.Message{
+		llm.UserMessage(llm.Text(strings.Repeat("old input ", 1000))),
+		llm.AssistantMessage(llm.Text(strings.Repeat("old answer ", 1000))),
+		llm.UserMessage(llm.Text("Run the tool.")),
+		generated.Message,
+	}
+	history = append(history, toolReplies(generated.Message)...)
+	history = append(history, llm.UserMessage(llm.Text("Continue.")))
+	original := mustJSON(history)
+	start, err := (&compaction.Compactor{TailFraction: 0.005}).Start(
+		t.Context(), history,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep := start.Compaction.Keep
+	if len(keep) != 4 || keep[1].Content[1].Replay == nil {
+		t.Fatal("stock compaction lost the direct-call replay fixture")
+	}
+	input := modelInput()
+	input.Messages = append(input.Messages, keep...)
+	for _, target := range portableTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			client := target.new("https://unused.invalid/api")
+			request, err := client.Prepare(t.Context(), input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(request.ContentChanges()) != 2 {
+				t.Fatal("stock tail lost text and tool replay changes")
+			}
+			if mustJSON(history) != original || keep[1].Content[1].Replay == nil {
+				t.Fatal("preparation rewrote the saved or retained history")
+			}
+		})
+	}
+}
+
+func TestPrepareRejectsUnreplayableDirectCallerAttachments(t *testing.T) {
+	_, generated := portableHistory(t, cases(t)[0])
+	for _, tc := range []struct {
+		name    string
+		partial bool
+		version uint16
+	}{
+		{name: "partial", partial: true, version: 1},
+		{name: "missing wrapper version"},
+		{name: "future wrapper version", version: 2},
+	} {
+		for _, target := range portableTargets(t) {
+			t.Run(tc.name+"/"+target.name, func(t *testing.T) {
+				input := modelInput()
+				message := generated.Message.Clone()
+				replay := message.Content[1].Replay
+				replay.Partial, replay.Version = tc.partial, tc.version
+				input.Messages = append(input.Messages, message)
+				input.Messages = append(input.Messages, toolReplies(message)...)
+				original := mustJSON(input)
+				client := target.new("https://unused.invalid/api")
+				_, err := client.Prepare(t.Context(), input)
+				failure, ok := errors.AsType[*llm.Error](err)
+				if !ok || failure.Category != llm.ErrorInvalidRequest {
+					t.Fatalf("invalid replay reached conversion: %v", err)
+				}
+				if mustJSON(input) != original {
+					t.Fatal("failed preparation changed saved history")
+				}
+			})
+		}
+	}
+}
+
+func portableTargets(t *testing.T) []providerCase {
+	t.Helper()
+	return append(cases(t), providerCase{
+		name: "completions",
+		new: func(url string) llm.Client {
+			client, err := completions.New(completions.Config{
+				Provider: "openai",
+				Endpoint: url,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return client
+		},
+		empty: `{"id":"r","model":"served","choices":[{"index":0,"message":{"role":"assistant","content":""},"finish_reason":"stop"}]}`,
+		stream: events(
+			`{"id":"r","model":"served","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		),
+	})
 }
 
 func TestPrepareAdaptsHistoryToAnotherModelOnSameClient(t *testing.T) {
@@ -500,7 +598,9 @@ func TestPrepareRecordsRoleAndToolErrorRepresentations(t *testing.T) {
 
 func portableHistory(t *testing.T, tc providerCase) (llm.Client, llm.Result) {
 	t.Helper()
-	body := `{"type":"message","id":"source-response","model":"served","stop_reason":"tool_use","content":[{"type":"text","text":"Hello"},{"type":"tool_use","id":"call-1","name":"act","input":{"counter":9007199254740993}}]}`
+	// This sanitized direct-caller shape reproduces retained Anthropic tool
+	// history from #219 without copying any session text or arguments.
+	body := `{"type":"message","id":"source-response","model":"served","stop_reason":"tool_use","content":[{"type":"text","text":"Hello"},{"type":"tool_use","id":"call-1","name":"act","input":{"counter":9007199254740993},"caller":{"type":"direct"}}]}`
 	if tc.name == "openai" {
 		body = `{"object":"response","id":"source-response","model":"served","status":"completed","output":[{"type":"message","id":"source-item","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Hello","annotations":[]}]},{"type":"function_call","id":"source-item-call","call_id":"call-1","name":"act","arguments":"{\"counter\":9007199254740993}","status":"completed"}]}`
 	}

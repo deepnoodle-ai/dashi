@@ -235,7 +235,11 @@ func (wire codec) readStream(
 				// Signatures are accumulated for replay but not emitted.
 				appendString(b, "signature", e.Delta.Signature)
 			case "input_json_delta":
-				arguments[e.Index] += e.Delta.PartialJSON
+				// Empty deltas carry no argument bytes. Keeping the initial
+				// input lets a completed no-argument call retain its {}.
+				if e.Delta.PartialJSON != "" {
+					arguments[e.Index] += e.Delta.PartialJSON
+				}
 				d.Kind = "tool_arguments"
 				d.Text = e.Delta.PartialJSON
 				if b["type"] != "tool_use" && b["type"] != "server_tool_use" && b["type"] != "mcp_tool_use" {

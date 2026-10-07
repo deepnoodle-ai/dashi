@@ -79,9 +79,16 @@ model's catalog entry. If the model does not state one, it returns 128,000 and
 `known` is false. Warn the user once. A zero `Compactor` uses 128,000 whatever
 the session's model is, so pass the model's `ModelInfo` as above.
 
-The session checks only after a turn that completed. It never compacts after a
-turn that failed or was canceled, after one the new turn had to close, or right
-after a compaction turn.
+`Compactor.Needed` also checks projected text history size. This sees tool output
+produced after the last model call. Encoded text bytes provide a conservative
+trigger, without guaranteeing provider token fit. History containing non-text
+media uses reported usage only; encoded media bytes are not context tokens.
+
+The session checks after a completed Turn, and after safely closing a Turn
+stopped by `compaction_failed` or `context_window`. Finished work can therefore
+be summarized before a smaller new request. Running workers, unknown effects,
+and pending host work still block new requests. Other failed/canceled Turns,
+other Turns the new request closes, and compaction Turns skip this check.
 
 ## When it fails
 
@@ -89,7 +96,7 @@ If the compaction turn does not complete with a summary, the session closes it
 (`Cancel` with command ID `close:` and its turn ID), keeps the previous
 history, and runs the caller's turn with the warning `compaction_failed` in
 `RunResult.SessionWarnings`. A failing summary is tried
-again only after the next turn completes. A compactor that cannot build its
+again only after a later eligible Turn. A compactor that cannot build its
 request warns the same way, and no compaction turn is recorded. When two handles
 reach the compaction slot at once, one runs the compaction turn and the other
 uses its replacement history, with no warning.
@@ -233,8 +240,14 @@ actual summary usage and money remain in `Spend`. The two summary mechanisms
 can coexist: `Session.Compactor` works between Turns and never recursively
 starts active protection inside its own summary Turn.
 
-Failed, empty, tool-requesting, or non-shrinking summaries record their raw
-result and accounting, then stop with `compaction_failed`. Explicit `Continue`
+Summary prompts state the output allowance. A known output-limited summary
+can receive one shorter retry of the same evidence, through normal admission.
+Empty summary text, tool content, or refusal content blocks that retry.
+Recorded starts bound the retry even after reload. Both calls count toward
+the Turn's limits, usage, and charges, and leave an ordinary call available.
+Partial summaries never replace context. Other failed, empty, tool-requesting,
+or non-shrinking summaries record their result and stop with `compaction_failed`.
+Explicit `Continue`
 can allow a new summary call. After a summary call's result is recorded,
 reload applies its replacement without another model call. An interrupted
 no-tools summary follows existing safe recovery. A recorder write with an

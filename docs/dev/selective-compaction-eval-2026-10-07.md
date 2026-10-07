@@ -61,4 +61,3 @@ selective's fake oracle recovered 41/64 versus recency 24/64, with zero
 fallbacks. This proves saved-needle plumbing, not model quality. Raw sessions,
 needles, logs, and provider bodies stay private outside Git; public cases use
 per-run ordinals.
-
