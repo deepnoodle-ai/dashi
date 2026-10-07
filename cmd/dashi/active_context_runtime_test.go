@@ -93,6 +93,9 @@ func TestRuntimeActiveContextDiscardKeepsFinishedEffects(t *testing.T) {
 	})
 	h.typeText("/discard")
 	h.key(tui.KeyEvent{Key: tui.KeyEnter})
+	// Enter is queued on the terminal event loop. A probe acknowledges its
+	// submission before Wait can race with the controller adding the work.
+	h.wait(func(s transcriptState) bool { return s.input == "" })
 	h.app.ctrl.Wait()
 	h.wait(func(s transcriptState) bool { return s.mode == ModeIdle && strings.Contains(s.text, "canceled") })
 	view, err := h.turn(1).View()

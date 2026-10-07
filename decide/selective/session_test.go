@@ -93,11 +93,10 @@ func TestSessionCompaction(t *testing.T) {
 		},
 	}
 	s := &session.Session{
-		ID:        "fix",
-		New:       true,
-		Runner:    runner,
-		Agent:     dashi.Agent{Model: dashitest.Model},
-		Compactor: compactor,
+		ID:     "fix",
+		New:    true,
+		Runner: runner,
+		Agent:  dashi.Agent{Model: dashitest.Model},
 	}
 	send := func(texts ...string) {
 		t.Helper()
@@ -115,8 +114,11 @@ func TestSessionCompaction(t *testing.T) {
 		"Fix the parser tests. Do not change exported signatures.",
 		"Run the tests.",
 		"Read the grammar docs.",
-		"Now fix it.",
 	)
+	// Seed the intended comparison before enabling automatic compaction.
+	// Projected-history sizing can otherwise compact these long fixtures early.
+	s.Compactor = compactor
+	send("Now fix it.")
 
 	// The last turn, from "Read the grammar docs." on, is larger than the
 	// 400-token tail share, but the stock tail keeps it, so it stays whole
@@ -151,7 +153,10 @@ func TestSessionCompaction(t *testing.T) {
 
 	// The second compaction judges the failure, kept the first time, again,
 	// and the docs turn, now older, too, and summarizes the first summary.
-	send("Check the tree.", "Wrap up.")
+	s.Compactor = nil
+	send("Check the tree.")
+	s.Compactor = compactor
+	send("Wrap up.")
 	if len(selections) != 2 || selections[1].Fallback != "" {
 		t.Fatalf("selections = %+v", selections)
 	}

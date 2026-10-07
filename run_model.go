@@ -195,6 +195,9 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			)
 		}
 	}
+	if purpose == ModelPurposeCompaction {
+		input.System += activeSummaryInstructions(s, input.Settings.MaxTokens)
+	}
 	// References become verified bytes only here, after every hook has seen
 	// the recorded input and before it is prepared and sent.
 	input, refStop := r.hydrate(input)
@@ -497,7 +500,9 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	}
 	if validationErr != nil {
 		if purpose == ModelPurposeCompaction {
-			return r.stop(StopFailed, StopReasonCompactionFailed), false
+			// Let the run loop decide from the recorded result whether the
+			// one output-limit retry is still available.
+			return RunResult{}, true
 		}
 		return r.stop(StopFailed, validationErr.Error()), false
 	}

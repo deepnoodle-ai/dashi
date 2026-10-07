@@ -344,6 +344,7 @@ func (s *replayState) apply(step Step) error {
 		if step.Model.Error == "" &&
 			step.Model.Interrupted == InterruptNone {
 			if s.startedModelCalls[step.Model.ModelCallID].Purpose == ModelPurposeCompaction {
+				s.failedModel = ""
 				s.pendingCompaction = step.Model.ModelCallID
 			} else {
 				s.compactionUsed = false

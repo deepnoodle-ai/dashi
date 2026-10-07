@@ -1,35 +1,15 @@
 package dashi
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
-
-// Use one qualification rule for context sizing and summary evidence.
-// Unknown, remote, and binary documents keep unavailable sizing and markers.
-func activeTextDocument(b content.Block) bool {
-	if b.Kind != content.KindDocument || b.Document == nil {
-		return false
-	}
-	source := b.Document.Source.WithDetectedMIMEType(b.Document.Title)
-	if len(source.Data) == 0 || !utf8.Valid(source.Data) || bytes.IndexByte(source.Data, 0) >= 0 {
-		return false
-	}
-	switch source.MIMEType {
-	case "application/json", "application/xml", "application/yaml", "application/x-yaml":
-		return true
-	}
-	return strings.HasPrefix(source.MIMEType, "text/")
-}
 
 // activeTranscript renders documents only on a transcript copy. References
 // reuse the ordinary candidate's verified bytes; rendering performs no I/O.
@@ -68,7 +48,7 @@ func (r *runtime) activeTranscript(messages []llm.Message) ([]string, error) {
 		}
 	}
 	textBlock := func(b content.Block) content.Block {
-		if activeTextDocument(b) {
+		if compactiontext.IsTextDocument(b) {
 			return content.TextBlock("[text document: " + b.Document.Title + "]\n" + string(b.Document.Source.Data))
 		}
 		return b

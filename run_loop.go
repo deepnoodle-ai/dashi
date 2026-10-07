@@ -73,7 +73,11 @@ func (r *runtime) run() RunResult {
 		}
 		if s.failedModel != "" {
 			if lastModelPurpose(r.turn) == ModelPurposeCompaction {
-				return r.stop(StopFailed, StopReasonCompactionFailed)
+				o, again := r.retryActiveSummary(s)
+				if !again {
+					return o
+				}
+				continue
 			}
 			return r.stop(StopFailed, s.failedModel)
 		}
