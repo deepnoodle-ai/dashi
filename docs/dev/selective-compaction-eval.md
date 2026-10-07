@@ -29,7 +29,8 @@ reported tier; see the [Responses reference](https://developers.openai.com/api/r
 Decide reservations remain held in full. Reports separate held reserve,
 gross full reservations, and observed cost. SDK and HTTP transports perform zero
 retries. Safe failure diagnostics retain category, stage, status, and recognized
-code; raw provider errors stay private.
+code, plus canonical Turn/limit/model stop enums; raw provider errors and stop
+reasons stay private.
 `-preflight` prepares real provider requests with scripted replies and fake
 selection. It makes no paid calls. Its reservation total covers those payloads;
 real model output can change later payloads, so the live guard checks them again.
@@ -147,19 +148,20 @@ cause.
 The data shows that selective helps on these generated sessions; it does not
 yet show that the bar is met in general.
 
-On recorded CLI sessions the bar is not met. Selective beats the stock
-summary by 11 points, but keeping the newest older messages without Decide
-recalls as much, so Decide's choice has not yet earned its place; the
-design says to drop the package in that case. So the dashi CLI does not
-ship it; the library package stays experimental.
+On the corrected recorded corpus, selective recalls 24/64 versus recency
+29/64. Its 7.8125-point deficit does not meet the 10-point lead required to
+ship. The dashi CLI does not ship it; the library package stays experimental.
+The earlier recorded comparison below remains historical because its window
+calculation and summary/probe models differ.
 
 ## Live run 3, 2026-10-06: recorded CLI sessions
 
 These totals came from an earlier window calculation that measured each
 case with reasoning, although every arm gets the history without it. The
 eval now measures the history without reasoning (13 cases, 64 needles from
-the same mined needles), but this run has not been repeated with it; see
-[#221](https://github.com/deepnoodle-ai/dashi/issues/221).
+the same mined needles). Live run 4 below repeats the complete corrected
+comparison with an explicitly cheaper summary/probe model; the expensive
+original-model comparison has not been rerun.
 
 `-recorded` reads dashi CLI session folders. Each turn end of 20,000 to
 120,000 estimated tokens is one case, compacted for a window its history
@@ -203,6 +205,15 @@ Against the bar: beats stock by +11 (met); beats request-aware stock by +9
 (not met); beats recency by +0 (not met); no fallbacks (met); Decide spend
 3% of the summary spend (met). Selective matched recency while keeping 38%
 fewer tokens, so later turns cost less; it did not recall more.
+
+## Live run 4, 2026-10-07: corrected recorded corpus, cheaper model
+
+All five arms completed all 13 corrected cases and 64 saved needles with
+GPT-6 Luna/none and pinned Jev. Selective recalled 24/64 (37.5%) versus
+recency 29/64 (45.3125%), with no fallbacks. The ship bar is not met; the
+library stays experimental without CLI integration. This complete comparison
+resolves #221 with explicitly changed models. See the [full dated evidence
+and three-attempt spending ledger](selective-compaction-eval-2026-10-07.md).
 
 ## Not yet run
 

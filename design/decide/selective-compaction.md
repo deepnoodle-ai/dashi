@@ -1,7 +1,7 @@
 # Selective compaction
 
 **Status:** Experimental in the library; not in the dashi CLI ·
-**Date:** 2026-10-02, result 2026-10-06 · **Owner:** Curtis · **Builds
+**Date:** 2026-10-02, corrected result 2026-10-07 · **Owner:** Curtis · **Builds
 on:** [README](README.md), [compaction guide](../../docs/guides/compaction.md)
 
 ## Problem
@@ -174,7 +174,8 @@ word in the replacement history, plus pairing, fallbacks, and the rebuilt
 history. It guards the plumbing and proves nothing about Decide's judgment.
 The **`-live`** mode uses real Jev and a real model, scores answers by exact
 match on the planted string, and records Decide and summary tokens, Decide
-wait, and fallbacks. It also sends one selective history to each provider.
+wait, and fallbacks. Optional provider smoke checks require explicit selection
+and share the evaluation budget.
 Results go in `docs/dev`.
 
 **The bar.** The package stays only if, live, selective beats both stock and
@@ -183,7 +184,10 @@ compactions, and spends less on Decide than on the summary call. If recency
 matches selective, Decide is not earning its place. Then we drop this package
 and move pinning and the prompt into the stock compactor.
 
-## Result and decision (2026-10-06)
+## Historical result and decision (2026-10-06)
+
+This run used the earlier window calculation and recorded models. It remains
+historical; the corrected cheaper-model comparison follows below.
 
 On 14 compactions from 7 recorded dashi CLI sessions, with 70 mined
 needles, selective recalled 50%, stock 39%, request-aware stock 41%, and
@@ -208,6 +212,23 @@ replay data has no lossless canonical conversion"). Stock compaction
 keeps its tail the same way, so this is not selective's alone, but
 selective keeps more assistant messages
 ([#219](https://github.com/deepnoodle-ai/dashi/issues/219)).
+
+## Corrected result and decision (2026-10-07)
+
+The complete corrected original corpus has 13 cases and 64 valid saved
+needles. GPT-6 Luna with reasoning disabled wrote all summaries and probes;
+Jev was pinned to `jev-1.13.0`. All five arms completed. Selective recalled
+24/64 (37.5%), stock 20/64 (31.25%), request-aware stock 12/64 (18.75%),
+recency 29/64 (45.3125%), and summary-first 22/64 (34.375%). There were no
+fallbacks. Selective kept 34.3% fewer tokens than recency, and Decide cost
+64% of its summary. The final run's observed priced usage was $0.227599129;
+all three attempts' conservative exposure was $0.369979852, within $1.
+
+**Decision:** the 10-point recall bar is not met: selective trails recency
+by 7.8125 points. Keep the library package experimental and leave CLI
+integration out. This complete comparison resolves #221 with changed models;
+it cannot attribute changes solely to corrected windows. More sessions and
+repeat runs remain unperformed. See the [dated evidence and ledger](../../docs/dev/selective-compaction-eval.md#live-run-4-2026-10-07-corrected-recorded-corpus-cheaper-model).
 
 ## Open questions
 

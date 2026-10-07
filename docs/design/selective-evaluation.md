@@ -66,8 +66,11 @@ The Decide transport reserves encoded request bytes plus framing at the pinned
 Jev input rate. No layer may retry a paid call, including its transport.
 Disable Decide retries. Dashi provider clients already dispatch once, and the
 eval does not retry model turns. All paid calls share the same ledger. For this
-corrected run the hard reserve is $0.960653; the prior attempt retains $0.039347,
-so the task remains under the user's $1 ceiling. Mining is forbidden. A rejected
+final corrected run the hard reserve is $0.913183975; two prior incomplete
+attempts retain $0.086816025, so the task remains under the user's $1 ceiling.
+Successful verified settlements can release unused risk; the sum of all full
+reservations is a cumulative counter, not simultaneous exposure. Mining is
+forbidden. A rejected
 reservation stops the run and preserves an incomplete result.
 
 ### Private evidence
@@ -79,7 +82,9 @@ diagnostics, or errors. Lost-needle messages use an index and kind, never the
 answer. Pairing errors omit private call IDs.
 Recorded model/provider errors omit raw provider bodies and replies. Diagnostics
 retain classified category, stage, HTTP status, and allowlisted machine code
-with a catalog model identity. They never print arbitrary error strings. Keep any
+with a catalog model identity. Semantic failures retain canonical Turn stop,
+limit, and model stop enums with the failing stage. They never print arbitrary
+error strings or raw stop reasons. Keep any
 raw diagnostics and needles outside Git, with mode 0600. Test synthetic secrets
 and session identifiers through failure reports.
 
@@ -108,4 +113,7 @@ Publish a separate corrected-window cheaper-model result. A complete 13-case,
 64-needle, five-arm matrix resolves #221. Keep historical results labeled.
 If the matrix stops early, report its boundary and keep #221 open. Review a
 selective lead of 10 points over recency before changing the ship decision.
-The library remains experimental throughout this work.
+The library remains experimental throughout this work. The final matrix
+completed all five arms: selective 24/64, recency 29/64, with no fallbacks.
+The 10-point recall bar is not met. The [dated evidence](../dev/selective-compaction-eval.md#live-run-4-2026-10-07-corrected-recorded-corpus-cheaper-model)
+records the model changes and all three spending ledgers.
