@@ -9,21 +9,19 @@ answers typed questions (yes-or-no, choice, score) about a piece of text,
 with probabilities, in well under a second and for a small fraction of an LLM
 call. It writes no prose.
 
-PR #174 used Decide inside hooks. These designs use it in five more places:
+PR #174 used Decide inside hooks. These designs use it in four more places:
 
 | Design | Package | Where Decide sits | What it buys |
 | --- | --- | --- | --- |
 | [List tools](list-tools.md) | `listtool` | Two tools the agent calls | `judge_items` hands bulk judgments (300 tickets) to Decide; `pick_item` chooses an item from a host's list |
 | [Context ranking](context-ranking.md) | `contextrank` | A hook before the turn's first model call | The most relevant notes and files go into the turn, under a size limit |
-| [Selective compaction](selective-compaction.md) | `selective` | A `session.Compactor` | Old messages still needed stay word for word; only the rest is summarized |
 | [Turn watcher](turn-watcher.md) | `turnwatch` | A hook before each model call | A repeated failing call triggers a check, and Decide confirms before the agent gets a reminder |
 | [Tool checks](../../docs/design/decide-tool-gate.md) | `toolcheck` | Hooks before a shell call and after a tool result | A likely disaster is held for approval; a likely prompt injection reaches the model with a warning |
 
 ## Words
 
 A *decision model* answers typed questions about a text, its *state*, with
-probabilities. An *item* is one entry in a host's *list*. A *segment* is a run
-of old messages that compaction keeps or drops as a whole. These docs do not
+probabilities. An *item* is one entry in a host's *list*. These docs do not
 use step (a recorded `dashi.Step`), notice (an agent message), evidence
 (model capability evidence), worker (the process running a turn), or report
 (`tool.Report`) for anything else.
@@ -92,6 +90,24 @@ All small; none puts a Decide type in the root package.
   user's request.
 - `session.Compactor.Start` takes a `context.Context` and runs outside the
   session lock, so a slow compactor never blocks `Steer` or `Enqueue`.
+
+## Removed: selective compaction
+
+Selective compaction (`decide/selective`, 2026-10-02 to 2026-10-07) asked
+Decide which older messages were still needed. It kept those word for word
+and summarized only the rest, at the same size as the stock compactor.
+
+We tested it on recorded CLI sessions. Each test planted exact details (an
+error string, a path, a decision) and later asked about them. Its rival was
+"recency": keep the newest older messages, with no Decide call. The first
+run tied (50% each). A corrected run with a cheaper model lost: selective
+kept 37.5% of the details and recency 45.3%. The design said to drop the
+package if recency matched it, and nothing in the CLI used it, so we removed
+it.
+
+We did not keep a prompt change from this work: the stock prompt already
+asks for the user's core request, and a variant that added the latest request
+scored lower.
 
 ## Open questions
 

@@ -45,8 +45,8 @@ other.
 - `mcp`: Tools from local and remote MCP servers as a `tool.Toolset`, with
   approval for project servers. This is a separate module; add it with
   `go get github.com/deepnoodle-ai/dashi/mcp`. See [MCP](mcp.md).
-- `decide`: Decision models, through the Decide library, in hooks, tools, and
-  compaction: `decide/contextrank`, `decide/listtool`, `decide/selective`,
+- `decide`: Decision models, through the Decide library, in hooks and tools:
+  `decide/contextrank`, `decide/listtool`,
   `decide/toolcheck` ([checks on tool calls](hooks.md#decision-model-checks)),
   and `decide/turnwatch`. They are part of the root module.
 - `providers/grok/imagine`: xAI image generation and editing, and video jobs.

@@ -35,16 +35,11 @@ A `decide` key in a project's `.dashi/settings.json` is ignored with a
 warning. A repository must not be able to send your commands to a third
 party with your key, or turn off your check.
 
-| Feature | What it does | Status |
-| --- | --- | --- |
-| `command_risk` | Checks each shell command for severe harm that is hard to undo | Available |
-| `prompt_injection` | Warns the model about a tool result that tries to take it over | Available |
-| `turn_watcher` | Reminds the agent when it repeats a failing call | Available |
-| `selective_compaction` | Keeps needed messages word for word when it compacts | Not available |
-
-`selective_compaction` stays off, with a warning: on recorded sessions it
-kept no more needed details than keeping the newest messages, so it is not
-worth a decide request ([eval](../dev/selective-compaction-eval.md)).
+| Feature | What it does |
+| --- | --- |
+| `command_risk` | Checks each shell command for severe harm that is hard to undo |
+| `prompt_injection` | Warns the model about a tool result that tries to take it over |
+| `turn_watcher` | Reminds the agent when it repeats a failing call |
 
 ## Credentials and provider
 

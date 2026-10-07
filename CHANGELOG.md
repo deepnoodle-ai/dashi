@@ -46,22 +46,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `ministral-14b`, `ministral-8b`, and `ministral-3b` models (`-latest` and
   `-2512`); and $0.03 on `codestral-latest`.
 
+### Removed
+
+- **`decide/selective` is removed.** In testing it kept fewer details than
+  simply keeping the newest messages word for word, so it was not worth a
+  Decide call. `dashi --decide selective_compaction` is now an unknown
+  feature; in `~/.dashi/settings.json` it is ignored with a warning.
+
 ### Fixed
 
 - **A failing command check no longer pauses checks for other commands.**
   If Decide errors while checking a command, that command needs approval,
   even in bypass mode. Checks pause only when Decide isn't set up (for
-  example, a missing key).
-- `toolcheck.Verdict.Requests` is how many checks a call sent to Decide.
-  `Verdict.Usage` keeps tokens when a check fails.
-- OpenAI Responses preserves the served service tier in blocking and
-  streaming results, so callers can verify the pricing tier.
-- Selective compaction bounds focus text after JSON encoding, so escaping
-  does not cause unnecessary Decide fallbacks.
-- Recorded selective evaluation judges saved case needles in keyless runs.
-  Paid runs require a conservative shared cost reserve. Preflight, explicit
-  cheaper-model overrides, and output limits make comparisons reviewable.
-  Reports omit private needle text and source session identifiers.
+  example, a missing key). `toolcheck.IsOutage` is now `IsPaused`.
+- `toolcheck.Verdict.Requests` is how many requests the check sent to
+  Decide, not counting automatic retries. `Verdict.Usage` keeps tokens when
+  a check fails.
+- **OpenAI Responses results include the service tier** the request ran on
+  (`Result.ServiceTier`), in blocking and streaming calls.
 - **Tools with no arguments now run on Anthropic when streaming.**
 - **Conversations that used tools on Anthropic can continue on another
   provider.** Tool calls made by Anthropic's code execution tool still can't be moved.

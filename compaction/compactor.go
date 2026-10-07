@@ -6,7 +6,6 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/catalog"
-	"github.com/deepnoodle-ai/dashi/internal/compactionrules"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
 )
@@ -128,7 +127,7 @@ func (c *Compactor) cut(messages []llm.Message, window int) int {
 	if fraction == 0 {
 		fraction = DefaultTailFraction
 	}
-	return compactionrules.Cut(messages, max(0, int(fraction*float64(window))))
+	return tailStart(messages, max(0, int(fraction*float64(window))))
 }
 
 var _ session.Compactor = (*Compactor)(nil)
