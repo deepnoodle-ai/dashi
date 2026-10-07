@@ -21,13 +21,17 @@ ignored by Git. Missing needles require explicit `-live -mine-needles`.
 conservative cost before dispatch, including full output and cache writes.
 Failed or unknown calls retain their full reserve. A complete successful model
 result settles unused risk only with verified model/tier and complete priced
-usage. Decide reservations remain held in full. Reports separate held reserve,
+usage. OpenAI requests explicitly use the default serving tier and verify the
+reported tier; see the [Responses reference](https://developers.openai.com/api/reference/resources/responses/methods/create).
+Decide reservations remain held in full. Reports separate held reserve,
 gross full reservations, and observed cost. SDK and HTTP transports perform zero
 retries. Safe failure diagnostics retain category, stage, status, and recognized
 code; raw provider errors stay private.
 `-preflight` prepares real provider requests with scripted replies and fake
 selection. It makes no paid calls. Its reservation total covers those payloads;
 real model output can change later payloads, so the live guard checks them again.
+Use the provider configuration intended for the live run: credentials qualify
+saved private replay, so changing that namespace can reject opaque content.
 
 By default recorded cases keep their own model and provider. An explicit
 `-override-recorded-model -provider openai -model gpt-6-luna` compares all cases

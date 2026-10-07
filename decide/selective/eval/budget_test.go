@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -105,13 +106,14 @@ func TestModelSettlementRequiresCompleteVerifiedSuccessfulResult(t *testing.T) {
 		{"unknown usage", false, func(r *llm.Result) error { r.Usage = nil; return nil }},
 		{"served model", false, func(r *llm.Result) error { r.Served.Model = "other"; return nil }},
 		{"tier", false, func(r *llm.Result) error { r.ServiceTier = "priority"; return nil }},
+		{"missing tier", false, func(r *llm.Result) error { r.ServiceTier = ""; return nil }},
 		{"invalid usage", false, func(r *llm.Result) error { r.Usage.InputTokens = -1; return nil }},
 		{"wrong requested", false, func(r *llm.Result) error { r.Requested.Model = "other"; return nil }},
 		{"invalid content", false, func(r *llm.Result) error { r.Message.Role = llm.RoleUser; return nil }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ref := llm.ModelRef{Provider: "openai", Model: "gpt-6-luna"}
-			result := llm.Result{Requested: ref, Served: ref, Stop: llm.Stop{Kind: llm.StopFinished}, Message: llm.AssistantMessage(llm.Text("answer")), Usage: &llm.Usage{InputTokens: 100, OutputTokens: 10, RequestsComplete: true}}
+			result := llm.Result{Requested: ref, Served: ref, ServiceTier: "default", Stop: llm.Stop{Kind: llm.StopFinished}, Message: llm.AssistantMessage(llm.Text("answer")), Usage: &llm.Usage{InputTokens: 100, OutputTokens: 10, RequestsComplete: true}}
 			base := resultModel{Client: provider, err: tc.change(&result)}
 			base.result = result
 			limit := &spendLimit{cap: money.MustParseAmount("0.1")}
@@ -126,6 +128,28 @@ func TestModelSettlementRequiresCompleteVerifiedSuccessfulResult(t *testing.T) {
 				t.Fatalf("unverified result released risk %+v", got)
 			}
 		})
+	}
+}
+
+func TestOpenAIUsesAndVerifiesDefaultServingTier(t *testing.T) {
+	provider, _ := responses.New(responses.Config{})
+	limit := &spendLimit{cap: money.MustParseAmount("0.1")}
+	ref := llm.ModelRef{Provider: "openai", Model: "gpt-6-luna"}
+	result := llm.Result{Requested: ref, Served: ref, Raw: []byte(`{"service_tier":"default","output":"PRIVATE"}`), Stop: llm.Stop{Kind: llm.StopFinished}, Message: llm.AssistantMessage(llm.Text("answer")), Usage: &llm.Usage{InputTokens: 100, OutputTokens: 10, RequestsComplete: true}}
+	guard := &limitedClient{Client: resultModel{Client: provider, result: result}, limit: limit}
+	request, err := guard.Prepare(context.Background(), llm.Input{Model: "gpt-6-luna", Settings: llm.Settings{MaxTokens: 512}, Messages: []llm.Message{llm.UserMessage(llm.Text("test"))}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		ServiceTier string `json:"service_tier"`
+	}
+	if json.Unmarshal(request.Body(), &body) != nil || body.ServiceTier != "default" {
+		t.Fatal("request could inherit project premium pricing")
+	}
+	got, err := guard.Send(context.Background(), llm.Call{Request: request})
+	if err != nil || got.ServiceTier != "default" || limit.snapshot().settled != 1 {
+		t.Fatal("reported default tier was not verified")
 	}
 }
 

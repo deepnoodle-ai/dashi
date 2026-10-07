@@ -54,7 +54,9 @@ or charges reject dispatch. Reservations use `money.Amount` and a mutex.
 Retain reservations after failures or ambiguous outcomes. Settle unused model
 risk only after a finished, valid text result has complete usage, verified served
 model and tier, and a priced cost no greater than its bound. Retain Decide
-bounds in full. Report gross full reservations, held reserve, and observed cost
+bounds in full. Pin OpenAI requests to `service_tier=default` and verify the
+reported tier, because an omitted request tier follows project settings. Report
+gross full reservations, held reserve, and observed cost
 separately.
 
 The Decide transport reserves encoded request bytes plus framing at the pinned

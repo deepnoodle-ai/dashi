@@ -146,6 +146,32 @@ type limitedClient struct {
 	reply     string
 }
 
+func (c *limitedClient) Prepare(ctx context.Context, input llm.Input) (llm.Request, error) {
+	request, err := c.Client.Prepare(ctx, input)
+	if err != nil {
+		failure := modelFailure(c.Client.Provider(), input.Model, err)
+		failure.stage = "preparation"
+		c.limit.failed(failure)
+		return request, err
+	}
+	snapshot := request.Snapshot()
+	if snapshot.Origin.Provider == "openai" && snapshot.Origin.API == "openai.responses" {
+		// An omitted tier follows project settings, which may select premium
+		// pricing. Pin the standard tier before computing the exact body bound.
+		var body map[string]json.RawMessage
+		if err := json.Unmarshal(snapshot.Body, &body); err != nil {
+			return llm.Request{}, errors.New("cannot encode evaluation serving tier")
+		}
+		body["service_tier"] = json.RawMessage(`"default"`)
+		snapshot.Body, err = json.Marshal(body)
+		if err != nil {
+			return llm.Request{}, errors.New("cannot encode evaluation serving tier")
+		}
+		return llm.NewRequest(snapshot)
+	}
+	return request, nil
+}
+
 func (c *limitedClient) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
 	snapshot := call.Request.Snapshot()
 	if !textInput(snapshot.Input) {
@@ -170,13 +196,24 @@ func (c *limitedClient) Send(ctx context.Context, call llm.Call) (llm.Result, er
 		return result, nil
 	}
 	result, err := c.Client.Send(ctx, call)
+	// The Responses adapter does not yet lift this scalar into Result.
+	// Parse only tier metadata, never provider error bodies or text.
+	if snapshot.Origin.Provider == "openai" && result.ServiceTier == "" {
+		var fields struct {
+			ServiceTier string `json:"service_tier"`
+		}
+		if json.Unmarshal(result.Raw, &fields) == nil {
+			result.ServiceTier = fields.ServiceTier
+		}
+	}
 	actual, priced := price.Estimate(result.Usage)
 	served := result.Served.Model == snapshot.Origin.Model
 	if entry, found := catalog.Find(snapshot.Origin.Provider, snapshot.Origin.Model); found {
 		served = entry.Serves(result.Served.Model)
 	}
-	known := priced && !actual.Partial() && result.Served.Provider == snapshot.Origin.Provider && served &&
-		(result.ServiceTier == "" || result.ServiceTier == "default" || result.ServiceTier == "standard") && actual.Total <= cost.Total
+	tier := (snapshot.Origin.Provider == "openai" && result.ServiceTier == "default") ||
+		(snapshot.Origin.Provider == "anthropic" && result.ServiceTier == "standard")
+	known := priced && !actual.Partial() && result.Served.Provider == snapshot.Origin.Provider && served && tier && actual.Total <= cost.Total
 	if err != nil {
 		c.limit.failed(modelFailure(snapshot.Origin.Provider, snapshot.Origin.Model, err))
 	} else if !known {
@@ -189,7 +226,7 @@ func (c *limitedClient) Send(ctx context.Context, call llm.Call) (llm.Result, er
 			failure.category = "unpriced_tool_charge"
 		case result.Served.Provider != snapshot.Origin.Provider || !served:
 			failure.category = "served_identity"
-		case result.ServiceTier != "" && result.ServiceTier != "default" && result.ServiceTier != "standard":
+		case !tier:
 			failure.category = "service_tier"
 		default:
 			failure.category = "cost_above_reserve"
