@@ -173,6 +173,54 @@ func TestActiveCompactionOutputLimitRejectsEmptySummary(t *testing.T) {
 	}
 }
 
+func TestActiveCompactionOutputLimitRejectsRefusal(t *testing.T) {
+	for _, refusal := range []string{"Cannot summarize this evidence.", ""} {
+		t.Run(fmt.Sprintf("refusal=%q", refusal), func(t *testing.T) {
+			c, a := activeFixture()
+			c.results[2] = outputLimitedSummary()
+			c.results[2].Message.Content = append(c.results[2].Message.Content, llm.Content{Kind: llm.ContentRefusal, Refusal: &refusal})
+			calls := 0
+			out, err := (Runner{Client: c, Tools: activeTools(&calls)}).Run(t.Context(), Turn{ID: "refused-summary"}, activeStart(a))
+			if err != nil || out.Stop.Kind != StopFailed || out.Stop.Reason != StopReasonCompactionFailed || c.sends != 3 || calls != 2 || len(out.ContextCompactions) != 0 || out.Reply != "" {
+				t.Fatalf("stop=%+v sends=%d effects=%d applied=%d err=%v", out.Stop, c.sends, calls, len(out.ContextCompactions), err)
+			}
+			starts, finishes := 0, 0
+			for _, step := range out.Turn.Steps {
+				if step.Model == nil || step.Model.Purpose != ModelPurposeCompaction {
+					continue
+				}
+				if step.Kind == StepModelCallStarted {
+					starts++
+				}
+				if step.Kind == StepModelCallFinished {
+					finishes++
+					if step.Model.Result == nil || !canonjson.SameValue(step.Model.Result, &c.results[2]) {
+						t.Fatal("rejected summary result was not retained")
+					}
+				}
+			}
+			if starts != 1 || finishes != 1 || out.ModelCalls != 3 || out.Spend.Usage.InputTokens != 300 || out.Spend.Usage.OutputTokens != 6 {
+				t.Fatalf("summary starts=%d finishes=%d calls=%d usage=%+v", starts, finishes, out.ModelCalls, out.Spend.Usage)
+			}
+			full, err := TurnMessagesFull(out.Turn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			projected, err := TurnMessages(out.Turn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !canonjson.SameValue(full, projected) {
+				t.Fatal("refused summary changed prior context")
+			}
+			b, _ := json.Marshal(projected)
+			if !strings.Contains(string(b), "Evidence 1") || !strings.Contains(string(b), "Evidence 2") || strings.Contains(string(b), "Unfinished summary") {
+				t.Fatal("prior context lost finished work or gained the refused summary")
+			}
+		})
+	}
+}
+
 type retryAcknowledgementFault struct {
 	Recorder
 	kind  StepKind

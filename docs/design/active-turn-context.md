@@ -104,6 +104,7 @@ Finished summary calls update spend and normal model call counts, but cannot cre
 Before recording the result, reject tool or provider tool calls, incomplete stops, empty summaries, and no savings.
 Preserve the raw result and accounting, and record the rejection in `ModelFact.Error`.
 A known output-limit result permits one shorter admitted retry of identical coverage, bounded by recorded starts.
+Empty summary text, tool content, or refusal content blocks that retry.
 Other rejection or an exhausted retry stops with `StopReasonCompactionFailed="compaction_failed"`.
 The [recovery amendment](compaction-recovery.md) specifies this bound and later-request Session recovery.
 Only complete finished calls without an error derive pending application. Explicit continuation can start a new model call after a rejected summary.

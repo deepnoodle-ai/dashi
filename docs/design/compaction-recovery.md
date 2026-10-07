@@ -18,7 +18,7 @@ On retry, ask for a shorter summary of the same evidence instead of continuing t
 Partial output remains audit and accounting evidence only.
 
 The ordinary sender records the rejected result first.
-The run loop permits one new admitted summary when the latest summary returned `StopOutputLimit`, without interruption, transport uncertainty, or tool content.
+The run loop permits one new admitted summary when the latest summary returned `StopOutputLimit`, without interruption, transport uncertainty, refusal, or tool content.
 It reuses the original `ContextCompactionPlan`, preserving covered source order and hash.
 Count recorded summary starts for the same coverage and hash, rather than using a process-local retry counter.
 Every new start consumes that retry allowance, including a start whose result is lost.

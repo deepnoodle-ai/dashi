@@ -242,6 +242,7 @@ starts active protection inside its own summary Turn.
 
 Summary prompts state the output allowance. A known output-limited summary
 can receive one shorter retry of the same evidence, through normal admission.
+Empty summary text, tool content, or refusal content blocks that retry.
 Recorded starts bound the retry even after reload. Both calls count toward
 the Turn's limits, usage, and charges, and leave an ordinary call available.
 Partial summaries never replace context. Other failed, empty, tool-requesting,

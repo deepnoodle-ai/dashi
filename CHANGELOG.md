@@ -50,7 +50,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **Active summaries state their output allowance and retry once after an
   output limit.** Both calls use the Turn's limits, budget, and accounting.
-  Rejected partial summaries never replace context.
+  Empty or refused summaries do not retry. Rejected partial summaries never
+  replace context.
 - **Sessions can accept new requests after settled compaction failures or
   context limits.** Configured history compaction considers finished tool
   output as well as last-model usage. `dashi run -c` uses the same recovery
