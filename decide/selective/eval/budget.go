@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -18,7 +19,10 @@ import (
 
 const decisionModel = "jev-1.13.0"
 
-var errBudget = errors.New("evaluation cost reserve exhausted")
+var (
+	errBudget        = errors.New("evaluation cost reserve exhausted")
+	errUnknownCharge = errors.New("evaluation stopped after an unknown charge")
+)
 
 // spendLimit owns the run's reservations, including failed calls. A later
 // result never releases a reservation for another paid request.
@@ -26,6 +30,7 @@ type spendLimit struct {
 	mu                      sync.Mutex
 	cap, reserved, observed money.Amount
 	requests, unknown       int
+	cancel                  context.CancelFunc
 }
 
 type spending struct {
@@ -44,6 +49,9 @@ func newSpendLimit(limit string) (*spendLimit, error) {
 func (b *spendLimit) reserve(cost money.Amount) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.unknown > 0 {
+		return errUnknownCharge
+	}
 	if cost < 0 || cost > b.cap-b.reserved {
 		return errBudget
 	}
@@ -57,6 +65,9 @@ func (b *spendLimit) observe(cost money.Amount, known bool) {
 	defer b.mu.Unlock()
 	if !known {
 		b.unknown++
+		if b.cancel != nil {
+			b.cancel()
+		}
 		return
 	}
 	b.observed += cost
@@ -102,7 +113,16 @@ func (c *limitedClient) Send(ctx context.Context, call llm.Call) (llm.Result, er
 	}
 	result, err := c.Client.Send(ctx, call)
 	actual, known := price.Estimate(result.Usage)
+	served := result.Served.Model == snapshot.Origin.Model
+	if entry, found := catalog.Find(snapshot.Origin.Provider, snapshot.Origin.Model); found {
+		served = entry.Serves(result.Served.Model)
+	}
+	known = known && result.Served.Provider == snapshot.Origin.Provider && served &&
+		(result.ServiceTier == "" || result.ServiceTier == "default" || result.ServiceTier == "standard") && actual.Total <= cost.Total
 	c.limit.observe(actual.Total, known && err == nil)
+	if err == nil && !known {
+		return result, errUnknownCharge
+	}
 	return result, err
 }
 
@@ -163,7 +183,11 @@ func (t *limitedDecide) SystemOne(ctx context.Context, req *decide.Request) (*de
 		if resp == nil {
 			t.limit.observe(0, false)
 		} else {
-			t.limit.observe(money.Amount(resp.Usage.InputTokens)*42, err == nil)
+			known := err == nil && resp.Model == decisionModel && resp.Usage.InputTokens >= 0 && money.Amount(resp.Usage.InputTokens)*42 <= bound
+			t.limit.observe(money.Amount(resp.Usage.InputTokens)*42, known)
+			if err == nil && !known {
+				return resp, errUnknownCharge
+			}
 		}
 	}
 	return resp, err

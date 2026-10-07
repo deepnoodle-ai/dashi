@@ -32,7 +32,7 @@ func TestReservationsAreAtomicAndNeverReleased(t *testing.T) {
 	}
 	wg.Wait()
 	b.observe(0, false)
-	if admitted.Load() != 90 || b.snapshot().reserved != b.cap || !errors.Is(b.reserve(1), errBudget) {
+	if admitted.Load() != 90 || b.snapshot().reserved != b.cap || b.reserve(1) == nil {
 		t.Fatalf("admitted %d, spending %+v", admitted.Load(), b.snapshot())
 	}
 }
@@ -40,6 +40,38 @@ func TestReservationsAreAtomicAndNeverReleased(t *testing.T) {
 type countedModel struct {
 	llm.Client
 	calls int
+}
+
+type unknownUsageModel struct {
+	llm.Client
+	calls int
+}
+
+func (c *unknownUsageModel) Send(context.Context, llm.Call) (llm.Result, error) {
+	c.calls++
+	return llm.Result{}, nil
+}
+
+func TestUnknownChargeCancelsRunAndPreventsMoreDispatch(t *testing.T) {
+	provider, _ := responses.New(responses.Config{})
+	request, err := provider.Prepare(context.Background(), llm.Input{Model: "gpt-6-luna", Settings: llm.Settings{MaxTokens: 64}, Messages: []llm.Message{llm.UserMessage(llm.Text("test"))}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	base := &unknownUsageModel{Client: provider}
+	limit := &spendLimit{cap: money.MustParseAmount("0.99"), cancel: cancel}
+	guard := &limitedClient{Client: base, limit: limit}
+	if _, err := guard.Send(ctx, llm.Call{Request: request}); !errors.Is(err, errUnknownCharge) {
+		t.Fatalf("unknown charge error %v", err)
+	}
+	if ctx.Err() == nil || limit.snapshot().reserved <= 0 {
+		t.Fatal("unknown charge did not cancel or retain its reserve")
+	}
+	if _, err := guard.Send(context.Background(), llm.Call{Request: request}); !errors.Is(err, errUnknownCharge) || base.calls != 1 {
+		t.Fatal("another dispatch followed an unknown charge")
+	}
 }
 
 func (c *countedModel) Send(context.Context, llm.Call) (llm.Result, error) {
@@ -73,7 +105,7 @@ func TestModelGuardReservesFullOutputAndFailedCalls(t *testing.T) {
 	if _, err := guard.Send(context.Background(), llm.Call{Request: request}); err == nil {
 		t.Fatal("lost failure")
 	}
-	if _, err := guard.Send(context.Background(), llm.Call{Request: request}); !errors.Is(err, errBudget) || base.calls != 1 {
+	if _, err := guard.Send(context.Background(), llm.Call{Request: request}); err == nil || base.calls != 1 {
 		t.Fatalf("failed reservation was released: calls %d, error %v", base.calls, err)
 	}
 	if guard.limit.snapshot().unknown != 1 {

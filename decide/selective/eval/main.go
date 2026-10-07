@@ -231,6 +231,11 @@ func run(ctx context.Context, cfg config, out io.Writer) (*report, error) {
 		return nil, err
 	}
 	defer cleanup()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if e.limit != nil {
+		e.limit.cancel = cancel
+	}
 	r := &report{results: map[string][]outcome{}}
 	var sessions []session
 	if len(cfg.recorded) > 0 {
@@ -265,6 +270,7 @@ func run(ctx context.Context, cfg config, out io.Writer) (*report, error) {
 			defer mu.Unlock()
 			if err != nil && firstErr == nil {
 				firstErr = fmt.Errorf("session %s: %w", s.name, err)
+				cancel()
 			}
 			for a, o := range res {
 				r.results[a][i] = o
