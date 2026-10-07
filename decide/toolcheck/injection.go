@@ -65,7 +65,7 @@ type PromptInjection struct {
 	// the check. It is not called for a result the check does not read.
 	// It may be called from many turns at once.
 	OnStart func(tool.Call)
-	// OnCheck, if set, sees every request's verdict, or its error, from
+	// OnCheck, if set, sees each check's verdict and error, from
 	// Check and from the hook. It is not called for a result the check
 	// does not read. It may be called from many turns at once.
 	OnCheck func(Verdict, error)
@@ -88,6 +88,7 @@ func (c PromptInjection) Check(ctx context.Context, p dashi.ResultPlan) (Verdict
 	a, err := ask(ctx, c.Client, "prompt-injection",
 		cmp.Or(c.Timeout, defaultContentTimeout),
 		"content", text, contentQuestions, false)
+	v.Requests, v.Usage = a.requests, a.usage
 	if err != nil {
 		c.report(v, err)
 		return v, err

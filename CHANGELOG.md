@@ -48,6 +48,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Command-specific Decide failures no longer pause every command check.**
+  `toolcheck.CommandRisk` confirms server and connection failures with one
+  fixed benign request under the original deadline. An unconfirmed failure
+  requires approval, including in CLI bypass mode. Commands send at most
+  eight parts plus one confirmation request, without SDK retries.
+- **`toolcheck.Verdict.Requests` counts logical Decide calls initiated,**
+  including command outage confirmation. `Usage` retains observed tokens
+  on failed checks. The CLI uses these observations instead of guessing
+  request counts from error types.
 - OpenAI Responses preserves the served service tier in blocking and
   streaming results, so callers can verify the pricing tier.
 - Selective compaction bounds focus text after JSON encoding, so escaping

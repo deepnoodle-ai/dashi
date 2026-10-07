@@ -40,10 +40,12 @@ type CommandRisk struct {
 	// means 0.8. A negative value never flags, but still checks, so a host
 	// can watch OnCheck first.
 	MinProbability float64
-	// Timeout bounds each check. Zero means 10 seconds. A timeout never
-	// pauses the check; the hook holds the call for approval.
+	// Timeout bounds the whole check, including outage confirmation. Zero
+	// means 10 seconds. A timeout never pauses the check; the hook holds
+	// the call for approval. At most eight parts plus one fixed benign
+	// request are sent, with no SDK retries.
 	Timeout time.Duration
-	// OnCheck, if set, sees every request's verdict, or its error, from
+	// OnCheck, if set, sees each check's verdict and error, from
 	// Check and from the hook. It is not called for a call the check does
 	// not read. It may be called from many turns at once.
 	OnCheck func(Verdict, error)
@@ -53,17 +55,22 @@ type CommandRisk struct {
 // For a call the check does not read, such as read_file, it makes no
 // request and returns a Verdict with Checked false and no error. An error
 // means the check was skipped; IsOutage tells an outage from a failure the
-// input could cause. While the check is paused after an outage, Check
-// returns a *PausedError.
+// input could cause. Server and connection failures require one fixed
+// benign request to confirm the outage under the same deadline. A valid
+// benign answer never passes the command. An input-specific failure in
+// any command part prevents confirmation and preserves every part's cause.
+// Check returns a *PausedError
+// when it starts a confirmed pause or skips a check during that pause.
 func (c CommandRisk) Check(ctx context.Context, p dashi.ToolPlan) (Verdict, error) {
 	v := Verdict{Call: p.Call.Clone()}
 	command, ok := shellCommand(p.Call, c.ShellTools)
 	if !ok {
 		return v, nil
 	}
-	a, err := ask(ctx, c.Client, "command-risk",
+	a, err := ask(ctx, c.Client, commandRiskKind,
 		cmp.Or(c.Timeout, defaultCommandTimeout),
 		"command", command, commandQuestions, true)
+	v.Requests, v.Usage = a.requests, a.usage
 	if err != nil {
 		c.report(v, err)
 		return v, err
@@ -124,6 +131,10 @@ func uncheckedReason(err error) string {
 		why = "Decide's rate limit was reached"
 	case errors.Is(err, decide.ErrInvalidAnswer):
 		why = "Decide gave no valid answer"
+	case errors.Is(err, decide.ErrServer):
+		why = "Decide returned a server error"
+	case CauseOf(err) == CauseNetworkError:
+		why = "Decide's connection failed"
 	case errors.Is(err, decide.ErrValidation), errors.Is(err, decide.ErrInvalidRequest):
 		why = "Decide rejected the request"
 	default:

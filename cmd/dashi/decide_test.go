@@ -222,6 +222,7 @@ func TestDecideBypassRunsDuringOutage(t *testing.T) {
 	h, srv := decideHarness(t, Options{Yes: true},
 		callTool("c1", "bash", `{"command":"echo outage"}`), say("Done."))
 	srv.FailNext(http.StatusInternalServerError)
+	srv.FailNext(http.StatusInternalServerError)
 	h.input("go")
 	if len(h.ui.approvals) != 0 {
 		t.Fatalf("approvals = %d; want 0", len(h.ui.approvals))
