@@ -1,14 +1,5 @@
-github.com/deepnoodle-ai/dashi v0.1.0 h1:QIStivGiKTd9Gnx4IskeAkryuzgmkihkLQCJU2g3gsA=
-github.com/deepnoodle-ai/dashi v0.1.0/go.mod h1:hZwuqXpOcp2oij8E8uMt0vxfxv70aLCpj4ZDm6+E3cI=
-github.com/deepnoodle-ai/dashi v0.2.0/go.mod h1:hZwuqXpOcp2oij8E8uMt0vxfxv70aLCpj4ZDm6+E3cI=
-github.com/deepnoodle-ai/wonton v0.4.0 h1:vKRD8gozGl/3yyxoWS4EptzXbTHL82geGjGa3YDArgg=
-github.com/deepnoodle-ai/wonton v0.4.0/go.mod h1:G3fVZXXX/Oo01ATag//PH/6khtBNlDmxznXjORuG9gE=
-github.com/deepnoodle-ai/wonton v0.5.0 h1:GTpApR0tY1wtdNW2dw6YHWKCBQL+4Gw7vDTo1PsDKHw=
-github.com/deepnoodle-ai/wonton v0.5.0/go.mod h1:G3fVZXXX/Oo01ATag//PH/6khtBNlDmxznXjORuG9gE=
-github.com/deepnoodle-ai/wonton v0.6.0 h1:6Li7LYBuQmOeWesea7uvHJtsmWFGml21xOwrfueEjE4=
-github.com/deepnoodle-ai/wonton v0.6.0/go.mod h1:G3fVZXXX/Oo01ATag//PH/6khtBNlDmxznXjORuG9gE=
-github.com/deepnoodle-ai/wonton v0.7.0 h1:Cz0VmMkloKnTpMFUJ1UgI0+ydusnOtbpo7nBO+7ONJE=
-github.com/deepnoodle-ai/wonton v0.7.0/go.mod h1:G3fVZXXX/Oo01ATag//PH/6khtBNlDmxznXjORuG9gE=
+github.com/deepnoodle-ai/dashi v0.5.0 h1:TH9Qf0nbTfjL/agHRA8bmwou9AxgvSnZ78JAo0Q/2iI=
+github.com/deepnoodle-ai/dashi v0.5.0/go.mod h1:O2EE1voblqftHTUcxecdXNPwKMEAT+D47KXvF/mb+AE=
 github.com/deepnoodle-ai/wonton v0.7.2 h1:BhWfEBE9n9gKxQWT4VimRa7q4bA7qgEwA+de1Sj24Fg=
 github.com/deepnoodle-ai/wonton v0.7.2/go.mod h1:G3fVZXXX/Oo01ATag//PH/6khtBNlDmxznXjORuG9gE=
 github.com/dlclark/regexp2 v1.11.0 h1:G/nrcoOa7ZXlpoa/91N3X7mM3r8eIlMBBJZvsz/mxKI=
