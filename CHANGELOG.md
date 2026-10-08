@@ -45,6 +45,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Decide v0.4.0.** The `command-risk` check now flags deploys and releases
+  through Decide's new `publish` question, which replaces `external`.
 - **`catalog.Small("anthropic")` is now `claude-haiku-5-5`,** replacing
   `claude-haiku-4-5`. The vision, documents, and providers examples use it.
 - **Deprecated models are marked in the catalog:** `claude-sonnet-4-5` and
