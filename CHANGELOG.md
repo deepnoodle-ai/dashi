@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-08
+
 ### Added
 
 - **`dashi --session-id UUID`** starts a new session with an ID the caller
@@ -40,6 +42,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   unpriced requests when the cost is partial.
 - **`dashi.Pending.HandleID`** returns the ID a detached call returned with
   `tool.Detached`, or "" when it has none.
+- **`session.StoppedForContext(view)`** reports whether a Turn stopped
+  because its history no longer fit or its summary failed.
 - **`dashitest.Client.Hold(release)`** makes each `Send` wait until `release`
   is closed, so a test or example decides when scripted replies arrive.
 
@@ -70,6 +74,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Automatic compaction starts at the intended fill.** `Compactor.Needed`
+  counted one token per byte, so sessions compacted at about a quarter to a
+  third of the threshold.
 - **A failing command check no longer pauses checks for other commands.**
   If Decide errors while checking a command, that command needs approval,
   even in bypass mode. Checks pause only when Decide isn't set up (for
@@ -91,7 +98,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   one.**
 - **Print and plain modes show "Compaction completed." once** instead of
   repeating it.
-
 - **The Anthropic Messages client sends reasoning effort `xhigh`** as
   `output_config.effort`. It refused `xhigh` before, although the catalog
   lists it for models such as Opus 5.5 and Sonnet 5.5. A model whose catalog
