@@ -100,6 +100,10 @@ func follow(ctx context.Context, hub *feed.Hub, store dashi.StepReader) {
 			return
 		}
 		switch {
+		case e.Gap:
+			// A slow reader can miss pieces; the recorded message is complete.
+			fmt.Print("[…some streamed text was dropped…]")
+			midLine = true
 		case e.Delta != nil && e.Delta.Kind == llm.DeltaText:
 			fmt.Print(e.Delta.Text) // a piece of the reply as it streams
 			midLine = true
