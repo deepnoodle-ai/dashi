@@ -191,6 +191,8 @@ func TestCostServiceTiersPerProvider(t *testing.T) {
 		{"meta", "auto", false},
 		{"mistral", "", true},
 		{"mistral", "unknown", false},
+		{"google", "", true},
+		{"google", "flex", false},
 	} {
 		if got := catalog.PricedServiceTier(tc.provider, tc.tier); got != tc.want {
 			t.Errorf("PricedServiceTier(%q, %q) = %t, want %t",
