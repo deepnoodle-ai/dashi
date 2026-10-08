@@ -100,6 +100,16 @@ func (p Pending) Result(outcome tool.Outcome) Resolve {
 	}
 }
 
+// HandleID returns the ID a detached call returned with tool.Detached, such
+// as a job or message ID from an outside service, or "" when the call has no
+// handle.
+func (p Pending) HandleID() string {
+	if p.Tool == nil || p.Tool.Outcome == nil || p.Tool.Outcome.Handle == nil {
+		return ""
+	}
+	return p.Tool.Outcome.Handle.ID
+}
+
 func (p Pending) decide(approve bool, reason string) Resolve {
 	if p.ProviderTool != nil {
 		// A provider may reuse a request ID after the earlier request was

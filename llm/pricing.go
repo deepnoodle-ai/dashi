@@ -428,6 +428,23 @@ func (c Cost) Partial() bool {
 	return len(c.UnpricedRequests) > 0
 }
 
+// String formats the cost for people, such as "0.0012 USD
+// (list_price_estimate)". A partial cost starts with "at least" and lists
+// the unpriced requests by meter key.
+func (c Cost) String() string {
+	if !c.Partial() {
+		return fmt.Sprintf("%s %s (%s)", c.Total, c.Currency, c.Source)
+	}
+	var parts []string
+	for _, meter := range slices.Sorted(maps.Keys(c.UnpricedRequests)) {
+		parts = append(parts, fmt.Sprintf("%s=%d", meter, c.UnpricedRequests[meter]))
+	}
+	return fmt.Sprintf(
+		"at least %s %s (%s; unpriced provider tool requests: %s)",
+		c.Total, c.Currency, c.Source, strings.Join(parts, ", "),
+	)
+}
+
 // Clone returns a cost whose unpriced request counts are independently owned.
 func (c Cost) Clone() Cost {
 	c.UnpricedRequests = maps.Clone(c.UnpricedRequests)

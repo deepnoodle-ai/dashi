@@ -3,6 +3,7 @@
   "source": "https://docs.x.ai/developers/models",
   "default": "grok-4.7",
   "small": "grok-4.20-0309-non-reasoning",
+  "priced_service_tiers": ["", "default"],
   "destinations": [
     {
       "api": "openai.responses",

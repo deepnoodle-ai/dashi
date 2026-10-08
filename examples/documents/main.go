@@ -2,7 +2,7 @@
 // reply with the passages it cited. The document is a short built-in text by
 // default, or a PDF or text file given by URL or local path. Set
 // ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
-// the catalog's small model.
+// the default small model.
 //
 //	go run ./examples/documents
 //	go run ./examples/documents -doc ./report.pdf -prompt "List the risks."
@@ -61,8 +61,8 @@ func run(ctx context.Context, doc, prompt string) error {
 	if err != nil {
 		return err
 	}
-	// Citations applies to every document in the request. Put the document
-	// before the question; Anthropic recommends that order for long inputs.
+	// Citations asks the model to point to the passages it relied on. Put
+	// the document before the question; Anthropic recommends that order.
 	result, err := llm.Generate(
 		ctx,
 		client,
@@ -82,8 +82,8 @@ func run(ctx context.Context, doc, prompt string) error {
 		fmt.Printf("Warning (%s): %s\n", w.Code, w.Message)
 	}
 
-	// A cited reply arrives as several text blocks, one per cited passage;
-	// Text joins them into the reply.
+	// A cited reply arrives in several text blocks, each with its
+	// citations. Text joins the blocks into one reply.
 	fmt.Println(result.Message.Text())
 	n := 0
 	for _, c := range result.Message.Content {
@@ -110,10 +110,9 @@ func run(ctx context.Context, doc, prompt string) error {
 	return nil
 }
 
-// loadDocument passes a URL through for the provider to fetch and reads a
-// local file into inline bytes. Dashi detects the MIME type of inline bytes
-// from the title's extension and the content, so a .pdf is sent as a PDF and a
-// .txt or .md file as text.
+// loadDocument passes a URL through for the provider to fetch, and reads a
+// local file into memory. Dashi tells a PDF from text by the file's name and
+// contents.
 func loadDocument(doc string) (llm.Content, error) {
 	switch {
 	case doc == "":

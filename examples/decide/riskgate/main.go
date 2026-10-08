@@ -1,21 +1,11 @@
-// Command riskgate screens each tool call with a decision model before it
-// runs. A BeforeTool hook (gate.go) sends the user's request, the tool, and
-// the exact arguments to Decide, asks two yes-or-no questions, and turns the
-// probabilities into an outcome with Decide's gate pattern: ordinary calls
-// run without interruption, a destructive call waits for an operator, and a
-// call beyond the request is refused. The advice only tightens; it never
-// approves a call by itself. Each check prints one line.
-//
-// By default it needs no API keys: a scripted dashitest client plays the
-// agent, and a decidetest server answers with canned probabilities from
-// simple rules. Both are stand-ins, so the output is always the same.
+// Command riskgate checks each tool call with a decision model (a model
+// that answers yes-or-no questions with a probability) before it runs. The
+// hook in gate.go lets ordinary calls run, holds a destructive call for an
+// operator, and refuses a call the user did not ask for. By default it needs
+// no API key: scripted stand-ins play both models, so the output is fixed.
+// With -live, set ANTHROPIC_API_KEY and TYPESAFE_API_KEY.
 //
 //	go run ./examples/decide/riskgate
-//
-// With -live it uses Claude (ANTHROPIC_API_KEY; ANTHROPIC_MODEL optionally
-// overrides the catalog's default model) and Jev on the TypeSafe API
-// (TYPESAFE_API_KEY):
-//
 //	go run ./examples/decide/riskgate -live
 package main
 
@@ -128,7 +118,7 @@ func run(ctx context.Context, live bool, w io.Writer) (dashi.RunResult, error) {
 	for err == nil && out.Stop.Kind == dashi.StopWaiting {
 		for _, p := range out.Pending {
 			if p.Kind != dashi.PendingApproval {
-				continue // Continue reports anything left unanswered.
+				continue // this program answers approvals only
 			}
 			fmt.Fprintf(w, "[operator] approved %s %s\n", p.Name, p.Args)
 			if out, err = runner.Run(ctx, out.Turn, p.Approve()); err != nil {

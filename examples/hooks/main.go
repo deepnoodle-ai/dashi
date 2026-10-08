@@ -1,9 +1,8 @@
-// Command hooks runs one turn with three hooks: a BeforeModel hook adds
-// on-call context once, a BeforeTool hook denies shell commands that touch
-// prod, and a BeforeFinish hook asks the model to continue once if its
-// reply has no "Next step:" line. The last two print a line each time they
-// fire. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally
-// overrides the catalog's default model.
+// Command hooks runs one turn with three hooks: functions the runner calls
+// at set points in the turn. The first adds a note for the model, the second
+// blocks shell commands that touch prod, and the third asks the model to
+// keep going if its reply lacks a "Next step:" line. Set ANTHROPIC_API_KEY
+// before running it; ANTHROPIC_MODEL optionally overrides the default model.
 package main
 
 import (
@@ -49,9 +48,8 @@ func run(ctx context.Context) error {
 			return tool.Succeeded("Filesystem  Use%\n/dev/sda1   91%"), nil
 		})
 
-	// BeforeModel runs before every model call. SeedContext adds the
-	// on-call note only when the turn does not hold it yet; the note is
-	// recorded in the turn and stays in the model's context from then on.
+	// Hook 1, before each model call: SeedContext adds the on-call note
+	// once, and it stays in the model's context for the rest of the turn.
 	onCall := dashi.SeedContext(dashi.ContextItem{
 		Name:   "on-call",
 		Origin: dashi.ContextRuntime,
@@ -62,7 +60,8 @@ func run(ctx context.Context) error {
 		}),
 	})
 
-	// BeforeTool: a simple rule, no second model. The model sees the reason.
+	// Hook 2, before each run_shell call: a plain rule allows or denies it.
+	// The model sees the denial's reason as the call's result.
 	guard := dashi.OnTool("run_shell",
 		func(_ context.Context, _ dashi.ToolPlan, in shellArgs) (dashi.ToolDecision, error) {
 			if strings.Contains(in.Command, "prod") {
@@ -73,10 +72,9 @@ func run(ctx context.Context) error {
 			return dashi.Allow("not prod"), nil
 		})
 
-	// BeforeFinish: if the reply lacks a next step, ask once more. AddMessages
-	// alone is a nudge; a Reason would veto the reply instead. The turn
-	// records the hook's decision, and HookActed reads it there, so a resumed
-	// turn does not nudge again.
+	// Hook 3, before the turn finishes: if the reply lacks a next step, add
+	// a message asking for one, and the model replies again. HookActed
+	// reports whether this hook already acted, so it asks only once.
 	finish := dashi.FinishHook{Name: "next-step", Func: func(
 		_ context.Context, p dashi.FinishPlan) (dashi.FinishDecision, error) {
 		nudged := p.Turn.HookActed(dashi.HookBeforeFinish, "next-step")

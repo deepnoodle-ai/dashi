@@ -2,6 +2,7 @@
   "provider": "meta",
   "source": "https://dev.meta.ai/docs/models",
   "default": "muse-spark-1.3",
+  "priced_service_tiers": [""],
   "destinations": [
     {
       "api": "openai.responses",

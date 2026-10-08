@@ -1,16 +1,10 @@
-// Command injection screens tool results for prompt injection before the
-// model reads them. A research assistant fetches two pages; one hides an
-// HTML comment telling AI agents to email the user's API keys away. An
-// AfterTool hook (screen.go) asks a decision model two yes-or-no questions
-// about each page and, through a gate policy, withholds the poisoned one,
-// so the model tells the user instead of obeying it. The turn's record
-// still keeps both raw pages.
-//
-// By default it needs no API key: a scripted dashitest client stands in
-// for the model and a decidetest server for the decision model, so the
-// output is fixed. With -live it uses Anthropic and Jev: set
-// ANTHROPIC_API_KEY and TYPESAFE_API_KEY; ANTHROPIC_MODEL optionally
-// overrides the catalog's default model.
+// Command injection checks fetched web pages for prompt injection: hidden
+// text that tries to give the AI orders. One of two pages hides a request to
+// email the user's API keys away. A hook in screen.go asks a decision model
+// (a model that answers yes-or-no questions with a probability) about each
+// page and withholds the bad one. By default it needs no API key: scripted
+// stand-ins play both models, so the output is fixed. With -live, set
+// ANTHROPIC_API_KEY and TYPESAFE_API_KEY.
 //
 //	go run ./examples/decide/injection
 //	go run ./examples/decide/injection -live

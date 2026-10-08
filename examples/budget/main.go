@@ -1,9 +1,8 @@
-// Command budget runs a turn under a cost cap too small for even one model
-// call. Dashi checks each call's worst-case cost before sending it, so the
-// turn stops limited without spending anything; the host then authorizes
-// more, and a Continue with a raised Budget finishes the turn. Set
-// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
-// the catalog's default model.
+// Command budget runs a turn with a spending cap too small for even one
+// model call. Before each call, Dashi works out the most the call could
+// cost, so the turn stops before spending anything. The program then raises
+// the cap and continues the same turn to the end. Set ANTHROPIC_API_KEY
+// before running it; ANTHROPIC_MODEL optionally overrides the default model.
 package main
 
 import (
@@ -48,8 +47,8 @@ func run(ctx context.Context) error {
 		})
 	runner := dashi.Runner{Client: client, Tools: tool.List{stock}}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
-		// A call's worst case counts its full output allowance, so MaxTokens
-		// keeps it small enough that the raised budget covers a few calls.
+		// The most a call could cost includes every output token it may
+		// write, so a small MaxTokens keeps that estimate low.
 		Agent: dashi.Agent{
 			Model:    os.Getenv("ANTHROPIC_MODEL"),
 			Settings: llm.Settings{MaxTokens: 1024},
@@ -67,8 +66,7 @@ func run(ctx context.Context) error {
 		return nil
 	}
 
-	// The application authorizes the increase, then passes the complete new
-	// budget. Continue can raise caps but never lower or add them.
+	// The turn stopped at its limit. Continue it with a larger budget.
 	out, err = runner.Run(ctx, out.Turn, dashi.Continue{
 		Budget: &dashi.Budget{MaxCost: usd("0.10")},
 	})
@@ -87,7 +85,7 @@ func usd(amount string) *dashi.Money {
 func report(out dashi.RunResult) {
 	fmt.Printf("Stop: %s; model calls: %d; spent: %s USD\n",
 		out.Stop.Kind, out.ModelCalls, out.Spend.Cost["USD"])
-	// Limit carries the numbers, so a host need not parse Reason.
+	// Stop.Limit holds the numbers behind a limit stop.
 	if l := out.Stop.Limit; l != nil && l.Kind == dashi.LimitCost {
 		fmt.Printf("  %s\n  cap %s, used %s, next call at risk %s %s\n",
 			out.Stop.Reason, l.CostLimit, l.CostUsed, l.WorstCaseCost, l.Currency)

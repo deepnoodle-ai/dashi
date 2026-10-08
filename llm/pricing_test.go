@@ -405,3 +405,15 @@ func pricedSheet() Pricing {
 		},
 	}
 }
+
+func TestCostString(t *testing.T) {
+	c := Cost{Total: amt("0.00025"), Currency: "USD", Source: CostSourceListPriceEstimate}
+	if got := c.String(); got != "0.00025 USD (list_price_estimate)" {
+		t.Fatalf("complete cost = %q", got)
+	}
+	c.UnpricedRequests = map[string]int{"z_meter": 2, "a_meter": 1}
+	if got := c.String(); got != "at least 0.00025 USD (list_price_estimate; "+
+		"unpriced provider tool requests: a_meter=1, z_meter=2)" {
+		t.Fatalf("partial cost = %q", got)
+	}
+}

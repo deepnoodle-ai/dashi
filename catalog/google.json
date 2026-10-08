@@ -3,6 +3,7 @@
   "source": "https://ai.google.dev/api/models",
   "default": "gemini-3.8-flash",
   "small": "gemini-3.1-flash-lite",
+  "priced_service_tiers": [""],
   "destinations": [
     {
       "api": "google.generate_content",

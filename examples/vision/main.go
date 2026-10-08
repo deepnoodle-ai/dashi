@@ -1,6 +1,6 @@
 // Command vision asks a model to describe an image, given by URL or as a
 // local file. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL
-// optionally overrides the catalog's small model.
+// optionally overrides the default small model.
 //
 //	go run ./examples/vision
 //	go run ./examples/vision -image ./photo.jpg -prompt "What breed is this dog?"
@@ -71,8 +71,7 @@ func run(ctx context.Context, image, prompt string) error {
 }
 
 // imageSource passes a URL through for the provider to fetch, and reads a
-// local file into inline bytes. Dashi never fetches a URL itself; it detects
-// the MIME type of inline bytes when preparing the request.
+// local file into memory to send with the request.
 func imageSource(image string) (content.Source, error) {
 	if strings.HasPrefix(image, "https://") ||
 		strings.HasPrefix(image, "http://") {

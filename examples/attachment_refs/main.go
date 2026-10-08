@@ -1,8 +1,9 @@
-// Command attachment_refs runs an agent turn that refers to a stored upload by
-// reference. The turn record holds the upload's ID, hash, and size, never
-// its bytes; a content loader supplies the bytes before each model request, after it
-// checks the tenant. Set ANTHROPIC_API_KEY before running it;
-// ANTHROPIC_MODEL optionally overrides the catalog's default model.
+// Command attachment_refs asks the model about a file kept in the program's
+// own storage. The message names the file by ID and hash instead of holding
+// its bytes, so the saved turn stays small. A content loader, which the
+// runner calls before each model request, fetches the bytes. Set
+// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
+// the default model.
 package main
 
 import (
@@ -34,9 +35,9 @@ type upload struct {
 // store stands in for the host's upload storage.
 type store map[string]upload
 
-// Load implements dashi.ContentLoader. It reads the tenant from the
-// context of the Run call, so a shared Runner cannot serve one tenant's file
-// to another.
+// Load implements dashi.ContentLoader. It checks that the file belongs to
+// the tenant (customer) named in the Run call's context, so one customer
+// cannot load another's file.
 func (s store) Load(
 	ctx context.Context,
 	_ string,
@@ -71,8 +72,8 @@ func run(ctx context.Context) error {
 	text := []byte("Quarterly note: revenue grew 12%. Churn fell to 2%.")
 	sum := sha256.Sum256(text)
 	uploads := store{"upl_1": {tenant: "acme", data: text}}
-	// The runner checks the loaded bytes against SHA256 and Size. A failed
-	// load stops the turn as failed; it is not a Run error.
+	// The reference names the file. The runner checks the loaded bytes
+	// against its hash and size.
 	ref := content.Ref{
 		ID:     "upl_1",
 		SHA256: hex.EncodeToString(sum[:]),

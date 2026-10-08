@@ -2,7 +2,7 @@
 // Anthropic runs on its own servers: web search and a code execution sandbox.
 // It prints the reply, the provider tool calls, the cited sources, and the
 // turn's usage. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL
-// optionally overrides the catalog's default model.
+// optionally overrides the default model.
 package main
 
 import (
@@ -51,8 +51,8 @@ func run(ctx context.Context, prompt string) error {
 	}
 	runner := dashi.Runner{
 		Client: client,
-		// Provider tools have no executor: Anthropic runs them inside the
-		// model call.
+		// These tools have no Go code: Anthropic runs them on its servers
+		// during the model call.
 		Tools: tool.List{
 			search,
 			messages.NewCodeExecutionTool(messages.CodeExecutionToolOptions{}),
@@ -67,8 +67,8 @@ func run(ctx context.Context, prompt string) error {
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 
-	// The provider may split provider tool work across several model calls,
-	// so these read every call in the turn, not only the last message.
+	// The tool work may span several model calls, so read it from the
+	// whole turn rather than the last message.
 	fmt.Println("\nprovider tool calls:")
 	for _, use := range out.Turn.ProviderToolUses() {
 		fmt.Printf("  %s %s\n", use.Name, use.Input)
@@ -89,10 +89,8 @@ func run(ctx context.Context, prompt string) error {
 		spend.Usage.OutputTokens,
 		spend.Usage.Requests,
 	)
-	// The catalog prices tokens and the provider tool requests it has list
-	// prices for, such as web searches. Anthropic bills code execution by
-	// container time, which responses do not report, so it stays unpriced:
-	// the cost printed is then the known part, and the rest is listed.
+	// Web searches have a known price. Code execution is billed by time,
+	// which responses do not report, so it is listed as unpriced.
 	fmt.Printf("Cost: %s\n", spend)
 	if spend.CostPartial > 0 {
 		fmt.Printf("  Unpriced provider tool requests: %v\n", spend.UnpricedRequests)

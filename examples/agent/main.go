@@ -1,6 +1,6 @@
 // Command agent runs one agent turn against the OpenAI Responses API and
 // prints the reply. Set OPENAI_API_KEY before running it; OPENAI_MODEL
-// optionally overrides the catalog's default model.
+// optionally overrides the default model.
 package main
 
 import (
@@ -34,8 +34,8 @@ func run(ctx context.Context) error {
 		return err
 	}
 	runner := dashi.Runner{Client: client}
-	// Every Agent field may be left empty. An empty Model is the provider's
-	// catalog default; the turn and command IDs are generated.
+	// Every field may be left empty. An empty Model uses the provider's
+	// default model, and an empty Turn gets a generated ID.
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
 		Agent: dashi.Agent{Model: os.Getenv("OPENAI_MODEL")},
 		Input: []llm.Message{
@@ -45,8 +45,8 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// Run's error means the command did not apply. A model failure, a limit,
-	// or a wait is a result instead: Stop says how the turn ended.
+	// Run returns an error only when the turn could not run at all. Other
+	// outcomes, such as a model failure, are in out.Stop.
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 	return nil
 }

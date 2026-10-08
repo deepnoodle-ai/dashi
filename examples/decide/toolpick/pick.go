@@ -37,12 +37,9 @@ type Picker struct {
 	Report func(Pick)
 
 	mu sync.Mutex
-	// picks holds each turn's pick by turn ID. A hook's TurnView tells it
-	// that this hook acted (HookActed) but not what it hid; that is in the
-	// ModelFact.Hidden of the turn's steps, which a hook cannot read. So the
-	// pick is kept here. A turn resumed in another process asks again,
-	// which may change the offer, and the cached prompt, once. A
-	// long-running host would drop a turn's entry when the turn ends.
+	// picks holds each turn's pick by turn ID, so every model call of the
+	// turn hides the same tools. A long-running host would drop a turn's
+	// entry when the turn ends.
 	picks map[string]Pick
 }
 

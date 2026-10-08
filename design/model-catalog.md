@@ -130,8 +130,11 @@ The regional multiplier is not modeled. Evidence already names the endpoint,
 and a Vertex endpoint names its location, so a regional price is simply a
 different sheet for a different destination. Provider-reported cost still wins:
 the catalog adds no automatic estimation, and `Result.Cost` remains
-provider-reported. Callers estimate explicitly with `Pricing.Estimate` after
-checking `Result.Served` with `Entry.Serves`.
+provider-reported. Callers ask explicitly with `catalog.Cost`, which returns
+the reported cost or a list-price estimate only when the client's sheet is the
+catalog's, `Entry.Serves` the served model, and the result's service tier is
+one the file lists in `priced_service_tiers` (where `""` is a response that
+names no tier); otherwise it says why there is none.
 
 ## Wire changes
 

@@ -1,50 +1,70 @@
 # Examples
 
 Small programs that each show one part of Dashi. Run them from the repository
-root with `go run ./examples/<name>`. Every example but `chat` and
-`compaction` makes paid requests; the package comment at the top of each
-`main.go` names the environment variables it needs, and which of them are
-optional. Every example but those two needs a provider key.
+root with `go run ./examples/<name>`. The comment at the top of each `main.go`
+says what it shows and which environment variables it needs. Every example
+makes paid requests except `chat`, `compaction`, `delegate`, and the Decide
+recipes, which use scripted stand-ins and need no API key.
 
-| Example             | Provider  | Shows                                                          |
-| ------------------- | --------- | -------------------------------------------------------------- |
-| `chat`              | None      | A session: two messages, a tool call, and a denied call        |
-| `compaction`        | None      | A session that runs a compaction turn when its window fills    |
-| `agent`             | OpenAI    | One recorded agent turn                                        |
-| `basic`             | OpenAI    | One streamed model call, without an agent                      |
-| `reasoning`         | Anthropic | A reasoning effort; thinking streamed apart from the reply     |
-| `tools`             | Anthropic | Typed Go function tools, with the turn's usage and cost        |
-| `hooks`             | Anthropic | Hooks that add messages, deny a call, and nudge a reply        |
-| `skills`            | Anthropic | Host-selected skill catalog and recorded load tool             |
-| `approval`          | Anthropic | A person approves or denies a tool call during the run         |
-| `redact`            | Anthropic | Masking a secret in a tool result before the model sees it     |
-| `bigresult`         | Anthropic | A large tool result: the model sees a bounded view             |
-| `budget`            | Anthropic | A turn stopped by its cost cap, then continued with a raise    |
-| `durable_approval`  | Anthropic | Approvals recorded between runs, as a server would             |
-| `coding`            | OpenAI    | A coding agent in one directory, with approval prompts         |
-| `tool_progress`     | Anthropic | A slow tool reporting live progress while the turn streams     |
-| `delegate`          | OpenAI    | The agent starts background subagents and gets results later   |
-| `steering`          | Anthropic | A chat CLI where lines typed during a turn steer the agent     |
-| `resume`            | Anthropic | A turn that waits in one process and finishes in another       |
-| `live_follow`       | Anthropic | Two readers following one running turn, with streamed text     |
-| `provider_tools`    | Anthropic | Provider tools: web search and code execution, with sources    |
-| `structured_output` | OpenAI    | A final reply that matches a JSON schema, decoded into a type  |
-| `providers`         | Any       | The same call on each provider; only the client changes        |
-| `vision`            | Anthropic | Describing an image from a URL or a local file                 |
-| `documents`         | Anthropic | Asking about a text or PDF document, with cited passages       |
-| `attachment_refs`   | Anthropic | A stored upload named by ID and hash, loaded per request       |
-| `batch_speech`      | OpenAI    | Synthesizing a short speech clip, then transcribing it         |
+## Start here
+
+| Example | Provider  | Shows                                                 |
+| ------- | --------- | ----------------------------------------------------- |
+| `agent` | OpenAI    | One agent turn and its reply                          |
+| `basic` | OpenAI    | One streamed model call, without an agent             |
+| `tools` | Anthropic | Go functions as tools, with the turn's usage and cost |
+| `chat`  | None      | A conversation through a session, with a tool call    |
+
+## Controlling a turn
+
+| Example             | Provider  | Shows                                                      |
+| ------------------- | --------- | ---------------------------------------------------------- |
+| `hooks`             | Anthropic | Hooks that add a note, block a call, and ask for more      |
+| `approval`          | Anthropic | A person approves or denies a tool call at the terminal    |
+| `redact`            | Anthropic | Masking a secret in a tool result before the model sees it |
+| `bigresult`         | Anthropic | A long tool result shortened for the model                 |
+| `budget`            | Anthropic | A turn stopped by its spending cap, then continued         |
+| `reasoning`         | Anthropic | The model's thinking streamed apart from its reply         |
+| `structured_output` | OpenAI    | A reply that matches a JSON schema, decoded into a struct  |
+| `steering`          | Anthropic | A chat CLI where lines typed during a turn steer the agent |
+| `skills`            | Anthropic | Skills and slash commands loaded from folders              |
+| `tool_progress`     | Anthropic | A slow tool reporting live progress                        |
+| `compaction`        | None      | A session that summarizes old messages as its window fills |
+| `coding`            | OpenAI    | A coding agent in one directory, with approval prompts     |
+
+## Turns that outlive a process
+
+| Example            | Provider  | Shows                                                    |
+| ------------------ | --------- | -------------------------------------------------------- |
+| `durable_approval` | Anthropic | Approvals recorded between runs, as a server would       |
+| `resume`           | Anthropic | A turn that waits in one process and finishes in another |
+| `live_follow`      | Anthropic | Following a running turn, with its text as it streams    |
+| `delegate`         | None      | Background subagents whose results arrive later          |
+
+## Providers and media
+
+| Example           | Provider  | Shows                                                   |
+| ----------------- | --------- | ------------------------------------------------------- |
+| `providers`       | Any       | The same call on each provider; only the client changes |
+| `provider_tools`  | Anthropic | Web search and code execution run by the provider       |
+| `vision`          | Anthropic | Describing an image from a URL or a local file          |
+| `documents`       | Anthropic | Asking about a text or PDF document, with citations     |
+| `attachment_refs` | Anthropic | A stored file named by ID, loaded for each request      |
+| `batch_speech`    | OpenAI    | Synthesizing a short speech clip, then transcribing it  |
+
+## Advanced recipes
+
+The [Decide recipes](decide/README.md) are longer programs for readers who
+know hooks already. Each uses a decision model as a judge inside a hook: a
+risk check on tool calls, a prompt-injection screen on tool results, and
+narrowing a large tool list. They run without API keys by default.
 
 The MCP examples are in their own Go module. From `mcp/`, run
-`go run ./example/keyless` to start a stdio MCP server and call its `add` tool.
-It uses fixed model replies and needs no API key or config file.
-Run `go run ./example` to use Anthropic and the servers in a `.mcp.json`.
+`go run ./example/keyless` to start a local MCP server and call its `add` tool
+with no API key. Run `go run ./example` to use Anthropic and the servers in a
+`.mcp.json`.
 
-The [Decide examples](decide/README.md) use a decision model as a judge inside
-hooks: a risk gate on tool calls, a prompt-injection screen on tool results,
-and per-turn tool narrowing. They run without API keys by default.
-
-For example:
+## Running
 
 ```sh
 export ANTHROPIC_API_KEY=...

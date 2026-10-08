@@ -1,7 +1,7 @@
 // Command structured_output runs one agent turn whose final reply must match
 // a JSON schema, then decodes the validated value into a Go struct. Set
 // OPENAI_API_KEY before running it; OPENAI_MODEL optionally overrides the
-// catalog's default model.
+// default model.
 package main
 
 import (
@@ -17,8 +17,8 @@ import (
 	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
 
-// Person is the shape of the turn's final reply. The schema is generated
-// from it, so the struct and the contract the model sees cannot drift apart.
+// Person is the shape of the final reply. The JSON schema the model sees is
+// generated from this struct.
 type Person struct {
 	Name       string   `json:"name" description:"Full name"`
 	Age        int      `json:"age" description:"Age in years"`
@@ -58,15 +58,13 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// DecodeOutput explains a missing output, such as a turn that stopped
-	// at a limit, in its error.
+	// DecodeOutput returns an error if the turn ended without a valid
+	// object, for example because it hit a limit.
 	person, err := dashi.DecodeOutput[Person](out)
 	if err != nil {
 		return err
 	}
-	// Source says whether the model submitted the object as a tool call or
-	// as its final text; either way it was validated.
-	fmt.Printf("Stop: %s; output from: %s\n", out.Stop.Kind, out.Output.Source)
+	fmt.Printf("Stop: %s\n", out.Stop.Kind)
 	fmt.Printf("%+v\n", person)
 	return nil
 }
