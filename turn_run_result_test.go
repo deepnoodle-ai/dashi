@@ -1083,3 +1083,20 @@ func TestCanceledProviderToolApprovalDoesNotLeaveDanglingMessage(t *testing.T) {
 		t.Fatal("non-approval content was lost")
 	}
 }
+
+func TestPendingHandleID(t *testing.T) {
+	detached := tool.Detached("msg-1")
+	p := Pending{ID: "call-1", Tool: &ToolView{Outcome: &detached}}
+	if got := p.HandleID(); got != "msg-1" {
+		t.Fatalf("HandleID = %q, want msg-1", got)
+	}
+	for _, p := range []Pending{
+		{ID: "call-1"},
+		{ID: "call-1", Tool: &ToolView{}},
+		{ID: "call-1", Tool: &ToolView{Outcome: &tool.Outcome{State: tool.StateWaiting}}},
+	} {
+		if got := p.HandleID(); got != "" {
+			t.Fatalf("HandleID without a handle = %q", got)
+		}
+	}
+}

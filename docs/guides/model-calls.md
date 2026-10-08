@@ -253,17 +253,17 @@ tool calls.
 
 Missing usage is nil. `Result.Cost` holds a provider-reported amount when
 available; display its `Source` and check `Partial()` before presenting its
-`Total` as a complete charge. List-price estimates require an explicitly
-qualified `llm.Pricing` sheet and sufficient usage. For a built-in catalog
-sheet, check that `client.ModelInfo(requestedModel)` matches
-`catalog.Lookup` at its evidence API and endpoint, including its owner, model,
-and pricing; then require the provider and `Entry.Serves(Result.Served.Model)`
-to match. A blank or different served model means the requested model's price
-cannot be used. The [provider example](../../examples/providers/main.go)
-shows this flow, including a default-tier check and an unknown-cost message.
-It constructs default public clients. With a custom transport, proxy, or other
-destination, `llm.Client` does not prove where the request actually ran;
-qualify that routing and its price independently before using a catalog sheet.
+`Total` as a complete charge; `Cost.String` does both. List-price estimates
+require an explicitly qualified `llm.Pricing` sheet and sufficient usage.
+`catalog.Cost(client, result)` returns the reported cost, or else an estimate
+from a built-in catalog sheet only when it provably applies: the client's
+`ModelInfo` for the requested model is the unmodified `catalog.Lookup` entry,
+the provider served that model (`Entry.Serves`), and `Result.ServiceTier` is
+a tier the catalog prices. Otherwise its error says why there is no cost. The
+[provider example](../../examples/providers/main.go) prints either. With a
+custom transport, proxy, or other destination, `llm.Client` does not prove
+where the request actually ran; qualify that routing and its price
+independently before using a catalog sheet.
 Provider tool work is counted in `Usage.Requests` by meter
 key, such as `llm.MeterWebSearch`, and priced by `Pricing.Requests`. When the
 sheet lacks a rate for a key, `Estimate` still prices the rest and lists those

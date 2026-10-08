@@ -5,8 +5,9 @@
 // The data is embedded JSON, one file per provider, in the shapes of
 // llm.Capabilities and llm.Pricing. It was converted from Dive's provider
 // catalogs (65c393f), Apache-2.0, and is maintained by hand. The package is
-// data plus lookup: it holds no mutable state, registers nothing, and never
-// estimates or aggregates cost. See design/model-catalog.md.
+// data plus lookup: it holds no mutable state and registers nothing. Cost
+// estimates one call's cost from a list price only when asked, and only when
+// that price provably applies. See design/model-catalog.md.
 package catalog
 
 import (
@@ -267,12 +268,13 @@ func (d Destination) resolve(model string) string {
 // provider is one parsed, validated catalog file. Parsed files are never
 // modified; accessors return clones.
 type provider struct {
-	name         string
-	defaultModel string
-	smallModel   string
-	destinations []Destination
-	entries      []Entry
-	index        map[string]int
+	name               string
+	defaultModel       string
+	smallModel         string
+	pricedServiceTiers []string
+	destinations       []Destination
+	entries            []Entry
+	index              map[string]int
 }
 
 // load parses the embedded files once. The files are checked by tests, so a
@@ -332,13 +334,17 @@ func parseAll() ([]provider, error) {
 
 // fileJSON is the on-disk shape. Capabilities and pricing use the same JSON
 // as llm.ModelInfo, so a catalog entry reads like the fact it becomes.
+// PricedServiceTiers lists the llm.Result.ServiceTier values the file's prices
+// describe, where "" is a response that names no tier; without it, Cost
+// estimates nothing for the provider.
 type fileJSON struct {
-	Provider     string        `json:"provider"`
-	Source       string        `json:"source"`
-	Default      string        `json:"default"`
-	Small        string        `json:"small,omitempty"`
-	Destinations []Destination `json:"destinations"`
-	Models       []entryJSON   `json:"models"`
+	Provider           string        `json:"provider"`
+	Source             string        `json:"source"`
+	Default            string        `json:"default"`
+	Small              string        `json:"small,omitempty"`
+	PricedServiceTiers []string      `json:"priced_service_tiers,omitempty"`
+	Destinations       []Destination `json:"destinations"`
+	Models             []entryJSON   `json:"models"`
 }
 
 type entryJSON struct {
@@ -369,11 +375,12 @@ func parse(data []byte) (provider, error) {
 		return provider{}, errors.New("catalog requires a destination")
 	}
 	p := provider{
-		name:         f.Provider,
-		defaultModel: f.Default,
-		smallModel:   f.Small,
-		destinations: f.Destinations,
-		index:        make(map[string]int, len(f.Models)),
+		name:               f.Provider,
+		defaultModel:       f.Default,
+		smallModel:         f.Small,
+		pricedServiceTiers: f.PricedServiceTiers,
+		destinations:       f.Destinations,
+		index:              make(map[string]int, len(f.Models)),
 	}
 	for _, m := range f.Models {
 		e, err := m.entry(f.Provider, f.Source)

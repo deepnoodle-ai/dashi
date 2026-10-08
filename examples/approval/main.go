@@ -1,9 +1,8 @@
 // Command approval runs a turn whose deploy tool needs a person's approval.
-// A BeforeTool hook asks at the terminal before each deploy call and allows
-// or denies it, so the whole turn is one Run. A server that cannot wait for
-// a person uses the needs-approval form in examples/durable_approval
-// instead. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL
-// optionally overrides the catalog's default model.
+// A hook, a function the runner calls at set points in the turn, asks at the
+// terminal before each deploy runs. A server that cannot wait at a terminal
+// should see examples/durable_approval instead. Set ANTHROPIC_API_KEY before
+// running it; ANTHROPIC_MODEL optionally overrides the default model.
 package main
 
 import (
@@ -51,8 +50,8 @@ func run(ctx context.Context) error {
 		tool.WithStrictArguments(),
 	)
 	stdin := prompt.Stdin()
-	// OnTool decodes the call's arguments into the tool's own type. A
-	// denial's reason is what the model sees as the call's result.
+	// OnTool builds a hook for one tool, with its arguments already decoded.
+	// When the hook denies a call, the model sees the reason as the result.
 	ask := dashi.OnTool("deploy", func(
 		ctx context.Context,
 		_ dashi.ToolPlan,

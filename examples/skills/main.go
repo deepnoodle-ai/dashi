@@ -1,11 +1,9 @@
-// Command skills loads skills and slash commands from folders and gives them
-// to an agent. It expands the command "/summarize INC-42" into the prompt,
-// and the model can load the incident-review skill to answer it. Skill text
-// reaches the model as context, never as a grant: the host decides which
-// tools the agent has. Set
-// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
-// the catalog's default model. Run it from the repository root, or point -dir
-// at this directory.
+// Command skills gives an agent skills and slash commands loaded from
+// folders. A skill is a Markdown file of instructions that the model loads
+// only when it needs them. A slash command is a saved prompt: here
+// "/summarize INC-42" expands into the request. Set ANTHROPIC_API_KEY before
+// running it; ANTHROPIC_MODEL optionally overrides the default model. Run it
+// from the repository root, or point -dir at this directory.
 package main
 
 import (
@@ -62,13 +60,24 @@ func run(ctx context.Context, dir string) error {
 	if !ok {
 		return errors.New("no summarize command; check -dir")
 	}
-	// The bundle is both a toolset, holding the tool that loads a skill, and
-	// the source of hooks that show the model the skill catalog.
+	// The bundle gives the model a list of the skills and a tool to load
+	// one. It is added as tools and as hooks.
 	bundle, err := set.Bundle(skill.Options{})
 	if err != nil {
 		return err
 	}
-	lookup := lookupTool()
+	lookup := tool.MustFunc(
+		"incident_lookup",
+		"Look up a fictional incident.",
+		func(_ context.Context, _ tool.Call, in lookupArgs) (tool.Outcome, error) {
+			if in.Incident != "INC-42" {
+				return tool.Failed("incident not found"), nil
+			}
+			return tool.Succeeded(
+				"INC-42: API requests failed for 12 minutes; service recovered.",
+			), nil
+		},
+	)
 	client, err := messages.New(messages.Config{})
 	if err != nil {
 		return err
@@ -87,19 +96,4 @@ func run(ctx context.Context, dir string) error {
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
 	return nil
-}
-
-func lookupTool() tool.Tool {
-	return tool.MustFunc(
-		"incident_lookup",
-		"Look up a fictional incident.",
-		func(_ context.Context, _ tool.Call, in lookupArgs) (tool.Outcome, error) {
-			if in.Incident != "INC-42" {
-				return tool.Failed("incident not found"), nil
-			}
-			return tool.Succeeded(
-				"INC-42: API requests failed for 12 minutes; service recovered.",
-			), nil
-		},
-	)
 }

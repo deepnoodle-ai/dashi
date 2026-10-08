@@ -1,10 +1,10 @@
-// Command resume runs one turn across two processes. Its send_email tool
-// hands the message to a mail service and returns before delivery is known;
-// the result arrives later, as a delivery webhook would bring it. The first
-// run starts the turn and exits while it waits. The second run records the
-// delivery result and continues the turn to its reply. Both runs share a
-// filerecorder, a durable recorder that keeps each turn in a file, which is
-// what lets the turn outlive the process.
+// Command resume runs one turn across two processes, the way a real email
+// tool waits for a delivery webhook. The first run asks the model to send an
+// email; the send_email tool hands it off and returns at once, so the turn
+// stops waiting and the process exits. The second run plays the webhook: it
+// loads the saved turn, records the delivery as the tool's result, and lets
+// the model finish its reply. A filerecorder saves the turn to a file, which
+// is what lets it outlive the first process.
 //
 // Set ANTHROPIC_API_KEY (and optionally ANTHROPIC_MODEL), then run:
 //
@@ -30,9 +30,8 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// turnID is fixed so the second process can find the turn. A durable turn
-// needs IDs the host chose, because a retry after a crash must reuse them;
-// the same holds for each command's CommandID below.
+// turnID is fixed so the second process can find the turn. Commands carry
+// fixed IDs too, so repeating one returns its recorded result.
 const turnID = "email-1"
 
 type emailArgs struct {
@@ -44,11 +43,8 @@ type emailArgs struct {
 func main() {
 	log.SetFlags(0)
 	mode := flag.String("mode", "start", "start or resume")
-	dir := flag.String(
-		"dir",
-		filepath.Join(os.TempDir(), "dashi-resume"),
-		"directory holding recorded turns",
-	)
+	dir := flag.String("dir", filepath.Join(os.TempDir(), "dashi-resume"),
+		"directory holding recorded turns")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -72,9 +68,7 @@ func run(ctx context.Context, mode, dir string) error {
 	var out dashi.RunResult
 	switch mode {
 	case "start":
-		// Running start again repeats the same command, which returns the
-		// recorded result instead of starting over. The turn records its
-		// agent, so the resume process needs none.
+		// The turn records its agent, so the resume process needs none.
 		out, err = runner.Run(ctx, dashi.NewTurn(turnID), dashi.Start{
 			CommandID: "start",
 			Agent: dashi.Agent{
@@ -99,7 +93,7 @@ func run(ctx context.Context, mode, dir string) error {
 	}
 	if out.Stop.Kind == dashi.StopWaiting {
 		for _, p := range out.Pending {
-			fmt.Printf("Waiting for %s\n", messageID(p))
+			fmt.Printf("Waiting for %s\n", p.HandleID())
 		}
 		fmt.Println("Stop: waiting. Run again with -mode=resume.")
 		return nil
@@ -108,20 +102,18 @@ func run(ctx context.Context, mode, dir string) error {
 	return nil
 }
 
-// newRunner builds the same client and tools in both processes. Continue
-// runs with the agent the turn recorded at Start.
+// newRunner builds the same client and tools in both processes.
 func newRunner(recorder dashi.Recorder) (dashi.Runner, error) {
 	client, err := messages.New(messages.Config{})
 	if err != nil {
 		return dashi.Runner{}, err
 	}
-	sendEmail := tool.MustFunc(
-		"send_email",
+	sendEmail := tool.MustFunc("send_email",
 		"Sends an email. Delivery is confirmed later by the mail service.",
 		func(_ context.Context, call tool.Call, in emailArgs) (tool.Outcome, error) {
-			// A real tool would pass call.ID to the mail service as an
-			// idempotency key and use the message ID it returns. Detached
-			// leaves the call waiting, holding that ID as its handle.
+			// Detached says the result comes later. Its handle stands in
+			// for the mail service's message ID, which the delivery
+			// webhook would quote.
 			fmt.Printf("Queued email to %s: %q\n", in.To, in.Subject)
 			return tool.Detached("msg-" + call.ID), nil
 		},
@@ -136,11 +128,8 @@ func newRunner(recorder dashi.Recorder) (dashi.Runner, error) {
 
 // deliver plays the delivery webhook: it loads the saved turn, records each
 // delivery as the waiting call's result, and continues the turn.
-func deliver(
-	ctx context.Context,
-	runner dashi.Runner,
-	recorder dashi.Loader,
-) (dashi.RunResult, error) {
+func deliver(ctx context.Context, runner dashi.Runner,
+	recorder dashi.Loader) (dashi.RunResult, error) {
 	turn, err := recorder.Load(ctx, turnID)
 	if errors.Is(err, dashi.ErrTurnNotFound) {
 		return dashi.RunResult{}, errors.New("no saved turn; run -mode=start first")
@@ -156,24 +145,15 @@ func deliver(
 		return dashi.RunResult{Turn: turn, TurnView: view}, nil // already done
 	}
 	for _, p := range view.Pending {
-		fmt.Printf("Webhook: %s delivered\n", messageID(p))
-		// Result only records the tool's result; nothing runs until Continue.
-		out, err := runner.Run(ctx, turn, p.Result(
-			tool.Succeeded("Delivered as "+messageID(p)+"."),
-		))
+		fmt.Printf("Webhook: %s delivered\n", p.HandleID())
+		// Result records the tool's result; the model runs again only on
+		// Continue, below.
+		delivered := tool.Succeeded("Delivered as " + p.HandleID() + ".")
+		out, err := runner.Run(ctx, turn, p.Result(delivered))
 		if err != nil {
 			return out, err
 		}
 		turn = out.Turn
 	}
 	return runner.Run(ctx, turn, dashi.Continue{CommandID: "continue"})
-}
-
-// messageID returns the handle a detached call returned: here, the mail
-// service's message ID.
-func messageID(p dashi.Pending) string {
-	if p.Tool != nil && p.Tool.Outcome != nil && p.Tool.Outcome.Handle != nil {
-		return p.Tool.Outcome.Handle.ID
-	}
-	return p.ID
 }

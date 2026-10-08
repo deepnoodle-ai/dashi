@@ -1,7 +1,7 @@
 // Command tools runs one agent turn in which the model calls typed Go
-// function tools, then prints the reply and the turn's usage and cost. Set
+// functions as tools, then prints the reply and what the turn cost. Set
 // ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
-// the catalog's default model.
+// the default model.
 package main
 
 import (
@@ -20,8 +20,8 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// weatherArgs is the model-facing argument schema for get_weather. Fields
-// without omitempty are required, and the description tag reaches the model.
+// weatherArgs holds get_weather's arguments. Fields without omitempty are
+// required, and each description tag tells the model what the field means.
 type weatherArgs struct {
 	City string `json:"city" description:"City name, such as Tokyo"`
 }
@@ -48,11 +48,9 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// Bound tools run by default; a BeforeTool hook can deny or defer calls.
+	// The runner calls a tool whenever the model asks for it.
 	runner := dashi.Runner{Client: client, Tools: tools}
 	out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{
-		// The agent may use every tool in Runner.Tools. Agent.Tools would
-		// select some of them by name, and Agent.NoTools none.
 		Agent: dashi.Agent{
 			Model:        os.Getenv("ANTHROPIC_MODEL"),
 			Instructions: "Answer weather questions using the tools.",
@@ -77,10 +75,9 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-// newTools builds the typed tools. tool.MustFunc generates each input schema from
-// its Go type and validates the model's arguments before the function runs.
-// Runner.Tools takes a tool.Toolset, so the available tools can change
-// between model calls; tool.List is a fixed one.
+// newTools builds the tools. tool.MustFunc describes each tool's arguments
+// to the model from its Go type, and checks the model's arguments before the
+// function runs.
 func newTools() tool.List {
 	weather := tool.MustFunc(
 		"get_weather",

@@ -130,8 +130,8 @@ signed reasoning, the agent's instructions and tool definitions (the
 client's view from the fields it needs. Reasoning reaches the client two
 ways, in steps and as reasoning deltas, so if your product does not show it,
 hide it in `project` and have `projectPreview` skip deltas whose
-`Delta.Kind` is `llm.DeltaReasoning`. `examples/live_follow` runs two
-followers on one turn, one of them streaming the model's text.
+`Delta.Kind` is `llm.DeltaReasoning`. `examples/live_follow` follows a
+turn in process and prints the model's text as it streams.
 
 ## Observing a run in process
 

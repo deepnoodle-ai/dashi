@@ -1,12 +1,11 @@
-// Command delegate runs an agent that hands a search to an "explore"
-// subagent in the background. The task tool returns at once, so the agent's
-// turn ends while the subagent searches. The host prints each subagent's
-// steps as they happen. Tasks puts every finished result on the session
-// itself: a result reaches the running turn, or, when no turn runs, starts
-// a queue turn. RunUntilQuiet runs those turns until every task has ended.
-// It needs no API key: scripted dashitest clients stand in for the models,
-// so the replies are fixed. With a real client, the session code stays the
-// same.
+// Command delegate shows an agent handing a search to a subagent, a second
+// agent that runs in the background. The agent starts the task and ends its
+// turn without waiting. When the subagent's answer comes back, the session
+// starts a new turn so the agent can pass it on; delegate.RunUntilQuiet runs
+// such turns until no task is left.
+//
+// It needs no API key: scripted dashitest clients stand in for the models, so
+// the replies are fixed. With a real client the code stays the same.
 package main
 
 import (
@@ -21,7 +20,6 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/delegate"
-	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -52,20 +50,18 @@ func run(ctx context.Context) error {
 		dashitest.Reply("An explore task is looking; I will answer when it reports."),
 		dashitest.Reply("Priya, on the payments team, owns the billing service."),
 	)
-	// The subagent searches, then answers. Its first reply waits until the
-	// parent's turn has ended, as a slow search would, so the result
-	// arrives as a queue turn on every run.
+	// The subagent searches, then answers. Hold keeps its replies back
+	// until the parent's first turn has ended, as a slow search would.
+	child := dashitest.NewClient(
+		dashitest.CallTool("search-1", "search_notes", `{"query":"billing owner"}`),
+		dashitest.Reply("ownership.md: Priya (payments team) owns the billing service."),
+	)
 	firstTurnDone := make(chan struct{})
-	child := &heldClient{
-		Client: dashitest.NewClient(
-			dashitest.CallTool("search-1", "search_notes", `{"query":"billing owner"}`),
-			dashitest.Reply("ownership.md: Priya (payments team) owns the billing service."),
-		),
-		release: firstTurnDone,
-	}
+	child.Hold(firstTurnDone)
 
-	// The whole wiring: a session, and a Tasks value that delivers to it,
-	// with its tools.
+	// A session holds the conversation. Tasks runs subagents for it, gives
+	// the agent the tools to start them, and sends each finished answer back
+	// to the session.
 	s := &session.Session{
 		ID:  "notes",
 		New: true,
@@ -98,7 +94,8 @@ func run(ctx context.Context) error {
 	fmt.Printf("%s (%s): %s\n", out.Turn.ID, out.Stop.Kind, out.Reply)
 	close(firstTurnDone)
 
-	// The result arrives after the turn ended, so it starts a queue turn.
+	// The answer arrives after that turn ended, so the session starts a new
+	// turn for it.
 	out, err = delegate.RunUntilQuiet(ctx, s, tasks)
 	if err != nil {
 		return err
@@ -109,17 +106,11 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("the last turn stopped %s: %s", out.Stop.Kind, out.Stop.Reason)
 	}
 
-	var spend dashi.Spend
-	for _, task := range tasks.List() {
-		spend = spend.Add(task.Spend)
-	}
-	fmt.Printf("subagent model calls used %d input tokens\n",
-		spend.Usage.TotalInputTokens())
 	return nil
 }
 
-// printTask shows each task turn start and the notice its end sends to the
-// parent.
+// printTask shows when each task starts, and the message its answer becomes
+// for the parent agent.
 func printTask(e delegate.TaskEvent) {
 	switch e.Kind {
 	case delegate.TaskStarted:
@@ -147,31 +138,12 @@ func printChild(e delegate.ChildEvent) {
 	}
 }
 
-// heldClient answers only once release is closed.
-type heldClient struct {
-	*dashitest.Client
-	release <-chan struct{}
-}
-
-func (c *heldClient) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
-	select {
-	case <-c.release:
-	case <-ctx.Done():
-		return llm.Result{}, ctx.Err()
-	}
-	return c.Client.Send(ctx, call)
-}
-
 // newSearchTool returns a read-only tool over canned notes. The read-only
 // annotation is what lets the explore subagent use it.
 func newSearchTool() tool.Tool {
-	return tool.MustFunc(
-		"search_notes",
-		"Searches the team notes and returns matching lines.",
-		func(_ context.Context, _ tool.Call, _ searchArgs) (tool.Outcome, error) {
-			return tool.Succeeded(
-				"ownership.md: billing service - owner: Priya (payments team)",
-			), nil
+	return tool.MustFunc("search_notes", "Searches the team notes and returns matching lines.",
+		func(context.Context, tool.Call, searchArgs) (tool.Outcome, error) {
+			return tool.Succeeded("ownership.md: billing service - owner: Priya (payments team)"), nil
 		},
 		tool.ReadOnly(),
 	)

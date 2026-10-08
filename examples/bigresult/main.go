@@ -1,8 +1,7 @@
-// Command bigresult runs a turn whose tool returns a long log. Dashi shortens
-// the result in the messages the model sees, so the model reads a bounded
-// text with a marker, while the turn's record keeps the full log. Set
-// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
-// the catalog's default model.
+// Command bigresult runs a turn whose tool returns a very long log. Dashi
+// shortens what the model sees to a size limit, while the turn's record
+// keeps the full log. Set ANTHROPIC_API_KEY before running it;
+// ANTHROPIC_MODEL optionally overrides the default model.
 package main
 
 import (
@@ -58,7 +57,7 @@ func run(ctx context.Context) error {
 		Agent: dashi.Agent{
 			Model:        os.Getenv("ANTHROPIC_MODEL"),
 			Instructions: "You are an operations agent. Report why the service failed.",
-			// The default is 64 KiB. Set a lower limit for a small context.
+			// The longest tool result the model sees. The default is 64 KiB.
 			Limits: dashi.Limits{ToolResultBytes: 16 << 10},
 		},
 		Input: []llm.Message{
@@ -69,19 +68,12 @@ func run(ctx context.Context) error {
 		return err
 	}
 	fmt.Printf("Stop: %s\n%s\n", out.Stop.Kind, out.Reply)
-	// Result is what the model saw; Outcome is what the tool returned.
+	// Shortened reports how much of each result the model was shown. The
+	// full result stays in the record, in v.Outcome.
 	for _, v := range out.Tools {
-		seen := v.Result().Output.Content[0].Text.Text
-		kept := v.Outcome.Output.Content[0].Text.Text
-		fmt.Printf("\nThe model saw %d bytes.\n", len(seen))
-		fmt.Printf("The record kept %d bytes.\n", len(kept))
 		if s := v.Shortened(); s != nil {
-			fmt.Printf(
-				"Shortened: %d of %d bytes shown, limit %d.\n",
-				s.ShownBytes,
-				s.OriginalBytes,
-				s.Limit,
-			)
+			fmt.Printf("\nThe tool returned %d bytes; the model saw %d.\n",
+				s.OriginalBytes, s.ShownBytes)
 		}
 	}
 	return nil

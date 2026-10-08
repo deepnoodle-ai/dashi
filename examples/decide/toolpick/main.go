@@ -1,16 +1,10 @@
-// Command toolpick narrows a large tool catalog for each turn. An agent
-// connected to several MCP servers is offered dozens of tools; every
-// definition costs input tokens on every model call, and long lists make
-// tool choice worse. A BeforeModel hook (pick.go) asks a decision model,
-// through Decide, whether each tool could help with the user's request,
-// hides the rest, and hides the same tools on every model call of the turn
-// so the cached prompt survives.
-//
-// By default it needs no API key: a scripted dashitest client stands in for
-// the model, and a decidetest server stands in for Jev, answering with
-// keyword rules. With -live it uses Claude (ANTHROPIC_API_KEY; set
-// ANTHROPIC_MODEL to override the catalog's default model) and Jev
-// (TYPESAFE_API_KEY).
+// Command toolpick offers the model only the tools that fit the request.
+// Every tool definition costs tokens on each model call, and a long list
+// makes the model choose worse. The hook in pick.go asks a decision model (a
+// model that answers yes-or-no questions with a probability) which tools
+// could help, and hides the rest. By default it needs no API key: scripted
+// stand-ins play both models, so the output is fixed. With -live, set
+// ANTHROPIC_API_KEY and TYPESAFE_API_KEY.
 //
 //	go run ./examples/decide/toolpick
 //	go run ./examples/decide/toolpick -live
@@ -170,7 +164,7 @@ func catalogTools() tool.List {
 	var list tool.List
 	for _, c := range catalog {
 		props := map[string]any{}
-		required := []string{} // null is not a valid "required"
+		required := []string{}
 		for p := range strings.SplitSeq(c.params, ",") {
 			if p != "" {
 				props[p] = map[string]string{"type": "string"}

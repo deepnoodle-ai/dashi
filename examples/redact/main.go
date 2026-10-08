@@ -1,9 +1,8 @@
 // Command redact runs a turn whose lookup tool returns a customer record
-// holding an API key. An AfterTool hook masks the key in what the model
-// sees, so the model never reads it, while the turn's record keeps the raw
-// result. To keep a secret out of the record as well, remove it in the
-// tool. Set ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally
-// overrides the catalog's default model.
+// holding an API key. A hook masks the key before the model sees the
+// result, while the turn's record keeps the original. To keep a secret out
+// of the record too, remove it in the tool. Set ANTHROPIC_API_KEY before
+// running it; ANTHROPIC_MODEL optionally overrides the default model.
 package main
 
 import (
@@ -54,8 +53,8 @@ func run(ctx context.Context) error {
 			)), nil
 		},
 	)
-	// Returning a replacement every time is fine: one that changes nothing
-	// counts as no opinion and is not recorded.
+	// A result hook runs after each tool call. Replace is the result the
+	// model will see instead, here with any API key masked.
 	redact := dashi.ResultHook{Name: "redact", Func: func(
 		_ context.Context,
 		p dashi.ResultPlan,

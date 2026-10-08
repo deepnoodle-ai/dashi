@@ -1,6 +1,10 @@
-// Command basic makes one streamed model call without an agent. Set
-// OPENAI_API_KEY before running it; OPENAI_MODEL optionally overrides the
-// catalog's small OpenAI model.
+// Command basic makes one model call without an agent and prints the reply
+// as it streams in. Notice that streaming needs no extra machinery:
+// llm.Generate calls a function you pass with each piece of text as it
+// arrives, then returns the whole reply.
+//
+// Set OPENAI_API_KEY before running it; OPENAI_MODEL optionally overrides
+// the catalog's small OpenAI model.
 package main
 
 import (
@@ -38,35 +42,23 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// Prepare validates the input and builds the request without sending
-	// it; Stream sends it and yields text deltas, then the final Result.
-	request, err := client.Prepare(ctx, llm.Input{
-		Model:  model,
-		Stream: true,
-		Messages: []llm.Message{
-			llm.UserMessage(llm.Text("Say hello in one sentence.")),
-		},
-	})
+	// Stream asks the provider to send the reply in pieces. Generate calls
+	// the sink with each piece (a delta) and then returns the whole result.
+	input := llm.Input{
+		Model:    model,
+		Stream:   true,
+		Messages: []llm.Message{llm.UserMessage(llm.Text("Say hello in one sentence."))},
+	}
+	printText := func(delta llm.Delta) {
+		if delta.Kind == llm.DeltaText {
+			fmt.Print(delta.Text)
+		}
+	}
+	result, err := llm.Generate(ctx, client, input, printText)
 	if err != nil {
 		return err
 	}
-	var result llm.Result
-	for event, err := range llm.Stream(ctx, client, llm.Call{Request: request}) {
-		if err != nil {
-			return err
-		}
-		if event.Delta != nil && event.Delta.Kind == llm.DeltaText {
-			fmt.Print(event.Delta.Text)
-		}
-		if event.Result != nil {
-			result = *event.Result
-		}
-	}
-	fmt.Printf(
-		"\nStop: %s; served model: %s\n",
-		result.Stop.Kind,
-		result.Served.Model,
-	)
+	fmt.Printf("\nStop: %s; served model: %s\n", result.Stop.Kind, result.Served.Model)
 	for _, w := range result.Warnings {
 		fmt.Printf("Warning (%s): %s\n", w.Code, w.Message)
 	}

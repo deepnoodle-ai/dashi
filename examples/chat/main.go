@@ -1,7 +1,8 @@
-// Command chat holds a short conversation on a session.Session: two messages
-// with no history code, a tool call, and a call the user denies. It needs
-// no API key: a scripted dashitest client stands in for the model, so the
-// replies are fixed. With a real client, the session code stays the same.
+// Command chat holds a short conversation through a session, which keeps
+// the conversation's history between messages for you. One message makes the
+// model call a tool, and another asks for a booking that the user turns
+// down. It needs no API key: a scripted test client plays the model, so the
+// replies are fixed.
 package main
 
 import (
@@ -62,10 +63,10 @@ func run(ctx context.Context) error {
 		Runner: dashi.Runner{
 			Client: client,
 			Tools:  tool.List{weather, book},
-			// Bookings wait for the user; weather lookups just run.
+			// A booking waits for the user's answer; a weather lookup runs.
 			Hooks: dashi.RequireApproval("book_flight"),
 		},
-		// The scripted client has no catalog default model.
+		// The scripted client has no default model, so name its one model.
 		Agent: dashi.Agent{Model: dashitest.Model},
 	}
 
@@ -79,9 +80,7 @@ func run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		for _, w := range out.SessionWarnings {
-			fmt.Printf("  (%s: %s)\n", w.Code, w.Message)
-		}
+		// The turn pauses at the booking. This user always says no.
 		if out.Next() == dashi.NextResolvePending {
 			p := out.Pending[0]
 			fmt.Printf("  %s %s? no\n", p.Name, p.Args)
@@ -92,10 +91,5 @@ func run(ctx context.Context) error {
 		}
 		fmt.Println(out.Reply)
 	}
-	st, err := s.Open(ctx)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("\nsession %s: %d turns, next: %s\n", s.ID, st.Turns, st.Next)
 	return nil
 }

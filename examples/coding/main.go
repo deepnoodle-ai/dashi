@@ -1,7 +1,7 @@
 // Command coding runs a coding agent in one directory. The agent reads and
 // edits files with the workspace tools. Each write, edit, and shell command
 // waits for your answer at the terminal. Set OPENAI_API_KEY before running
-// it; OPENAI_MODEL optionally overrides the catalog's default model.
+// it; OPENAI_MODEL optionally overrides the default model.
 //
 //	go run ./examples/coding -dir /path/to/repo "Fix the failing test."
 package main
@@ -101,9 +101,9 @@ func run(ctx context.Context, dir, task string) error {
 }
 
 // describe renders an approval request for the terminal. A shell command
-// appears in full, with its directory, because approval is the only guard.
-// The request text comes from the model, so it goes through Printable first.
-// Raw, it could hold escape sequences that rewrite the prompt.
+// appears in full, with its directory, so you see exactly what would run.
+// The text comes from the model, so Printable first removes terminal escape
+// codes that could disguise it.
 func describe(r workspace.ApprovalRequest) string {
 	r = r.Printable()
 	if r.Tool == workspace.ToolBash {

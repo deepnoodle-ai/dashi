@@ -1,16 +1,12 @@
-// Command compaction shows a session that compacts its history. After three
-// questions the context window is nearly full, so before the fourth the
-// session runs a compaction turn: the model summarizes the older messages,
-// and later turns send the summary in their place. A second handle with no
-// compactor then builds the same history from the record. It
-// needs no API key: a scripted dashitest client stands in for the model,
-// so the replies are fixed. With a real client, the session code stays the
-// same.
+// Command compaction shows a session that compacts its history. A model's
+// context window is the most text it can read at once. When the window is
+// nearly full, the session asks the model to summarize the older messages,
+// and later turns send the summary in their place. It needs no API key: a
+// scripted test client plays the model, so the replies are fixed.
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -50,19 +46,17 @@ func run(ctx context.Context) error {
 			"They asked for tips on logs and code review.</summary>", 12_000),
 		used("Heron, on port 8443.", 3_000),
 	)
-	// A real host takes the model's window from client.ModelInfo; the
-	// scripted client knows none.
+	// A real program gets the window size from client.ModelInfo; the
+	// scripted client has none, so set it here.
 	policy := compaction.Policy{}
 	policy.Model.Capabilities.ContextWindow = 32_000
-	rec := dashi.NewMemoryRecorder()
 	s := &session.Session{
 		ID:     "heron",
 		New:    true,
-		Runner: dashi.Runner{Client: client, Recorder: rec},
+		Runner: dashi.Runner{Client: client, Recorder: dashi.NewMemoryRecorder()},
 		Agent:  dashi.Agent{Model: dashitest.Model},
-		// By default the newest turns that fit in a quarter of the window
-		// stay verbatim. This example keeps none, so the summary alone
-		// stands for the earlier turns.
+		// By default the newest turns are kept word for word. A negative
+		// TailFraction keeps none, so the summary replaces all older turns.
 		Compactor: &compaction.Compactor{Policy: policy, TailFraction: -1},
 	}
 
@@ -77,13 +71,10 @@ func run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		for _, w := range out.SessionWarnings {
-			fmt.Printf("  (%s: %s)\n", w.Code, w.Message)
-		}
 		fmt.Printf("  %s: %s\n", out.Turn.ID, out.Reply)
 	}
 
-	// The compaction turn is in the record, beside the conversation.
+	// The summary was written by a turn of its own, listed with the rest.
 	fmt.Println()
 	for turn, err := range s.Turns(ctx) {
 		if err != nil {
@@ -104,23 +95,12 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// History is the whole conversation; NextHistory is what the next turn
+	// would send the model, with the summary in place of older messages.
 	fmt.Printf("\nconversation: %d messages; the next turn sends %d:\n",
 		len(history), len(messages))
 	for _, m := range messages {
 		fmt.Printf("  [%s] %.60s\n", m.Role, m.Text())
 	}
-
-	// A viewer or a recovery worker needs no compactor to send the same.
-	reader := &session.Session{
-		ID:     "heron",
-		Runner: dashi.Runner{Client: client, Recorder: rec},
-	}
-	again, err := reader.NextHistory(ctx)
-	if err != nil {
-		return err
-	}
-	a, _ := json.Marshal(messages)
-	b, _ := json.Marshal(again)
-	fmt.Println("a handle with no compactor reads the same:", string(a) == string(b))
 	return nil
 }

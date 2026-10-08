@@ -29,6 +29,7 @@ type Client struct {
 	mu      sync.Mutex
 	replies []llm.Result
 	inputs  []llm.Input
+	release <-chan struct{}
 }
 
 // NewClient returns a client that answers with replies, in order.
@@ -61,6 +62,15 @@ func (c *Client) Add(replies ...llm.Result) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.replies = append(c.replies, replies...)
+}
+
+// Hold makes each Send wait until release is closed, as a slow model would,
+// so a test or example decides when replies arrive. A canceled context ends
+// the wait with its error.
+func (c *Client) Hold(release <-chan struct{}) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.release = release
 }
 
 // Inputs returns the input of each Send so far, in order, so a test can
@@ -104,7 +114,17 @@ func (*Client) Prepare(_ context.Context, in llm.Input) (llm.Request, error) {
 }
 
 // Send returns the next scripted reply, or ErrScriptDone when none is left.
+// After Hold, it first waits for the release.
 func (c *Client) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
+	c.mu.Lock()
+	release := c.release
+	c.mu.Unlock()
+	if release != nil {
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return llm.Result{}, err
 	}

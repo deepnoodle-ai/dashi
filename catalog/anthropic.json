@@ -3,6 +3,7 @@
   "source": "https://platform.claude.com/docs/en/about-claude/models/overview.md",
   "default": "claude-sonnet-5",
   "small": "claude-haiku-5-5",
+  "priced_service_tiers": ["", "standard"],
   "destinations": [
     {
       "api": "anthropic.messages",

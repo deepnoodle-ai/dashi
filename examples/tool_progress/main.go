@@ -1,8 +1,8 @@
-// Command tool_progress runs one agent turn in which a slow tool reports its
-// progress with tool.Report, and renders each snapshot as a live status line
-// while the turn streams. Progress is live-only: it is never recorded and
-// never reaches the model. Set ANTHROPIC_API_KEY before running it;
-// ANTHROPIC_MODEL optionally overrides the catalog's default model.
+// Command tool_progress runs a turn whose slow tool reports how far along it
+// is, and prints that progress as one line that updates in place. Progress
+// is only for display: it is not saved, and the model never sees it. Set
+// ANTHROPIC_API_KEY before running it; ANTHROPIC_MODEL optionally overrides
+// the default model.
 package main
 
 import (
@@ -56,15 +56,15 @@ func run(ctx context.Context) error {
 		},
 	}
 
-	// Stream runs the turn like Run, yielding committed steps, model text
-	// deltas, and tool progress as they happen, then the RunResult.
+	// Stream runs the turn like Run, but yields events as they happen:
+	// recorded steps, streamed text, and tool progress, then the result.
 	for event, err := range runner.Stream(ctx, dashi.Turn{}, start) {
 		if err != nil {
 			return err
 		}
 		switch {
 		case event.Progress != nil:
-			// Each snapshot replaces the last, so overwrite one line.
+			// Each report replaces the last, so overwrite one line.
 			p := event.Progress
 			fmt.Printf(
 				"\r  %s: %3.0f%% %s",
@@ -82,9 +82,8 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-// newProcessTool simulates a job that processes records one by one and
-// reports a snapshot after each. Total is known here; a tool that cannot
-// know it leaves Total zero and reports only Message.
+// newProcessTool simulates a job that processes records one by one. After
+// each record it calls tool.Report to say how far it has got.
 func newProcessTool() tool.Tool {
 	return tool.MustFunc(
 		"process_dataset",

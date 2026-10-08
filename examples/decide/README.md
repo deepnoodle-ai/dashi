@@ -1,6 +1,9 @@
-# Decide examples
+# Decide recipes
 
-These examples connect Dashi hooks to [Decide](https://github.com/deepnoodle-ai/decide),
+These are advanced recipes: longer than the other examples, and written for
+readers who already know hooks (see [`examples/hooks`](../hooks) first).
+
+They connect Dashi hooks to [Decide](https://github.com/deepnoodle-ai/decide),
 a Go client for decision models such as TypeSafe's Jev and Cloudflare's Clef.
 A decision model answers typed questions, such as yes-or-no (`Noul`), choice,
 and score, with probabilities instead of prose. That makes it a cheap, fast

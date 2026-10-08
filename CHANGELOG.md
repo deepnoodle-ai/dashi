@@ -29,6 +29,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`mistral-medium-2604` and `mistral-medium-3-5` in the model catalog,**
   the Mistral Medium 3.5 model that `mistral-medium-latest` and
   `magistral-medium-latest` now name as their snapshot.
+- **`catalog.Cost(client, result)`** returns a model call's cost: the
+  provider-reported `Result.Cost`, or else a catalog list-price estimate only
+  when the client's price is the unmodified catalog entry, the provider served
+  that model, and the service tier is one the catalog prices. Its error says
+  why there is no cost. Catalog files gain `priced_service_tiers` for that
+  check.
+- **`llm.Cost.String`** formats a cost for people, such as
+  `0.0012 USD (list_price_estimate)`, starting with "at least" and listing
+  unpriced requests when the cost is partial.
+- **`dashi.Pending.HandleID`** returns the ID a detached call returned with
+  `tool.Detached`, or "" when it has none.
+- **`dashitest.Client.Hold(release)`** makes each `Send` wait until `release`
+  is closed, so a test or example decides when scripted replies arrive.
 
 ### Changed
 
