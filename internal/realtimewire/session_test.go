@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 
@@ -330,5 +331,19 @@ func TestGrokCancellationOwnsOnlyCanceledResponseTools(t *testing.T) {
 	}
 	if err := s.Send(context.Background(), realtime.Command{Kind: realtime.CommandRespond}); err != nil {
 		t.Fatal("response blocked after cancellation", err)
+	}
+}
+
+func TestGeminiOutputTranscriptBoundsAccumulatedText(t *testing.T) {
+	text := strings.Repeat("a", realtime.MaxToolBytes/2+1)
+	message, err := json.Marshal(map[string]any{"serverContent": map[string]any{"outputTranscription": map[string]any{"text": text}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := connect(t, true, fake(`{"setupComplete":{}}`, string(message), string(message)))
+	next(t, s, realtime.EventResponseStarted)
+	next(t, s, realtime.EventTranscript)
+	if _, err := s.Receive(context.Background()); err == nil {
+		t.Fatal("accepted accumulated transcript above limit")
 	}
 }

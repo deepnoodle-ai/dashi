@@ -417,7 +417,11 @@ func (s *Session) google(m map[string]any) error {
 			if e := s.startGoogleResponse(); e != nil {
 				return e
 			}
-			s.outputText += str(t, "text")
+			text := str(t, "text")
+			if len(s.outputText)+len(text) > realtime.MaxToolBytes {
+				return realtime.Fail(realtime.ErrorProtocol)
+			}
+			s.outputText += text
 			if e := s.transcript(str(t, "text"), realtime.SpeakerAssistant, realtime.TranscriptModeDelta, false, s.response, s.response); e != nil {
 				return e
 			}
