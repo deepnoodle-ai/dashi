@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+- Add native bidirectional voice sessions in `realtime`, with Gemini Live and Grok voice adapters, bounded audio/tool transport, interruption and transcript events, and caller-owned tool execution.
+
 ## [0.5.0] - 2026-10-08
 
 ### Added
