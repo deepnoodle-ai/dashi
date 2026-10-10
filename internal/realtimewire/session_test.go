@@ -130,6 +130,7 @@ func TestMalformedPayloadSanitized(t *testing.T) {
 }
 func TestCanceledToolCannotBeAnswered(t *testing.T) {
 	s, _ := connect(t, true, fake(`{"setupComplete":{}}`, `{"toolCall":{"functionCalls":[{"id":"c","name":"ask_agent","args":{}}]}}`, `{"toolCallCancellation":{"ids":["c"]}}`))
+	next(t, s, realtime.EventResponseStarted)
 	next(t, s, realtime.EventToolCall)
 	next(t, s, realtime.EventToolCanceled)
 	if err := s.Send(context.Background(), realtime.Command{Kind: realtime.CommandToolResult, ToolResult: &realtime.ToolResult{CallID: "c", Name: "ask_agent", Output: json.RawMessage(`{}`)}}); err == nil {
@@ -285,4 +286,49 @@ func TestConcurrentAudioWritesAndUsage(t *testing.T) {
 		t.Fatal("usage facts fabricated")
 	}
 	next(t, s, realtime.EventResponseCompleted)
+}
+func TestGeminiTranscriptBeforeAudioHasStableIdentityAndFinality(t *testing.T) {
+	s, _ := connect(t, true, fake(`{"setupComplete":{}}`, `{"serverContent":{"outputTranscription":{"text":"one"}}}`, `{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"data":"AAA=","mimeType":"audio/pcm;rate=24000"}}]}}}`, `{"serverContent":{"generationComplete":true}}`, `{"serverContent":{"turnComplete":true}}`, `{"serverContent":{"outputTranscription":{"text":"two"}}}`, `{"serverContent":{"turnComplete":true}}`))
+	a := next(t, s, realtime.EventResponseStarted)
+	first := next(t, s, realtime.EventTranscript)
+	audio := next(t, s, realtime.EventAudio)
+	final := next(t, s, realtime.EventTranscript)
+	if a.ResponseID == "" || first.ResponseID != a.ResponseID || audio.ResponseID != a.ResponseID || final.ResponseID != a.ResponseID || !final.Transcript.Final || final.Transcript.Mode != realtime.TranscriptModeReplace || final.Transcript.Text != "one" {
+		t.Fatal("first response ownership/finality")
+	}
+	next(t, s, realtime.EventResponseCompleted)
+	b := next(t, s, realtime.EventResponseStarted)
+	second := next(t, s, realtime.EventTranscript)
+	final = next(t, s, realtime.EventTranscript)
+	if a.ResponseID == b.ResponseID || second.ResponseID != b.ResponseID || final.Transcript.Text != "two" || !final.Transcript.Final {
+		t.Fatal("second transcript-only response ownership/finality")
+	}
+	next(t, s, realtime.EventResponseCompleted)
+}
+func TestGrokCancellationOwnsOnlyCanceledResponseTools(t *testing.T) {
+	s, _ := connect(t, false, fake(`{"type":"session.updated"}`, `{"type":"response.created","response":{"id":"old"}}`, `{"type":"response.function_call_arguments.done","response_id":"old","call_id":"keep","name":"ask_agent","arguments":"{}"}`, `{"type":"response.done","response":{"id":"old","status":"completed"}}`, `{"type":"input_audio_buffer.speech_started"}`, `{"type":"response.created","response":{"id":"new"}}`, `{"type":"response.function_call_arguments.done","response_id":"new","call_id":"cancel1","name":"ask_agent","arguments":"{}"}`, `{"type":"response.function_call_arguments.done","response_id":"new","call_id":"cancel2","name":"ask_agent","arguments":"{}"}`, `{"type":"response.done","response":{"id":"new","status":"cancelled"}}`))
+	next(t, s, realtime.EventResponseStarted)
+	next(t, s, realtime.EventToolCall)
+	next(t, s, realtime.EventResponseCompleted)
+	next(t, s, realtime.EventInterrupted)
+	next(t, s, realtime.EventSpeechStarted)
+	next(t, s, realtime.EventResponseStarted)
+	next(t, s, realtime.EventToolCall)
+	next(t, s, realtime.EventToolCall)
+	e := next(t, s, realtime.EventToolCanceled)
+	if len(e.CanceledCallIDs) != 2 || e.ResponseID != "new" {
+		t.Fatal("wrong tools canceled")
+	}
+	next(t, s, realtime.EventResponseCompleted)
+	for _, id := range []string{"cancel1", "cancel2"} {
+		if err := s.Send(context.Background(), realtime.Command{Kind: realtime.CommandToolResult, ToolResult: &realtime.ToolResult{CallID: id, Name: "ask_agent", Output: json.RawMessage(`{}`)}}); err == nil {
+			t.Fatal("canceled tool accepted")
+		}
+	}
+	if err := s.Send(context.Background(), realtime.Command{Kind: realtime.CommandToolResult, ToolResult: &realtime.ToolResult{CallID: "keep", Name: "ask_agent", Output: json.RawMessage(`{}`)}}); err != nil {
+		t.Fatal("completed response tool canceled", err)
+	}
+	if err := s.Send(context.Background(), realtime.Command{Kind: realtime.CommandRespond}); err != nil {
+		t.Fatal("response blocked after cancellation", err)
+	}
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sync"
 
 	"github.com/coder/websocket"
@@ -48,6 +49,7 @@ type Session struct {
 	readMu          sync.Mutex
 	writeMu         sync.Mutex
 	pending         map[string]string
+	owners          map[string]string
 	seen            map[string]bool
 	allowed         map[string]bool
 	events          []realtime.Event
@@ -56,13 +58,15 @@ type Session struct {
 	inputSequence   int
 	inputID         string
 	inputText       string
+	outputText      string
+	outputFinal     bool
 	active, discard bool
 	stop            func() bool
 	closed          bool
 }
 
 func NewSession(ctx context.Context, conn realtime.Connection, info realtime.SessionInfo) *Session {
-	s := &Session{conn: conn, info: info, pending: map[string]string{}, seen: map[string]bool{}, allowed: map[string]bool{}}
+	s := &Session{conn: conn, info: info, pending: map[string]string{}, owners: map[string]string{}, seen: map[string]bool{}, allowed: map[string]bool{}}
 	s.stop = context.AfterFunc(ctx, func() { conn.Close() })
 	return s
 }
@@ -231,6 +235,7 @@ func (s *Session) Send(ctx context.Context, c realtime.Command) error {
 	}
 	if c.Kind == realtime.CommandToolResult {
 		delete(s.pending, c.ToolResult.CallID)
+		delete(s.owners, c.ToolResult.CallID)
 	}
 	if c.Kind == realtime.CommandRespond {
 		s.active = true
@@ -272,6 +277,7 @@ func (s *Session) call(id, name string, args any, response, item string) error {
 		return realtime.Fail(realtime.ErrorProtocol)
 	}
 	s.pending[id] = name
+	s.owners[id] = response
 	s.seen[id] = true
 	return s.enqueue(realtime.Event{Kind: realtime.EventToolCall, ResponseID: response, ItemID: item, ToolCall: &realtime.ToolCall{ID: id, Name: name, Arguments: b}})
 }
@@ -348,6 +354,11 @@ func (s *Session) google(m map[string]any) error {
 		return realtime.Fail(realtime.ErrorProvider)
 	}
 	if calls := object(m, "toolCall"); calls != nil {
+		if len(array(calls, "functionCalls")) > 0 && !s.discard {
+			if err := s.startGoogleResponse(); err != nil {
+				return err
+			}
+		}
 		for _, v := range array(calls, "functionCalls") {
 			c, _ := v.(map[string]any)
 			if e := s.call(str(c, "id"), str(c, "name"), c["args"], s.response, ""); e != nil {
@@ -361,6 +372,7 @@ func (s *Session) google(m map[string]any) error {
 			id, _ := v.(string)
 			if _, ok := s.pending[id]; ok {
 				delete(s.pending, id)
+				delete(s.owners, id)
 				ids = append(ids, id)
 			}
 		}
@@ -375,6 +387,9 @@ func (s *Session) google(m map[string]any) error {
 		return nil
 	}
 	if interrupted, _ := c["interrupted"].(bool); interrupted {
+		if err := s.finalizeGoogleOutput(); err != nil {
+			return err
+		}
 		s.discard = true
 		s.active = false
 		if e := s.enqueue(realtime.Event{Kind: realtime.EventInterrupted, ResponseID: s.response}); e != nil {
@@ -383,13 +398,8 @@ func (s *Session) google(m map[string]any) error {
 	}
 	if !s.discard {
 		if turn := object(c, "modelTurn"); turn != nil {
-			if !s.active {
-				s.sequence++
-				s.response = fmt.Sprintf("local-%d", s.sequence)
-				s.active = true
-				if e := s.enqueue(realtime.Event{Kind: realtime.EventResponseStarted, ResponseID: s.response}); e != nil {
-					return e
-				}
+			if e := s.startGoogleResponse(); e != nil {
+				return e
 			}
 			for _, v := range array(turn, "parts") {
 				part, _ := v.(map[string]any)
@@ -404,7 +414,11 @@ func (s *Session) google(m map[string]any) error {
 			}
 		}
 		if t := object(c, "outputTranscription"); t != nil {
-			if e := s.transcript(str(t, "text"), realtime.SpeakerAssistant, realtime.TranscriptModeDelta, boolean(t, "finished"), s.response, s.response); e != nil {
+			if e := s.startGoogleResponse(); e != nil {
+				return e
+			}
+			s.outputText += str(t, "text")
+			if e := s.transcript(str(t, "text"), realtime.SpeakerAssistant, realtime.TranscriptModeDelta, false, s.response, s.response); e != nil {
 				return e
 			}
 		}
@@ -434,6 +448,11 @@ func (s *Session) google(m map[string]any) error {
 		s.inputID = ""
 		s.inputText = ""
 	}
+	if boolean(c, "generationComplete") || boolean(c, "turnComplete") {
+		if err := s.finalizeGoogleOutput(); err != nil {
+			return err
+		}
+	}
 	if done, _ := c["turnComplete"].(bool); done {
 		if e := s.enqueue(realtime.Event{Kind: realtime.EventResponseCompleted, ResponseID: s.response}); e != nil {
 			return e
@@ -456,7 +475,16 @@ func (s *Session) grok(m map[string]any) error {
 		e.Kind = realtime.EventResponseStarted
 		e.ResponseID = s.response
 	case "response.done":
-		s.active = false
+		response := object(m, "response")
+		id := str(response, "id")
+		if status := str(response, "status"); status == "cancelled" || status == "canceled" {
+			if err := s.cancelResponseTools(id); err != nil {
+				return err
+			}
+		}
+		if id == s.response {
+			s.active = false
+		}
 		if usage := object(object(m, "response"), "usage"); usage != nil {
 			if err := s.usage(usage, false); err != nil {
 				return err
@@ -512,3 +540,40 @@ func (s *Session) usage(m map[string]any, google bool) error {
 }
 
 func boolean(m map[string]any, k string) bool { v, _ := m[k].(bool); return v }
+
+func (s *Session) startGoogleResponse() error {
+	if s.active {
+		return nil
+	}
+	s.sequence++
+	s.response = fmt.Sprintf("local-%d", s.sequence)
+	s.active = true
+	s.outputText = ""
+	s.outputFinal = false
+	return s.enqueue(realtime.Event{Kind: realtime.EventResponseStarted, ResponseID: s.response})
+}
+func (s *Session) finalizeGoogleOutput() error {
+	if s.outputFinal || s.outputText == "" {
+		return nil
+	}
+	s.outputFinal = true
+	return s.transcript(s.outputText, realtime.SpeakerAssistant, realtime.TranscriptModeReplace, true, s.response, s.response)
+}
+func (s *Session) cancelResponseTools(response string) error {
+	if response == "" {
+		return nil
+	}
+	ids := []string{}
+	for id, owner := range s.owners {
+		if owner == response {
+			ids = append(ids, id)
+			delete(s.pending, id)
+			delete(s.owners, id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	slices.Sort(ids)
+	return s.enqueue(realtime.Event{Kind: realtime.EventToolCanceled, ResponseID: response, CanceledCallIDs: ids})
+}

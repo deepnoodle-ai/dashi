@@ -27,9 +27,15 @@ before requesting another response. Gemini schedules tool replies WHEN_IDLE.
 Transcript delta appends; replace replaces the current item, including final
 transcripts. Grok cumulative input captions are replacements. Gemini IDs prefixed
 `local-` identify adapter-local responses, not native provider objects.
+Assistant output establishes a Gemini response ID even when a transcript or tool
+call arrives before audio. Accumulated output transcripts finalize at generation
+completion, interruption or turn completion.
+
 Interruption clears local playback. Gemini ignores old audio through turnComplete
 before beginning a new response identity. Native tool cancellation prevents a
-late result from being accepted. Playback truncation is unqualified and rejected;
+late result from being accepted. Grok canceled response completion cancels only
+tools owned by that response. Speech activity flushes playback immediately but
+does not cancel tools from an already completed response awaiting results. Playback truncation is unqualified and rejected;
 generated output must not be interpreted as proof of what someone heard.
 
 Errors omit provider payloads and authentication URLs. Usage is unpriced evidence;
