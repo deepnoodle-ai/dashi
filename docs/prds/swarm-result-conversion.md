@@ -1,7 +1,7 @@
 # Receive late records and convert external MCP results
 
 Status: Approved\
-PRD PR: Pending · Implementation PR: Pending · Updated: 2026-10-11
+PRD PR: [#249](https://github.com/deepnoodle-ai/dashi/pull/249) · Implementation PR: Pending · Updated: 2026-10-11
 
 ## Problem and context
 

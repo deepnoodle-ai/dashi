@@ -2,7 +2,7 @@
 
 Status: Accepted · Author: Codex · Updated: 2026-10-11\
 Workflow: Independent PRD review accepted the spec; implementation follows publication.\
-PRD: [Receive late records and convert external MCP results](../prds/swarm-result-conversion.md)
+PRD: [#249](https://github.com/deepnoodle-ai/dashi/pull/249) · [Requirements](../prds/swarm-result-conversion.md)
 
 ## Context and ownership
 
