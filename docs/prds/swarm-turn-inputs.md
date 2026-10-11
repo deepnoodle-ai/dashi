@@ -1,6 +1,6 @@
 # Accept background work and recover useful failure details
 
-Status: Draft\
+Status: Approved\
 PRD PR: pending  Implementation PR: pending  Updated: 2026-10-11
 
 ## Problem and users
@@ -56,8 +56,8 @@ name, and lifetime. They admit or run the Start, reload, and continue it.
 - [ ] IDs participate in Turn-wide duplicate checks. Repeated IDs in the initial batch fail before recording.
 - [ ] All item fields and order belong to the Start hash. Changing authority or lifetime under the same command ID conflicts.
 - [ ] Nil and empty initial context preserve old behavior. Invalid roles, reminder tiers, or content fail before any commit.
-- [ ] Run and Admit mark Starts with nonempty initial context as record version 2. Older record readers reject them before execution.
-- [ ] Updated readers reject context-bearing version-1 Starts and unknown versions. Nil/empty context retains version 1 and existing hashes.
+- [ ] Run and Admit mark Starts with nonempty initial context as record version 2. Older execution readers reject them before execution.
+- [ ] Replay rejects context-bearing version-1 Starts, version-2 Starts with missing/empty context, and unknown versions. Nil/empty context retains version 1 and existing hashes.
 
 ### UC-3: Handle failure after a restart
 
@@ -92,4 +92,4 @@ failure-injection tests cover old hashes, reload, partial admission writes, and 
 `make check` passes. Independent reviewers run the examples and examine saved-record safety.
 Upgrade record readers and saved-command consumers before enabling new writers.
 The [technical spec](../design/swarm-turn-inputs.md) defines version rejection, command rollout, and retry matching.
-No design question blocks the planning review.
+The planning checkpoint accepted this design. Implementation awaits the orchestrator's dispatch.

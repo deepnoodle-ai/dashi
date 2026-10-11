@@ -1,6 +1,6 @@
 # Admission, initial context, and saved model failure facts
 
-Status: Draft  Author: Codex  Date: 2026-10-11\
+Status: Accepted  Author: Codex  Date: 2026-10-11\
 Workflow: spec, independent review checkpoint, then build.
 
 ## Context and goals
@@ -66,10 +66,12 @@ Include the complete ordered items in new Start hashes and deep-copy their messa
 Store them atomically with input on the Start step.
 
 Set that Start step's existing `Version` to 2 whenever Context is nonempty,
-whether Run or Admit records it. Existing readers reject version 2 before replay.
-Updated readers accept version 1 without initial context and version 2 only
-for a Start with nonempty initial context. Reject unknown versions and a
-version-1 Start carrying context. Other steps retain version 1.
+whether Run or Admit records it. Older execution readers reject version 2 before replay.
+Updated replay accepts version 1 without initial context and version 2 only
+for a Start with nonempty initial context. Reject unknown versions, a version-1
+Start carrying context, and a version-2 Start with missing or empty context.
+An older mirror cannot strip the items and leave an accepted version-2 Start.
+Other steps retain version 1.
 Step.Version is outside the command hash. Nil and empty context keep their old hashes.
 This protects ordinary Run records and a partially written admission containing only Start.
 
@@ -128,10 +130,13 @@ An optional initial-context field alone permits silent omission by older readers
 Reuse the existing step version to reject unsupported semantics before execution.
 Versioning every unchanged step would create a larger compatibility boundary without additional protection.
 
-No migration is needed. Updated readers accept existing version-1 records and
-new version-2 Starts. Older record readers reject these Starts and StopReady.
-Deploy support to every record reader, worker, Follow/Tail consumer, and saved-command
-consumer before any writer emits initial context or ready stops.
+No migration is needed. Updated replay accepts existing version-1 records and
+new version-2 Starts. Older execution readers reject these Starts and StopReady.
+Deploy support to every worker, view/history builder, and saved-command consumer
+before any writer emits initial context or ready stops.
+Follow and Tail remain raw readers that check cursor identity and sequence.
+They forward records without interpreting versions. Their consumers must upgrade
+replay/view support before using those records for execution or presentation.
 Old command JSON decoders may ignore new fields. Do not enqueue context-bearing
 Starts where an older consumer can decode or execute them.
 Enable new writers only after applications establish that deployment boundary.
@@ -140,9 +145,8 @@ Keep the closed-pause behavior for existing callers, while guides use Admit for 
 
 Implementation owns `command.go`, `run_` admission/model paths, `turn_` facts,
 replay, views, validation, and the initial-item hunk in `history_turn_messages.go`.
-Coordinate that hunk with the history track. Coordinate the shared supported-version
-check with the orchestrator and result-conversion track before implementation.
-Their Follow/Tail readers must accept supported version-2 Starts and reject unknown versions.
+Coordinate that hunk with the history track. Keep version gating in replay.
+The result-conversion track owns the shared Follow/Tail loop and preserves its raw-reader behavior.
 Do not modify history policy, compaction/, feed/, mcp/, or run_follow.go.
 
 Verify owner forwarding, no external calls, stale snapshots, loader failures,
@@ -151,9 +155,10 @@ context authority/IDs/lifetime, JSON reload, 429 timing, preparation failures,
 unknown/partial sends, host resolution, and secret-bearing error fixtures.
 Use a pinned legacy reader harness to reject a serialized context-bearing Start
 from ordinary Run before any model work. Repeat with an admission's Start-only prefix.
-Verify version-1 legacy records, nil/empty-context hashes, supported version-2
-replay/Follow/Tail, downgraded context-bearing Starts, and unknown-version rejection.
+Verify version-1 legacy records, nil/empty-context hashes, and supported version-2 replay.
+Reject downgraded context-bearing Starts, stripped/empty-context version-2 Starts,
+and unknown versions before execution. Check that raw Follow/Tail transport remains unchanged.
 Commit short offline Example tests, update running/recovery/steering guides and
 CHANGELOG, then run focused race tests and `make check`.
 Independent implementation and security reviews check recorded input and failure safety.
-No question blocks implementation after the planning checkpoint accepts this design.
+The planning checkpoint accepted this design. Implementation awaits the orchestrator's dispatch.
