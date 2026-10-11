@@ -1,7 +1,7 @@
 # Accept background work and recover useful failure details
 
 Status: Approved\
-PRD PR: #250  Implementation PR: pending  Updated: 2026-10-11
+PRD PR: #250  Implementation PR: #252  Updated: 2026-10-11
 
 ## Problem and users
 
@@ -92,4 +92,4 @@ failure-injection tests cover old hashes, reload, partial admission writes, and 
 `make check` passes. Independent reviewers run the examples and examine saved-record safety.
 Upgrade record readers and saved-command consumers before enabling new writers.
 The [technical spec](../design/swarm-turn-inputs.md) defines version rejection, command rollout, and retry matching.
-The planning checkpoint accepted this design. Implementation awaits the orchestrator's dispatch.
+The planning checkpoint accepted this design. The implementation is published in #252 and awaits merge.
