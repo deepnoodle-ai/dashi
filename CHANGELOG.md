@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`dashi.BuildHistoryStrict`** rejects unreadable supplied Turns and
+  mismatched summary source hashes with identifying errors, including records
+  hidden by newer summaries. Trusted summary suffixes remain supported.
+- **`compaction.ValidateReplacement`** checks finished summaries against
+  frozen source and input, returning detached replacement history for
+  application-owned activation. Later application input and recorded history
+  mismatches invalidate the replacement; same-history recovery remains valid.
+
 ## [0.6.0] - 2026-10-10
 
 ### Added

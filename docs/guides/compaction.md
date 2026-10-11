@@ -147,6 +147,9 @@ it with `dashi.HistoryHash(history)`; a fact without one is not checked.
 tool loop sends the whole history again. Do not compact while a turn waits to
 continue: `Continue` must get the history the turn started with.
 
+For strict construction and application-owned activation, see
+[validating saved history](history-integrity.md).
+
 ## Persistent context
 
 Keep `llm.Message.Context` when retaining messages. `Message.Clone` and JSON

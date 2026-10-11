@@ -28,12 +28,36 @@ import (
 // The result shares message content with the turns, so the caller must not
 // change it.
 func BuildHistory(turns []Turn) ([]llm.Message, []Warning) {
+	at := historyReader(turns)
+	check := func(i int, h historyTurn) *Warning {
+		f := h.view.Compaction
+		if f.Hash == "" || i == 0 {
+			return nil
+		}
+		covered, _ := buildHistory(i, at, nil)
+		return hashMismatch(h.id, f.Hash, covered)
+	}
+	return buildHistory(len(turns), at, check)
+}
+
+// historyReader caches projections for one construction. Both policies use
+// the same reader and replacement selection rule.
+func historyReader(turns []Turn) func(int) (historyTurn, error) {
 	views := make([]*TurnView, len(turns))
-	at := func(i int) (historyTurn, error) {
+	messages := make([][]llm.Message, len(turns))
+	read := make([]bool, len(turns))
+	errors := make([]error, len(turns))
+	return func(i int) (historyTurn, error) {
 		t := turns[i]
 		h := historyTurn{
-			id:       t.ID,
-			messages: func() ([]llm.Message, error) { return TurnMessages(t) },
+			id: t.ID,
+			messages: func() ([]llm.Message, error) {
+				if !read[i] {
+					messages[i], errors[i] = TurnMessages(t)
+					read[i] = true
+				}
+				return messages[i], errors[i]
+			},
 		}
 		if views[i] == nil {
 			view, err := t.View()
@@ -45,15 +69,6 @@ func BuildHistory(turns []Turn) ([]llm.Message, []Warning) {
 		h.view = *views[i]
 		return h, nil
 	}
-	check := func(i int, h historyTurn) *Warning {
-		f := h.view.Compaction
-		if f.Hash == "" || i == 0 {
-			return nil
-		}
-		covered, _ := buildHistory(i, at, nil)
-		return hashMismatch(h.id, f.Hash, covered)
-	}
-	return buildHistory(len(turns), at, check)
 }
 
 // historyTurn is one turn as the history rule reads it.
