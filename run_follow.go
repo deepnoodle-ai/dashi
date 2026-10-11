@@ -3,10 +3,9 @@ package dashi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"time"
-
-	"github.com/deepnoodle-ai/dashi/internal/recordfollow"
 )
 
 // ErrCursorAhead reports a cursor past a turn's last committed step. It means
@@ -82,18 +81,18 @@ func (s Step) Finishes() string {
 // Follow intervals. They are variables so tests can shorten them.
 var (
 	// followPoll is the interval without a StepWaiter, or after one fails.
-	followPoll = recordfollow.Defaults().Poll
+	followPoll = time.Second
 	// followBackstop bounds a wait on a StepWaiter.
-	followBackstop = recordfollow.Defaults().Backstop
+	followBackstop = 15 * time.Second
 	// followResting applies while the turn rests at a stop that did not
 	// end it, which can last days while it waits for a person.
-	followResting = recordfollow.Defaults().Resting
+	followResting = 30 * time.Second
 	// followFloor is the pause after a wake that found nothing new, so a
 	// waiter that reports steps too eagerly cannot make Follow spin.
-	followFloor = recordfollow.Defaults().Floor
+	followFloor = 50 * time.Millisecond
 	// followPage is the page size Follow asks for; a shorter page means
 	// Follow has caught up.
-	followPage = recordfollow.Defaults().Page
+	followPage = 100
 )
 
 // Follow yields the turn's committed steps with Seq greater than after, then
@@ -106,8 +105,8 @@ var (
 // without yielding anything, so a reader that reconnects after the end is
 // not held open. A late result of work started before the ending stop can
 // still be recorded after it; a reader that must see every step
-// (accounting, a mirror) uses package feed's Tail, or reads later results with
-// StepsAfter from the stop's Seq. A read error, including
+// (accounting, a mirror) reads later results with StepsAfter from the
+// stop's Seq. A read error, including
 // ErrCursorAhead, is yielded once. A step that does not continue the cursor
 // (another turn's step, or a gap in Seq) yields an error matching
 // ErrRecordInvalid.
@@ -122,32 +121,128 @@ func Follow(
 	turnID string,
 	after int64,
 ) iter.Seq2[Step, error] {
-	return recordfollow.Follow(
-		ctx,
-		r,
-		turnID,
-		after,
-		func(step Step) recordfollow.Position {
-			return recordfollow.Position{
-				TurnID:  step.TurnID,
-				Seq:     step.Seq,
-				Ended:   step.Stop != nil && step.Stop.Ended,
-				Resting: step.Kind == StepTurnStopped,
+	return func(yield func(Step, error) bool) {
+		cursor := max(after, 0)
+		// A reader resuming at a step first reads that step again, to learn
+		// whether the turn has ended or rests at a stop.
+		known := cursor > 0
+		resting, woke := false, false
+		for ctx.Err() == nil {
+			from := cursor
+			if known {
+				from = cursor - 1
 			}
-		},
-		true,
-		ErrCursorAhead,
+			steps, err := r.StepsAfter(ctx, turnID, from, followPage)
+			if err != nil {
+				if ctx.Err() == nil {
+					yield(Step{}, err)
+				}
+				return
+			}
+			full := len(steps) >= followPage
+			if known {
+				known = false
+				if len(steps) == 0 {
+					// The step before the cursor exists but the cursor's
+					// step does not: the cursor is ahead.
+					yield(Step{}, fmt.Errorf(
+						"%w: turn %q has no step %d",
+						ErrCursorAhead,
+						turnID,
+						cursor,
+					))
+					return
+				}
+				last := steps[0]
+				if last.TurnID != turnID || last.Seq != cursor {
+					yield(Step{}, discontinuous(turnID, cursor-1, last))
+					return
+				}
+				if last.Stop != nil && last.Stop.Ended {
+					return
+				}
+				resting = last.Kind == StepTurnStopped
+				steps = steps[1:]
+			}
+			for _, step := range steps {
+				if step.TurnID != turnID || step.Seq != cursor+1 {
+					yield(Step{}, discontinuous(turnID, cursor, step))
+					return
+				}
+				if !yield(step, nil) {
+					return
+				}
+				cursor = step.Seq
+				if step.Stop != nil && step.Stop.Ended {
+					return
+				}
+				resting = step.Kind == StepTurnStopped
+			}
+			if full {
+				continue
+			}
+			if woke && len(steps) == 0 {
+				sleep(ctx, followFloor)
+			}
+			woke = followWait(ctx, r, turnID, cursor, resting)
+		}
+	}
+}
+
+func discontinuous(turnID string, cursor int64, step Step) error {
+	return fmt.Errorf(
+		"%w: following turn %q after seq %d, the reader returned seq %d "+
+			"of turn %q",
 		ErrRecordInvalid,
-		recordfollow.Bounds{
-			Page:     followPage,
-			Poll:     followPoll,
-			Backstop: followBackstop,
-			Resting:  followResting,
-			Floor:    followFloor,
-		},
+		turnID,
+		cursor,
+		step.Seq,
+		step.TurnID,
 	)
 }
 
+// followWait returns when the next page is worth reading: after a wake, a
+// poll interval, or the end of ctx. It reports whether a waiter woke it
+// before its backstop.
+func followWait(
+	ctx context.Context,
+	r StepReader,
+	turnID string,
+	cursor int64,
+	resting bool,
+) bool {
+	w, ok := r.(StepWaiter)
+	if !ok {
+		sleep(ctx, pollInterval(followPoll, resting))
+		return false
+	}
+	wctx, cancel := context.WithTimeout(
+		ctx,
+		pollInterval(followBackstop, resting),
+	)
+	err := w.Wait(wctx, turnID, cursor)
+	expired := wctx.Err() != nil
+	cancel()
+	if err != nil && !expired {
+		// The hint failed; poll rather than spin on it.
+		sleep(ctx, pollInterval(followPoll, resting))
+		return false
+	}
+	return err == nil && !expired
+}
+
 func pollInterval(d time.Duration, resting bool) time.Duration {
-	return recordfollow.Interval(d, followResting, resting)
+	if resting {
+		return max(d, followResting)
+	}
+	return d
+}
+
+func sleep(ctx context.Context, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+	case <-ctx.Done():
+	}
 }

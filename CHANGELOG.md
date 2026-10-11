@@ -8,9 +8,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- **`feed.Tail`** follows committed turn records until its reader context ends,
-  including late tool results saved after execution ends. It shares Follow's
-  validated cursor, paging, and wait behavior without changing ordinary Follow.
 - **`mcp.ConvertResult` and `mcp.ConvertResultJSON`** convert external MCP results
   independently of Toolset. They preserve ordered typed media, exact journaled
   structured numbers, and MCP failure, with explicit resource and media omissions.
