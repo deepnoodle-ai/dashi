@@ -1,24 +1,23 @@
-# Record tailing and standalone MCP conversion
+# Standalone MCP conversion
 
-Status: Accepted · Author: Codex · Updated: 2026-10-11\
-Workflow: Independent PRD review accepted the spec; implementation follows publication.\
-PRD: [#249](https://github.com/deepnoodle-ai/dashi/pull/249) · Implementation: [#253](https://github.com/deepnoodle-ai/dashi/pull/253) · [Requirements](../prds/swarm-result-conversion.md)
+Status: Scope narrowed · Author: Codex · Updated: 2026-10-11\
+Workflow: Retain the previously reviewed MCP requirements; withdraw Tail and its reader extraction.\
+PRD: [#249](https://github.com/deepnoodle-ai/dashi/pull/249) · [Requirements](../prds/swarm-result-conversion.md)
 
 ## Context and ownership
 
-`run_follow.go` contains the validated record iterator. `feed.Follow` adds Hub
-previews but deliberately ends with execution. `mcp/result.go` privately converts
-SDK results, silently drops structured marshal failures, and does not validate MIME.
-Keep this work in `feed/` and the separate `mcp` module. A coordinated extraction
-from `run_follow.go` is the only root implementation change. No execution facts,
-storage schemas, module versions, or dependency versions change.
+The user asks an image-capable agent to inspect an MCP screenshot. The tool returns
+an object, Swarm journals it, and its array-only bridge sends JSON text to the model.
+The shared converter reads the object and supplies an image block in the next request.
+
+`mcp/result.go` already converts SDK results privately inside Toolset. Keep the
+shared conversion in the separate MCP module. Workers, journals, permissions,
+and recovery remain application-owned. No root reader implementation, execution
+facts, storage schemas, module versions, or dependency versions change.
 
 ## APIs
 
 ```go
-func feed.Tail(ctx context.Context, r dashi.StepReader,
-    turnID string, after int64) iter.Seq2[dashi.Step, error]
-
 func mcp.ConvertResult(res *sdk.CallToolResult) (tool.Outcome, []string, error)
 func mcp.ConvertResultJSON(raw json.RawMessage) (tool.Outcome, []string, error)
 ```
@@ -28,30 +27,6 @@ projection loss. Errors describe unusable input. On error, return a zero outcome
 An empty completed result is valid. A nil SDK result is invalid. Export the sentinel
 `mcp.ErrInputRequired` so hosts distinguish an interaction from unusable completion
 with `errors.Is`. Both converter entry points preserve that error identity.
-
-## One record loop, two lifetimes
-
-Extract the current loop into a small generic helper under `internal/`. It imports
-no public Dashi types. Thin adapters supply Step identity, sequence, stop flags,
-and existing error identities. Its private completion policy distinguishes ending
-with execution from following all records. Keep intervals and paging private.
-This is shared implementation, not a configurable reader framework.
-
-`dashi.Follow` selects its existing completion policy. It still validates the
-cursor's row, ends immediately when that row ended execution, and yields no later
-records. `feed.Follow` continues to use it unchanged. `feed.Tail` uses the same
-loop with ending-stop completion disabled. It yields the original committed Step
-without altering stop flags or record meaning. Tail has no Hub or preview path.
-Record-version validation stays with replay/execution. Combined testing with the
-turn-inputs track covers supported initial-context records using the updated Step type.
-
-Preserve negative-cursor normalization, contiguous sequence checks, primary-read
-assumptions, page draining, stopped-turn polling, waiter fallback, missed-wake
-backstop, and eager-waiter backoff. Errors yield once. Context cancellation ends
-quietly, as Follow does. The loop runs on the consuming goroutine and starts no
-background worker. StepReader and StepWaiter must honor cancellation promptly.
-The caller authorizes access, persists cursors, applies idempotently across restart,
-and chooses a finite reader lifetime. Host-only ledger changes need host notifications.
 
 ## Completed MCP results
 
@@ -73,13 +48,8 @@ pending while its existing permission/input flow fulfills them. It resumes that
 same MCP request with the saved state and input responses, as the protocol requires.
 This is an incomplete interaction, not a repeat of completed work. A host without
 that flow settles a safe failed outcome explaining unsupported input, with no retry.
-Toolset disables the SDK's automatic multi-round-trip input handling, has no input
-handler, and uses this safe failure path after one call, retaining the connection.
-The JSON entry point rejects interaction fields on completed results before SDK
-decoding. For input-required responses, validate request state and request map
-shapes before SDK parameter decoding and the sentinel; malformed interaction data
-returns a safe conversion error. Unknown transport outcomes keep their existing
-recovery handling. Reject sampling-only tool-use/result
+Toolset has no input handler and uses this safe failure path. Unknown transport
+outcomes keep their existing recovery handling. Reject sampling-only tool-use/result
 blocks and nil entries, including typed nil pointers, without panic or execution.
 
 Convert blocks in their original order. Text remains text. Clone image/audio bytes
@@ -140,29 +110,24 @@ safe reasons, never raw payloads or SDK exception text containing input values.
 
 ## Alternatives, tradeoffs, and verification
 
-- Keep Follow plus manual StepsAfter: smallest public surface, but each adopter
-  must repeat cursor validation, paging, waiting, and cancellation rules.
-- Copy the loop into feed: avoids a generic helper, but fixes and guarantees can
-  drift. Share only the existing loop with a private completion policy.
+- Unwrap the envelope in Swarm: the smaller screenshot fix, but applications
+  retain content-format conversion already implemented inside Dashi Toolset.
 - Export typed conversion only: sufficient for fresh SDK calls, but leaves the
   demonstrated journal envelope bridge. The thin SDK-decoded wrapper removes it.
 - Move external tools into Toolset: removes some conversion calls but transfers
   concurrency, journal, permissions, and recovery authority. Keep conversion pure.
 
-Costs are a small generic extraction and stricter rejection of malformed MCP input.
-Media outside the fixed set produce visible omissions. Tail remains open until its caller
-ends it, so guides must discourage one permanent watcher per historical bill.
+Conversion rejects malformed MCP input more strictly. Media outside the fixed
+set produce visible omissions. Tail and the generic reader extraction are removed:
+Follow already ends with execution, and the user expects no result after stopping.
 
-Test Tail with a real canceled external-tool turn and a later committed result,
-resuming at and after the stop, multi-page history, invalid readers, independent
-readers, waiter failure/missed wakes, cancellation during read/wait, and range break.
-Run existing root and feed Follow tests to pin compatibility. Test typed and JSON
+Test typed and JSON
 MCP paths with ordered mixed blocks, both failure flags, safe unusable-result settlement,
 empty/nil cases, incomplete results, invalid MIME/signatures, malformed envelopes,
 resources, unsupported kinds, all guaranteed media/aliases, omitted valid SVG,
 copied bytes, and safe diagnostics. Test `9007199254740993` and
 `0.1234567890123456789` alone and beside equivalent JSON text, asserting one exact
-representation. Commit late-result, screenshot, and failed-settlement examples.
-Update both guides and Unreleased changelog.
+representation. Keep screenshot and failed-settlement examples.
+Update the MCP guide and Unreleased changelog.
 Run `make check` and independent implementation/security reviews before publication.
 No unresolved design question blocks the planning checkpoint.
