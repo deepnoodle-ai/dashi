@@ -56,6 +56,9 @@ These references point to the temporary local research snapshot.
 Current area designs: [turns and their record](turn.md) and
 [agent and loop](agent-loop.md).
 
+Consumer review: [Swarm integration and adoption recommendations](swarm-integration/README.md)
+explains where Dashi could reduce application code in Swarm.
+
 [model]: ../tmp/research/design/2026-09-26-dive-v2-conceptual-model.md
 [analysis]: ../tmp/research/design/2026-09-26-dive-v2-conceptual-design.md
 [feedback]: ../tmp/research/design/2026-09-26-dive-v2-integrator-feedback.md
