@@ -73,6 +73,218 @@ func roundTrip[T any](t *testing.T, value T) T {
 	return result
 }
 
+func TestValidateReplacementRejectsMalformedSource(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		message llm.Message
+	}{
+		{"empty", llm.Message{Role: llm.RoleUser}},
+		{"context origin", llm.Message{
+			Role: llm.RoleUser, Content: []llm.Content{llm.Text("notes")},
+			Context: &llm.MessageContext{Origin: "unknown", Name: "notes"},
+		}},
+		{"context authority", llm.Message{
+			Role: llm.RoleAssistant, Content: []llm.Content{llm.Text("notes")},
+			Context: &llm.MessageContext{Origin: "runtime", Name: "notes"},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := []llm.Message{
+				tc.message, llm.UserMessage(llm.Text("Project Heron.")),
+			}
+			if _, err := (dashi.Runner{}).Admit(
+				t.Context(), dashi.NewTurn("ordinary"), dashi.Start{
+					Agent:   dashi.Agent{Model: dashitest.Model},
+					History: source,
+					Input:   []llm.Message{llm.UserMessage(llm.Text("Continue."))},
+				},
+			); err == nil {
+				t.Fatal("fixture must fail ordinary history admission")
+			}
+			start, err := (&compaction.Compactor{
+				Model: dashitest.Model, TailFraction: -1,
+			}).Start(
+				t.Context(),
+				source,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			turn := summaryRun(t, dashi.Runner{
+				Client: dashitest.NewClient(dashitest.Reply("Heron.")),
+			}, dashi.NewTurn("summary-heron"), start)
+			got, err := compaction.ValidateReplacement(start, source, turn)
+			if err == nil || !reflect.DeepEqual(got, compaction.Replacement{}) {
+				t.Fatalf("malformed source returned replacement: %+v, %v", got, err)
+			}
+			if !strings.Contains(err.Error(), "summary-heron") ||
+				!strings.Contains(err.Error(), "frozen source: history message 1:") {
+				t.Fatalf("error lost source position or summary identity: %v", err)
+			}
+		})
+	}
+}
+
+func replacementInitialContext() []dashi.ContextItem {
+	return []dashi.ContextItem{
+		{
+			ID: "checkout", Name: "checkout", Origin: dashi.ContextRuntime,
+			Snapshot: true, NextCallOnly: true,
+			Message: llm.UserMessage(llm.Text("Use the saved checkout.")),
+		},
+		{
+			ID: "policy", Name: "policy", Origin: dashi.ContextOperator,
+			Message: llm.Message{
+				Role: llm.RoleDeveloper, Content: []llm.Content{llm.Text("Keep names.")},
+			},
+		},
+		{
+			ID: "hint", Name: "hint", Snapshot: true, NextCallOnly: true,
+			Message: llm.UserMessage(llm.Text("Include the project name.")),
+		},
+		{
+			ID: "request", Origin: dashi.ContextUser,
+			Message: llm.UserMessage(llm.Text("Include the recent outcome.")),
+		},
+	}
+}
+
+func TestValidateReplacementBindsInitialContext(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*[]dashi.ContextItem)
+	}{
+		{"ID", func(items *[]dashi.ContextItem) { (*items)[0].ID = "other" }},
+		{"name", func(items *[]dashi.ContextItem) { (*items)[0].Name = "other" }},
+		{
+			"origin",
+			func(items *[]dashi.ContextItem) { (*items)[0].Origin = dashi.ContextUser },
+		},
+		{
+			"role",
+			func(items *[]dashi.ContextItem) { (*items)[1].Message.Role = llm.RoleSystem },
+		},
+		{"text", func(items *[]dashi.ContextItem) {
+			(*items)[0].Message.Content[0].Block.Text.Text = "other"
+		}},
+		{
+			"snapshot",
+			func(items *[]dashi.ContextItem) { (*items)[0].Snapshot = false },
+		},
+		{
+			"lifetime",
+			func(items *[]dashi.ContextItem) { (*items)[0].NextCallOnly = false },
+		},
+		{"order", func(items *[]dashi.ContextItem) {
+			(*items)[0], (*items)[1] = (*items)[1], (*items)[0]
+		}},
+		{"omitted item", func(items *[]dashi.ContextItem) { *items = (*items)[1:] }},
+	} {
+		for _, saved := range []bool{true, false} {
+			location := "recorded"
+			if saved {
+				location = "frozen"
+			}
+			t.Run(location+"/"+tc.name, func(t *testing.T) {
+				start, source := replacementStart(t)
+				start.Context = replacementInitialContext()
+				turn := summaryRun(t, dashi.Runner{
+					Client: dashitest.NewClient(dashitest.Reply("Heron.")),
+				}, dashi.NewTurn("summary-heron"), start)
+				start, turn = roundTrip(t, start), roundTrip(t, turn)
+				if saved {
+					tc.change(&start.Context)
+				} else {
+					tc.change(&turn.Steps[0].Started.Context)
+				}
+				got, err := compaction.ValidateReplacement(start, source, turn)
+				if err == nil || !reflect.DeepEqual(got, compaction.Replacement{}) {
+					t.Fatalf("changed initial context returned replacement: %+v, %v", got, err)
+				}
+				if !strings.Contains(err.Error(), "summary-heron") ||
+					!strings.Contains(err.Error(), "initial context must match frozen start") {
+					t.Fatalf("error lost context requirement or summary identity: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestValidateReplacementAllowsFrozenInitialUserContextAfterRecovery(
+	t *testing.T,
+) {
+	start, source := replacementStart(t)
+	start.Context = replacementInitialContext()
+	client := dashitest.NewClient(
+		llm.Result{
+			Message: llm.AssistantMessage(llm.Text("partial")),
+			Stop:    llm.Stop{Kind: llm.StopOutputLimit},
+		},
+		dashitest.Reply("Heron."),
+	)
+	runner := dashi.Runner{Client: client}
+	turn := summaryRun(t, runner, dashi.NewTurn("summary"), start)
+	start, source, turn = roundTrip(
+		t,
+		start,
+	), roundTrip(t, source), roundTrip(t, turn)
+	turn = summaryRun(t, runner, turn, dashi.Continue{CommandID: "resume"})
+	before, _ := json.Marshal([]any{start, source, turn})
+	got, err := compaction.ValidateReplacement(start, source, roundTrip(t, turn))
+	if err != nil || got.Summary != "Heron." {
+		t.Fatalf(
+			"initial user items must remain valid frozen input: %+v, %v",
+			got,
+			err,
+		)
+	}
+	view, err := turn.View()
+	if err != nil || len(view.Input) != len(start.Input)+2 {
+		t.Fatalf("initial user context projection differs: %+v, %v", view, err)
+	}
+	if slot := view.Input[len(start.Input)].Context; slot == nil ||
+		slot.Origin != "user" || slot.Name != "hint" {
+		t.Fatalf("named initial user item lost its projection: %+v", slot)
+	}
+	for _, message := range client.Inputs()[1].Messages {
+		if strings.Contains(message.Text(), "Include the project name.") {
+			t.Fatal("next-call initial item did not expire after dispatch")
+		}
+	}
+	after, _ := json.Marshal([]any{start, source, turn})
+	if string(before) != string(after) || len(client.Inputs()) != 2 {
+		t.Fatal("validation changed frozen material or executed a model call")
+	}
+}
+
+func TestValidateReplacementRejectsMalformedFrozenPriorHistory(t *testing.T) {
+	start, source := replacementStart(t)
+	turn := summaryRun(t, dashi.Runner{
+		Client: dashitest.NewClient(dashitest.Reply("Heron.")),
+	}, dashi.NewTurn("summary-heron"), start)
+	start.History = []llm.Message{{Role: llm.RoleUser}}
+	hash, err := dashi.HistoryHash(start.History)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.Steps[0].Started.HistoryHash = hash
+	got, err := compaction.ValidateReplacement(start, source, turn)
+	if err == nil || !reflect.DeepEqual(got, compaction.Replacement{}) {
+		t.Fatalf(
+			"malformed frozen prior history returned replacement: %+v, %v",
+			got,
+			err,
+		)
+	}
+	if !strings.Contains(err.Error(), "summary-heron") ||
+		!strings.Contains(
+			err.Error(),
+			"frozen prior history: history message 1: empty message",
+		) {
+		t.Fatalf("error lost prior history requirement or summary identity: %v", err)
+	}
+}
+
 func TestValidateReplacementRejectsChangedFrozenMaterial(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -243,6 +455,7 @@ func TestValidateReplacementRejectsLaterApplicationInput(t *testing.T) {
 	} {
 		t.Run(string(origin), func(t *testing.T) {
 			start, source := replacementStart(t)
+			start.Context = replacementInitialContext()
 			runner := dashi.Runner{Client: dashitest.NewClient(dashitest.Reply("Heron."))}
 			turn := summaryRun(
 				t,
@@ -392,6 +605,7 @@ func TestValidateReplacementAllowsAuthoritativeModelResolution(t *testing.T) {
 
 func TestValidateReplacementRejectsSteeringContext(t *testing.T) {
 	start, source := replacementStart(t)
+	start.Context = replacementInitialContext()
 	inbox := dashi.NewInbox()
 	if _, err := inbox.Send(dashi.Steer{Item: dashi.ContextItem{
 		ID: "later", Origin: dashi.ContextRuntime,

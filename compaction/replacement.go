@@ -32,9 +32,10 @@ func (r Replacement) Clone() Replacement {
 }
 
 // ValidateReplacement checks a completed summary against the exact saved
-// compaction Start and source history. It returns a zero value on error and
-// performs no execution or writes. Later AddMessages, steering input, and
-// recorded continuation-history mismatches invalidate the replacement.
+// compaction Start, including its initial Context, and source history. It
+// returns a zero value on error and performs no execution or writes.
+// Later AddMessages, steering input, and recorded continuation-history
+// mismatches invalidate the replacement.
 // Same-history recovery and authoritative model-result resolution remain
 // valid. Recorded policy-hook context is permitted, but hook additions and
 // settings changes lie outside the frozen-input proof.
@@ -68,10 +69,7 @@ func validateReplacement(
 	if f.Hash == "" {
 		return Replacement{}, errors.New("frozen source requires a history hash")
 	}
-	if err := (llm.Input{
-		Model:    "validation",
-		Messages: source,
-	}).Validate(); err != nil {
+	if err := validateReplacementHistory(source); err != nil {
 		return Replacement{}, fmt.Errorf("frozen source: %w", err)
 	}
 	hash, err := dashi.HistoryHash(source)
@@ -104,13 +102,25 @@ func validateReplacement(
 			err,
 		)
 	}
-	if err := equalReplacementValue(frozen.Input, view.Input); err != nil {
+	// Nil and empty Context both mean no initial items. Admission and JSON
+	// storage can change that slice spelling without changing its meaning.
+	if len(frozen.Context) != 0 || len(started.Started.Context) != 0 {
+		if err := equalReplacementValue(
+			frozen.Context,
+			started.Started.Context,
+		); err != nil {
+			return Replacement{}, fmt.Errorf(
+				"initial context must match frozen start: %w", err,
+			)
+		}
+	}
+	if err := equalReplacementValue(
+		replacementInput(frozen),
+		view.Input,
+	); err != nil {
 		return Replacement{}, fmt.Errorf("user input must remain frozen: %w", err)
 	}
-	if err := (llm.Input{
-		Model:    "validation",
-		Messages: frozen.History,
-	}).Validate(); err != nil {
+	if err := validateReplacementHistory(frozen.History); err != nil {
 		return Replacement{}, fmt.Errorf("frozen prior history: %w", err)
 	}
 	priorHash, err := dashi.HistoryHash(frozen.History)
@@ -148,6 +158,52 @@ func validateReplacement(
 		Summary:        compactiontext.Summary(view.Reply),
 		History:        llmclone.Messages(history),
 	}, nil
+}
+
+// Validate messages before hashing so a summary cannot erase malformed
+// history. Provider input validation allows empty messages and does not
+// enforce Dashi's named-context authority; check those rules as well.
+func validateReplacementHistory(history []llm.Message) error {
+	for i, message := range history {
+		if len(message.Content) == 0 {
+			return fmt.Errorf("history message %d: empty message", i+1)
+		}
+		if err := (llm.Input{
+			Model: "validation", Messages: []llm.Message{message},
+		}).Validate(); err != nil {
+			return fmt.Errorf("history message %d: %w", i+1, err)
+		}
+		if identity := message.Context; identity != nil {
+			message.Context = nil
+			if err := (dashi.ContextItem{
+				Origin: dashi.ContextOrigin(identity.Origin),
+				Name:   identity.Name, Message: message,
+			}).Validate(); err != nil {
+				return fmt.Errorf("history message %d: %w", i+1, err)
+			}
+		}
+	}
+	return nil
+}
+
+// Initial user items are part of TurnView.Input even after a next-call item
+// expires. Match its recorded projection, including a named user slot.
+func replacementInput(start dashi.Start) []llm.Message {
+	input := llmclone.Messages(start.Input)
+	for _, item := range start.Context {
+		if item.Origin != "" && item.Origin != dashi.ContextUser {
+			continue
+		}
+		message := item.Message.Clone()
+		message.Context = nil
+		if item.Name != "" {
+			message.Context = &llm.MessageContext{
+				Origin: string(dashi.ContextUser), Name: item.Name,
+			}
+		}
+		input = append(input, message)
+	}
+	return input
 }
 
 // Compare full JSON meaning, including descriptive context identity that

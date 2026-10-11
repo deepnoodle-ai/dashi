@@ -71,7 +71,8 @@ type Replacement struct {
 
 The helper accepts the exact saved Start used to admit the summary, after application edits.
 Require compaction origin, valid placement and retained messages, and a nonempty `Compaction.Hash`.
-Validate frozen source message content before hashing it.
+Validate frozen source and prior-history messages before hashing them,
+including nonempty content and Dashi's named-context authority rules.
 Check `dashi.HistoryHash(source)` against that hash.
 Replay `summary` through `View` and require compaction origin and `StopCompleted`.
 Compare every `CompactionFact` field with the frozen fact, including descriptive context identity in retained messages.
@@ -128,12 +129,14 @@ No new Turn fact, record version, storage interface, or release-module dependenc
 
 ## Initial-context interaction
 
-The turn-inputs track adds `Start.Context` and `StartFact.Context` outside this branch's baseline.
-This branch must compile against its baseline and must not probe future fields through reflection or JSON.
-After composition, compare those fields directly in their full ordered form, including identity, role, snapshot, and lifetime.
+The implementation composes the turn-inputs feature that adds `Start.Context`
+and `StartFact.Context`. Its PR uses the turn-inputs implementation as its base
+and lists [PRD #251](https://github.com/deepnoodle-ai/dashi/pull/251) as an additional dependency.
+Compare those typed fields directly in their full ordered form, including
+identity, origin, role, snapshot, and lifetime; use no future-field probes.
 Compare accumulated user input against `Start.Input` plus the initial user items' recorded message projection.
 Do not misclassify those initial items as later input.
-The history-helper author owns this comparison and its tests once the typed fields are available.
+The history-helper author owns this comparison and its tests.
 The orchestrator runs a combined-tree check before reporting all tracks ready and routes any missing comparison back to this author.
 
 ## Verification and rollout

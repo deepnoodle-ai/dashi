@@ -32,6 +32,11 @@ if err != nil {
 `Replacement.History` owns its message content. `Clone` makes another independent
 copy. The value also carries summary text, Turn ID, source hash, and source
 message count. JSON storage preserves it. Validation makes no calls or writes.
+The frozen source and prior history must contain valid Dashi messages;
+empty messages and invalid named-context authority fail before hashing.
+The recorded initial context must match the saved `Start.Context`, including
+item order, identity, origin, role, snapshot, and lifetime. Initial user items
+belong to the frozen input, including next-call items that later expire.
 It rejects later `AddMessages` and steering input of any origin, plus every
 recorded continuation-history mismatch before completion. Restoring the original
 history later does not erase a mismatch. Same-history recovery and authoritative
