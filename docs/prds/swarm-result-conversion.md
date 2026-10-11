@@ -52,13 +52,29 @@ The application selects MCP conversion using the admitted tool's output format.
 It calls `mcp.ConvertResult(result)` for an SDK result or
 `mcp.ConvertResultJSON(raw)` for a saved complete result envelope. It reports
 warnings, combines any journal failure with the outcome, then uses `Pending.Result`.
+If conversion fails for completed work, it keeps the journal and records a safe
+failed outcome through `Pending.Result`. It never repeats completed execution.
+`mcp.ErrInputRequired` identifies a separate host interaction path. The host keeps
+the request pending while supplying requested input under its existing policy.
+Without an input handler, it settles a safe failure that explains unsupported input.
 
 - [ ] Typed conversion requires no Toolset, connection, or running server.
-- [ ] Ordered text, image, and audio blocks retain their kinds and copied bytes.
-- [ ] Structured content becomes JSON text once. Marshal failures return an error.
+- [ ] Text and guaranteed media retain order, kinds, and copied bytes. Image MIME:
+  `image/png`, `image/jpeg`, `image/gif`, `image/webp`. Audio MIME: `audio/wav` and
+  `audio/mpeg`. Normalize `image/jpg` to `image/jpeg`,
+  `audio/wave` and `audio/x-wav` to `audio/wav`, and `audio/mp3` to `audio/mpeg`.
+- [ ] Other syntactically valid image/audio types become omission notes and warnings
+  at their original positions. A valid SVG fixture demonstrates this rule.
+- [ ] Raw structured values retain exact JSON numbers. `9007199254740993` and
+  `0.1234567890123456789` each appear correctly once, alone and beside equivalent
+  JSON text. Typed input preserves its supplied value. Marshal failures return errors.
 - [ ] MCP `IsError` produces `tool.StateFailed`. Examples preserve journal failure too.
 - [ ] Nil results, malformed envelopes, invalid media, and incomplete input requests
   return useful errors. No partial outcome escapes on error.
+- [ ] A runnable example retains an unusable completed result's journal, records
+  a safe failed outcome through `Pending.Result`, and makes no repeated tool call.
+- [ ] Input-required responses match `ErrInputRequired`, preserve the host's pending
+  work/input state, and follow its input policy. They never become automatic success.
 - [ ] Empty completed results succeed. Resources become descriptions or explicit
   omission notes and warnings. No resource is fetched or executed.
 - [ ] Conversion validates MIME and content. Diagnostics identify the block without
@@ -69,7 +85,8 @@ warnings, combines any journal failure with the outcome, then uses `Pending.Resu
 - Add `feed.Tail` outside the engine. Share the validated reader loop internally.
   Reject a second hand-written tail and a new root option for this integration job.
 - Export typed conversion first. Add the JSON wrapper because Swarm journals the
-  complete SDK envelope. Use SDK polymorphic decoding rather than an array bridge.
+  complete SDK envelope. Use SDK polymorphic decoding with exact structured numbers.
+  Reject an array bridge and the SDK's lossy float64 structured decoding.
 - Return warnings as `[]string` beside the outcome and error. Reuse Toolset conversion
   rather than establish a second conversion policy.
 - The host stores raw output, admitted tool/version, format, and journal failure.
@@ -79,9 +96,9 @@ warnings, combines any journal failure with the outcome, then uses `Pending.Resu
 
 ## Success and risks
 
-Runnable `Example*` tests demonstrate late-result tailing and standalone screenshot
-conversion. Focused compatibility tests, `make check`, independent implementation
-review, and security review pass. Guides and the changelog describe both APIs.
+Runnable `Example*` tests demonstrate late-result tailing, standalone screenshot
+conversion, and unusable-result settlement. Focused tests, `make check`, independent
+implementation review, and security review pass. Guides and the changelog describe both APIs.
 Untrusted MIME, resource names, and structured content can mislead readers or models.
 Validation and bounded diagnostic text reduce that risk without treating output as
 trusted instructions. The host must bound input sizes and authorize each reader.

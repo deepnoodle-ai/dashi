@@ -25,7 +25,9 @@ func mcp.ConvertResultJSON(raw json.RawMessage) (tool.Outcome, []string, error)
 
 `sdk` denotes the already-required MCP Go SDK. Warnings describe deliberate
 projection loss. Errors describe unusable input. On error, return a zero outcome.
-An empty completed result is valid. A nil SDK result is invalid.
+An empty completed result is valid. A nil SDK result is invalid. Export the sentinel
+`mcp.ErrInputRequired` so hosts distinguish an interaction from unusable completion
+with `errors.Is`. Both converter entry points preserve that error identity.
 
 ## One record loop, two lifetimes
 
@@ -57,24 +59,47 @@ status. Conversion errors return through the executor's existing error path.
 Preserve `IsError` as a failed outcome. The standalone example sets failed state
 when the journal also reports failure. Neither source can turn failure into success.
 
-Reject `NeedsInput()` results. The current SDK can represent an input-required
-response, which is not a completed result. The host owns that interaction and retry
-policy. Reject sampling-only tool-use/result blocks rather than execute them.
-Reject nil content entries, including typed nil pointers, without panic.
+For known completed work, the host retains the original journal and settles a
+conversion error with `pending.Result(tool.Failed("Tool completed, but its result could not be used."))`.
+It saves that command through its existing storage path and retries only persistence
+after an uncertain acknowledgment. It never reruns completed work. The runnable
+example proves journal retention, a saved failed result, and zero repeated calls.
+
+Detect `NeedsInput()` before completed-content validation and return `ErrInputRequired`.
+The host journals the original input requests/request state and keeps Dashi work
+pending while its existing permission/input flow fulfills them. It resumes that
+same MCP request with the saved state and input responses, as the protocol requires.
+This is an incomplete interaction, not a repeat of completed work. A host without
+that flow settles a safe failed outcome explaining unsupported input, with no retry.
+Toolset has no input handler and uses this safe failure path. Unknown transport
+outcomes keep their existing recovery handling. Reject sampling-only tool-use/result
+blocks and nil entries, including typed nil pointers, without panic or execution.
 
 Convert blocks in their original order. Text remains text. Clone image/audio bytes
 so later SDK mutation cannot alter an outcome. Marshal structured content before
 returning anything. Append it after content unless existing JSON text represents
-the same value. Compare numbers without float64 precision loss. Marshal failure
+the same value. Use existing `internal/canonjson.Equal` for exact numeric comparison.
+Typed callers can supply `json.Number` or `json.RawMessage`. Conversion preserves
+that supplied value; it cannot restore numbers rounded before the call. Marshal failure
 is an error, not omission. Validate the completed outcome before returning it.
 
-For media, require nonempty bytes and a syntactically valid MIME type in the block's
-image or audio family. Check recognizable media signatures against the declared
-type, with explicit common MIME aliases. A recognized mismatch is an error.
-For a supported type, an absent signature is also an error. Other media encodings
-become an omission note and warning at that position. This validates the bridge without
-pretending to decode every codec or guarantee provider support. It never turns
-media into a URL or adds provider provenance.
+For media, require nonempty bytes and syntactically valid MIME in the block's family.
+Guarantee typed conversion for this fixed set, after signature validation:
+
+| Canonical MIME | Accepted aliases | Header check |
+| --- | --- | --- |
+| `image/png` | None | PNG signature |
+| `image/jpeg` | `image/jpg` | JPEG signature |
+| `image/gif` | None | GIF87a/GIF89a |
+| `image/webp` | None | RIFF/WEBP |
+| `audio/wav` | `audio/wave`, `audio/x-wav` | RIFF/WAVE |
+| `audio/mpeg` | `audio/mp3` | ID3 or MPEG audio frame header |
+
+Normalize aliases to canonical MIME. Missing or mismatched headers for these types
+are errors. Other valid image/audio MIME types become omission notes and warnings
+in position, including valid `image/svg+xml`. Headers validate format identity,
+not complete codec integrity. Provider acceptance remains separate. Never fetch
+media, turn it into a URL, or add provider provenance.
 
 Describe resource links with their name, URI, and available description/type.
 These are descriptions, not fetched content. Text resources retain URI and text.
@@ -86,11 +111,16 @@ projection warnings without copying their values into diagnostics.
 ## Journal JSON and untrusted input
 
 The raw wrapper removes Swarm's demonstrated complete-envelope/array mismatch.
-Require one JSON result object with a `content` array, including an empty array.
-Reject null, arrays, missing content, wrong field types, and trailing JSON.
-Decode content using the SDK's `CallToolResult.UnmarshalJSON`, then call the typed
-converter. Unknown content kinds produce decoding errors. Validate an optional
-resultType as complete or input-required; the latter cannot convert successfully.
+Require one JSON object. For completed results, require a `content` array, including
+an empty array. Reject null, arrays, missing completed content, wrong field types,
+and trailing JSON. Input-required responses need no completed content.
+Extract `structuredContent` as raw JSON first. Decode that value with `UseNumber`,
+remove it from the envelope sent to SDK decoding, then set the exact value on the
+decoded result. This avoids the SDK's `any`/float64 conversion and preserves large
+integers and decimal fractions. Decode polymorphic content with the SDK's
+`CallToolResult.UnmarshalJSON`, then call the typed converter. Unknown kinds produce
+decoding errors. Validate optional resultType as complete or input-required. Detect
+input-required before completed-content decoding and return `ErrInputRequired`.
 Allow unrelated extension fields without granting them authority.
 
 Format selection precedes conversion and comes from the admitted tool identity.
@@ -113,16 +143,19 @@ safe reasons, never raw payloads or SDK exception text containing input values.
   concurrency, journal, permissions, and recovery authority. Keep conversion pure.
 
 Costs are a small generic extraction and stricter rejection of malformed MCP input.
-Unrecognized codecs produce visible omissions. Tail remains open until its caller
+Media outside the fixed set produce visible omissions. Tail remains open until its caller
 ends it, so guides must discourage one permanent watcher per historical bill.
 
 Test Tail with a real canceled external-tool turn and a later committed result,
 resuming at and after the stop, multi-page history, invalid readers, independent
 readers, waiter failure/missed wakes, cancellation during read/wait, and range break.
 Run existing root and feed Follow tests to pin compatibility. Test typed and JSON
-MCP paths with ordered mixed blocks, numeric structured values, both failure flags,
+MCP paths with ordered mixed blocks, both failure flags, safe unusable-result settlement,
 empty/nil cases, incomplete results, invalid MIME/signatures, malformed envelopes,
-resources, unsupported kinds, copied bytes, and safe diagnostics. Commit runnable
-late-result and screenshot examples. Update both guides and Unreleased changelog.
+resources, unsupported kinds, all guaranteed media/aliases, omitted valid SVG,
+copied bytes, and safe diagnostics. Test `9007199254740993` and
+`0.1234567890123456789` alone and beside equivalent JSON text, asserting one exact
+representation. Commit late-result, screenshot, and failed-settlement examples.
+Update both guides and Unreleased changelog.
 Run `make check` and independent implementation/security reviews before publication.
 No unresolved design question blocks the planning checkpoint.
