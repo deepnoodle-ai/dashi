@@ -6,15 +6,19 @@ continuing it, and summarizing it a supported workflow.
 
 ## R05 — let applications use Session with their own storage rules
 
+[Before and after](examples/r05-application-turn-ids.md).
+
 **Problem.** Dashi's `Session` offers convenient chat, but assumes numbered Turn
 IDs, can skip unreadable historical Turns with a warning, and can close stopped
 work when new input arrives. Swarm uses its own request IDs and needs to preserve
-unfinished work and refuse broken history. It therefore uses Runner directly
+safely resumable work and refuse broken history. Session already protects
+pending approvals/tool results and unresolved effects; those are not gaps. It therefore uses Runner directly
 and builds the surrounding conversation behavior itself.
 
 **Change.** Make these policies configurable. Add support for ordered Turns with
 application-chosen IDs and a strict mode: stop on inconsistent history, and
-require a decision about unfinished work before starting new work. Preserve
+require a decision before closing safely stopped resumable work. Keep Turn IDs
+and command retry keys separate. Preserve
 the history/settings used when a Turn was first accepted.
 
 Keep the simple numbered-session path easy. Applications should implement only
@@ -27,6 +31,8 @@ support. This is not yet evidence that Swarm's whole conductor can become one
 
 ## R14 — make “refuse broken history” easy to request
 
+[Before and after](examples/r14-broken-conversation.md).
+
 **Problem.** `BuildHistory` can warn after omitting an unreadable Turn or using
 an unmatched summary. [Swarm][build] treats every warning as a recovery error.
 The wrapper is short, but a new adopter can miss this safety decision.
@@ -36,47 +42,50 @@ summary causing the problem. Separate harmless notices from integrity failures.
 Use the same option in Session and lower-level execution helpers.
 
 **Benefit:** safer, clearer behavior with less warning-to-error glue. Keep
-original records available when construction fails.
+original records available when construction fails. Strict construction checks
+supplied records; it cannot independently verify omitted covered history.
 
-## R15 — avoid loading old records a summary has made unnecessary
+## R15 — query only history needed after an applied summary
 
-**Problem.** [Swarm][history] loads and validates retained Turns before calling
-BuildHistory. BuildHistory itself walks backward and may stop at a successful
-summary. Swarm can therefore do storage work the history builder will not use.
-The Recorder and command loop also repeatedly load entire Turns.
+[Before and after](examples/r15-load-less-history.md).
 
-**Change.** Let history construction read Turns lazily, newest first. Stop at
-a validated, applied summary. Give a continuing Turn access to the original
-history version it started with. Cache reconstructed views by Turn ID and saved
-sequence where worthwhile, retaining the records needed to rebuild them.
+**Problem.** [Swarm][history] loads retained Turns before BuildHistory stops at
+a successful summary.
 
-**Benefit:** potentially fewer reads and copies on long conversations. This
-needs measurement. Summary validation may still require older records unless a
-trusted checkpoint records that they were checked; an index entry alone is not
-a reason to skip validation.
+**Action now.** Today's BuildHistory explicitly accepts a suffix starting at the
+latest completed summary. Query from the application's latest activated,
+previously validated summary, including all subsequent Turns in order. Freeze
+that history at admission; continuations use their original history.
 
-## R16 — help applications save and apply conversation summaries
+**Benefit:** fewer reads may be possible without a new Dashi API. The 13-of-100
+example is arithmetic, not a benchmark. If the stored boundary cannot be
+trusted, validate covered records before omitting them. Defer a lazy-loader or
+checkpoint protocol until measurement shows remaining duplication.
 
-**Problem.** Summarizing text is only part of the job. [Swarm's 331-line adapter][history]
-also saves what is being summarized, runs an accounted summary Turn, checks the
-replacement history, and applies it safely. It has to recover if any stage
-fails or the process restarts.
+## R16 — validate and assemble a summary replacement
 
-**Change.** Extend the `compaction` package with reusable saved-job states,
-validation, and the changes needed to apply a successful summary. Use the
-application's storage and executor. Make it explicit whether summarization is
-optional or required before the next request can fit.
+[Before and after](examples/r16-summary-restart.md).
 
-`Compactor.Start` and `ReplacementHistory` already build the request and summary
-history. Reuse them. Preserve job identity across repeated writes; apply the
-summary only after the application's transaction saves it. Keep the old history
-on failure. Required summarization must not fall back to the oversized request.
+**Problem.** [Swarm's 331-line adapter][history] saves summary inputs, runs an
+accounted Turn, validates its replacement history, and applies it safely.
 
-**Benefit:** remove repeated job coordination and validation. Swarm keeps its
-queue, account, deadline, and transaction. The adapter's full 331 lines are not
-all removable.
+**Change.** Start with a pure compaction result validator and activation value.
+Reuse Compactor.Start and ReplacementHistory. Check the finished summary against
+its frozen Start/history; give the host the validated replacement to save.
+
+**Benefit:** remove repeated validation and activation-value assembly. The app
+still creates/reuses a durable job before sending, binds its summary Turn,
+preserves account/deadline, checks source revision, and atomically activates once.
+Unknown writes require reload; old history stays active until activation commits.
+Required failures must leave the oversized request waiting.
+
+**Defer the durable coordinator.** LoadOrCreate/Advance concealed those host
+contracts. A complete adapter comparison must demonstrate further simplification
+before adding job storage or scheduling APIs.
 
 ## R17 — use the summarization Dashi already offers during a Turn
+
+[Before and after](examples/r17-growing-turn.md).
 
 **Problem.** A tool-heavy agent can keep accumulating text until its current
 Turn becomes too large. [Swarm's Start builder][start] does not configure the
@@ -90,9 +99,14 @@ It does not rewrite earlier history supplied by the caller or guarantee that
 large images fit. Between-Turn summaries remain useful. Future additions could
 explain what made the request too large and support a safe summarize-and-resume
 operation. Test large tool output, images, failed summaries, restart, and low
-model-call allowances; unresolved tools must survive without executing twice.
+model-call allowances; unresolved tools must survive without executing twice. Today ActiveCompaction
+requires a Client even with an explicit Window, breaking R01's current no-client
+queued-cancellation path. Qualify record-only admission and preserve resolved
+window evidence before adopting this in Swarm.
 
 ## R18 — use the conversation cache key Dashi already supports
+
+[Before and after](examples/r18-conversation-cache-key.md).
 
 [Swarm's Runner][runner] leaves `Runner.CacheKey` empty. Use a stable conversation
 ID or privacy-preserving hash, as Session does. The catalog applies it where

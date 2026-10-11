@@ -10,7 +10,12 @@ to connect those parts. The best additions would remove that bookkeeping.
 
 The 32 ideas in this review vary in strength. The main recommendations are below;
 the linked notes preserve the evidence, smaller ideas, and limitations. Proposed
-APIs still need design and testing.
+APIs still need design and testing. [Three adversarial review batches](reviews/README.md)
+challenged every idea; their decisions and refinements are included.
+
+[See the before-and-after code examples](examples/README.md). Each recommendation
+has a concrete case. Fourteen offline Go demos reproduce current behavior; after
+snippets for proposed APIs are labeled explicitly.
 
 ## 1. Make agent costs easy to save in the application's database
 
@@ -21,16 +26,16 @@ provider's final charge arrives after the agent has stopped.
 Swarm handles these cases, but its database adapter has to inspect Dashi's records
 to calculate money changes. Its single-request generation path repeats some of
 the same cost rules. Later billing corrections live outside Dashi, so Swarm also
-has to override the cost shown by Dashi's view.
+has to reconcile the model-cost view with its account postings.
 
-**Dashi should calculate the reservation, charge, refund, and remaining uncertain
-cost for each model call.** Give Swarm those changes to save alongside the
-execution record in one database transaction. Support correcting an estimated
+**Dashi should explain changes in each model call's cost evidence, including
+old/new classified totals and finality.** Swarm applies its own posting, rounding
+and reservation rules and saves them with the execution record in one transaction. Support correcting an estimated
 charge when better billing information arrives. Clearly report when work is
 waiting for money or has reached an application spending limit.
 
-This would remove duplicated billing interpretation while leaving account rules
-and database transactions in Swarm. [Evidence and details: R09–R13](accounting.md).
+This removes duplicated model-cost interpretation; account rules, posted charges
+and database transactions stay in Swarm. [Evidence and details: R09–R13](accounting.md).
 
 ## 2. Make saved conversations easy to continue and shorten
 
@@ -42,13 +47,14 @@ conversation layer because it needs its own IDs and must refuse to continue with
 broken history. It also writes a 331-line adapter to save a summarization job,
 run it, check the result, and replace the old history safely.
 
-**Dashi should offer this as a supported conversation workflow.** Accept the
-application's IDs and storage. Let it choose to stop on broken history. Provide
-the reusable parts of saving and applying a summary, including recovery after a
-restart. Load older records only when they are actually needed and validated.
+**Start with IDs, explicit history policy and pure summary validation.** Session
+already protects pending tools/approvals; the policy gap is safely resumable stops.
+Today's history builder accepts a suffix beginning at a validated applied summary.
+Use that before inventing a lazy-loader API. Keep job recovery in the application
+until a complete example proves a coordinator helps.
 
-This could remove more code than another low-level history helper. Swarm would
-still decide when work is allowed and which account pays for a summary.
+Swarm still owns job identity, activation transactions and the summary account.
+A shorter snippet is not evidence those responsibilities disappeared.
 [Evidence and details: R05, R14–R18](history.md).
 
 ## 3. Make a background agent straightforward to run and display
@@ -67,8 +73,8 @@ The application supplies worker status; Dashi combines it with saved state.
 Provide a way to save a Turn without starting it and to finish work because a
 limit was reached without calling it a user cancellation.
 
-Once those pieces are useful, test a small helper that advances saved work one
-command at a time. Swarm would keep worker ownership, scheduling, and shutdown.
+Defer the command driver until its complete journal/planner adapters show net
+simplification. Swarm keeps ownership, account policy, scheduling and shutdown.
 [Running: R01–R04, R06–R08](execution.md).
 [Displaying progress: R19–R22](observation.md).
 
@@ -76,8 +82,9 @@ command at a time. Swarm would keep worker ownership, scheduling, and shutdown.
 
 **MCP results should preserve images and audio.** Swarm recognizes screenshot
 arrays, but its MCP client returns a whole result object. The current bridge
-turns that object into JSON text. Dashi already has the right converter; expose
-it so Swarm can use it without handing tool execution to Dashi.
+turns that object into JSON text. Dashi has reusable conversion; expose it with validation.
+Select it from the admitted MCP tool format and preserve both journal and MCP
+error state. Keep tool execution with Swarm.
 [Tools: R23–R26](tools.md).
 
 **Programs should be able to control the coding CLI directly.** Swarm sends
@@ -89,15 +96,18 @@ machine-readable capabilities. This has a particularly clear code-removal case.
 ## What I would do first
 
 Start with the shared billing calculations and MCP converter. Both have clear
-Swarm code to replace. Then work on saved conversations and progress updates.
+Swarm code to replace. Then try the focused history/admission helpers and progress updates.
 Use the resulting smaller adapter to decide how much command-driving help is
-worth adding. Treat provider lookup, money rounding, voice metadata, and other
-small helpers as secondary improvements.
+worth adding. Use existing CallRef/Pending.Result and provider defaults first. Defer the
+registry, batch-result API, broad estimates and voice controller until real
+examples establish a benefit.
 
 Try three existing features in Swarm separately: `Agent.ActiveCompaction` can
 summarize an expanding Turn; `Runner.CacheKey` can identify a conversation for
 provider caching; `feed.Hub` can deliver output while it is being generated.
-These need integration testing and do not all reduce code.
+These need integration testing and do not all reduce code. ActiveCompaction
+currently requires a Client even for queued admission; qualify that interaction
+before adopting it with credential-free cancellation.
 
 **R32 — show the complete application integration.** Ship one small runnable
 database example covering restart, tool waits, shared budgets, summarization,
@@ -123,5 +133,6 @@ code; no removal percentage or speed improvement has been measured.
 Focused tests passed in Swarm's runtime, CLI control, voice, and MCP packages,
 and Dashi's root, session, compaction, feed, and realtime packages. Before opening
 the review PR, Dashi's full `make check` also passed across all four released
-modules and the development tools. No code was implemented, paid model request
-made, or live UI test run.
+modules and development tools. The example tests use local fixtures and scripted
+models; they demonstrate mechanics, not SQL durability or a live CLI/voice flow.
+No production library API changed or paid model request ran.
