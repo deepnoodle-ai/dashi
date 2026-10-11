@@ -53,8 +53,9 @@ out, err := runner.Run(ctx, dashi.Turn{}, dashi.Start{Input: input})
   app's statement that the model may use it. `Agent.Tools` narrows that by
   name ([tools](tools.md#choosing-tools-per-agent)). To check or ask first,
   add a [hook](hooks.md).
-- **Keys.** A client built without an API key fails on its first call with an
-  error matching `llm.ErrNoAPIKey`, which names the environment variable.
+- **Keys.** Missing credentials fail before dispatch. Agent turns expose
+  `Failure.Category == llm.ErrorAuthentication`; direct client calls return an
+  error matching `llm.ErrNoAPIKey`.
 
 ## Reading the result
 
@@ -90,6 +91,22 @@ was recorded, so `out.Stop.Inferred` is true: the worker may have crashed;
 `out.Pending` first;
 see [recovering turns](recovering-turns.md)). A hook's view of a running turn
 gives `NextRunning`.
+
+## Saved model failures
+
+`out.Failure` retains safe details from request preparation or a failed send:
+Category, classified Reason, HTTP Status, SendStatus, Retryable, RetryAfter,
+and RecordedAt. A reloaded Turn exposes the same values through View. Older
+records without these facts return nil. Arbitrary provider codes, bodies, and
+error causes are excluded from new model failure records and their summaries.
+
+Keep Next as the execution API. The application chooses credential repair,
+retry policy, and scheduling. For an explicit rejection or nondispatch, it
+can save `failure.RecordedAt.Add(failure.RetryAfter)` as the retry due time.
+Restart does not reset this wait. Retryable alone never authorizes a resend:
+SendStatusUnknown, absent send evidence, or partial output still requires
+existing Pending/Resolve recovery. Preparation proves nondispatch and adds no
+model call or cost. See the runnable [failure examples](../../run_admit_example_test.go).
 
 ## Prior conversation
 

@@ -64,6 +64,8 @@ func (v TurnView) Next() Next {
 		return NextContinue
 	}
 	switch stop.Kind {
+	case StopReady:
+		return NextContinue
 	case StopLimited:
 		return v.limitNext()
 	case StopWaiting:

@@ -113,6 +113,28 @@ func validateReservation(terms map[string]json.RawMessage) error {
 }
 
 func validateStepPayload(step Step) error {
+	if step.Model != nil && step.Model.Failure != nil {
+		f := step.Model.Failure
+		if step.Kind != StepModelCallFinished || step.Model.Error == "" ||
+			step.Model.Interrupted != InterruptNone ||
+			f.SendStatus != step.Model.SendStatus ||
+			f.Reason != step.Model.ErrorReason ||
+			(f.SendStatus == llm.SendStatusUnknown) != step.Model.ResultUnknown {
+			return errors.New("model failure details disagree with outcome")
+		}
+		if err := f.validate(step.At); err != nil {
+			return err
+		}
+	}
+	if step.Stop != nil && step.Stop.Failure != nil {
+		if step.Kind != StepTurnStopped || step.Stop.Kind != StopFailed ||
+			step.Stop.Failure.SendStatus != llm.SendStatusNotSent {
+			return errors.New("stop failure details require failed preparation")
+		}
+		if err := step.Stop.Failure.validate(step.At); err != nil {
+			return err
+		}
+	}
 	if step.Budget != nil && step.Kind != StepTurnContinued {
 		return errors.New("budget raise requires a continuation step")
 	}

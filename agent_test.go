@@ -724,14 +724,19 @@ func TestRecordedAgentKeepsResolvedLimits(t *testing.T) {
 		}
 	}
 
-	// A record made under different defaults keeps its own numbers. The
-	// caller's zero limits now resolve differently, so a retried Start with
-	// them no longer matches, while Continue runs with the recorded limits.
+	// A record made under different defaults keeps its own numbers. A
+	// retried Start resolves zero fields against those original defaults.
 	old := first.Turn
 	old.Steps = cloneTurn(first.Turn).Steps
 	older := *old.Steps[0].Started
 	older.Agent.Limits.Resumes = 7
 	old.Steps[0].Started = &older
+	hashed := limitsStart(def)
+	hashed.Agent = older.Agent
+	old.Steps[0].CommandHash, err = commandHash(hashed)
+	if err != nil {
+		t.Fatal(err)
+	}
 	view, err := old.View()
 	if err != nil {
 		t.Fatal(err)
@@ -743,8 +748,8 @@ func TestRecordedAgentKeepsResolvedLimits(t *testing.T) {
 		)
 	}
 	runner := Runner{Client: client}
-	if _, err := runner.Run(t.Context(), old, limitsStart(def)); !errors.Is(err, ErrAgentChanged) {
-		t.Fatalf("zero limits matched a record with other values: %v", err)
+	if retry, err := runner.Run(t.Context(), old, limitsStart(def)); err != nil || retry.Agent.Limits.Resumes != 7 {
+		t.Fatalf("retry lost original resolved defaults: %v", err)
 	}
 	out, err := runner.Run(t.Context(), old, Continue{CommandID: "resume"})
 	if err != nil || out.Stop.Kind != StopCompleted {

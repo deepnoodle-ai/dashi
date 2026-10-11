@@ -147,7 +147,7 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 				err,
 			)
 		}
-		if step.Version != 1 || step.TurnID != t.ID || step.Seq != int64(i+1) {
+		if step.Version != stepVersion(step) || step.TurnID != t.ID || step.Seq != int64(i+1) {
 			return nil, fmt.Errorf("%w: invalid step header at %d", ErrInvalidTurn, i+1)
 		}
 		if err := validateStepPayload(step); err != nil {

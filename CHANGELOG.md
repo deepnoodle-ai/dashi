@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`Runner.Admit`** saves queued work without model requests, tools, or hooks.
+  It records `StopReady` and preserves original model/window evidence and
+  command retry identity after credentials or defaults change.
+- **`Start.Context`** saves initial reminders and other context once with the
+  accepted input. Context-bearing Starts use record version 2; upgrade record
+  and saved-command consumers before enabling them.
+- **`TurnView.Failure`** preserves safe model failure classification, send
+  evidence, and original retry timing through restart, including preparation
+  failures. Applications retain retry scheduling and unknown-effect recovery.
+
 ## [0.6.0] - 2026-10-10
 
 ### Added

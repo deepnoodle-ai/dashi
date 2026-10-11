@@ -40,6 +40,9 @@ type Start struct {
 	// History is caller-owned prior conversation and is not stored in the turn.
 	History []llm.Message `json:"history,omitempty"`
 	Input   []llm.Message `json:"input,omitempty"`
+	// Context is saved with Input before any model request. Its items keep
+	// their ordinary authority, identity, and lifetime on later Continue calls.
+	Context []ContextItem `json:"context,omitempty"`
 	// Parent links this turn to the tool call of another turn that started
 	// it. Dashi records it and shows it in TurnView.Parent; a second Start
 	// with a different Parent is a command conflict. Dashi does not check
