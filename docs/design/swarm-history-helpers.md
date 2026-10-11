@@ -78,7 +78,24 @@ Compare every `CompactionFact` field with the frozen fact, including descriptive
 Compare the recorded initial input with `frozen.Input`.
 Check the recorded prior-history hash against `frozen.History`.
 When the frozen command ID is nonempty, require the same recorded start command ID.
-These checks bind the replacement to frozen summary material without re-resolving an Agent or invoking a Client.
+
+Inspect recorded changes through the stop that completed the summary.
+Reject every nonempty context fact added by an `AddMessages` command or marked `Steering`, regardless of item origin.
+Compare accumulated `TurnView.Input` with the frozen initial input to reject changed recorded user input.
+Reject any recorded `WarningHistoryMismatch` in this prefix.
+A later continuation with the original history cannot erase an earlier mismatch.
+Do not classify other recorded warnings as frozen-input failures.
+
+Permit recorded context that policy hooks add without an application command or steering source.
+This includes `BeforeModel` additions and `BeforeFinish` feedback that requests another model call.
+Hook additions and settings changes lie outside the frozen comparison.
+The application authorizes those hooks. The helper does not prove the complete model request or hook behavior.
+
+Recovery is valid when these comparisons still pass and the Turn ultimately completes.
+Permit authoritative `Resolve.ModelResult` or `Resolve.ModelFailure` and Dashi-authorized continuation with unchanged prior history.
+Earlier interruptions, failures, and limit stops do not invalidate a subsequently completed summary by themselves.
+The application remains responsible for authorizing budget raises and preserving job account and deadline.
+Late results after the ending stop remain accounting evidence and cannot change replacement input or summary text.
 
 Use `ReplacementHistory` and the existing summary extraction rule.
 Reject a missing or whitespace-only extracted summary.
@@ -109,6 +126,16 @@ Reuse validated projections and existing hash encoding. Avoid a global cache or 
 The helper cannot prove omitted history, summary accuracy, current revision, or committed activation.
 No new Turn fact, record version, storage interface, or release-module dependency is required.
 
+## Initial-context interaction
+
+The turn-inputs track adds `Start.Context` and `StartFact.Context` outside this branch's baseline.
+This branch must compile against its baseline and must not probe future fields through reflection or JSON.
+After composition, compare those fields directly in their full ordered form, including identity, role, snapshot, and lifetime.
+Compare accumulated user input against `Start.Input` plus the initial user items' recorded message projection.
+Do not misclassify those initial items as later input.
+The history-helper author owns this comparison and its tests once the typed fields are available.
+The orchestrator runs a combined-tree check before reporting all tracks ready and routes any missing comparison back to this author.
+
 ## Verification and rollout
 
 Pin unreadable ordinary and compaction records, unresolved ordinary work, and corruption hidden by a later summary.
@@ -117,9 +144,12 @@ Check harmless notices, deterministic error identity, nil output on errors, and 
 
 For replacements, alter each frozen metadata field and source history independently.
 Cover failed, limited, interrupted, empty, malformed, and wrong-origin summary records.
+Reject later user and non-user `AddMessages`, steering input, and resumed history mismatch, including mismatch followed by restoration.
+Accept hook-added context and legitimate recovery through same-history continuation or authoritative model-result resolution.
 Round-trip Start, source, Turn, and replacement through JSON.
 Repeat validation after reload and mutate returned/cloned messages to prove independent ownership.
 Add short public examples for refusal and finished-summary reuse.
+In the combined tree, reject changed initial context and accept unchanged initial user context without mistaking it for later input.
 
 Keep changes in `history.go`, new `history_` helpers, and `compaction/`, plus examples, guides, and changelog.
 Do not edit root admission, replay, facts/views, run loops, feed, MCP, or Swarm.

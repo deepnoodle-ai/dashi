@@ -53,13 +53,21 @@ It calls `compaction.ValidateReplacement(start, source, summaryTurn)`.
 
 - [ ] The helper checks a nonempty source hash against the frozen source and compares the recorded summary metadata with the frozen Start.
 - [ ] It rejects invalid records, another origin, changed retained messages or placement, changed framing, changed coverage, and changed summary input.
+- [ ] Later `AddMessages` or steering input of any origin invalidates the replacement.
+  Every recorded continuation-history mismatch before completion also invalidates it, even if a later continuation restores the original history.
+- [ ] Recorded hook context remains permitted.
+  The documentation states that hook additions and settings changes lie outside the frozen-input proof.
+- [ ] Recovery with unchanged input and history remains valid.
+  This includes resolving a pending model result or verified model failure, then continuing the same summary Turn when Dashi permits it.
 - [ ] Only a completed Turn with a nonempty extracted summary returns a replacement.
-  Failed, limited, interrupted, or empty results return an identifying error.
+  A Turn still failed, limited, interrupted, or empty returns an identifying error.
 - [ ] The replacement carries usable history, summary text, summary Turn ID, source hash, and source message count.
   It survives JSON storage and owns its message content.
 - [ ] Repeated validation after reload returns equal values without model calls, tool execution, storage writes, or input mutation.
 - [ ] A keyless example shows the application retaining old history until its activation commits.
   A failed required summary leaves the waiting request unadmitted.
+- [ ] Combined validation with the initial-context feature compares the complete frozen `Start.Context` with its recorded initial items.
+  Initial user items belong to the frozen input. They do not count as later input.
 
 ## Decisions and scope
 
@@ -69,13 +77,16 @@ It calls `compaction.ValidateReplacement(start, source, summaryTurn)`.
   Reject a wrapper that misses hidden corruption or assumes omitted records were checked.
 - Return a concrete value from `compaction.ValidateReplacement`.
   Reject a coordinator, Store interface, scheduler, and lazy history loader.
+- Permit recorded policy-hook context while rejecting later application input and mismatched continuation history.
+  Reject banning ordinary recovery or claiming that frozen input proves every model request.
 - The application owns durable job creation, execution, account, deadline, source revision, activation transaction, and unknown-write recovery.
   It also chooses required versus optional summarization and verifies the job's summary Turn binding.
 
 ## Success, risk, and delivery
 
 Success lets applications replace warning conversion and repeated summary validation while preserving their storage and execution authority.
-The helper proves record consistency, not summary quality, current source revision, or successful activation.
+The helper proves consistency of frozen source, initial material, and recorded continuation history.
+It does not prove hook behavior, summary quality, current source revision, or successful activation.
 Strict construction reads all supplied records. Trusted summary suffixes remain the application's way to avoid covered-history reads.
 
 Ship keyless public `Example*` tests, adversarial and compatibility tests, guide updates, and an Unreleased changelog entry.
