@@ -2,8 +2,8 @@
 
 ## Refuse broken supplied history
 
-Use `dashi.BuildHistoryStrict(turns)` when an omitted Turn or mismatched
-summary must stop admission. It returns nil history and a `*dashi.HistoryError`
+Use `dashi.BuildHistoryStrict(turns)` when an unreadable supplied Turn or
+mismatched summary must stop admission. It returns nil history and a `*dashi.HistoryError`
 whose `TurnID` identifies the record to inspect. `errors.Is` preserves
 `dashi.ErrInvalidTurn` and identifies `dashi.ErrCompactionMismatch`.
 It checks every supplied record, including those hidden by a newer summary.
