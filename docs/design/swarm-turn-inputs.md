@@ -161,4 +161,4 @@ and unknown versions before execution. Check that raw Follow/Tail transport rema
 Commit short offline Example tests, update running/recovery/steering guides and
 CHANGELOG, then run focused race tests and `make check`.
 Independent implementation and security reviews check recorded input and failure safety.
-The planning checkpoint accepted this design. Implementation awaits the orchestrator's dispatch.
+The planning checkpoint accepted this design. The implementation is published in #252 and awaits merge.
