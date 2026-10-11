@@ -3,7 +3,8 @@
 [Main review](../README.md) · [Before-and-after examples](../examples/README.md)
 
 The later [user-sequence reassessment](../examples/when-it-matters.md) narrows the
-adoption recommendations for the seven implemented proposals. The reviews below
+adoption recommendations for the seven original proposals. Tail is withdrawn
+and removed from #253; six candidates remain. The reviews below
 establish the earlier design/refinement history. They do not replace that product
 assessment or prove measured simplification in Swarm.
 

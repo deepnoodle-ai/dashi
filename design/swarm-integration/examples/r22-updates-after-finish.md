@@ -1,36 +1,28 @@
-# R22: Observe a result after the agent stops
+# R22: Stop displaying results when the user stops the agent
 
 [All examples](README.md) · [Review](../README.md)
 
-An external tool may finish after the user stops an agent. Tail can follow those
-later records, but the review has not identified an existing Swarm feature that
-needs this iterator.
+**Decision: withdraw Tail from this integration.** Stopping the agent is a
+reasonable point to stop displaying tool results. A separate subscriber for
+later results adds behavior the user does not want and has no current Swarm consumer.
 
-## Sequence where it could matter
+## Sequence where the earlier proposal fails
 
-1. The user asks the agent to run work through an external tool.
-2. That tool starts remote work. Cancellation cannot be assumed to undo work
-   the remote service has already accepted.
-3. The user stops the agent before the result returns. Dashi records cancellation,
-   and normal Follow finishes at that ending record.
-4. The remote service finishes. The host retains its result and, where authorized,
-   records it as a late tool result in the canceled Turn.
-5. A product might offer an activity panel that stays subscribed to such late
-   completions. Tail would deliver this record to that separate panel reader.
+1. The user asks the agent to run a tool.
+2. The tool starts work, but its result has not returned.
+3. The user stops the agent. The request stops contributing results to the
+   conversation, and normal Follow finishes at the ending record.
+4. If remote work later completes, the user need not receive its result.
+   Saving evidence internally does not require displaying it or continuing the agent.
 
-Step 5 is a possible feature, not an existing consumer found in Swarm. Swarm's
-current WatchTurn intentionally returns at a final state. Replacing it with Tail
-does not make an activity panel, and must not restart the canceled agent.
+The earlier proposal added a fifth step: keep a separate activity panel subscribed
+and deliver the late result. That step was an invented product requirement.
+The user's expected behavior is already served by Follow ending with execution.
 [Current watcher lifetime](https://github.com/deepnoodle-ai/swarm/blob/a41b9a4f59617a4393e48172a97b01ca1cf76a91/internal/runtime/dashirt/dashirt.go#L1361).
 
-The previous accounting justification was too broad. Swarm saves model charges
-in the record-commit transaction; it does not need a Tail subscriber to post them.
+Swarm also saves model charges in the record-commit transaction. It does not
+need an observation subscriber to post them.
 [Current accounting commit](https://github.com/deepnoodle-ai/swarm/blob/a41b9a4f59617a4393e48172a97b01ca1cf76a91/internal/runtime/dashirt/recording.go#L40).
-Tool journals and host-only billing updates also have their own storage paths.
-
-**Judgment:** Defer. First identify a real post-stop consumer and its reader lifetime.
-For one-off inspection, read StepsAfter or reload the record. The iterator is
-tested, but its necessity and net code saving in Swarm remain unproven.
 
 ## Before: current code
 
@@ -48,25 +40,16 @@ if step.Stop != nil && step.Stop.Ended {
 resting = step.Kind == StepTurnStopped
 ```
 
-## After: implemented candidate in [#253](https://github.com/deepnoodle-ai/dashi/pull/253)
+## After: keep the current completion behavior
 
-Tail is implemented and awaiting merge. The separate consumer below is an
-application design example, not current Swarm integration.
+No API addition is needed for this sequence. Keep Follow ending when execution
+ends. The Tail implementation, generic reader extraction, examples, and guide
+changes are removed from [#253](https://github.com/deepnoodle-ai/dashi/pull/253).
+That PR retains the independently justified MCP conversion.
 
-```go
-// This reader observes records. It must not drive canceled work.
-for step, err := range feed.Tail(ctx, store, turnID, cursor) {
-    if err != nil { return err }
-    if err := mirror.Apply(step); err != nil { return err }
-    cursor = step.Seq
-}
-```
+**Developer benefit:** No extra iterator, subscriber lifetime, or cursor policy
+to learn for unwanted post-stop updates.
 
-**Observable result:** A separate subscriber receives later committed records until its context ends. No existing Swarm user experience changes without that subscriber.
-
-**Potential developer benefit:** Reuse cursor, paging, and waiting rules for a proven post-stop consumer. There is no demonstrated Swarm caller to simplify yet.
-
-**Application responsibility:** Persist the reader cursor and handle duplicates. Money updates outside Dashi records still require a separate notification source.
-
-**Runnable evidence:** `Example_lateResultAfterCancel` in [the offline demos](demo/).
-Run `go test -v ./design/swarm-integration/examples/demo` from the repository root.
+The current-API `Example_lateResultAfterCancel` in [the offline demos](demo/)
+shows that records can be saved after cancellation and normal Follow has ended.
+It proves storage behavior, not a requirement to present those records to the user.

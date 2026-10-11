@@ -1,7 +1,8 @@
 # When these changes matter
 
-The user journeys below reassess the seven implemented proposals. Passing tests
-establishes API behavior. It does not establish that all seven should be adopted.
+The user journeys below reassess the seven original implementation proposals.
+Tail is withdrawn; six remain in the implementation PRs. Passing tests establishes
+API behavior, not whether an addition earns its place in the library.
 
 The distinction that was missing: Swarm already handles most of these cases.
 A Dashi addition must fix an observable defect, remove meaningful application
@@ -18,13 +19,13 @@ recovery that the application already implements.
 | Strict history | [Continue after loading an unreadable saved record](r14-broken-conversation.md#sequence-where-it-matters) | The library directly returns an identifying error and no history. Swarm already refuses the request. | Small safety API, with modest code savings. |
 | Saved failures | [Reload a provider rejection before its retry time](r03-handle-failure.md#sequence-where-it-matters) | The original category and delay remain available. | Useful data, conditional user benefit. Swarm still needs the corresponding retry/repair policy. |
 | Summary validation | [Restart after a summary finishes](r16-summary-restart.md#sequence-where-it-matters) | More frozen-source/input checks move to Dashi. Finished-summary reuse already exists. | Defer adoption until a Swarm port proves useful code removal. |
-| Tail | [Observe remote work that finishes after cancellation](r22-updates-after-finish.md#sequence-where-it-could-matter) | A separate reader can receive later records. | Defer. No current Swarm consumer was identified; accounting does not require this reader. |
+| Tail | [Stop displaying results when the user stops the agent](r22-updates-after-finish.md#sequence-where-the-earlier-proposal-fails) | No change is needed: Follow already ends with execution. | Withdraw. The late-result panel was an invented requirement; remove Tail from #253. |
 
 ## What the assessment changes
 
 The implementation index and examples remain available in
-[seven implemented improvements](implemented.md). The PRs are proposals with
-tested code, not seven equally strong adoption recommendations.
+[remaining implementation candidates](implemented.md). The PRs contain tested
+code with different adoption cases; the withdrawn idea remains documented.
 
 For [#252](https://github.com/deepnoodle-ai/dashi/pull/252), admission and initial
 context remove specific implementation conventions. Failure metadata needs an
@@ -35,16 +36,17 @@ small explicit-safety case. The summary helper does not replace Swarm's job
 recovery, account checks, or activation transaction. Its value needs a real port.
 
 For [#253](https://github.com/deepnoodle-ai/dashi/pull/253), the screenshot case
-supports MCP conversion. It does not justify Tail. Evaluate those two additions
-separately; split or defer Tail before merging if no consumer is established.
+supports MCP conversion. Tail is removed from that PR and its requirements.
+Stopping the agent already stops the normal watcher; the user expects no later
+result. Retaining internal evidence does not require a new display subscriber.
 
 ## Evidence boundaries
 
 Swarm's reviewed/current checkout is `a41b9a4f59617a4393e48172a97b01ca1cf76a91`.
 The numbered sequences name user actions, application work, and external events.
 Crash, damaged-record, and delayed-result sequences are scenarios supported by
-source or fixtures, not reported production incidents. The 429 timer and a
-post-stop activity reader are proposed product behaviors, explicitly labeled.
+source or fixtures, not reported production incidents. The 429 timer needs an
+application policy. The proposed post-stop activity reader is withdrawn.
 
 The proof for the screenshot case is the input type, not the model's eventual
 answer quality. No adoption port or whole-adapter line reduction was measured.

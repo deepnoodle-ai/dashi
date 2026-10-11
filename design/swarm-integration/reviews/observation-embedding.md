@@ -6,6 +6,11 @@ The reviewer favored existing streaming support and explicit CLI operations.
 Progress watching needs a narrower scope; release tooling and voice policy need
 separate treatment from the runtime API.
 
+**Later product decision:** R22 is withdrawn. The user expects no tool result
+after stopping the agent. The earlier mirror scenario invented a requirement;
+Tail and its reader extraction are removed from #253. The findings below retain
+the earlier review history; they do not override this decision.
+
 ## Findings incorporated
 
 - **R27, lost acceptance:** A transport error is not known rejection. The example
@@ -49,7 +54,7 @@ separate treatment from the runtime API.
 | R19 | Keep/refine | Shared presentation mapping using trustworthy activity. |
 | R20 | Narrow/compare | Dashi views plus activity; retain host overlays and prove adapter simplification. |
 | R21 | Keep existing API | Responsive output with gap/final-reply and reader-lifetime examples. |
-| R22 | Keep, low priority | Explicit all-records mode using existing validated reader logic. |
+| R22 | Withdraw | Follow already ends with execution; no current consumer needs later delivery. |
 | R27 | Keep/refine | Remove terminal editing/mention escaping through explicit durable operations. |
 | R28 | Combine with R27 | Versioned handshake, schema, reconnect and request-correlated events. |
 | R29 | Release tooling | Remove build glue; keep artifact verification and installation. |

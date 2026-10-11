@@ -2,7 +2,7 @@
 
 [Main review](../README.md)
 
-Start with [when the seven implemented changes matter](when-it-matters.md).
+Start with [when the original seven proposals matter](when-it-matters.md).
 Each linked page now gives the numbered user actions and external events,
 today's Swarm behavior, the changed boundary, and the adoption judgment.
 
@@ -12,7 +12,7 @@ remove. Before excerpts omit surrounding definitions; they are not complete
 programs. Source links pin Swarm `a41b9a4` and Dashi `ea65bb4`.
 
 **After snippets are design sketches from the review baseline.**
-[Seven recommendations now have implementation PRs and runnable examples](implemented.md)
+[Six remaining candidates have implementation PRs and runnable examples](implemented.md)
 on their feature branches, awaiting merge. Other proposed APIs remain unimplemented.
 Application storage methods illustrate the responsibilities that remain with
 Swarm. Shorter caller code alone does not prove a better abstraction. The pages
@@ -68,7 +68,7 @@ transactions, real process crashes, paid providers, a live CLI, or audio devices
 | R19 | [Show a running worker as running](r19-running-status.md) | Proposed |
 | R20 | [Connect a browser to an independently running agent](r20-progress-subscription.md) | Proposed |
 | R21 | [Deliver text while the model is generating it](r21-live-output.md) | Existing API |
-| R22 | [Observe a result after the agent stops](r22-updates-after-finish.md) | [Candidate in #253](https://github.com/deepnoodle-ai/dashi/pull/253); defer without a consumer |
+| R22 | [Stop displaying results when the agent stops](r22-updates-after-finish.md) | Withdrawn; current Follow behavior suffices |
 | R23 | [Return a result to the right Turn and call](r23-tool-call-identity.md) | Existing API |
 | R24 | [Submit results without repeating command construction](r24-several-tool-results.md) | Existing; batch API deferred |
 | R25 | [Give the model an MCP screenshot as an image](r25-mcp-images.md) | [Implemented in #253](https://github.com/deepnoodle-ai/dashi/pull/253) |

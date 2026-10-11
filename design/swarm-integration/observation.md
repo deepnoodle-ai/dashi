@@ -72,25 +72,19 @@ lifetime for that particular workflow.
 **Benefit:** more responsive presentation. This may add UI code; it is not a
 line-reduction claim.
 
-## R22 — observe records after the agent stops
+## R22 — keep observation ending with execution
 
-[Before and after](examples/r22-updates-after-finish.md).
+[Sequence and withdrawal](examples/r22-updates-after-finish.md).
 
-**Possible use.** `Follow` ends when the Turn ends, although late results can be
-saved afterward. A separate post-stop activity reader could use an all-records
-iterator. No current Swarm consumer of that kind was identified.
+**Decision: withdraw Tail.** The user stops the agent while a tool is pending.
+Normal Follow ends, and the user need not receive a result that arrives later.
+The proposed separate activity panel was an invented product requirement.
+No current Swarm consumer requires an all-records subscription after execution.
 
-**Candidate.** A feed helper can follow all later records until canceled.
-Keep normal agent completion distinct from the lifetime of that separate reader.
-Replacing WatchTurn with an endless iterator would not supply the missing feature.
-
-Swarm already posts model charges in its record-commit transaction. Tail is not
-required for that accounting. Host-only money updates also need their own
-notifications; watching Steps cannot reveal them.
-
-**Judgment: defer.** Establish a real consumer and its lifetime before adding the
-API. For one-off inspection, use StepsAfter or reload. Reusing cursor/paging rules
-is a potential benefit, not demonstrated Swarm code removal.
+Swarm already posts model charges in its record-commit transaction. Internal
+accounting and result retention do not require displaying post-stop results.
+Remove Tail and the generic reader extraction from #253; retain MCP conversion.
+For one-off internal inspection, existing StepsAfter or a reload suffices.
 
 ## Cases the progress API must handle
 

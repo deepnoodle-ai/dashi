@@ -4,11 +4,12 @@ Dashi should make it easy to build an agent that runs in the background, survive
 restarts, remembers its conversation, and stays within a budget. The application
 supplies storage, decides who can spend money, and runs its approved tools.
 
-**Start with [when the seven implemented proposals matter](examples/when-it-matters.md).**
+**Start with [when the original seven proposals matter](examples/when-it-matters.md).**
 It gives the exact user actions and system events, distinguishes existing Swarm
 behavior from new behavior, and reassesses adoption. MCP conversion fixes a
 concrete input defect. Several helpers are modest ergonomics. Summary validation
-and Tail need stronger consumer evidence; passing tests alone does not justify them.
+needs stronger code-removal evidence. Tail is withdrawn; post-stop delivery was
+an invented requirement. Passing tests alone does not justify a library addition.
 
 Swarm already gets important parts of this from Dashi. The remaining problem is
 that Swarm must understand too many details of Dashi's saved execution records
@@ -23,7 +24,7 @@ challenged every idea; their decisions and refinements are included.
 has a concrete case. Fourteen offline Go demos reproduce current behavior; after
 snippets for proposed APIs are labeled explicitly.
 
-[Seven improvements now have implementation PRs and runnable examples](examples/implemented.md).
+[Six remaining candidates have implementation PRs and runnable examples](examples/implemented.md).
 Their code reviews, refinements, and combined verification are indexed there.
 
 ## 1. Make agent costs easy to save in the application's database
@@ -105,11 +106,12 @@ machine-readable capabilities. This has a particularly clear code-removal case.
 ## What I would do first
 
 Start with the shared billing calculations and MCP converter. Both have clear
-Swarm code to inspect. Of the seven implemented proposals, MCP conversion has
+Swarm code to inspect. Of the original seven proposals, MCP conversion has
 the clearest observable defect. Compare actual ports of admission, initial
 context, and strict history before claiming substantial simplification.
 Failure metadata needs a retry/repair consumer. Defer summary-helper adoption
-and Tail until their missing consumer/code-removal evidence is established.
+until a real port proves useful code removal. Withdraw Tail: stopping the agent
+already ends normal observation, and the user does not expect later results.
 Use the resulting smaller adapter to decide how much command-driving help is
 worth adding. Use existing CallRef/Pending.Result and provider defaults first. Defer the
 registry, batch-result API, broad estimates and voice controller until real
