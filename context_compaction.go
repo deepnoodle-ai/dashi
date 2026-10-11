@@ -117,6 +117,9 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 			after, probeErr := r.activeEstimateAfter(plan, minimum)
 			if probeErr != nil || after > allowance {
 				r.compactionCandidate = nil
+				if _, ok := errors.AsType[*replacementPreparationError](probeErr); ok {
+					return r.prepareFailure(probeErr), false, true
+				}
 				if estimate > allowance {
 					return r.contextLimit(s, req, "protected context cannot fit even with a minimal summary"), false, true
 				}
@@ -218,26 +221,43 @@ func (r *runtime) activeSummaryMessages(plan *ContextCompactionPlan) ([]llm.Mess
 		return nil, err
 	}
 	out := []llm.Message{llm.UserMessage(llm.Text(strings.Join(evidence, "\n\n")))}
-	// Use the turn's ordinary messages for added-item lifetime, roles, and
-	// slot metadata. Raw facts retain expired added items but must not
+	// Use the turn's ordinary messages for item lifetime, roles, and slot
+	// metadata. Raw facts retain expired items but must not
 	// restore them.
 	visible, err := turnMessages(r.turn, nil, true)
 	if err != nil {
 		return nil, err
 	}
-	deliveries := make(map[int64]bool)
+	deliveries := make(map[int64]int)
 	for _, step := range r.turn.Steps {
-		if step.Context != nil {
-			deliveries[step.Seq] = true
+		if len(step.Items()) == 0 {
+			continue
 		}
+		first := 0
+		if step.Started != nil {
+			// Initial items follow Input within the same source step.
+			first = len(step.Started.Input)
+		}
+		deliveries[step.Seq] = first
 	}
 	for _, message := range visible {
-		if deliveries[message.Ref.Seq] {
+		if first, ok := deliveries[message.Ref.Seq]; ok && message.Ref.Index >= first {
 			out = append(out, message.Message.Clone())
 		}
 	}
 	return out, nil
 }
+
+// replacementPreparationError separates an unsent replacement from validation
+// of the successfully dispatched summary. Error is safe to record; Unwrap
+// retains the original classification for prepareFailure.
+type replacementPreparationError struct{ cause error }
+
+func (*replacementPreparationError) Error() string {
+	return "replacement model preparation failed"
+}
+
+func (e *replacementPreparationError) Unwrap() error { return e.cause }
 
 // activeEstimateAfter verifies actual prepared bytes for the ordinary request
 // with the replacement, without sending or reserving for that candidate.
@@ -292,7 +312,7 @@ func (r *runtime) activeEstimateAfter(plan *ContextCompactionPlan, result *llm.R
 	}
 	req, err := r.runner.Client.Prepare(r.ctx, hydrated)
 	if err != nil {
-		return 0, err
+		return 0, &replacementPreparationError{cause: err}
 	}
 	if req.Origin().Provider != r.agent.Provider || req.Origin().API != r.agent.API || req.Origin().Model != r.agent.Model || !canonjson.SameValue(req.Snapshot().Input, hydrated) {
 		return 0, errors.New("prepared replacement changed original input or destination")
@@ -325,6 +345,10 @@ func (r *runtime) applyActiveCompaction(s *replayState) *RunResult {
 	result := s.modelFinishes[modelCall].Result
 	after, err := r.activeEstimateAfter(plan, result)
 	if err != nil {
+		if _, ok := errors.AsType[*replacementPreparationError](err); ok {
+			o := r.prepareFailure(err)
+			return &o
+		}
 		o := r.failureOrContext(err)
 		return &o
 	}

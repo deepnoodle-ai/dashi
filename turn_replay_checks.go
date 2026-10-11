@@ -82,7 +82,9 @@ func (s *replayState) pendingItems() []Pending {
 func (s *replayState) inferredStop() Stop {
 	switch {
 	case s.Stop.Kind != "":
-		return s.Stop
+		stop := s.Stop
+		stop.Failure = cloneFailure(stop.Failure)
+		return stop
 	case s.unresolvedModel != "":
 		return Stop{
 			Kind:     StopResultUnknown,

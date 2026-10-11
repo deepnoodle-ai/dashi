@@ -836,3 +836,168 @@ func runtimeMessageWithContext(message llm.Message, origin, name string) llm.Mes
 	message.Context = &llm.MessageContext{Origin: origin, Name: name}
 	return message
 }
+
+type activePreparationFailureClient struct {
+	*activeClient
+	failAt               int
+	failProbe            bool
+	afterSummaryPrepares int
+	summarySent          bool
+}
+
+func activeSecretPreparationFailure() error {
+	return &llm.Error{
+		Provider: "PRIVATE_PROVIDER", Category: llm.ErrorAuthentication,
+		Cause:      errors.New("PRIVATE_ENDPOINT_SECRET"),
+		SendStatus: llm.SendStatusUnknown,
+		Retryable:  true, RetryAfter: time.Second,
+	}
+}
+
+func (c *activePreparationFailureClient) Prepare(
+	ctx context.Context,
+	input llm.Input,
+) (llm.Request, error) {
+	if c.summarySent {
+		c.afterSummaryPrepares++
+		if c.afterSummaryPrepares == c.failAt {
+			return llm.Request{}, activeSecretPreparationFailure()
+		}
+	} else if c.failProbe {
+		for _, message := range input.Messages {
+			if strings.HasPrefix(message.Text(), activeSummaryFrame) {
+				return llm.Request{}, activeSecretPreparationFailure()
+			}
+		}
+	}
+	return c.activeClient.Prepare(ctx, input)
+}
+
+func (c *activePreparationFailureClient) Send(
+	ctx context.Context,
+	call llm.Call,
+) (llm.Result, error) {
+	result, err := c.activeClient.Send(ctx, call)
+	if strings.HasPrefix(call.Request.Snapshot().Input.System, activeSummaryPrompt) {
+		c.summarySent = true
+	}
+	return result, err
+}
+
+func TestActiveCompactionReplacementPreparationPreservesSafeFailure(t *testing.T) {
+	for _, phase := range []struct {
+		name      string
+		failAt    int
+		failProbe bool
+		wantSends int
+	}{
+		{name: "probe replacement before summary", failProbe: true, wantSends: 2},
+		{name: "validate summary result", failAt: 1, wantSends: 3},
+		{name: "apply saved summary", failAt: 2, wantSends: 3},
+	} {
+		t.Run(phase.name, func(t *testing.T) {
+			base, agent := activeFixture()
+			base.results = append(base.results[:3], final("done"))
+			client := &activePreparationFailureClient{
+				activeClient: base, failAt: phase.failAt, failProbe: phase.failProbe,
+			}
+			calls := 0
+			runner := Runner{Client: client, Tools: activeTools(&calls)}
+			out, err := runner.Run(t.Context(), Turn{ID: "safe-summary"}, activeStart(agent))
+			if err != nil || out.Stop.Kind != StopFailed || out.Failure == nil {
+				t.Fatalf("replacement preparation lacks failure: stop=%+v err=%v", out.Stop, err)
+			}
+			if out.Failure.Category != llm.ErrorAuthentication ||
+				out.Failure.SendStatus != llm.SendStatusNotSent ||
+				out.Failure.RetryAfter != time.Second || !out.Failure.Retryable {
+				t.Fatalf("replacement preparation changed safe facts: %+v", out.Failure)
+			}
+			if calls != 2 || client.sends != phase.wantSends || out.ModelCalls != phase.wantSends ||
+				out.Spend.Usage.InputTokens != phase.wantSends*100 || len(out.ContextCompactions) != 0 {
+				t.Fatalf("successful dispatch/cost changed: calls=%d sends=%d view=%+v", calls, client.sends, out.TurnView)
+			}
+			var summaryFinishes int
+			for _, step := range out.Turn.Steps {
+				if step.Kind == StepModelCallFinished &&
+					modelPurpose(out.Turn, step.Model.ModelCallID) == ModelPurposeCompaction {
+					summaryFinishes++
+					if step.Model.Error != "" || step.Model.Failure != nil ||
+						step.Model.Result == nil || step.Model.Result.Usage.InputTokens != 100 {
+						t.Fatalf("successful summary became a failed send: %+v", step.Model)
+					}
+				}
+			}
+			if summaryFinishes != phase.wantSends-2 {
+				t.Fatal("successful summary finish was not retained")
+			}
+			raw, err := json.Marshal(out.Turn)
+			if err != nil || strings.Contains(string(raw), "PRIVATE_PROVIDER") ||
+				strings.Contains(string(raw), "PRIVATE_ENDPOINT_SECRET") {
+				t.Fatalf("replacement preparation recorded secrets: %v", err)
+			}
+			var loaded Turn
+			if err := json.Unmarshal(raw, &loaded); err != nil {
+				t.Fatal(err)
+			}
+			client.failAt, client.failProbe = 0, false
+			out, err = runner.Run(t.Context(), loaded, Continue{CommandID: "repair"})
+			if err != nil || out.Stop.Kind != StopCompleted || out.Failure != nil ||
+				client.sends != 4 || calls != 2 || len(out.ContextCompactions) != 1 {
+				t.Fatalf("repair repeated summary/effects: calls=%d sends=%d stop=%+v err=%v", calls, client.sends, out.Stop, err)
+			}
+		})
+	}
+}
+
+func TestActiveCompactionSummaryPreservesInitialContext(t *testing.T) {
+	items := initialContext()
+	var summaries [][]llm.Message
+	for _, initial := range []bool{true, false} {
+		client, agent := activeFixture()
+		client.results = append(client.results[:3], final("done"))
+		start := activeStart(agent)
+		if initial {
+			start.Context = items
+		}
+		calls := 0
+		runner := Runner{Client: client, Tools: activeTools(&calls)}
+		out, err := runner.Admit(t.Context(), Turn{ID: "summary-context"}, start)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !initial {
+			out, err = runner.Run(t.Context(), out.Turn, AddMessages{
+				CommandID: "context", Items: items,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "continue"})
+		if err != nil || out.Stop.Kind != StopCompleted ||
+			calls != 2 || len(out.ContextCompactions) != 1 {
+			t.Fatalf("initial=%t stop=%+v calls=%d err=%v", initial, out.Stop, calls, err)
+		}
+		var summary llm.Input
+		for i, input := range client.sent {
+			if strings.HasPrefix(input.System, activeSummaryPrompt) {
+				summary = input
+			}
+			for _, message := range input.Messages {
+				if strings.Contains(message.Text(), "first call only") && i != 0 {
+					t.Fatalf("initial=%t expired context reached send %d", initial, i)
+				}
+			}
+		}
+		if len(summary.Messages) != 3 {
+			t.Fatalf("initial=%t summary lost context or repeated input: %+v", initial, summary.Messages)
+		}
+		summaries = append(summaries, summary.Messages[1:])
+	}
+	if !canonjson.SameValue(summaries[0], summaries[1]) ||
+		summaries[0][1].Role != llm.RoleDeveloper ||
+		summaries[0][1].Text() != "operator instruction" ||
+		summaries[0][0].Context == nil || summaries[0][0].Context.Name != "checkout" {
+		t.Fatalf("initial and later context differ in summary: %+v", summaries)
+	}
+}

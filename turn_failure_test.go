@@ -200,3 +200,35 @@ func TestFailureRejectsContradictorySavedMetadata(t *testing.T) {
 		})
 	}
 }
+
+func TestFailurePreparationViewsDoNotShareSavedMetadata(t *testing.T) {
+	client := &preparationFailureClient{failure: &llm.Error{
+		Category: llm.ErrorRateLimited, RetryAfter: time.Second,
+	}}
+	start := Say("work")
+	start.CommandID, start.Agent = "start", testAgent()
+	out, err := (Runner{Client: client}).Run(t.Context(), Turn{ID: "isolated"}, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, projection := range []string{"failure", "stop failure"} {
+		t.Run(projection, func(t *testing.T) {
+			view, err := out.Turn.View()
+			if err != nil {
+				t.Fatal(err)
+			}
+			failure := view.Failure
+			if projection == "stop failure" {
+				failure = view.Stop.Failure
+			}
+			failure.RetryAfter = time.Hour
+			failure.Category = "invalid-edit"
+			fresh, err := out.Turn.View()
+			if err != nil || fresh.Failure.RetryAfter != time.Second ||
+				fresh.Stop.Failure.RetryAfter != time.Second ||
+				fresh.Failure.Category != llm.ErrorRateLimited {
+				t.Fatalf("view edit changed saved failure: fresh=%+v err=%v", fresh, err)
+			}
+		})
+	}
+}

@@ -444,7 +444,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		}
 		return r.contextStop(), false
 	}
-	var validationErr error
+	var validationErr, preparationErr error
 	if sendErr != nil {
 		// A failed call keeps what it streamed, with its reported usage.
 		result = mergeObserved(result, observedContent, observedUsage)
@@ -471,6 +471,11 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			}
 			if validationErr == nil {
 				_, validationErr = r.activeEstimateAfter(plan, &result)
+				if _, ok := errors.AsType[*replacementPreparationError](validationErr); ok {
+					// The summary succeeded. Preserve its finish and cost,
+					// then stop for the unsent replacement's preparation.
+					preparationErr, validationErr = validationErr, nil
+				}
 			}
 		} else {
 			validationErr = validateModelResult(result, r.agent)
@@ -498,6 +503,9 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			return r.stop(StopResultUnknown, finished.Error), false
 		}
 		return r.stop(StopFailed, finished.Error), false
+	}
+	if preparationErr != nil {
+		return r.prepareFailure(preparationErr), false
 	}
 	if validationErr != nil {
 		if purpose == ModelPurposeCompaction {
