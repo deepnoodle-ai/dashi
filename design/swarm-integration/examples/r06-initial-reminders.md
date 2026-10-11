@@ -2,9 +2,34 @@
 
 [All examples](README.md) · [Review](../README.md)
 
-“Use the project checkout at /workspace/orders” is known when the work is
-accepted. The first model request should see it; later continuations should not
-add another copy.
+The user expects an agent to keep working in the same project after a restart.
+Swarm already saves the initial project and operator reminders. This change
+removes the callback used to deliver those saved reminders to Dashi.
+
+## Sequence where it matters
+
+1. The user connects a project workspace and asks the agent to fix a bug there.
+2. Swarm prepares the request, including the workspace and operator reminders,
+   and saves those reminders with the request.
+3. The process exits before the first model call.
+4. On restart, Swarm reloads that request. The first model call must get the
+   original reminders, rather than newly assembled instructions for different work.
+5. The model requests a tool. After its result arrives, the agent continues.
+   The application must not append another copy of the initial reminders.
+6. Today a BeforeModel callback adds them only when LastSeq is 1. Dashi records
+   them and replay retains them. With Start.Context, Dashi saves them with Start
+   and applies its existing context rules without that first-call callback.
+
+The user-facing expectation already holds in Swarm. The developer no longer
+has to tie initialization to a particular saved sequence number.
+[Swarm constructs workspace/operator reminders](https://github.com/deepnoodle-ai/swarm/blob/a41b9a4f59617a4393e48172a97b01ca1cf76a91/internal/conductor/conductor.go#L924)
+and [delivers them through this callback](https://github.com/deepnoodle-ai/swarm/blob/a41b9a4f59617a4393e48172a97b01ca1cf76a91/internal/runtime/dashirt/dashirt.go#L658).
+This sequence illustrates supported mechanics, not an observed loss of reminders.
+
+**Judgment:** A useful ergonomic change when initial context is common. Keep the
+reminder construction; remove only callback and first-call bookkeeping. A local
+initialization helper is the smaller alternative. The record-version upgrade is
+a real adoption cost, so this is not free simplification.
 
 ## Before: current code
 
@@ -32,13 +57,13 @@ if len(req.Context) > 0 {
 }
 ```
 
-## After: Proposed API sketch
+## After: implemented in [#252](https://github.com/deepnoodle-ai/dashi/pull/252), awaiting merge
 
-These Dashi APIs do not exist yet. Application variables and storage methods
-show the intended caller responsibilities, not a complete runnable program.
+Application variables show caller responsibilities. The complete restart example
+is [ExampleStart_context](https://github.com/deepnoodle-ai/dashi/blob/76caabc7afc902599f6b9434ba03235dcceb3850/run_admit_example_test.go).
 
 ```go
-// Proposed Start field. ContextItem itself already exists.
+// ContextItem already describes authority and lifetime.
 start.Context = []dashi.ContextItem{{
     ID: "reminder:checkout", Name: "checkout", Origin: dashi.ContextRuntime,
     Snapshot: true,
@@ -49,7 +74,7 @@ start.Context = []dashi.ContextItem{{
 out, err := runner.Run(ctx, turn, start, dashi.WithOwner(owner.OwnerID))
 ```
 
-**Observable result:** The reminder would be saved before the first request and remain present once after restart or Continue.
+**Observable result:** The same initial reminder reaches the model after restart and is not appended again on Continue. It is recorded with Start.
 
 **Developer benefit:** Delete the first-call hook and LastSeq guard. The code still constructs the meaningful reminder.
 

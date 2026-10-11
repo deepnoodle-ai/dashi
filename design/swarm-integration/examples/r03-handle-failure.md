@@ -2,9 +2,38 @@
 
 [All examples](README.md) · [Review](../README.md)
 
-A provider rejects a request with HTTP 429 and asks the caller to wait 30 seconds.
-The process restarts before scheduling that retry. A second case has unknown
-execution: the request may have been accepted before the connection broke.
+The user wants a temporary provider problem to produce an appropriate next step.
+The saved metadata can support that behavior. It does not implement the behavior.
+
+## Sequence where it matters
+
+1. The user asks the agent to continue its work.
+2. At 11:00:00, the provider rejects the request with HTTP 429 and a 30-second
+   retry hint. Dashi stops the run and records the failure.
+3. At 11:00:05, the application exits before arranging the next action.
+4. It restarts at 11:00:20 and loads the saved Turn.
+5. A product with a retry policy needs to distinguish a known rejection from
+   an invalid credential or a request whose remote outcome is unknown.
+6. If that policy permits retry, it needs the original due time, 11:00:30.
+   Starting a new 30-second delay on restart would move it to 11:00:50.
+
+Today Dashi's transient llm.Error has the category and delay, but the saved
+ModelFact does not retain both. Failure metadata keeps them available after
+reload. A host can then show an appropriate repair action or schedule a retry
+under its existing recovery and spending rules. An unknown send still needs
+recovery; the hint cannot authorize another request.
+
+**Current Swarm boundary:** Swarm currently reports suspended failed/unknown
+Turns as requiring attention. It has generic recovery backoff, not this
+provider-delay policy. The sequence above is a target application behavior,
+not a claim that adding Failure automatically improves Swarm's recovery.
+[Current failure handling](https://github.com/deepnoodle-ai/swarm/blob/a41b9a4f59617a4393e48172a97b01ca1cf76a91/internal/runtime/dashirt/dashirt.go#L1374)
+and [generic recovery backoff](https://github.com/deepnoodle-ai/swarm/blob/a41b9a4f59617a4393e48172a97b01ca1cf76a91/internal/manager/recovery/recovery.go#L488).
+
+**Judgment:** Useful durable data if the application consumes it. Define the
+retry/credential-repair feature before claiming a user benefit. An application
+could instead intercept provider errors and save its own safe metadata, but
+Dashi currently owns the point where those errors become saved Turn facts.
 
 ## Before: current code
 
@@ -54,14 +83,14 @@ SendStatus  llm.SendStatus  `json:"send_status,omitempty"`
 Evidence    string          `json:"evidence,omitempty"`
 ```
 
-## After: Proposed API sketch
+## After: implemented in [#252](https://github.com/deepnoodle-ai/dashi/pull/252), awaiting merge
 
-The proposed Dashi helper does not exist yet. Application storage methods
-show the responsibilities that remain with the caller.
+The data API is implemented. Scheduling and UI functions below illustrate
+application code that still has to be built.
 
 ```go
-// Proposed Failure fields extend the existing Next API.
-if view.Next() == dashi.NextFix {
+// Older records have no Failure metadata.
+if view.Next() == dashi.NextFix && view.Failure != nil {
     failure := view.Failure
     safeRetry := failure.SendStatus == llm.SendStatusNotSent ||
         failure.SendStatus == llm.SendStatusProviderRejected
@@ -77,7 +106,7 @@ if view.Next() == dashi.NextFix {
 }
 ```
 
-**Observable result:** The saved 429 would retain its retry delay. Unknown execution would still require a recovery decision, even if a provider error carries a retry hint.
+**Observable result:** Reload retains the 429 classification and original delay. The user's next action changes only when the host adds a policy that uses them.
 
 **Developer benefit:** Handle a useful saved failure without depending on provider text or losing the delay after restart.
 

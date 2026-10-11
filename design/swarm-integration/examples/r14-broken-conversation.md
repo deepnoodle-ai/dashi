@@ -2,9 +2,32 @@
 
 [All examples](README.md) · [Review](../README.md)
 
-Conversation support-7 contains a Turn with invalid saved sequence numbers.
-Continuing without that Turn could lose an earlier decision. Swarm deliberately
-stops instead of sending the remaining messages.
+The user expects “continue” to retain the conversation's earlier decisions.
+Swarm already refuses unreadable history. This helper makes that policy an
+explicit library call for application developers.
+
+## Sequence where it matters
+
+1. The user tells the agent, “Do not change the migration files.” The instruction
+   becomes part of the saved conversation.
+2. The user closes the application.
+3. A faulty restore or migration leaves a supplied saved Turn unreadable.
+   This is a failure scenario, not an identified production incident.
+4. The user reopens the conversation and asks the agent to continue.
+5. The application rebuilds the model's history. A tolerant builder can omit
+   an unreadable Turn and return a warning alongside the remaining messages.
+6. The application must stop before sending that reduced history. Otherwise
+   the next request might lack a prior instruction. Swarm already stops during
+   record loading/history construction; its wrapper turns warnings into errors.
+
+BuildHistoryStrict returns an error and no history. It checks every supplied
+record, including records covered by later summaries. It cannot detect a record
+the application did not supply, or prove that a summary retained every instruction.
+
+**Judgment:** A small safety API worth keeping for applications that require
+complete supplied history. The current Swarm benefit is a consistent error with
+the affected Turn ID, not a newly fixed continuation bug. Keeping Swarm's existing
+wrapper is a reasonable smaller alternative; the code saving is modest.
 
 ## Before: current code
 
@@ -21,20 +44,19 @@ func buildHistory(records []dashi.Turn) ([]llm.Message, error) {
 }
 ```
 
-## After: Proposed API sketch
+## After: implemented in [#254](https://github.com/deepnoodle-ai/dashi/pull/254), awaiting merge
 
-These Dashi APIs do not exist yet. Application variables and storage methods
-show the intended caller responsibilities, not a complete runnable program.
+Application UI functions below remain pseudocode. The strict builder is implemented.
 
 ```go
-// Proposed strict builder returns errors with the affected Turn/summary identity.
+// An error identifies the supplied Turn that could not be used.
 history, err := dashi.BuildHistoryStrict(records)
 if err != nil { return showHistoryRepairRequired(err) }
 start.History = history
 out, err := runner.Run(ctx, newTurn, start, dashi.WithOwner(owner.OwnerID))
 ```
 
-**Observable result:** Today BuildHistory returns remaining messages and a warning; Swarm turns warnings into an error. Strict construction would directly report the integrity failure and send nothing.
+**Observable result:** Swarm already refuses this continuation. A direct strict call makes refusal explicit for new library users and checks all supplied records.
 
 **Developer benefit:** Make Swarm's required history policy explicit and discoverable. It saves only a small wrapper, but prevents an easy adoption mistake.
 

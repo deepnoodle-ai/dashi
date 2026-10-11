@@ -2,8 +2,33 @@
 
 [All examples](README.md) · [Review](../README.md)
 
-The user queues “Check order 42,” then cancels before a worker runs. Swarm needs
-a saved canceled Turn even if the model credentials have since been removed.
+The user wants to stop accepted work without accidentally starting it.
+Swarm already supports this. The proposed API makes that behavior easier for
+an application developer to express.
+
+## Sequence where it matters
+
+1. The user sends “Check order 42.” Swarm saves the request in its database.
+2. The process exits before the worker records Dashi's first Start step.
+3. The application starts again without that provider's credentials.
+4. The user stops the swarm. The saved request must become canceled, with no
+   model request and no need to restore credentials.
+5. Swarm loads the request and finds that its Dashi record is still empty.
+   Dashi's Cancel command requires a started Turn.
+6. Today Swarm records Start by calling Run with an already-closed pause
+   channel. It then records Cancel. With Admit, it calls Admit and then Cancel.
+
+The user gets the same result in both versions: the work is canceled without
+a model request. The improvement is the developer's explicit record-only call.
+It removes the need to know that a closed pause can manufacture an accepted Start.
+
+This is a supported failure scenario, not a reported production incident.
+[Swarm tests cancellation before Start and after restart without a provider](https://github.com/deepnoodle-ai/swarm/blob/a41b9a4f59617a4393e48172a97b01ca1cf76a91/internal/runtime/dashirt/dashirt_test.go#L385).
+The proposed helper does not replace Swarm's database admission or worker ownership.
+
+**Judgment:** A modest API convenience worth considering for background workers.
+The smaller alternative is to keep a local helper around the existing pause path.
+Do not sell this as a new cancellation feature or a large adapter reduction.
 
 ## Before: current code
 
@@ -20,10 +45,10 @@ if err != nil {
 turn = out.Turn
 ```
 
-## After: Proposed API sketch
+## After: implemented in [#252](https://github.com/deepnoodle-ai/dashi/pull/252), awaiting merge
 
-The proposed Dashi helper does not exist yet. Application storage methods
-show the responsibilities that remain with the caller.
+This uses the implemented API. Surrounding application storage and ownership
+code still belong to the caller.
 
 ```go
 // Preserve the same Recorder owner used by Swarm today.
@@ -36,7 +61,7 @@ _, err = runner.Run(ctx, out.Turn, dashi.Cancel{
 return err
 ```
 
-**Observable result:** Today, saving without running produces an interrupted stop with “pause requested.” The proposal would save ready work directly. Both paths send zero model requests.
+**Observable result:** Both paths send zero model requests. Internally, Admit records ready work instead of an interruption with “pause requested.”
 
 **Developer benefit:** Remove the closed-channel convention and make saving work an obvious supported operation.
 

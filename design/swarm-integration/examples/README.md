@@ -2,6 +2,10 @@
 
 [Main review](../README.md)
 
+Start with [when the seven implemented changes matter](when-it-matters.md).
+Each linked page now gives the numbered user actions and external events,
+today's Swarm behavior, the changed boundary, and the adoption judgment.
+
 Each page contains a concrete situation, unmodified excerpts from the reviewed
 source snapshot, an after snippet, the observable result, and the work it would
 remove. Before excerpts omit surrounding definitions; they are not complete
@@ -45,7 +49,7 @@ transactions, real process crashes, paid providers, a live CLI, or audio devices
 | --- | --- | --- |
 | R01 | [Cancel a request before it starts](r01-save-queued-work.md) | [Implemented in #252](https://github.com/deepnoodle-ai/dashi/pull/252) |
 | R02 | [Display a limit as a limit](r02-finish-at-limit.md) | Proposed |
-| R03 | [Know what to do after a provider failure](r03-handle-failure.md) | [Implemented in #252](https://github.com/deepnoodle-ai/dashi/pull/252) |
+| R03 | [Know what to do after a provider failure](r03-handle-failure.md) | [Data in #252](https://github.com/deepnoodle-ai/dashi/pull/252); host policy needed |
 | R04 | [Resume a command saved before a crash](r04-advance-saved-work.md) | Deferred experiment |
 | R05 | [Use conversation helpers with application IDs](r05-application-turn-ids.md) | Proposed |
 | R06 | [Supply a reminder once without an initialization hook](r06-initial-reminders.md) | [Implemented in #252](https://github.com/deepnoodle-ai/dashi/pull/252) |
@@ -58,13 +62,13 @@ transactions, real process crashes, paid providers, a live CLI, or audio devices
 | R13 | [Round costs consistently and explain request estimates](r13-money-units.md) | Existing; broad estimate deferred |
 | R14 | [Refuse a conversation with unreadable history](r14-broken-conversation.md) | [Implemented in #254](https://github.com/deepnoodle-ai/dashi/pull/254) |
 | R15 | [Read only history needed after an applied summary](r15-load-less-history.md) | Existing API |
-| R16 | [Recover a conversation summary after a restart](r16-summary-restart.md) | [Pure helper in #254](https://github.com/deepnoodle-ai/dashi/pull/254); coordinator deferred |
+| R16 | [Recover a conversation summary after a restart](r16-summary-restart.md) | [Candidate in #254](https://github.com/deepnoodle-ai/dashi/pull/254); adoption value unproven |
 | R17 | [Keep a tool-heavy Turn within its context window](r17-growing-turn.md) | Existing API |
 | R18 | [Use one cache identity across a conversation](r18-conversation-cache-key.md) | Existing API |
 | R19 | [Show a running worker as running](r19-running-status.md) | Proposed |
 | R20 | [Connect a browser to an independently running agent](r20-progress-subscription.md) | Proposed |
 | R21 | [Deliver text while the model is generating it](r21-live-output.md) | Existing API |
-| R22 | [Keep following later results for accounting](r22-updates-after-finish.md) | [Implemented in #253](https://github.com/deepnoodle-ai/dashi/pull/253) |
+| R22 | [Observe a result after the agent stops](r22-updates-after-finish.md) | [Candidate in #253](https://github.com/deepnoodle-ai/dashi/pull/253); defer without a consumer |
 | R23 | [Return a result to the right Turn and call](r23-tool-call-identity.md) | Existing API |
 | R24 | [Submit results without repeating command construction](r24-several-tool-results.md) | Existing; batch API deferred |
 | R25 | [Give the model an MCP screenshot as an image](r25-mcp-images.md) | [Implemented in #253](https://github.com/deepnoodle-ai/dashi/pull/253) |

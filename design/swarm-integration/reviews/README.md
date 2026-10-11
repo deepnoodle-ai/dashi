@@ -2,6 +2,11 @@
 
 [Main review](../README.md) · [Before-and-after examples](../examples/README.md)
 
+The later [user-sequence reassessment](../examples/when-it-matters.md) narrows the
+adoption recommendations for the seven implemented proposals. The reviews below
+establish the earlier design/refinement history. They do not replace that product
+assessment or prove measured simplification in Swarm.
+
 On 2026-10-11, three independent reviewers challenged separate batches covering
 all 32 recommendations. They inspected Dashi/Swarm source and the after sketches.
 Their questions were: does this solve a real application problem, preserve the

@@ -72,25 +72,25 @@ lifetime for that particular workflow.
 **Benefit:** more responsive presentation. This may add UI code; it is not a
 line-reduction claim.
 
-## R22 — allow cost updates after the agent finishes
+## R22 — observe records after the agent stops
 
 [Before and after](examples/r22-updates-after-finish.md).
 
-**Problem.** `Follow` ends when the Turn ends, although late results can be saved
-afterward. Its documentation tells account/mirror readers to continue through
-StepsAfter. Swarm can also correct billing in its own tables without a new Step.
+**Possible use.** `Follow` ends when the Turn ends, although late results can be
+saved afterward. A separate post-stop activity reader could use an all-records
+iterator. No current Swarm consumer of that kind was identified.
 
-**Change.** Offer a feed helper that follows all later records until canceled.
-Keep this read-only integration helper outside the Turn engine package.
-This would be useful with R11's billing-correction records. Keep normal agent
-completion distinct from waiting for final billing.
+**Candidate.** A feed helper can follow all later records until canceled.
+Keep normal agent completion distinct from the lifetime of that separate reader.
+Replacing WatchTurn with an endless iterator would not supply the missing feature.
 
-If money changes remain outside Dashi's records, the application must also supply
-notifications for those changes. Watching Steps alone cannot reveal them.
+Swarm already posts model charges in its record-commit transaction. Tail is not
+required for that accounting. Host-only money updates also need their own
+notifications; watching Steps cannot reveal them.
 
-**Benefit:** fewer custom tailing paths for accounting consumers. Preserve
-cursor checks, paging, and duplicate handling. Avoid permanent per-Turn watchers
-for every historical bill; a global account-change feed may be more appropriate.
+**Judgment: defer.** Establish a real consumer and its lifetime before adding the
+API. For one-off inspection, use StepsAfter or reload. Reusing cursor/paging rules
+is a potential benefit, not demonstrated Swarm code removal.
 
 ## Cases the progress API must handle
 

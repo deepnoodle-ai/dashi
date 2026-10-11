@@ -66,22 +66,25 @@ checkpoint protocol until measurement shows remaining duplication.
 
 [Before and after](examples/r16-summary-restart.md).
 
-**Problem.** [Swarm's 331-line adapter][history] saves summary inputs, runs an
-accounted Turn, validates its replacement history, and applies it safely.
+**Current behavior.** [Swarm's 331-line file][history] already saves summary
+inputs, runs an accounted Turn, reuses finished summaries after restart, and
+applies them safely. Most of that work concerns application jobs and transactions.
+Only a small part checks the library's replacement value.
 
 **Change.** Start with a pure compaction result validator and activation value.
 Reuse Compactor.Start and ReplacementHistory. Check the finished summary against
 its frozen Start/history; give the host the validated replacement to save.
 
-**Benefit:** remove repeated validation and activation-value assembly. The app
+**Potential benefit:** consolidate validation and replacement-value assembly. The app
 still creates/reuses a durable job before sending, binds its summary Turn,
 preserves account/deadline, checks source revision, and atomically activates once.
 Unknown writes require reload; old history stays active until activation commits.
 Required failures must leave the oversized request waiting.
 
-**Defer the durable coordinator.** LoadOrCreate/Advance concealed those host
-contracts. A complete adapter comparison must demonstrate further simplification
-before adding job storage or scheduling APIs.
+**Defer adoption of the pure helper until a port proves useful simplification.**
+It does not create restart reuse or remove the 331-line file. The existing
+View/ReplacementHistory checks remain a smaller option. Also defer the durable
+coordinator: LoadOrCreate/Advance concealed application contracts.
 
 ## R17 — use the summarization Dashi already offers during a Turn
 

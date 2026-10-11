@@ -57,8 +57,9 @@ absolute due time, so restart does not reset the wait.
 
 Swarm still chooses its retry policy. “Retryable” must never mean “resend a
 request whose execution is unknown.” Provider secrets and raw bodies stay out
-of saved records. This reduces interpretation code; the deletion has not been
-measured.
+of saved records. Current Swarm does not implement the illustrated provider-delay
+policy. The metadata supports a future retry/repair feature; it does not create it.
+No application-code reduction has been demonstrated.
 
 ## R04 — test a helper that advances saved work
 
