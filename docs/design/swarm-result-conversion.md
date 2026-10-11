@@ -1,7 +1,7 @@
 # Record tailing and standalone MCP conversion
 
-Status: Draft · Author: Codex · Updated: 2026-10-11\
-Workflow: Spec, independent PRD review, then implementation.\
+Status: Accepted · Author: Codex · Updated: 2026-10-11\
+Workflow: Independent PRD review accepted the spec; implementation follows publication.\
 PRD: [Receive late records and convert external MCP results](../prds/swarm-result-conversion.md)
 
 ## Context and ownership
@@ -42,6 +42,8 @@ cursor's row, ends immediately when that row ended execution, and yields no late
 records. `feed.Follow` continues to use it unchanged. `feed.Tail` uses the same
 loop with ending-stop completion disabled. It yields the original committed Step
 without altering stop flags or record meaning. Tail has no Hub or preview path.
+Record-version validation stays with replay/execution. Combined testing with the
+turn-inputs track covers supported initial-context records using the updated Step type.
 
 Preserve negative-cursor normalization, contiguous sequence checks, primary-read
 assumptions, page draining, stopped-turn polling, waiter fallback, missed-wake

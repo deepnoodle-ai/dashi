@@ -1,6 +1,6 @@
 # Receive late records and convert external MCP results
 
-Status: Draft\
+Status: Approved\
 PRD PR: Pending · Implementation PR: Pending · Updated: 2026-10-11
 
 ## Problem and context
