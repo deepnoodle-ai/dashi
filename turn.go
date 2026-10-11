@@ -112,10 +112,13 @@ type Step struct {
 	ActiveHooks *ActiveHooks `json:"active_hooks,omitempty"`
 }
 
-// Items returns the context items the step added: those of an
+// Items returns the context items the step added: initial Start context, an
 // AddMessages or steer, a loop continuation, or a rejected submission. A durable
 // host can read steer IDs from them in the transaction that saves the step.
 func (s Step) Items() []ContextItem {
+	if s.Started != nil {
+		return s.Started.Context
+	}
 	if s.Context == nil {
 		return nil
 	}

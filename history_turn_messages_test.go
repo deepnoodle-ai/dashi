@@ -231,7 +231,8 @@ func TestOperatorReminderStartRequiresOperatorOrigin(t *testing.T) {
 				Input:     []llm.Message{llm.ReminderMessage(r)},
 			},
 		)
-		if !nothingWritten(err) || client.sends != 0 {
+		if err == nil || Recorded(err) || client.sends != 0 ||
+			len(got.Turn.Steps) != 0 {
 			t.Fatalf("origin=%s outcome=%+v err=%v", origin, got, err)
 		}
 	}

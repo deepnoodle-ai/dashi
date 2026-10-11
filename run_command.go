@@ -34,12 +34,22 @@ func (r Runner) apply(
 		turn.ID = NewID()
 	}
 	command = normalizeCommand(command)
-	hooks := JoinHooks(r.Hooks, opts.hooks)
-	if err := hooks.validate(); err != nil {
-		return RunResult{}, err
-	}
 	state, err := replay(turn)
 	if err != nil {
+		return RunResult{}, err
+	}
+	implicitRecorder := r.Recorder == nil
+	if implicitRecorder {
+		r.Recorder = newMemoryRecorderForTurn(turn)
+	}
+	if c, ok := command.(Start); ok {
+		out, found, err := r.retryStart(ctx, turn, c)
+		if err != nil || found {
+			return out, err
+		}
+	}
+	hooks := JoinHooks(r.Hooks, opts.hooks)
+	if err := hooks.validate(); err != nil {
 		return RunResult{}, err
 	}
 	// A Start's agent may leave its destination, model, and version to
@@ -51,10 +61,6 @@ func (r Runner) apply(
 		return RunResult{}, err
 	}
 	_, isStart := command.(Start)
-	implicitRecorder := r.Recorder == nil
-	if implicitRecorder {
-		r.Recorder = newMemoryRecorderForTurn(turn)
-	}
 	if isStart && len(turn.Steps) > 0 {
 		if err := agentChanged(agent, state.Agent); err != nil {
 			return RunResult{}, err
@@ -198,6 +204,13 @@ func (r Runner) apply(
 		if err := validateCompaction(origin, c.Compaction); err != nil {
 			return RunResult{}, fmt.Errorf("dashi: %w", err)
 		}
+		if err := validateStartInput(origin, c.Input); err != nil {
+			return RunResult{}, fmt.Errorf("dashi: %w", err)
+		}
+		items, err := newMessageItems(state, c.Context)
+		if err != nil {
+			return RunResult{}, err
+		}
 		if n := c.Agent.Limits.ToolResultBytes; n > 0 && n < minToolResultBytes {
 			rt.pendingWarnings = append(rt.pendingWarnings, Warning{
 				Code: WarningLimitAdjusted,
@@ -231,11 +244,15 @@ func (r Runner) apply(
 				Origin:                 origin,
 				HistoryHash:            hash,
 				Input:                  llmclone.Messages(c.Input),
+				Context:                items,
 				Parent:                 cloneCallRef(c.Parent),
 				Compaction:             c.Compaction.clone(),
 			},
 		}); o != nil {
 			return rt.result(*o)
+		}
+		if opts.admit {
+			return rt.result(rt.stop(StopReady, ""))
 		}
 	case AddMessages:
 		if len(turn.Steps) == 0 ||
@@ -515,7 +532,7 @@ var errNoModelClient = errors.New("dashi: client is required to call the model")
 // unless a summary from active compaction must still be applied, which
 // prepares a request.
 func (r Runner) checkModelClient(opts runOptions, state *replayState) error {
-	if r.Client != nil {
+	if opts.admit || r.Client != nil {
 		return nil
 	}
 	if !pauseClosed(opts.pause) || state.pendingCompaction != "" {

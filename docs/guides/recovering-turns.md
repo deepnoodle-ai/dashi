@@ -31,7 +31,8 @@ and the turn records it. `Continue`, `Resolve`, and `Cancel` take no agent;
 they run with the one recorded in the turn you pass in, so load that turn
 from your own store. Process wiring for one call, such as steering, goes in
 run options, and long-lived services go on the `Runner`. A retried `Start`
-whose agent resolves differently from the recorded one fails with
+uses the original recorded defaults before consulting today's client or catalog.
+Removing credentials does not prevent acknowledging it. An explicitly changed agent fails with
 `ErrAgentChanged`, whose message names the fields. When the recorder
 implements `Loader`, Dashi also checks the snapshot's agent against the
 stored record and returns `ErrAgentChanged` if they differ.
@@ -57,12 +58,26 @@ and `Cancel` record facts and run with a `Runner` that has just a `Recorder`.
 A turn with no steps has not started, so `Cancel` refuses it; a host that
 accepted work and never ran it withdraws that work in its own records.
 
-To record a turn without running it, so it can run later, before any paid
-request, pass a `Start` with an already-closed pause channel. Dashi records the
-`Start` step and a `StopInterrupted` stop ("pause requested"), prepares and
-sends no model request, and `Next()` gives `NextContinue`. A later `Continue`
-runs the turn; it does not count toward `Limits.Resumes`, because no work was
-cut short. A `Cancel` withdraws it.
+To record a turn before any paid request, call `Runner.Admit`:
+
+```go
+out, err := runner.Admit(ctx, turn, savedStart, dashi.WithOwner(owner))
+// Later: Continue runs the accepted work; Cancel withdraws it.
+```
+
+Admit saves Start and StopReady, and Next gives NextContinue. It calls no
+model preparation, send, hooks, tools, content loader, or steering source.
+Without a Client, name provider, API, and model on Start.Agent. Enabled active
+compaction also needs an explicit ActiveCompactionPolicy.Window from your
+destination's evidence. The recorded window remains pinned after restart.
+Continue does not consume a resume. Keep the same owner fencing and save the
+original command and receipt in application storage. See the runnable
+[admission example](../../run_admit_example_test.go).
+
+If only Start survives an uncertain write, NextRecover describes that prefix.
+Reload before choosing Continue or Cancel. An exact retry returns the saved
+state and never repairs the missing stop or starts execution. The older
+closed-pause Start behavior remains supported for existing callers.
 
 A command is applied once per recorder. Running the same command again, with
 the same `CommandID` and content against the same recorder, returns the

@@ -42,6 +42,10 @@ func nextRows() []nextRow {
 	}
 	failed := func(reason string) *Stop { return &Stop{Kind: StopFailed, Reason: reason} }
 	return []nextRow{
+		{
+			name: "admitted", covers: []string{"ready/"},
+			stop: &Stop{Kind: StopReady}, want: NextContinue,
+		},
 		{name: "not started", setup: func(s *replayState) { s.LastSeq = 0 }, want: NextNone},
 		{name: "no stop", want: NextRecover},
 		{

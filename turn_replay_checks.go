@@ -436,14 +436,12 @@ func (s *replayState) trackHooks(step Step) {
 func (s *replayState) trackInput(step Step) {
 	if step.Kind == StepTurnStarted {
 		s.Input = llmclone.Messages(step.Started.Input)
-		return
-	}
-	if step.Context == nil ||
+	} else if step.Context == nil ||
 		!step.Context.Steering &&
 			(step.Kind != StepMessagesAdded || step.CommandID == "") {
 		return
 	}
-	for _, item := range step.Context.Items {
+	for _, item := range step.Items() {
 		if cmp.Or(item.Origin, ContextUser) != ContextUser {
 			continue
 		}
@@ -461,11 +459,8 @@ func (s *replayState) trackInput(step Step) {
 
 func (s *replayState) trackContext(step Step) {
 	switch step.Kind {
-	case StepMessagesAdded, StepLoopContinued, StepToolFinished:
-		if step.Context == nil {
-			return
-		}
-		for _, item := range step.Context.Items {
+	case StepTurnStarted, StepMessagesAdded, StepLoopContinued, StepToolFinished:
+		for _, item := range step.Items() {
 			if item.Name == "" {
 				continue
 			}

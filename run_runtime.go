@@ -114,10 +114,16 @@ func (r *runtime) commit(step Step) *RunResult {
 	}
 	step.Warnings = append(step.Warnings, r.pendingWarnings...)
 	step.HookResults = append(step.HookResults, r.pendingHooks...)
-	step.Version = 1
+	step.Version = stepVersion(step)
 	step.TurnID = r.turn.ID
 	step.Seq = int64(len(r.turn.Steps) + 1)
 	step.At = time.Now().UTC()
+	if step.Model != nil && step.Model.Failure != nil {
+		step.Model.Failure.RecordedAt = step.At
+	}
+	if step.Stop != nil && step.Stop.Failure != nil {
+		step.Stop.Failure.RecordedAt = step.At
+	}
 	if step.Kind == StepTurnStopped && step.Stop != nil {
 		stop := *step.Stop
 		stop.Ended = r.endsTurnAfter(stop)

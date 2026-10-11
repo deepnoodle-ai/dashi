@@ -96,7 +96,7 @@ func markIncomplete(result *llm.Result) {
 
 func sendStatusOf(err error, result llm.Result) llm.SendStatus {
 	failure, ok := errors.AsType[*llm.Error](err)
-	if !ok || result.ID != "" || len(result.Message.Content) > 0 ||
+	if !ok || failure == nil || result.ID != "" || len(result.Message.Content) > 0 ||
 		result.Usage != nil {
 		return llm.SendStatusUnknown
 	}

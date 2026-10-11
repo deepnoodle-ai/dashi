@@ -82,6 +82,22 @@ turn before deciding what happened to its steers.
 
 ## Adding messages
 
+Use `Start.Context` for items already known when accepting work. Dashi saves
+them with Start.Input, before the first model request. Supply ordinary
+ContextItem values with IDs, origin, name, Snapshot, and NextCallOnly. The
+entire ordered value belongs to the Start hash. Continue and retries do not
+deliver the initial items again. Their IDs participate in the same Turn-wide
+checks as later AddMessages. Only ContextOperator grants system/developer or
+operator-reminder authority, independently of Start.Origin.
+
+Starts with nonempty initial context use step version 2 through Run and Admit.
+Replay rejects older or stripped representations before execution. Upgrade
+workers, view/history builders, and saved-command/outbox consumers before
+enabling these writers. Older command JSON decoders can ignore new fields.
+Follow/Tail remains raw transport; its consumers must use an updated view builder.
+Nil or empty initial context keeps existing version-1 records and hashes.
+See the runnable [initial-context example](../../run_admit_example_test.go).
+
 `AddMessages` adds context to a turn that is not running. Its items may carry
 IDs too; a repeat with the same content is skipped. Context items, from steers,
 `AddMessages`, or hooks, may hold only text, media, documents, and reminders.

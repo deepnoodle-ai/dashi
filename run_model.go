@@ -206,7 +206,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	}
 	req, err := r.runner.Client.Prepare(r.ctx, input)
 	if err != nil {
-		return r.failureOrContext(err), false
+		return r.prepareFailure(err), false
 	}
 	if origin := req.Origin(); origin.Provider != r.agent.Provider ||
 		origin.API != r.agent.API ||
@@ -402,7 +402,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		)
 	}
 	var sendReason llm.ErrorReason
-	if failure, ok := errors.AsType[*llm.Error](sendErr); ok {
+	if failure, ok := errors.AsType[*llm.Error](sendErr); ok && failure != nil {
 		sendReason = failure.Reason
 	}
 	timeoutWon := sendReason == llm.ReasonResponseStartTimeout ||
@@ -449,16 +449,17 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		// A failed call keeps what it streamed, with its reported usage.
 		result = mergeObserved(result, observedContent, observedUsage)
 		markIncomplete(&result)
-		finished.Error = sendErr.Error()
-		finished.ErrorReason = sendReason
 		finished.SendStatus = sendStatusOf(sendErr, result)
 		finished.ResultUnknown = finished.SendStatus == llm.SendStatusUnknown
+		finished.Failure = failureOf(sendErr, finished.SendStatus)
+		finished.Error = failureSummary("model request failed", finished.Failure)
+		finished.ErrorReason = finished.Failure.Reason
 		if !finished.ResultUnknown {
-			if failure, ok := errors.AsType[*llm.Error](sendErr); ok {
+			if _, ok := errors.AsType[*llm.Error](sendErr); ok {
 				finished.Evidence = fmt.Sprintf(
 					"client send status %s; HTTP %d",
-					failure.SendStatus,
-					failure.Status,
+					finished.SendStatus,
+					finished.Failure.Status,
 				)
 			}
 		}
@@ -494,9 +495,9 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	}
 	if sendErr != nil {
 		if finished.ResultUnknown {
-			return r.stop(StopResultUnknown, sendErr.Error()), false
+			return r.stop(StopResultUnknown, finished.Error), false
 		}
-		return r.stop(StopFailed, sendErr.Error()), false
+		return r.stop(StopFailed, finished.Error), false
 	}
 	if validationErr != nil {
 		if purpose == ModelPurposeCompaction {

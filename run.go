@@ -19,7 +19,9 @@ type Runner struct {
 	// empty provider, API, and model. It is required only for those: a Start
 	// or Continue that would call the model, or a Start whose agent leaves
 	// any of the three empty. A Start with an already-closed pause, whose
-	// agent names all three, records the turn without one (see WithPause),
+	// agent names all three, records the turn without one (see WithPause).
+	// Admit also records without a client when destination and any enabled
+	// compaction window are explicit. Exact Start retries use saved evidence,
 	// and Resolve, AddMessages, and Cancel record steps with a Recorder alone.
 	// When set, it must match the turn's provider and API.
 	Client llm.Client
@@ -55,13 +57,14 @@ type Runner struct {
 	CacheKey string
 }
 
-// RunOption adjusts one Run or Stream call.
+// RunOption adjusts one Run, Stream, or Admit call.
 type RunOption func(*runOptions)
 
 // runOptions holds per-call controls. The stream fields are set only by Run
 // and Stream, so a streamed model request always has a consumer for its
 // deltas: an Observer, a Stream range, or both.
 type runOptions struct {
+	admit      bool
 	owner      string
 	pause      <-chan struct{}
 	stream     bool

@@ -78,13 +78,16 @@ func (p *ContextCompactionPlan) clone() *ContextCompactionPlan {
 
 // activeWindow returns the context window a Start records for active
 // compaction, or 0 for none. It reads the model's window from the client, so
-// it needs one whenever active compaction is on.
+// an explicit policy window can supply the evidence without a client.
 func activeWindow(a Agent, client llm.Client, origin StartOrigin) (int, error) {
 	p := a.ActiveCompaction
 	if p == nil || p.Disabled || origin == StartCompaction {
 		return 0, nil
 	}
 	if client == nil {
+		if p.Window > 0 {
+			return p.Window, nil
+		}
 		return 0, errors.New("dashi: client is required to find the model's context window for active compaction")
 	}
 	info, known := client.ModelInfo(a.Model)

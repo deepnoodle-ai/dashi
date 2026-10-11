@@ -85,24 +85,11 @@ func (s *replayState) apply(step Step) error {
 		if err := validateCompaction(origin, step.Started.Compaction); err != nil {
 			return err
 		}
-		for _, m := range step.Started.Input {
-			if origin != StartOperator && m.Role != llm.RoleUser {
-				return errors.New("user or scheduled start input must use user role")
-			}
-			if origin == StartOperator &&
-				m.Role != llm.RoleUser &&
-				m.Role != llm.RoleSystem &&
-				m.Role != llm.RoleDeveloper {
-				return errors.New("invalid operator start role")
-			}
-			if err := validateMessage(m); err != nil {
-				return err
-			}
-			if reminder := messageReminder(m); reminder != nil &&
-				reminder.Tier == llm.ReminderOperator &&
-				origin != StartOperator {
-				return errors.New("operator reminder requires operator start origin")
-			}
+		if err := validateStartInput(origin, step.Started.Input); err != nil {
+			return err
+		}
+		if _, err := newMessageItems(s, step.Started.Context); err != nil {
+			return err
 		}
 		if step.Started.Parent != nil {
 			if err := step.Started.Parent.Validate(); err != nil {
@@ -176,6 +163,7 @@ func (s *replayState) apply(step Step) error {
 			s.failedModel = ""
 		}
 		s.Stop = Stop{}
+		s.Failure = nil
 	case StepLoopContinued:
 		if !s.awaitingClassification || len(s.pending()) > 0 {
 			return errors.New("loop continuation without final candidate")
@@ -315,6 +303,7 @@ func (s *replayState) apply(step Step) error {
 			return err
 		}
 		s.modelCallStart = ""
+		s.Failure = cloneFailure(step.Model.Failure)
 		s.modelFinishes[step.Model.ModelCallID] = step.Model
 		if step.Model.Interrupted == InterruptNone {
 			s.ModelCalls++
@@ -369,6 +358,7 @@ func (s *replayState) apply(step Step) error {
 			return err
 		}
 		s.unresolvedModel = ""
+		s.Failure = nil
 		s.modelFinishes[step.Model.ModelCallID] = step.Model
 		// Proof that the call was never sent clears the unknown result;
 		// Continue may retry.
@@ -726,6 +716,11 @@ func (s *replayState) apply(step Step) error {
 			s.awaitingClassification = false
 		}
 		switch step.Stop.Kind {
+		case StopReady:
+			if s.LastSeq != 1 || s.modelCalls != 0 ||
+				len(s.pending()) != 0 || step.Stop.Reason != "" {
+				return errors.New("ready stop requires admission before execution")
+			}
 		case StopCompleted, StopWaiting, StopLimited, StopRefused,
 			StopCanceled, StopFailed, StopResultUnknown, StopInterrupted:
 		default:
@@ -740,6 +735,12 @@ func (s *replayState) apply(step Step) error {
 			return errors.New("completed turn lacks structured output")
 		}
 		s.Stop = *step.Stop
+		if step.Stop.Failure != nil {
+			s.Failure = cloneFailure(step.Stop.Failure)
+		} else if step.Stop.Kind != StopFailed &&
+			step.Stop.Kind != StopResultUnknown {
+			s.Failure = nil
+		}
 		if step.Stop.Kind == StopLimited {
 			// Whether cost and usage are complete decides whether the
 			// steps so far end the turn.

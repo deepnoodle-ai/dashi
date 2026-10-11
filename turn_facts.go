@@ -97,6 +97,8 @@ type StartFact struct {
 	// Start.
 	HistoryHash string        `json:"history_hash,omitempty"`
 	Input       []llm.Message `json:"input"`
+	// Context holds initial items accepted atomically with Input.
+	Context []ContextItem `json:"context,omitempty"`
 	// Parent is the tool call that caused this turn, when another turn's
 	// tool started it. It never changes after Start.
 	Parent *CallRef `json:"parent,omitempty"`
@@ -177,6 +179,8 @@ type ModelFact struct {
 	Hidden []string    `json:"hidden,omitempty"`
 	Result *llm.Result `json:"result,omitempty"`
 	Error  string      `json:"error,omitempty"`
+	// Failure preserves safe model error details, absent on older records.
+	Failure *Failure `json:"failure,omitempty"`
 	// ErrorReason is a stable, optional model failure code. It is absent on
 	// older records and does not replace the human-readable Error.
 	ErrorReason llm.ErrorReason `json:"error_reason,omitempty"`
@@ -278,6 +282,8 @@ type ApprovalDecision struct {
 type StopKind string
 
 const (
+	// StopReady means admission saved the turn without executing work.
+	StopReady StopKind = "ready"
 	// StopCompleted means the turn produced an accepted final result.
 	StopCompleted StopKind = "completed"
 	// StopWaiting means the turn awaits an external action.
@@ -302,6 +308,8 @@ const (
 type Stop struct {
 	Kind   StopKind `json:"kind"`
 	Reason string   `json:"reason,omitempty"`
+	// Failure is present when request preparation failed before a model call.
+	Failure *Failure `json:"failure,omitempty"`
 	// RefID names the content reference that caused a stop with one of the
 	// StopReasonContent... codes. Otherwise it is empty.
 	RefID string `json:"ref_id,omitempty"`

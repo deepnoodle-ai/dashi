@@ -94,7 +94,8 @@ type TurnView struct {
 	// Origin is who supplied the turn's initial work, recorded at Start: an
 	// unset Start.Origin reads as StartUser. It is empty before Start.
 	Origin StartOrigin
-	// Input is the turn's input, in record order: Start.Input, then the
+	// Input is the turn's input, in record order: Start.Input, initial user
+	// context, then the
 	// message of each later item from the user (origin ContextUser) that an
 	// AddMessages command or a steer added. Items that hooks add are not
 	// input. A named item's message carries its slot in Context, as in the
@@ -126,8 +127,11 @@ type TurnView struct {
 	// result_unknown for a model call with no recorded result, interrupted
 	// for work in flight, waiting for pending work. A hook's view is taken
 	// mid-run, so its Stop is empty. Next says what to do about the stop.
-	Stop   Stop
-	Output *StructuredOutput
+	Stop Stop
+	// Failure describes the current model failure, or nil without recorded
+	// details. Retryable is advice; unknown effects still require resolution.
+	Failure *Failure
+	Output  *StructuredOutput
 	// Reply is the text of the latest assistant message. On a completed
 	// turn it is the final reply, and valid tool-only work can leave it
 	// empty; on a waiting turn it is text the model wrote alongside its

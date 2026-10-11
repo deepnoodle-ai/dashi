@@ -136,6 +136,27 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 	// all, showed the model nothing.
 	lastDispatched := lastDispatchedCallStart(t)
 	resumed := lastCrashResume(t.Steps)
+	emitItems := func(items []ContextItem) {
+		// Snapshots append to preserve the request's cached prefix.
+		for _, item := range items {
+			if item.NextCallOnly && lastDispatched > seq {
+				continue
+			}
+			message := item.Message.Clone()
+			message.Context = nil
+			if item.Name != "" {
+				origin := item.Origin
+				if origin == "" {
+					origin = ContextUser
+				}
+				message.Context = &llm.MessageContext{
+					Origin: string(origin),
+					Name:   item.Name,
+				}
+			}
+			emit(message)
+		}
+	}
 	for _, step := range t.Steps {
 		seq, index = step.Seq, 0
 		switch step.Kind {
@@ -143,6 +164,7 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 			for _, m := range step.Started.Input {
 				emit(m.Clone())
 			}
+			emitItems(step.Started.Context)
 		case StepTurnContinued:
 			// The reminder is for the next dispatched model call only, and
 			// one is enough however many crashes came before that call. An
@@ -156,25 +178,7 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 			if step.Context == nil {
 				continue
 			}
-			// A replaced Snapshot item stays where it was, so the request
-			// keeps its prefix and the provider's prompt cache still
-			// matches; the reminder instruction tells the model that the
-			// latest item of a name is current.
-			for _, item := range step.Context.Items {
-				if item.NextCallOnly && lastDispatched > step.Seq {
-					continue
-				}
-				message := item.Message.Clone()
-				message.Context = nil
-				if item.Name != "" {
-					origin := item.Origin
-					if origin == "" {
-						origin = ContextUser
-					}
-					message.Context = &llm.MessageContext{Origin: string(origin), Name: item.Name}
-				}
-				emit(message)
-			}
+			emitItems(step.Context.Items)
 		case StepModelCallFinished, StepModelCallFinishedByHost:
 			if modelPurpose(t, step.Model.ModelCallID) == ModelPurposeCompaction {
 				continue

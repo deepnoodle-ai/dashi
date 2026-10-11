@@ -815,7 +815,11 @@ func (c *rejectingClient) Prepare(
 	in llm.Input,
 ) (llm.Request, error) {
 	c.inputs = append(c.inputs, in)
-	return llm.Request{}, errors.New("test: application/pdf is not supported")
+	return llm.Request{}, &llm.Error{
+		Category: llm.ErrorUnsupported,
+		Reason:   llm.ReasonMediaRejected,
+		Cause:    errors.New("test: application/pdf is not supported"),
+	}
 }
 
 func TestRefProviderRejectionReturnsPrepareError(t *testing.T) {
@@ -829,11 +833,13 @@ func TestRefProviderRejectionReturnsPrepareError(t *testing.T) {
 		refMessage(ref),
 	)
 
-	if out.Stop.Kind != StopFailed ||
-		!strings.Contains(out.Stop.Reason, "application/pdf is not supported") {
+	if out.Stop.Kind != StopFailed || out.Failure == nil ||
+		out.Failure.Category != llm.ErrorUnsupported ||
+		out.Failure.Reason != llm.ReasonMediaRejected {
 		t.Fatalf("stop = %+v", out.Stop)
 	}
-	if strings.Contains(out.Stop.Reason, "content reference") {
+	if strings.Contains(out.Stop.Reason, "content reference") ||
+		strings.Contains(out.Stop.Reason, "application/pdf") {
 		t.Fatalf("stop blames the reference: %q", out.Stop.Reason)
 	}
 }
