@@ -65,6 +65,14 @@ the field, preserving existing Start hashes.
 Include the complete ordered items in new Start hashes and deep-copy their messages.
 Store them atomically with input on the Start step.
 
+Set that Start step's existing `Version` to 2 whenever Context is nonempty,
+whether Run or Admit records it. Existing readers reject version 2 before replay.
+Updated readers accept version 1 without initial context and version 2 only
+for a Start with nonempty initial context. Reject unknown versions and a
+version-1 Start carrying context. Other steps retain version 1.
+Step.Version is outside the command hash. Nil and empty context keep their old hashes.
+This protects ordinary Run records and a partially written admission containing only Start.
+
 Extend `Step.Items()` to return a Start's items. Replay then applies existing
 ID tracking to initial and later additions. Track named initial items at the
 Start sequence for Context lookup and NextCallOnly expiry.
@@ -116,22 +124,35 @@ A separate Admit command duplicates Start identity. Initial AddMessages is reusa
 but splits accepted input across writes. Persisting llm.Error retains more details,
 but arbitrary provider fields can contain secrets. Automatic retry hides host policy.
 The chosen shape adds one stop and optional facts while preserving those boundaries.
+An optional initial-context field alone permits silent omission by older readers.
+Reuse the existing step version to reject unsupported semantics before execution.
+Versioning every unchanged step would create a larger compatibility boundary without additional protection.
 
-No migration or feature flag is needed. New optional fields preserve old nil-field
-hashes and old failure behavior. Updated readers accept existing records.
-Older readers reject StopReady and can ignore initial context, so upgrade every
-record reader before creating these new records. Mixed-version execution is unsupported.
+No migration is needed. Updated readers accept existing version-1 records and
+new version-2 Starts. Older record readers reject these Starts and StopReady.
+Deploy support to every record reader, worker, Follow/Tail consumer, and saved-command
+consumer before any writer emits initial context or ready stops.
+Old command JSON decoders may ignore new fields. Do not enqueue context-bearing
+Starts where an older consumer can decode or execute them.
+Enable new writers only after applications establish that deployment boundary.
+Mixed-version execution is unsupported. New failure metadata remains optional advice.
 Keep the closed-pause behavior for existing callers, while guides use Admit for new code.
 
 Implementation owns `command.go`, `run_` admission/model paths, `turn_` facts,
 replay, views, validation, and the initial-item hunk in `history_turn_messages.go`.
-Coordinate that hunk with the history track. Do not modify history policy,
-compaction/, feed/, mcp/, or run_follow.go.
+Coordinate that hunk with the history track. Coordinate the shared supported-version
+check with the orchestrator and result-conversion track before implementation.
+Their Follow/Tail readers must accept supported version-2 Starts and reject unknown versions.
+Do not modify history policy, compaction/, feed/, mcp/, or run_follow.go.
 
 Verify owner forwarding, no external calls, stale snapshots, loader failures,
 lost acknowledgments at both admission writes, old hashes, changed defaults,
 context authority/IDs/lifetime, JSON reload, 429 timing, preparation failures,
 unknown/partial sends, host resolution, and secret-bearing error fixtures.
+Use a pinned legacy reader harness to reject a serialized context-bearing Start
+from ordinary Run before any model work. Repeat with an admission's Start-only prefix.
+Verify version-1 legacy records, nil/empty-context hashes, supported version-2
+replay/Follow/Tail, downgraded context-bearing Starts, and unknown-version rejection.
 Commit short offline Example tests, update running/recovery/steering guides and
 CHANGELOG, then run focused race tests and `make check`.
 Independent implementation and security reviews check recorded input and failure safety.

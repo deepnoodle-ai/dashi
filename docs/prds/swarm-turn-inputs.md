@@ -56,6 +56,8 @@ name, and lifetime. They admit or run the Start, reload, and continue it.
 - [ ] IDs participate in Turn-wide duplicate checks. Repeated IDs in the initial batch fail before recording.
 - [ ] All item fields and order belong to the Start hash. Changing authority or lifetime under the same command ID conflicts.
 - [ ] Nil and empty initial context preserve old behavior. Invalid roles, reminder tiers, or content fail before any commit.
+- [ ] Run and Admit mark Starts with nonempty initial context as record version 2. Older record readers reject them before execution.
+- [ ] Updated readers reject context-bearing version-1 Starts and unknown versions. Nil/empty context retains version 1 and existing hashes.
 
 ### UC-3: Handle failure after a restart
 
@@ -76,6 +78,7 @@ retry time in application storage. Another request loses its connection after po
 - Record a ready stop. Reusing an interrupted pause would retain the workaround's misleading explanation.
 - Use existing `ActiveCompactionPolicy.Window` and `StartFact.ActiveCompactionWindow`. A second caller window would compete with the existing bound and evidence.
 - Save initial items on Start. Adding them through a later command leaves acceptance incomplete if its write fails.
+- Gate initial context with the existing step version. Optional fields alone let older readers silently omit operator reminders.
 - Add optional failure facts beside existing execution evidence. Persisting `llm.Error` would expose arbitrary provider data and error causes.
 - Preserve Next and application scheduling. A second decision API or automatic retry would conceal policy and unknown effects.
 
@@ -87,6 +90,6 @@ policy, accounting changes, and Swarm edits. It adds no storage interface or wor
 Committed offline examples demonstrate all three workflows. Compatibility and
 failure-injection tests cover old hashes, reload, partial admission writes, and unknown sends.
 `make check` passes. Independent reviewers run the examples and examine saved-record safety.
-Old binaries cannot safely execute records with initial context or the new ready stop.
-The [technical spec](../design/swarm-turn-inputs.md) defines this upgrade boundary and retry matching.
+Upgrade record readers and saved-command consumers before enabling new writers.
+The [technical spec](../design/swarm-turn-inputs.md) defines version rejection, command rollout, and retry matching.
 No design question blocks the planning review.
