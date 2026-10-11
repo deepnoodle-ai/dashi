@@ -2,6 +2,8 @@
 // record, merged with the live previews (model deltas and tool progress)
 // that a Runner in this process produces. A web handler serves one Follow
 // per connection; a Hub set as Runner.Observer supplies the previews.
+// Tail reads committed steps alone, including records after execution ends,
+// until its reader context ends.
 //
 // The rules Follow keeps for each reader:
 //

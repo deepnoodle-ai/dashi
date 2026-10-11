@@ -49,6 +49,25 @@ cursor that is already at that stop, it ends at once. A late result of work
 started before the stop can still be recorded after it; a reload, or
 `StepsAfter` from the stop's `Seq`, shows it.
 
+For a mirror that needs those later records, use `feed.Tail`. It yields every
+committed Step after the cursor, including the ending stop, until its context
+ends or the consumer breaks the range. It shares Follow's cursor checks,
+paging, wait hints, and backoff. It starts no goroutines and carries no previews:
+
+```go
+for step, err := range feed.Tail(ctx, store, turnID, cursor) {
+	if err != nil { return err }
+	if err := mirror.Apply(step); err != nil { return err }
+	cursor = step.Seq // Persist only after applying the record.
+}
+```
+
+Cancel this reader independently of the worker. Authorize access first and
+apply idempotently across restart. Choose its lifetime for the current job;
+a permanent watcher per historical bill is usually unnecessary. Ledger updates
+outside Dashi records need host notifications too. `ExampleTail` demonstrates
+a canceled turn, a later saved tool result, and independent reader cancellation.
+
 Live previews (token streaming and tool progress) never enter the record;
 they come from `Runner.Observer` in the runner's process. Package `feed`
 merges the two: set `Runner.Observer` to a `feed.Hub`'s `Observe`, and serve

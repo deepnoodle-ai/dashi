@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`feed.Tail`** follows committed turn records until its reader context ends,
+  including late tool results saved after execution ends. It shares Follow's
+  validated cursor, paging, and wait behavior without changing ordinary Follow.
+- **`mcp.ConvertResult` and `mcp.ConvertResultJSON`** convert external MCP results
+  independently of Toolset. They preserve ordered typed media, exact journaled
+  structured numbers, and MCP failure, with explicit resource and media omissions.
+
+### Changed
+
+- MCP conversion validates media MIME/header identity and malformed content,
+  copies media bytes, and reports projection loss with safe diagnostics.
+  `mcp.ErrInputRequired` distinguishes a host input interaction from completion.
+  Toolset records an unsupported-input failure without retrying the call.
+
 ## [0.6.0] - 2026-10-10
 
 ### Added

@@ -8,12 +8,14 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/tool"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestOpenOffersPrefixedToolsOverStdio(t *testing.T) {
@@ -313,7 +315,7 @@ func TestResultsMapToDashiContent(t *testing.T) {
 			got[1] != "resource notes: file:///notes.txt" {
 			t.Fatalf("texts = %q", got)
 		}
-		if !contains(statusOf(t, ts, "test").Warnings, "file:///data.bin") {
+		if !contains(statusOf(t, ts, "test").Warnings, "binary resource was not shown") {
 			t.Fatalf("warnings = %v", statusOf(t, ts, "test").Warnings)
 		}
 	})
@@ -586,5 +588,48 @@ func TestCallAfterCloseSaysTheToolsetIsClosed(t *testing.T) {
 	_, err = echo.Executor.Execute(t.Context(), tool.Call{ID: "c", Name: echo.Definition.Name, Args: []byte(`{"text":"x"}`)})
 	if err == nil || !strings.Contains(err.Error(), "closed") || strings.Contains(err.Error(), "may have run") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestExecutorRejectsUnusableCompletedResultWithoutRetry(t *testing.T) {
+	var calls atomic.Int64
+	server := sdk.NewServer(&sdk.Implementation{Name: "fixture", Version: "1"}, nil)
+	server.AddTool(&sdk.Tool{
+		Name:        "image",
+		InputSchema: map[string]any{"type": "object"},
+	}, func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		calls.Add(1)
+		return &sdk.CallToolResult{
+			Content: []sdk.Content{
+				&sdk.ImageContent{Data: []byte("SECRET"), MIMEType: "image/png"},
+			},
+		}, nil
+	})
+	ct, st := sdk.NewInMemoryTransports()
+	ss, err := server.Connect(t.Context(), st, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ss.Close()
+	client := sdk.NewClient(&sdk.Implementation{Name: "fixture", Version: "1"}, nil)
+	cs, err := client.Connect(t.Context(), ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	c := &conn{name: "fixture", session: cs, state: StateConnected}
+	e := executor{set: &Toolset{}, c: c, remote: "image"}
+	out, err := e.Execute(t.Context(), tool.Call{
+		ID:   "image-1",
+		Args: []byte(`{}`),
+	})
+	if err == nil || out.Output != nil || out.State != "" {
+		t.Fatalf("unusable result returned %+v, error %v", out, err)
+	}
+	if strings.Contains(err.Error(), "SECRET") {
+		t.Fatal("executor conversion error exposed input")
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("conversion caused %d tool calls; want one", calls.Load())
 	}
 }

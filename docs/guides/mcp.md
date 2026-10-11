@@ -88,11 +88,58 @@ servers must say so on its own.
 
 ## Results
 
-Text, image, and audio blocks keep their order. A result with `IsError` is a
-failed outcome that the model sees. Structured content becomes one JSON text
-block, unless a text block already holds it. A resource link and a text
-resource become text. A binary resource becomes a text note with its type and
-size, and the server status gets a warning.
+Text and supported media keep their order. `ConvertResult` converts a completed
+MCP SDK result without a Toolset or connection. `ConvertResultJSON` converts a
+saved complete result object with a `content` array. It uses the SDK to decode
+polymorphic content and preserves exact structured JSON numbers. Structured
+content becomes a JSON text block unless existing text carries the same exact
+value. Typed conversion preserves its supplied value; it cannot restore numbers
+rounded before the call.
+
+Media bytes are copied. Header validation guarantees typed conversion for
+`image/png`, `image/jpeg`, `image/gif`, `image/webp`, `audio/wav`, and `audio/mpeg`.
+Aliases normalize: `image/jpg` to `image/jpeg`, `audio/wave` and `audio/x-wav`
+to `audio/wav`, and `audio/mp3` to `audio/mpeg`. Header identity does not prove
+complete codec integrity or provider support. Other valid image/audio types,
+such as SVG, become ordered omission notes with warnings. Invalid MIME, empty
+bytes, or a mismatched guaranteed-format header return an error.
+
+Resource links become descriptions containing their URI and available metadata.
+Text resources keep their URI and text. Binary resources become notes with URI,
+type, and size plus an omission warning. Conversion never fetches resources.
+Discarded MCP metadata and annotations produce warnings without their values.
+Toolset records conversion warnings in server status and turns unusable completed
+results into the runner's usual failed outcome.
+
+Select conversion using the admitted tool's output format. JSON shape cannot
+establish MCP provenance. Keep original output, tool/version, format, and journal
+failure in the application journal. Either MCP `IsError` or journal failure must
+remain failed. For a host without an additional-input flow:
+
+```go
+// The admitted tool format selected MCP conversion before reading JSON.
+outcome, warnings, err := mcp.ConvertResultJSON(journal.Output)
+switch {
+case errors.Is(err, mcp.ErrInputRequired):
+	outcome = tool.Failed("This host does not support additional MCP input.")
+case err != nil:
+	outcome = tool.Failed("Tool completed, but its result could not be used.")
+}
+if journal.IsError { outcome.State = tool.StateFailed }
+reportWarnings(warnings)
+command := pending.Result(outcome) // Save through the existing host command path.
+```
+
+Keep the journal when conversion fails. Retry persistence after uncertain save
+acknowledgment and never repeat completed execution to fix its content.
+`ErrInputRequired` identifies an incomplete interaction. A host that supports
+input keeps work pending while its permission/input flow fulfills the original
+requests, then resumes the same MCP request with saved request state and input
+responses. Toolset has no input handler and records a safe unsupported-input
+failure without retry. Bound input sizes before conversion; output remains
+untrusted model input. `ExampleConvertResult`, `ExampleConvertResultJSON`, and
+`ExampleConvertResultJSON_unusable` demonstrate screenshot conversion, exact
+numbers, retained failure, and safe journal-preserving settlement without a server.
 
 If the connection drops after a call is sent, the error text says the call may
 have run. The client never retries a call. Cancelling the context sends an MCP

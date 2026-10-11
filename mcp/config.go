@@ -1,5 +1,6 @@
 // Package mcp connects a Dashi application to MCP servers and offers their
-// tools to an agent as a tool.Toolset.
+// tools to an agent as a tool.Toolset. ConvertResult and ConvertResultJSON
+// convert externally executed results without starting a server or Toolset.
 //
 // It reads .mcp.json style files, starts stdio and streamable HTTP servers,
 // and gives each remote tool a stable model-facing name. A server from a

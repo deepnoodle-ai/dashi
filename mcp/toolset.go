@@ -604,9 +604,14 @@ func (e *executor) Execute(
 	if err != nil {
 		return tool.Outcome{}, e.callError(ctx, cs, err)
 	}
-	return convertResult(res, func(text string) {
-		e.set.note(e.c, text)
-	}), nil
+	out, warnings, err := ConvertResult(res)
+	for _, warning := range warnings {
+		e.set.note(e.c, warning)
+	}
+	if errors.Is(err, ErrInputRequired) {
+		return tool.Failed("MCP tool requires host input, which this toolset does not support."), nil
+	}
+	return out, err
 }
 
 // callError explains a failed call. A reply from the server means the call
