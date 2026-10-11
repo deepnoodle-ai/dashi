@@ -17,6 +17,9 @@ challenged every idea; their decisions and refinements are included.
 has a concrete case. Fourteen offline Go demos reproduce current behavior; after
 snippets for proposed APIs are labeled explicitly.
 
+[Seven improvements now have implementation PRs and runnable examples](examples/implemented.md).
+Their code reviews, refinements, and combined verification are indexed there.
+
 ## 1. Make agent costs easy to save in the application's database
 
 Imagine two agents sharing the last dollar in an account. Both check the balance;
