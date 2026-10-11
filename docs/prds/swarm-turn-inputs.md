@@ -1,7 +1,7 @@
 # Accept background work and recover useful failure details
 
 Status: Approved\
-PRD PR: pending  Implementation PR: pending  Updated: 2026-10-11
+PRD PR: #250  Implementation PR: pending  Updated: 2026-10-11
 
 ## Problem and users
 
