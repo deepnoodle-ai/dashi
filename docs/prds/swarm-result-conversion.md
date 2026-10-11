@@ -1,0 +1,88 @@
+# Receive late records and convert external MCP results
+
+Status: Draft\
+PRD PR: Pending · Implementation PR: Pending · Updated: 2026-10-11
+
+## Problem and context
+
+Applications run tools outside Dashi while keeping their own journals, permissions,
+and workers. Two demonstrated bridges lose useful Dashi behavior.
+[R22](../../design/swarm-integration/examples/r22-updates-after-finish.md) shows
+`Follow` ending at cancellation before a late tool result. A mirror must switch
+to manual reads. [R25](../../design/swarm-integration/examples/r25-mcp-images.md)
+shows a journaled MCP result becoming JSON text instead of typed image content.
+Swarm recognizes an array, but its MCP client saves the complete result object.
+
+`dashi.Follow` already checks cursors, pages records, and waits without controlling
+execution. The separate MCP module already converts SDK results privately inside
+Toolset. The [observation review](../../design/swarm-integration/reviews/observation-embedding.md)
+and [tools review](../../design/swarm-integration/reviews/accounting-tools.md)
+accept small additions with explicit lifetime, format, and validation boundaries.
+Further external discovery is unnecessary for these demonstrated problems.
+
+## Users and concepts
+
+The primary user builds an application-owned durable runtime. They need every
+committed record and reusable model-facing MCP content while retaining execution
+and storage authority.
+
+**Tail** follows committed records until its reader context ends, including
+records after execution ends. **Result conversion** turns a completed MCP SDK
+result into a validated `tool.Outcome`. Conversion grants no access to resources.
+
+## Use cases and acceptance
+
+### UC-1: Mirror a result saved after cancellation
+
+The application calls `feed.Tail(ctx, store, turnID, cursor)`, applies each Step,
+and persists its cursor. It cancels this reader when its own job finishes.
+
+- [ ] Receive the ending stop and later committed tool results in sequence.
+- [ ] Resume from the ending stop or a later record without repeating the cursor.
+- [ ] Normalize a negative cursor to zero. Reject an ahead cursor, wrong turn,
+  repeated sequence, or missing sequence with the existing error identities.
+- [ ] Drain pages before waiting. Waiter failures and missed wakes still lead to reads.
+- [ ] Cancellation or a range break ends only this reader and leaves no reader work.
+- [ ] Independent readers keep independent cursors and cancellation contexts.
+- [ ] Both existing Follow functions retain their ending-stop and reconnect behavior.
+
+### UC-2: Return a journaled MCP screenshot to the model
+
+The application selects MCP conversion using the admitted tool's output format.
+It calls `mcp.ConvertResult(result)` for an SDK result or
+`mcp.ConvertResultJSON(raw)` for a saved complete result envelope. It reports
+warnings, combines any journal failure with the outcome, then uses `Pending.Result`.
+
+- [ ] Typed conversion requires no Toolset, connection, or running server.
+- [ ] Ordered text, image, and audio blocks retain their kinds and copied bytes.
+- [ ] Structured content becomes JSON text once. Marshal failures return an error.
+- [ ] MCP `IsError` produces `tool.StateFailed`. Examples preserve journal failure too.
+- [ ] Nil results, malformed envelopes, invalid media, and incomplete input requests
+  return useful errors. No partial outcome escapes on error.
+- [ ] Empty completed results succeed. Resources become descriptions or explicit
+  omission notes and warnings. No resource is fetched or executed.
+- [ ] Conversion validates MIME and content. Diagnostics identify the block without
+  including media bytes, structured payloads, or server metadata.
+
+## Decisions and boundaries
+
+- Add `feed.Tail` outside the engine. Share the validated reader loop internally.
+  Reject a second hand-written tail and a new root option for this integration job.
+- Export typed conversion first. Add the JSON wrapper because Swarm journals the
+  complete SDK envelope. Use SDK polymorphic decoding rather than an array bridge.
+- Return warnings as `[]string` beside the outcome and error. Reuse Toolset conversion
+  rather than establish a second conversion policy.
+- The host stores raw output, admitted tool/version, format, and journal failure.
+  JSON shape never establishes MCP provenance. Provider media support remains separate.
+- No durable tool executor, worker ownership, permissions, network changes, billing
+  watcher, record schema change, dependency upgrade, or module-version change.
+
+## Success and risks
+
+Runnable `Example*` tests demonstrate late-result tailing and standalone screenshot
+conversion. Focused compatibility tests, `make check`, independent implementation
+review, and security review pass. Guides and the changelog describe both APIs.
+Untrusted MIME, resource names, and structured content can mislead readers or models.
+Validation and bounded diagnostic text reduce that risk without treating output as
+trusted instructions. The host must bound input sizes and authorize each reader.
+No design question blocks implementation after independent PRD review.
