@@ -1,6 +1,6 @@
 # Strict history and validated summary replacements
 
-Status: Draft · Author: History helpers track · Date: 2026-10-11\
+Status: Accepted · Author: History helpers track · Date: 2026-10-11\
 Workflow: Write the spec, wait for independent PRD review, then implement.\
 Requirements: [Continue only validated conversation history](../prds/swarm-history-helpers.md)
 
