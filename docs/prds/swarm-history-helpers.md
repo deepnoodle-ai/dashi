@@ -1,7 +1,7 @@
 # Continue only validated conversation history
 
 Status: Approved\
-PRD PR: [#251](https://github.com/deepnoodle-ai/dashi/pull/251) · Implementation PR: Pending · Updated: 2026-10-11
+PRD PR: [#251](https://github.com/deepnoodle-ai/dashi/pull/251) · Implementation PR: [#254](https://github.com/deepnoodle-ai/dashi/pull/254) · Updated: 2026-10-11
 
 ## Problem and context
 
