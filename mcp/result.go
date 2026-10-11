@@ -46,7 +46,7 @@ func ConvertResult(res *sdk.CallToolResult) (tool.Outcome, []string, error) {
 	if res.NeedsInput() {
 		return tool.Outcome{}, nil, ErrInputRequired
 	}
-	if len(res.InputRequests) > 0 || res.RequestState != "" {
+	if res.InputRequests != nil || res.RequestState != "" {
 		return tool.Outcome{}, nil, errors.New(
 			"mcp: completed result excludes input requests and request state",
 		)

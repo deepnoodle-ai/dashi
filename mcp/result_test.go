@@ -166,6 +166,8 @@ func TestConvertResultRejectsInvalidContentWithoutPartialOutcome(t *testing.T) {
 func TestConvertResultRejectsUnusableStructuredAndNilResults(t *testing.T) {
 	for _, res := range []*sdk.CallToolResult{
 		nil,
+		{InputRequests: sdk.InputRequestMap{}},
+		{RequestState: "SECRET"},
 		{StructuredContent: func() {}},
 		{StructuredContent: json.RawMessage(`{"SECRET":`)},
 		{StructuredContent: failingJSON{}},

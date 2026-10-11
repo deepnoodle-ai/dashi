@@ -17,8 +17,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
-- MCP conversion validates media MIME/header identity and malformed content,
-  copies media bytes, and reports projection loss with safe diagnostics.
+- MCP conversion validates media MIME/header identity, malformed content, and
+  interaction envelopes before SDK decoding. It copies media bytes and reports
+  projection loss with safe diagnostics.
   `mcp.ErrInputRequired` distinguishes a host input interaction from completion.
   Toolset records an unsupported-input failure without retrying the call.
 

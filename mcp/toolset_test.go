@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"slices"
 	"strings"
@@ -631,5 +632,69 @@ func TestExecutorRejectsUnusableCompletedResultWithoutRetry(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("conversion caused %d tool calls; want one", calls.Load())
+	}
+}
+
+func TestOpenRejectsInputRequiredWithoutRetryOrConnectionLoss(t *testing.T) {
+	for name, requests := range map[string]sdk.InputRequestMap{
+		"roots":       {"roots": &sdk.ListRootsParams{}},
+		"elicitation": {"confirm": &sdk.ElicitParams{Message: "SECRET"}},
+		"empty map":   {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var calls atomic.Int64
+			server := sdk.NewServer(&sdk.Implementation{Name: "fixture", Version: "1"}, nil)
+			server.AddTool(&sdk.Tool{
+				Name:        "interaction",
+				InputSchema: map[string]any{"type": "object"},
+			}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+				calls.Add(1)
+				// The SDK's default automatic input handling would reach this
+				// branch and turn a roots request into a successful second call.
+				if len(req.Params.InputResponses) > 0 {
+					return &sdk.CallToolResult{
+						Content: []sdk.Content{&sdk.TextContent{Text: "resumed"}},
+					}, nil
+				}
+				return &sdk.CallToolResult{
+					InputRequests: requests,
+					RequestState:  "SECRET",
+				}, nil
+			})
+			server.AddTool(&sdk.Tool{
+				Name:        "healthy",
+				InputSchema: map[string]any{"type": "object"},
+			}, func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+				return &sdk.CallToolResult{
+					Content: []sdk.Content{&sdk.TextContent{Text: "connected"}},
+				}, nil
+			})
+			httpServer := httptest.NewServer(sdk.NewStreamableHTTPHandler(
+				func(*http.Request) *sdk.Server { return server },
+				&sdk.StreamableHTTPOptions{Stateless: true},
+			))
+			t.Cleanup(httpServer.Close)
+			set := open(t, map[string]Server{
+				"fixture": {Type: TypeHTTP, URL: httpServer.URL},
+			}, Options{})
+			out, err := run(t, set, "mcp__fixture__interaction", `{}`)
+			if err != nil || out.State != tool.StateFailed ||
+				!contains(texts(out), "does not support") {
+				t.Fatalf("input-required result = %+v, error %v", out, err)
+			}
+			if contains(texts(out), "SECRET") {
+				t.Fatal("unsupported-input failure disclosed interaction state")
+			}
+			if calls.Load() != 1 {
+				t.Fatalf("input-required response caused %d calls; want one", calls.Load())
+			}
+			if st := statusOf(t, set, "fixture"); st.State != StateConnected || st.Err != nil {
+				t.Fatalf("input-required response changed connection status: %+v", st)
+			}
+			out, err = run(t, set, "mcp__fixture__healthy", `{}`)
+			if err != nil || out.State != tool.StateSucceeded || !contains(texts(out), "connected") {
+				t.Fatalf("call after unsupported input = %+v, error %v", out, err)
+			}
+		})
 	}
 }

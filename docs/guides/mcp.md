@@ -135,9 +135,11 @@ acknowledgment and never repeat completed execution to fix its content.
 `ErrInputRequired` identifies an incomplete interaction. A host that supports
 input keeps work pending while its permission/input flow fulfills the original
 requests, then resumes the same MCP request with saved request state and input
-responses. Toolset has no input handler and records a safe unsupported-input
-failure without retry. Bound input sizes before conversion; output remains
-untrusted model input. `ExampleConvertResult`, `ExampleConvertResultJSON`, and
+responses. Malformed interaction fields return a conversion error, including
+null input-request entries; completed results cannot carry interaction fields.
+Toolset disables SDK automatic input handling and records a safe unsupported-input
+failure after one call, keeping the connection available. Bound input sizes before
+conversion; output remains untrusted model input. `ExampleConvertResult`, `ExampleConvertResultJSON`, and
 `ExampleConvertResultJSON_unusable` demonstrate screenshot conversion, exact
 numbers, retained failure, and safe journal-preserving settlement without a server.
 

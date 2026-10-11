@@ -390,6 +390,9 @@ func (t *Toolset) connect(
 	client := mcp.NewClient(
 		&mcp.Implementation{Name: "dashi", Version: "0"},
 		&mcp.ClientOptions{
+			// Input policy belongs to the host. Return the first interaction
+			// result so the executor can settle unsupported input without retry.
+			MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true},
 			ToolListChangedHandler: func(
 				context.Context,
 				*mcp.ToolListChangedRequest,

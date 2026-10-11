@@ -133,12 +133,69 @@ func TestConvertResultJSONRejectsMalformedContentSafely(t *testing.T) {
 func TestConvertResultJSONInputRequiredPrecedesContentValidation(t *testing.T) {
 	for _, raw := range []string{
 		`{"resultType":"input_required","requestState":"SECRET"}`,
+		`{"resultType":"input_required","inputRequests":{}}`,
+		`{"resultType":"input_required","inputRequests":{"roots":{"method":"roots/list","params":{}}}}`,
+		`{"resultType":"input_required","inputRequests":{"elicit":{"method":"elicitation/create","params":{"message":"SECRET"}}},"requestState":"SECRET"}`,
+		`{"resultType":"input_required","inputRequests":{"sample":{"method":"sampling/createMessage","params":{"messages":[],"maxTokens":1}}}}`,
 		`{"resultType":"input_required","content":null}`,
 		`{"resultType":"input_required","content":[{"type":"SECRET"}]}`,
 	} {
 		out, _, err := ConvertResultJSON(json.RawMessage(raw))
 		if !errors.Is(err, ErrInputRequired) || !reflect.DeepEqual(out, tool.Outcome{}) {
 			t.Fatalf("input request returned %+v, %v", out, err)
+		}
+	}
+}
+
+func TestConvertResultJSONRejectsMalformedInteractionsWithoutPanic(t *testing.T) {
+	for _, resultType := range []string{"", "complete", "input_required"} {
+		for _, fields := range []string{
+			`"inputRequests":{"SECRET":null}`,
+			`"inputRequests":42,"requestState":42`,
+			`"inputRequests":null`,
+			`"inputRequests":[]`,
+			`"inputRequests":"SECRET"`,
+			`"inputRequests":{"SECRET":42}`,
+			`"inputRequests":{"SECRET":[]}`,
+			`"inputRequests":{"SECRET":"SECRET"}`,
+			`"inputRequests":{"SECRET":{}}`,
+			`"inputRequests":{"SECRET":{"method":null,"params":{}}}`,
+			`"inputRequests":{"SECRET":{"method":42,"params":{}}}`,
+			`"inputRequests":{"SECRET":{"method":"SECRET","params":{}}}`,
+			`"inputRequests":{"SECRET":{"method":"roots/list"}}`,
+			`"inputRequests":{"SECRET":{"method":"roots/list","params":null}}`,
+			`"inputRequests":{"SECRET":{"method":"roots/list","params":42}}`,
+			`"inputRequests":{"SECRET":{"method":"elicitation/create","params":{"message":42}}}`,
+			`"requestState":42`,
+			`"requestState":null`,
+			`"requestState":{"SECRET":true}`,
+		} {
+			t.Run(resultType+"/"+fields, func(t *testing.T) {
+				prefix := `{"content":[],`
+				if resultType != "" {
+					prefix += `"resultType":"` + resultType + `",`
+				}
+				out, warnings, err := ConvertResultJSON(json.RawMessage(prefix + fields + `}`))
+				if err == nil || errors.Is(err, ErrInputRequired) ||
+					!reflect.DeepEqual(out, tool.Outcome{}) || len(warnings) != 0 {
+					t.Fatalf("malformed interaction returned %+v, warnings %v, error %v", out, warnings, err)
+				}
+				if strings.Contains(err.Error(), "SECRET") {
+					t.Fatal("interaction error disclosed an input value")
+				}
+			})
+		}
+	}
+}
+
+func TestConvertResultJSONRejectsInteractionFieldsOnCompletedResults(t *testing.T) {
+	for _, fields := range []string{
+		`"inputRequests":{}`, `"requestState":""`,
+		`"inputRequests":{"roots":{"method":"roots/list","params":{}}}`, `"requestState":"SECRET"`,
+	} {
+		out, _, err := ConvertResultJSON(json.RawMessage(`{"content":[],` + fields + `}`))
+		if err == nil || !reflect.DeepEqual(out, tool.Outcome{}) {
+			t.Fatalf("completed interaction returned %+v, error %v", out, err)
 		}
 	}
 }

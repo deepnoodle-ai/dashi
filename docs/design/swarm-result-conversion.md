@@ -73,8 +73,13 @@ pending while its existing permission/input flow fulfills them. It resumes that
 same MCP request with the saved state and input responses, as the protocol requires.
 This is an incomplete interaction, not a repeat of completed work. A host without
 that flow settles a safe failed outcome explaining unsupported input, with no retry.
-Toolset has no input handler and uses this safe failure path. Unknown transport
-outcomes keep their existing recovery handling. Reject sampling-only tool-use/result
+Toolset disables the SDK's automatic multi-round-trip input handling, has no input
+handler, and uses this safe failure path after one call, retaining the connection.
+The JSON entry point rejects interaction fields on completed results before SDK
+decoding. For input-required responses, validate request state and request map
+shapes before SDK parameter decoding and the sentinel; malformed interaction data
+returns a safe conversion error. Unknown transport outcomes keep their existing
+recovery handling. Reject sampling-only tool-use/result
 blocks and nil entries, including typed nil pointers, without panic or execution.
 
 Convert blocks in their original order. Text remains text. Clone image/audio bytes

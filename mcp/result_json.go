@@ -16,27 +16,41 @@ import (
 // blocks while preserving exact structured JSON numbers. Arrays of blocks and
 // ordinary application JSON are separate formats.
 //
-// Input-required responses return ErrInputRequired before completed-content
-// validation. Keep the original journal for that host interaction and for safe
-// settlement of unusable completed work; see ConvertResult. Bound input size
-// before calling. Returned errors never quote raw JSON or SDK payload values.
+// Valid input-required responses return ErrInputRequired before completed-content
+// validation. Malformed interaction fields return a conversion error. Keep the
+// original journal for that host interaction and for safe settlement of unusable
+// completed work; see ConvertResult. Bound input size before calling. Returned
+// errors never quote raw JSON or SDK payload values.
 func ConvertResultJSON(raw json.RawMessage) (tool.Outcome, []string, error) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &envelope); err != nil || envelope == nil {
 		return tool.Outcome{}, nil, errors.New("mcp: result requires one JSON object")
 	}
+	typ := "complete"
 	if value, ok := envelope["resultType"]; ok {
-		var typ string
 		if err := json.Unmarshal(value, &typ); err != nil || isNull(value) {
 			return tool.Outcome{}, nil, errors.New("mcp: result type requires a string")
 		}
 		switch typ {
-		case "input_required":
-			return tool.Outcome{}, nil, ErrInputRequired
-		case "complete":
+		case "input_required", "complete":
 		default:
 			return tool.Outcome{}, nil, errors.New("mcp: result type is unsupported")
 		}
+	}
+	if typ == "input_required" {
+		if err := validateInteractionJSON(envelope); err != nil {
+			return tool.Outcome{}, nil, err
+		}
+		return tool.Outcome{}, nil, ErrInputRequired
+	}
+	// A completed result cannot carry an input interaction. Reject these
+	// fields before the SDK decoder, including its unsafe null map entries.
+	_, requests := envelope["inputRequests"]
+	_, state := envelope["requestState"]
+	if requests || state {
+		return tool.Outcome{}, nil, errors.New(
+			"mcp: completed result excludes input requests and request state",
+		)
 	}
 	if value, ok := envelope["isError"]; ok {
 		var failed bool
@@ -95,6 +109,42 @@ func ConvertResultJSON(raw json.RawMessage) (tool.Outcome, []string, error) {
 	}
 	res.StructuredContent = structured
 	return ConvertResult(&res)
+}
+
+// Validate the interaction envelope before delegating parameter decoding to SDK.
+// Its InputRequestMap decoder assumes every map entry is a non-null object.
+func validateInteractionJSON(envelope map[string]json.RawMessage) error {
+	if _, ok := envelope["requestState"]; ok {
+		if err := requireString(envelope, "requestState"); err != nil {
+			return fmt.Errorf("mcp: %w", err)
+		}
+	}
+	value, ok := envelope["inputRequests"]
+	if !ok {
+		return nil
+	}
+	var entries map[string]json.RawMessage
+	if json.Unmarshal(value, &entries) != nil || entries == nil {
+		return errors.New("mcp: input requests require an object")
+	}
+	for _, raw := range entries {
+		var entry map[string]json.RawMessage
+		if json.Unmarshal(raw, &entry) != nil || entry == nil {
+			return errors.New("mcp: input request requires an object")
+		}
+		if err := requireString(entry, "method"); err != nil {
+			return fmt.Errorf("mcp: input request %w", err)
+		}
+		var params map[string]json.RawMessage
+		if json.Unmarshal(entry["params"], &params) != nil || params == nil {
+			return errors.New("mcp: input request params require an object")
+		}
+	}
+	var requests sdk.InputRequestMap
+	if json.Unmarshal(value, &requests) != nil {
+		return errors.New("mcp: input request requires valid MCP fields")
+	}
+	return nil
 }
 
 // validateBlockJSON checks required fields the SDK's wire structs otherwise
