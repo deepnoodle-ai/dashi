@@ -114,7 +114,8 @@ host's "at least two ordinary turns" minimum is dropped on purpose.
 **Also: when compaction is due.** At the *due count*: `Fraction` of the
 model's window, now 0.2 by default (`DefaultFraction`, was 0.8), or the new
 `Policy.DueTokens`, an exact count that overrides `Fraction` when positive
-(at most a known window). An unknown window is `DefaultWindow`, now 200,000
+(zero or negative is unset; capped at the window only when the window is
+known). An unknown window is `DefaultWindow`, now 200,000
 (was 128,000). A negative `Fraction` still turns automatic compaction off,
 even with `DueTokens`; manual compaction remains, which covers a host's
 "manual" and "disabled". The kept tail (`TailFraction`) and the summary's
