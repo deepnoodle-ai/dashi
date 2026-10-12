@@ -144,18 +144,18 @@ func TestFollowerLeavingDoesNotCancel(t *testing.T) {
 	}
 }
 
-// Follow ends at the ending stop; a late result recorded after it is read
-// with StepsAfter from the stop's Seq, as an accounting reader would.
+// Follow ends at the ending stop; a late model result recorded after it is
+// read with StepsAfter from the stop's Seq, as an accounting reader would.
 func TestLateResultAfterEndedStopIsReadable(t *testing.T) {
-	client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote")}}
+	client := &scriptedClient{
+		results: []llm.Result{{}},
+		errors:  []error{errors.New("connection lost")},
+	}
 	rec := NewMemoryRecorder()
-	panics := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
-		panic("boom")
-	})
-	runner := toolRunner(client, rec, panics)
+	runner := Runner{Client: client, Recorder: rec}
 	first, err := startTurn(testAgent(), runner)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || first.Stop.Kind != StopResultUnknown {
+		t.Fatalf("start=%+v err=%v", first.Stop, err)
 	}
 	canceled, err := runner.Run(t.Context(), first.Turn, Cancel{CommandID: "cancel"})
 	if err != nil {
@@ -166,19 +166,20 @@ func TestLateResultAfterEndedStopIsReadable(t *testing.T) {
 	if err != nil || int64(len(got)) != stopSeq {
 		t.Fatalf("followed %d steps to the stop at %d: err=%v", len(got), stopSeq, err)
 	}
+	late := final("done late")
 	if _, err := runner.Run(t.Context(), canceled.Turn, Resolve{
-		CommandID: "late",
-		CallID:    "call-1",
-		Outcome:   new(tool.Succeeded("done late")),
+		CommandID:   "late",
+		CallID:      "t1:model:1",
+		ModelResult: &late,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := collect(t.Context(), rec, "t1", stopSeq)(t); err != nil || len(got) != 0 {
 		t.Fatalf("follow from an ended turn's stop: steps=%d err=%v", len(got), err)
 	}
-	late, err := rec.StepsAfter(t.Context(), "t1", stopSeq, 10)
-	if err != nil || len(late) != 1 || late[0].Kind != StepToolFinished {
-		t.Fatalf("late steps=%+v err=%v", late, err)
+	lateSteps, err := rec.StepsAfter(t.Context(), "t1", stopSeq, 10)
+	if err != nil || len(lateSteps) != 1 || lateSteps[0].Kind != StepModelCallFinishedByHost {
+		t.Fatalf("late steps=%+v err=%v", lateSteps, err)
 	}
 }
 

@@ -3,6 +3,7 @@ package session_test
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -46,7 +47,9 @@ func TestBuildHistoryMatchesSession(t *testing.T) {
 		t.Fatalf("a mismatch changed the history: %s", a)
 	}
 	if got := codes(warnings); !slices.Equal(got,
-		[]dashi.WarningCode{dashi.WarningCompactionMismatch}) {
+		[]dashi.WarningCode{dashi.WarningCompactionMismatch}) ||
+		warnings[0].TurnID == "" ||
+		!strings.Contains(warnings[0].Message, warnings[0].TurnID) {
 		t.Fatalf("warnings=%v", warnings)
 	}
 }

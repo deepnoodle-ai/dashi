@@ -3,6 +3,7 @@ package dashi
 import (
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
@@ -97,6 +98,8 @@ type StartFact struct {
 	// Start.
 	HistoryHash string        `json:"history_hash,omitempty"`
 	Input       []llm.Message `json:"input"`
+	// Items are the Start's context items, which follow Input.
+	Items []ContextItem `json:"items,omitempty"`
 	// Parent is the tool call that caused this turn, when another turn's
 	// tool started it. It never changes after Start.
 	Parent *CallRef `json:"parent,omitempty"`
@@ -178,8 +181,23 @@ type ModelFact struct {
 	// ErrorReason is a stable, optional model failure code. It is absent on
 	// older records and does not replace the human-readable Error.
 	ErrorReason llm.ErrorReason `json:"error_reason,omitempty"`
-	SendStatus  llm.SendStatus  `json:"send_status,omitempty"`
-	Evidence    string          `json:"evidence,omitempty"`
+	// ErrorCategory, HTTPStatus, Retryable, and RetryAfter copy the
+	// classified llm.Error a failed call returned (Category, Status,
+	// Retryable, RetryAfter), so a host can schedule a retry without parsing
+	// Error. They are empty when the call did not fail with an llm.Error.
+	// Retryable is the provider's hint about this error only, not whether
+	// the turn can continue, and never permission to resend a call whose
+	// result is unknown. A failure the host supplies with Resolve has none
+	// of these fields.
+	ErrorCategory llm.ErrorCategory `json:"error_category,omitempty"`
+	// HTTPStatus is the provider's HTTP status, or zero with no response.
+	HTTPStatus int  `json:"http_status,omitempty"`
+	Retryable  bool `json:"retryable,omitempty"`
+	// RetryAfter is the delay the provider asked for, counted from the
+	// step's At. JSON encodes it in nanoseconds.
+	RetryAfter time.Duration  `json:"retry_after,omitempty"`
+	SendStatus llm.SendStatus `json:"send_status,omitempty"`
+	Evidence   string         `json:"evidence,omitempty"`
 	// ResultUnknown means it is not yet known whether the provider ran the
 	// call: it may have run, or it may safely never have been sent.
 	ResultUnknown bool `json:"result_unknown,omitempty"`
@@ -315,9 +333,10 @@ type Stop struct {
 	// limit has not ended: Continue.ModelCalls raises the limit.
 	// The runner sets it when it records the stop.
 	//
-	// After the stop that ended the turn, the record accepts only late
-	// results of work that had already started, and other commands give
-	// ErrTurnEnded. A live reader that stops at the ending stop can miss
+	// After the stop that ended the turn, the conversation is closed: the
+	// record accepts only late results of model calls that had already
+	// started, which correct Spend, and other commands, tool results
+	// included, give ErrTurnEnded. A live reader that stops at the ending stop can miss
 	// those results; a reload shows them. TurnMessagesFull ignores them: an
 	// ended turn's messages are fixed at its ending stop, and so is
 	// TurnView.Reply.

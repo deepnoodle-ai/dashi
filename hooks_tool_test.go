@@ -421,30 +421,6 @@ func TestAfterToolRunsOnFinishedHostResults(t *testing.T) {
 			t.Fatalf("result=%+v warnings=%+v err=%v", out.Tools["call-1"].Result(), out.Warnings, err)
 		}
 	})
-	t.Run("ended turn", func(t *testing.T) {
-		client := &scriptedClient{results: []llm.Result{callResult("call-1", "lookup")}}
-		runner := Runner{Client: client, Tools: tool.List{external}, Hooks: redact.Hooks()}
-		out, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
-			CommandID: "start",
-			Agent:     testAgent(),
-			Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		out, err = runner.Run(t.Context(), out.Turn, Cancel{CommandID: "cancel"})
-		if err != nil || out.Stop.Kind != StopCanceled {
-			t.Fatalf("cancel stop=%+v err=%v", out.Stop, err)
-		}
-		late := Resolve{CommandID: "late", CallID: "call-1", Outcome: &result}
-		out, err = runner.Run(t.Context(), out.Turn, late)
-		if err != nil || modelText(out.Tools["call-1"].Result()) != "key=[redacted]" {
-			t.Fatalf("late result=%+v err=%v", out.Tools["call-1"].Result(), err)
-		}
-		if _, err := TurnMessagesFull(out.Turn); err != nil {
-			t.Fatalf("project: %v", err)
-		}
-	})
 }
 
 func TestReplayRejectsAResultOnRunnerWrittenOutcomes(t *testing.T) {

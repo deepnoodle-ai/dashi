@@ -103,8 +103,8 @@ var (
 // (Stop.Ended), or after yielding an error; ending never affects the turn.
 // When the step at the cursor is itself such a stop, Follow ends at once
 // without yielding anything, so a reader that reconnects after the end is
-// not held open. A late result of work started before the ending stop can
-// still be recorded after it; a reader that must see every step
+// not held open. A late result of a model call started before the ending
+// stop can still be recorded after it; a reader that must see every step
 // (accounting, a mirror) reads later results with StepsAfter from the
 // stop's Seq. A read error, including
 // ErrCursorAhead, is yielded once. A step that does not continue the cursor

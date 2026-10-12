@@ -40,6 +40,12 @@ type Start struct {
 	// History is caller-owned prior conversation and is not stored in the turn.
 	History []llm.Message `json:"history,omitempty"`
 	Input   []llm.Message `json:"input,omitempty"`
+	// Items are context items, such as reminders, that the Start step
+	// records with Input. The first model request sends them after Input,
+	// and later requests keep them like items an AddMessages adds. They are
+	// checked as AddMessages items are: only ContextOperator items may use
+	// the system or developer role or an operator reminder.
+	Items []ContextItem `json:"items,omitempty"`
 	// Parent links this turn to the tool call of another turn that started
 	// it. Dashi records it and shows it in TurnView.Parent; a second Start
 	// with a different Parent is a command conflict. Dashi does not check

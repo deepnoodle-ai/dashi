@@ -119,7 +119,8 @@ func TestBuildHistoryUnreadableTurn(t *testing.T) {
 		t.Fatalf("history=%q", got)
 	}
 	if got := codes(warnings); !slices.Equal(got,
-		[]dashi.WarningCode{dashi.WarningTurnUnreadable}) {
+		[]dashi.WarningCode{dashi.WarningTurnUnreadable}) ||
+		warnings[0].TurnID != turns[0].ID {
 		t.Fatalf("warnings=%v", warnings)
 	}
 }

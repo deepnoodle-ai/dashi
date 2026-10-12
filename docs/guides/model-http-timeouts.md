@@ -48,7 +48,10 @@ operation.
 
 On a failed stream, any received text, content, and usage remain provisional.
 A `dashi.Runner` stores them on the finished model call and records the typed
-reason in `ModelFact.ErrorReason`. The Turn may stop `result_unknown` because
+reason in `ModelFact.ErrorReason`, beside the original error text. A failure
+from an `llm.Error` also records its `ErrorCategory`, `HTTPStatus`,
+`Retryable`, and `RetryAfter`, so a host can schedule a retry at the step's
+`At` plus `RetryAfter` without parsing text. The Turn may stop `result_unknown` because
 a timeout cannot prove that a provider never received the request or ran a
 provider tool. Dashi does not resend automatically. The application's
 `Limits.Deadline` is a separate Turn limit; a host context cancellation keeps

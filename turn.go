@@ -112,10 +112,13 @@ type Step struct {
 	ActiveHooks *ActiveHooks `json:"active_hooks,omitempty"`
 }
 
-// Items returns the context items the step added: those of an
+// Items returns the context items the step added: those of a Start, an
 // AddMessages or steer, a loop continuation, or a rejected submission. A durable
 // host can read steer IDs from them in the transaction that saves the step.
 func (s Step) Items() []ContextItem {
+	if s.Started != nil {
+		return s.Started.Items
+	}
 	if s.Context == nil {
 		return nil
 	}
@@ -196,6 +199,10 @@ type Warning struct {
 	// hook's failures its own way can find them. It is empty when no one
 	// hook failed.
 	Hook string `json:"hook,omitempty"`
+	// TurnID names the turn a BuildHistory warning is about: the turn left
+	// out, or the compaction turn that does not match. A warning a turn
+	// records about itself leaves it empty.
+	TurnID string `json:"turn_id,omitempty"`
 }
 
 var (
@@ -225,8 +232,9 @@ var (
 	// turn that can never run again gives ErrTurnEnded instead.
 	ErrNotReady = errors.New("dashi: turn is not ready to continue")
 	// ErrTurnEnded rejects a command on a turn that has ended (see
-	// Stop.Ended). Only a Resolve reporting the result of work that had
-	// already started is accepted after the turn ends.
+	// Stop.Ended). Only a Resolve reporting the result of a model call that
+	// had already started is accepted after the turn ends; it corrects the
+	// turn's spend. Tool results are refused.
 	ErrTurnEnded = errors.New("dashi: turn has ended")
 	// ErrRecordInvalid reports that steps a run recorded fail the checks
 	// run when the turn's view is built ("replay"), a bug in the runner or

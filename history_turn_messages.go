@@ -17,7 +17,7 @@ import (
 // has ended.
 //
 // An ended turn (Stop.Ended) always gives its messages, and only up to the
-// stop that ended it: results recorded after it count in Spend but never
+// stop that ended it: model results recorded after it count in Spend but never
 // change the messages. Each tool call still started, waiting, or with an
 // unknown result there shows as an error result, and a model call with no
 // recorded result shows nothing.
@@ -139,10 +139,6 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 	for _, step := range t.Steps {
 		seq, index = step.Seq, 0
 		switch step.Kind {
-		case StepTurnStarted:
-			for _, m := range step.Started.Input {
-				emit(m.Clone())
-			}
 		case StepTurnContinued:
 			// The reminder is for the next dispatched model call only, and
 			// one is enough however many crashes came before that call. An
@@ -150,17 +146,20 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 			if step.Seq == resumed && !ended && lastDispatched <= step.Seq {
 				emit(crashResumeReminder())
 			}
-		case StepMessagesAdded, StepLoopContinued, StepToolFinished:
+		case StepTurnStarted, StepMessagesAdded, StepLoopContinued, StepToolFinished:
+			if step.Started != nil {
+				for _, m := range step.Started.Input {
+					emit(m.Clone())
+				}
+			}
 			// A turned-down submission's items follow its result, which is
 			// shown with the model message that made the call.
-			if step.Context == nil {
-				continue
-			}
+			//
 			// A replaced Snapshot item stays where it was, so the request
 			// keeps its prefix and the provider's prompt cache still
 			// matches; the reminder instruction tells the model that the
 			// latest item of a name is current.
-			for _, item := range step.Context.Items {
+			for _, item := range step.Items() {
 				if item.NextCallOnly && lastDispatched > step.Seq {
 					continue
 				}
@@ -273,7 +272,7 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 }
 
 // endedLength is how many steps an ended turn's history and reply read:
-// all of them, up to the stop that ended it. Nothing but late results follows
+// all of them, up to the stop that ended it. Nothing but late model results follows
 // that stop, so the last stop is the one that ended the turn.
 func endedLength(steps []Step, stop Stop) int {
 	end := len(steps)
@@ -288,16 +287,17 @@ func endedLength(steps []Step, stop Stop) int {
 
 // lastCrashResume returns the sequence number of the latest Continue that
 // resumed a turn with no recorded stop since the Start or Continue before
-// it, whose worker stopped mid-turn; or 0 when there is none.
+// it, whose worker stopped mid-turn; or 0 when there is none. A Continue
+// right after the Start resumed nothing: no work had begun.
 func lastCrashResume(steps []Step) int64 {
 	var last int64
 	stopped := false
-	for _, step := range steps {
+	for i, step := range steps {
 		switch step.Kind {
 		case StepTurnStopped:
 			stopped = true
 		case StepTurnContinued:
-			if !stopped {
+			if !stopped && i > 1 {
 				last = step.Seq
 			}
 			stopped = false

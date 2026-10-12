@@ -210,7 +210,7 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 	}
 	s.ReadyToContinue = s.canContinue()
 	if end := endedLength(t.Steps, s.Stop); end < len(t.Steps) {
-		// Late results after the stop that ended the turn count in Spend,
+		// Late model results after the stop that ended the turn count in Spend,
 		// but the reply is fixed there, as TurnMessagesFull's messages are.
 		prefix := t
 		prefix.Steps = t.Steps[:end]

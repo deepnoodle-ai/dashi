@@ -85,10 +85,7 @@ func Example_hostTurnLoop() {
 		Input:     []llm.Message{llm.UserMessage(llm.Text("write it"))},
 	}
 	outbox.save(start)
-	paused := make(chan struct{})
-	close(paused)
-	runner.Run(ctx, dashi.NewTurn("t1"), start,
-		dashi.WithOwner(owner), dashi.WithPause(paused))
+	runner.Record(ctx, dashi.NewTurn("t1"), start, dashi.WithOwner(owner))
 
 	// A worker plans and saves the next command, then crashes before
 	// running it.
@@ -114,40 +111,40 @@ func Example_hostTurnLoop() {
 		fmt.Println(dashi.CommandIDOf(cmd), "->", out.Stop.Kind, out.Next())
 	}
 	// Output:
-	// t1@2 -> waiting resolve_pending
+	// t1@1 -> waiting resolve_pending
 	// approval:c1 -> waiting continue
-	// t1@8 -> completed none
+	// t1@7 -> completed none
 }
 
-// A host records a turn without running it: a Start with an already-closed
-// pause records the request and stops before any model request. A later
-// Continue runs it; a Cancel, which needs no client, withdraws it.
-func ExampleWithPause() {
+// A host saves a turn without running it, before any paid request. Record
+// needs no Client when the agent names its provider, API, and model. A later
+// Continue runs the turn; a Cancel withdraws it.
+func ExampleRunner_Record() {
 	ctx := context.Background()
 	rec := dashi.NewMemoryRecorder()
-	paused := make(chan struct{})
-	close(paused)
-	client := dashitest.NewClient(dashitest.Reply("done"))
-	runner := dashi.Runner{Client: client, Recorder: rec}
+	saver := dashi.Runner{Recorder: rec}
 	start := dashi.Start{
-		Agent: dashi.Agent{Model: "fixture"},
+		Agent: dashi.Agent{
+			Provider: dashitest.Provider,
+			API:      dashitest.API,
+			Model:    "fixture",
+		},
 		Input: []llm.Message{llm.UserMessage(llm.Text("hello"))},
 	}
-	out, _ := runner.Run(ctx, dashi.Turn{}, start, dashi.WithPause(paused))
-	fmt.Println(out.Stop.Kind, "->", out.Next())
-	fmt.Println("model requests:", len(client.Inputs()))
+	out, _ := saver.Record(ctx, dashi.Turn{}, start)
+	fmt.Println("steps:", len(out.Turn.Steps), "next:", out.Next())
 
+	client := dashitest.NewClient(dashitest.Reply("done"))
+	runner := dashi.Runner{Client: client, Recorder: rec}
 	out, _ = runner.Run(ctx, out.Turn, dashi.Continue{})
-	fmt.Println(out.Stop.Kind, "->", out.Next())
+	fmt.Println(out.Stop.Kind, "->", out.Next(), "resumes:", out.Resumes)
 
-	// Withdrawing a turn that never ran needs only the recorder.
-	out, _ = runner.Run(ctx, dashi.Turn{}, start, dashi.WithPause(paused))
-	clientless := dashi.Runner{Recorder: rec}
-	out, _ = clientless.Run(ctx, out.Turn, dashi.Cancel{Reason: "withdrawn"})
+	// Withdrawing a saved turn needs only the recorder.
+	out, _ = saver.Record(ctx, dashi.Turn{}, start)
+	out, _ = saver.Run(ctx, out.Turn, dashi.Cancel{Reason: "withdrawn"})
 	fmt.Println(out.Stop.Kind, "->", out.Next())
 	// Output:
-	// interrupted -> continue
-	// model requests: 0
-	// completed -> none
+	// steps: 1 next: continue
+	// completed -> none resumes: 0
 	// canceled -> none
 }

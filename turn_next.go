@@ -13,7 +13,8 @@ const (
 	// workers can also refine NextRecover to it.
 	NextRunning Next = "running"
 	// NextRecover means no stop follows the latest Start or Continue, and
-	// the turn is not known to be live: its worker may have crashed. Once
+	// the turn is not known to be live: its worker may have crashed. (A
+	// turn whose only step is its Start gives NextContinue instead.) Once
 	// the worker is known to be gone, Continue resumes it if
 	// ReadyToContinue is true. Otherwise Continue gives ErrNotReady: first
 	// resolve each Pending item (for example, supply the result of a model
@@ -40,7 +41,8 @@ const (
 
 // Next maps the turn's recorded stop to the host's next action. A stop
 // that View or RunResult inferred (Stop.Inferred) was never recorded, so
-// it gives NextRecover. A hook's view during a run has no stop and gives
+// it gives NextRecover, except on a turn whose only step is its Start,
+// which began no work and gives NextContinue. A hook's view during a run has no stop and gives
 // NextRunning. A refusal never gives NextContinue, so a host is never told
 // to ask the model again after it refused. Next reads only the view's
 // fields, so a view decoded from JSON gives the same answer.
@@ -49,6 +51,9 @@ func (v TurnView) Next() Next {
 	switch {
 	case v.LastSeq == 0:
 		return NextNone
+	case stop.Inferred && v.LastSeq == 1 && v.ReadyToContinue:
+		// Only the Start is recorded, so no work began (see Runner.Record).
+		return NextContinue
 	case stop.Inferred:
 		return NextRecover
 	case stop.Kind == "":

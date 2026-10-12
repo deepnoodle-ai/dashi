@@ -16,12 +16,10 @@ import (
 // values, and each turn's state lives in its Turn.
 type Runner struct {
 	// Client prepares and sends model requests, and fills a Start agent's
-	// empty provider, API, and model. It is required only for those: a Start
-	// or Continue that would call the model, or a Start whose agent leaves
-	// any of the three empty. A Start with an already-closed pause, whose
-	// agent names all three, records the turn without one (see WithPause),
-	// and Resolve, AddMessages, and Cancel record steps with a Recorder alone.
-	// When set, it must match the turn's provider and API.
+	// empty provider, API, and model. Run needs it for Start and Continue.
+	// Record needs it only when the Start's agent leaves any of the three
+	// empty, and Resolve, AddMessages, and Cancel record steps with a
+	// Recorder alone. When set, it must match the turn's provider and API.
 	Client llm.Client
 	// Tools implements the tools a turn may call. It is resolved before each
 	// model call, so a dynamic toolset can change between calls; the turn's
@@ -55,13 +53,16 @@ type Runner struct {
 	CacheKey string
 }
 
-// RunOption adjusts one Run or Stream call.
+// RunOption adjusts one Run, Stream, or Record call. Record uses only
+// WithOwner and WithHooks.
 type RunOption func(*runOptions)
 
 // runOptions holds per-call controls. The stream fields are set only by Run
 // and Stream, so a streamed model request always has a consumer for its
-// deltas: an Observer, a Stream range, or both.
+// deltas: an Observer, a Stream range, or both. record is set only by
+// Record.
 type runOptions struct {
+	record     bool
 	owner      string
 	pause      <-chan struct{}
 	stream     bool
@@ -78,16 +79,10 @@ func WithOwner(owner string) RunOption {
 }
 
 // WithPause requests a stop before the next model or tool call once pause is
-// closed. Closing it does not interrupt work already in flight.
-//
-// A Start with an already-closed pause records a turn without running it:
-// the turn records its Start step and an interrupted stop ("pause
-// requested"), and no model request is prepared or sent. It needs no Client
-// when the agent names its provider, API, and model. Next then gives
-// NextContinue; a later Continue runs the turn without counting a resume
-// (Limits.Resumes), since none of its work was cut short, and a Cancel,
-// which needs no Client, ends it. A host uses this to save the turn's
-// request in the record before any paid request runs.
+// closed. Closing it does not interrupt work already in flight. A pause
+// before the turn's first model call cut no work short, so the Continue
+// after it does not count toward Limits.Resumes. To save a Start without
+// running it, use Runner.Record.
 func WithPause(pause <-chan struct{}) RunOption {
 	return func(o *runOptions) {
 		o.pause = pause
@@ -198,6 +193,29 @@ func (r Runner) Run(
 	return r.run(ctx, turn, command, o)
 }
 
+// Record records start as the turn's first step without running it: it
+// commits the Start step and returns. It prepares and sends no model request,
+// runs no tool, reads no steering, and loads no content. It needs no Client
+// when the Start's agent names its provider, API, and model. Of the
+// RunOption values, only WithOwner and WithHooks apply. A host uses it to
+// save work before any paid request runs, for example to queue the turn.
+//
+// A turn whose only step is its Start is ready: Next gives NextContinue,
+// a later Continue runs it without counting a resume (Limits.Resumes), and
+// Cancel ends it. A retry with the same CommandID returns the recorded
+// result, as Run does; a Run of the same Start does too, without running
+// it, so run the turn with Continue. The errors are those of Run.
+func (r Runner) Record(
+	ctx context.Context,
+	turn Turn,
+	start Start,
+	opts ...RunOption,
+) (RunResult, error) {
+	o := newRunOptions(opts)
+	o.record = true
+	return r.run(ctx, turn, start, o)
+}
+
 // run applies a command. A command rejected before any commit returns the
 // caller's turn and its view, so a loop that reassigns its RunResult keeps
 // the turn.
@@ -214,7 +232,7 @@ func (r Runner) run(
 	return out, err
 }
 
-// Recorded reports whether err, returned by Run or Stream, came after the
+// Recorded reports whether err, returned by Run, Stream, or Record, came after the
 // run began recording: a *CommitError with a Step, or ErrRecordInvalid. The
 // RunResult then holds what was recorded, and Stream yields its RunResult event
 // together with err. Any other error rejected the command before anything

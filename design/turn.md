@@ -50,7 +50,7 @@ its turn state and pending-subject correlation.
 | **AddMessages** | Record context for an open, waiting, or continuable turn without advancing it. The next eligible model call sees it according to its scope and replacement rule. |
 | **Continue** | Resume a stopped turn, including one interrupted by a context end or crash. It does not reset limits. |
 | **Resolve** | Record a typed late fact against a pending subject: an external tool result, a human decision, or the result of an effect whose result was unknown. It never runs the turn. |
-| **Cancel** | Request no further work. Unstarted calls become known not executed; started effects remain pending for a late result and accounting, without restarting the loop. |
+| **Cancel** | Request no further work. Unstarted calls become known not executed; started tool calls stay unknown, since the ended turn refuses their results. Only a started model call's late result is accepted, for accounting, without restarting the loop. |
 
 The accepted agent must be available by version on recovery. A hash alone
 detects drift but cannot reconstruct behavior. A different agent cannot be

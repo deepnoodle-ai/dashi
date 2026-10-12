@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`Start.Items`** records initial context items, such as reminders, with
+  the Start step. The first model request sends them after `Input`, later
+  requests and active compaction keep them, and `Step.Items()` returns them.
+  They are checked like `AddMessages` items.
+- **`Runner.Record`** saves a Start without running it: it commits the Start
+  step alone, with no model request, tool, steering read, or content load,
+  and needs no Client when the agent names its provider, API, and model.
+- **`ModelFact.ErrorCategory`, `HTTPStatus`, `Retryable`, and `RetryAfter`**
+  copy the classified `llm.Error` of a failed model call, beside its
+  original error text.
+- **`Warning.TurnID`** names the turn of a `turn_unreadable` or
+  `compaction_mismatch` history warning.
+
 ### Fixed
 
 - **A model call is charged only the usage its provider reported.** A call
@@ -22,6 +37,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **A turn whose only step is its Start is ready.** `Next` gives
+  `NextContinue`, not `NextRecover`, and `Continue` counts no resume and adds
+  no crash reminder.
+- **A Start with an already-closed `WithPause` no longer records a turn
+  without a Client.** Use `Runner.Record`. `Run` now requires a Client for
+  every Start and Continue.
+- **An ended turn refuses tool results.** Once a turn ends, its
+  conversation is closed: a `Resolve` with a tool outcome gives
+  `ErrTurnEnded`, and replay rejects a tool result after the ending stop.
+  Only a late model result or failure is still accepted, because it corrects
+  the turn's spend.
 - **`Spend.Estimated` is now `Spend.CallsWithoutFinalUsage`** (JSON
   `calls_without_final_usage`).
 - **`UsageSourceEstimated` is replaced by `UsageSourceCutOff`

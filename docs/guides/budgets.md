@@ -121,7 +121,8 @@ counts are below the cap. A cost-only budget can still allow calls when its
 monetary bound is exact. Before stopping, a host-supplied result can restore
 complete usage. `Continue` can recover recorded work or record a stop after a
 crash; being ready for that recovery does not permit new calls. After the stop
-that ends the turn, late results can correct Spend but cannot revive the turn.
+that ends the turn, late model results can correct Spend but cannot revive the
+turn; tool results are refused.
 Resolve calls with unknown results as required, then start a new turn carrying
 prior history. Raising a cap alone cannot repair incomplete accounting.
 

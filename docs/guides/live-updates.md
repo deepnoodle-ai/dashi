@@ -45,8 +45,8 @@ every 15 seconds, so a missed wake delays a step by up to that long.
 
 `Follow` ends when the request ends, or after the stop that ends the turn
 (see [turn states](recovering-turns.md#turn-states-and-limits)); from a
-cursor that is already at that stop, it ends at once. A late result of work
-started before the stop can still be recorded after it; a reload, or
+cursor that is already at that stop, it ends at once. A late result of a model
+call started before the stop can still be recorded after it; a reload, or
 `StepsAfter` from the stop's `Seq`, shows it.
 
 Live previews (token streaming and tool progress) never enter the record;

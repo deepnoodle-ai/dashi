@@ -225,14 +225,19 @@ func (r *runtime) activeSummaryMessages(plan *ContextCompactionPlan) ([]llm.Mess
 	if err != nil {
 		return nil, err
 	}
-	deliveries := make(map[int64]bool)
+	// deliveries maps each step that added items to the index of its first
+	// item: a Start's items follow its Input, which is rendered above.
+	deliveries := make(map[int64]int)
 	for _, step := range r.turn.Steps {
-		if step.Context != nil {
-			deliveries[step.Seq] = true
+		switch {
+		case step.Started != nil && len(step.Started.Items) > 0:
+			deliveries[step.Seq] = len(step.Started.Input)
+		case step.Context != nil:
+			deliveries[step.Seq] = 0
 		}
 	}
 	for _, message := range visible {
-		if deliveries[message.Ref.Seq] {
+		if first, ok := deliveries[message.Ref.Seq]; ok && message.Ref.Index >= first {
 			out = append(out, message.Message.Clone())
 		}
 	}

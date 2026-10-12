@@ -439,8 +439,12 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		finished.ErrorReason = sendReason
 		finished.SendStatus = sendStatusOf(sendErr, result)
 		finished.ResultUnknown = finished.SendStatus == llm.SendStatusUnknown
-		if !finished.ResultUnknown {
-			if failure, ok := errors.AsType[*llm.Error](sendErr); ok {
+		if failure, ok := errors.AsType[*llm.Error](sendErr); ok {
+			finished.ErrorCategory = failure.Category
+			finished.HTTPStatus = failure.Status
+			finished.Retryable = failure.Retryable
+			finished.RetryAfter = max(failure.RetryAfter, 0)
+			if !finished.ResultUnknown {
 				finished.Evidence = fmt.Sprintf(
 					"client send status %s; HTTP %d",
 					failure.SendStatus,
