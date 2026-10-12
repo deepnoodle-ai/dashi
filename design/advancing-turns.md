@@ -1,6 +1,6 @@
 # Advancing saved turns
 
-**Status:** Proposed · **Date:** 2026-10-11 · **Builds on:** [turn](turn.md),
+**Status:** Accepted · **Date:** 2026-10-11 · **Builds on:** [turn](turn.md),
 [durable recorders](durable-recorders.md), [steering](steering.md),
 [live delivery](live-delivery.md). Assumes the in-flight PR that adds
 `Start.Items`, saving a Start without running it, a Start-only turn that is
@@ -150,14 +150,13 @@ reason string:
   a turn with no stop.
 
 **5. Watchers act only at stops.** A turn is *stopped* when its last step is
-a stop step, and *working* otherwise. `Stop.Inferred` is tightened to mean
-"the last step is not a stop", so a `Resolve` or steer after a stop makes the
-old stop no longer current. Advance always leaves the turn stopped when it
-returns, recording a `waiting` stop after inputs that do not let it go on.
-A working turn's view is for display ("running"), never for action; the
-stop's `Pending` is exact because Advance drains the inbox before it records
-the stop. Whether a working turn has lost its worker is a lease question: the
-next lease holder's Advance recovers it.
+a stop step, and *working* otherwise. Advance always leaves the turn stopped
+when it returns, recording a `waiting` stop after inputs that do not let it go
+on, so the stop's `Pending` is exact: Advance drains the inbox before it
+records the stop. A working turn's view is for display ("running"), never for
+action. `Stop.Inferred` and `Next()` keep their meaning, so hosts that drive
+turns themselves see no change. Whether a working turn has lost its worker is
+a lease question: the next lease holder's Advance recovers it.
 
 ```go
 // FollowStops yields the turn's view now, then at each later stop, and ends
@@ -226,14 +225,16 @@ About 650 of ~1,860 lines go, plus the `ModelCommands` outbox table and most
 of `next_test`, `worker_poll_test`, and `live_status_test`. `compaction.go`
 stays (decision 7).
 
-## Open questions
+## Settled questions
 
-1. Should Advance re-ask `BeforeSend` on every inbox signal for a waiting
-   host limit, so a top-up needs no `Continue`? It costs two steps per signal.
-2. Renaming `Steering` to `Inbox` touches `session` and the CLI; needs a
-   naming review.
-3. Tightening `Stop.Inferred` turns `NextContinue` after a `Resolve` into
-   `NextRecover` for hosts that do not use Advance. Acceptable, or keep the
-   old meaning and add a field?
-4. Should Drive retry a failed model call after the new `ModelFact`
-   retry-after, or leave that to hooks?
+1. **Budget top-ups.** Advance does not re-ask `BeforeSend` on each signal
+   while a host limit waits. The host puts a `Continue` in the inbox when the
+   cause clears; one explicit input beats two steps per signal.
+2. **`Steering` becomes `Inbox`.** The rename touches `session` and the CLI;
+   the implementation gets a naming review before it opens.
+3. **`Stop.Inferred` is unchanged.** `FollowStops` alone keeps watchers off
+   intermediate states; redefining `Inferred` would change `Next()` for hosts
+   that do not use Advance, for no gain.
+4. **Drive does not retry failed model calls.** It returns at `NextFix` with
+   the failure's category and retry-after on `ModelFact`; the host decides.
+   Revisit when a second host shows the same retry policy.
