@@ -43,6 +43,10 @@ func (r *runtime) run() RunResult {
 		if stop := budgetOvershotStop(s); stop != nil {
 			return r.stopWith(stop)
 		}
+		if r.asking != nil && (hasOpenTools(s) || s.awaitingClassification) {
+			// Asking never runs tools or finish hooks: the Continue will.
+			return RunResult{}
+		}
 		if len(s.callOrder) > 0 && hasOpenTools(s) {
 			if o, done := r.tools(s); done {
 				return o

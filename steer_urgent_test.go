@@ -556,7 +556,7 @@ func TestReservedFinalReplyCallIsCutAndAskedAgain(t *testing.T) {
 		r.Tools = tool.List{lookupTool()}
 	})
 	// A reply on the reserved call ends the turn as limited, as always.
-	if out.Stop.Reason != "model_calls" || out.Reply != "Réponse finale" {
+	if out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitModelCalls || out.Reply != "Réponse finale" {
 		t.Fatalf("stop=%+v answer=%q", out.Stop, out.Reply)
 	}
 	callStarts := stepsOf(out.Turn, StepModelCallStarted)
@@ -960,8 +960,11 @@ func TestNonUrgentSteerDoesNotCut(t *testing.T) {
 
 func TestInboxReadySignalsOnlyUrgentSteers(t *testing.T) {
 	var in MemoryInbox
-	ready := in.Ready("t1")
-	if ready != in.Ready("t1") {
+	ready, unwatch := in.Ready("t1")
+	defer unwatch()
+	again, unwatchAgain := in.Ready("t1")
+	defer unwatchAgain()
+	if ready != again {
 		t.Fatal("Ready returned a different channel")
 	}
 	if _, err := in.SendText("later"); err != nil {
@@ -991,10 +994,13 @@ func TestInboxReadySignalsOnlyUrgentSteers(t *testing.T) {
 
 func TestInboxReadyIsSafeForConcurrentUse(t *testing.T) {
 	var in MemoryInbox
+	ready, unwatch := in.Ready("t1")
+	defer unwatch()
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Go(func() {
-			_ = in.Ready("t1")
+			_, unwatch := in.Ready("t1")
+			defer unwatch()
 			if _, err := in.SendUrgent("now"); err != nil {
 				t.Error(err)
 			}
@@ -1002,7 +1008,7 @@ func TestInboxReadyIsSafeForConcurrentUse(t *testing.T) {
 	}
 	wg.Wait()
 	select {
-	case <-in.Ready("t1"):
+	case <-ready:
 	default:
 		t.Fatal("no signal after urgent sends")
 	}

@@ -14,7 +14,7 @@ import (
 )
 
 func limitedForModelCalls(stop Stop) bool {
-	return stop.Kind == StopLimited && stop.Reason == "model_calls" &&
+	return stop.Kind == StopLimited && strings.HasPrefix(stop.Reason, "model call limit: ") &&
 		stop.Limit != nil && stop.Limit.Kind == LimitModelCalls
 }
 

@@ -79,14 +79,20 @@ type runOptions struct {
 	inboxSet bool
 	// history is the Continue history Advance uses (WithHistory).
 	history []llm.Message
+	// historyMismatch is the OnHistoryMismatch Advance gives the Continues
+	// it runs that leave it empty (WithHistoryMismatch).
+	historyMismatch HistoryMismatch
 	// fresh means the turn passed to the run was just loaded from the
 	// Recorder, so apply need not load it again.
 	fresh bool
-	// delivered lists the inbox command ID the run applies, for the first
+	// delivered lists the inbox command the run applies, for the first
 	// commit's CommitRequest.Delivered.
-	delivered []string
+	delivered []DeliveredCommand
 	// warnings ride on the run's first committed step.
 	warnings []Warning
+	// asking runs the command in memory to ask whether a held turn may
+	// send again (see askSend).
+	asking *sendAsk
 }
 
 // WithOwner forwards owner to recorder commits for host lease fencing.

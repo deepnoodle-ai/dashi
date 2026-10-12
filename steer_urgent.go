@@ -101,10 +101,14 @@ func (r *runtime) startSteering(s *replayState) {
 	if !ok || r.listen != nil {
 		return
 	}
-	ready := notifier.Ready(r.turn.ID)
+	ready, unwatch := notifier.Ready(r.turn.ID)
 	if ready == nil {
+		if unwatch != nil {
+			unwatch()
+		}
 		return
 	}
+	r.unwatch = unwatch
 	ctx, stop := context.WithCancel(r.ctx)
 	l := &steerListener{
 		recorded:    map[string]ContextItem{},
@@ -141,6 +145,10 @@ func (r *runtime) endSteering() {
 		if late != nil {
 			r.refuseCancel(*late)
 		}
+	}
+	if r.unwatch != nil {
+		r.unwatch()
+		r.unwatch = nil
 	}
 	r.releaseSteers()
 }

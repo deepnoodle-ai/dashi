@@ -58,7 +58,9 @@ if out.Stop.Ended {
   call. The cut call's finish step closes its live preview; a UI should keep
   its partial text visible, marked as interrupted, since `out.Reply` and
   the transcript helpers skip interrupted results. A durable inbox signals
-  urgent steers by implementing `dashi.InboxNotifier`.
+  urgent steers by implementing `dashi.InboxNotifier`. Its `Ready` returns
+  the turn's channel and an `unwatch` func that Dashi calls once when the
+  run or `Drive` stops watching, so the inbox can drop the channel.
 - **Urgent steers and tools.** An urgent steer never stops a running tool,
   but no later call in the batch starts: each finishes `not_executed` with
   reason `steering` and the result "Not run: the user sent new input.", and
@@ -92,8 +94,9 @@ turn completes. Other commands wait for `Advance`.
 The record is the authority: each command carries an ID, a turn records an
 ID at most once, and Dashi skips a command it finds already recorded, so a
 command presented twice after a crash is recorded once. A host may instead
-consume rows in the recorder transaction that saves the step, reading the IDs
-from `CommitRequest.Delivered`. After a `*CommitError` without
+consume rows in the recorder transaction that saves the step, reading them
+from `CommitRequest.Delivered`, whose entries carry each command's ID and
+kind (`CommandSteer` for a steer). After a `*CommitError` without
 `NothingWritten`, whose write is unknown, reload the turn before deciding
 what happened to its steers.
 

@@ -256,6 +256,11 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	if ctxStop != nil {
 		return *ctxStop, false
 	}
+	if r.asking != nil && sendStop == nil {
+		// Asking a held turn: the hooks allow this call. Nothing is sent.
+		r.asking.allowed = true
+		return RunResult{}, false
+	}
 	if sendStop != nil {
 		return r.stopWith(sendStop), false
 	}

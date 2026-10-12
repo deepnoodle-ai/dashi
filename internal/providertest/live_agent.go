@@ -216,7 +216,7 @@ func ReservedFinalReply(t *testing.T, client llm.Client, modelName string) {
 			},
 		},
 	)
-	if err != nil || out.Stop.Kind != dashi.StopLimited || out.Stop.Reason != "model_calls" ||
+	if err != nil || out.Stop.Kind != dashi.StopLimited || out.Stop.Limit == nil || out.Stop.Limit.Kind != dashi.LimitModelCalls ||
 		!strings.Contains(
 			out.Reply,
 			"56",

@@ -81,7 +81,7 @@ func ExampleRunner_Drive() {
 	// Another process supplies the external tool's result once the turn
 	// waits for it.
 	go func() {
-		for view := range dashi.FollowStops(ctx, rec, "t1") {
+		for view := range dashi.FollowNext(ctx, rec, "t1") {
 			if view.Next() == dashi.NextResolvePending {
 				inbox.Put("t1", view.Pending[0].Result(tool.Succeeded("written")))
 				return
@@ -95,10 +95,12 @@ func ExampleRunner_Drive() {
 	// completed done <nil>
 }
 
-// FollowStops shows a turn's state only at its stops, so a watcher never
-// acts on an intermediate state, and ends after the stop that ends the
-// turn.
-func ExampleFollowStops() {
+// FollowNext shows a turn's state when what to do next changes: at its
+// stops, and once as working when work starts after one. A watcher acts
+// only at stops, never on an intermediate state, and the sequence ends
+// after the stop that ends the turn. Here each run finishes before the
+// next read, so no working view appears between the stops.
+func ExampleFollowNext() {
 	ctx := context.Background()
 	rec := dashi.NewMemoryRecorder()
 	runner := dashi.Runner{
@@ -110,7 +112,7 @@ func ExampleFollowStops() {
 		Input: []llm.Message{llm.UserMessage(llm.Text("hello"))},
 	}
 	runner.Record(ctx, dashi.NewTurn("t1"), start)
-	for view, err := range dashi.FollowStops(ctx, rec, "t1") {
+	for view, err := range dashi.FollowNext(ctx, rec, "t1") {
 		if err != nil {
 			fmt.Println(err)
 			return

@@ -32,10 +32,19 @@ type CommitRequest struct {
 	// on the finish, releasing the hold, without loading the turn. A late
 	// finish after the turn ended still carries it, so spend stays right.
 	ModelCall *ModelCallCost
-	// Delivered lists the inbox command IDs this step records, so a
-	// recorder that shares a database with its inbox marks them in the
-	// same transaction. Dashi still calls Inbox.Delivered after the commit.
-	Delivered []string
+	// Delivered lists the inbox commands this step records, each with its
+	// kind, so a recorder that shares a database with its inbox marks
+	// them in the same transaction, and one that keeps steers apart from
+	// other commands knows which is which. Dashi still calls
+	// Inbox.Delivered after the commit.
+	Delivered []DeliveredCommand
+}
+
+// DeliveredCommand names an inbox command a step records: its command ID
+// and its kind, such as CommandSteer or CommandResolve.
+type DeliveredCommand struct {
+	ID   string      `json:"id"`
+	Kind CommandKind `json:"kind"`
 }
 
 // Recorder is the durable record of turns. The runner commits each step
