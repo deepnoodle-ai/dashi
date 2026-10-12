@@ -40,6 +40,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **`mcp.ConvertResult` maps an MCP tool result to a Dashi outcome** for
+  applications that call MCP tools themselves, including results saved as JSON
+  and read back. It is the mapping `Toolset` uses; warnings come back as a
+  slice. Image and audio media types are now lowercased, and `image/jpg`
+  becomes `image/jpeg`.
 - **`realtime` supports bidirectional voice sessions** through Gemini Live
   (`providers/google/geminilive`) and Grok Voice (`providers/grok/voice`).
   Sessions expose audio, transcripts, interruptions, tool calls, completion,

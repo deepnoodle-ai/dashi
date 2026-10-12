@@ -92,7 +92,13 @@ Text, image, and audio blocks keep their order. A result with `IsError` is a
 failed outcome that the model sees. Structured content becomes one JSON text
 block, unless a text block already holds it. A resource link and a text
 resource become text. A binary resource becomes a text note with its type and
-size, and the server status gets a warning.
+size, and the server status gets a warning. Media types are lowercased, and
+`image/jpg` becomes `image/jpeg`.
+
+An application that calls MCP tools itself can use the same mapping:
+`mcp.ConvertResult(res)` returns the outcome and the warning notes. It also
+works on a result saved with `json.Marshal` and read back into
+`sdk.CallToolResult`, so a replayed screenshot reaches the model as an image.
 
 If the connection drops after a call is sent, the error text says the call may
 have run. The client never retries a call. Cancelling the context sends an MCP
