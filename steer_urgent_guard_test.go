@@ -38,7 +38,7 @@ func newSignalingSource() *signalingSource {
 	}
 }
 
-func (s *signalingSource) Ready() <-chan struct{} {
+func (s *signalingSource) Ready(string) <-chan struct{} {
 	return s.ready
 }
 
@@ -373,7 +373,7 @@ func TestPauseDeclinesUrgentCut(t *testing.T) {
 		t.Context(),
 		Turn{ID: "t1"},
 		startInput(),
-		WithSteering(source),
+		WithInbox(source),
 		WithPause(pause),
 	)
 	if err != nil {
@@ -442,7 +442,7 @@ func TestListenerClaimsAreReleased(t *testing.T) {
 		ctx,
 		Turn{ID: "t1"},
 		startInput(),
-		WithSteering(source),
+		WithInbox(source),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -735,4 +735,8 @@ func TestSteerIsDeliveredAfterAPauseWithFinishedSearch(t *testing.T) {
 	if warnings := warningsOf(out.Turn, WarningSteering); len(warnings) != 0 {
 		t.Fatalf("unexpected steering warnings: %+v", warnings)
 	}
+}
+
+func (s *signalingSource) Waiting(ctx context.Context, turnID string) ([]Command, error) {
+	return steerCommands(s.Steers(ctx, turnID))
 }

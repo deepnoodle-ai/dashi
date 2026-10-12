@@ -46,11 +46,11 @@ type Session struct {
 	// both. NoInheritedSettings preserves omitted Settings at this layer.
 	// It does not change turns already started.
 	Agent dashi.Agent
-	// Steering reaches the turns this handle runs. Nil means the handle's
-	// own *dashi.Inbox, which Steer and SteerItem send to. A host with its
-	// own durable source sets it and sends through that source; Steer then
-	// works only when the source is a *dashi.Inbox.
-	Steering dashi.Steering
+	// Inbox reaches the turns this handle runs. Nil means the handle's
+	// own *dashi.MemoryInbox, which Steer and SteerItem send to. A host with
+	// its own durable inbox sets it and sends through that inbox; Steer then
+	// works only when the inbox is a *dashi.MemoryInbox.
+	Inbox dashi.Inbox
 	// Compactor, when set, runs a compaction turn before a new turn when
 	// the session's history has grown past its threshold. Package
 	// compaction implements it. Every handle honors compaction turns
@@ -74,8 +74,8 @@ type Session struct {
 	// mu guards everything below. Run holds it while choosing the turn and
 	// building the command, never while a turn runs.
 	mu sync.Mutex
-	// inbox is the handle's own steering source when Steering is nil.
-	inbox *dashi.Inbox
+	// inbox is the handle's own inbox when Inbox is nil.
+	inbox *dashi.MemoryInbox
 	// queue holds input for the next turn, in order (see Enqueue).
 	queue []*queuedItem
 	// driving is the turn a Start, Continue, or queue turn of this handle
@@ -281,7 +281,7 @@ func (s *Session) Resolve(
 // the turns before the target turn, replacing any the caller set, and gives a Start the carried agent. A Start's command ID
 // must not begin with "queue:" or "compact:", which mark the session's own
 // turns, and a Start cannot claim origin StartCompaction or set
-// Compaction. Every turn gets the handle's steering source (see Steering).
+// Compaction. Every turn gets the handle's inbox (see Inbox).
 //
 // When a Start or Continue ends its turn with NextNone and input is
 // queued, the same call runs queue turns until the queue is empty or a
@@ -554,7 +554,8 @@ func (s *Session) planStart(
 
 // NeedsCompaction reports whether view stopped because the history no longer
 // fit or could not be summarized, so the next request should summarize first.
-// The next Send closes such a Turn and, with a Compactor, summarizes older
+// A context-window stop has already ended its turn; the next Send closes a
+// turn whose summary failed. With a Compactor, it then summarizes older
 // history before the new request.
 func NeedsCompaction(v dashi.TurnView) bool {
 	return v.Stop.Kind == dashi.StopFailed && v.Stop.Reason == dashi.StopReasonCompactionFailed ||

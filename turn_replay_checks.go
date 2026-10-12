@@ -286,8 +286,18 @@ func (s *replayState) stopEnds(stop Stop) bool {
 		return false
 	}
 	switch stop.Limit.Kind {
-	case LimitDeadline, LimitResumes:
+	case LimitDeadline, LimitResumes, LimitContextWindow:
 		return true
+	case LimitHost:
+		return stop.Limit.Ends
+	}
+	if s.Agent.Limits.NoRaise {
+		switch stop.Limit.Kind {
+		case LimitModelCalls, LimitCost, LimitOutputTokens, LimitTotalTokens:
+			return true
+		}
+	}
+	switch stop.Limit.Kind {
 	case LimitCost:
 		return s.Spend.CostUnknown > 0
 	case LimitOutputTokens:

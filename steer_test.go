@@ -40,7 +40,7 @@ func startAgent(agent Agent) Start {
 	}
 }
 
-func mustSend(t *testing.T, in *Inbox, text string) string {
+func mustSend(t *testing.T, in *MemoryInbox, text string) string {
 	t.Helper()
 	id, err := in.SendText(text)
 	if err != nil {
@@ -82,11 +82,11 @@ func warningsOf(turn Turn, code WarningCode) []Warning {
 }
 
 func TestSteerQueuedBeforeStartReachesFirstCall(t *testing.T) {
-	inbox := NewInbox()
+	inbox := NewMemoryInbox()
 	id := mustSend(t, inbox, "use the staging database")
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	out, err := (Runner{Client: client}).Run(
-		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
+		t.Context(), Turn{ID: "t1"}, startInput(), WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -103,13 +103,13 @@ func TestSteerQueuedBeforeStartReachesFirstCall(t *testing.T) {
 	if err != nil || len(left) != 0 {
 		t.Fatalf("leftovers = %+v err=%v", left, err)
 	}
-	if inbox.Cancel(id) {
+	if inbox.Withdraw(id) {
 		t.Fatal("a delivered steer was cancelled")
 	}
 }
 
 func TestSteerDuringToolFollowsItsResult(t *testing.T) {
-	inbox := NewInbox()
+	inbox := NewMemoryInbox()
 	client := &scriptedClient{results: []llm.Result{
 		callResult("c1", "lookup"),
 		final("done"),
@@ -129,7 +129,7 @@ func TestSteerDuringToolFollowsItsResult(t *testing.T) {
 		}),
 	}
 	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
-		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
+		t.Context(), Turn{ID: "t1"}, startInput(), WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -150,7 +150,7 @@ func TestSteerDuringToolFollowsItsResult(t *testing.T) {
 }
 
 func TestSteerSupersedesFinalText(t *testing.T) {
-	inbox := NewInbox()
+	inbox := NewMemoryInbox()
 	var id string
 	client := sendingClient{
 		scriptedClient: &scriptedClient{results: []llm.Result{
@@ -169,7 +169,7 @@ func TestSteerSupersedesFinalText(t *testing.T) {
 		return FinishDecision{}, nil
 	}}
 	out, err := (Runner{Client: client, Hooks: guard.Hooks()}).Run(
-		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
+		t.Context(), Turn{ID: "t1"}, startInput(), WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "second answer" {
 		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
@@ -187,7 +187,7 @@ func TestSteerSupersedesFinalText(t *testing.T) {
 }
 
 func TestSteerWaitsWhenNoCallRemains(t *testing.T) {
-	inbox := NewInbox()
+	inbox := NewMemoryInbox()
 	client := sendingClient{
 		scriptedClient: &scriptedClient{results: []llm.Result{
 			callResult("c1", "lookup"),
@@ -212,7 +212,7 @@ func TestSteerWaitsWhenNoCallRemains(t *testing.T) {
 	// Three model calls with the last reserved: after two calls, no normal
 	// call remains, so the steer cannot replace the reply.
 	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
-		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
+		t.Context(), Turn{ID: "t1"}, startInput(), WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "answer" {
 		t.Fatalf("stop=%+v answer=%q err=%v", out.Stop, out.Reply, err)
@@ -228,7 +228,7 @@ func TestSteerWaitsWhenNoCallRemains(t *testing.T) {
 }
 
 func TestSteerSupersedesSubmission(t *testing.T) {
-	inbox := NewInbox()
+	inbox := NewMemoryInbox()
 	var id string
 	client := sendingClient{
 		scriptedClient: &scriptedClient{results: []llm.Result{
@@ -244,7 +244,7 @@ func TestSteerSupersedesSubmission(t *testing.T) {
 	agent := structuredAgent()
 	agent.Limits.ModelCalls = 4
 	out, err := (Runner{Client: client}).Run(
-		t.Context(), Turn{ID: "t1"}, startAgent(agent), WithSteering(inbox),
+		t.Context(), Turn{ID: "t1"}, startAgent(agent), WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted ||
 		string(out.Output.Value) != `{"answer":2}` {
@@ -328,7 +328,7 @@ func TestSteerRecordedOnceWhenAcknowledgmentFails(t *testing.T) {
 		}),
 	}
 	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
-		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(source),
+		t.Context(), Turn{ID: "t1"}, startInput(), WithInbox(source),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -340,7 +340,7 @@ func TestSteerRecordedOnceWhenAcknowledgmentFails(t *testing.T) {
 	if len(source.acked) != 3 {
 		t.Fatalf("acknowledgments = %v", source.acked)
 	}
-	if len(warningsOf(out.Turn, WarningSteering)) == 0 {
+	if len(warningsOf(out.Turn, WarningInbox)) == 0 {
 		t.Fatal("the failed acknowledgment left no warning")
 	}
 }
@@ -359,7 +359,7 @@ func TestInvalidSteersAndFailingSourceWarn(t *testing.T) {
 	}}
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	out, err := (Runner{Client: client}).Run(
-		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(source),
+		t.Context(), Turn{ID: "t1"}, startInput(), WithInbox(source),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -368,19 +368,19 @@ func TestInvalidSteersAndFailingSourceWarn(t *testing.T) {
 		t.Fatal("an invalid steer was recorded")
 	}
 	// Steers runs before the call and at the reply; each is warned once.
-	if n := len(warningsOf(out.Turn, WarningSteering)); n != 2 {
-		t.Fatalf("got %d steering warnings", n)
+	if n := len(warningsOf(out.Turn, WarningInbox)); n != 2 {
+		t.Fatalf("got %d inbox warnings", n)
 	}
 
 	failing := &tableSource{failSteers: errors.New("down")}
 	client = &scriptedClient{results: []llm.Result{final("done")}}
 	out, err = (Runner{Client: client}).Run(
-		t.Context(), Turn{ID: "t2"}, startInput(), WithSteering(failing),
+		t.Context(), Turn{ID: "t2"}, startInput(), WithInbox(failing),
 	)
 	// The source is asked before the call and at the reply, and its
 	// failure is reported once.
 	if err != nil || out.Stop.Kind != StopCompleted ||
-		len(warningsOf(out.Turn, WarningSteering)) != 1 {
+		len(warningsOf(out.Turn, WarningInbox)) != 1 {
 		t.Fatalf("stop=%+v warnings=%+v err=%v", out.Stop, out.Warnings, err)
 	}
 	if failing.steersCalls != 2 {
@@ -392,7 +392,7 @@ func TestSteerWithRecordedIDButOtherContentIsSkipped(t *testing.T) {
 	source := &tableSource{rows: []Steer{textSteer("s1", "first")}}
 	client := &scriptedClient{results: []llm.Result{final("one"), final("two")}}
 	runner := Runner{Client: client}
-	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(source))
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, startInput(), WithInbox(source))
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
@@ -406,12 +406,12 @@ func TestSteerWithRecordedIDButOtherContentIsSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 	rt := runtime{ctx: t.Context(), turn: out.Turn, opts: runOptions{
-		steering: &tableSource{rows: []Steer{textSteer("s1", "changed")}},
+		inbox: &tableSource{rows: []Steer{textSteer("s1", "changed")}},
 	}}
 	if got := rt.waitingSteers(s); len(got) != 0 {
 		t.Fatalf("fresh = %+v", got)
 	}
-	if len(rt.pendingWarnings) != 1 || rt.pendingWarnings[0].Code != WarningSteering {
+	if len(rt.pendingWarnings) != 1 || rt.pendingWarnings[0].Code != WarningInbox {
 		t.Fatalf("warnings = %+v", rt.pendingWarnings)
 	}
 }
@@ -507,7 +507,7 @@ func TestRecordedSteerReachesNextTurnThroughHistory(t *testing.T) {
 			name = "next call only"
 		}
 		t.Run(name, func(t *testing.T) {
-			inbox := NewInbox()
+			inbox := NewMemoryInbox()
 			if _, err := inbox.Send(Steer{Item: ContextItem{
 				Name:         "correction",
 				Message:      llm.UserMessage(llm.Text("use the staging database")),
@@ -523,7 +523,7 @@ func TestRecordedSteerReachesNextTurnThroughHistory(t *testing.T) {
 			}
 			out, err := runner.Run(
 				t.Context(), Turn{ID: "t1"}, startInput(),
-				WithSteering(inbox), WithPause(pause),
+				WithInbox(inbox), WithPause(pause),
 			)
 			if err != nil || out.Stop.Kind != StopInterrupted || client.sends != 0 {
 				t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
@@ -548,7 +548,7 @@ func TestRecordedSteerReachesNextTurnThroughHistory(t *testing.T) {
 				Agent:     testAgent(),
 				Input:     []llm.Message{llm.UserMessage(llm.Text("go on"))},
 				History:   history,
-			}, WithSteering(inbox))
+			}, WithInbox(inbox))
 			if err != nil || next.Stop.Kind != StopCompleted {
 				t.Fatalf("stop=%+v err=%v", next.Stop, err)
 			}
@@ -569,7 +569,7 @@ func TestRecordedSteerReachesNextTurnThroughHistory(t *testing.T) {
 // sent call follows a NextCallOnly item, later calls and the rebuilt
 // view no longer carry it.
 func TestNextCallOnlyExpiresAfterDispatchedCall(t *testing.T) {
-	inbox := NewInbox()
+	inbox := NewMemoryInbox()
 	if _, err := inbox.Send(Steer{Item: ContextItem{
 		Name:         "hint",
 		Message:      llm.UserMessage(llm.Text("once only")),
@@ -589,7 +589,7 @@ func TestNextCallOnlyExpiresAfterDispatchedCall(t *testing.T) {
 		}),
 	}
 	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
-		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
+		t.Context(), Turn{ID: "t1"}, startInput(), WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -623,7 +623,7 @@ func TestLeftoversKeepsSteerWithCollidingID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inbox := NewInbox()
+	inbox := NewMemoryInbox()
 	if _, err := inbox.Send(Steer{Item: ContextItem{
 		ID:      "x",
 		Message: llm.UserMessage(llm.Text("B")),
@@ -637,24 +637,24 @@ func TestLeftoversKeepsSteerWithCollidingID(t *testing.T) {
 }
 
 func TestInboxClaimsAndRelease(t *testing.T) {
-	inbox := NewInbox()
+	inbox := NewMemoryInbox()
 	a := mustSend(t, inbox, "a")
 	b := mustSend(t, inbox, "b")
-	if !inbox.Cancel(b) {
+	if !inbox.Withdraw(b) {
 		t.Fatal("an unclaimed steer could not be cancelled")
 	}
-	got, _ := inbox.Steers(t.Context(), "t1")
+	got, _ := steersFrom(inbox, t.Context(), "t1")
 	if len(got) != 1 || got[0].Item.ID != a || got[0].Item.Origin != ContextUser {
 		t.Fatalf("steers = %+v", got)
 	}
-	if inbox.Cancel(a) {
+	if inbox.Withdraw(a) {
 		t.Fatal("a claimed steer was cancelled")
 	}
-	if other, _ := inbox.Steers(t.Context(), "t2"); len(other) != 0 {
+	if other, _ := steersFrom(inbox, t.Context(), "t2"); len(other) != 0 {
 		t.Fatalf("another turn received a claimed steer: %+v", other)
 	}
 	inbox.Release(t.Context(), "t1", []string{a}, nil)
-	if !inbox.Cancel(a) {
+	if !inbox.Withdraw(a) {
 		t.Fatal("a released steer could not be cancelled")
 	}
 	if _, err := inbox.SendText("  "); err == nil {
@@ -672,7 +672,7 @@ func TestInboxClaimsAndRelease(t *testing.T) {
 }
 
 func TestRunReleasesUnrecordedClaims(t *testing.T) {
-	inbox := NewInbox()
+	inbox := NewMemoryInbox()
 	client := sendingClient{
 		scriptedClient: &scriptedClient{results: []llm.Result{final("done")}},
 		onSend:         func(int) { mustSend(t, inbox, "late") },
@@ -681,19 +681,19 @@ func TestRunReleasesUnrecordedClaims(t *testing.T) {
 	agent := testAgent()
 	agent.Limits.ModelCalls = 1
 	out, err := (Runner{Client: client}).Run(
-		t.Context(), Turn{ID: "t1"}, startAgent(agent), WithSteering(inbox),
+		t.Context(), Turn{ID: "t1"}, startAgent(agent), WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}
-	left, _ := inbox.Steers(t.Context(), "t2")
+	left, _ := steersFrom(inbox, t.Context(), "t2")
 	if len(left) != 1 {
 		t.Fatalf("the waiting steer was not released: %+v", left)
 	}
 }
 
 func TestInboxConcurrentSends(t *testing.T) {
-	inbox := NewInbox()
+	inbox := NewMemoryInbox()
 	var mu sync.Mutex
 	var sent []string
 	send := func() {
@@ -747,7 +747,7 @@ func TestInboxConcurrentSends(t *testing.T) {
 	agent := testAgent()
 	agent.Limits.ModelCalls = 4
 	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
-		t.Context(), Turn{ID: "t1"}, startAgent(agent), WithSteering(inbox),
+		t.Context(), Turn{ID: "t1"}, startAgent(agent), WithInbox(inbox),
 	)
 	close(stop)
 	wg.Wait()
@@ -859,7 +859,7 @@ func TestLeftoversIgnoresOtherIdentifiedItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if left, err := NewInbox().Leftovers(out.Turn); err != nil || len(left) != 0 {
+	if left, err := NewMemoryInbox().Leftovers(out.Turn); err != nil || len(left) != 0 {
 		t.Fatalf("leftovers = %+v err=%v", left, err)
 	}
 }
@@ -969,7 +969,7 @@ func (f *steerFaultRecorder) Commit(ctx context.Context, req CommitRequest) erro
 func TestSupersededSubmissionSurvivesCommitFaults(t *testing.T) {
 	for _, mode := range []string{"reject", "lose_write", "lose_ack"} {
 		t.Run(mode, func(t *testing.T) {
-			inbox := NewInbox()
+			inbox := NewMemoryInbox()
 			client := sendingClient{
 				scriptedClient: &scriptedClient{results: []llm.Result{
 					submitResult("out-1", `{"answer":1}`),
@@ -986,7 +986,7 @@ func TestSupersededSubmissionSurvivesCommitFaults(t *testing.T) {
 			agent.Limits.ModelCalls = 4
 			runner := Runner{Client: client, Recorder: rec}
 			if _, err := runner.Run(
-				t.Context(), Turn{ID: "t1"}, startAgent(agent), WithSteering(inbox),
+				t.Context(), Turn{ID: "t1"}, startAgent(agent), WithInbox(inbox),
 			); err == nil {
 				t.Fatal("the fault was not reported")
 			}
@@ -995,7 +995,7 @@ func TestSupersededSubmissionSurvivesCommitFaults(t *testing.T) {
 				t.Fatal(err)
 			}
 			out, err := runner.Run(
-				t.Context(), saved, Continue{CommandID: "resume"}, WithSteering(inbox),
+				t.Context(), saved, Continue{CommandID: "resume"}, WithInbox(inbox),
 			)
 			if err != nil || out.Stop.Kind != StopCompleted ||
 				string(out.Output.Value) != `{"answer":2}` {
@@ -1018,7 +1018,7 @@ func TestSupersededSubmissionSurvivesCommitFaults(t *testing.T) {
 // TestReplayRejectsForgedSteeringSteps checks that only the runner records
 // steers: never a command, and on a finish step only a rejected submission.
 func TestReplayRejectsForgedSteeringSteps(t *testing.T) {
-	inbox := NewInbox()
+	inbox := NewMemoryInbox()
 	mustSend(t, inbox, "hello")
 	client := &scriptedClient{results: []llm.Result{
 		callResult("c1", "lookup"),
@@ -1035,7 +1035,7 @@ func TestReplayRejectsForgedSteeringSteps(t *testing.T) {
 		}),
 	}
 	out, err := (Runner{Client: client, Tools: tool.List{lookup}}).Run(
-		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
+		t.Context(), Turn{ID: "t1"}, startInput(), WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -1104,7 +1104,7 @@ func (l *loseCallStartAck) Commit(ctx context.Context, req CommitRequest) error 
 // and continues. The recovered finish step is no evidence the call was
 // sent, so the steer reaches the resent call.
 func TestNextCallOnlySteerSurvivesCrashBeforeDispatch(t *testing.T) {
-	inbox := NewInbox()
+	inbox := NewMemoryInbox()
 	if _, err := inbox.Send(Steer{Item: ContextItem{
 		Message:      llm.UserMessage(llm.Text("use the staging database")),
 		NextCallOnly: true,
@@ -1115,7 +1115,7 @@ func TestNextCallOnlySteerSurvivesCrashBeforeDispatch(t *testing.T) {
 	rec := &loseCallStartAck{MemoryRecorder: NewMemoryRecorder()}
 	runner := Runner{Client: client, Recorder: rec}
 	if _, err := runner.Run(
-		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox),
+		t.Context(), Turn{ID: "t1"}, startInput(), WithInbox(inbox),
 	); err == nil {
 		t.Fatal("the lost acknowledgement was not reported")
 	}
@@ -1127,7 +1127,7 @@ func TestNextCallOnlySteerSurvivesCrashBeforeDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := runner.Run(
-		t.Context(), saved, Continue{CommandID: "resume"}, WithSteering(inbox),
+		t.Context(), saved, Continue{CommandID: "resume"}, WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted || client.sends != 1 {
 		t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
@@ -1135,4 +1135,24 @@ func TestNextCallOnlySteerSurvivesCrashBeforeDispatch(t *testing.T) {
 	if hasText(client.inputs[0].Messages, "staging") < 0 {
 		t.Fatal("the steer did not reach the resent call")
 	}
+}
+
+func (s *tableSource) Waiting(ctx context.Context, turnID string) ([]Command, error) {
+	return steerCommands(s.Steers(ctx, turnID))
+}
+
+// steerCommands turns a test source's steers into inbox commands.
+func steerCommands(steers []Steer, err error) ([]Command, error) {
+	out := make([]Command, 0, len(steers))
+	for _, steer := range steers {
+		out = append(out, steer)
+	}
+	return out, err
+}
+
+// steersFrom returns the steers an inbox holds for turnID.
+func steersFrom(in Inbox, ctx context.Context, turnID string) ([]Steer, error) {
+	commands, err := in.Waiting(ctx, turnID)
+	steers, _ := splitWaiting(commands)
+	return steers, err
 }

@@ -324,7 +324,7 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 		// Each check below, just before a call starts, covers a steer that
 		// arrived during BeforeTool, while the call waited for a slot, or
 		// on resume; the call is allowed but has not started. Handing a
-		// call to the host is its start. A check can fetch from the source;
+		// call to the host is its start. A check can fetch from the inbox;
 		// a run that ended meanwhile stops before the start, as it does when
 		// it ends during BeforeTool.
 		if v.Definition.Kind == tool.KindExternal {
@@ -602,6 +602,7 @@ func (r *runtime) finishOutputSubmission(call tool.Call) *RunResult {
 		return o
 	}
 	if len(finish.steers) > 0 {
+		r.markDelivered(finish.steers)
 		return r.afterSteerWrite(
 			finish.steers,
 			// A steer is a nudge, not a veto: the message's text keeps

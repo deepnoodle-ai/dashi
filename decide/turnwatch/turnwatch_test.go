@@ -347,17 +347,17 @@ func TestCapAcrossResume(t *testing.T) {
 // steerInbox is an Inbox that reports when the run fetched its steers, so
 // a hook can send an urgent steer and know the run saw it.
 type steerInbox struct {
-	*dashi.Inbox
+	*dashi.MemoryInbox
 	fetched chan struct{}
 }
 
-func (s *steerInbox) Steers(ctx context.Context, turnID string) ([]dashi.Steer, error) {
-	steers, err := s.Inbox.Steers(ctx, turnID)
+func (s *steerInbox) Waiting(ctx context.Context, turnID string) ([]dashi.Command, error) {
+	waiting, err := s.MemoryInbox.Waiting(ctx, turnID)
 	select {
 	case s.fetched <- struct{}{}:
 	default:
 	}
-	return steers, err
+	return waiting, err
 }
 
 // TestUrgentSteerRetryNotCheckedTwice sends an urgent steer after the
@@ -367,7 +367,7 @@ func TestUrgentSteerRetryNotCheckedTwice(t *testing.T) {
 	srv, client := judge(t, 0.95, 0.05)
 	var seen checks
 	w := &turnwatch.Watcher{Client: client, OnCheck: seen.add}
-	inbox := &steerInbox{Inbox: dashi.NewInbox(), fetched: make(chan struct{}, 1)}
+	inbox := &steerInbox{MemoryInbox: dashi.NewMemoryInbox(), fetched: make(chan struct{}, 1)}
 	steered, passes := false, 0
 	steer := dashi.ModelHook{Name: "steer", Func: func(
 		context.Context, dashi.ModelPlan) (dashi.ModelDecision, error) {
@@ -396,7 +396,7 @@ func TestUrgentSteerRetryNotCheckedTwice(t *testing.T) {
 		Hooks:  dashi.JoinHooks(w.Hook(), steer),
 	}
 	out, err := runner.Run(t.Context(), dashi.Turn{ID: "t1"}, start(dashi.Agent{}),
-		dashi.WithSteering(inbox))
+		dashi.WithInbox(inbox))
 	if err != nil {
 		t.Fatal(err)
 	}

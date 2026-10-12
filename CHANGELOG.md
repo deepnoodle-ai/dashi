@@ -20,6 +20,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   original error text.
 - **`Warning.TurnID`** names the turn of a `turn_unreadable` or
   `compaction_mismatch` history warning.
+- **`Runner.Advance` and `Runner.Drive`** run a saved turn for a host:
+  Advance loads the turn, applies the commands waiting in its inbox, and
+  runs it until it must wait, with `Continue` IDs derived from the record
+  (`continue:<LastSeq>`), so no outbox is needed. It never continues from a
+  stop it recorded itself without new input, and always leaves the turn at
+  a stop step. Drive repeats Advance, waiting for the inbox's signal, a
+  15-second poll, or the turn's deadline, until the turn ends or ctx ends.
+  `WithHistory` supplies the Continue's history.
+- **`FollowStops`** yields a turn's view now and at each later stop, ending
+  after the stop that ends the turn, so a watcher never acts on an
+  intermediate state.
+- **`LimitDetail.Ends`** makes a host limit end the turn; without it a host
+  limit waits (`NextFix`). **`Limits.NoRaise`** makes model-call, cost, and
+  token limits end the turn and rejects raises.
+- **`LimitError`**: a recorder that refuses a `model_call_started` step with
+  `&CommitError{NothingWritten: true, Err: &LimitError{...}}` gets the
+  limited stop recorded, as if `BeforeSend` had returned it.
+- **`CommitRequest.ModelCall`** carries the started or finished call's
+  `ModelCallCost`, so a recorder reserves and settles without loading the
+  turn. **`CommitRequest.Delivered`** lists the inbox command IDs a step
+  records.
+- **`InboxRefuser`** hears the commands a turn did not take; **`WarningInbox`**
+  records them on an open turn.
 
 ### Fixed
 
@@ -37,6 +60,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **`Steering` is now `Inbox`, and returns commands.** `Inbox.Waiting`
+  replaces `Steers`; a `Steer` is a command whose ID is its item ID, and
+  `MarshalCommand` encodes it (`CommandSteer`). `WithSteering` is
+  `WithInbox`, `Runner.Inbox` sets one for every run, the in-memory `Inbox`
+  is `MemoryInbox` (`NewMemoryInbox`, with `Put(turnID, command)`; its
+  `Cancel(id)` is now `Withdraw(id)`),
+  `SteeringReleaser` is `InboxReleaser`, and `SteeringNotifier` is
+  `InboxNotifier`, whose `Ready` takes the turn ID. `session.Session.Steering`
+  is `Session.Inbox`. A `Cancel` in the inbox ends a running turn, unless
+  the turn's output is recorded, when it is refused; other commands wait
+  for Advance. `Run` rejects a `Steer`: steers reach a turn only through an
+  inbox. Inbox command IDs starting with `continue:` are reserved for
+  Advance. A failing inbox or invalid steer records `WarningInbox` instead
+  of `WarningSteering`.
+- **A context-window stop ends the turn** and always records
+  `Limit{Kind: LimitContextWindow}`; start a successor turn.
 - **A turn whose only step is its Start is ready.** `Next` gives
   `NextContinue`, not `NextRecover`, and `Continue` counts no resume and adds
   no crash reminder.

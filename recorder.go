@@ -24,6 +24,18 @@ type CommitRequest struct {
 	// owner, including an empty one. Claiming is the host's lease operation
 	// and is not part of this interface.
 	Owner string
+	// ModelCall is the call this step starts or finishes, as
+	// TurnView.ModelCallCosts will show it: WorstCaseCost on a
+	// StepModelCallStarted; Cost, Exact, and UsageSource on a
+	// StepModelCallFinished or StepModelCallFinishedByHost. Nil on other
+	// steps. A recorder reserves WorstCaseCost on a start and settles Cost
+	// on the finish, releasing the hold, without loading the turn. A late
+	// finish after the turn ended still carries it, so spend stays right.
+	ModelCall *ModelCallCost
+	// Delivered lists the inbox command IDs this step records, so a
+	// recorder that shares a database with its inbox marks them in the
+	// same transaction. Dashi still calls Inbox.Delivered after the commit.
+	Delivered []string
 }
 
 // Recorder is the durable record of turns. The runner commits each step

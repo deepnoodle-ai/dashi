@@ -178,7 +178,7 @@ func TestConfigSessionFallsBackToTheQueueOnRefusal(t *testing.T) {
 		g := newGate()
 		h := newHarness(t, scripted(gated(g, "found")), delegate.Config{}, nil)
 		s := sessionTasks(t, h)
-		s.Steering = hostSteering{}
+		s.Inbox = hostSteering{}
 		if _, err := s.Send(t.Context(), "go"); err != nil {
 			t.Fatal(err)
 		}
@@ -263,7 +263,7 @@ func TestConfigSessionFallsBackToTheQueueOnRefusal(t *testing.T) {
 // refuses SteerItem.
 type hostSteering struct{}
 
-func (hostSteering) Steers(context.Context, string) ([]dashi.Steer, error) {
+func (hostSteering) Waiting(context.Context, string) ([]dashi.Command, error) {
 	return nil, nil
 }
 

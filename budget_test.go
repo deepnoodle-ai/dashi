@@ -1425,3 +1425,33 @@ func TestBudgetWorkerStoppedCallChargesNothing(t *testing.T) {
 		t.Fatalf("recovered finish=%+v", finish)
 	}
 }
+
+func TestHostLimitWithEndsEndsTheTurn(t *testing.T) {
+	for _, ends := range []bool{false, true} {
+		client := &scriptedClient{results: []llm.Result{final("unneeded")}}
+		deny := SendHook{Name: "cap", Func: func(context.Context, SendPlan) (SendDecision, error) {
+			return SendDecision{Reason: "routine cap", Limit: &LimitDetail{
+				Kind: LimitHost, Code: "routine_cap", Ends: ends,
+			}}, nil
+		}}
+		out, err := (Runner{Client: client, Hooks: deny.Hooks()}).Run(
+			t.Context(), Turn{ID: "t1"}, startInput(),
+		)
+		want := NextFix
+		if ends {
+			want = NextNone
+		}
+		if err != nil || out.Stop.Ended != ends || out.Next() != want {
+			t.Fatalf("ends=%t: stop=%+v next=%s err=%v", ends, out.Stop, out.Next(), err)
+		}
+	}
+}
+
+func TestOnlyHostLimitsEnd(t *testing.T) {
+	if err := (LimitDetail{Kind: LimitCost, Ends: true}).Validate(); err == nil {
+		t.Fatal("a cost limit set Ends")
+	}
+	if err := (LimitDetail{Kind: LimitHost, Code: "c", Ends: true}).Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

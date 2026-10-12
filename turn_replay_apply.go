@@ -150,6 +150,9 @@ func (s *replayState) apply(step Step) error {
 		if !s.canContinueWith(step.Budget, step.ModelCalls) {
 			return errors.New("turn cannot continue")
 		}
+		if s.Agent.Limits.NoRaise && (step.ModelCalls != 0 || step.Budget != nil) {
+			return errors.New("the agent's limits cannot be raised")
+		}
 		if step.ModelCalls != 0 {
 			if step.ModelCalls <= s.modelCallCap {
 				return errors.New("model-call raise must exceed the cap")

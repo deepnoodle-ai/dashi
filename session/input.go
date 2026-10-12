@@ -52,8 +52,8 @@ var errStreamStopped = errors.New("session: stream consumer stopped")
 // A steer that misses its turn is not lost: when the turn ends, or a new
 // Start closes it, the steer moves to the queue.
 //
-// Steer sends to the handle's own inbox, or to Session.Steering when it is
-// a *dashi.Inbox; with another source it returns an error, and the host sends
+// Steer sends to the handle's own inbox, or to Session.Inbox when it is
+// a *dashi.MemoryInbox; with another source it returns an error, and the host sends
 // through its own system.
 func (s *Session) Steer(ctx context.Context, text string) (Queued, error) {
 	if strings.TrimSpace(text) == "" {
@@ -69,10 +69,10 @@ func (s *Session) Steer(ctx context.Context, text string) (Queued, error) {
 func (s *Session) SteerItem(ctx context.Context, steer dashi.Steer) (Queued, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	in, ok := s.steering().(*dashi.Inbox)
+	in, ok := s.currentInbox().(*dashi.MemoryInbox)
 	if !ok {
 		return Queued{}, errors.New(
-			"session: Session.Steering is not an *Inbox; send steers through it",
+			"session: Session.Inbox is not a *dashi.MemoryInbox; send steers through it",
 		)
 	}
 	if s.compacting != "" {
@@ -198,12 +198,12 @@ func (s *Session) Turns(ctx context.Context) iter.Seq2[dashi.Turn, error] {
 
 // steering returns the source every turn of this handle gets. The caller
 // holds mu, or the source was fixed by an earlier call.
-func (s *Session) steering() dashi.Steering {
-	if s.Steering != nil {
-		return s.Steering
+func (s *Session) currentInbox() dashi.Inbox {
+	if s.Inbox != nil {
+		return s.Inbox
 	}
 	if s.inbox == nil {
-		s.inbox = dashi.NewInbox()
+		s.inbox = dashi.NewMemoryInbox()
 	}
 	return s.inbox
 }
@@ -236,7 +236,7 @@ func (s *Session) newItem(item dashi.ContextItem) (dashi.ContextItem, error) {
 	taken := slices.ContainsFunc(s.queue, func(q *queuedItem) bool {
 		return q.item.ID == item.ID
 	})
-	if in, ok := s.steering().(*dashi.Inbox); ok && !taken {
+	if in, ok := s.currentInbox().(*dashi.MemoryInbox); ok && !taken {
 		taken = in.Has(item.ID)
 	}
 	if taken {
@@ -265,7 +265,7 @@ func (s *Session) enqueue(item dashi.ContextItem) Queued {
 // that turn never recorded, once the turn has ended or was closed. A host
 // source releases its own. The caller holds mu.
 func (s *Session) moveLeftovers(turn dashi.Turn) {
-	in, ok := s.steering().(*dashi.Inbox)
+	in, ok := s.currentInbox().(*dashi.MemoryInbox)
 	if !ok {
 		return
 	}

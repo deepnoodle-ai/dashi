@@ -287,7 +287,7 @@ func (cl *call) queueTurn(ctx context.Context) (dashi.RunResult, bool, error) {
 }
 
 // exec runs one command on the engine, with the handle's steering source
-// ahead of the caller's options, so an explicit WithSteering still wins,
+// ahead of the caller's options, so an explicit WithInbox still wins,
 // except on a compaction turn, which gets no steering.
 // For Stream it forwards the events, tagged with the turn ID; the RunResult
 // event waits for report, after the session adds its warnings.
@@ -298,11 +298,11 @@ func (cl *call) exec(
 	c dashi.Command,
 ) (dashi.RunResult, error) {
 	cl.s.mu.Lock()
-	source := cl.s.steering()
+	source := cl.s.currentInbox()
 	cl.s.mu.Unlock()
-	opts := append([]dashi.RunOption{dashi.WithSteering(source)}, cl.opts...)
+	opts := append([]dashi.RunOption{dashi.WithInbox(source)}, cl.opts...)
 	if isCompaction(turn, c) {
-		opts = append(opts, dashi.WithSteering(nil))
+		opts = append(opts, dashi.WithInbox(nil))
 	}
 	cl.started = false
 	if cl.yield == nil {

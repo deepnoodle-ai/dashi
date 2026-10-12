@@ -131,8 +131,8 @@ type ContextFact struct {
 	// the latest reply. Until a new model result arrives, that reply never
 	// reaches the host through TurnView.Reply, whatever the stop.
 	Vetoed bool `json:"vetoed,omitempty"`
-	// Steering marks items that came from a Steering source, recorded on
-	// their own step. Inbox.Leftovers uses it to tell steers from AddMessages
+	// Steering marks items that came from steers in an Inbox, recorded on
+	// their own step. MemoryInbox.Leftovers uses it to tell steers from AddMessages
 	// and hook items.
 	Steering bool `json:"steering,omitempty"`
 }
@@ -326,11 +326,13 @@ type Stop struct {
 	Limit *LimitDetail `json:"limit,omitempty"`
 	// Ended means the turn has ended: no command can run it again,
 	// whatever the host resolves or raises. It is true for completed and
-	// canceled turns; for a limited turn stopped by its deadline or its
-	// resumes limit; and for a turn limited by cost whose spend
-	// includes a cost that cannot be priced; or a token-capped turn whose
-	// usage totals are incomplete. A turn stopped at its model call
-	// limit has not ended: Continue.ModelCalls raises the limit.
+	// canceled turns; for a limited turn stopped by its deadline, its
+	// resumes limit, or its context window; for a host limit with
+	// LimitDetail.Ends; for a model-call, cost, or token limit when the
+	// agent sets Limits.NoRaise; and for a turn limited by cost whose spend
+	// includes a cost that cannot be priced, or a token-capped turn whose
+	// usage totals are incomplete. Otherwise a turn stopped at its model
+	// call limit has not ended: Continue.ModelCalls raises the limit.
 	// The runner sets it when it records the stop.
 	//
 	// After the stop that ended the turn, the conversation is closed: the

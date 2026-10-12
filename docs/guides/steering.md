@@ -1,7 +1,7 @@
 # Steering
 
 People type while an agent works: "use the staging database", "stop, wrong
-file". Pass a steering source to the run, and each message reaches the turn
+file". Give the run an inbox, and each message reaches the turn
 at a safe point: before the next model call, or, when the model has just
 replied, as a reason to ask it again. A steer never lands between a tool
 call and its result, and never stops a running tool.
@@ -12,13 +12,13 @@ you: `Session.Steer` reaches its running turn, and missed steers move to its
 queue.
 
 ```go
-inbox := dashi.NewInbox()
+inbox := dashi.NewMemoryInbox()
 go func() {
 	for line := range input {
 		inbox.SendText(line)
 	}
 }()
-out, err := runner.Run(ctx, turn, start, dashi.WithSteering(inbox))
+out, err := runner.Run(ctx, turn, start, dashi.WithInbox(inbox))
 if err != nil {
 	return err
 }
@@ -31,7 +31,7 @@ if out.Stop.Ended {
 [`examples/steering`](../../examples/steering) is a complete chat CLI.
 
 - **One active run per inbox.** An inbox can serve many turns, one at a time.
-- **Claims.** A steer the inbox hands to a run is claimed: `Cancel` returns
+- **Claims.** A steer the inbox hands to a run is claimed: `Withdraw` returns
   false from then on. Claims the run did not record are released when it ends.
 - **Leftovers.** `Leftovers(turn)` returns, once, the steers not recorded in
   that turn: those still queued or never written. Recorded steers are part of
@@ -43,7 +43,8 @@ if out.Stop.Ended {
   planned call adds none. Steering never spends the
   [reserved final-reply call](recovering-turns.md#turn-states-and-limits) or
   goes past a limit, the deadline, or a pause: the steer then waits for the
-  next turn, and a `WarningSteering` on the record says why.
+  next turn, and a `WarningSteering` on the record says why. A failing inbox
+  or an invalid steer leaves a `WarningInbox` instead.
   Interactive agents should raise `Limits.ModelCalls` from its
   [default of 8](recovering-turns.md#turn-states-and-limits).
 - **Urgent steers.** `inbox.SendUrgent(text)` also cuts short the model call
@@ -56,8 +57,8 @@ if out.Stop.Ended {
   leaves one `WarningSteering` saying why, and the steer waits for the next
   call. The cut call's finish step closes its live preview; a UI should keep
   its partial text visible, marked as interrupted, since `out.Reply` and
-  the transcript helpers skip interrupted results. A durable source signals
-  urgent steers by implementing `dashi.SteeringNotifier`.
+  the transcript helpers skip interrupted results. A durable inbox signals
+  urgent steers by implementing `dashi.InboxNotifier`.
 - **Urgent steers and tools.** An urgent steer never stops a running tool,
   but no later call in the batch starts: each finishes `not_executed` with
   reason `steering` and the result "Not run: the user sent new input.", and
@@ -70,15 +71,31 @@ if out.Stop.Ended {
   reserved final-reply call, and when no model call can happen the batch
   runs and a `WarningSteering` says why.
 
-A durable host implements `dashi.Steering` over its own table, keyed by turn:
-`Steers` returns the rows not yet acknowledged, and `Delivered` consumes them.
-The record is the authority: each steer carries an ID, a turn records an ID at
-most once, and Dashi skips a steer it finds already recorded, so a steer
-presented twice after a crash is recorded once. A host may instead consume
-rows in the recorder transaction that saves the step, reading the IDs from
-`Step.Items()` of a step whose `Context.Steering` is set. After a
-`*CommitError` without `NothingWritten`, whose write is unknown, reload the
-turn before deciding what happened to its steers.
+## Durable inboxes
+
+A steer is one kind of command in the turn's `dashi.Inbox`, beside the tool
+results, approvals, raises, `AddMessages`, and `Cancel` that
+[`Runner.Advance`](recovering-turns.md#advancing-saved-turns) applies. Its
+command ID is its item ID. A durable host implements `Inbox` over its own
+table, keyed by turn: `Waiting` returns the rows not yet acknowledged, oldest
+first, and `Delivered` consumes them. Set it as `Runner.Inbox`, or pass
+`WithInbox` for one run. `MemoryInbox.Put(turnID, command)` is the in-memory
+equivalent of inserting a row.
+
+During a run, Dashi takes only steers and `Cancel` from the inbox. A
+`Cancel` ends the run at once, at the next safe point, as `ContextCancel`
+would, and is recorded under its own command ID; with an `InboxNotifier`, its
+signal cuts the model call in flight. A `Cancel` that arrives after the
+turn's structured output is recorded is refused and acknowledged, and the
+turn completes. Other commands wait for `Advance`.
+
+The record is the authority: each command carries an ID, a turn records an
+ID at most once, and Dashi skips a command it finds already recorded, so a
+command presented twice after a crash is recorded once. A host may instead
+consume rows in the recorder transaction that saves the step, reading the IDs
+from `CommitRequest.Delivered`. After a `*CommitError` without
+`NothingWritten`, whose write is unknown, reload the turn before deciding
+what happened to its steers.
 
 ## Adding messages
 

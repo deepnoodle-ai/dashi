@@ -18,12 +18,12 @@ the recorder, because its step numbers are taken, so no model call or tool
 runs twice. What can happen is a second turn from a `Start` retried with no
 turn ID, or an `AddMessages` recorded twice when its items carry no IDs.
 
-A host that saves whole commands before running them, such as an outbox that
-replays the same command after a crash, encodes them with
-`dashi.MarshalCommand` and decodes them with `dashi.UnmarshalCommand`. The
-decoded command equals the original and has the same hash, so replaying it
-is a retry, not a conflict. `dashi.CommandIDOf` and `dashi.CommandKindOf` give
-the identity to index saved commands by. Commands also encode with plain
+A host that stores commands, such as an [inbox](#advancing-saved-turns)
+table, encodes them with `dashi.MarshalCommand` and decodes them with
+`dashi.UnmarshalCommand`. The decoded command equals the original and has the
+same hash, so applying it again is a retry, not a conflict.
+`dashi.CommandIDOf` and `dashi.CommandKindOf` give the identity to index saved
+commands by. Commands also encode with plain
 `encoding/json`; a JSON `null` output schema reads as none.
 
 Values a turn records travel on its commands: `Start.Agent` carries the agent,
@@ -61,7 +61,7 @@ request, call `runner.Record(ctx, turn, start)`. Dashi commits the `Start`
 step alone: no model request, tool, steering read, or content load. A turn
 whose only step is its `Start` began no work, so `Next()` gives
 `NextContinue`, and a later `Continue` runs it without counting toward
-`Limits.Resumes` or adding a crash reminder. A `Cancel` withdraws it. A retry
+`Limits.Resumes` or adding a crash reminder. A `Cancel` ends it. A retry
 of `Record` with the same `CommandID` returns the recorded result.
 
 ```go
@@ -76,6 +76,46 @@ recorded result without calling the model or running tools again; this is how
 a restarted process safely repeats its `Start`. A new `CommandID` is a new
 command, and a new recorder (such as the default in-memory one) knows nothing
 of earlier runs.
+
+## Advancing saved turns
+
+A host that runs turns as durable background work needs no driver of its
+own. Admission saves the `Start` with `Record`. Everything that arrives later
+(tool results, approvals, raises, steers, a `Cancel`) goes into the host's
+[`Inbox`](steering.md#durable-inboxes), keyed by turn ID. The worker that
+holds the turn's lease calls `Drive`:
+
+```go
+runner := dashi.Runner{Client: client, Tools: tools, Recorder: rec, Inbox: inbox}
+out, err := runner.Drive(ctx, turnID, dashi.WithOwner(owner), dashi.WithHistory(history))
+// err is nil once the turn has ended; ctx ends when the lease is lost.
+```
+
+`Advance` is one pass: it loads the turn (the recorder must be a `Loader`),
+applies the waiting commands in order, and runs the turn until it must wait.
+When `Next()` is `NextContinue`, or `NextRecover` with `ReadyToContinue`, it
+runs a `Continue` with command ID `continue:<LastSeq>`. That ID comes from
+the record alone, so a crash between deciding and recording derives the same
+command again and the recorder treats it as a retry; no outbox is needed.
+The `continue:` prefix is reserved: `Advance` refuses an inbox command whose
+ID starts with it. A command the record already holds, as after a crash
+before its acknowledgment, is acknowledged without running again.
+`Advance` never continues from a stop it recorded itself without new input,
+so a turn that cannot progress returns instead of spinning. `Drive` repeats
+`Advance`, waiting between passes for the inbox's signal
+(`InboxNotifier`), a 15-second poll, or the turn's deadline. It does not
+retry a failed model call: the turn rests at `NextFix` with the failure's
+category on its `ModelFact`, and the host puts a `Continue` in the inbox when
+it wants another try.
+
+A command the turn cannot take, such as a result for an unknown call, is
+acknowledged with a `WarningInbox` on the record; it never fails the turn.
+Any other error, such as a failed write or `ErrStaleTurn`, stops `Advance`
+and leaves the command in the inbox for the next pass.
+Once a turn has ended, every waiting command except a late model result is
+refused with `ErrTurnEnded`, records nothing, and is acknowledged. An inbox
+that implements `InboxRefuser` hears each refusal, so the host can tell its
+caller the command came too late.
 
 ## Recorders
 
@@ -108,6 +148,12 @@ transaction with your own rows:
   transaction certainly wrote nothing. A timeout or lost connection after
   `COMMIT` was sent must be a plain error, which Dashi treats as unknown.
 - `Load` returns `dashi.ErrTurnNotFound` when the turn has no steps.
+- Use `CommitRequest.ModelCall` for accounting: reserve its `WorstCaseCost`
+  on a `model_call_started` step and settle its `Cost` on the finish, without
+  loading the turn. To refuse a start that would break a balance, return
+  `&dashi.CommitError{NothingWritten: true, Err: &dashi.LimitError{...}}`;
+  Dashi records the limited stop. `CommitRequest.Delivered` names the inbox
+  commands the step records, to mark them in the same transaction.
 
 ## Unfinished work
 
@@ -131,8 +177,12 @@ A turn is in one of three states between runs: **ready**
 (`ReadyToContinue`), **waiting on the host** ([approvals](approvals.md),
 results, a [budget raise](budgets.md)), or **ended** (`Stop.Ended`). A stop
 ends the turn when nothing can run the turn again: completed, canceled,
-limited by its deadline or its resumes, or a cost cap that can no longer be
-checked, including a token cap with incomplete usage. Before that stop is
+limited by its deadline, its resumes, or its context window, a host limit
+with `LimitDetail.Ends` (such as a routine's spending cap), any model-call,
+cost, or token limit when the agent sets `Limits.NoRaise`, or a cost cap that
+can no longer be checked, including a token cap with incomplete usage. A host
+limit without `Ends` waits (`NextFix`) until the host puts a `Continue` in the
+inbox. Before that stop is
 recorded, `Continue` can recover existing work or record the stop after a
 crash, but checks before each call stop any new model or tool call. Raising a
 budget does not revive such a turn. After that, the turn's conversation is

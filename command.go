@@ -57,7 +57,7 @@ type Start struct {
 }
 
 // AddMessages adds context to a turn between runs. To reach a turn while it
-// runs, pass a Steering source with WithSteering instead. An item with an ID
+// runs, send a Steer through its Inbox instead. An item with an ID
 // already recorded with the same content is skipped; with different content,
 // Run returns an error.
 type AddMessages struct {
@@ -145,6 +145,7 @@ const (
 	CommandContinue    CommandKind = "continue"
 	CommandResolve     CommandKind = "resolve"
 	CommandCancel      CommandKind = "cancel"
+	CommandSteer       CommandKind = "steer"
 )
 
 // CommandKindOf returns the kind of c, or "" when c is not one of Dashi's
@@ -161,6 +162,8 @@ func CommandKindOf(c Command) CommandKind {
 		return CommandResolve
 	case Cancel:
 		return CommandCancel
+	case Steer:
+		return CommandSteer
 	}
 	return ""
 }
@@ -179,6 +182,8 @@ func CommandIDOf(c Command) string {
 		return v.CommandID
 	case Cancel:
 		return v.CommandID
+	case Steer:
+		return v.Item.ID
 	}
 	return ""
 }
@@ -228,6 +233,8 @@ func UnmarshalCommand(data []byte) (Command, error) {
 		return decodeCommand[Resolve](env.Command)
 	case CommandCancel:
 		return decodeCommand[Cancel](env.Command)
+	case CommandSteer:
+		return decodeCommand[Steer](env.Command)
 	}
 	return nil, fmt.Errorf("dashi: decode command: unknown kind %q", env.Kind)
 }
