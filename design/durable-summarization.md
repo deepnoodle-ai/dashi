@@ -111,14 +111,21 @@ Session's "only after a completed turn" becomes "after any ended turn": a
 host that ends turns at limits (`Limits.NoRaise`) still grows history. The
 host's "at least two ordinary turns" minimum is dropped on purpose.
 
-**Also: a working-window cap.** `Policy.MaxWindow int`: compaction is due at
-`Fraction` of the smaller of `MaxWindow` and the model's window, and the kept
-tail and the summary's output allowance (`min(MaxTokens, window/4)`) are
-sized from it, so tail plus summary stays below `Fraction`; only the summary
-request's input gets the summarizer's full window. When the model's window is
-unknown, `MaxWindow` replaces `DefaultWindow`. Every call resends the
-history, so on a 1M-token model an uncapped history makes each reply wait on
-prefilling it. The host's ~30 lines of fraction arithmetic become one field.
+**Also: when compaction is due.** At the *due count*: `Fraction` of the
+model's window, now 0.2 by default (`DefaultFraction`, was 0.8), or the new
+`Policy.DueTokens`, an exact count that overrides `Fraction` when positive
+(at most a known window). An unknown window is `DefaultWindow`, now 200,000
+(was 128,000). A negative `Fraction` still turns automatic compaction off,
+even with `DueTokens`; manual compaction remains, which covers a host's
+"manual" and "disabled". The kept tail (`TailFraction`) and the summary's
+output allowance are shares of the room the due count leaves after the *fixed
+part* (system and developer messages, and tool definitions: the last call's
+input minus the history's estimate), together at most half of that room. The
+allowance is also at most a quarter of the summarizer's window, whose full
+size the summary request's input gets. Size presets (10% to 80%) are product
+vocabulary; a host maps them to `Fraction`. `session` and the CLI then
+compact at 20% instead of 80%, which costs nothing before Dashi has users.
+The host's ~30 lines of window arithmetic become one field.
 
 ## Each failure, and its answer
 
@@ -134,10 +141,11 @@ prefilling it. The host's ~30 lines of fraction arithmetic become one field.
    longer fails on size.
 3. **Nothing old enough to compact, or the kept part too big.** The kept tail
    fits its budget, and the summary or fallback its allowance, both sized
-   from the working window. A single oversized turn has no tail: it is all
-   summarized, its transcript cut as in 2. What compaction cannot shrink is
-   system and developer messages, which `Keep` holds outside the tail budget
-   and never changes, since they are operator instructions. When those alone
+   from the room left after the fixed part. A single oversized turn has no
+   tail: it is all summarized, its transcript cut as in 2. What compaction
+   cannot shrink is the fixed part; `Keep` holds system and developer
+   messages outside the tail budget and never changes them, since they are
+   operator instructions. When the fixed part alone
    would make the replacement due (or are all there is,
    `ErrNothingToCompact`), `StartIfNeeded` says "not needed", and the next
    turn reports its own context-window stop: a configuration problem, not a
@@ -194,7 +202,7 @@ About 730 of ~840 lines (table above), ~630 of them outside tests, plus the
 operation table, its generated Ent code, the `CompactionID` request field,
 and its "conversation full" error path. Four adapter tests shrink;
 "activation acknowledgment lost" has nothing left to test. Idea 1 with v0.7.0
-does most of it; `StartIfNeeded` and `MaxWindow` remove the ~70 lines of
+does most of it; `StartIfNeeded` and `DueTokens` remove the ~70 lines of
 decision and window code and keep the host and `session` on one rule.
 
 Known limit: the key has no model. If the conversation's model changes, the
@@ -219,11 +227,3 @@ model.
   turn sequences or workers ([advancing turns](advancing-turns.md)).
 - **Ending a failed compaction turn automatically:** saves the host three
   lines but stops `Drive` from leaving retries to the host.
-
-## Open question
-
-**Default cap.** Should `MaxWindow` default to 128,000, with a negative value
-turning the cap off? Sessions and the CLI would then also stop growing a
-1M-token history. The reviewer recommends it; Dashi has no users, so the
-behavior change costs nothing, but it is a product choice about latency
-versus remembered detail.
