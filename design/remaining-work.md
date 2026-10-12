@@ -233,14 +233,15 @@ research](roadmap-research/14-session-continuity-research.md) ·
 
 **Status:** Compaction turns built (item 14, track 5, [decision
 39](decisions.md)). `Session.Compactor` runs a compaction turn before a new
-turn when the last call used 80% of the window; the turn records the
+turn when the last call reached the due count (20% of the window since
+[durable summarization](durable-summarization.md)); the turn records the
 replacement history, which every reader honors. `compaction.Compactor`
 implements `session.Compactor` and makes no model call; `Compact`, `TurnMessagesFull`, and
 `Record` stay for hosts that drive the engine directly. `examples/compaction`
 runs keyless on a session. **Size:** L. **Difficulty:** High. **Reference:**
 [guide](../docs/guides/compaction.md),
 [spec](session-input.md#compaction-turns), [history
-storage](history-storage.md), and [runtime reminders](runtime-reminders.md). **Next:** the CLI wires the 80% check and
+storage](history-storage.md), and [runtime reminders](runtime-reminders.md). **Next:** the CLI wires the due-count check and
 `/compact` through the session (a follow-up issue; a manual compaction needs a
 session call to request one). Later: compaction inside a turn (its own note,
 needed by the CLI for long turns) and compact-and-retry on overflow.

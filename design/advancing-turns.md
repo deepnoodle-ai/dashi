@@ -218,6 +218,7 @@ and `BuildHistory` uses it once it completes. What remains in the host
 (freezing the queued work, choosing when to activate) belongs to how a
 conversation owns its turn sequence, which [sessions](sessions.md) has not
 settled for durable hosts. Revisit after this lands, measured by what is left.
+Since done: [durable summarization](durable-summarization.md).
 Proposed in [durable summarization](durable-summarization.md).
 
 ## Rejected

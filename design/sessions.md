@@ -350,7 +350,7 @@ once roadmap item 2 adds such a setting to `llm.Settings`.
 ## Errors and warnings
 
 Session warnings are not in any turn record, so the ones a turn run produces
-(`turn_closed`, `turn_unreadable`, `queue_blocked`, `compaction_failed`,
+(`turn_closed`, `turn_unreadable`, `queue_blocked`, `summary_fallback`,
 `compaction_mismatch`, and `memory_only` for the in-memory recorder) go on a new
 field, `RunResult.SessionWarnings []Warning`. `Steer`, `Enqueue`, and
 `EnqueueItem` return theirs in `Queued.Warnings`.
@@ -365,7 +365,7 @@ field, `RunResult.SessionWarnings []Warning`. `Steer`, `Enqueue`, and
 | `memory_only` | warning | In-memory recorder; or input queued under a durable recorder |
 | `turn_unreadable` | warning | A turn was skipped while building history, or an unreadable last turn under `Exclusive` |
 | `queue_blocked` | warning | A reservation cannot be finished, so the queue waits ([session-input.md](session-input.md)) |
-| `compaction_failed`, `compaction_mismatch` | warning | See [session-input.md](session-input.md#compaction-turns) |
+| `summary_fallback`, `compaction_mismatch` | warning | See [durable summarization](durable-summarization.md) |
 | `tool_not_offered` | recorded warning | See [session-engine.md](session-engine.md#tool-selection) |
 
 ## Conformance checks

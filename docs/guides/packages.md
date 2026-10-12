@@ -29,7 +29,7 @@ other.
   history, the carried agent, queued and steered input, and compaction.
 - `compaction`: Shortens a long history with a summary: a `Compactor` that
   starts a session's compaction turns, and that a host with its own turns uses
-  with `Compactor.Start` and `dashi.BuildHistory`.
+  with `Compactor.StartIfNeeded` and `dashi.BuildHistory`.
 - `catalog`: Documented capabilities, limits, and prices for known models at
   public provider endpoints, as embedded JSON.
 

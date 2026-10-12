@@ -1,6 +1,6 @@
 # Durable summarization
 
-**Status:** Proposed · **Date:** 2026-10-12 · **Follows:** [advancing
+**Status:** Accepted · **Date:** 2026-10-12 · **Follows:** [advancing
 turns](advancing-turns.md) item 7, which deferred this until `Record`,
 `Advance`, and `Drive` shipped (v0.7.0).
 
@@ -121,9 +121,13 @@ even with `DueTokens`; manual compaction remains, which covers a host's
 "manual" and "disabled". The kept tail (`TailFraction`) and the summary's
 output allowance are shares of the room the due count leaves after the *fixed
 part* (system and developer messages, and tool definitions: the last call's
-input minus the history's estimate), together at most half of that room. The
+input minus the history's estimate), together at most half of that room: the
+allowance at most a quarter of it, and the tail `TailFraction` of it (a
+quarter by default) and no more than the half less the allowance. The
 allowance is also at most a quarter of the summarizer's window, whose full
-size the summary request's input gets. Size presets (10% to 80%) are product
+size the summary request's input gets. Since `Start` must estimate the tool
+definitions too, `session.Compactor.Start` takes the last call's usage, as
+`Needed` does. Size presets (10% to 80%) are product
 vocabulary; a host maps them to `Fraction`. `session` and the CLI then
 compact at 20% instead of 80%, which costs nothing before Dashi has users.
 The host's ~30 lines of window arithmetic become one field.
@@ -209,6 +213,17 @@ decision and window code and keep the host and `session` on one rule.
 Known limit: the key has no model. If the conversation's model changes, the
 compaction turn already at that position stands; the next one uses the new
 model.
+
+## Implementation notes
+
+- "Held for budget" is a host limit without `Ends` (`NextFix` with a host
+  `Code`), the stop Drive waits on. A compaction turn stopped by its own
+  `Start.Budget` cap is closed like a failure; its fallback stands in.
+- `session` returns any error from recording or running the compaction turn,
+  as it does a custom `Start` error: no path sends the history that is due.
+- `StartIfNeeded` sees an overflow only while the overflowed turn is the last
+  and has ended; a turn the host closed reads as canceled, and the size
+  estimate decides.
 
 ## Rejected
 

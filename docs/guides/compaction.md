@@ -19,8 +19,8 @@ out, err := s.Send(ctx, text) // may run a compaction turn first
 ```
 
 Before each new turn, the caller's or a queue turn, the session asks the
-compactor whether the last turn's final model call used 80% of the window. If
-so, it runs a **compaction turn** first, in the next turn slot: origin
+compactor whether the last turn's final model call reached the **due count**,
+by default a fifth of the window. If so, it runs a **compaction turn** first, in the next turn slot: origin
 `compaction`, command ID `compact:` and its turn ID, no tools, no steering. Its
 one model call is the summary request, so its spend and recovery are those of
 any turn, and the caller's `Start.Budget` caps it too. Then the caller's turn
@@ -45,18 +45,32 @@ their middle, followed by the turns after the compaction turn.
 
 ## What the Compactor chooses
 
-1. It keeps the newest messages that fit in a quarter of the window
-   (`Compactor.TailFraction`), cutting only where a user message other than
-   a tool result starts, so it never splits a tool call from its result. If
-   nothing fits, it keeps none and summarizes all of the history. A negative
-   `TailFraction` keeps none on purpose.
-2. It sends the older messages as a text transcript with the prompt
-   (`Compactor.Prompt`). A large tool result is shortened in the middle to fit
-   the window. Reminders are removed, except agent mail: a reminder with a
-   `From`, such as a subagent's reply, becomes an item that names its sender.
-3. It keeps each system or developer message of the covered part with its
+1. It sizes the kept tail and the summary from the **room**: the due count
+   less the fixed part, which is system and developer messages plus what the
+   last call sent besides the history (tool definitions, instructions). The
+   summary's output allowance is at most a quarter of the room
+   (`Compactor.MaxTokens`, default 16,384, also at most a quarter of the
+   summary model's window), and the tail at most a quarter
+   (`Compactor.TailFraction`); together at most half. So the replacement
+   history stays well below the due count.
+2. It keeps the newest messages that fit the tail, cutting only where a user
+   message other than a tool result starts, so it never splits a tool call
+   from its result. If nothing fits, it keeps none and summarizes all of the
+   history. A negative `TailFraction` keeps none on purpose.
+3. It sends the older messages as a text transcript with the prompt
+   (`Compactor.Prompt`). A large item is shortened in the middle to fit the
+   summary model's window; if even 1 KB per item does not fit, whole items
+   are dropped from the middle, keeping the oldest and newest, behind one
+   "[N items omitted]" marker. Reminders are removed, except agent mail: a
+   reminder with a `From`, such as a subagent's reply, becomes an item that
+   names its sender.
+4. It keeps each system or developer message of the covered part with its
    own role, ahead of the summary. The summarizer does not see them.
-4. `Compactor.Model` names the summary model; empty means the session's. When
+5. It records a **summary fallback** (`CompactionFact.SummaryFallback`),
+   built with no model call: a note that N earlier messages were removed,
+   then their user messages, the names of the tools called, and the agent's
+   last reply, cut to half the summary's allowance.
+6. `Compactor.Model` names the summary model; empty means the session's. When
    the catalog gives it a smaller window than the session model's, the
    transcript is sized to fit that window.
 
@@ -67,37 +81,49 @@ summary:" is left out. A reader with no compactor applies the same rule. The
 summary never has operator authority, so text inside old tool output cannot
 become an instruction.
 `compaction.IsSummary(m)` tells whether a message is such a summary, from
-this package's `Compactor` or from `Agent.ActiveCompaction`; match it rather
-than the frame text, which may change.
+this package's `Compactor` or from `Agent.ActiveCompaction`, or a summary
+fallback; match it rather than the frame text, which may change.
 
 ## When it is due
 
-`Policy.Due(last)` is true when the last model call used 80% of the window
-(`Policy.Fraction`; a negative value turns it off). It counts all input,
-including cached input, plus output. `Policy.Window` returns the window from the
-model's catalog entry. If the model does not state one, it returns 128,000 and
-`known` is false. Warn the user once. A zero `Compactor` uses 128,000 whatever
-the session's model is, so pass the model's `ModelInfo` as above.
+`Policy.Due(last)` is true when the last model call reached the due count:
+`Policy.DueTokens` when positive, else `Policy.Fraction` of the window
+(`DefaultFraction`, 0.2). `DueTokens` is capped at the window only when the
+window is known. A negative `Fraction` turns automatic compaction off, even
+with `DueTokens`; `Session.Compact` still works. `Due` counts all input,
+including cached input, plus output. `Policy.Window` returns the window from
+the model's catalog entry. If the model does not state one, it returns
+200,000 (`DefaultWindow`) and `known` is false. Warn the user once. A zero
+`Compactor` uses 200,000 whatever the session's model is, so pass the
+model's `ModelInfo` as above.
 
 `Compactor.Needed` also estimates tokens from the history's size, at about 4
 bytes per token. This catches a large tool result added after the last model
 call reported its usage. History with images, audio, video, or binary
 documents skips the estimate, since its size says little about tokens.
+`Needed` is false when nothing can be summarized, or when the replacement
+would itself be due (the fixed part alone is too big), so compaction never
+repeats after every turn.
 
-The session checks after a completed Turn. It also checks after a Turn that
-stopped because its history no longer fit or its summary failed
-(`session.NeedsCompaction`): the next message closes that Turn and summarizes
-older history first. It skips
-the check after other failed or canceled Turns and after compaction Turns.
+The session checks after any ended turn but a compaction turn: completed,
+canceled, ended at a limit, or closed by the new Start. It also checks after
+a turn that stopped because its history no longer fit
+(`session.NeedsCompaction`).
 
-## When it fails
+## When the summary fails
 
-If the compaction turn does not complete with a summary, the session closes it
-(`Cancel` with command ID `close:` and its turn ID), keeps the previous
-history, and runs the caller's turn with the warning `compaction_failed` in
-`RunResult.SessionWarnings`. A failing summary is tried
-again only after a later Turn. A compactor that cannot build its
-request warns the same way, and no compaction turn is recorded. When two handles
+Compaction never leaves a history too long to send. Once a compaction turn
+has ended without a summary (failed and closed, canceled, limited, or an
+empty reply), its replacement history uses the summary fallback in place of
+the summary, with no frame; a custom compactor that records none gets a
+fixed note. Every history built from it warns `summary_fallback`
+(`dashi.WarningSummaryFallback`, with the turn's ID). The session closes a
+stopped compaction turn at once (`Cancel` with command ID `close:` and its
+turn ID), except one held for budget (a host limit without `Ends`): that
+one waits, and a new Start refuses with a `*TurnBusyError` until it ends. A
+failed summary is not retried at that position; the next compaction comes
+when the history is due again. A compactor whose `Start` fails returns its
+error; `ErrNothingToCompact` means no compaction is needed. When two handles
 reach the compaction slot at once, one runs the compaction turn and the other
 uses its replacement history, with no warning.
 
@@ -106,46 +132,43 @@ that already holds the covered turns checks it; a mismatch means a covered
 turn changed, which is a bug. The session warns `compaction_mismatch` and
 still uses the compaction turn, so every reader sends the same history.
 
-## Without a session
+## Durable hosts
 
-A host that keeps its own turns uses the same two pieces as a session:
-`dashi.BuildHistory` for the history, and `Compactor.Start` for the
-compaction turn, which it runs through its own `Runner`. The summary call is
-then an ordinary model call in the host's recorder, hooks, and budget
-accounting.
+A host that saves turns in a database and runs them in workers asks one
+question at admission, before each work turn:
 
 ```go
-history, warnings := dashi.BuildHistory(turns) // stored turns, oldest first
-if compactor.Needed(history, compaction.LastUsage(last)) {
-	start, err := compactor.Start(ctx, history) // origin compaction, no tools
-	if err == nil {
-		start.CommandID = "compact:" + id // the host's own turn ID
-		out, err := runner.Run(ctx, dashi.NewTurn(id), start)
-		// ... store out.Turn with the other turns ...
-		history, warnings = dashi.BuildHistory(turns) // starts from the summary
-	}
+start, needed, err := compactor.StartIfNeeded(ctx, turns) // oldest first
+if needed {
+	// Record under start.CommandID, "compact:" and the last turn's ID; a
+	// worker drives it. Then admit again.
+	runner.Record(ctx, dashi.NewTurn(id), start)
 }
-// ... run the next turn with Start.History = history ...
+history, warnings := dashi.BuildHistory(turns) // starts from the replacement
 ```
 
-`BuildHistory` is the rule a session uses. It walks back from the newest
-turn; at the newest compaction turn that completed with a summary it uses that
-turn's replacement history and stops, so the host may pass only the turns
-from there on. A failed compaction turn replaces nothing. A turn that cannot
-be replayed is left out with `turn_unreadable`. `ExampleCompactor_Start` runs
-this without an API key.
+`StartIfNeeded` applies the session's rule to the stored turns: not needed
+while the last turn has not ended or is a compaction turn; needed when it
+overflowed or `Needed` says so. It makes no model call and writes nothing.
+Its command ID names the compaction turn by the turn it follows, so a retry,
+a restarted worker, or a second worker finds the same turn, and the first
+record wins. The Start holds everything: the summary request, the kept
+messages, the hash, and the fallback, so a crash at any point leaves either
+no compaction turn or one whose replay is already decided. The host keeps no
+operation table.
 
-Set `Compactor.Model`, or the Start's `Agent`, when the Runner has no default
-model; a session fills in its own. `Compactor.Start` records the
-`HistoryHash` of the history it replaces as the fact's `Hash`, and
-`BuildHistory` checks it against the turns before the compaction turn, for
-a host's turns and a session's alike; a mismatch warns `compaction_mismatch`.
-A session fills an empty `Hash` itself. A host with a custom compactor sets
-it with `dashi.HistoryHash(history)`; a fact without one is not checked.
-`Through` is optional; a session sets it. Use `compaction.LastUsage`, not
-`Spend.Usage`, for `Needed`: the spend sums every call, and each call in a
-tool loop sends the whole history again. Do not compact while a turn waits to
-continue: `Continue` must get the history the turn started with.
+A compaction turn that stops without ending (a failed summary) is the host's
+to close: `Cancel` it through the inbox, unless it is held for budget, and
+admit again; replay then uses the fallback. A host that would rather not wait
+for a budget hold may cancel it too. `ExampleCompactor_StartIfNeeded` records,
+drives, crashes midway, and resumes without an API key.
+
+`BuildHistory` walks back from the newest turn; at the newest ended
+compaction turn it uses that turn's replacement history and stops, so the
+host may pass only the turns from there on. A turn that cannot be replayed is
+left out with `turn_unreadable`. Set `Compactor.Model`, or the Start's
+`Agent`, when the Runner has no default model. Do not compact while a turn
+waits to continue: `Continue` must get the history the turn started with.
 
 ## Persistent context
 
@@ -178,8 +201,8 @@ cancel that work first. It preserves queued input and starts no queue turn.
 No eligible history returns a zero `RunResult` and
 `session.ErrNothingToCompact`, which is also `compaction.ErrNothingToCompact`.
 A recorded failed or empty summary returns its `RunResult` with
-`compaction_failed` and keeps the old history. Preparation and recorder
-failures remain Go errors.
+`summary_fallback`, and the fallback replaces the history. Preparation and
+recorder failures remain Go errors.
 
 The CLI enables automatic compaction and offers `/compact`. See the
 [CLI guide](cli.md) for markers, pending input, and recovery.

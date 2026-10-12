@@ -6,6 +6,64 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`Compactor.StartIfNeeded`** answers, for a durable host, whether a
+  compaction turn is due after its stored turns, and returns its Start with
+  command ID `"compact:"` and the last turn's ID, so a retry, a restarted
+  worker, or a second worker finds the same turn. It applies the session's
+  rule: after any ended turn but a compaction turn, when the last turn
+  overflowed or `Needed` says so, and never when nothing can be summarized
+  or the replacement would itself be due. It makes no model call and writes
+  nothing.
+- **`CompactionFact.SummaryFallback`** is a stand-in for the summary that
+  `Compactor.Start` builds with no model call: a note that N earlier messages
+  were removed, then their user messages, the names of the tools called, and
+  the agent's last reply, cut to half the summary's output allowance.
+- **`dashi.WarningSummaryFallback`** (`summary_fallback`, with the turn's ID)
+  is raised each time a history is built from a compaction turn that ended
+  without a summary.
+- **`Policy.DueTokens`** sets the due count in tokens; when positive it
+  overrides `Fraction`, and it is capped at the window only when the window
+  is known.
+
+### Changed
+
+- **Compaction never fails.** Every ended compaction turn replaces the
+  history: with its summary when it completed with one, otherwise with its
+  `SummaryFallback` (no frame), or a fixed note when that is empty.
+  `IsSummary` recognizes the stand-in. A compaction turn that has not ended
+  replaces nothing.
+- **`Compactor.Start` never fails on size.** When transcript items do not fit
+  the summary model even at 1 KB each, it drops whole items from the middle,
+  keeping the oldest and newest, behind one "[N items omitted]" marker.
+- **Compaction is due at a fifth of the window.** `DefaultFraction` is now
+  0.2 (was 0.8) and `DefaultWindow` 200,000 (was 128,000). The kept tail and
+  the summary's output allowance are shares of the room below the due count
+  after the fixed part (system and developer messages, and what the last
+  call sent besides the history), together at most half of it; the
+  allowance is also at most a quarter of the summary model's window.
+  `Compactor.TailFraction` is now a share of that room. `Needed` is false
+  when the replacement would itself be due.
+- **`session.Compactor.Start` takes the last call's usage**, as `Needed`
+  does, so a compactor can size the fixed part.
+- **Sessions compact after any ended turn**, including one the new Start
+  closed or one ended at a limit, not only after a completed turn. A
+  stopped compaction turn is closed unless held for budget (a host limit
+  without `Ends`); a held one waits, and a new Start refuses with a
+  `*TurnBusyError`. A compactor `Start` error, or a compaction turn that
+  cannot be recorded, is returned instead of running the next turn with
+  the history that was due.
+- **The CLI** compacts at 20% of the window by default;
+  `--compaction-threshold` sets `Policy.DueTokens`. It warns once per
+  compaction turn that ended without a summary.
+
+### Removed
+
+- **`session.WarningCompactionFailed`** (`compaction_failed` session
+  warning). `dashi.WarningSummaryFallback` replaces it; no path keeps the old
+  history any more.
+
 ## [0.7.0] - 2026-10-12
 
 ### Added
