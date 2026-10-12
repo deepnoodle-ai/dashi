@@ -541,11 +541,16 @@ func lastStep(t Turn) *Step {
 //
 // A turn is stopped when its last step is a stop step, and working
 // otherwise. A working view has no Stop, so its Next is NextRunning: it is
-// for display ("running"), never for action. The first steps after any
-// view that is not working, such as a stop or a saved Start, yield one
-// working view, unless a stop follows them in the same read. Late model
-// results after the ending stop are not read, so an ended turn never
-// reads as working.
+// for display ("running"), never for action. A watcher cannot tell a live
+// worker from a crashed one, so FollowNext never yields NextRecover: when
+// the view now is of a working turn, it is a working view. Two kinds of
+// turn whose last step is not a stop are not working: a saved Start, whose
+// view now reads NextContinue, and an ended turn with late model results,
+// whose view now reads NextNone (the late results are not read). After a
+// view that is not working, the first steps other than stops yield one
+// working view, unless a stop follows them in the same read; so a stop
+// comes between any two working views. A host that tracks workers reads
+// Turn.View for NextRecover instead.
 //
 // A read error, including ErrCursorAhead, or a record that fails replay is
 // yielded once and ends the sequence. On an unknown turn it waits for the
@@ -596,7 +601,7 @@ func FollowNext(
 			}
 			if first && len(turn.Steps) > 0 {
 				first = false
-				view, ok := yieldView(turn, false, yield)
+				view, ok := yieldView(turn, nowWorking(turn), yield)
 				if !ok || view.Stop.Ended {
 					return
 				}
@@ -617,6 +622,14 @@ func FollowNext(
 			woke = followWait(ctx, r, turnID, int64(len(turn.Steps)), resting)
 		}
 	}
+}
+
+// nowWorking reports whether FollowNext's view now of turn is a working
+// view: its last step is not a stop, and it is neither a saved Start nor
+// an ended turn, the cases where View infers a stop that gives NextRecover.
+func nowWorking(turn Turn) bool {
+	view, err := turn.View()
+	return err == nil && view.Next() == NextRecover
 }
 
 // yieldView builds turn's view and yields it, or yields the replay error.

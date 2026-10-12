@@ -289,6 +289,77 @@ func TestFollowNextNeverShowsAnEndedTurnWorking(t *testing.T) {
 	}
 }
 
+func TestFollowNextAttachedMidCallShowsWorkingOnce(t *testing.T) {
+	client := &gatedClient{
+		scriptedClient: scriptedClient{results: []llm.Result{final("done")}},
+		started:        make(chan struct{}, 1),
+		release:        make(chan struct{}),
+	}
+	stopGate := make(chan struct{})
+	rec := &hookRecorder{
+		MemoryRecorder: NewMemoryRecorder(),
+		before: func(_ context.Context, req CommitRequest) error {
+			if req.Step.Kind == StepTurnStopped {
+				<-stopGate
+			}
+			return nil
+		},
+	}
+	runner := Runner{Client: client, Recorder: rec}
+	id := savedTurn(t, runner)
+	advanced := make(chan error, 1)
+	go func() {
+		_, err := runner.Advance(t.Context(), id)
+		advanced <- err
+	}()
+	<-client.started // the model call is in flight
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	views := make(chan TurnView)
+	go func() {
+		defer close(views)
+		for view, err := range FollowNext(ctx, rec, id) {
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			views <- view
+		}
+	}()
+	if view := <-views; view.Next() != NextRunning {
+		t.Fatalf("first view next = %s, want running", view.Next())
+	}
+	// The model call finishes and the stop is held back, so the watcher
+	// reads the finish on its own.
+	close(client.release)
+	for {
+		turn, err := rec.Load(t.Context(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lastKind(turn) == StepModelCallFinished {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	select {
+	case view := <-views:
+		t.Fatalf("second working view before the stop: next = %s", view.Next())
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(stopGate)
+	view, ok := <-views
+	if !ok || !view.Stop.Ended || view.Next() != NextNone {
+		t.Fatalf("ok=%t stop=%+v next=%s", ok, view.Stop, view.Next())
+	}
+	if view, ok := <-views; ok {
+		t.Fatalf("view after the ending stop: next = %s", view.Next())
+	}
+	if err := <-advanced; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDriveAndRunsUnwatchTheInbox(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	inbox := NewMemoryInbox()
