@@ -133,6 +133,19 @@ hide it in `project` and have `projectPreview` skip deltas whose
 `Delta.Kind` is `llm.DeltaReasoning`. `examples/live_follow` follows a
 turn in process and prints the model's text as it streams.
 
+## Watching stops
+
+A reader that acts on a turn, rather than displays it, follows its stops
+with `dashi.FollowStops(ctx, reader, turnID)`. It yields the turn's view
+now, then once at each later stop, and ends after the stop that ends the
+turn. A burst of steps yields one view, so the reader never acts on an
+intermediate state, such as running a tool twice. A turn is *stopped* when
+its last step is a stop step and *working* otherwise; a working turn's view
+is for display ("running"), never for action. A turn driven by
+[`Advance`](recovering-turns.md#advancing-saved-turns) always rests at a
+stop, so a projection row needs nothing more: a stop step carries its
+`Stop`, and any other step means working.
+
 ## Observing a run in process
 
 `Runner.Observer` sees a run without ever slowing it: it is called on its own

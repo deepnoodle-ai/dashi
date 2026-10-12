@@ -45,6 +45,11 @@ type Runner struct {
 	// ContentLimits bounds the bytes that references add to a model request.
 	ContentLimits ContentLimits
 
+	// Inbox holds commands for turns from outside their runs: steers,
+	// Cancel, and the tool results, approvals, raises, and messages that
+	// Advance applies. A run reads it unless WithInbox replaces it.
+	Inbox Inbox
+
 	// CacheKey is the fallback prompt cache key, such as a conversation ID,
 	// so the turns of one conversation share the provider's cache. A model
 	// call uses it when the agent sets no Settings.PromptCache.Key and the
@@ -68,7 +73,20 @@ type runOptions struct {
 	stream     bool
 	streamSink func(Event)
 	hooks      Hooks
-	steering   Steering
+	inbox      Inbox
+	// inboxSet records a WithInbox, which wins over Runner.Inbox even when
+	// nil.
+	inboxSet bool
+	// history is the Continue history Advance uses (WithHistory).
+	history []llm.Message
+	// fresh means the turn passed to the run was just loaded from the
+	// Recorder, so apply need not load it again.
+	fresh bool
+	// delivered lists the inbox command ID the run applies, for the first
+	// commit's CommitRequest.Delivered.
+	delivered []string
+	// warnings ride on the run's first committed step.
+	warnings []Warning
 }
 
 // WithOwner forwards owner to recorder commits for host lease fencing.

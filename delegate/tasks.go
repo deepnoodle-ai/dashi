@@ -172,8 +172,8 @@ type task struct {
 	pending     *pendingTaskCommand
 	controlling bool
 
-	// inbox is the child session's steering source.
-	inbox *dashi.Inbox
+	// inbox is the child session's inbox.
+	inbox *dashi.MemoryInbox
 	// held holds the message IDs the child's record holds.
 	held map[string]bool
 	// mail holds the messages accepted for the child that its record does
@@ -726,7 +726,7 @@ func newTask(sub Subagent, ref dashi.CallRef, description string) *task {
 		sub:         sub,
 		description: description,
 		started:     make(chan struct{}),
-		inbox:       dashi.NewInbox(),
+		inbox:       dashi.NewMemoryInbox(),
 		held:        map[string]bool{},
 		dropped:     map[string]bool{},
 	}
@@ -1175,7 +1175,7 @@ func (ts *Tasks) notifyEnded(t *task, delivered map[string]bool) {
 
 // toParent puts a steer on Config.Session, when set: SteerItem reaches a
 // running turn and queues the item when none runs. A session that refuses
-// steers (while compacting, or with a host steering source) gets the item
+// steers (while compacting, or with a host inbox) gets the item
 // on its queue instead. Any other error is logged as it is.
 func (ts *Tasks) toParent(steer dashi.Steer) {
 	s := ts.cfg.Session
@@ -1190,14 +1190,14 @@ func (ts *Tasks) toParent(steer dashi.Steer) {
 }
 
 // refusesSteers reports whether err is the session refusing any steer, not
-// this one: a compaction turn runs, or the host supplies the steering source.
+// this one: a compaction turn runs, or the host supplies the inbox.
 func refusesSteers(s *session.Session, err error) bool {
 	var busy *session.TurnBusyError
 	if errors.As(err, &busy) && busy.Origin == dashi.StartCompaction {
 		return true
 	}
-	_, inbox := s.Steering.(*dashi.Inbox)
-	return s.Steering != nil && !inbox
+	_, inbox := s.Inbox.(*dashi.MemoryInbox)
+	return s.Inbox != nil && !inbox
 }
 
 func (ts *Tasks) onTask(kind TaskEventKind, v TaskView) {
@@ -1507,7 +1507,7 @@ func childSession(t *task, runner dashi.Runner, create bool) *session.Session {
 		ID:        t.sessionID,
 		New:       create,
 		Runner:    runner,
-		Steering:  t.inbox,
+		Inbox:     t.inbox,
 		Exclusive: true,
 		Delivered: t.deliveredMail,
 	}

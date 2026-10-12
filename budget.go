@@ -2,6 +2,7 @@ package dashi
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -73,7 +74,9 @@ type LimitKind string
 const (
 	// LimitModelCalls is the agent's model call ceiling.
 	LimitModelCalls LimitKind = "model_calls"
-	// LimitContextWindow stops a request that cannot fit its pinned window.
+	// LimitContextWindow stops a request that cannot fit its context
+	// window. It ends the turn: start a successor turn, for example after
+	// compaction.
 	LimitContextWindow LimitKind = "context_window"
 	// LimitDeadline is the agent's time ceiling.
 	LimitDeadline LimitKind = "deadline"
@@ -126,6 +129,12 @@ type LimitDetail struct {
 	SuggestedMaxOutputTokens int `json:"suggested_max_output_tokens,omitempty"`
 	// UnpricedModel identifies the model whose cost could not be bounded.
 	UnpricedModel string `json:"unpriced_model,omitempty"`
+	// Ends means this host limit ends the turn, such as a routine's
+	// spending cap: Stop.Ended is set and Next gives NextNone. Without it
+	// a host limit waits (NextFix) until the host puts a Continue in the
+	// inbox once the cause clears, such as a budget top-up. Only LimitHost
+	// may set it.
+	Ends bool `json:"ends,omitempty"`
 }
 
 // Validate checks the typed stop metadata independently of its prose reason.
@@ -135,6 +144,9 @@ func (l LimitDetail) Validate() error {
 		LimitProviderPauses, LimitOutputTokens, LimitTotalTokens, LimitCost:
 		if l.Code != "" {
 			return errors.New("dashi: only host limits carry a code")
+		}
+		if l.Ends {
+			return errors.New("dashi: only host limits set Ends")
 		}
 	case LimitHost:
 		if l.Code == "" {
@@ -195,4 +207,24 @@ func cloneBudget(b *Budget) *Budget {
 	}
 	copy := b.Clone()
 	return &copy
+}
+
+// LimitError is the error a Recorder returns, inside a CommitError with
+// NothingWritten set, to refuse a StepModelCallStarted step because the
+// call would break a limit the recorder enforces, such as a balance checked
+// in the same transaction that reserves the call's
+// CommitRequest.ModelCall.WorstCaseCost. The runner then records a limited
+// stop with Reason and Limit, as if a BeforeSend hook had returned it, so
+// the race between a hook's check and the reservation never leaves a turn
+// without a stop. Limit must be a host, cost, or token limit.
+type LimitError struct {
+	Reason string
+	Limit  LimitDetail
+}
+
+func (e *LimitError) Error() string {
+	if e.Reason != "" {
+		return fmt.Sprintf("dashi: %s limit: %s", e.Limit.Kind, e.Reason)
+	}
+	return fmt.Sprintf("dashi: %s limit", e.Limit.Kind)
 }

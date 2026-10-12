@@ -21,14 +21,14 @@ var errSteered = errors.New(
 // unfinished rather than as its reply.
 const steeringInterruptedText = "The user interrupted your previous response."
 
-// steerListener is one run's watcher of a SteeringNotifier. Its goroutine
+// steerListener is one run's watcher of an InboxNotifier. Its goroutine
 // is the only reader of Ready. The listener writes no run state and no
 // warnings.
 //
 // Two locks keep the listener's fetches from stalling the run. sourceMu
-// serializes every call the run and the listener make to the source (U-1).
+// serializes every call the run and the listener make to the inbox (U-1).
 // mu guards the state they share (U-2) and is never held while calling the
-// source, so commits never wait for a fetch. The lock order is sourceMu,
+// inbox, so commits never wait for a fetch. The lock order is sourceMu,
 // then mu.
 type steerListener struct {
 	sourceMu sync.Mutex
@@ -38,14 +38,14 @@ type steerListener struct {
 	// the record already holds.
 	recorded map[string]ContextItem
 	// urgent holds fresh urgent steers not yet recorded, by ID. FR-6
-	// removes an ID when it records the steer or when the source no longer
+	// removes an ID when it records the steer or when the inbox no longer
 	// returns it.
 	urgent map[string]ContextItem
 	// interrupted holds the IDs that already cut a call short: each
 	// interrupts at most once.
 	interrupted map[string]bool
 	// loopBack holds the IDs that already sent a request back to FR-6
-	// before it was sent, so a steer the source drops loops back only once.
+	// before it was sent, so a steer the inbox drops loops back only once.
 	loopBack map[string]bool
 	// seen lists the IDs the listener's Steers calls claimed; the run
 	// merges them into its claims after the join, before Release.
@@ -53,10 +53,10 @@ type steerListener struct {
 	seenSet map[string]bool
 	call    *steerableCall
 	// fetchCancel ends the listener's Steers call in flight. The run calls
-	// it when a model call finishes and whenever it needs the source or the
+	// it when a model call finishes and whenever it needs the inbox or the
 	// listener's decision itself, so the listener's fetch never stalls the
 	// run. The run's own fetches (before a model call, and before a tool
-	// starts while a steer is pending) still wait on the source.
+	// starts while a steer is pending) still wait on the inbox.
 	fetchCancel context.CancelFunc
 	// syncs counts run requests waiting on syncReq; while one waits, the
 	// listener starts no fetch, so it cannot keep the run waiting.
@@ -64,6 +64,14 @@ type steerListener struct {
 	syncReq  chan chan bool
 	stop     context.CancelFunc
 	finished chan struct{}
+	// cancelRun ends the run for a Cancel the listener finds in the inbox;
+	// nil when the run cannot be ended that way.
+	cancelRun context.CancelCauseFunc
+	// outputRecorded is set once the turn records its output. A Cancel
+	// found after that cannot cancel the turn: the listener keeps it in
+	// lateCancel, and the run refuses it when it ends.
+	outputRecorded bool
+	lateCancel     *Cancel
 }
 
 // steerableCall is a model call the listener may cut short. It is
@@ -87,13 +95,13 @@ type steerableCall struct {
 	declined string
 }
 
-// startSteering starts the listener when the run's source can signal.
+// startSteering starts the listener when the run's inbox can signal.
 func (r *runtime) startSteering(s *replayState) {
-	notifier, ok := r.opts.steering.(SteeringNotifier)
+	notifier, ok := r.opts.inbox.(InboxNotifier)
 	if !ok || r.listen != nil {
 		return
 	}
-	ready := notifier.Ready()
+	ready := notifier.Ready(r.turn.ID)
 	if ready == nil {
 		return
 	}
@@ -107,12 +115,15 @@ func (r *runtime) startSteering(s *replayState) {
 		syncReq:     make(chan chan bool),
 		stop:        stop,
 		finished:    make(chan struct{}),
+		cancelRun:   r.cancelRun,
+		// A Continue of a turn with recorded output only completes it.
+		outputRecorded: s.Output != nil,
 	}
 	for id, item := range s.contextIDs {
 		l.recorded[id] = item
 	}
 	r.listen = l
-	go l.run(ctx, r.opts.steering, r.turn.ID, ready)
+	go l.run(ctx, r.opts.inbox, r.turn.ID, ready)
 }
 
 // endSteering stops and joins the listener, merges its claims into the
@@ -125,12 +136,16 @@ func (r *runtime) endSteering() {
 		for _, id := range l.seen {
 			r.steers.claim(id)
 		}
+		late := l.lateCancel
 		l.mu.Unlock()
+		if late != nil {
+			r.refuseCancel(*late)
+		}
 	}
 	r.releaseSteers()
 }
 
-// lockSource serializes a run's call to the source with the listener's.
+// lockSource serializes a run's call to the inbox with the listener's.
 // It cuts the listener's fetch in flight short rather than wait for it.
 func (r *runtime) lockSource() func() {
 	l := r.listen
@@ -235,7 +250,7 @@ func (r *runtime) dropCall(c *steerableCall) {
 
 func (l *steerListener) run(
 	ctx context.Context,
-	source Steering,
+	source Inbox,
 	turnID string,
 	ready <-chan struct{},
 ) {
@@ -330,7 +345,7 @@ func (l *steerListener) sync() bool {
 // reports whether the run cut the fetch short, so it should be tried again.
 func (l *steerListener) check(
 	ctx context.Context,
-	source Steering,
+	source Inbox,
 	turnID string,
 ) bool {
 	fetchCtx, cancel := context.WithCancel(ctx)
@@ -351,13 +366,23 @@ func (l *steerListener) check(
 		return ctx.Err() == nil
 	}
 	l.mu.Unlock()
-	steers, err := source.Steers(fetchCtx, turnID)
+	commands, err := source.Waiting(fetchCtx, turnID)
+	steers, waitingCancel := splitWaiting(commands)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.fetchCancel = nil
 	if err != nil {
-		// FR-6 reports a failing source; the listener writes no warnings.
+		// FR-6 reports a failing inbox; the listener writes no warnings.
 		return fetchCtx.Err() != nil && ctx.Err() == nil
+	}
+	// Decided under mu, which committed also holds, so a Cancel never
+	// ends the run after the output is recorded.
+	if waitingCancel != nil && waitingCancel.CommandID != "" && l.cancelRun != nil {
+		if l.outputRecorded {
+			l.lateCancel = waitingCancel
+		} else {
+			l.cancelRun(&inboxCancel{command: *waitingCancel})
+		}
 	}
 	ids, items := l.merge(steers)
 	c := l.call
@@ -439,7 +464,7 @@ func (l *steerListener) release(c *steerableCall) string {
 	return why
 }
 
-// keepUrgent drops from the urgent set the IDs the source no longer
+// keepUrgent drops from the urgent set the IDs the inbox no longer
 // returns as fresh. The caller holds sourceMu, so no listener fetch lands
 // between the run's fetch and this update.
 func (l *steerListener) keepUrgent(fresh []Steer) {
@@ -462,11 +487,17 @@ func (l *steerListener) keepUrgent(fresh []Steer) {
 // committed refreshes the snapshot with a step's recorded items and drops
 // them from the urgent set.
 func (l *steerListener) committed(step Step) {
-	if l == nil || step.Context == nil || len(step.Context.Items) == 0 {
+	if l == nil {
 		return
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if step.Kind == StepOutputRecorded {
+		l.outputRecorded = true
+	}
+	if step.Context == nil {
+		return
+	}
 	for _, item := range step.Context.Items {
 		if item.ID == "" {
 			continue
@@ -543,7 +574,7 @@ func (r *runtime) steerSkips(s *replayState, id string) bool {
 		r.warnSteering(fmt.Sprintf(
 			"%d urgent steer(s) did not skip the remaining tool calls: no "+
 				"further model call can happen because of %s; they stay "+
-				"with their source",
+				"in the inbox",
 			len(steers),
 			cause,
 		))
@@ -552,12 +583,12 @@ func (r *runtime) steerSkips(s *replayState, id string) bool {
 }
 
 // urgentSteers returns the urgent set's steers, including every urgent
-// steer the source held when it was called: this is the boundary before a
+// steer the inbox held when it was called: this is the boundary before a
 // call starts. The cached set alone could miss a steer whose signal the
 // listener has not acted on yet, or whose fetch the run just cut short, so
-// in those cases the run fetches itself under the source lock and merges
+// in those cases the run fetches itself under the inbox lock and merges
 // the result as the listener would. With nothing pending, it makes no
-// source call. A steer that arrives after the boundary does not affect
+// inbox call. A steer that arrives after the boundary does not affect
 // the call.
 func (r *runtime) urgentSteers() []ContextItem {
 	l := r.listen
@@ -570,8 +601,9 @@ func (r *runtime) urgentSteers() []ContextItem {
 	}
 	defer l.sourceMu.Unlock()
 	if fetch {
-		// FR-6 reports a failing source; this check only looks.
-		if steers, err := r.opts.steering.Steers(r.ctx, r.turn.ID); err == nil {
+		// FR-6 reports a failing inbox; this check only looks.
+		if commands, err := r.opts.inbox.Waiting(r.ctx, r.turn.ID); err == nil {
+			steers, _ := splitWaiting(commands)
 			l.mu.Lock()
 			l.merge(steers)
 			l.mu.Unlock()

@@ -391,7 +391,7 @@ func (t *task) dropMailLocked(c *childTurn, turn dashi.Turn) {
 	}
 	if !cleared {
 		for _, m := range t.mail {
-			t.inbox.Cancel(m.msg.ID)
+			t.inbox.Withdraw(m.msg.ID)
 		}
 	}
 	t.droppedMu.Lock()
@@ -408,7 +408,7 @@ func (t *task) dropMailLocked(c *childTurn, turn dashi.Turn) {
 // the inbox, and the session's queue drops it (see deliveredMail). The
 // caller holds ts.mu and removes it from t.mail.
 func (t *task) dropLocked(m *mail) {
-	t.inbox.Cancel(m.msg.ID)
+	t.inbox.Withdraw(m.msg.ID)
 	t.droppedMu.Lock()
 	t.dropped[m.msg.ID] = true
 	t.droppedMu.Unlock()

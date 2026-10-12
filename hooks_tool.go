@@ -21,7 +21,7 @@ import (
 // opinion: the warning is recorded and the chain goes on. The returned RunResult is set when the
 // run's context ended during a hook.
 //
-// Steering's check for a pending urgent steer belongs just before this call
+// The inbox check for a pending urgent steer belongs just before this call
 // in the tools loop, so no hook runs for a call that will not start.
 func (r *runtime) authorizeTool(
 	ctx context.Context,

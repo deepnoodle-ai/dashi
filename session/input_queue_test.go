@@ -223,12 +223,12 @@ func TestSessionSteer(t *testing.T) {
 		t.Fatal("repeated ID accepted")
 	}
 	host := handle(rec, client)
-	host.Steering = hostSource{}
+	host.Inbox = hostSource{}
 	if _, err := host.Steer(t.Context(), "hi"); err == nil {
 		t.Fatal("Steer accepted a source that is not an Inbox")
 	}
-	inbox := dashi.NewInbox()
-	host.Steering = inbox
+	inbox := dashi.NewMemoryInbox()
+	host.Inbox = inbox
 	if q, err := host.Steer(t.Context(), "hi"); err != nil || q.TurnID != "" {
 		t.Fatalf("queued=%+v err=%v", q, err)
 	}
@@ -236,7 +236,7 @@ func TestSessionSteer(t *testing.T) {
 
 type hostSource struct{}
 
-func (hostSource) Steers(context.Context, string) ([]dashi.Steer, error) {
+func (hostSource) Waiting(context.Context, string) ([]dashi.Command, error) {
 	return nil, nil
 }
 

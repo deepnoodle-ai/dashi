@@ -216,7 +216,7 @@ func TestUrgentSteerSkipsLaterCallsInSequentialBatch(t *testing.T) {
 		t.Context(),
 		Turn{ID: "t1"},
 		skipStart(1),
-		WithSteering(inbox),
+		WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -279,7 +279,7 @@ func TestUrgentSteerSkipsOnlyUnstartedCallsInParallelBatch(t *testing.T) {
 		t.Context(),
 		Turn{ID: "t1"},
 		skipStart(2),
-		WithSteering(inbox),
+		WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -339,7 +339,7 @@ func TestNonUrgentSteerSkipsNoToolCall(t *testing.T) {
 		t.Context(),
 		Turn{ID: "t1"},
 		skipStart(1),
-		WithSteering(inbox),
+		WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -399,7 +399,7 @@ func TestUrgentSteerLeavesApprovalsAndExternalWaitsPending(t *testing.T) {
 		t.Context(),
 		Turn{ID: "t1"},
 		skipStart(1),
-		WithSteering(inbox),
+		WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopWaiting {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -428,7 +428,7 @@ func TestUrgentSteerLeavesApprovalsAndExternalWaitsPending(t *testing.T) {
 				Output: new(tool.TextOutput("done e")),
 			})
 		}
-		out, err = runner.Run(t.Context(), out.Turn, finish, WithSteering(inbox))
+		out, err = runner.Run(t.Context(), out.Turn, finish, WithInbox(inbox))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -438,7 +438,7 @@ func TestUrgentSteerLeavesApprovalsAndExternalWaitsPending(t *testing.T) {
 			t.Context(),
 			out.Turn,
 			Continue{CommandID: "go"},
-			WithSteering(inbox),
+			WithInbox(inbox),
 		)
 		if err != nil || out.Stop.Kind != StopCompleted {
 			t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -498,7 +498,7 @@ func TestCrashAfterSteeringSkipResumesFromTheRecord(t *testing.T) {
 		t.Context(),
 		Turn{ID: "t1"},
 		skipStart(2),
-		WithSteering(inbox),
+		WithInbox(inbox),
 	); err == nil {
 		t.Fatal("the lost finish was not reported")
 	}
@@ -526,7 +526,7 @@ func TestCrashAfterSteeringSkipResumesFromTheRecord(t *testing.T) {
 		t.Context(),
 		saved,
 		Continue{CommandID: "resume"},
-		WithSteering(inbox),
+		WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -565,7 +565,7 @@ func TestReplayAcceptsAllowedToNotExecutedOnlyForSteering(t *testing.T) {
 		t.Context(),
 		Turn{ID: "t1"},
 		skipStart(1),
-		WithSteering(inbox),
+		WithInbox(inbox),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -670,7 +670,7 @@ func TestUrgentSteerSkipsNothingWithoutANextCall(t *testing.T) {
 	for _, w := range out.Warnings {
 		if w.Code == WarningSteering &&
 			strings.Contains(w.Message, "did not skip") &&
-			strings.Contains(w.Message, "stay with their source") {
+			strings.Contains(w.Message, "stay in the inbox") {
 			n++
 		}
 	}
@@ -758,7 +758,7 @@ func TestUrgentSteerLeavesUnknownToolResult(t *testing.T) {
 		t.Context(),
 		Turn{ID: "t1"},
 		skipStart(1),
-		WithSteering(inbox),
+		WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -798,7 +798,7 @@ func TestUrgentSteerSkipsExternalCallBeforeHandOff(t *testing.T) {
 		t.Context(),
 		Turn{ID: "t1"},
 		skipStart(1),
-		WithSteering(inbox),
+		WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -859,7 +859,7 @@ func TestUrgentSteerLeavesSubmissionToTheFinishPoint(t *testing.T) {
 // Steers call reads the queue, then holds its return until its context
 // ends: a slow listener fetch that began before a steer was queued.
 type staleInbox struct {
-	*Inbox
+	*MemoryInbox
 	ready   chan struct{}
 	armed   atomic.Bool
 	entered chan struct{}
@@ -867,13 +867,13 @@ type staleInbox struct {
 
 func newStaleInbox() *staleInbox {
 	return &staleInbox{
-		Inbox:   NewInbox(),
-		ready:   make(chan struct{}, 1),
-		entered: make(chan struct{}, 1),
+		MemoryInbox: NewMemoryInbox(),
+		ready:       make(chan struct{}, 1),
+		entered:     make(chan struct{}, 1),
 	}
 }
 
-func (s *staleInbox) Ready() <-chan struct{} { return s.ready }
+func (s *staleInbox) Ready(string) <-chan struct{} { return s.ready }
 
 func (s *staleInbox) signal() {
 	select {
@@ -884,9 +884,9 @@ func (s *staleInbox) signal() {
 
 func (s *staleInbox) Steers(ctx context.Context, turnID string) ([]Steer, error) {
 	if !s.armed.CompareAndSwap(true, false) {
-		return s.Inbox.Steers(ctx, turnID)
+		return steersFrom(s.MemoryInbox, ctx, turnID)
 	}
-	steers, err := s.Inbox.Steers(ctx, turnID)
+	steers, err := steersFrom(s.MemoryInbox, ctx, turnID)
 	s.entered <- struct{}{}
 	<-ctx.Done()
 	return steers, err
@@ -971,7 +971,7 @@ func TestUrgentSteerWaitingAtStartSkipsTheCall(t *testing.T) {
 				t.Context(),
 				Turn{ID: "t1"},
 				skipStart(1),
-				WithSteering(inbox),
+				WithInbox(inbox),
 			)
 			if err != nil || out.Stop.Kind != StopCompleted {
 				t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -1015,7 +1015,7 @@ func TestUrgentSteerAfterStartDoesNotInterruptTheCall(t *testing.T) {
 		t.Context(),
 		Turn{ID: "t1"},
 		skipStart(1),
-		WithSteering(inbox),
+		WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -1036,7 +1036,7 @@ func TestReplayRejectsSteeringSkipOfSubmission(t *testing.T) {
 	agent.OutputSchema = json.RawMessage(`{"type":"object"}`)
 	submit := func(string) string { return SubmitOutputTool }
 	client := newUrgentClient(urgentCall{result: batchResult(submit, "s1")})
-	out := runUrgentAgent(t, client, NewInbox(), agent)
+	out := runUrgentAgent(t, client, NewMemoryInbox(), agent)
 	if out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
@@ -1072,7 +1072,7 @@ func TestReplayRejectsSteeringSkipOfSubmission(t *testing.T) {
 	}
 }
 
-// cancellingInbox is a steering source whose armed fetch cancels the run
+// cancellingInbox is an inbox whose armed fetch cancels the run
 // and then blocks until the run's context ends, as a slow source does when
 // the run is cancelled during the fetch.
 type cancellingInbox struct {
@@ -1082,7 +1082,7 @@ type cancellingInbox struct {
 
 func (s *cancellingInbox) Steers(ctx context.Context, turnID string) ([]Steer, error) {
 	if !s.armed.CompareAndSwap(true, false) {
-		return s.Inbox.Steers(ctx, turnID)
+		return steersFrom(s.MemoryInbox, ctx, turnID)
 	}
 	s.cancel()
 	<-ctx.Done()
@@ -1152,7 +1152,7 @@ func TestCancelDuringStartCheckStartsNothing(t *testing.T) {
 				ctx,
 				Turn{ID: "t1"},
 				skipStart(1),
-				WithSteering(inbox),
+				WithInbox(inbox),
 			)
 			if err != nil || out.Stop.Kind != StopInterrupted {
 				t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -1189,4 +1189,12 @@ func TestCancelDuringStartCheckStartsNothing(t *testing.T) {
 			}
 		})
 	}
+}
+
+func (s *staleInbox) Waiting(ctx context.Context, turnID string) ([]Command, error) {
+	return steerCommands(s.Steers(ctx, turnID))
+}
+
+func (s *cancellingInbox) Waiting(ctx context.Context, turnID string) ([]Command, error) {
+	return steerCommands(s.Steers(ctx, turnID))
 }

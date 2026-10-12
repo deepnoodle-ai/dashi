@@ -80,7 +80,13 @@ func TestSessionCompactionRecoversSettledContextStops(t *testing.T) {
 			if out.Stop.Kind != dashi.StopCompleted || out.Turn.ID != "recovery-3" || out.Reply != "The saved finding is 42." || calls != 1 {
 				t.Fatalf("out=%+v effects=%d", out.TurnView, calls)
 			}
-			if len(stops) != 3 || stops[0] != "recovery-1" {
+			// A context-window stop already ended its turn, so only the
+			// failed retry needs a closing stop.
+			wantStops := 3
+			if reason == "context window" {
+				wantStops = 2
+			}
+			if len(stops) != wantStops || reason != "context window" && stops[0] != "recovery-1" {
 				t.Fatalf("closing events=%v", stops)
 			}
 			history, _ := fresh.History(t.Context())

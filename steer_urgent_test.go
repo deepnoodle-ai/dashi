@@ -103,19 +103,19 @@ func (c *urgentClient) lastMessages() []llm.Message {
 // listener has taken the steer: the listener holds the source lock from
 // that call until it has decided, and the run takes that lock to look.
 type watchedInbox struct {
-	*Inbox
+	*MemoryInbox
 	fetched chan struct{}
 }
 
 func newWatchedInbox() *watchedInbox {
-	return &watchedInbox{Inbox: NewInbox(), fetched: make(chan struct{}, 64)}
+	return &watchedInbox{MemoryInbox: NewMemoryInbox(), fetched: make(chan struct{}, 64)}
 }
 
 func (w *watchedInbox) Steers(
 	ctx context.Context,
 	turnID string,
 ) ([]Steer, error) {
-	steers, err := w.Inbox.Steers(ctx, turnID)
+	steers, err := steersFrom(w.MemoryInbox, ctx, turnID)
 	w.fetched <- struct{}{}
 	return steers, err
 }
@@ -155,7 +155,7 @@ func cutCall(t *testing.T, inbox *watchedInbox, text, steer string) urgentCall {
 func runUrgent(
 	t *testing.T,
 	client llm.Client,
-	source Steering,
+	source Inbox,
 	opts ...func(*Runner),
 ) RunResult {
 	t.Helper()
@@ -165,7 +165,7 @@ func runUrgent(
 func runUrgentAgent(
 	t *testing.T,
 	client llm.Client,
-	source Steering,
+	source Inbox,
 	agent Agent,
 	opts ...func(*Runner),
 ) RunResult {
@@ -178,7 +178,7 @@ func runUrgentAgent(
 		t.Context(),
 		Turn{ID: "t1"},
 		startAgent(agent),
-		WithSteering(source),
+		WithInbox(source),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -461,7 +461,7 @@ func TestRunEndingWithSteerFinishesAsRun(t *testing.T) {
 		ctx,
 		Turn{ID: "t1"},
 		startInput(),
-		WithSteering(inbox),
+		WithInbox(inbox),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -505,7 +505,7 @@ func TestTimeoutRacingSteerCutWins(t *testing.T) {
 		t.Context(),
 		Turn{ID: "t1"},
 		startInput(),
-		WithSteering(inbox),
+		WithInbox(inbox),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -599,7 +599,7 @@ func TestUrgentSteerUnderCostCapChargesReportedUsage(t *testing.T) {
 			},
 			Input: []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		},
-		WithSteering(inbox),
+		WithInbox(inbox),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -645,7 +645,7 @@ func TestUrgentSteerDoesNotCutCallWhenReplacementExceedsCostCap(t *testing.T) {
 			},
 			Input: []llm.Message{llm.UserMessage(llm.Text("do it"))},
 		},
-		WithSteering(inbox),
+		WithInbox(inbox),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -765,7 +765,7 @@ func TestVetoHoldsAcrossSteeringInterrupt(t *testing.T) {
 	out, err := Runner{
 		Client: client,
 		Hooks:  veto.Hooks(),
-	}.Run(ctx, Turn{ID: "t1"}, startInput(), WithSteering(inbox))
+	}.Run(ctx, Turn{ID: "t1"}, startInput(), WithInbox(inbox))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -873,7 +873,7 @@ func TestCrashAfterSteeringCancelRecoversAsWorker(t *testing.T) {
 		t.Context(),
 		Turn{ID: "t1"},
 		startInput(),
-		WithSteering(inbox),
+		WithInbox(inbox),
 	); err == nil {
 		t.Fatal("the lost finish was not reported")
 	}
@@ -885,7 +885,7 @@ func TestCrashAfterSteeringCancelRecoversAsWorker(t *testing.T) {
 		t.Context(),
 		saved,
 		Continue{CommandID: "resume"},
-		WithSteering(inbox),
+		WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != StopCompleted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -921,14 +921,14 @@ func TestUrgentSteerWithoutNotifierWarnsOnce(t *testing.T) {
 	}}
 	client := &scriptedClient{results: []llm.Result{final("one"), final("two")}}
 	out, err := Runner{Client: client}.Run(
-		t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(source),
+		t.Context(), Turn{ID: "t1"}, startInput(), WithInbox(source),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var unheard int
 	for _, w := range warningsOf(out.Turn, WarningSteering) {
-		if strings.Contains(w.Message, "SteeringNotifier") {
+		if strings.Contains(w.Message, "InboxNotifier") {
 			unheard++
 		}
 	}
@@ -959,9 +959,9 @@ func TestNonUrgentSteerDoesNotCut(t *testing.T) {
 }
 
 func TestInboxReadySignalsOnlyUrgentSteers(t *testing.T) {
-	var in Inbox
-	ready := in.Ready()
-	if ready != in.Ready() {
+	var in MemoryInbox
+	ready := in.Ready("t1")
+	if ready != in.Ready("t1") {
 		t.Fatal("Ready returned a different channel")
 	}
 	if _, err := in.SendText("later"); err != nil {
@@ -983,18 +983,18 @@ func TestInboxReadySignalsOnlyUrgentSteers(t *testing.T) {
 		t.Fatal("signals were not coalesced")
 	default:
 	}
-	steers, err := in.Steers(t.Context(), "t1")
+	steers, err := steersFrom(&in, t.Context(), "t1")
 	if err != nil || len(steers) != 4 || steers[0].Urgent || !steers[1].Urgent {
 		t.Fatalf("steers=%+v err=%v", steers, err)
 	}
 }
 
 func TestInboxReadyIsSafeForConcurrentUse(t *testing.T) {
-	var in Inbox
+	var in MemoryInbox
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Go(func() {
-			_ = in.Ready()
+			_ = in.Ready("t1")
 			if _, err := in.SendUrgent("now"); err != nil {
 				t.Error(err)
 			}
@@ -1002,7 +1002,7 @@ func TestInboxReadyIsSafeForConcurrentUse(t *testing.T) {
 	}
 	wg.Wait()
 	select {
-	case <-in.Ready():
+	case <-in.Ready("t1"):
 	default:
 		t.Fatal("no signal after urgent sends")
 	}
@@ -1011,7 +1011,7 @@ func TestInboxReadyIsSafeForConcurrentUse(t *testing.T) {
 // stallingInbox is an Inbox whose Steers, once stall is set, blocks until
 // its context ends, as a slow durable source might.
 type stallingInbox struct {
-	*Inbox
+	*MemoryInbox
 	mu      sync.Mutex
 	stall   bool
 	stalled chan struct{}
@@ -1029,11 +1029,11 @@ func (s *stallingInbox) Steers(
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
-	return s.Inbox.Steers(ctx, turnID)
+	return steersFrom(s.MemoryInbox, ctx, turnID)
 }
 
 func TestStalledSourceStillLetsRunEnd(t *testing.T) {
-	source := &stallingInbox{Inbox: NewInbox(), stalled: make(chan struct{}, 1)}
+	source := &stallingInbox{MemoryInbox: NewMemoryInbox(), stalled: make(chan struct{}, 1)}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	client := newUrgentClient(urgentCall{
@@ -1054,7 +1054,7 @@ func TestStalledSourceStillLetsRunEnd(t *testing.T) {
 		ctx,
 		Turn{ID: "t1"},
 		startInput(),
-		WithSteering(source),
+		WithInbox(source),
 	)
 	if err != nil || out.Stop.Kind != StopInterrupted {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
@@ -1278,4 +1278,12 @@ func TestReplayedInterruptSpendCountsNoStreamedOutput(t *testing.T) {
 			out.Spend.Usage.OutputTokens,
 		)
 	}
+}
+
+func (w *watchedInbox) Waiting(ctx context.Context, turnID string) ([]Command, error) {
+	return steerCommands(w.Steers(ctx, turnID))
+}
+
+func (s *stallingInbox) Waiting(ctx context.Context, turnID string) ([]Command, error) {
+	return steerCommands(s.Steers(ctx, turnID))
 }

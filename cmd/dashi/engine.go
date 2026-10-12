@@ -66,7 +66,7 @@ type Engine struct {
 	// chat drives the open session. The process lock makes it the only
 	// driver, so it is Exclusive.
 	chat               *session.Session
-	inbox              *dashi.Inbox
+	inbox              *dashi.MemoryInbox
 	unlock             func()
 	attachmentResolver *engineAttachmentResolver
 	// model is the model the next Start uses. Changing it does not touch
@@ -165,7 +165,7 @@ func (e *Engine) openOwned(s *sessionstore.Session, ownedUnlock func()) error {
 	if e.cfg.recorder != nil {
 		recorder = e.cfg.recorder(rec)
 	}
-	inbox := dashi.NewInbox()
+	inbox := dashi.NewMemoryInbox()
 	resolver := &engineAttachmentResolver{store: e.cfg.Store, session: s}
 	chat := &session.Session{
 		ID: s.ID,
@@ -176,7 +176,7 @@ func (e *Engine) openOwned(s *sessionstore.Session, ownedUnlock func()) error {
 			Recorder:      recorder,
 			ContentLoader: resolver,
 		},
-		Steering:  inbox,
+		Inbox:     inbox,
 		Exclusive: true,
 	}
 	if stopped := e.cfg.ParentStopped; stopped != nil {
@@ -847,11 +847,17 @@ func (e *Engine) queuedSteers(turnID string) int {
 	e.mu.Lock()
 	inbox := e.inbox
 	e.mu.Unlock()
-	steers, err := inbox.Steers(context.Background(), turnID)
+	waiting, err := inbox.Waiting(context.Background(), turnID)
 	if err != nil {
 		return 0
 	}
-	return len(steers)
+	n := 0
+	for _, c := range waiting {
+		if _, ok := c.(dashi.Steer); ok {
+			n++
+		}
+	}
+	return n
 }
 
 // turnNumber reads n from a turn ID "<session>-<n>".

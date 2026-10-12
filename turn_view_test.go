@@ -22,7 +22,7 @@ func messageTexts(messages []llm.Message) []string {
 // AddMessages alike, but not items a hook added, and a hook and a tool
 // both read it.
 func TestTurnViewInput(t *testing.T) {
-	inbox := NewInbox()
+	inbox := NewMemoryInbox()
 	mustSend(t, inbox, "use staging")
 	var hookSaw, toolSaw [][]string
 	note := ModelHook{Name: "note", Func: func(
@@ -61,7 +61,7 @@ func TestTurnViewInput(t *testing.T) {
 		final("done"),
 	}}
 	runner := Runner{Client: client, Tools: tool.List{lookup, wait}, Hooks: note.Hooks()}
-	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, startInput(), WithSteering(inbox))
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, startInput(), WithInbox(inbox))
 	if err != nil || out.Stop.Kind != StopWaiting {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
 	}

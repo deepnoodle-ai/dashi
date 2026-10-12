@@ -73,7 +73,7 @@ func run(ctx context.Context) error {
 	lines := prompt.Stdin().Lines()
 
 	// The inbox carries steers from the keyboard into the running turn.
-	inbox := dashi.NewInbox()
+	inbox := dashi.NewMemoryInbox()
 	var history, input []llm.Message
 	fmt.Println("Ask something. Type while the agent works to steer it; " +
 		"start a line with ! to interrupt the answer.")
@@ -97,7 +97,7 @@ func run(ctx context.Context) error {
 			ctx,
 			dashi.Turn{},
 			dashi.Start{Agent: agent, Input: input, History: history},
-			dashi.WithSteering(inbox),
+			dashi.WithInbox(inbox),
 		)
 		close(done)
 		forwarding.Wait()
@@ -127,7 +127,7 @@ func run(ctx context.Context) error {
 // starting with ! is sent as urgent.
 func forwardSteers(
 	lines <-chan string,
-	inbox *dashi.Inbox,
+	inbox *dashi.MemoryInbox,
 	done <-chan struct{},
 ) {
 	for {

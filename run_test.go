@@ -1594,7 +1594,7 @@ func TestRecordCommitsStartAlone(t *testing.T) {
 	}
 	saver := Runner{Recorder: rec}
 	saved, err := saver.Record(t.Context(), Turn{ID: "t1"}, start,
-		WithSteering(failingSteering{t}))
+		WithInbox(failingSteering{t}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1620,4 +1620,8 @@ func TestRecordCommitsStartAlone(t *testing.T) {
 			t.Fatal("a turn that began no work got a crash reminder")
 		}
 	}
+}
+
+func (s failingSteering) Waiting(ctx context.Context, turnID string) ([]Command, error) {
+	return steerCommands(s.Steers(ctx, turnID))
 }

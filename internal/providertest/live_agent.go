@@ -535,7 +535,7 @@ func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	inbox := dashi.NewInbox()
+	inbox := dashi.NewMemoryInbox()
 	sent := false
 	type args struct {
 		A int `json:"a"`
@@ -578,7 +578,7 @@ func SteerAfterToolBatch(t *testing.T, client llm.Client, modelName string) {
 				"Use multiply_numbers to calculate 7 times 8.",
 			))},
 		},
-		dashi.WithSteering(inbox),
+		dashi.WithInbox(inbox),
 	)
 	if err != nil || out.Stop.Kind != dashi.StopCompleted ||
 		!strings.Contains(out.Reply, "66") {
@@ -602,7 +602,7 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	inbox := dashi.NewInbox()
+	inbox := dashi.NewMemoryInbox()
 	runner := dashi.Runner{
 		Client: client,
 	}
@@ -624,7 +624,7 @@ func UrgentSteerCutsStream(t *testing.T, client llm.Client, modelName string) {
 				"Write a 600-word essay on the history of bridges.",
 			))},
 		},
-		dashi.WithSteering(inbox),
+		dashi.WithInbox(inbox),
 	) {
 		if err != nil {
 			t.Fatalf("stream: %v", err)
@@ -682,7 +682,7 @@ func UrgentSteerPartialEndsInWhitespace(
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	inbox := dashi.NewInbox()
+	inbox := dashi.NewMemoryInbox()
 	cutter := &whitespaceCutClient{Client: client, inbox: inbox}
 	runner := dashi.Runner{
 		Client: cutter,
@@ -705,7 +705,7 @@ func UrgentSteerPartialEndsInWhitespace(
 					"one per line.",
 			))},
 		},
-		dashi.WithSteering(inbox),
+		dashi.WithInbox(inbox),
 	) {
 		if err != nil {
 			t.Fatalf("stream: %v", err)
@@ -750,7 +750,7 @@ func UrgentSteerPartialEndsInWhitespace(
 // so the partial the run keeps is the forwarded text.
 type whitespaceCutClient struct {
 	llm.Client
-	inbox *dashi.Inbox
+	inbox *dashi.MemoryInbox
 	sent  bool
 }
 
@@ -811,7 +811,7 @@ func UrgentSteerAfterPause(
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
-	inbox := dashi.NewInbox()
+	inbox := dashi.NewMemoryInbox()
 	runner := dashi.Runner{
 		Client: client,
 		Tools:  tool.List{search},
@@ -841,7 +841,7 @@ func UrgentSteerAfterPause(
 					"searches, list the mayors.",
 			))},
 		},
-		dashi.WithSteering(inbox),
+		dashi.WithInbox(inbox),
 	) {
 		if err != nil {
 			t.Fatalf("stream: %v", err)

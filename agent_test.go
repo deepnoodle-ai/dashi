@@ -766,3 +766,34 @@ func lookup42(context.Context, tool.Call) (tool.Outcome, error) {
 		Output: new(tool.TextOutput("42")),
 	}, nil
 }
+
+func TestNoRaiseEndsTheTurnAtItsModelCallLimit(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{
+		callResult("c1", "lookup"), callResult("c2", "lookup"),
+	}}
+	agent := testAgent()
+	agent.Limits.ModelCalls = 2
+	agent.Limits.NoReservedFinalReply = true
+	agent.Limits.NoRaise = true
+	runs := 0
+	runner := Runner{Client: client, Tools: tool.List{countingTool("lookup", &runs)}}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, startAgent(agent))
+	if err != nil || out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitModelCalls ||
+		!out.Stop.Ended || out.Next() != NextNone {
+		t.Fatalf("stop=%+v next=%s err=%v", out.Stop, out.Next(), err)
+	}
+}
+
+func TestNoRaiseRejectsARaise(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	agent := testAgent()
+	agent.Limits.NoRaise = true
+	runner := Runner{Client: client, Recorder: NewMemoryRecorder()}
+	saved, err := runner.Record(t.Context(), Turn{ID: "t1"}, startAgent(agent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Run(t.Context(), saved.Turn, Continue{ModelCalls: 20}); err == nil {
+		t.Fatal("a raise was accepted with NoRaise")
+	}
+}

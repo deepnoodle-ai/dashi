@@ -134,7 +134,23 @@ func nextRows() []nextRow {
 			stop:   limited(LimitHost),
 			want:   NextFix,
 		},
-		{name: "active context window", covers: []string{"limited/context_window"}, stop: limited(LimitContextWindow), want: NextFix},
+		{
+			// A host limit with Ends, such as a routine's spending cap.
+			name: "host limit that ends the turn",
+			stop: &Stop{Kind: StopLimited, Limit: &LimitDetail{
+				Kind: LimitHost, Code: "routine_cap", Ends: true,
+			}},
+			want: NextNone,
+		},
+		{
+			name:  "model call limit without raises",
+			stop:  limited(LimitModelCalls),
+			setup: func(s *replayState) { modelCallsSpent(s); s.Agent.Limits.NoRaise = true },
+			want:  NextNone,
+		},
+		// A context-window stop ends the turn; a successor turn reads the
+		// typed kind.
+		{name: "active context window", covers: []string{"limited/context_window"}, stop: limited(LimitContextWindow), want: NextNone},
 		{name: "compaction failed", covers: []string{"failed/compaction_failed"}, stop: &Stop{Kind: StopFailed, Reason: StopReasonCompactionFailed}, want: NextFix},
 		{
 			name: "one call hit its output or context window",
@@ -178,6 +194,14 @@ func nextRows() []nextRow {
 			},
 			stop: &Stop{Kind: StopInterrupted, Reason: "pause requested"},
 			want: NextContinue,
+		},
+		{
+			// A Cancel from the inbox that came after the output.
+			name:   "cancel after the output",
+			covers: []string{"interrupted/cancel requested after the output"},
+			stop:   &Stop{Kind: StopInterrupted, Reason: "cancel requested after the output"},
+			setup:  func(s *replayState) { s.Output = &StructuredOutput{} },
+			want:   NextContinue,
 		},
 		{
 			name: "interrupted, interruptions used up",

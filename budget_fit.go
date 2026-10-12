@@ -8,7 +8,7 @@ import (
 )
 
 // nextCallPossible is nextCallFits with a pause also refusing: steering
-// uses it, since a steer not added to the turn stays with its source.
+// uses it, since a steer not added to the turn stays in the inbox.
 func (r *runtime) nextCallPossible(s *replayState, extraInputTokens int) bool {
 	return !r.pauseRequested() && r.nextCallFits(s, extraInputTokens)
 }

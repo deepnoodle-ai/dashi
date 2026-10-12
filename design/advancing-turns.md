@@ -117,12 +117,15 @@ Tool results and approvals reach a turn only while it waits for them. Once a
 turn has ended, its conversation is closed: Advance refuses every waiting
 command with `ErrTurnEnded`, records nothing, and acknowledges it, so the
 host can tell its caller the result came too late. No delivery after the end
-is designed.
+is designed. The host hears each refusal through an optional
+`InboxRefuser.Refused(ctx, turnID, id, reason)`, called before the
+acknowledgment; without it, an acknowledged command the record does not hold
+was refused.
 
 **3. Command IDs come from the record, so no outbox is needed.** Every
 command Advance runs is either already durable in the inbox under the
 host's ID, or a `Continue` it derives from the record alone, with ID
-`continue:<LastSeq>`. A crash between deciding and recording replays the
+`continue:<LastSeq>`; the inbox may not use that prefix. A crash between deciding and recording replays the
 same derivation from the same record and gets the same ID and content, which
 the recorder acknowledges as a retry. Two workers with a stale lease derive
 identical commands and the owner fence rejects one. `WithHistory` supplies
@@ -151,8 +154,9 @@ reason string:
 
 **5. Watchers act only at stops.** A turn is *stopped* when its last step is
 a stop step, and *working* otherwise. Advance always leaves the turn stopped
-when it returns, recording a `waiting` stop after inputs that do not let it go
-on, so the stop's `Pending` is exact: Advance drains the inbox before it
+when it returns, recording a stop after inputs that do not let it go on (it
+repeats the turn's current stop, usually `waiting`, so `Next()` is
+unchanged), so the stop's `Pending` is exact: Advance drains the inbox before it
 records the stop. A working turn's view is for display ("running"), never for
 action. `Stop.Inferred` and `Next()` keep their meaning, so hosts that drive
 turns themselves see no change. Whether a working turn has lost its worker is

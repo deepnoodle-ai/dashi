@@ -375,7 +375,7 @@ type harness struct {
 	tasks      *delegate.Tasks
 	runner     dashi.Runner
 	agent      dashi.Agent
-	inbox      *dashi.Inbox
+	inbox      *dashi.MemoryInbox
 	events     chan delegate.ChildEvent
 	taskEvents chan delegate.TaskEvent
 	observed   atomic.Int32
@@ -425,7 +425,7 @@ func newHarness(
 	h := &harness{
 		client:     &fakeClient{handle: handle},
 		rec:        dashi.NewMemoryRecorder(),
-		inbox:      dashi.NewInbox(),
+		inbox:      dashi.NewMemoryInbox(),
 		events:     make(chan delegate.ChildEvent, 1024),
 		taskEvents: make(chan delegate.TaskEvent, 1024),
 	}
@@ -507,7 +507,7 @@ func (h *harness) start(ctx context.Context) (dashi.RunResult, error) {
 			Agent:     h.agent,
 			Input:     []llm.Message{llm.UserMessage(llm.Text("go"))},
 		},
-		dashi.WithSteering(h.inbox),
+		dashi.WithInbox(h.inbox),
 	)
 }
 
@@ -516,7 +516,7 @@ func (h *harness) resume(ctx context.Context) (dashi.RunResult, error) {
 	if err != nil {
 		return dashi.RunResult{}, err
 	}
-	return h.runner.Run(ctx, turn, dashi.Continue{}, dashi.WithSteering(h.inbox))
+	return h.runner.Run(ctx, turn, dashi.Continue{}, dashi.WithInbox(h.inbox))
 }
 
 // recover runs Tasks.Recover over the parent turn.

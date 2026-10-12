@@ -147,6 +147,12 @@ func codecCommands() map[string]Command {
 		},
 		"cancel/empty": Cancel{},
 		"cancel/full":  Cancel{CommandID: "cmd-cancel", Reason: "operator"},
+		"steer/empty":  Steer{},
+		"steer/full": Steer{Item: ContextItem{
+			ID:      "s1",
+			Origin:  ContextUser,
+			Message: llm.UserMessage(llm.Text("use staging")),
+		}, Urgent: true},
 	}
 }
 

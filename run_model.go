@@ -300,6 +300,14 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		Model:    fact,
 		Warnings: budgetWarnings,
 	}); o != nil {
+		if stop := recorderLimit(r.err); stop != nil {
+			// The recorder refused the start for a limit and wrote
+			// nothing: record the stop as a BeforeSend limit would. The
+			// start's budget clamp describes a call that never started
+			// and is valid only on a start step, so it is not carried.
+			r.err = nil
+			return r.stopWith(stop), false
+		}
 		return *o, false
 	}
 	if err := r.ctx.Err(); err != nil || r.pauseRequested() {
@@ -588,4 +596,23 @@ func (r *runtime) finishSteered(
 		return *o, false
 	}
 	return RunResult{}, true
+}
+
+// recorderLimit returns the limited stop for a recorder that refused a
+// model call start with a LimitError and wrote nothing, or nil.
+func recorderLimit(err error) *Stop {
+	ce, ok := errors.AsType[*CommitError](err)
+	if !ok || !ce.NothingWritten {
+		return nil
+	}
+	le, ok := errors.AsType[*LimitError](err)
+	if !ok || !validHookLimit(le.Limit) {
+		return nil
+	}
+	limit := le.Limit
+	reason := le.Reason
+	if reason == "" {
+		reason = string(limit.Kind)
+	}
+	return &Stop{Kind: StopLimited, Reason: reason, Limit: &limit}
 }

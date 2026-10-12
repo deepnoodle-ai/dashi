@@ -92,7 +92,7 @@ func (r *runtime) beforeFinish(plan FinishPlan) (finishResult, *RunResult) {
 }
 
 // finishPoint is the one place a candidate final reply is decided, on both
-// the final-text path and the dashi_submit_output path. Steering's check for
+// the final-text path and the dashi_submit_output path. The inbox check for
 // waiting steers belongs first here, before the BeforeFinish hooks: a steer
 // supersedes a candidate without asking the hooks about it, recorded with
 // source sourceSteering.
@@ -108,7 +108,7 @@ func (r *runtime) finishPoint(
 	plan FinishPlan,
 ) (finishResult, *RunResult) {
 	// A steer is a nudge: it supersedes the candidate only when a further
-	// model call can happen, and otherwise waits with its source.
+	// model call can happen, and otherwise waits with its inbox.
 	if steers := r.waitingSteers(s); len(steers) > 0 {
 		if r.nextCallPossible(s, estimatedItemTokens(steers)) {
 			return finishResult{steers: steers}, nil

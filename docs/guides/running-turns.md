@@ -124,56 +124,32 @@ resume := dashi.Continue{
 
 ## Running turns without a session
 
-A host that creates and stores its own turns runs one loop per turn. Each
-command is saved before it runs, so a worker that crashes can run the same
-command again; a repeated command returns the recorded result.
+A host that creates and stores its own turns needs no loop of its own:
 
-1. **Create.** Choose the turn ID and the Start's `CommandID`, save the Start
-   with `dashi.MarshalCommand`, and run it. With an already-closed
-   `dashi.WithPause`, this records the turn without a model call
-   ([recovering turns](recovering-turns.md#resuming-after-a-stop-or-crash)).
-   It needs no `Client` when the Agent names its provider, API, and model.
-2. **Advance.** Load the turn and map `view.Next()` to a command.
-   `NextContinue` and `NextRecover` give `Continue` with the same history;
-   resume only once the old worker is known to be gone. `NextResolvePending`
-   waits for the host to `Resolve` each pending call or approval.
-   `NextRaiseBudget` and `NextRaiseModelCalls` are the host's choice: `Continue`
-   with a raised `Budget` or `ModelCalls`, or `Cancel`. `NextFix`
-   depends on the cause, such as a host limit code the host owns: fix it and
-   `Continue`, or `Cancel`. `NextNone` means done.
-3. **Run.** Save the command, then run it with
-   `runner.Run(ctx, turn, cmd, dashi.WithOwner(owner))`. `Cancel`, `Resolve`,
-   and `AddMessages` need no `Client`.
+1. **Admit.** Choose the turn ID and save the `Start` with
+   `runner.Record(ctx, dashi.NewTurn(id), start, dashi.WithOwner(owner))`.
+   It runs nothing, and needs no `Client` when the Agent names its provider,
+   API, and model.
+2. **Collect.** Put everything that arrives later in the host's
+   [`Inbox`](steering.md#durable-inboxes), keyed by turn ID: a pending item's
+   `Result`, `Approve`, or `Deny`; a `Continue` that raises a limit; steers;
+   a `Cancel`.
+3. **Drive.** The worker that holds the turn's lease calls
+   `runner.Drive(ctx, id, dashi.WithOwner(owner), dashi.WithHistory(history))`.
+   It applies the inbox, runs the turn whenever it can go on, and waits for
+   the inbox otherwise, until the turn ends or `ctx` ends.
 
-Derive each `CommandID` from the turn ID and last step number, or save each
-planned command before running it, so a crash replays the same command. After a
-restart, the first saved command with no step in the turn (match
-`dashi.CommandIDOf` against `Step.CommandID`) is the one to run again:
-
-```go
-for {
-	turn, _ := rec.Load(ctx, turnID)
-	cmd := outbox.unapplied(turn) // saved, but no step records it
-	if cmd == nil {
-		view, _ := turn.View()
-		if cmd = plan(turn, view, history); cmd == nil {
-			break // NextNone, or waiting on the host
-		}
-		outbox.save(cmd) // dashi.MarshalCommand
-	}
-	if _, err := runner.Run(ctx, turn, cmd, dashi.WithOwner(owner)); err != nil {
-		return err // reload and back off on ErrStaleTurn
-	}
-}
-```
-
-Here `plan` is the switch on `view.Next()`, with
-`CommandID: fmt.Sprintf("%s@%d", turn.ID, view.LastSeq)`.
-`Example_hostTurnLoop` runs the whole loop, including a crash between saving
-and running, without an API key.
+`Advance` is one pass of `Drive`, for a host that schedules its own wakeups.
+Both derive each `Continue`'s ID from the record, so a crash replays the same
+command and no outbox is needed. `NextRaiseBudget`, `NextRaiseModelCalls`,
+and `NextFix` wait for the host: put a raising `Continue` or a `Cancel` in the
+inbox. Watch turns with `dashi.FollowStops`, which shows a turn only at its
+stops, so a watcher never acts on an intermediate state.
+`ExampleRunner_Advance` and `ExampleRunner_Drive` run without an API key;
+[recovering turns](recovering-turns.md#advancing-saved-turns) has the rules.
 
 The rest of a host's work has its own guide: charging or releasing each model
-call's credit hold in the recorder with `dashi.ModelCallCostOf`
+call's credit hold in the recorder with `CommitRequest.ModelCall`
 ([budgets](budgets.md)); history across turns and compaction with
 `dashi.BuildHistory`
 ([compaction without a session](compaction.md#without-a-session)); and
@@ -184,7 +160,7 @@ everything it does. A few helpers serve such hosts: `Runner.CacheKey` sets a
 conversation's prompt cache key, `dashi.Recorded(err)` tells a failure after
 recording began from a rejected command, `TurnView.ReplacementHistory` reads
 a compaction turn's result, `ContextItem.Validate` checks input before it is
-queued, and `Inbox.Has` checks a steer ID. A host that carries a recorded
+queued, and `MemoryInbox.Has` checks a steer ID. A host that carries a recorded
 agent into its next turn clears a `Version` that begins with
 `dashi.DerivedVersionPrefix`.
 

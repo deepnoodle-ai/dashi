@@ -22,10 +22,14 @@ type steerTable struct {
 	rows map[string][]dashi.Steer
 }
 
-func (s *steerTable) Steers(_ context.Context, turnID string) ([]dashi.Steer, error) {
+func (s *steerTable) Waiting(_ context.Context, turnID string) ([]dashi.Command, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return slices.Clone(s.rows[turnID]), nil
+	var out []dashi.Command
+	for _, row := range s.rows[turnID] {
+		out = append(out, row)
+	}
+	return out, nil
 }
 
 func (s *steerTable) Delivered(_ context.Context, turnID string, ids []string) error {
@@ -108,7 +112,7 @@ func TestDurableSteeringSurvivesEachCommitFault(t *testing.T) {
 					t.Context(),
 					dashi.Turn{ID: "t1"},
 					startCommand(),
-					dashi.WithSteering(table),
+					dashi.WithInbox(table),
 				)
 				if _, ok := rec.Fired(); !ok {
 					t.Fatal("the fault did not fire")
@@ -125,7 +129,7 @@ func TestDurableSteeringSurvivesEachCommitFault(t *testing.T) {
 					saved,
 					startCommand(),
 					runner,
-					dashi.WithSteering(table),
+					dashi.WithInbox(table),
 				)
 				if out.Stop.Kind != dashi.StopCompleted {
 					t.Fatalf("resumed stop is %+v; want completed", out.Stop)
@@ -162,7 +166,7 @@ func TestInboxKeepsInDoubtSteersForTheirTurn(t *testing.T) {
 				Kind:     dashi.StepMessagesAdded,
 				Fault:    fault,
 			}
-			inbox := dashi.NewInbox()
+			inbox := dashi.NewMemoryInbox()
 			id, err := inbox.SendText("wrong file")
 			if err != nil {
 				t.Fatal(err)
@@ -176,14 +180,14 @@ func TestInboxKeepsInDoubtSteersForTheirTurn(t *testing.T) {
 				t.Context(),
 				dashi.Turn{ID: "t1"},
 				startCommand(),
-				dashi.WithSteering(inbox),
+				dashi.WithInbox(inbox),
 			); err == nil {
 				t.Fatal("the fault was not reported")
 			}
-			if inbox.Cancel(id) {
+			if inbox.Withdraw(id) {
 				t.Fatal("an in-doubt steer was cancelled")
 			}
-			other, err := inbox.Steers(t.Context(), "t2")
+			other, err := inbox.Waiting(t.Context(), "t2")
 			if err != nil || len(other) != 0 {
 				t.Fatalf("another turn received the in-doubt steer: %+v", other)
 			}
@@ -240,7 +244,7 @@ func (m *steerModel) sawSteer() bool {
 // request consistent.
 type draftModel struct {
 	scriptedModel
-	inbox *dashi.Inbox
+	inbox *dashi.MemoryInbox
 	mu    sync.Mutex
 	sent  bool
 	saw   bool
@@ -294,14 +298,14 @@ func TestSteerSupersedingTextSurvivesEachCommitFault(t *testing.T) {
 				Kind:     dashi.StepLoopContinued,
 				Fault:    fault,
 			}
-			inbox := dashi.NewInbox()
+			inbox := dashi.NewMemoryInbox()
 			model := &draftModel{inbox: inbox}
 			runner := dashi.Runner{Client: model, Recorder: rec}
 			if _, err := runner.Run(
 				t.Context(),
 				dashi.Turn{ID: "t1"},
 				startCommand(),
-				dashi.WithSteering(inbox),
+				dashi.WithInbox(inbox),
 			); err == nil {
 				t.Fatal("the fault was not reported")
 			}
@@ -314,7 +318,7 @@ func TestSteerSupersedingTextSurvivesEachCommitFault(t *testing.T) {
 				saved,
 				dashi.Continue{CommandID: "resume"},
 				runner,
-				dashi.WithSteering(inbox),
+				dashi.WithInbox(inbox),
 			)
 			if out.Stop.Kind != dashi.StopCompleted || out.Reply != "final" {
 				t.Fatalf("stop=%+v answer=%q", out.Stop, out.Reply)
@@ -354,7 +358,7 @@ func TestInboxContinuesAfterInDoubtDelivery(t *testing.T) {
 				Kind:     dashi.StepMessagesAdded,
 				Fault:    fault,
 			}
-			inbox := dashi.NewInbox()
+			inbox := dashi.NewMemoryInbox()
 			if _, err := inbox.SendText("use the staging database"); err != nil {
 				t.Fatal(err)
 			}
@@ -368,7 +372,7 @@ func TestInboxContinuesAfterInDoubtDelivery(t *testing.T) {
 				t.Context(),
 				dashi.Turn{ID: "t1"},
 				startCommand(),
-				dashi.WithSteering(inbox),
+				dashi.WithInbox(inbox),
 			); err == nil {
 				t.Fatal("the fault was not reported")
 			}
@@ -381,7 +385,7 @@ func TestInboxContinuesAfterInDoubtDelivery(t *testing.T) {
 				saved,
 				dashi.Continue{CommandID: "resume"},
 				runner,
-				dashi.WithSteering(inbox),
+				dashi.WithInbox(inbox),
 			)
 			if out.Stop.Kind != dashi.StopCompleted {
 				t.Fatalf("stop=%+v", out.Stop)

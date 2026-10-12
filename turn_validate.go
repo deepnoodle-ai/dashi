@@ -129,7 +129,7 @@ func validateStepPayload(step Step) error {
 		case WarningBudgetClamp:
 			valid = step.Kind == StepModelCallStarted
 		case WarningActiveCompactionUnavailable, WarningActiveCompactionBlocked, WarningActiveCompactionMediaEstimateUnavailable, WarningHookFailed, WarningHooksChanged, WarningMessagesDropped,
-			WarningSteering, WarningToolChoiceCleared, WarningHideIgnored,
+			WarningSteering, WarningInbox, WarningToolChoiceCleared, WarningHideIgnored,
 			WarningToolNotOffered:
 			valid = true
 		case WarningLimitAdjusted:

@@ -156,9 +156,9 @@ the running turn; the caller says which.
   takes any user-role `ContextItem`. Empty IDs are generated; a repeated ID
   is an error.
 
-The handle owns a `*dashi.Inbox` and passes it to every turn it runs. A host
-with its own durable steering source sets `Session.Steering`; `Steer` then
-works only if that source is a `*dashi.Inbox`, and otherwise the host sends
+The handle owns a `*dashi.MemoryInbox` and passes it to every turn it runs. A host
+with its own durable inbox sets `Session.Inbox`; `Steer` then
+works only if that inbox is a `*dashi.MemoryInbox`, and otherwise the host sends
 through its own system.
 
 **Dispatch on idle.** When a `Start` or `Continue` ends its turn with
@@ -196,7 +196,7 @@ closes it; while the turn can still be continued, the steer waits for its
 **In memory only.** The queue lives in the handle. Under a durable recorder,
 every queued item returns a `memory_only` warning in `Queued.Warnings`: a
 server that builds a handle per request loses what it queued. Steer a turn
-another process runs through your own `Session.Steering` source.
+another process runs through your own `Session.Inbox`.
 
 ## Streams and transcripts
 

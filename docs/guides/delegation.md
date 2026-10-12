@@ -169,7 +169,7 @@ delivers nothing. Two cases:
   counts as the notice reaching the record. A steer that missed its turn moves
   to the queue too. Interactive hosts should raise `Limits.ModelCalls`.
 
-A host that drives turns with `Runner.Run` and its own `dashi.Inbox` can still
+A host that drives turns with `Runner.Run` and its own `dashi.MemoryInbox` can still
 send the steer to the inbox; notices left over when no turn runs need a turn
 of their own, which the session's queue provides.
 

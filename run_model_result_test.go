@@ -138,3 +138,15 @@ func TestPartialProviderFailureStaysResultUnknownDespiteRejectionLabel(
 		)
 	}
 }
+
+func TestProviderContextLimitRecordsTypedLimitAndEnds(t *testing.T) {
+	result := final("cut")
+	result.Stop.Kind = llm.StopContextLimit
+	client := &scriptedClient{results: []llm.Result{result}}
+	out, err := (Runner{Client: client}).Run(t.Context(), Turn{ID: "t1"}, startInput())
+	if err != nil || out.Stop.Limit == nil ||
+		out.Stop.Limit.Kind != LimitContextWindow || !out.Stop.Ended ||
+		out.Next() != NextNone {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+}

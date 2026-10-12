@@ -147,10 +147,16 @@ const (
 	// continue when no further model call was possible, so its items were
 	// not added.
 	WarningMessagesDropped WarningCode = "messages_dropped"
-	// WarningSteering means a steering source failed or returned an invalid
-	// steer, or waiting steers could not be added because no further
-	// model call can happen. The steers stay with their source.
+	// WarningSteering means waiting steers could not be added, or an
+	// urgent steer could not cut a call short, because no further model
+	// call can happen. The steers stay in the inbox.
 	WarningSteering WarningCode = "steering"
+	// WarningInbox means the inbox failed, returned an invalid steer, or
+	// held a command the turn could not take, such as a result for an
+	// unknown call or a raise on a turn not stopped at a limit. The
+	// command was acknowledged without being applied; a steer stays in the
+	// inbox.
+	WarningInbox WarningCode = "inbox"
 	// WarningToolChoiceCleared means a BeforeModel hook hid the tool a forced
 	// tool choice named, or every tool while a tool call was required, so
 	// the choice was cleared for that call: the hide wins.

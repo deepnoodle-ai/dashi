@@ -13,11 +13,15 @@ import (
 )
 
 type runtime struct {
-	ctx     context.Context
-	turn    Turn
-	history []llm.Message
-	agent   Agent
-	runner  Runner
+	ctx context.Context
+	// commitCtx is the caller's context, before the turn deadline and the
+	// inbox's cancel were added to ctx. Commits and inbox calls use it, so
+	// neither of Dashi's own cancellations can break a write in flight.
+	commitCtx context.Context
+	turn      Turn
+	history   []llm.Message
+	agent     Agent
+	runner    Runner
 	// implicitRecorder is true when the runner had no Recorder and Run made a
 	// private one.
 	implicitRecorder bool
@@ -34,9 +38,15 @@ type runtime struct {
 	// steers tracks the steers this run fetched, for acknowledgment and
 	// release.
 	steers steerState
-	// listen watches a SteeringNotifier source for urgent steers; nil when
-	// the source cannot signal.
+	// listen watches an InboxNotifier for urgent steers and Cancel; nil
+	// when the inbox cannot signal.
 	listen *steerListener
+	// cancelRun ends the run's context with an inboxCancel cause; nil
+	// without an inbox.
+	cancelRun context.CancelCauseFunc
+	// pendingDelivered lists inbox command IDs the next commit records,
+	// for CommitRequest.Delivered.
+	pendingDelivered []string
 	// pendingWarnings and pendingHooks ride on the next committed step, so
 	// a warning or hook decision is saved with the step it leads to.
 	pendingWarnings     []Warning
@@ -54,6 +64,9 @@ var errTurnDeadline = errors.New("dashi: turn deadline reached")
 
 func (r *runtime) contextStop() RunResult {
 	cause := context.Cause(r.ctx)
+	if c, ok := errors.AsType[*inboxCancel](cause); ok {
+		return r.cancelStop(c.command)
+	}
 	if errors.Is(cause, errTurnDeadline) {
 		return r.stop(StopLimited, string(LimitDeadline))
 	}
@@ -152,7 +165,10 @@ func (r *runtime) commit(step Step) *RunResult {
 		o := r.current()
 		return &o
 	}
-	ctx := r.ctx
+	ctx := r.commitCtx
+	if ctx == nil {
+		ctx = r.ctx
+	}
 	if ctx.Err() != nil {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -164,6 +180,8 @@ func (r *runtime) commit(step Step) *RunResult {
 			Step:        step,
 			ExpectedSeq: step.Seq - 1,
 			Owner:       r.opts.owner,
+			ModelCall:   r.modelCallCost(step),
+			Delivered:   slices.Clone(r.pendingDelivered),
 		},
 	)
 	if err != nil {
@@ -175,6 +193,7 @@ func (r *runtime) commit(step Step) *RunResult {
 	r.listen.committed(step)
 	r.pendingWarnings = nil
 	r.pendingHooks = nil
+	r.pendingDelivered = nil
 	if r.emitter.active() || r.opts.streamSink != nil {
 		event := Event{TurnID: step.TurnID, Step: &step}
 		if step.Model != nil {
@@ -286,6 +305,11 @@ func (r *runtime) stop(kind StopKind, reason string) RunResult {
 				Limit: int64(max(r.agent.Limits.ProviderPauses, 0)),
 				Used:  int64(state.ProviderPauses),
 			}
+		case LimitContextWindow:
+			stop.Limit = &LimitDetail{
+				Kind:  LimitContextWindow,
+				Limit: int64(state.ActiveCompactionWindow),
+			}
 		case LimitDeadline:
 			stop.Limit = &LimitDetail{
 				Kind:  LimitDeadline,
@@ -309,10 +333,36 @@ func (r *runtime) stopAfterReply(s *replayState) RunResult {
 	if r.ctx.Err() != nil {
 		return r.contextStop()
 	}
+	return r.completeReply(s)
+}
+
+// completeReply records the stop after a recorded reply or output.
+func (r *runtime) completeReply(s *replayState) RunResult {
 	// The reserved final call ends at the model-call limit. After Continue
 	// raises the limit, a recorded reply completes the turn.
 	if s.finalReplyOnly && s.modelCallCap <= s.ModelCalls {
 		return r.stop(StopLimited, string(LimitModelCalls))
 	}
 	return r.stop(StopCompleted, "")
+}
+
+// modelCallCost is the CommitRequest.ModelCall for step: the call it starts
+// or finishes, as TurnView.ModelCallCosts will show it, or nil.
+func (r *runtime) modelCallCost(step Step) *ModelCallCost {
+	if step.Model == nil {
+		return nil
+	}
+	switch step.Kind {
+	case StepModelCallStarted:
+		return new(ModelCallCostOf(step.Model, nil))
+	case StepModelCallFinished, StepModelCallFinishedByHost:
+		for i := len(r.turn.Steps) - 1; i >= 0; i-- {
+			old := r.turn.Steps[i]
+			if old.Kind == StepModelCallStarted && old.Model != nil &&
+				old.Model.ModelCallID == step.Model.ModelCallID {
+				return new(ModelCallCostOf(old.Model, step.Model))
+			}
+		}
+	}
+	return nil
 }

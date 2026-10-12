@@ -130,7 +130,12 @@ To raise a cap, authorize the increase in the application and pass the full
 new budget to `Continue`. It can raise existing caps but cannot lower them or
 introduce a new cap. Each raise is saved as a continuation step and appears in
 `TurnView.Raises` with its time. A host credit hold needs no raise: after funds
-arrive, `Continue` makes `BeforeSend` check the balance again.
+arrive, `Continue` makes `BeforeSend` check the balance again. A host that
+drives turns with [`Advance`](recovering-turns.md#advancing-saved-turns) puts
+that `Continue` in the turn's inbox; Dashi does not ask `BeforeSend` again on
+its own. Set `Limits.NoRaise` on the agent when no raise should ever happen:
+a model-call, cost, or token limit then ends the turn, and a raising
+`Continue` is refused.
 
 An application can reserve credits in its recorder. `BeforeSend` receives a
 `SendPlan` with the prepared request, `WorstCaseCost`, and the remaining turn
@@ -138,14 +143,23 @@ cost allowance. It can return `SendDecision.Reservation` with the account and
 amount to hold. The recorder atomically saves the `model_call_started` step and
 reserves that amount, using the model call ID as the idempotency key. A credit
 denial returns a `Limit` of kind `host` and an application code such as
-`insufficient_credits`, yielding a resumable `limited` stop. A denial that
+`insufficient_credits`, yielding a resumable `limited` stop (`NextFix`). A
+host limit with `Ends` set, such as a routine's spending cap, ends the turn
+instead (`NextNone`). When the balance check races and only the recorder's
+transaction can decide, the recorder refuses the `model_call_started` step
+with `&dashi.CommitError{NothingWritten: true, Err: &dashi.LimitError{Reason:
+..., Limit: ...}}`, and Dashi records the same limited stop a `BeforeSend`
+denial would. A denial that
 reports money puts it in the `Cost` fields with a `Currency` (an ISO 4217 code
 or the host's credit unit) and keeps `Limit` and `Used` for counts. Credit
 balances and plan ceilings remain with the application.
 
 To charge or release a hold when a call finishes, let Dashi classify each
-model call rather than reading the model facts.
-`dashi.ModelCallCostOf(callStart, finish)` returns the call's `ModelCallCost`:
+model call rather than reading the model facts. Each commit of a
+`model_call_started` or finish step carries the call's `ModelCallCost` in
+`CommitRequest.ModelCall`, as `TurnView.ModelCallCosts` will show it, so the
+recorder needs no load (`dashi.ModelCallCostOf(callStart, finish)` derives
+the same value from the two facts):
 the `Usage` and `Cost` that Dashi counts into `Spend`, so per-call costs sum to
 `Spend.Cost`. `UsageSource` says where the usage came from: `reported`
 (complete provider usage), `cut_off` (some usage was reported, but the call did
@@ -157,18 +171,19 @@ example an unpriced model; on a `missing` call it means zero. `Exact` means the 
 zero for a call that never ran. A cost that is not exact is a lower bound or
 unknown. Charge an exact call at its cost. For the rest, charge the known
 lower bound and release the hold, or keep the hold by your own rule if you
-need a strict guarantee. A recorder charges in the same
-transaction as the call's finish step, with the start fact it stored when it
-reserved:
+need a strict guarantee. A recorder reserves `ModelCall.WorstCaseCost` with
+the start step and charges in the same transaction as the call's finish step;
+a late finish after the turn ended still carries it:
 
 ```go
 func (r *Recorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
 	return r.db.Tx(ctx, func(tx *Tx) error {
-		// ...append req.Step, and reserve on StepModelCallStarted...
+		// ...append req.Step...
+		c := req.ModelCall
 		switch req.Step.Kind {
+		case dashi.StepModelCallStarted:
+			return tx.Reserve(c.ModelCallID, c.WorstCaseCost)
 		case dashi.StepModelCallFinished, dashi.StepModelCallFinishedByHost:
-			callStart := tx.ReservedCallStart(req.Step.Model.ModelCallID)
-			c := dashi.ModelCallCostOf(callStart, req.Step.Model)
 			switch {
 			case c.UsageSource == dashi.UsageSourceNotSent:
 				return tx.Release(c.ModelCallID)

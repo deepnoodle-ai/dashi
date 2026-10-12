@@ -10,78 +10,105 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-// Steering is a source of messages a person sends while a turn runs, such
-// as "use the staging database" or "stop, wrong file". Pass one to a run
-// with WithSteering; Inbox is a ready-made in-memory source.
+// Inbox holds the commands that reach a turn from outside its run: tool
+// results and approvals (Resolve), raises (Continue), AddMessages, Cancel,
+// and steers, which a person sends while a turn runs, such as "use the
+// staging database" or "stop, wrong file". Set Runner.Inbox, or pass one
+// to a run with WithInbox; MemoryInbox is a ready-made in-memory inbox.
 //
-// The turn record is the authority on what was delivered. A source returns
-// each steer from Steers until Dashi acknowledges it with Delivered, and
-// Dashi skips a steer whose ID the turn already records, so a steer reaches
-// a turn's record at most once even when a write fails or a worker crashes.
+// The turn record is the authority on what was delivered. An inbox returns
+// each command from Waiting until Dashi acknowledges it with Delivered, and
+// Dashi skips a command whose ID the turn already records, so a command
+// reaches a turn's record at most once even when a write fails or a worker
+// crashes. A steer's command ID is its Item.ID. Command IDs that start
+// with "continue:" are reserved for the Continue commands Runner.Advance
+// derives, and Advance refuses them.
 //
-// Dashi calls Steers before each model call and at each candidate final
-// reply, and nowhere else, so a steer never lands between a tool call and
-// its result. Steers must be cheap: it runs before every model call. A
-// source that also implements SteeringNotifier is asked again when it
-// signals, so an urgent steer can cut a model call short. Dashi never calls
-// one source's methods concurrently from one run.
-type Steering interface {
-	// Steers returns the steers waiting for turnID, oldest first. Each
-	// steer's Item.ID is required.
-	Steers(ctx context.Context, turnID string) ([]Steer, error)
-	// Delivered acknowledges steers the turn's record now holds. It must be
-	// idempotent: Dashi calls it again for a steer it finds already
-	// recorded, and after an error.
+// During a run, Dashi calls Waiting before each model call and at each
+// candidate final reply, and nowhere else, so a steer never lands between a
+// tool call and its result. A Cancel ends the run at once, unless the
+// turn's output is recorded, when it is refused; other commands wait for
+// Runner.Advance. Waiting must be cheap: it runs before every model call.
+// An inbox that also implements InboxNotifier is asked again
+// when it signals, so an urgent steer can cut a model call short. Dashi
+// never calls one inbox's methods concurrently from one run.
+type Inbox interface {
+	// Waiting returns the commands waiting for turnID, oldest first. Each
+	// needs a command ID.
+	Waiting(ctx context.Context, turnID string) ([]Command, error)
+	// Delivered acknowledges commands the turn's record now holds, or that
+	// the turn refused, by command ID. It must be idempotent: Dashi calls
+	// it again for a command it finds already recorded, and after an error.
 	Delivered(ctx context.Context, turnID string, ids []string) error
 }
 
-// SteeringReleaser is implemented by sources that claim the steers they
-// return, as Inbox does. Dashi calls Release once when a run that fetched
-// steers ends. Unrecorded steers were never written and are free to go to
-// any run again. In-doubt steers were in a write whose result is unknown:
-// the record may hold them, so they may go only to a run of the same turn,
-// where the record removes duplicates, until checked against the reloaded
-// record.
-type SteeringReleaser interface {
+// InboxReleaser is implemented by inboxes that claim the steers they
+// return, as MemoryInbox does. Dashi calls Release once when a run that
+// fetched steers ends. Unrecorded steers were never written and are free to
+// go to any run again. In-doubt steers were in a write whose result is
+// unknown: the record may hold them, so they may go only to a run of the
+// same turn, where the record removes duplicates, until checked against the
+// reloaded record.
+type InboxReleaser interface {
 	Release(ctx context.Context, turnID string, unrecorded, inDoubt []string)
 }
 
-// SteeringNotifier is implemented by sources that can wake a run, as Inbox
-// does. Ready is a coalesced hint that an urgent steer may be waiting, for
-// the one run the source serves: a run with such a source watches Ready,
-// calls Steers when it fires, and cuts short the model call in flight for a
-// new urgent steer. Signal only after the steer is visible to Steers. A
-// source without Ready still delivers urgent steers, at the next safe point.
-type SteeringNotifier interface {
-	// Ready returns the same channel on every call, or nil when the source
-	// never signals.
-	Ready() <-chan struct{}
+// InboxNotifier is implemented by inboxes that can wake a turn's run or
+// its Drive, as MemoryInbox does. Ready(turnID) is a coalesced hint that
+// means "check again": a command for the turn may be waiting. A run
+// watches it, calls Waiting when it fires, and cuts short the model call in
+// flight for a new urgent steer or ends the run for a Cancel. Drive waits
+// on it between passes. Signal only after the command is visible to
+// Waiting. An inbox without Ready still delivers, at the next safe point or
+// the next poll.
+type InboxNotifier interface {
+	// Ready returns the same channel on every call for one turn ID, or nil
+	// when the inbox never signals.
+	Ready(turnID string) <-chan struct{}
 }
 
-// Steer is one message for a running turn.
+// InboxRefuser is implemented by inboxes that tell senders when a turn
+// does not take their command: the turn has ended (ErrTurnEnded), or the
+// command does not apply, such as a result for an unknown call or a raise
+// on a turn not stopped at a limit. Runner.Advance calls Refused before it
+// acknowledges such a command with Delivered, so the host can tell its
+// caller the command came too late or was wrong.
+type InboxRefuser interface {
+	Refused(ctx context.Context, turnID string, id string, reason error)
+}
+
+// Steer is one message for a running turn. It is the mid-run form of
+// AddMessages, and a Command whose ID is Item.ID; it reaches a turn only
+// through an Inbox.
 type Steer struct {
 	// Item is the message and its lifetime. Item.ID is required, and an
 	// empty Origin means ContextUser.
-	Item ContextItem
+	Item ContextItem `json:"item,omitzero"`
 	// Urgent asks Dashi to cut short the model call in flight, when the
-	// source is a SteeringNotifier and the call can be replaced within the
+	// inbox is an InboxNotifier and the call can be replaced within the
 	// turn's limits; the next call sees the partial response and the steer.
 	// Urgent is not recorded: the record shows its effect, a model call
 	// finished with InterruptSteering. It never interrupts a running tool.
-	Urgent bool
+	Urgent bool `json:"urgent,omitempty"`
 }
 
-// WithSteering delivers steers from source into this run's turn. Use one
-// source for one active run at a time.
-func WithSteering(source Steering) RunOption {
+func (s Steer) commandID() string {
+	return s.Item.ID
+}
+
+// WithInbox delivers commands from inbox into this run's turn, in place of
+// Runner.Inbox. WithInbox(nil) turns the inbox off for the run. Use one
+// inbox for one active run of a turn at a time.
+func WithInbox(inbox Inbox) RunOption {
 	return func(o *runOptions) {
-		o.steering = source
+		o.inbox = inbox
+		o.inboxSet = true
 	}
 }
 
-// steeringTimeout bounds each acknowledgment and release, which run even
+// inboxTimeout bounds each acknowledgment and release, which run even
 // after the run's context has ended.
-const steeringTimeout = 5 * time.Second
+const inboxTimeout = 5 * time.Second
 
 // steerNotAccepted is the reason a submission superseded by a steer reports
 // to the model.
@@ -95,19 +122,21 @@ type steerState struct {
 	recorded map[string]bool
 	inDoubt  map[string]bool
 	// warned holds the steers already warned about in this run, so a
-	// durable source that keeps returning an invalid steer is reported
+	// durable inbox that keeps returning an invalid steer is reported
 	// once, not before every model call.
 	warned map[string]bool
-	// sourceFailed records that a failing source was already reported.
+	// sourceFailed records that a failing inbox was already reported.
 	sourceFailed bool
 	// urgentUnheard and declined record that the run already warned that
-	// its source cannot signal urgent steers, or that a call could not be
+	// its inbox cannot signal urgent steers, or that a call could not be
 	// cut short. Each is reported once per run.
 	urgentUnheard bool
 	declined      bool
 	// skipDeclined records that the run already warned that urgent steers
 	// did not skip tool calls because no further model call can happen.
 	skipDeclined bool
+	// refused holds the inbox Cancels this run already refused.
+	refused map[string]bool
 }
 
 func (st *steerState) claim(id string) {
@@ -122,17 +151,19 @@ func (st *steerState) claim(id string) {
 
 // waitingSteers fetches the waiting steers and returns those the turn does
 // not yet record, in order. A steer already recorded is acknowledged again.
-// A failing source or an invalid steer never fails the turn: it is
-// recorded as a WarningSteering on the next step, and the steer stays with
-// its source. Steers wait while a provider pause leaves a provider tool
-// call unfinished, and reach the call after its continuation.
+// A failing inbox or an invalid steer never fails the turn: it is
+// recorded as a WarningInbox on the next step, and the steer stays in the
+// inbox. A waiting Cancel ends the run (see cancelFromInbox). Steers wait
+// while a provider pause leaves a provider tool call unfinished, and reach
+// the call after its continuation.
 func (r *runtime) waitingSteers(s *replayState) []ContextItem {
-	source := r.opts.steering
+	source := r.opts.inbox
 	if source == nil || s.pausedProviderTool {
 		return nil
 	}
 	unlock := r.lockSource()
-	steers, err := source.Steers(r.ctx, r.turn.ID)
+	commands, err := source.Waiting(r.ctx, r.turn.ID)
+	steers, cancel := splitWaiting(commands)
 	var fresh []Steer
 	var again []string
 	var invalid []steerProblem
@@ -142,13 +173,16 @@ func (r *runtime) waitingSteers(s *replayState) []ContextItem {
 	}
 	unlock()
 	if err != nil {
-		// Reported once per run: the source is asked before every model
+		// Reported once per run: the inbox is asked before every model
 		// call and at every candidate reply.
 		if r.ctx.Err() == nil && !r.steers.sourceFailed {
 			r.steers.sourceFailed = true
-			r.warnSteering(fmt.Sprintf("steering source failed: %v", err))
+			r.warnInbox(fmt.Sprintf("inbox failed: %v", err))
 		}
 		return nil
+	}
+	if cancel != nil {
+		r.cancelFromInbox(s, *cancel)
 	}
 	for _, steer := range steers {
 		if steer.Item.ID != "" {
@@ -168,7 +202,7 @@ func (r *runtime) waitingSteers(s *replayState) []ContextItem {
 			r.steers.urgentUnheard = true
 			r.warnSteering(
 				"urgent steers wait for the next model call: the steering " +
-					"source does not signal them (see SteeringNotifier)",
+					"inbox does not signal them (see InboxNotifier)",
 			)
 		}
 	}
@@ -184,7 +218,7 @@ type steerProblem struct {
 	message string
 }
 
-// classifySteers sorts what a source returned against the turn's recorded
+// classifySteers sorts what an inbox returned against the turn's recorded
 // context items: fresh steers the turn does not record, once each and in
 // order; IDs the turn records with the same content (again); and steers
 // that cannot be delivered (invalid). It is pure, so the run and the
@@ -236,7 +270,16 @@ func classifySteers(
 // commitSteers records a step that carries steers and decides what happens
 // to the steers from the commit's result.
 func (r *runtime) commitSteers(step Step, steers []ContextItem) *RunResult {
+	r.markDelivered(steers)
 	return r.afterSteerWrite(steers, r.commit(step))
+}
+
+// markDelivered names steers the next commit records, for
+// CommitRequest.Delivered.
+func (r *runtime) markDelivered(steers []ContextItem) {
+	for _, item := range steers {
+		r.pendingDelivered = append(r.pendingDelivered, item.ID)
+	}
 }
 
 // afterSteerWrite acknowledges steers the record now holds. When the write
@@ -272,7 +315,7 @@ func writeRejected(err error) bool {
 	return errors.As(err, &ce) && ce.NothingWritten
 }
 
-// steersDelivered acknowledges recorded steers to the source. It runs
+// steersDelivered acknowledges recorded steers to the inbox. It runs
 // inline, after the run's context may have ended; an error becomes a
 // warning on the next step, and the next run acknowledges again.
 func (r *runtime) steersDelivered(ids []string) {
@@ -285,23 +328,28 @@ func (r *runtime) steersDelivered(ids []string) {
 	for _, id := range ids {
 		r.steers.recorded[id] = true
 	}
+	r.inboxDelivered(ids)
+}
+
+// inboxDelivered acknowledges recorded commands to the inbox.
+func (r *runtime) inboxDelivered(ids []string) {
 	ctx, cancel := context.WithTimeout(
 		context.WithoutCancel(r.ctx),
-		steeringTimeout,
+		inboxTimeout,
 	)
 	defer cancel()
 	unlock := r.lockSource()
-	err := r.opts.steering.Delivered(ctx, r.turn.ID, ids)
+	err := r.opts.inbox.Delivered(ctx, r.turn.ID, ids)
 	unlock()
 	if err != nil {
-		r.warnSteering(fmt.Sprintf("steering acknowledgment failed: %v", err))
+		r.warnInbox(fmt.Sprintf("inbox acknowledgment failed: %v", err))
 	}
 }
 
-// releaseSteers hands a claiming source back the steers this run fetched
+// releaseSteers hands a claiming inbox back the steers this run fetched
 // but did not record.
 func (r *runtime) releaseSteers() {
-	releaser, ok := r.opts.steering.(SteeringReleaser)
+	releaser, ok := r.opts.inbox.(InboxReleaser)
 	if !ok || len(r.steers.claimed) == 0 {
 		return
 	}
@@ -320,7 +368,7 @@ func (r *runtime) releaseSteers() {
 	}
 	ctx, cancel := context.WithTimeout(
 		context.WithoutCancel(r.ctx),
-		steeringTimeout,
+		inboxTimeout,
 	)
 	defer cancel()
 	releaser.Release(ctx, r.turn.ID, unrecorded, inDoubt)
@@ -335,7 +383,117 @@ func (r *runtime) warnSteerOnce(id, message string) {
 		r.steers.warned = map[string]bool{}
 	}
 	r.steers.warned[id] = true
-	r.warnSteering(message)
+	r.warnInbox(message)
+}
+
+func (r *runtime) warnInbox(message string) {
+	r.pendingWarnings = append(r.pendingWarnings, Warning{
+		Code:    WarningInbox,
+		Message: message,
+	})
+}
+
+// splitWaiting separates an inbox's waiting commands into its steers, in
+// order, and its first Cancel. The run takes no other command: they wait
+// for Runner.Advance.
+func splitWaiting(commands []Command) ([]Steer, *Cancel) {
+	var steers []Steer
+	var cancel *Cancel
+	for _, c := range commands {
+		switch v := c.(type) {
+		case Steer:
+			steers = append(steers, v)
+		case Cancel:
+			if cancel == nil {
+				cancel = &v
+			}
+		}
+	}
+	return steers, cancel
+}
+
+// inboxCancel is the cause a run's context ends with when its inbox holds
+// a Cancel. contextStop records it as the Cancel command would.
+type inboxCancel struct {
+	command Cancel
+}
+
+func (e *inboxCancel) Error() string {
+	return "dashi: the inbox holds a Cancel for the turn"
+}
+
+// errCancelAfterOutput refuses a Cancel for a turn whose output is
+// recorded: the turn completes instead.
+var errCancelAfterOutput = errors.New("dashi: turn cannot cancel: its output is recorded")
+
+// cancelFromInbox ends the run for a Cancel found in its inbox. The run
+// records the canceled stop under the Cancel's ID once it reaches a safe
+// point, as with ContextCancel. A Cancel without an ID cannot be recorded
+// and is warned about once; a Cancel after the output is refused.
+func (r *runtime) cancelFromInbox(s *replayState, c Cancel) {
+	switch {
+	case r.cancelRun == nil:
+	case c.CommandID == "":
+		r.warnSteerOnce("", "cancel skipped: it has no command ID")
+	case s.Output != nil:
+		r.refuseCancel(c)
+	default:
+		r.cancelRun(&inboxCancel{command: c})
+	}
+}
+
+// refuseCancel refuses an inbox Cancel that arrived after the output was
+// recorded: it warns, tells an InboxRefuser, and acknowledges the Cancel,
+// once per run.
+func (r *runtime) refuseCancel(c Cancel) {
+	if r.steers.refused[c.CommandID] {
+		return
+	}
+	if r.steers.refused == nil {
+		r.steers.refused = map[string]bool{}
+	}
+	r.steers.refused[c.CommandID] = true
+	r.warnInbox(fmt.Sprintf(
+		"inbox command %s not applied: %v", c.CommandID, errCancelAfterOutput,
+	))
+	if refuser, ok := r.opts.inbox.(InboxRefuser); ok {
+		ctx, cancel := context.WithTimeout(
+			context.WithoutCancel(r.ctx),
+			inboxTimeout,
+		)
+		unlock := r.lockSource()
+		refuser.Refused(ctx, r.turn.ID, c.CommandID, errCancelAfterOutput)
+		unlock()
+		cancel()
+	}
+	r.inboxDelivered([]string{c.CommandID})
+}
+
+// cancelStop records the stop for a Cancel from the inbox and acknowledges
+// it. A turn whose output was recorded before the Cancel took effect
+// cannot be canceled: the Cancel is refused and the turn completes.
+func (r *runtime) cancelStop(c Cancel) RunResult {
+	state, err := replay(r.turn)
+	if err == nil && state.Output != nil {
+		r.refuseCancel(c)
+		return r.completeReply(state)
+	}
+	hash, err := commandHash(c)
+	if err != nil {
+		return r.stop(StopCanceled, c.Reason)
+	}
+	r.pendingDelivered = append(r.pendingDelivered, c.CommandID)
+	o := r.commit(Step{
+		Kind:        StepTurnStopped,
+		CommandID:   c.CommandID,
+		CommandHash: hash,
+		Stop:        &Stop{Kind: StopCanceled, Reason: c.Reason},
+	})
+	if o != nil {
+		return *o
+	}
+	r.inboxDelivered([]string{c.CommandID})
+	return r.current()
 }
 
 func (r *runtime) warnSteering(message string) {
@@ -346,11 +504,11 @@ func (r *runtime) warnSteering(message string) {
 }
 
 // steersWait records why waiting steers could not replace a candidate
-// reply. They stay with their source for the next turn.
+// reply. They stay in the inbox for the next turn.
 func (r *runtime) steersWait(s *replayState, n int) {
 	r.warnSteering(fmt.Sprintf(
 		"%d steer(s) could not supersede the answer: no further model call "+
-			"can happen because of %s; they stay with their source",
+			"can happen because of %s; they stay in the inbox",
 		n,
 		noCallCause(s),
 	))

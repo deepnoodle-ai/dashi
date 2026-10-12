@@ -98,6 +98,10 @@ type Limits struct {
 	NoReservedFinalReply bool `json:"no_reserved_final_reply,omitempty"`
 	// Deadline stops the turn at a wall-clock time. Zero means no deadline.
 	Deadline time.Time `json:"deadline,omitzero"`
+	// NoRaise means no Continue may raise the turn's limits, so a stop at
+	// the model-call limit or a cost or token cap ends the turn. A
+	// Continue that raises is refused.
+	NoRaise bool `json:"no_raise,omitempty"`
 }
 
 // Default turn limits, applied when a Limits field is zero.

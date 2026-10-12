@@ -33,9 +33,9 @@ const (
 	// Continue with a higher Continue.ModelCalls.
 	NextRaiseModelCalls Next = "raise_model_calls"
 	// NextFix means a cause outside the turn must be fixed first: a
-	// failure, a refusal, a host limit, a call with an unknown result to
-	// resolve, or an interruption the turn cannot resume from. Fix it and
-	// Continue, or Cancel the turn.
+	// failure, a refusal, a host limit without Ends (such as a credit
+	// hold), a call with an unknown result to resolve, or an interruption
+	// the turn cannot resume from. Fix it and Continue, or Cancel the turn.
 	NextFix Next = "fix"
 )
 
