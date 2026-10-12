@@ -43,8 +43,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   after the fixed part (system and developer messages, and what the last
   call sent besides the history), together at most half of it; the
   allowance is also at most a quarter of the summary model's window.
-  `Compactor.TailFraction` is now a share of that room. `Needed` is false
-  when the replacement would itself be due.
+  `Compactor.TailFraction` is now a share of that room. When the fixed part
+  takes more than half the due count, the due count rises to the fixed part
+  plus half of it, up to the window. `Needed` is false, and `Start` returns
+  `ErrNothingToCompact`, only when the fixed part leaves no room.
 - **`session.Compactor.Start` takes the last call's usage**, as `Needed`
   does, so a compactor can size the fixed part.
 - **Sessions compact after any ended turn**, including one the new Start

@@ -148,8 +148,8 @@ func TestStartIfNeededRules(t *testing.T) {
 	need(false) // after a compaction turn
 
 	// The last call's usage is far above the history: the tool
-	// definitions alone would make the replacement due.
-	h.work(pad("three", 700), usedText("third answer", 9_000))
+	// definitions alone fill the window.
+	h.work(pad("three", 700), usedText("third answer", 12_000))
 	need(false)
 }
 
@@ -309,8 +309,10 @@ func TestStartIfNeededMatchesSession(t *testing.T) {
 			replies: []llm.Result{usedText("a", 750), usedText("b", 2_000)}},
 		{name: "after a compaction turn", compact: true,
 			replies: []llm.Result{usedText("a", 750), usedText("b", 2_000), dashitest.Reply("<summary>S</summary>")}},
-		{name: "replacement would be due",
-			replies: []llm.Result{usedText("a", 750), usedText("b", 9_000)}},
+		{name: "large tools raise the due count", want: true,
+			replies: []llm.Result{usedText("a", 750), usedText("b", 4_500)}},
+		{name: "tools fill the window",
+			replies: []llm.Result{usedText("a", 750), usedText("b", 12_000)}},
 		{name: "ended at a limit", want: true, limits: dashi.Limits{ModelCalls: 1, NoRaise: true},
 			replies: []llm.Result{usedText("a", 750), call}},
 	} {

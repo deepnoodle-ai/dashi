@@ -128,19 +128,32 @@ func TestCompactorNeeded(t *testing.T) {
 	}
 }
 
-// Failure 3: when the fixed part (here, what the last call sent besides the
-// history, such as tool definitions) would make the replacement due, it is
-// not needed, so compaction does not repeat after every turn.
-func TestCompactorNotNeededWhenReplacementWouldBeDue(t *testing.T) {
-	c := New(policyWith(100_000))
+// Failure 3: when the fixed part (what the last call sent besides the
+// history, such as tool definitions, or system messages) fills the window,
+// no replacement can be below the due count: it is not needed, and Start
+// makes no useless summary call. Below that, a fixed part over half the due
+// count raises the due count instead of turning compaction off.
+func TestCompactorFixedPart(t *testing.T) {
+	c := New(policyWith(100_000)) // due at 20,000 tokens
 	history, _ := conversation(4, 5_000)
-	if c.Needed(history, llm.Usage{InputTokens: 60_000}) {
-		t.Fatal("needed although the tools alone exceed the due count")
+	// About 42,000 tokens of tools raise the due count to about 52,000.
+	short, _ := conversation(2, 5_000) // about 8,000 tokens
+	if c.Needed(short, llm.Usage{InputTokens: 50_000}) {
+		t.Fatal("needed below the raised due count")
 	}
-	big := []llm.Message{system(strings.Repeat("rule ", 20_000))}
+	if !c.Needed(history, llm.Usage{InputTokens: 60_000}) {
+		t.Fatal("large tools turned compaction off")
+	}
+	if c.Needed(history, llm.Usage{InputTokens: 120_000}) {
+		t.Fatal("needed although the tools alone fill the window")
+	}
+	if _, err := c.Start(t.Context(), history, llm.Usage{InputTokens: 120_000}); !errors.Is(err, ErrNothingToCompact) {
+		t.Fatalf("Start with no room: %v", err)
+	}
+	big := []llm.Message{system(strings.Repeat("rule ", 90_000))}
 	big = append(big, history...)
-	if c.Needed(big, llm.Usage{InputTokens: 50_000}) {
-		t.Fatal("needed although the system messages exceed the due count")
+	if c.Needed(big, llm.Usage{InputTokens: 140_000}) {
+		t.Fatal("needed although the system messages fill the window")
 	}
 }
 
@@ -166,7 +179,7 @@ func TestCompactorNeededHistorySize(t *testing.T) {
 func TestCompactorSizesFromDueTokens(t *testing.T) {
 	p := policyWith(1_000_000)
 	p.DueTokens = 40_000
-	history, starts := conversation(6, 4_000) // about 18,000 tokens
+	history, starts := conversation(8, 4_000) // about 24,000 tokens
 	c := New(p)
 	if !c.Needed(history, llm.Usage{InputTokens: 40_000}) {
 		t.Fatal("not needed at DueTokens")
@@ -175,12 +188,14 @@ func TestCompactorSizesFromDueTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Room: 40,000 less about 22,000 of tools is about 18,000 tokens.
-	if got := s.Agent.Settings.MaxTokens; got > 18_000/4+500 || got < 18_000/4-1_000 {
+	// Room: 40,000 less about 16,000 of tools is about 24,000 tokens.
+	if got := s.Agent.Settings.MaxTokens; got > 24_000/4+500 || got < 24_000/4-1_000 {
 		t.Fatalf("allowance = %d, want a quarter of the room", got)
 	}
-	if len(s.Compaction.Keep) == 0 || !sameJSON(t, s.Compaction.Keep, history[starts[5]:]) {
-		t.Fatalf("kept %d messages, want the newest turn", len(s.Compaction.Keep))
+	keep := s.Compaction.Keep
+	if len(keep) == 0 || len(keep) > len(history)/2 ||
+		!sameJSON(t, keep, history[len(history)-len(keep):]) || len(keep) < len(history)-starts[7] {
+		t.Fatalf("kept %d messages, want the newest turns", len(keep))
 	}
 }
 

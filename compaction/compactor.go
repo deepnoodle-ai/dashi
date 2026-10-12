@@ -24,7 +24,9 @@ import (
 // below the due count after the fixed part: system and developer messages,
 // and what the last model call sent besides the history, such as tool
 // definitions and instructions. Together they take at most half of that
-// room, so the replacement history is well below the due count.
+// room, so the replacement history is well below the due count. When the
+// fixed part takes more than half the due count, the due count rises to the
+// fixed part plus half of it, up to the window, so compaction keeps room.
 type Compactor struct {
 	// Policy says when compaction is due. Its due count also sizes the
 	// kept tail and the summary.
@@ -59,17 +61,16 @@ func New(policy Policy) *Compactor {
 // Needed reports whether to compact messages, the history for the next
 // Turn, given last, the usage of the last model call (see LastUsage).
 // Compaction is due when that usage, or the estimated size of messages,
-// reaches Policy's due count. The size estimate catches tool output added
+// reaches Policy's due count, raised when the fixed part takes more than
+// half of it (see Compactor). The size estimate catches tool output added
 // after the last model call. History with images, audio, video, or binary
 // documents is not size-estimated. It returns false when nothing in
 // messages can be summarized, or when the replacement history would itself
 // be due, so compaction never repeats after every turn.
 func (c *Compactor) Needed(messages []llm.Message, last llm.Usage) bool {
-	if !c.Policy.dueHistory(messages, last) {
-		return false
-	}
 	p := c.plan(messages, last)
-	return len(p.covered) > 0 && !p.due
+	return c.Policy.dueHistory(messages, last, p.dueTokens) &&
+		len(p.covered) > 0 && !p.due
 }
 
 // StartIfNeeded returns the Start of the compaction turn to run before the
@@ -101,10 +102,10 @@ func (c *Compactor) StartIfNeeded(ctx context.Context, turns []dashi.Turn) (
 	}
 	history, _ := dashi.BuildHistory(turns)
 	usage := LastUsage(last)
-	if !session.NeedsCompaction(view) && !c.Policy.dueHistory(history, usage) {
+	p := c.plan(history, usage)
+	if !session.NeedsCompaction(view) && !c.Policy.dueHistory(history, usage, p.dueTokens) {
 		return dashi.Start{}, false, nil
 	}
-	p := c.plan(history, usage)
 	if len(p.covered) == 0 || p.due {
 		return dashi.Start{}, false, nil
 	}
@@ -136,14 +137,15 @@ func (c *Compactor) StartIfNeeded(ctx context.Context, turns []dashi.Turn) (
 // the dashi.HistoryHash of messages. The caller sets its CommandID and may
 // set Budget; a Session also sets the fact's Through. Start makes no model
 // call, so it does not use ctx. It returns ErrNothingToCompact when
-// messages hold nothing to summarize.
+// messages hold nothing to summarize, or when the fixed part leaves no room
+// below the window for a useful replacement.
 func (c *Compactor) Start(
 	_ context.Context,
 	messages []llm.Message,
 	last llm.Usage,
 ) (dashi.Start, error) {
 	p := c.plan(messages, last)
-	if len(p.covered) == 0 {
+	if len(p.covered) == 0 || p.due {
 		return dashi.Start{}, ErrNothingToCompact
 	}
 	return c.start(messages, p)
@@ -187,6 +189,9 @@ type plan struct {
 	allowance int
 	// summaryWindow is the summary model's window.
 	summaryWindow int
+	// dueTokens is the due count, raised when the fixed part takes more
+	// than half of it.
+	dueTokens int
 	// due is set when the replacement history would itself be due.
 	due bool
 }
@@ -197,13 +202,22 @@ type plan struct {
 // its input less the history's estimate. The output allowance is at most a
 // quarter of the room, and the kept tail at most TailFraction of it and
 // half of it less the allowance.
+//
+// When the fixed part takes more than half the due count, as many tool
+// definitions can, the due count rises to the fixed part plus half the due
+// count, up to the window, so compaction still has room instead of turning
+// itself off.
 func (c *Compactor) plan(messages []llm.Message, last llm.Usage) plan {
 	window, _ := c.Policy.Window()
 	due := c.Policy.dueTokens()
 	extra := max(0, last.TotalInputTokens()-estimateAll(messages))
-	room := max(0, due-extra-estimateAll(authoritative(messages)))
+	fixed := extra + estimateAll(authoritative(messages))
+	if fixed > due/2 {
+		due = max(due, min(window, fixed+due/2))
+	}
+	room := max(0, due-fixed)
 
-	p := plan{summaryWindow: c.summaryWindow(window)}
+	p := plan{summaryWindow: c.summaryWindow(window), dueTokens: due}
 	p.allowance = c.MaxTokens
 	if p.allowance <= 0 {
 		p.allowance = defaultSummaryTokens

@@ -52,7 +52,10 @@ their middle, followed by the turns after the compaction turn.
    (`Compactor.MaxTokens`, default 16,384, also at most a quarter of the
    summary model's window), and the tail at most a quarter
    (`Compactor.TailFraction`); together at most half. So the replacement
-   history stays well below the due count.
+   history stays well below the due count. When the fixed part takes more
+   than half the due count, as many tool definitions can, the due count rises
+   to the fixed part plus half of it, up to the window, so compaction keeps
+   room instead of turning itself off.
 2. It keeps the newest messages that fit the tail, cutting only where a user
    message other than a tool result starts, so it never splits a tool call
    from its result. If nothing fits, it keeps none and summarizes all of the
@@ -159,7 +162,21 @@ operation table.
 
 A compaction turn that stops without ending (a failed summary) is the host's
 to close: `Cancel` it through the inbox, unless it is held for budget, and
-admit again; replay then uses the fallback. A host that would rather not wait
+admit again; replay then uses the fallback. A turn is held for budget when
+its `Stop` is limited, not ended, not inferred, and its `Limit` is a
+`LimitHost` without `Ends`; a turn stopped by its own `Start.Budget` cap is
+not held, so close it.
+
+```go
+s := last.Stop // the last turn's view
+stopped := s.Kind != "" && !s.Inferred && !s.Ended
+held := s.Kind == dashi.StopLimited && s.Limit != nil &&
+	s.Limit.Kind == dashi.LimitHost && !s.Limit.Ends
+if last.Origin == dashi.StartCompaction && stopped && !held {
+	inbox.Put(last.ID, dashi.Cancel{CommandID: "close:" + last.ID})
+}
+```
+ A host that would rather not wait
 for a budget hold may cancel it too. `ExampleCompactor_StartIfNeeded` records,
 drives, crashes midway, and resumes without an API key.
 

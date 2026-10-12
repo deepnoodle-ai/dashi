@@ -74,17 +74,22 @@ func (p Policy) dueTokens() int {
 	return int(min(fraction, 1) * float64(window))
 }
 
-// dueHistory also counts tool output added after the last model call, by
-// estimating tokens from the history's size. History with images, audio,
-// video, or binary documents uses only the last call's usage, since its byte
-// size says little about tokens.
-func (p Policy) dueHistory(messages []llm.Message, last llm.Usage) bool {
-	if p.Due(last) {
+// dueHistory reports whether the last call's usage, or the history's
+// estimated size, reaches due tokens, unless automatic compaction is off.
+// The estimate counts tool output added after the last model call. History
+// with images, audio, video, or binary documents uses only the last call's
+// usage, since its byte size says little about tokens.
+func (p Policy) dueHistory(messages []llm.Message, last llm.Usage, due int) bool {
+	if p.Fraction < 0 {
+		return false
+	}
+	reached := func(used int) bool { return used > 0 && used >= due }
+	if reached(usedTokens(last)) {
 		return true
 	}
 	if compactiontext.HasMedia(messages) {
 		return false
 	}
 	b, err := json.Marshal(messages)
-	return err == nil && p.Due(llm.Usage{InputTokens: len(b) / bytesPerToken})
+	return err == nil && reached(len(b)/bytesPerToken)
 }

@@ -221,6 +221,13 @@ model.
   `Start.Budget` cap is closed like a failure; its fallback stands in.
 - `session` returns any error from recording or running the compaction turn,
   as it does a custom `Start` error: no path sends the history that is due.
+- When the fixed part takes more than half the due count, the due count
+  rises to the fixed part plus half of it, up to the window. At the 0.2
+  default, many tool definitions would otherwise turn compaction off until
+  the window overflowed, and then leave no room. Only a fixed part that fills
+  the window gives "not needed", and `Start` then returns
+  `ErrNothingToCompact`, so neither the session's overflow path nor a manual
+  compaction makes a summary call with no room.
 - `StartIfNeeded` sees an overflow only while the overflowed turn is the last
   and has ended; a turn the host closed reads as canceled, and the size
   estimate decides.
