@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -745,5 +747,57 @@ func TestCrashedCallStartIsNeverSentUnderItsID(t *testing.T) {
 		"t1:model:2",
 	}; !slices.Equal(finished, want) {
 		t.Fatalf("finished=%v", finished)
+	}
+}
+
+// A rejected call records the classified llm.Error beside its original text.
+func TestModelFailureRecordsErrorDetails(t *testing.T) {
+	client := &scriptedClient{
+		results: []llm.Result{{}},
+		errors: []error{&llm.Error{
+			Provider:   "test",
+			Category:   llm.ErrorRateLimited,
+			SendStatus: llm.SendStatusProviderRejected,
+			Status:     429,
+			Retryable:  true,
+			RetryAfter: 30 * time.Second,
+			Cause:      errors.New("slow down"),
+		}},
+	}
+	out, err := start(t, client, nil, NewMemoryRecorder(), Hooks{})
+	if err != nil || out.Stop.Kind != StopFailed {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	var finished *ModelFact
+	for _, step := range out.Turn.Steps {
+		if step.Kind == StepModelCallFinished {
+			finished = step.Model
+		}
+	}
+	if finished == nil ||
+		finished.ErrorCategory != llm.ErrorRateLimited ||
+		finished.HTTPStatus != 429 || !finished.Retryable ||
+		finished.RetryAfter != 30*time.Second ||
+		!strings.Contains(finished.Error, "slow down") {
+		t.Fatalf("finish=%+v", finished)
+	}
+
+	// Details without an error fail replay.
+	turn := cloneTurn(out.Turn)
+	for i := range turn.Steps {
+		if turn.Steps[i].Kind == StepModelCallFinished {
+			turn.Steps[i].Model.Error = ""
+			turn.Steps[i].Model.SendStatus = ""
+			turn.Steps[i].Model.Evidence = ""
+			turn.Steps[i].Model.Result = &llm.Result{
+				Message:   llm.AssistantMessage(llm.Text("ok")),
+				Stop:      llm.Stop{Kind: llm.StopFinished},
+				Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
+			}
+		}
+	}
+	if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) ||
+		!strings.Contains(err.Error(), "model error details without error") {
+		t.Fatalf("view err=%v", err)
 	}
 }

@@ -85,3 +85,10 @@ turn before deciding what happened to its steers.
 `AddMessages` adds context to a turn that is not running. Its items may carry
 IDs too; a repeat with the same content is skipped. Context items, from steers,
 `AddMessages`, or hooks, may hold only text, media, documents, and reminders.
+
+Context the first model request needs, such as reminders, goes on
+`Start.Items` instead of a `BeforeModel` hook that checks for the first call.
+The Start step records them with its input, and every later request keeps
+them, as it keeps `AddMessages` items. They follow the same rules: only
+`ContextOperator` items may use the system or developer role or an operator
+reminder.

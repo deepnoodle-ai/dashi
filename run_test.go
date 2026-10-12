@@ -1567,3 +1567,57 @@ func TestContinueHistoryMismatchModeIsNotCommandContent(t *testing.T) {
 		t.Fatalf("retry: steps=%d err=%v", len(again.Turn.Steps), err)
 	}
 }
+
+// failingSteering fails the test when a run reads it.
+type failingSteering struct{ t *testing.T }
+
+func (s failingSteering) Steers(context.Context, string) ([]Steer, error) {
+	s.t.Error("steering was read")
+	return nil, nil
+}
+
+func (s failingSteering) Delivered(context.Context, string, []string) error {
+	s.t.Error("steering was acknowledged")
+	return nil
+}
+
+// Record commits the Start alone. The turn is ready: Continue runs it with
+// no resume counted and no crash reminder, even when no resume is allowed.
+func TestRecordCommitsStartAlone(t *testing.T) {
+	rec := NewMemoryRecorder()
+	agent := testAgent()
+	agent.Limits.Resumes = -1
+	start := Start{
+		CommandID: "start",
+		Agent:     agent,
+		Input:     []llm.Message{llm.UserMessage(llm.Text("hello"))},
+	}
+	saver := Runner{Recorder: rec}
+	saved, err := saver.Record(t.Context(), Turn{ID: "t1"}, start,
+		WithSteering(failingSteering{t}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Turn.Steps) != 1 || saved.Next() != NextContinue ||
+		!saved.ReadyToContinue || saved.Resumes != 0 {
+		t.Fatalf("saved=%+v steps=%d next=%v", saved.Stop, len(saved.Turn.Steps), saved.Next())
+	}
+	// A retry with the same command ID returns the recorded result.
+	again, err := saver.Record(t.Context(), Turn{ID: "t1"}, start)
+	if err != nil || len(again.Turn.Steps) != 1 {
+		t.Fatalf("retry steps=%d err=%v", len(again.Turn.Steps), err)
+	}
+
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	done, err := (Runner{Client: client, Recorder: rec}).Run(
+		t.Context(), saved.Turn, Continue{CommandID: "run"},
+	)
+	if err != nil || done.Stop.Kind != StopCompleted || done.Resumes != 0 {
+		t.Fatalf("done=%+v resumes=%d err=%v", done.Stop, done.Resumes, err)
+	}
+	for _, m := range client.inputs[0].Messages {
+		if strings.Contains(m.Text(), crashResumeText) {
+			t.Fatal("a turn that began no work got a crash reminder")
+		}
+	}
+}

@@ -301,23 +301,18 @@ func (s *replayState) stopEnds(stop Stop) bool {
 }
 
 // acceptsAfterEnd rejects a command on an ended turn unless it is a Resolve
-// reporting the result of work that had already started.
+// reporting the result of a model call that had already started. Such a
+// result corrects the turn's spend, never its conversation; an ended turn
+// refuses tool results.
 func (s *replayState) acceptsAfterEnd(command Command) error {
 	if !s.Stop.Ended {
 		return nil
 	}
 	if c, ok := command.(Resolve); ok &&
-		c.Approval == nil && c.ProviderToolApproval == nil {
-		if c.ModelResult != nil || c.ModelFailure != nil {
-			if c.CallID != "" &&
-				(c.CallID == s.modelCallStart || c.CallID == s.unresolvedModel) {
-				return nil
-			}
-		} else if v, ok := s.Tools[c.CallID]; ok &&
-			(v.Status == ToolStarted || v.Status == ToolWaiting ||
-				v.Status == ToolResultUnknown) {
-			return nil
-		}
+		(c.ModelResult != nil || c.ModelFailure != nil) &&
+		c.CallID != "" &&
+		(c.CallID == s.modelCallStart || c.CallID == s.unresolvedModel) {
+		return nil
 	}
 	if s.Stop.Reason != "" {
 		return fmt.Errorf("%w: %s (%s)", ErrTurnEnded, s.Stop.Kind, s.Stop.Reason)
@@ -373,14 +368,14 @@ func (s *replayState) resumeLimitReached() bool {
 }
 
 // resumeCounts reports whether continuing from the current stop counts
-// toward Limits.Resumes. A crash (no stop) always counts. An
-// interrupted stop counts once the turn has made a model call; one
-// recorded before any, such as a Start recorded with a closed pause,
-// interrupted no work.
+// toward Limits.Resumes. A crash (no stop) counts unless the turn's only
+// step is its Start, which began no work. An interrupted stop counts once
+// the turn has made a model call; one recorded before any interrupted no
+// work.
 func (s *replayState) resumeCounts() bool {
 	switch s.Stop.Kind {
 	case "":
-		return true
+		return s.LastSeq > 1
 	case StopInterrupted:
 		return s.modelCalls > 0
 	}
@@ -427,18 +422,16 @@ func (s *replayState) trackHooks(step Step) {
 // latest item per origin and name, less NextCallOnly items once a model call
 // that was sent follows them, as TurnMessagesFull does.
 // trackInput adds the step's input to Input: a start's input, and the
-// user items of an AddMessages command or a steer.
+// user items of a start, an AddMessages command, or a steer.
 func (s *replayState) trackInput(step Step) {
 	if step.Kind == StepTurnStarted {
 		s.Input = llmclone.Messages(step.Started.Input)
-		return
-	}
-	if step.Context == nil ||
+	} else if step.Context == nil ||
 		!step.Context.Steering &&
 			(step.Kind != StepMessagesAdded || step.CommandID == "") {
 		return
 	}
-	for _, item := range step.Context.Items {
+	for _, item := range step.Items() {
 		if cmp.Or(item.Origin, ContextUser) != ContextUser {
 			continue
 		}
@@ -456,11 +449,8 @@ func (s *replayState) trackInput(step Step) {
 
 func (s *replayState) trackContext(step Step) {
 	switch step.Kind {
-	case StepMessagesAdded, StepLoopContinued, StepToolFinished:
-		if step.Context == nil {
-			return
-		}
-		for _, item := range step.Context.Items {
+	case StepTurnStarted, StepMessagesAdded, StepLoopContinued, StepToolFinished:
+		for _, item := range step.Items() {
 			if item.Name == "" {
 				continue
 			}

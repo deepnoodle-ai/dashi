@@ -239,8 +239,8 @@ func TestDeadlineStopFinishesPendingApproval(t *testing.T) {
 	}
 }
 
-// A started tool's late result is still recorded after the turn ends.
-func TestCanceledTurnRecordsLateToolResult(t *testing.T) {
+// An ended turn's conversation is closed: a started tool's result is refused.
+func TestCanceledTurnRefusesLateToolResult(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote")}}
 	rec := NewMemoryRecorder()
 	panics := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
@@ -260,9 +260,13 @@ func TestCanceledTurnRecordsLateToolResult(t *testing.T) {
 		CallID:    "call-1",
 		Outcome:   new(tool.Succeeded("done late")),
 	})
-	if err != nil || late.Stop.Kind != StopCanceled ||
-		late.Tools["call-1"].Status != ToolFinished {
+	if !errors.Is(err, ErrTurnEnded) ||
+		late.Tools["call-1"].Status != ToolResultUnknown {
 		t.Fatalf("late=%+v tool=%+v err=%v", late.Stop, late.Tools["call-1"], err)
+	}
+	saved, err := rec.Load(t.Context(), canceled.Turn.ID)
+	if err != nil || len(saved.Steps) != len(canceled.Turn.Steps) {
+		t.Fatalf("late result was recorded: steps=%d err=%v", len(saved.Steps), err)
 	}
 	if client.sends != 1 {
 		t.Fatalf("sends=%d, want no model call after the late result", client.sends)
@@ -324,8 +328,9 @@ func TestProviderToolApprovalAfterEndIsRefused(t *testing.T) {
 	}
 }
 
-// A started tool's late result is accepted after a deadline stop too.
-func TestDeadlineStopRecordsLateToolResult(t *testing.T) {
+// A started tool's late result is refused after a deadline stop too, and a
+// record holding one fails View.
+func TestDeadlineStopRefusesLateToolResult(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote")}}
 	panics := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
 		panic("boom")
@@ -343,17 +348,24 @@ func TestDeadlineStopRecordsLateToolResult(t *testing.T) {
 		Stop:    testStop(StopLimited, LimitDeadline),
 	})
 	runner := toolRunner(client, nil, panics)
-	late, err := runner.Run(t.Context(), turn, Resolve{
+	_, err = runner.Run(t.Context(), turn, Resolve{
 		CommandID: "late",
 		CallID:    "call-1",
 		Outcome:   new(tool.Succeeded("done late")),
 	})
-	if err != nil || late.Tools["call-1"].Status != ToolFinished || !late.Stop.Ended {
-		t.Fatalf("late=%+v err=%v", late.Stop, err)
-	}
-	_, err = runner.Run(t.Context(), late.Turn, Cancel{CommandID: "cancel"})
 	if err == nil || err.Error() != "dashi: turn has ended: limited (deadline)" {
-		t.Fatalf("cancel err=%v", err)
+		t.Fatalf("late err=%v", err)
+	}
+	outcome := tool.Succeeded("done late")
+	turn.Steps = append(turn.Steps, Step{
+		Version: 1,
+		TurnID:  turn.ID,
+		Seq:     int64(len(turn.Steps) + 1),
+		Kind:    StepToolFinished,
+		Tool:    &ToolFact{Call: first.Tools["call-1"].Call, Outcome: &outcome},
+	})
+	if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("view err=%v", err)
 	}
 }
 

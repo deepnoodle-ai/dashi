@@ -653,7 +653,8 @@ func (s *Session) readLast(
 		return t, nil, err
 	}
 	return nil, &dashi.Warning{
-		Code: dashi.WarningTurnUnreadable,
+		Code:   dashi.WarningTurnUnreadable,
+		TurnID: TurnID(s.ID, last),
 		Message: fmt.Sprintf(
 			"turn %s was left out of the history, and the next turn starts after it: %v",
 			TurnID(s.ID, last),

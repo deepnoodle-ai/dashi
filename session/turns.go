@@ -336,7 +336,8 @@ func (s *Session) history(ctx context.Context, n int) ([]llm.Message, []dashi.Wa
 		}
 		if err != nil {
 			warnings = append(warnings, dashi.Warning{
-				Code: dashi.WarningTurnUnreadable,
+				Code:   dashi.WarningTurnUnreadable,
+				TurnID: TurnID(s.ID, i),
 				Message: fmt.Sprintf(
 					"turn %s was left out of the history: %v",
 					TurnID(s.ID, i),

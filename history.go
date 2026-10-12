@@ -109,7 +109,8 @@ func buildHistory(
 
 func unreadable(turnID string, err error) Warning {
 	return Warning{
-		Code: WarningTurnUnreadable,
+		Code:   WarningTurnUnreadable,
+		TurnID: turnID,
 		Message: fmt.Sprintf(
 			"turn %s was left out of the history: %v",
 			turnID,
@@ -125,7 +126,8 @@ func hashMismatch(id, hash string, covered []llm.Message) *Warning {
 		return nil
 	}
 	return &Warning{
-		Code: WarningCompactionMismatch,
+		Code:   WarningCompactionMismatch,
+		TurnID: id,
 		Message: fmt.Sprintf(
 			"compaction turn %s does not match the turns it covers; its "+
 				"replacement history is still used",

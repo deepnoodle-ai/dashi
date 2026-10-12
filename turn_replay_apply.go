@@ -18,9 +18,9 @@ func (s *replayState) apply(step Step) error {
 	}
 	if s.Stop.Ended {
 		switch step.Kind {
-		case StepModelCallFinished, StepModelCallFinishedByHost, StepToolFinished:
+		case StepModelCallFinished, StepModelCallFinishedByHost:
 		default:
-			return errors.New("ended turn only accepts late results")
+			return errors.New("ended turn only accepts late model results")
 		}
 	}
 	// Once validated output is recorded, execution has no more work. A
@@ -102,6 +102,11 @@ func (s *replayState) apply(step Step) error {
 				reminder.Tier == llm.ReminderOperator &&
 				origin != StartOperator {
 				return errors.New("operator reminder requires operator start origin")
+			}
+		}
+		for _, item := range step.Started.Items {
+			if err := item.Validate(); err != nil {
+				return err
 			}
 		}
 		if step.Started.Parent != nil {
@@ -278,8 +283,14 @@ func (s *replayState) apply(step Step) error {
 		if step.Model.Result == nil && step.Model.Error == "" {
 			return errors.New("missing model outcome")
 		}
-		if step.Model.ErrorReason != "" && step.Model.Error == "" {
-			return errors.New("model error reason without error")
+		if step.Model.Error == "" &&
+			(step.Model.ErrorReason != "" || step.Model.ErrorCategory != "" ||
+				step.Model.HTTPStatus != 0 || step.Model.Retryable ||
+				step.Model.RetryAfter != 0) {
+			return errors.New("model error details without error")
+		}
+		if step.Model.HTTPStatus < 0 || step.Model.RetryAfter < 0 {
+			return errors.New("invalid model error details")
 		}
 		if err := validateModelAccounting(step.Model); err != nil {
 			return err
@@ -756,8 +767,8 @@ func (s *replayState) apply(step Step) error {
 		}
 		if step.Stop.Ended {
 			// The stop is the evidence that calls without a start could not
-			// run. Started calls stay pending until a late result arrives
-			// or the host resolves them.
+			// run. Started calls keep their status: the turn refuses their
+			// results, and the model saw them as unknown (endedToolResult).
 			for _, id := range s.callOrder {
 				v := s.Tools[id]
 				switch v.Status {

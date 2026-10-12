@@ -458,24 +458,15 @@ func TestCanceledTurnShowsUnfinishedCallsAndFreezes(t *testing.T) {
 			t.Fatalf("result %d = %+v", i, r)
 		}
 	}
-	before, _ := json.Marshal(messages)
 
-	// A late result is recorded and counted, but the turn's messages do not
-	// change.
-	late, err := runner.Run(t.Context(), canceled.Turn, Resolve{
+	// The ended turn refuses a late tool result, so its messages stay fixed.
+	_, err = runner.Run(t.Context(), canceled.Turn, Resolve{
 		CommandID: "late",
 		CallID:    "started",
 		Outcome:   new(tool.Succeeded("done late")),
 	})
-	if err != nil || late.Tools["started"].Status != ToolFinished {
-		t.Fatalf("late=%+v err=%v", late.Tools["started"], err)
-	}
-	after, err := TurnMessagesFull(late.Turn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if raw, _ := json.Marshal(after); !bytes.Equal(raw, before) {
-		t.Fatalf("late result changed the messages:\n%s\n%s", before, raw)
+	if !errors.Is(err, ErrTurnEnded) {
+		t.Fatalf("late err=%v", err)
 	}
 }
 

@@ -50,19 +50,25 @@ channel passed with
 `dashi.WithPause` for a graceful stop before the next model or tool call. Work
 already running finishes.
 
-Only `Start` and `Continue` call the model, so only they need
-`Runner.Client`, and a `Start` that only records the turn (below) does not
-when its Agent names its provider, API, and model. `Resolve`, `AddMessages`,
-and `Cancel` record facts and run with a `Runner` that has just a `Recorder`.
-A turn with no steps has not started, so `Cancel` refuses it; a host that
-accepted work and never ran it withdraws that work in its own records.
+Only `Start` and `Continue` call the model, so only `Run` needs
+`Runner.Client`. `Runner.Record` (below) does not when the Start's Agent names
+its provider, API, and model. `Resolve`, `AddMessages`, and `Cancel` record
+facts and run with a `Runner` that has just a `Recorder`. A turn with no steps
+has not started, so `Cancel` refuses it; record its `Start` first.
 
-To record a turn without running it, so it can run later, before any paid
-request, pass a `Start` with an already-closed pause channel. Dashi records the
-`Start` step and a `StopInterrupted` stop ("pause requested"), prepares and
-sends no model request, and `Next()` gives `NextContinue`. A later `Continue`
-runs the turn; it does not count toward `Limits.Resumes`, because no work was
-cut short. A `Cancel` withdraws it.
+To save a turn without running it, so it can run later, before any paid
+request, call `runner.Record(ctx, turn, start)`. Dashi commits the `Start`
+step alone: no model request, tool, steering read, or content load. A turn
+whose only step is its `Start` began no work, so `Next()` gives
+`NextContinue`, and a later `Continue` runs it without counting toward
+`Limits.Resumes` or adding a crash reminder. A `Cancel` withdraws it. A retry
+of `Record` with the same `CommandID` returns the recorded result.
+
+```go
+saved, err := runner.Record(ctx, dashi.NewTurn(id), start, dashi.WithOwner(owner))
+// later, to cancel work that never ran:
+out, err := runner.Run(ctx, saved.Turn, dashi.Cancel{Reason: "withdrawn"})
+```
 
 A command is applied once per recorder. Running the same command again, with
 the same `CommandID` and content against the same recorder, returns the
@@ -129,17 +135,18 @@ limited by its deadline or its resumes, or a cost cap that can no longer be
 checked, including a token cap with incomplete usage. Before that stop is
 recorded, `Continue` can recover existing work or record the stop after a
 crash, but checks before each call stop any new model or tool call. Raising a
-budget does not revive such a turn. After that, only `Resolve` reporting the
-result of work that had already started is accepted; every other command
-returns `dashi.ErrTurnEnded`. Unstarted calls are recorded as finished without
+budget does not revive such a turn. After that, the turn's conversation is
+closed: only `Resolve` reporting the result of a model call that had already
+started is accepted, because it corrects spend. Every other command, a tool
+result included, returns `dashi.ErrTurnEnded`. Unstarted calls are recorded as finished without
 running, so no approval stays pending on an ended turn.
 
 An ended turn always builds into messages, so it stays in the history of
 later turns. `dashi.TurnMessagesFull` reads it only up to the stop that ended
 it: a call still started, waiting, or with an unknown result there becomes an
 error result ("Result unknown; the turn ended"), and a model call with no
-recorded result adds nothing. A late result is recorded and counts toward
-spend, but never changes the history later turns see.
+recorded result adds nothing. A late model result is recorded and counts
+toward spend, but never changes the history later turns see.
 
 The zero `Limits` value gives the defaults: 8 model calls, 10 resumes after
 interruption, 3 provider pauses, one tool call at a time, a reserved final

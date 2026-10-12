@@ -451,7 +451,8 @@ func (s *Session) checkHash(ctx context.Context, t *sessionTurn) *dashi.Warning 
 	messages, _ := s.history(ctx, f.Through)
 	if got, err := dashi.HistoryHash(messages); err != nil || got != f.Hash {
 		t.mismatch = &dashi.Warning{
-			Code: dashi.WarningCompactionMismatch,
+			Code:   dashi.WarningCompactionMismatch,
+			TurnID: t.turn.ID,
 			Message: fmt.Sprintf(
 				"compaction turn %s does not match the turns it covers; its "+
 					"replacement history is still used",

@@ -836,3 +836,38 @@ func runtimeMessageWithContext(message llm.Message, origin, name string) llm.Mes
 	message.Context = &llm.MessageContext{Origin: origin, Name: name}
 	return message
 }
+
+// A Start's items survive active compaction: every request, the summary
+// request included, sends them once.
+func TestActiveCompactionKeepsStartItems(t *testing.T) {
+	c, a := activeFixture()
+	c.results = append(c.results[:3], final("done"))
+	note := "Start reminder: keep the objective."
+	start := activeStart(a)
+	start.Items = []ContextItem{{
+		ID:       "reminder:objective",
+		Name:     "objective",
+		Origin:   ContextRuntime,
+		Snapshot: true,
+		Message:  llm.UserMessage(llm.Text(note)),
+	}}
+	calls := 0
+	out, err := (Runner{Client: c, Tools: activeTools(&calls)}).Run(t.Context(), Turn{ID: "start-items"}, start)
+	if err != nil || out.Stop.Kind != StopCompleted || len(out.ContextCompactions) != 1 {
+		t.Fatalf("stop=%+v summaries=%d err=%v", out.Stop, len(out.ContextCompactions), err)
+	}
+	if !strings.HasPrefix(c.sent[2].System, activeSummaryPrompt) {
+		t.Fatal("fixture did not dispatch a summary")
+	}
+	for i, input := range c.sent {
+		n := 0
+		for _, m := range input.Messages {
+			if strings.Contains(m.Text(), note) {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Fatalf("send %d carries the start item %d times", i, n)
+		}
+	}
+}

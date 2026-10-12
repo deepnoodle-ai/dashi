@@ -198,6 +198,13 @@ func (r Runner) apply(
 		if err := validateCompaction(origin, c.Compaction); err != nil {
 			return RunResult{}, fmt.Errorf("dashi: %w", err)
 		}
+		items, err := newMessageItems(state, c.Items)
+		if err != nil {
+			return RunResult{}, err
+		}
+		if len(items) == 0 {
+			items = nil
+		}
 		if n := c.Agent.Limits.ToolResultBytes; n > 0 && n < minToolResultBytes {
 			rt.pendingWarnings = append(rt.pendingWarnings, Warning{
 				Code: WarningLimitAdjusted,
@@ -216,8 +223,8 @@ func (r Runner) apply(
 		if agent.ActiveCompaction != nil && !agent.ActiveCompaction.Disabled && origin != StartCompaction && window == 0 {
 			rt.pendingWarnings = append(rt.pendingWarnings, Warning{Code: WarningActiveCompactionUnavailable, Message: "Active context protection has no recorded window; set ActiveCompactionPolicy.Window or provide model context evidence."})
 		}
-		if err := r.checkModelClient(opts, state); err != nil {
-			return RunResult{}, err
+		if r.Client == nil && !opts.record {
+			return RunResult{}, errNoModelClient
 		}
 		if o := rt.commit(Step{
 			Kind:        StepTurnStarted,
@@ -231,11 +238,15 @@ func (r Runner) apply(
 				Origin:                 origin,
 				HistoryHash:            hash,
 				Input:                  llmclone.Messages(c.Input),
+				Items:                  items,
 				Parent:                 cloneCallRef(c.Parent),
 				Compaction:             c.Compaction.clone(),
 			},
 		}); o != nil {
 			return rt.result(*o)
+		}
+		if opts.record {
+			return rt.result(rt.current())
 		}
 	case AddMessages:
 		if len(turn.Steps) == 0 ||
@@ -323,8 +334,8 @@ func (r Runner) apply(
 		if !state.canContinueWith(c.Budget, c.ModelCalls) {
 			return RunResult{}, notReady(state)
 		}
-		if err := r.checkModelClient(opts, state); err != nil {
-			return RunResult{}, err
+		if r.Client == nil {
+			return RunResult{}, errNoModelClient
 		}
 		rt.history = llmclone.Messages(c.History)
 		step := Step{
@@ -504,24 +515,9 @@ func (r Runner) apply(
 	return rt.result(rt.run())
 }
 
-// errNoModelClient rejects a run that would prepare or send a model request
-// without a Client.
+// errNoModelClient rejects, before anything is recorded, a Start or Continue
+// run without a Client, which could prepare or send a model request.
 var errNoModelClient = errors.New("dashi: client is required to call the model")
-
-// checkModelClient rejects, before anything is recorded, a Start or Continue
-// that would call the model without a Client. Only an already-closed pause
-// stops the run before its next model call, so such a run needs no Client
-// unless a summary from active compaction must still be applied, which
-// prepares a request.
-func (r Runner) checkModelClient(opts runOptions, state *replayState) error {
-	if r.Client != nil {
-		return nil
-	}
-	if !pauseClosed(opts.pause) || state.pendingCompaction != "" {
-		return errNoModelClient
-	}
-	return nil
-}
 
 func pauseClosed(pause <-chan struct{}) bool {
 	if pause == nil {

@@ -121,9 +121,10 @@ an open limited stop end the turn; `Resolve` checks this before saving. Cost
 of a field over a method: if decision 25 later lets `Continue` raise agent
 limits, old records carry a stale value; acceptable before release.
 
-*After an ending stop the record accepts only late results of work that had
-already started* (`StepModelCallFinished`, `StepModelCallFinishedByHost`,
-`StepToolFinished`), as a canceled turn does today. Replay applies the cancel
+*After an ending stop the record accepts only late results of model calls
+that had already started* (`StepModelCallFinished`,
+`StepModelCallFinishedByHost`), which correct spend. The conversation is
+closed, so a tool result is refused. Replay applies the cancel
 rules to every ending stop: unstarted calls finish as not executed and pending
 provider tool approvals clear, so no UI offers "Approve" on a dead turn; a
 late model result's tool calls never enter the turn (the two replay checks and

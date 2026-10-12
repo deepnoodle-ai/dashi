@@ -570,29 +570,26 @@ func (c noModelClient) Send(context.Context, llm.Call) (llm.Result, error) {
 
 func TestRecordWithoutClient(t *testing.T) {
 	rec := NewMemoryRecorder()
-	paused := make(chan struct{})
-	close(paused)
 	recordOnly := Start{
 		CommandID: "start",
 		Agent:     testAgent(),
 		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
 	}
-	recorded, err := (Runner{Recorder: rec}).Run(
-		t.Context(), Turn{ID: "t1"}, recordOnly, WithPause(paused),
+	recorded, err := (Runner{Recorder: rec}).Record(
+		t.Context(), Turn{ID: "t1"}, recordOnly,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(recorded.Turn.Steps) != 2 ||
-		recorded.Stop.Kind != StopInterrupted ||
-		recorded.Stop.Reason != "pause requested" ||
+	if len(recorded.Turn.Steps) != 1 ||
+		recorded.Stop.Kind != "" ||
 		recorded.Next() != NextContinue {
 		t.Fatalf("recorded=%+v steps=%d", recorded.Stop, len(recorded.Turn.Steps))
 	}
 
-	// The same unrun Start with a Client records the same Start step.
-	withClient, err := (Runner{Client: &scriptedClient{}}).Run(
-		t.Context(), Turn{ID: "t1"}, recordOnly, WithPause(paused),
+	// The same Start recorded with a Client records the same Start step.
+	withClient, err := (Runner{Client: noModelClient{t}}).Record(
+		t.Context(), Turn{ID: "t1"}, recordOnly,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -610,7 +607,7 @@ func TestRecordWithoutClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(retried.Turn.Steps) != 2 || client.sends != 0 {
+	if len(retried.Turn.Steps) != 1 || client.sends != 0 {
 		t.Fatalf("retry ran: steps=%d sends=%d", len(retried.Turn.Steps), client.sends)
 	}
 
@@ -624,8 +621,8 @@ func TestRecordWithoutClient(t *testing.T) {
 
 	// Continue with a Client runs a turn that was recorded without running.
 	rec2 := NewMemoryRecorder()
-	again, err := (Runner{Recorder: rec2}).Run(
-		t.Context(), Turn{ID: "t2"}, recordOnly, WithPause(paused),
+	again, err := (Runner{Recorder: rec2}).Record(
+		t.Context(), Turn{ID: "t2"}, recordOnly,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -640,8 +637,6 @@ func TestRecordWithoutClient(t *testing.T) {
 }
 
 func TestStartWithoutClientNeedsAFullAgent(t *testing.T) {
-	paused := make(chan struct{})
-	close(paused)
 	for _, clear := range []func(*Agent){
 		func(a *Agent) { a.Provider = "" },
 		func(a *Agent) { a.API = "" },
@@ -650,10 +645,10 @@ func TestStartWithoutClientNeedsAFullAgent(t *testing.T) {
 		rec := NewMemoryRecorder()
 		agent := testAgent()
 		clear(&agent)
-		_, err := (Runner{Recorder: rec}).Run(t.Context(), Turn{ID: "t1"}, Start{
+		_, err := (Runner{Recorder: rec}).Record(t.Context(), Turn{ID: "t1"}, Start{
 			Agent: agent,
 			Input: []llm.Message{llm.UserMessage(llm.Text("hi"))},
-		}, WithPause(paused))
+		})
 		if err == nil || !strings.Contains(err.Error(), "client is required to fill") {
 			t.Fatalf("err=%v", err)
 		}
@@ -664,15 +659,13 @@ func TestStartWithoutClientNeedsAFullAgent(t *testing.T) {
 }
 
 func TestStartWithoutClientAndActiveCompactionFails(t *testing.T) {
-	paused := make(chan struct{})
-	close(paused)
 	rec := NewMemoryRecorder()
 	agent := testAgent()
 	agent.ActiveCompaction = &ActiveCompactionPolicy{}
-	_, err := (Runner{Recorder: rec}).Run(t.Context(), Turn{ID: "t1"}, Start{
+	_, err := (Runner{Recorder: rec}).Record(t.Context(), Turn{ID: "t1"}, Start{
 		Agent: agent,
 		Input: []llm.Message{llm.UserMessage(llm.Text("hi"))},
-	}, WithPause(paused))
+	})
 	if err == nil || !strings.Contains(err.Error(), "context window") {
 		t.Fatalf("err=%v", err)
 	}
@@ -695,12 +688,10 @@ func TestRunWithoutClientCannotCallTheModel(t *testing.T) {
 		t.Fatalf("start was recorded: %v", err)
 	}
 
-	paused := make(chan struct{})
-	close(paused)
-	recorded, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+	recorded, err := runner.Record(t.Context(), Turn{ID: "t1"}, Start{
 		Agent: testAgent(),
 		Input: []llm.Message{llm.UserMessage(llm.Text("hi"))},
-	}, WithPause(paused))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1013,5 +1004,73 @@ func TestPauseAfterModelCallCountsAsResume(t *testing.T) {
 	done, err := runner.Run(t.Context(), stopped.Turn, Continue{CommandID: "run"})
 	if err != nil || done.Stop.Kind != StopCompleted || done.Resumes != 1 {
 		t.Fatalf("done=%+v interruptions=%d err=%v", done.Stop, done.Resumes, err)
+	}
+}
+
+// A Start's items are recorded on the Start step and sent after Input in
+// every model request of the turn.
+func TestStartItems(t *testing.T) {
+	reminder := ContextItem{
+		ID:       "reminder:objective",
+		Name:     "objective",
+		Origin:   ContextRuntime,
+		Snapshot: true,
+		Message:  llm.UserMessage(llm.Text("Keep the objective.")),
+	}
+	operator := ContextItem{
+		ID:      "reminder:policy",
+		Name:    "policy",
+		Origin:  ContextOperator,
+		Message: llm.Message{Role: llm.RoleDeveloper, Content: []llm.Content{llm.Text("Be brief.")}},
+	}
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote"), final("done")}}
+	ok := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+		return tool.Succeeded("ok"), nil
+	})
+	rec := NewMemoryRecorder()
+	out, err := toolRunner(client, rec, ok).Run(t.Context(), Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Agent:     testAgent(),
+		Input:     []llm.Message{llm.UserMessage(llm.Text("do it"))},
+		Items:     []ContextItem{reminder, operator},
+	})
+	if err != nil || out.Stop.Kind != StopCompleted || len(client.inputs) != 2 {
+		t.Fatalf("stop=%+v requests=%d err=%v", out.Stop, len(client.inputs), err)
+	}
+	if items := out.Turn.Steps[0].Items(); len(items) != 2 || items[0].ID != reminder.ID {
+		t.Fatalf("start step items=%+v", items)
+	}
+	for i, input := range client.inputs {
+		got := input.Messages
+		if len(got) < 3 || got[0].Text() != "do it" ||
+			got[1].Text() != "Keep the objective." ||
+			got[1].Context == nil || got[1].Context.Name != "objective" ||
+			got[2].Role != llm.RoleDeveloper || got[2].Text() != "Be brief." {
+			t.Fatalf("request %d messages=%+v", i, got)
+		}
+	}
+	if item, found := out.Context(ContextRuntime, "objective"); !found || item.ID != reminder.ID {
+		t.Fatalf("context item=%+v found=%v", item, found)
+	}
+
+	// Items are checked as AddMessages items are, before anything is saved.
+	runtimeAuthority := reminder
+	runtimeAuthority.Message.Role = llm.RoleDeveloper
+	for name, items := range map[string][]ContextItem{
+		"authority": {runtimeAuthority},
+		"repeat":    {reminder, reminder},
+	} {
+		rec := NewMemoryRecorder()
+		_, err := (Runner{Recorder: rec}).Record(t.Context(), Turn{ID: "bad"}, Start{
+			Agent: testAgent(),
+			Input: []llm.Message{llm.UserMessage(llm.Text("do it"))},
+			Items: items,
+		})
+		if err == nil {
+			t.Fatalf("%s: accepted", name)
+		}
+		if _, err := rec.Load(t.Context(), "bad"); !errors.Is(err, ErrTurnNotFound) {
+			t.Fatalf("%s: turn was recorded: %v", name, err)
+		}
 	}
 }
