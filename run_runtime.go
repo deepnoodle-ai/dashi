@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -139,8 +140,12 @@ func (r *runtime) commit(step Step) *RunResult {
 	step.At = time.Now().UTC()
 	if step.Kind == StepTurnStopped && step.Stop != nil {
 		stop := *step.Stop
-		stop.Ended = r.endsTurnAfter(stop)
+		var fallback *Warning
+		stop.Ended, fallback = r.endsTurnAfter(stop)
 		step.Stop = &stop
+		if fallback != nil {
+			step.Warnings = append(step.Warnings, *fallback)
+		}
 	}
 	if step.Kind == StepModelCallStarted {
 		// The fallback usage counts toward spend before the call is sent.
@@ -215,14 +220,28 @@ func (r *runtime) commit(step Step) *RunResult {
 }
 
 // endsTurnAfter reports whether recording stop would end the turn. A stop
-// changes none of the state terminal reads except the stop itself.
-func (r *runtime) endsTurnAfter(stop Stop) bool {
+// changes none of the state terminal reads except the stop itself. When
+// the stop ends a compaction turn without a summary, it also returns the
+// WarningSummaryFallback the stop step records, so the warning is raised
+// once, with the turn's outcome.
+func (r *runtime) endsTurnAfter(stop Stop) (bool, *Warning) {
 	state, err := replay(r.turn)
 	if err != nil {
 		// The commit's own record check reports the broken record.
-		return false
+		return false, nil
 	}
-	return state.stopEnds(stop)
+	if !state.stopEnds(stop) {
+		return false, nil
+	}
+	if state.Origin != StartCompaction ||
+		compactiontext.Summarized(stop.Kind == StopCompleted, state.Reply) {
+		return true, nil
+	}
+	return true, &Warning{
+		Code:    WarningSummaryFallback,
+		TurnID:  r.turn.ID,
+		Message: compactiontext.FallbackWarning(r.turn.ID),
+	}
 }
 
 // emit stamps event.Seq with the number of recorded steps, so a step event

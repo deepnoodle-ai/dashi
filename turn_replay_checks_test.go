@@ -491,3 +491,76 @@ func writeTool() tool.List {
 		Kind:   tool.KindLocal,
 	}}}
 }
+
+// compactionStart is a compaction turn's Start with a recorded fallback.
+func compactionStart() Start {
+	return Start{
+		CommandID: "compact",
+		Origin:    StartCompaction,
+		Agent:     Agent{Model: "fixture", NoTools: true},
+		Input:     []llm.Message{llm.UserMessage(llm.Text("Summarize."))},
+		Compaction: &CompactionFact{
+			Keep:            []llm.Message{llm.UserMessage(llm.Text("kept"))},
+			SummaryFallback: "Earlier: the user asked for X.",
+		},
+	}
+}
+
+func fallbackCount(v TurnView) int {
+	n := 0
+	for _, w := range v.Warnings {
+		if w.Code == WarningSummaryFallback {
+			n++
+		}
+	}
+	return n
+}
+
+// The engine ends a compaction turn at a failure or an empty reply, with
+// one summary_fallback warning on the ending stop; a summary ends it with
+// none.
+func TestCompactionTurnEndsAtItsStop(t *testing.T) {
+	for name, client := range map[string]*scriptedClient{
+		"failed": {errors: []error{errors.New("provider down")}},
+		"empty":  {results: []llm.Result{final("")}},
+	} {
+		out, err := Runner{Client: client}.Run(t.Context(), Turn{ID: "c"}, compactionStart())
+		if err != nil || !out.Stop.Ended || out.Next() != NextNone {
+			t.Fatalf("%s: stop=%+v err=%v", name, out.Stop, err)
+		}
+		if fallbackCount(out.TurnView) != 1 {
+			t.Fatalf("%s: warnings=%v", name, out.Warnings)
+		}
+		if _, ok := out.ReplacementHistory(); !ok {
+			t.Fatalf("%s: no replacement", name)
+		}
+	}
+	out, err := Runner{Client: &scriptedClient{results: []llm.Result{final("<summary>S</summary>")}}}.
+		Run(t.Context(), Turn{ID: "c"}, compactionStart())
+	if err != nil || !out.Stop.Ended || fallbackCount(out.TurnView) != 0 {
+		t.Fatalf("summary: stop=%+v warnings=%v err=%v", out.Stop, out.Warnings, err)
+	}
+}
+
+// A host hold does not end a compaction turn; Cancel then ends it, and the
+// canceling stop records the warning.
+func TestCompactionTurnWaitsAtAHostHold(t *testing.T) {
+	hooks := Hooks{BeforeModel: []ModelHook{{
+		Name: "balance",
+		Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+			return ModelDecision{Stop: &Stop{
+				Kind: StopLimited, Reason: "balance too low",
+				Limit: &LimitDetail{Kind: LimitHost, Code: "balance"},
+			}}, nil
+		},
+	}}}
+	runner := Runner{Client: &scriptedClient{}, Hooks: hooks}
+	held, err := runner.Run(t.Context(), Turn{ID: "c"}, compactionStart())
+	if err != nil || held.Stop.Ended || !heldStop(held.TurnView) || fallbackCount(held.TurnView) != 0 {
+		t.Fatalf("held: stop=%+v warnings=%v err=%v", held.Stop, held.Warnings, err)
+	}
+	out, err := runner.Run(t.Context(), held.Turn, Cancel{CommandID: "close"})
+	if err != nil || !out.Stop.Ended || fallbackCount(out.TurnView) != 1 {
+		t.Fatalf("canceled: stop=%+v warnings=%v err=%v", out.Stop, out.Warnings, err)
+	}
+}

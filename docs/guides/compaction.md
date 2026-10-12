@@ -115,16 +115,19 @@ a turn that stopped because its history no longer fit
 
 ## When the summary fails
 
-Compaction never leaves a history too long to send. Once a compaction turn
-has ended without a summary (failed and closed, canceled, limited, or an
-empty reply), its replacement history uses the summary fallback in place of
-the summary, with no frame; a custom compactor that records none gets a
-fixed note. Every history built from it warns `summary_fallback`
-(`dashi.WarningSummaryFallback`, with the turn's ID). The session closes a
-stopped compaction turn at once (`Cancel` with command ID `close:` and its
-turn ID), except one held for budget (a host limit without `Ends`): that
-one waits, and a new Start refuses with a `*TurnBusyError` until it ends. A
-failed summary is not retried at that position; the next compaction comes
+Compaction never leaves a history too long to send. The engine ends a
+compaction turn at any stop but two: a host hold (a host limit without
+`Ends`, such as a credit hold) waits, and an interruption with no model call
+in flight can be continued. So a failure, a refusal, its own budget or
+model-call cap, or an empty reply ends it, and its replacement history uses
+the summary fallback in place of the summary, with no frame; a custom
+compactor that records none gets a fixed note. The stop that ends it without
+a summary records `summary_fallback` (`dashi.WarningSummaryFallback`, with
+the turn's ID) once, in that turn's `RunResult` and `TurnView.Warnings`;
+building a history does not repeat it. A session passes it on in the next
+turn's `SessionWarnings`. After a held compaction turn, a new Start refuses
+with a `*TurnBusyError` until it ends. A failed summary is not retried at
+that position; the next compaction comes
 when the history is due again. A compactor whose `Start` fails returns its
 error; `ErrNothingToCompact` means no compaction is needed. When two handles
 reach the compaction slot at once, one runs the compaction turn and the other
@@ -141,6 +144,9 @@ A host that saves turns in a database and runs them in workers asks one
 question at admission, before each work turn:
 
 ```go
+if !last.Stop.Ended { // the last turn's view
+	return errBusy // running, or held for budget: wait
+}
 start, needed, err := compactor.StartIfNeeded(ctx, turns) // oldest first
 if needed {
 	// Record under start.CommandID, "compact:" and the last turn's ID; a
@@ -160,24 +166,12 @@ messages, the hash, and the fallback, so a crash at any point leaves either
 no compaction turn or one whose replay is already decided. The host keeps no
 operation table.
 
-A compaction turn that stops without ending (a failed summary) is the host's
-to close: `Cancel` it through the inbox, unless it is held for budget, and
-admit again; replay then uses the fallback. A turn is held for budget when
-its `Stop` is limited, not ended, not inferred, and its `Limit` is a
-`LimitHost` without `Ends`; a turn stopped by its own `Start.Budget` cap is
-not held, so close it.
-
-```go
-s := last.Stop // the last turn's view
-stopped := s.Kind != "" && !s.Inferred && !s.Ended
-held := s.Kind == dashi.StopLimited && s.Limit != nil &&
-	s.Limit.Kind == dashi.LimitHost && !s.Limit.Ends
-if last.Origin == dashi.StartCompaction && stopped && !held {
-	inbox.Put(last.ID, dashi.Cancel{CommandID: "close:" + last.ID})
-}
-```
- A host that would rather not wait
-for a budget hold may cancel it too. `ExampleCompactor_StartIfNeeded` records,
+The host closes nothing; it only waits while the last turn has not ended. A
+failed summary ends its turn, and replay uses the fallback; a
+compaction turn held for budget waits like any held turn. A host that would
+rather not wait for a budget hold may `Cancel` it. A host that drives turns
+with `Drive` or `FollowNext` sees `summary_fallback` on the compaction
+turn's ending stop step and view. `ExampleCompactor_StartIfNeeded` records,
 drives, crashes midway, and resumes without an API key.
 
 `BuildHistory` walks back from the newest turn; at the newest ended
@@ -218,7 +212,7 @@ cancel that work first. It preserves queued input and starts no queue turn.
 No eligible history returns a zero `RunResult` and
 `session.ErrNothingToCompact`, which is also `compaction.ErrNothingToCompact`.
 A recorded failed or empty summary returns its `RunResult` with
-`summary_fallback`, and the fallback replaces the history. Preparation and
+`summary_fallback` in `Warnings`, and the fallback replaces the history. Preparation and
 recorder failures remain Go errors.
 
 The CLI enables automatic compaction and offers `/compact`. See the

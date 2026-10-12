@@ -336,7 +336,11 @@ type Stop struct {
 	// LimitDetail.Ends; for a model-call, cost, or token limit when the
 	// agent sets Limits.NoRaise; and for a turn limited by cost whose spend
 	// includes a cost that cannot be priced, or a token-capped turn whose
-	// usage totals are incomplete. Otherwise a turn stopped at its model
+	// usage totals are incomplete. A compaction turn (origin
+	// StartCompaction) ends at any stop but a host limit without
+	// LimitDetail.Ends, which waits for the host, and an interruption with
+	// no model call in flight, which Continue resumes: its summary
+	// fallback makes a retry pointless. Otherwise a turn stopped at its model
 	// call limit has not ended: Continue.ModelCalls raises the limit.
 	// The runner sets it when it records the stop.
 	//

@@ -136,6 +136,8 @@ func validateStepPayload(step Step) error {
 			valid = step.Kind == StepTurnStarted
 		case WarningToolDataDropped:
 			valid = step.Kind == StepToolFinished || step.Kind == StepToolWaiting
+		case WarningSummaryFallback:
+			valid = step.Kind == StepTurnStopped && step.Stop != nil && step.Stop.Ended
 		}
 		if !valid || warning.Message == "" {
 			return errors.New("invalid warning")

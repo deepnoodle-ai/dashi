@@ -17,7 +17,9 @@ import (
 // has ended, it uses that turn's replacement history (see
 // TurnView.ReplacementHistory) and stops, so turns before it may be left
 // out of turns. When that turn ended without a summary, its summary
-// fallback stands in, with a WarningSummaryFallback. Every other turn gives
+// fallback stands in; the turn's own stop recorded a
+// WarningSummaryFallback, so building the history does not warn again.
+// Every other turn gives
 // its TurnMessages; a compaction turn that has not ended gives nothing.
 // A turn whose view or messages cannot be built is left out with a
 // WarningTurnUnreadable, as a history that loses one old turn is still worth
@@ -79,16 +81,9 @@ func buildHistory(
 	for i := n - 1; i >= 0; i-- {
 		h, err := at(i)
 		if err == nil && h.view.Origin == StartCompaction {
-			msgs, fallback, ok := h.view.replacementHistory()
+			msgs, ok := h.view.ReplacementHistory()
 			if !ok {
 				continue // it has not ended, so no turn follows it yet
-			}
-			if fallback {
-				warnings = append(warnings, Warning{
-					Code:    WarningSummaryFallback,
-					TurnID:  h.id,
-					Message: compactiontext.FallbackWarning(h.id),
-				})
 			}
 			if check != nil {
 				if w := check(i, h); w != nil {
@@ -154,16 +149,9 @@ func hashMismatch(id, hash string, covered []llm.Message) *Warning {
 // is empty. It returns false for any other turn and for a compaction turn
 // that has not ended. The result shares message content with v.
 func (v TurnView) ReplacementHistory() ([]llm.Message, bool) {
-	msgs, _, ok := v.replacementHistory()
-	return msgs, ok
-}
-
-// replacementHistory is ReplacementHistory, and reports whether it used the
-// summary fallback.
-func (v TurnView) replacementHistory() (msgs []llm.Message, fallback, ok bool) {
 	f := v.Compaction
 	if f == nil || !v.Stop.Ended {
-		return nil, false, false
+		return nil, false
 	}
 	var text string
 	switch {
@@ -173,12 +161,12 @@ func (v TurnView) replacementHistory() (msgs []llm.Message, fallback, ok bool) {
 			text = f.Frame + "\n\n" + text
 		}
 	case f.SummaryFallback != "":
-		text, fallback = f.SummaryFallback, true
+		text = f.SummaryFallback
 	default:
-		text, fallback = compactiontext.EmptyFallback, true
+		text = compactiontext.EmptyFallback
 	}
 	out := make([]llm.Message, 0, len(f.Keep)+1)
 	out = append(out, f.Keep[:f.SummaryAt]...)
 	out = append(out, llm.UserMessage(llm.Text(text)))
-	return append(out, f.Keep[f.SummaryAt:]...), fallback, true
+	return append(out, f.Keep[f.SummaryAt:]...), true
 }

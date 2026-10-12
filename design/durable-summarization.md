@@ -73,8 +73,10 @@ then uses:
 - nothing, while the turn has not ended. No turn is admitted after an unended
   compaction turn, so this history is never sent.
 
-`BuildHistory` raises `WarningSummaryFallback` (with the turn's ID) each time
-it uses a fallback, as it does `WarningCompactionMismatch`; hosts show
+The stop that ends a compaction turn without a summary records
+`WarningSummaryFallback` (with the turn's ID), once, so it is in that turn's
+`RunResult` and `TurnView.Warnings`, and in the stop step a `Drive` or
+`FollowNext` host reads; `BuildHistory` does not repeat it. Hosts show
 "summarized" or "shortened without a summary", and `session` replaces
 `WarningCompactionFailed` with it. `IsSummary` also recognizes the stand-in.
 An empty `SummaryFallback` (from a custom compactor) replays as a fixed note.
@@ -135,9 +137,8 @@ The host's ~30 lines of window arithmetic become one field.
 ## Each failure, and its answer
 
 1. **The summary call fails** after its retries, or the reply has no summary.
-   The turn stops; once it has ended (the host or session closes any stopped
-   compaction turn that is not held for budget with `Cancel`), replay uses
-   `SummaryFallback`. Not retried at this position; the next compaction comes
+   The engine ends the turn at that stop, so replay uses `SummaryFallback`
+   with no host step. Not retried at this position; the next compaction comes
    when the history is due again.
 2. **The summary request is too big for the summarizer.** `Start` already
    cuts large transcript items in the middle. When even 1 KB per item does
@@ -175,13 +176,8 @@ The host's ~30 lines of window arithmetic become one field.
 ```go
 turns := conversationTurns(conv) // oldest first
 last := lastOf(turns)
-if isCompaction(last) && stopped(last) && !ended(last) && !held(last) {
-	// Failed, limited, or anything else Drive leaves stopped.
-	inbox.Put(ctx, last.ID, dashi.Cancel{CommandID: "close:" + last.ID})
-	return errBusy // retry once it has ended; its replay then uses the fallback
-}
-if !ended(last) {
-	return errBusy // includes a summary held for budget
+if !last.Stop.Ended {
+	return errBusy // running, or a summary held for budget: wait
 }
 start, needed, err := compactor.StartIfNeeded(ctx, turns)
 if err != nil {
@@ -193,7 +189,9 @@ if needed {
 	return retry()                           // run these steps again
 }
 history, warnings := dashi.BuildHistory(turns)
-notify(conv, warnings) // WarningSummaryFallback: "earlier messages shortened"
+notify(conv, warnings)
+// The compaction turn's own view warns WarningSummaryFallback ("earlier
+// messages shortened") once, when it ends.
 // ... admit the work turn with Start.History = history ...
 ```
 
@@ -216,9 +214,19 @@ model.
 
 ## Implementation notes
 
-- "Held for budget" is a host limit without `Ends` (`NextFix` with a host
-  `Code`), the stop Drive waits on. A compaction turn stopped by its own
-  `Start.Budget` cap is closed like a failure; its fallback stands in.
+- The engine ends a compaction turn (origin `StartCompaction`) at every
+  recorded stop except two: a host hold, a host limit without `Ends` (the
+  stop Drive waits on), and an interruption with no model call in flight,
+  which `Continue` resumes on any worker. `replayState.stopEnds` holds the
+  rule, so Run, Continue, Advance, and Drive record the same `Stop.Ended`
+  and replay checks it. A stop at its own `Start.Budget` or model-call cap,
+  a failure, a refusal, or an interruption mid-call ends it; a late model
+  result still corrects its spend. The same stop records
+  `WarningSummaryFallback` when it ends the turn without a summary.
+- `session` closes nothing itself; a new Start still closes an interrupted
+  compaction turn, as it closes any stopped turn, and refuses after a held
+  one. A `session` caller that never sees the compaction turn's result gets
+  its warning in the next turn's `SessionWarnings`.
 - `session` returns any error from recording or running the compaction turn,
   as it does a custom `Start` error: no path sends the history that is due.
 - When the fixed part takes more than half the due count, the due count
@@ -248,5 +256,7 @@ model.
   save one wait.
 - **A Dashi compaction runner or conversation store:** Dashi does not own
   turn sequences or workers ([advancing turns](advancing-turns.md)).
-- **Ending a failed compaction turn automatically:** saves the host three
-  lines but stops `Drive` from leaving retries to the host.
+- **Leaving a failed compaction turn for the host to close** (the first
+  version): every host copied a "held for budget" check and a `Cancel`, to
+  keep a retry that the free fallback makes pointless. The engine now ends
+  it.
