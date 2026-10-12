@@ -3,6 +3,7 @@ package dashi_test
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -79,7 +80,7 @@ func TestBuildHistory(t *testing.T) {
 		t.Fatalf("no compaction: %q", got)
 	}
 
-	// A failed compaction replaces nothing.
+	// A failed compaction turn that has not ended replaces nothing.
 	h.compact(2, "")
 	if got := textsOf(h.history()); !slices.Equal(got,
 		[]string{"first", "one", "second", "two"}) {
@@ -105,6 +106,55 @@ func TestBuildHistory(t *testing.T) {
 	if got := textsOf(h.history()); !slices.Equal(got,
 		[]string{"Summary:\n\nS2", "third", "three", "fourth", "four"}) {
 		t.Fatalf("compaction of a compaction: %q", got)
+	}
+}
+
+// A compaction turn that ended without a summary replaces the history with
+// its SummaryFallback, without the Frame, and warns each time; with no
+// fallback recorded, a fixed note stands in.
+func TestBuildHistorySummaryFallback(t *testing.T) {
+	for _, fallback := range []string{"Earlier: the user asked for X.", ""} {
+		h := &hostTurns{t: t, client: dashitest.NewClient()}
+		h.send("first", "one")
+		h.send("second", "two")
+		h.client.Add(dashitest.Reply(""))
+		history := h.history()
+		h.run(dashi.Start{
+			Origin: dashi.StartCompaction,
+			Agent:  dashi.Agent{NoTools: true},
+			Input:  []llm.Message{llm.UserMessage(llm.Text("Summarize."))},
+			Compaction: &dashi.CompactionFact{
+				Keep:            slices.Clone(history[len(history)-2:]),
+				Frame:           "Summary:",
+				SummaryFallback: fallback,
+			},
+		})
+		// Failed, and not ended: no replacement yet.
+		if got := textsOf(h.history()); len(got) != 4 {
+			t.Fatalf("before it ended: %q", got)
+		}
+		last := len(h.turns) - 1
+		out, err := dashi.Runner{Client: h.client}.Run(t.Context(), h.turns[last],
+			dashi.Cancel{CommandID: "close:" + h.turns[last].ID})
+		if err != nil || !out.Stop.Ended {
+			t.Fatalf("cancel: %+v %v", out.Stop, err)
+		}
+		h.turns[last] = out.Turn
+		got, warnings := dashi.BuildHistory(h.turns)
+		want := fallback
+		if want == "" {
+			want = textsOf(got)[0]
+			if !strings.HasPrefix(want, "Your conversation history was shortened without a summary.") {
+				t.Fatalf("fixed note: %q", want)
+			}
+		}
+		if !slices.Equal(textsOf(got), []string{want, "second", "two"}) {
+			t.Fatalf("history=%q", textsOf(got))
+		}
+		if !slices.Equal(codes(warnings), []dashi.WarningCode{dashi.WarningSummaryFallback}) ||
+			warnings[0].TurnID != out.Turn.ID {
+			t.Fatalf("warnings=%v", warnings)
+		}
 	}
 }
 

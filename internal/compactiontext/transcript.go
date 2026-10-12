@@ -113,7 +113,7 @@ func blockText(b content.Block) string {
 // budget bytes. It cuts the middle of an item and keeps its start and end.
 // It shortens and never drops an item, so the order and the count of items
 // stay the same. It returns an error when the smallest allowed items still
-// exceed the budget.
+// exceed the budget; ShortenTranscript drops items instead.
 func FitTranscript(items []string, budget int) ([]string, error) {
 	total := 0
 	for _, s := range items {
@@ -152,6 +152,52 @@ func FitTranscript(items []string, budget int) ([]string, error) {
 		out[i] = truncateMiddle(s, low)
 	}
 	return out, nil
+}
+
+// ShortenTranscript is FitTranscript that never fails. When the items do
+// not fit even at minItemBytes each, it drops whole items from the middle,
+// keeping the oldest item (the task) and as many of the newest as fit, with
+// one "[N items omitted]" marker in their place. When the oldest and newest
+// items alone do not fit at minItemBytes, it cuts every item to an equal
+// share of budget. The result may then exceed budget by the cut markers.
+func ShortenTranscript(items []string, budget int) []string {
+	if out, err := FitTranscript(items, budget); err == nil {
+		return out
+	}
+	if len(items) <= 1 {
+		return cutAll(items, budget)
+	}
+	floor := func(s string) int { return min(len(s), minItemBytes) }
+	const markerBytes = 32 // "[N items omitted]" with room for N
+	used := floor(items[0]) + markerBytes
+	from := len(items) // the first newest item kept
+	for from > 1 && used+floor(items[from-1]) <= budget {
+		from--
+		used += floor(items[from])
+	}
+	from = min(from, len(items)-1) // the newest item always stays
+	kept := []string{items[0]}
+	if omitted := from - 1; omitted > 0 {
+		kept = append(kept, fmt.Sprintf("[%d items omitted]", omitted))
+	}
+	kept = append(kept, items[from:]...)
+	if out, err := FitTranscript(kept, budget); err == nil {
+		return out
+	}
+	return cutAll(kept, budget)
+}
+
+// cutAll cuts every item to an equal share of budget.
+func cutAll(items []string, budget int) []string {
+	if len(items) == 0 {
+		return items
+	}
+	share := max(0, budget/len(items))
+	out := make([]string, len(items))
+	for i, s := range items {
+		out[i] = truncateMiddle(s, share)
+	}
+	return out
 }
 
 // truncateMiddle keeps the start and end of s and marks the cut. The result

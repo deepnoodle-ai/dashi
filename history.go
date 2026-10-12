@@ -14,9 +14,11 @@ import (
 // uses, for a host that keeps its own turns.
 //
 // It walks back from the newest turn. At the newest compaction turn that
-// completed with a summary, it uses that turn's replacement history and
-// stops, so turns before it may be left out of turns. Every other turn
-// gives its TurnMessages. A compaction turn that failed replaces nothing.
+// has ended, it uses that turn's replacement history (see
+// TurnView.ReplacementHistory) and stops, so turns before it may be left
+// out of turns. When that turn ended without a summary, its summary
+// fallback stands in, with a WarningSummaryFallback. Every other turn gives
+// its TurnMessages; a compaction turn that has not ended gives nothing.
 // A turn whose view or messages cannot be built is left out with a
 // WarningTurnUnreadable, as a history that loses one old turn is still worth
 // sending. When the compaction turn used has a Hash and turns holds turns
@@ -77,9 +79,16 @@ func buildHistory(
 	for i := n - 1; i >= 0; i-- {
 		h, err := at(i)
 		if err == nil && h.view.Origin == StartCompaction {
-			msgs, ok := h.view.ReplacementHistory()
+			msgs, fallback, ok := h.view.replacementHistory()
 			if !ok {
-				continue // a failed compaction replaces nothing
+				continue // it has not ended, so no turn follows it yet
+			}
+			if fallback {
+				warnings = append(warnings, Warning{
+					Code:    WarningSummaryFallback,
+					TurnID:  h.id,
+					Message: compactiontext.FallbackWarning(h.id),
+				})
 			}
 			if check != nil {
 				if w := check(i, h); w != nil {
@@ -137,22 +146,39 @@ func hashMismatch(id, hash string, covered []llm.Message) *Warning {
 }
 
 // ReplacementHistory returns the history a compaction turn replaces the
-// history of the turns it covers with: CompactionFact.Keep with the summary,
-// after its Frame, at SummaryAt. It returns false for any other turn and for
-// a compaction turn that did not complete with a summary, which replaces
-// nothing. The result shares message content with v.
+// history of the turns it covers with: CompactionFact.Keep with one message
+// at SummaryAt. When the turn completed with a summary, the message is the
+// summary after its Frame. When it ended any other way (failed, canceled,
+// limited, or completed with an empty reply), the message is
+// CompactionFact.SummaryFallback, with no Frame, or a fixed note when that
+// is empty. It returns false for any other turn and for a compaction turn
+// that has not ended. The result shares message content with v.
 func (v TurnView) ReplacementHistory() ([]llm.Message, bool) {
+	msgs, _, ok := v.replacementHistory()
+	return msgs, ok
+}
+
+// replacementHistory is ReplacementHistory, and reports whether it used the
+// summary fallback.
+func (v TurnView) replacementHistory() (msgs []llm.Message, fallback, ok bool) {
 	f := v.Compaction
-	answer := compactiontext.Summary(v.Reply)
-	if f == nil || v.Stop.Kind != StopCompleted || answer == "" {
-		return nil, false
+	if f == nil || !v.Stop.Ended {
+		return nil, false, false
 	}
-	summary := answer
-	if f.Frame != "" {
-		summary = f.Frame + "\n\n" + answer
+	var text string
+	switch {
+	case compactiontext.Summarized(v.Stop.Kind == StopCompleted, v.Reply):
+		text = compactiontext.Summary(v.Reply)
+		if f.Frame != "" {
+			text = f.Frame + "\n\n" + text
+		}
+	case f.SummaryFallback != "":
+		text, fallback = f.SummaryFallback, true
+	default:
+		text, fallback = compactiontext.EmptyFallback, true
 	}
 	out := make([]llm.Message, 0, len(f.Keep)+1)
 	out = append(out, f.Keep[:f.SummaryAt]...)
-	out = append(out, llm.UserMessage(llm.Text(summary)))
-	return append(out, f.Keep[f.SummaryAt:]...), true
+	out = append(out, llm.UserMessage(llm.Text(text)))
+	return append(out, f.Keep[f.SummaryAt:]...), fallback, true
 }

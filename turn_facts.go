@@ -21,13 +21,14 @@ func ArgsHash(args json.RawMessage) string {
 	return canonjson.Hash(args)
 }
 
-// CompactionFact is recorded in the start fact of a compaction turn. With
-// the turn's reply it forms the replacement history: Keep[:SummaryAt], a
-// user message of Frame and the summary, then Keep[SummaryAt:]. The
-// summary is the text inside the reply's last <summary> and </summary>
-// tags, or the whole reply when it has none. This is the
-// one place a turn records earlier messages, so a reader with no Compactor
-// builds the same history.
+// CompactionFact is recorded in the start fact of a compaction turn. Once
+// the turn has ended, it forms the replacement history: Keep[:SummaryAt], one
+// user message, then Keep[SummaryAt:]. When the turn completed with a
+// summary, the message is Frame and the summary: the text inside the reply's
+// last <summary> and </summary> tags, or the whole reply when it has none.
+// When it ended any other way, the message is SummaryFallback, with no
+// Frame. This is the one place a turn records earlier messages, so a reader
+// with no Compactor builds the same history.
 type CompactionFact struct {
 	// Through is the last turn covered.
 	Through int `json:"through"`
@@ -40,6 +41,10 @@ type CompactionFact struct {
 	SummaryAt int `json:"summary_at"`
 	// Frame is the text that introduces the summary.
 	Frame string `json:"frame"`
+	// SummaryFallback stands in for the summary when the turn ends without
+	// one. It is built with no model call, so the replacement history never
+	// depends on the summary call succeeding. Empty means a fixed note.
+	SummaryFallback string `json:"summary_fallback,omitempty"`
 }
 
 func (f *CompactionFact) clone() *CompactionFact {
