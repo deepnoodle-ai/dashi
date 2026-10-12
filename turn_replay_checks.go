@@ -392,7 +392,7 @@ func validateModelAccounting(fact *ModelFact) error {
 		return errors.New("unknown model interrupt cause")
 	}
 	if fact.NotSent && (fact.Interrupted == InterruptNone ||
-		fact.Result != nil || fact.Cost != nil || fact.ResultUnknown) {
+		fact.Result != nil || fact.ResultUnknown) {
 		return errors.New("known nondispatch cannot have a model result or charge")
 	}
 	if fact.Result != nil {
@@ -405,11 +405,6 @@ func validateModelAccounting(fact *ModelFact) error {
 			if err := fact.Result.Cost.Validate(); err != nil {
 				return err
 			}
-		}
-	}
-	if fact.Cost != nil {
-		if err := fact.Cost.Validate(); err != nil {
-			return err
 		}
 	}
 	return nil

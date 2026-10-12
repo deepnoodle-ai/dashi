@@ -125,10 +125,8 @@ func TestCutAnthropicProviderToolStreamCostIsPartial(t *testing.T) {
 		t.Fatalf("cut-off provider tool call looks fully priced: %+v", spend)
 	}
 	var charge *llm.Cost
-	for _, step := range outcome.Turn.Steps {
-		if step.Kind == dashi.StepModelCallFinished && step.Model != nil {
-			charge = step.Model.Cost
-		}
+	for _, c := range outcome.ModelCallCosts {
+		charge = c.Cost
 	}
 	if charge == nil || !charge.Partial() {
 		t.Fatalf("final cost = %+v, want partial", charge)

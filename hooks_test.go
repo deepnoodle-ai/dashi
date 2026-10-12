@@ -826,7 +826,9 @@ func TestFinishAddedMessagesCheckTheCostCap(t *testing.T) {
 				}
 				return FinishDecision{}, nil
 			}}
-			client := newPricedClient(final("draft"), final("fixed"))
+			draft := final("draft")
+			draft.Usage = &llm.Usage{InputTokens: 1000, OutputTokens: 100}
+			client := newPricedClient(draft, final("fixed"))
 			out, err := runBudgetTurnErr(
 				client,
 				&Budget{MaxCost: &Money{Amount: amount(tc.cap), Currency: "USD"}},

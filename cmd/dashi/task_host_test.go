@@ -658,7 +658,7 @@ func TestTaskNoticeUnknownStartPausesUntilExactResolution(t *testing.T) {
 func TestTaskDetailsSeparateModelCallEstimateFromDispatchAndHidePrivateContent(t *testing.T) {
 	turn := dashi.Turn{ID: "child", Steps: []dashi.Step{
 		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{ModelCallID: "not-sent", EstimatedInputTokens: 1234}},
-		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "not-sent", NotSent: true, EstimatedUsage: true}},
+		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "not-sent", NotSent: true}},
 		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{ModelCallID: "unknown"}},
 		{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{ModelCallID: "unknown", SendStatus: llm.SendStatusUnknown, ResultUnknown: true}},
 		{Kind: dashi.StepModelCallStarted, Model: &dashi.ModelFact{ModelCallID: "sent"}},

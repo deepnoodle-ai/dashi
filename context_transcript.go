@@ -8,6 +8,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/internal/llmclone"
+	"github.com/deepnoodle-ai/dashi/internal/mediakind"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -48,7 +49,7 @@ func (r *runtime) activeTranscript(messages []llm.Message) ([]string, error) {
 		}
 	}
 	textBlock := func(b content.Block) content.Block {
-		if compactiontext.IsTextDocument(b) {
+		if mediakind.IsTextDocument(b) {
 			return content.TextBlock("[text document: " + b.Document.Title + "]\n" + string(b.Document.Source.Data))
 		}
 		return b

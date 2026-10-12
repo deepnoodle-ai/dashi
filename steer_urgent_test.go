@@ -273,7 +273,7 @@ func TestUrgentSteerCutsStreamedCall(t *testing.T) {
 	}
 }
 
-func TestUrgentSteerLateFramesCountTowardOutput(t *testing.T) {
+func TestUrgentSteerLateFramesAddNoUsage(t *testing.T) {
 	inbox := newWatchedInbox()
 	client := newUrgentClient(
 		urgentCall{
@@ -289,22 +289,18 @@ func TestUrgentSteerLateFramesCountTowardOutput(t *testing.T) {
 	)
 	out := runUrgent(t, client, inbox)
 	cut := finishes(out.Turn)[0]
-	// 4 text + 40 reasoning + 40 late text runes, four to a token.
-	if cut.Result.Usage == nil || cut.Result.Usage.OutputTokens != 21 {
+	// Streamed deltas, late ones included, are not usage the provider
+	// reported, so they add nothing (decision 47).
+	if cut.Result != nil && cut.Result.Usage != nil {
 		t.Fatalf("recorded output estimate: %+v", cut.Result.Usage)
-	}
-	if !cut.EstimatedUsage {
-		t.Fatal("the cut call's usage is not marked estimated")
 	}
 	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Spend.Usage.OutputTokens < 21 {
-		t.Fatalf(
-			"replayed output = %d; the estimate was lost",
-			view.Spend.Usage.OutputTokens,
-		)
+	if view.ModelCallCosts[0].UsageSource != UsageSourceMissing ||
+		view.Spend.Usage.OutputTokens != 0 {
+		t.Fatalf("calls=%+v spend=%+v", view.ModelCallCosts, view.Spend)
 	}
 }
 
@@ -322,14 +318,14 @@ func TestUrgentSteerCutsCollectedCall(t *testing.T) {
 	if cut.Interrupted != InterruptSteering || cut.NotSent {
 		t.Fatalf("a cut collected call must count as sent: %+v", cut)
 	}
-	if !cut.EstimatedUsage || out.Spend.Estimated != 2 {
+	if out.Spend.CallsWithoutFinalUsage != 2 {
 		t.Fatalf(
-			"estimated calls = %d; the cut call was not counted",
-			out.Spend.Estimated,
+			"calls without final usage = %d; the cut call was not counted",
+			out.Spend.CallsWithoutFinalUsage,
 		)
 	}
-	if out.Spend.Usage.InputTokens <= 0 {
-		t.Fatal("the cut call's input was not counted")
+	if out.Spend.Usage.InputTokens != 0 {
+		t.Fatal("the cut call's input was filled in")
 	}
 	if hasText(client.inputs()[1].Messages, "stop") < 0 {
 		t.Fatal("the steer did not reach the next call")
@@ -347,7 +343,7 @@ func TestUrgentSteerBeforeHandOffFinishesNotDispatched(t *testing.T) {
 	}
 	cut := finishes(out.Turn)[0]
 	if cut.Interrupted != InterruptSteering || !cut.NotSent ||
-		cut.Result != nil || cut.Cost != nil {
+		cut.Result != nil {
 		t.Fatalf("a call cut before hand-off: %+v", cut)
 	}
 	if hasText(client.lastMessages(), "use staging") < 0 {
@@ -576,7 +572,7 @@ func TestReservedFinalReplyCallIsCutAndAskedAgain(t *testing.T) {
 	}
 }
 
-func TestUrgentSteerUnderCostCapChargesWorstCase(t *testing.T) {
+func TestUrgentSteerUnderCostCapChargesReportedUsage(t *testing.T) {
 	inbox := newWatchedInbox()
 	client := newPricedUrgentClient(
 		urgentCall{
@@ -610,16 +606,21 @@ func TestUrgentSteerUnderCostCapChargesWorstCase(t *testing.T) {
 	}
 	callStart := stepsOf(out.Turn, StepModelCallStarted)[0].Model
 	cut := finishes(out.Turn)[0]
-	if cut.Interrupted != InterruptSteering || cut.Cost == nil ||
-		callStart.WorstCaseCost == nil || cut.Cost.Total != callStart.WorstCaseCost.Total {
-		t.Fatalf("charge=%+v at risk=%+v", cut.Cost, callStart.WorstCaseCost)
+	charge := ModelCallCostOf(callStart, cut)
+	// Only the reported partial usage counts: 50 input tokens, no output
+	// estimate and no worst case (decision 47).
+	if cut.Interrupted != InterruptSteering || charge.Cost == nil ||
+		charge.UsageSource != UsageSourceCutOff ||
+		charge.Usage == nil || charge.Usage.InputTokens != 50 ||
+		charge.Usage.OutputTokens != 0 {
+		t.Fatalf("charge=%+v", charge)
 	}
-	if out.Spend.Cost["USD"] < callStart.WorstCaseCost.Total {
-		t.Fatalf(
-			"spend %s omits the worst case %s",
-			out.Spend.Cost["USD"],
-			callStart.WorstCaseCost.Total,
-		)
+	if callStart.WorstCaseCost == nil ||
+		charge.Cost.Total >= callStart.WorstCaseCost.Total {
+		t.Fatalf("charge=%+v at risk=%+v", charge.Cost, callStart.WorstCaseCost)
+	}
+	if out.Spend.Cost["USD"] != charge.Cost.Total {
+		t.Fatalf("spend %s, want the cut call's %s", out.Spend.Cost["USD"], charge.Cost.Total)
 	}
 }
 
@@ -1100,32 +1101,16 @@ func runCancelledMidStream(
 	return cut
 }
 
-func TestRunInterruptCountsLateFrames(t *testing.T) {
+func TestRunInterruptRecordsNoStreamedUsage(t *testing.T) {
 	cut := runCancelledMidStream(
 		t,
 		testAgent(),
 		[]llm.Delta{textDelta("abcd")},
 		[]llm.Delta{textDelta(strings.Repeat("x", 40))},
 	)
-	// 4 text + 40 late text runes, four to a token.
-	if cut.Result == nil || cut.Result.Usage == nil ||
-		cut.Result.Usage.OutputTokens != 11 {
+	// Streamed text is kept, but it is not usage the provider reported.
+	if cut.Result == nil || cut.Result.Usage != nil {
 		t.Fatalf("recorded output estimate: %+v", cut.Result)
-	}
-}
-
-func TestInterruptEstimateIsCappedAtMaxTokens(t *testing.T) {
-	def := testAgent()
-	def.Settings.MaxTokens = 5
-	cut := runCancelledMidStream(
-		t,
-		def,
-		[]llm.Delta{textDelta(strings.Repeat("x", 400))},
-		nil,
-	)
-	if cut.Result == nil || cut.Result.Usage == nil ||
-		cut.Result.Usage.OutputTokens != 5 {
-		t.Fatalf("recorded output exceeds max_tokens: %+v", cut.Result)
 	}
 }
 
@@ -1181,10 +1166,10 @@ func TestSteeredPartialIgnoresReturnedTextAfterTheCut(t *testing.T) {
 		cut.Result.Usage.InputTokens != 7 {
 		t.Fatalf("the returned ID or usage was lost: %+v", cut.Result)
 	}
-	// 41 runes streamed in all, four to a token.
-	if cut.Result.Usage.OutputTokens != 11 {
+	// Only the reported usage stands; streamed text adds no output.
+	if cut.Result.Usage.OutputTokens != 0 {
 		t.Fatalf(
-			"output = %d; text after the cut must still count",
+			"output = %d; streamed text must not be counted",
 			cut.Result.Usage.OutputTokens,
 		)
 	}
@@ -1200,8 +1185,8 @@ func TestSteeredPartialIgnoresReturnedTextAfterTheCut(t *testing.T) {
 }
 
 // A collected call shows nothing before it is cut, so a buffered result it
-// returns afterward has no visible partial; its output still counts.
-func TestSteeredCollectedCallKeepsNoPartialButCountsOutput(t *testing.T) {
+// returns afterward has no visible partial, and its text adds no usage.
+func TestSteeredCollectedCallKeepsNoPartial(t *testing.T) {
 	inbox := newWatchedInbox()
 	client := newUrgentClient(
 		urgentCall{
@@ -1227,9 +1212,8 @@ func TestSteeredCollectedCallKeepsNoPartialButCountsOutput(t *testing.T) {
 			cut.Result.Message.Text(),
 		)
 	}
-	if cut.Result.ID != "resp_1" || cut.Result.Usage == nil ||
-		cut.Result.Usage.OutputTokens != 10 {
-		t.Fatalf("the returned output was not counted: %+v", cut.Result)
+	if cut.Result.ID != "resp_1" || cut.Result.Usage != nil {
+		t.Fatalf("the returned ID was lost or text became usage: %+v", cut.Result)
 	}
 	for _, m := range client.inputs()[1].Messages {
 		if strings.Contains(m.Text(), "xxxx") {
@@ -1268,7 +1252,7 @@ func TestIncompleteResultAfterUrgentCutIsSteered(t *testing.T) {
 	}
 }
 
-func TestReplayedInterruptSpendIsCappedAtMaxTokens(t *testing.T) {
+func TestReplayedInterruptSpendCountsNoStreamedOutput(t *testing.T) {
 	inbox := newWatchedInbox()
 	def := testAgent()
 	def.Settings.MaxTokens = 5
@@ -1278,19 +1262,18 @@ func TestReplayedInterruptSpendIsCappedAtMaxTokens(t *testing.T) {
 	)
 	out := runUrgentAgent(t, client, inbox, def)
 	cut := finishes(out.Turn)[0]
-	if cut.Result == nil || cut.Result.Usage == nil ||
-		cut.Result.Usage.OutputTokens != 5 {
-		t.Fatalf("recorded output exceeds max_tokens: %+v", cut.Result)
+	if cut.Result == nil || cut.Result.Usage != nil {
+		t.Fatalf("streamed output was recorded as usage: %+v", cut.Result)
 	}
 	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 5 for the cut call, capped, and 1 estimated for "ok".
-	if view.Spend.Usage.OutputTokens != 6 ||
-		out.Spend.Usage.OutputTokens != 6 {
+	// Neither call reported usage, so neither counts any output.
+	if view.Spend.Usage.OutputTokens != 0 ||
+		out.Spend.Usage.OutputTokens != 0 {
 		t.Fatalf(
-			"replayed output = %d, outcome output = %d; want 6",
+			"replayed output = %d, outcome output = %d; want 0",
 			view.Spend.Usage.OutputTokens,
 			out.Spend.Usage.OutputTokens,
 		)

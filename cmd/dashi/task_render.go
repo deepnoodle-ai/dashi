@@ -579,7 +579,7 @@ func taskDetails(snapshot taskSnapshot) string {
 		spend = cost + " (" + spend + ")"
 	}
 	calls, tools := snapshot.Task.ModelCalls, snapshot.Task.ToolCalls
-	fmt.Fprintf(&b, "Child spend: %s\nWork: %d model %s · %d tool %s\nEstimated usage calls: %d · usage incomplete %t\nModel-call cap: %d; no child monetary cap. Parent caps exclude children.\n", spend, calls, plural(calls, "call"), tools, plural(tools, "call"), snapshot.Task.Spend.Estimated, snapshot.Task.Spend.UsageIncomplete, v.Agent.Limits.ModelCalls)
+	fmt.Fprintf(&b, "Child spend: %s\nWork: %d model %s · %d tool %s\nCalls without final usage: %d · usage incomplete %t\nModel-call cap: %d; no child monetary cap. Parent caps exclude children.\n", spend, calls, plural(calls, "call"), tools, plural(tools, "call"), snapshot.Task.Spend.CallsWithoutFinalUsage, snapshot.Task.Spend.UsageIncomplete, v.Agent.Limits.ModelCalls)
 	calls, unresolved := taskDispatchCounts(snapshot.Turn)
 	fmt.Fprintf(&b, "This Turn: %d model calls confirmed sent · %d started model calls with no recorded result. Started calls and estimates do not prove a request was sent.\nTokens: input %d · output %d · cache writes %d · cache reads %d; cache-write reporting unavailable %t · total mismatch %t.\n", calls, unresolved, v.Spend.Usage.InputTokens, v.Spend.Usage.OutputTokens, v.Spend.Usage.CacheCreationInputTokens, v.Spend.Usage.CacheReadInputTokens, v.Spend.Usage.CacheCreationInputTokensUnavailable, v.Spend.Usage.TotalTokenCountMismatch)
 	if len(snapshot.Turn.Steps) > 0 && snapshot.Turn.Steps[0].Started != nil {

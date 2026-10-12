@@ -152,10 +152,10 @@ func TestCurrentCallNamesTurnAndCall(t *testing.T) {
 
 func TestSpendAddKeepsCostsSeparate(t *testing.T) {
 	a := Spend{
-		Cost:        map[string]money.Amount{"USD": amount("0.5")},
-		ToolCost:    map[string]money.Amount{"USD": amount("0.1")},
-		Estimated:   1,
-		CostUnknown: 1,
+		Cost:                   map[string]money.Amount{"USD": amount("0.5")},
+		ToolCost:               map[string]money.Amount{"USD": amount("0.1")},
+		CallsWithoutFinalUsage: 1,
+		CostUnknown:            1,
 	}
 	b := Spend{
 		Cost:             map[string]money.Amount{"USD": amount("0.25")},
@@ -169,7 +169,7 @@ func TestSpendAddKeepsCostsSeparate(t *testing.T) {
 	if sum.ToolCost["USD"] != amount("0.1") {
 		t.Fatalf("model cost leaked into tool cost: %v", sum.ToolCost)
 	}
-	if sum.Estimated != 1 || sum.CostUnknown != 1 || sum.CostPartial != 2 ||
+	if sum.CallsWithoutFinalUsage != 1 || sum.CostUnknown != 1 || sum.CostPartial != 2 ||
 		sum.UnpricedRequests["search"] != 3 {
 		t.Fatalf("counters=%+v", sum)
 	}

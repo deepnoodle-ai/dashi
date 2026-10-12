@@ -152,7 +152,6 @@ func (r *runtime) recoverModelCallStart(s *replayState) *RunResult {
 		Interrupted:   InterruptWorker,
 		ResultUnknown: unsafe,
 	}
-	setFinishCharge(s.startedModelCalls[s.modelCallStart], fact)
 	if o := r.commit(Step{Kind: StepModelCallFinished, Model: fact}); o != nil {
 		return o
 	}

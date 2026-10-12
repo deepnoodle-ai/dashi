@@ -420,12 +420,8 @@ func TestSteeredCallNotDispatchedFinishesWithoutResult(t *testing.T) {
 	if !cut.NotSent {
 		t.Fatal("a call the client never dispatched was counted as sent")
 	}
-	if cut.Result != nil || cut.Cost != nil {
-		t.Fatalf(
-			"a call never dispatched carries result=%+v charge=%+v",
-			cut.Result,
-			cut.Cost,
-		)
+	if cut.Result != nil {
+		t.Fatalf("a call never dispatched carries result=%+v", cut.Result)
 	}
 }
 

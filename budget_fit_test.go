@@ -88,7 +88,7 @@ func (c *promptOnly) Send(context.Context, llm.Call) (llm.Result, error) {
 	return result, nil
 }
 
-func TestNextRequestEstimateIsAnUpperBound(t *testing.T) {
+func TestNextRequestEstimateTracksTheRealRequest(t *testing.T) {
 	openai, err := responses.New(responses.Config{APIKey: "unused"})
 	if err != nil {
 		t.Fatal(err)
@@ -162,10 +162,42 @@ func TestNextRequestEstimateIsAnUpperBound(t *testing.T) {
 			if !ok {
 				t.Fatal("no estimate")
 			}
+			// Both are estimates, not bounds; the next-call one is built from
+			// the first request and what was added since, so it stays close.
 			estimate := llm.EstimatedInputTokens(req)
-			if estimate < client.sizes[1] {
-				t.Fatalf("estimate %d is below the real request %d", estimate, client.sizes[1])
+			if real := client.sizes[1]; estimate < real*3/4 || estimate > real*5/4 {
+				t.Fatalf("estimate %d is far from the real request %d", estimate, real)
 			}
 		})
+	}
+}
+
+func TestNextRequestEstimateUsesReportedInput(t *testing.T) {
+	first := callResult("lookup-1", "lookup")
+	first.Usage = &llm.Usage{InputTokens: 4000, CacheReadInputTokens: 6000, OutputTokens: 10}
+	client := newPricedClient(first, final("done"))
+	out := runBudgetTurn(
+		t, client,
+		&Budget{MaxCost: &Money{Amount: amount("1"), Currency: "USD"}},
+		llm.Settings{MaxTokens: 100},
+		tool.List{budgetLookup(nil)}, Hooks{},
+	)
+	before := prefixThrough(t, out.Turn, StepToolFinished, 1)
+	s, err := replay(before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, ok := estimatedNextRequest(s, 0)
+	if !ok {
+		t.Fatal("no estimate")
+	}
+	// The base is the reported 10,000 input tokens, not the recorded
+	// estimate of the first request; the tool call and result add a little.
+	estimate := llm.EstimatedInputTokens(req)
+	if estimate <= 10_000 || estimate > 10_200 {
+		t.Fatalf("estimate=%d, want just above the reported 10000", estimate)
+	}
+	if s.startedModelCalls[s.latestModelCall].EstimatedInputTokens != pricedInputTokens {
+		t.Fatal("fixture changed the recorded estimate")
 	}
 }

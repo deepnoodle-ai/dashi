@@ -222,8 +222,9 @@ and tool results. The Turn records `active_compaction_media_estimate_unavailable
 once. It skips proactive compaction and the byte-based context limit for that
 request. The recorded policy stays active for later text-only requests. Provider
 content preparation and actual window acceptance govern media requests; neither
-preparation nor a known window proves token fit. Worst-case cost estimates and
-budget checks stay unchanged, so a cost cap can still refuse the request.
+preparation nor a known window proves token fit. Budget checks still apply:
+their input estimate counts each media item at a fixed amount instead of its
+bytes, so a cost cap can still refuse the request.
 
 Summary calls use the same sender, hooks, billing identities, model-call
 limit, and cumulative budget as ordinary work. `ModelPlan.Purpose`,

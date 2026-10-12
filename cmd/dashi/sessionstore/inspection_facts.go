@@ -155,14 +155,14 @@ func executionSnapshot(turn dashi.Turn, view dashi.TurnView, accounting Accounti
 }
 
 // ContextOccupancy is one recorded model request, not summed session usage.
-// Available applies to measured complete usage. Estimated data has no percentage.
+// Available applies to measured complete usage. Partial usage has no percentage.
 type ContextOccupancy struct {
-	TurnID, ModelCallID  string
-	Purpose              dashi.ModelPurpose
-	Tokens, Window       int
-	WindowSource         string
-	Available, Estimated bool
-	UnavailableReason    string
+	TurnID, ModelCallID string
+	Purpose             dashi.ModelPurpose
+	Tokens, Window      int
+	WindowSource        string
+	Available, Partial  bool
+	UnavailableReason   string
 }
 
 func contextOccupancy(turn dashi.Turn, view dashi.TurnView) ContextOccupancy {
@@ -199,7 +199,7 @@ func contextOccupancy(turn dashi.Turn, view dashi.TurnView) ContextOccupancy {
 		out.UnavailableReason = "started model call has no recorded result"
 		return out
 	}
-	out.Estimated = finished.EstimatedUsage
+	out.Partial = dashi.ModelCallCostOf(callStart, finished).UsageSource == dashi.UsageSourceCutOff
 	if finished.NotSent || finished.SendStatus == llm.SendStatusNotSent {
 		out.UnavailableReason = "model call not dispatched"
 		return out
@@ -214,8 +214,8 @@ func contextOccupancy(turn dashi.Turn, view dashi.TurnView) ContextOccupancy {
 		return out
 	}
 	out.Tokens = usage.TotalInputTokens() + usage.OutputTokens // Validate checks this disjoint sum.
-	if out.Estimated {
-		out.UnavailableReason = "usage estimated or partial"
+	if out.Partial {
+		out.UnavailableReason = "usage partial"
 		return out
 	}
 	if out.Window == 0 {

@@ -62,16 +62,19 @@ func formatSpendCosts(costs map[string]money.Amount, lowerBound bool) string {
 // Spend is rebuilt from the recorded results of model and tool calls.
 // MaxCost applies to Cost, while ToolCost is reported separately for the
 // host's own spending checks.
-// Estimated counts calls without final usage, including partial streamed
-// frames. UsageIncomplete marks failed usage aggregation, independently of
-// unknown money amounts. Diagnostic counters saturate at math.MaxInt rather
+// CallsWithoutFinalUsage counts finished calls whose provider never
+// reported final usage; Usage and Cost undercount them. A call still
+// running, or lost with its worker and not yet recovered, is not counted.
+// UsageIncomplete marks failed usage aggregation, independently of unknown
+// money amounts. Diagnostic counters saturate at math.MaxInt rather
 // than wrapping; saturated counts are lower bounds.
 type Spend struct {
 	// Usage aggregates disjoint token buckets across model calls.
 	Usage llm.Usage `json:"usage"`
 	// UsageIncomplete means derivation or aggregation failed, so Usage is
 	// incomplete. Retained counts cannot enforce a token cap. It does not
-	// mark money unknown or missing provider reports (see Estimated).
+	// mark money unknown or missing provider reports (see
+	// CallsWithoutFinalUsage).
 	UsageIncomplete bool `json:"usage_incomplete,omitempty"`
 	// Cost contains exact model-call charges by currency, without
 	// conversion. It is a lower bound when CostPartial or CostUnknown is
@@ -79,8 +82,11 @@ type Spend struct {
 	Cost map[string]money.Amount `json:"cost,omitempty"`
 	// ToolCost contains exact local tool charges outside MaxCost.
 	ToolCost map[string]money.Amount `json:"tool_cost,omitempty"`
-	// Estimated counts calls without complete provider-reported usage.
-	Estimated int `json:"estimated,omitempty"`
+	// CallsWithoutFinalUsage counts sent calls cut off before final usage
+	// (UsageSourceCutOff) or with no reported usage (UsageSourceMissing).
+	// Usage and Cost count only what was reported for them, so both
+	// undercount these calls.
+	CallsWithoutFinalUsage int `json:"calls_without_final_usage,omitempty"`
 	// CostUnknown counts unknown or cap-incompatible charges and monetary
 	// aggregation failures in either category. Old serialized values can
 	// also include unidentified usage failures and remain conservative.
@@ -107,7 +113,7 @@ func (s Spend) Clone() Spend {
 // Add returns the sum of s and o for reports that cover several turns, such
 // as a parent and its children. Model Cost and ToolCost stay in separate
 // maps, and every counter keeps its own meaning, so a total never hides
-// which part was estimated, unpriced, or unknown. Failed usage addition
+// which calls lacked final usage, or which costs were unpriced or unknown. Failed usage addition
 // retains the prior Usage and sets UsageIncomplete. Monetary overflow keeps
 // the prior currency subtotal and adds one to CostUnknown. Later additions
 // can still fit, so retained subtotals depend on addition order after failure.
@@ -118,7 +124,10 @@ func (s Spend) Add(o Spend) Spend {
 	sum.addUsage(&o.Usage)
 	sum.Cost = addCosts(&sum, sum.Cost, o.Cost)
 	sum.ToolCost = addCosts(&sum, sum.ToolCost, o.ToolCost)
-	sum.Estimated = cappedCount(sum.Estimated, o.Estimated)
+	sum.CallsWithoutFinalUsage = cappedCount(
+		sum.CallsWithoutFinalUsage,
+		o.CallsWithoutFinalUsage,
+	)
 	sum.CostUnknown = cappedCount(sum.CostUnknown, o.CostUnknown)
 	sum.CostPartial = cappedCount(sum.CostPartial, o.CostPartial)
 	for meter, n := range o.UnpricedRequests {
@@ -147,13 +156,18 @@ const (
 	// UsageSourceReported means the provider reported complete, final usage for
 	// a call that finished.
 	UsageSourceReported UsageSource = "reported"
-	// UsageSourceEstimated means Dashi filled in some usage: the call is still
-	// running, was cut short, has an unknown result, or its final usage
-	// never arrived. A result the host supplies later can replace the
-	// estimate.
-	UsageSourceEstimated UsageSource = "estimated"
+	// UsageSourceCutOff means the provider reported some usage, but the call
+	// did not finish normally: it was interrupted, its result is unknown, or
+	// it has no valid stop. The usage is a lower bound.
+	UsageSourceCutOff UsageSource = "cut_off"
+	// UsageSourceMissing means no usage was reported for a call that may have
+	// run: it is still running, its worker stopped, or it was cut before
+	// usage arrived. It counts zero. A result the host supplies later can
+	// replace it.
+	UsageSourceMissing UsageSource = "missing"
 	// UsageSourceNotSent means the provider verifiably never ran the request
 	// (not dispatched, or rejected before execution), so it costs nothing.
+	// Unlike UsageSourceMissing, nothing is unreported.
 	UsageSourceNotSent UsageSource = "not_sent"
 )
 
@@ -167,30 +181,34 @@ type ModelCallCost struct {
 	Provider    string       `json:"provider,omitempty"`
 	Model       string       `json:"model,omitempty"`
 	// Finished means a result or failure is recorded. An unfinished call
-	// is still running or was lost with its worker; it counts its
-	// estimated input until it finishes.
+	// is still running; it counts nothing until it finishes.
 	Finished    bool        `json:"finished,omitempty"`
 	UsageSource UsageSource `json:"usage_source"`
-	// Usage is the usage counted into Spend.Usage, nil when not executed or
-	// when it could not be derived.
+	// Usage is the usage counted into Spend.Usage: what the provider
+	// reported, nil when it reported none, the call was not sent, or usage
+	// could not be derived.
 	Usage *llm.Usage `json:"usage,omitempty"`
-	// Cost is the amount counted into Spend.Cost. Nil means zero for a
-	// call that was never sent, and otherwise an unknown cost (an unpriced
-	// model, for example), counted in Spend.CostUnknown. A partial cost
-	// (Cost.Partial) is a lower bound.
+	// Cost is the amount counted into Spend.Cost: the provider's reported
+	// cost, else the price sheet applied to Usage. A priced call with no
+	// reported usage has a zero cost. Nil means zero for a call that was
+	// never sent, and otherwise an unknown cost (an unpriced model, for
+	// example), counted in Spend.CostUnknown unless no usage was reported.
+	// A partial cost (Cost.Partial), or the cost of a call that is cut off
+	// or missing usage, is a lower bound.
 	Cost *llm.Cost `json:"cost,omitempty"`
 	// WorstCaseCost is the worst case computed before the call was sent, nil when
 	// the call had no cost bound.
 	WorstCaseCost *llm.Cost `json:"worst_case_cost,omitempty"`
-	// Exact means the cost is exact: a measured, complete cost, or zero
-	// for a call that never ran. A cost that is not exact is an
-	// estimate, a lower bound, or unknown.
+	// Exact means the cost is exact: a complete cost from final reported
+	// usage, or zero for a call that never ran. A cost that is not exact is
+	// a lower bound or unknown.
 	Exact bool `json:"exact,omitempty"`
 }
 
 // ModelCallCostOf classifies one model call from the fact recorded when it
 // started and the fact recorded when it finished, or nil while the call is
-// pending. It is the same derivation
+// pending. It derives the charge from the facts every time; no charge is
+// stored on them. It is the same derivation
 // TurnView.ModelCallCosts uses. A recorder that reserved credits on the
 // StepModelCallStarted step can call it in the commit of the StepModelCallFinished or
 // StepModelCallFinishedByHost step, with the start fact it stored when it
@@ -213,19 +231,15 @@ func modelCallCostOf(callStart, finish *ModelFact) (ModelCallCost, bool) {
 		Provider:    callStart.Provider,
 		Model:       callStart.Model,
 		Finished:    finish != nil,
-		UsageSource: UsageSourceReported,
 	}
 	if callStart.WorstCaseCost != nil {
 		a.WorstCaseCost = new(callStart.WorstCaseCost.Clone())
 	}
-	usage, charge, estimated, counted, incomplete := modelCallCost(callStart, finish)
-	if !counted {
-		a.UsageSource = UsageSourceNotSent
+	usage, charge, source, incomplete := modelCallCost(callStart, finish)
+	a.UsageSource = source
+	if source == UsageSourceNotSent {
 		a.Exact = true
 		return a, false
-	}
-	if estimated {
-		a.UsageSource = UsageSourceEstimated
 	}
 	a.Usage = usage
 	if charge != nil {

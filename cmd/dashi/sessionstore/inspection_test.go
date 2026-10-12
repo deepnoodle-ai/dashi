@@ -575,12 +575,12 @@ func TestInspectionIncompleteAndUnresolvedContextNeverUsesOlderCall(t *testing.T
 	// introduced.
 	for _, step := range out.Turn.Steps {
 		if step.Kind == dashi.StepModelCallFinished {
-			step.Model.EstimatedUsage = true
+			step.Model.Interrupted = dashi.InterruptWorker
 			c := contextOccupancy(dashi.Turn{ID: out.Turn.ID, Steps: []dashi.Step{out.Turn.Steps[0], out.Turn.Steps[1], step}}, out.TurnView)
-			if c.Available || !c.Estimated {
+			if c.Available || !c.Partial {
 				t.Fatal("partial usage presented as exact context")
 			}
-			step.Model.EstimatedUsage = false
+			step.Model.Interrupted = dashi.InterruptNone
 		}
 	}
 	turn := dashi.NewTurn("fixture")

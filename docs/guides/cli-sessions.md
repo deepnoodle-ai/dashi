@@ -65,18 +65,18 @@ session's own summary Turns once and exclude child report totals. Model and
 tool money stay separate by currency. No currency conversion occurs.
 Model-call counts use recorded evidence that a request was sent, not an
 unrecorded host counter. An interrupted call without provider response
-evidence can have estimated usage and an unknown charge without a call
-confirmed sent. Started model calls with no recorded result are counted
+evidence counts as a call without final usage and is charged nothing, without
+a call confirmed sent. Started model calls with no recorded result are counted
 separately.
 
-The report keeps unknown or estimated usage separate from unknown or partial
-money. Estimated usage, missing cache-write reporting, token mismatches,
+The report keeps missing or partial usage separate from unknown or partial
+money. Calls without final usage, missing cache-write reporting, token mismatches,
 partial charges, and unknown charges remain visible. Omitted unreadable Turns
 make readable amounts lower bounds. An unavailable index cannot establish zero spend.
 
 Context occupancy describes only the latest model request's recorded usage and
 recorded window. It never uses accumulated session tokens or today's catalog.
-Incomplete or estimated usage has no exact percentage. Concurrent work can
+Incomplete or partial usage has no exact percentage. Concurrent work can
 advance after a displayed snapshot.
 
 These commands require interactive or `--plain` line input. A command-only

@@ -245,12 +245,21 @@ func (s *replayState) calculateSpend() error {
 			}
 			s.Spend.addUsage(usage)
 		}
-		if modelCall.UsageSource == UsageSourceEstimated {
-			s.Spend.Estimated = cappedCount(s.Spend.Estimated, 1)
+		missing := modelCall.UsageSource == UsageSourceMissing
+		if modelCall.Finished &&
+			(missing || modelCall.UsageSource == UsageSourceCutOff) {
+			s.Spend.CallsWithoutFinalUsage = cappedCount(
+				s.Spend.CallsWithoutFinalUsage,
+				1,
+			)
 		}
 		charge := modelCall.Cost
 		if charge == nil {
-			s.Spend.CostUnknown = cappedCount(s.Spend.CostUnknown, 1)
+			// A call with no reported usage counts zero, not unknown, so
+			// an unpriced one does not block a cap (decision 47).
+			if !missing {
+				s.Spend.CostUnknown = cappedCount(s.Spend.CostUnknown, 1)
+			}
 			continue
 		}
 		s.Spend.Cost = addSpendCost(
@@ -276,8 +285,8 @@ func (s *replayState) calculateSpend() error {
 		// holds. The budget check before each call refuses provider tools
 		// under a cap, so a partial cost there is provider tool work
 		// nothing foresaw.
-		if capped && (charge.Currency != s.Budget.MaxCost.Currency ||
-			charge.Partial()) {
+		if capped && (charge.Currency != s.Budget.MaxCost.Currency &&
+			(!missing || charge.Total != 0) || charge.Partial()) {
 			s.Spend.CostUnknown = cappedCount(s.Spend.CostUnknown, 1)
 		}
 	}

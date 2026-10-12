@@ -179,49 +179,6 @@ func TestRecordersReopenSeparateUsageAndMonetaryOverflow(t *testing.T) {
 	}
 }
 
-func TestRecordersRejectUnsafeTokenCallStartBeforeStorage(t *testing.T) {
-	for _, file := range []bool{false, true} {
-		recorder, reopen := accountingStorage(t, file)
-		first := dashitest.CallTool("call-1", "lookup", `{}`)
-		first.Usage = &llm.Usage{InputTokens: math.MaxInt - 1}
-		first.Cost = storageCharge(0)
-		lookup, err := tool.Func[struct{}]("lookup", "Lookup fixture data",
-			func(context.Context, tool.Call, struct{}) (tool.Outcome, error) {
-				return tool.Succeeded("done"), nil
-			})
-		if err != nil {
-			t.Fatal(err)
-		}
-		client := dashitest.NewClient(first, dashitest.Reply("never sent"))
-		out, err := (dashi.Runner{
-			Client: client, Recorder: recorder, Tools: tool.List{lookup},
-		}).Run(t.Context(), dashi.Turn{ID: "guarded"}, dashi.Start{
-			CommandID: "start", Agent: storageAgent(),
-			Input:  []llm.Message{llm.UserMessage(llm.Text("go"))},
-			Budget: &dashi.Budget{MaxTotalTokens: math.MaxInt},
-		})
-		var rejected *dashi.CommitError
-		if !errors.As(err, &rejected) ||
-			!rejected.NothingWritten ||
-			rejected.Step.Kind != dashi.StepModelCallStarted {
-			t.Fatalf("unsafe call start was not rejected before reservation: %v", err)
-		}
-		if len(client.Inputs()) != 1 {
-			t.Fatal("unsafe prospective call start reached model dispatch")
-		}
-		saved, err := reopen().Load(t.Context(), out.Turn.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(saved.Steps) != len(out.Turn.Steps) {
-			t.Fatal("rejected call start reached storage")
-		}
-		if saved.Steps[len(saved.Steps)-1].Kind == dashi.StepModelCallStarted {
-			t.Fatal("rejected model call start is the stored last step")
-		}
-	}
-}
-
 // A host may record an open cost stop while external work remains pending.
 // Its late cost cannot silently change whether that recorded stop ended the
 // turn.

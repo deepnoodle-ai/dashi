@@ -82,7 +82,7 @@ func (r *runtime) retrySummary(s *replayState) (RunResult, bool) {
 }
 
 func (r *runtime) contextLimit(s *replayState, req llm.Request, reason string) RunResult {
-	used := llm.EstimatedInputTokens(req)
+	used := llm.InputTokenUpperBound(req)
 	reserve := req.Snapshot().Effective.MaxTokens
 	if reserve > math.MaxInt-used {
 		used = math.MaxInt
@@ -98,7 +98,7 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 		return RunResult{}, false, false
 	}
 	allowance := max(0, window-req.Snapshot().Effective.MaxTokens)
-	estimate := llm.EstimatedInputTokens(req)
+	estimate := llm.InputTokenUpperBound(req)
 	if float64(estimate) < r.agent.ActiveCompaction.Fraction*float64(allowance) {
 		return RunResult{}, false, false
 	}
@@ -297,7 +297,7 @@ func (r *runtime) activeEstimateAfter(plan *ContextCompactionPlan, result *llm.R
 	if req.Origin().Provider != r.agent.Provider || req.Origin().API != r.agent.API || req.Origin().Model != r.agent.Model || !canonjson.SameValue(req.Snapshot().Input, hydrated) {
 		return 0, errors.New("prepared replacement changed original input or destination")
 	}
-	after := llm.EstimatedInputTokens(req)
+	after := llm.InputTokenUpperBound(req)
 	if after >= plan.EstimatedBefore {
 		return 0, errors.New("summary did not reduce prepared request size")
 	}

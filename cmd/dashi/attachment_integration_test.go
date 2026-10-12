@@ -328,15 +328,15 @@ func TestAttachmentRealisticMediaKnownWindowCheck(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if estimate := llm.EstimatedInputTokens(req); estimate <= window {
+				if estimate := llm.InputTokenUpperBound(req); estimate <= window {
 					t.Fatalf("full media body did not exercise window: bytes=%d estimate=%d window=%d", len(data), estimate, window)
 				}
 				if strings.Count(stderr.String(), "Active-Turn protection unavailable for media") != 1 {
 					t.Fatal("missing media acceptance warning", stderr.String())
 				}
-				t.Logf("bytes=%d prepared estimate=%d window=%d Send=1", len(data), llm.EstimatedInputTokens(req), window)
+				t.Logf("bytes=%d prepared estimate=%d window=%d Send=1", len(data), llm.InputTokenUpperBound(req), window)
 				if dir := os.Getenv("DASHI_ATTACHMENT_TRANSCRIPTS"); dir != "" {
-					proof := fmt.Sprintf("kind=%s bytes=%d prepared estimate=%d window=%d Send=1\nstdout:\n%s\nstderr:\n%s", kind, len(data), llm.EstimatedInputTokens(req), window, stdout.String(), stderr.String())
+					proof := fmt.Sprintf("kind=%s bytes=%d prepared estimate=%d window=%d Send=1\nstdout:\n%s\nstderr:\n%s", kind, len(data), llm.InputTokenUpperBound(req), window, stdout.String(), stderr.String())
 					if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("media-%s-%d-admission.txt", kind, window)), []byte(proof), 0600); err != nil {
 						t.Fatal(err)
 					}
@@ -729,7 +729,7 @@ func TestAttachmentRealisticMediaCostCheckUnchanged(t *testing.T) {
 				}
 				agent := a.eng.agent()
 				agent.Settings.MaxTokens = 256
-				cap := "0.01"
+				cap := "0.001"
 				if affordable {
 					cap = "2"
 				}

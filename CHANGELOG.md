@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A model call is charged only the usage its provider reported.** A call
+  with no reported usage (worker stopped, cut by a steer, result unknown)
+  counts zero instead of its input estimate, and a call cut off after some
+  usage arrived counts only that usage, with no visible-text output estimate.
+  A steered call under a cost cap is no longer charged its worst case. Such
+  phantom charges stalled turns on budget holds.
+- **The input estimate behind `WorstCaseCost` is realistic.**
+  `llm.EstimatedInputTokens` counts about four bytes per text token, a fixed
+  amount per image, document page, audio, or video instead of its base64
+  bytes, and never more than the model's context window. The next-call
+  estimate starts from the previous call's reported input.
+
+### Changed
+
+- **`Spend.Estimated` is now `Spend.CallsWithoutFinalUsage`** (JSON
+  `calls_without_final_usage`).
+- **`UsageSourceEstimated` is replaced by `UsageSourceCutOff`
+  (`cut_off`) and `UsageSourceMissing` (`missing`).**
+- **`ModelFact.Cost` and `ModelFact.EstimatedUsage` are removed.** Replay
+  derives every charge with `ModelCallCostOf`; records written by earlier
+  versions still load, and their stored charges are ignored. An interrupted
+  call recorded by an earlier version keeps the visible-text output estimate
+  that version wrote into its `Result.Usage`.
+- **`llm.InputTokenUpperBound`** keeps the old one-token-per-byte bound for
+  context-window fitting. **`llm.EstimatedMessageTokens`** estimates messages
+  before they are in a request, and **`RequestSnapshot.EstimatedInputTokens`**
+  lets a preparer supply its own count.
+
 ## [0.6.0] - 2026-10-10
 
 ### Added

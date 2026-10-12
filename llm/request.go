@@ -56,6 +56,11 @@ type RequestSnapshot struct {
 	// support is unknown. They are recorded, not warned about: until a model
 	// is described, every call would otherwise warn.
 	Unverified []Feature `json:"unverified,omitempty"`
+
+	// EstimatedInputTokens is an optional input token estimate from the
+	// preparer, such as a provider's token count. Zero means
+	// EstimatedInputTokens computes one; a negative value is invalid.
+	EstimatedInputTokens int `json:"estimated_input_tokens,omitempty"`
 }
 
 // Request holds what the caller asked to send, fixed and bound to one
@@ -86,6 +91,11 @@ func NewRequest(p RequestSnapshot) (Request, error) {
 	effective.Settings = p.Effective
 	if err := effective.Validate(); err != nil {
 		return Request{}, err
+	}
+	if p.EstimatedInputTokens < 0 {
+		return Request{}, errors.New(
+			"llm: estimated input tokens must not be negative",
+		)
 	}
 	if p.Origin.Model != p.Input.Model || !json.Valid(p.Body) {
 		return Request{}, errors.New(

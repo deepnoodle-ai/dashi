@@ -517,7 +517,8 @@ func TestRunnerTimeoutRetainsOrderedMixedPartialData(t *testing.T) {
 	}
 	if finished == nil || finished.ErrorReason != llm.ReasonStreamIdleTimeout ||
 		finished.SendStatus != llm.SendStatusUnknown || !finished.ResultUnknown ||
-		!finished.EstimatedUsage || finished.Result == nil ||
+		finished.Result == nil || finished.Result.Usage == nil ||
+		finished.Result.Usage.OutputTokens != 2 ||
 		finished.Result.Stop.Kind != llm.StopIncomplete {
 		t.Fatalf("finish=%+v", finished)
 	}

@@ -87,23 +87,23 @@ func TestSpendAddUsageFailuresPreserveIndependentMoney(t *testing.T) {
 
 func TestSpendAddSaturatesDiagnosticCounters(t *testing.T) {
 	first := Spend{
-		Estimated:        math.MaxInt,
-		CostPartial:      math.MaxInt,
-		CostUnknown:      math.MaxInt,
-		UnpricedRequests: map[string]int{"search": math.MaxInt},
-		Cost:             map[string]money.Amount{"USD": money.Amount(math.MaxInt64)},
-		ToolCost:         map[string]money.Amount{"USD": money.Amount(math.MaxInt64)},
+		CallsWithoutFinalUsage: math.MaxInt,
+		CostPartial:            math.MaxInt,
+		CostUnknown:            math.MaxInt,
+		UnpricedRequests:       map[string]int{"search": math.MaxInt},
+		Cost:                   map[string]money.Amount{"USD": money.Amount(math.MaxInt64)},
+		ToolCost:               map[string]money.Amount{"USD": money.Amount(math.MaxInt64)},
 	}
 	sum := first.Add(Spend{
-		Estimated:        1,
-		CostPartial:      1,
-		CostUnknown:      1,
-		UnpricedRequests: map[string]int{"search": 1},
-		Cost:             map[string]money.Amount{"USD": 1, "EUR": 2},
-		ToolCost:         map[string]money.Amount{"USD": 1, "EUR": 3},
+		CallsWithoutFinalUsage: 1,
+		CostPartial:            1,
+		CostUnknown:            1,
+		UnpricedRequests:       map[string]int{"search": 1},
+		Cost:                   map[string]money.Amount{"USD": 1, "EUR": 2},
+		ToolCost:               map[string]money.Amount{"USD": 1, "EUR": 3},
 	})
 	for _, count := range []int{
-		sum.Estimated, sum.CostPartial, sum.CostUnknown,
+		sum.CallsWithoutFinalUsage, sum.CostPartial, sum.CostUnknown,
 		sum.UnpricedRequests["search"],
 	} {
 		if count != math.MaxInt {
@@ -164,17 +164,17 @@ func accountingRecord(usages ...llm.Usage) Turn {
 		callStart.Model.MessageID = id + ":message"
 		result := final("answer")
 		result.Usage = usage.Copy()
+		result.Cost = &llm.Cost{
+			Total:    amount("0.25"),
+			Currency: "USD",
+			Source:   llm.CostSourceProviderReported,
+		}
 		steps = append(steps, callStart, Step{
 			Kind: StepModelCallFinished,
 			Model: &ModelFact{
 				ModelCallID: id,
 				MessageID:   id + ":message",
 				Result:      &result,
-				Cost: &llm.Cost{
-					Total:    amount("0.25"),
-					Currency: "USD",
-					Source:   llm.CostSourceProviderReported,
-				},
 			},
 		})
 	}
@@ -218,8 +218,8 @@ func TestReplayKeepsValidOverflowingFinishes(t *testing.T) {
 
 func TestReplayMonetaryOverflowRemainsResultUnknown(t *testing.T) {
 	turn := accountingRecord(llm.Usage{}, llm.Usage{})
-	turn.Steps[2].Model.Cost.Total = money.Amount(math.MaxInt64)
-	turn.Steps[4].Model.Cost.Total = 1
+	turn.Steps[2].Model.Result.Cost.Total = money.Amount(math.MaxInt64)
+	turn.Steps[4].Model.Result.Cost.Total = 1
 	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
@@ -235,10 +235,10 @@ func TestReplayMonetaryOverflowRemainsResultUnknown(t *testing.T) {
 
 func TestReplayUnpricedRequestsSaturateWithoutDroppingEvidence(t *testing.T) {
 	turn := accountingRecord(llm.Usage{}, llm.Usage{})
-	turn.Steps[2].Model.Cost.UnpricedRequests = map[string]int{
+	turn.Steps[2].Model.Result.Cost.UnpricedRequests = map[string]int{
 		llm.MeterUnreported: math.MaxInt,
 	}
-	turn.Steps[4].Model.Cost.UnpricedRequests = map[string]int{
+	turn.Steps[4].Model.Result.Cost.UnpricedRequests = map[string]int{
 		llm.MeterUnreported: 1,
 	}
 	view, err := turn.View()
@@ -258,8 +258,8 @@ func TestReplayUnpricedRequestsSaturateWithoutDroppingEvidence(t *testing.T) {
 func TestReplayRejectsMalformedIndividualAccounting(t *testing.T) {
 	for _, corrupt := range []func(*ModelFact){
 		func(f *ModelFact) { f.Result.Usage.InputTokens = -1 },
-		func(f *ModelFact) { f.Cost.Total = -1 },
-		func(f *ModelFact) { f.Cost.Currency = "" },
+		func(f *ModelFact) { f.Result.Cost.Total = -1 },
+		func(f *ModelFact) { f.Result.Cost.Currency = "" },
 	} {
 		turn := accountingRecord(llm.Usage{})
 		corrupt(turn.Steps[2].Model)
@@ -273,7 +273,6 @@ func TestReplayDerivedUsageOverflowPreservesRecordedCharge(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		usage        llm.Usage
-		fallback     int
 		providerTool bool
 	}{
 		{
@@ -283,16 +282,10 @@ func TestReplayDerivedUsageOverflowPreservesRecordedCharge(t *testing.T) {
 			},
 			providerTool: true,
 		},
-		{
-			name:     "fallback tokens",
-			usage:    llm.Usage{OutputTokens: 2},
-			fallback: math.MaxInt,
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			turn := accountingRecord(tc.usage)
 			callStart, finished := turn.Steps[1].Model, turn.Steps[2].Model
-			callStart.EstimatedInputTokens = tc.fallback
 			pricing := newPricedClient().pricing
 			callStart.ModelInfo = &llm.ModelInfo{Pricing: &pricing}
 			if tc.providerTool {
@@ -321,7 +314,7 @@ func TestReplayDerivedUsageOverflowPreservesRecordedCharge(t *testing.T) {
 			if view.Spend.Cost["USD"] != amount("0.25") {
 				t.Fatal("failed enrichment lost the independent charge")
 			}
-			finished.Cost = nil
+			finished.Result.Cost = nil
 			view, err = turn.View()
 			if err != nil || view.Spend.CostUnknown != 1 {
 				t.Fatalf("missing independent charge did not remain unknown: %v", err)
@@ -330,24 +323,65 @@ func TestReplayDerivedUsageOverflowPreservesRecordedCharge(t *testing.T) {
 	}
 }
 
-func TestReplayDerivedOverflowWithoutReportedUsageOmitsFallback(t *testing.T) {
+func TestReplayNeverChargesTheInputEstimate(t *testing.T) {
 	turn := accountingRecord(llm.Usage{})
 	turn.Steps[1].Model.EstimatedInputTokens = math.MaxInt
 	turn.Steps[2].Model.Result.Usage = nil
+	turn.Steps[2].Model.Result.Cost = nil
 	pricing := newPricedClient().pricing
 	turn.Steps[1].Model.ModelInfo = &llm.ModelInfo{Pricing: &pricing}
 	view, err := turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !view.Spend.UsageIncomplete || !reflect.DeepEqual(view.Spend.Usage,
-		llm.Usage{}) || view.Spend.Cost["USD"] != amount("0.25") {
-		t.Fatal("failed fallback retained derived usage or lost recorded money")
+	if view.Spend.UsageIncomplete || !reflect.DeepEqual(view.Spend.Usage,
+		llm.Usage{}) || view.Spend.Cost["USD"] != 0 ||
+		view.Spend.CostUnknown != 0 || view.Spend.CallsWithoutFinalUsage != 1 {
+		t.Fatalf("missing usage was filled in: %+v", view.Spend)
 	}
-	turn.Steps[2].Model.Cost = nil
-	view, err = turn.View()
-	if err != nil || view.Spend.CostUnknown != 1 || len(view.Spend.Cost) != 0 {
-		t.Fatalf("incomplete fallback was priced: %v", err)
+}
+
+// A finish step written by an earlier version may carry the charge it
+// derived then, an input estimate marked estimated_usage. Replay ignores
+// it and derives the charge again: here zero, since no usage was reported.
+func TestReplayIgnoresChargeRecordedByEarlierVersion(t *testing.T) {
+	turn := accountingRecord(llm.Usage{})
+	turn.Steps[1].Model.EstimatedInputTokens = 1_593_697
+	pricing := newPricedClient().pricing
+	turn.Steps[1].Model.ModelInfo = &llm.ModelInfo{Pricing: &pricing}
+	turn.Steps[2].Model.Result = nil
+	turn.Steps[2].Model.Error = "worker stopped before model result"
+	turn.Steps[2].Model.Interrupted = InterruptWorker
+	raw, err := json.Marshal(turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	finish := doc["steps"].([]any)[2].(map[string]any)["model"].(map[string]any)
+	finish["cost"] = map[string]any{
+		"input": "0.32", "total": "0.32", "currency": "USD",
+		"source": "list_price_estimate",
+	}
+	finish["estimated_usage"] = true
+	if raw, err = json.Marshal(doc); err != nil {
+		t.Fatal(err)
+	}
+	var old Turn
+	if err := json.Unmarshal(raw, &old); err != nil {
+		t.Fatal(err)
+	}
+	view, err := old.View()
+	if err != nil {
+		t.Fatal(err)
+	}
+	charge := view.ModelCallCosts[0]
+	if charge.UsageSource != UsageSourceMissing || charge.Cost == nil ||
+		charge.Cost.Total != 0 || view.Spend.Cost["USD"] != 0 ||
+		view.Spend.CostUnknown != 0 {
+		t.Fatalf("old charge was kept: charge=%+v spend=%+v", charge, view.Spend)
 	}
 }
 
@@ -364,7 +398,7 @@ func TestReplayDerivedOverflowKeepsPartialMonetaryEvidence(t *testing.T) {
 			Type:     "web_search",
 		},
 	}}
-	turn.Steps[2].Model.Cost.UnpricedRequests = map[string]int{
+	turn.Steps[2].Model.Result.Cost.UnpricedRequests = map[string]int{
 		llm.MeterUnreported: math.MaxInt,
 	}
 	turn.Steps[0].Started.Budget = &Budget{
@@ -393,6 +427,7 @@ type creditRecorder struct {
 	base    *MemoryRecorder
 	balance money.Amount
 	holds   map[string]money.Amount
+	starts  map[string]*ModelFact
 }
 
 func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
@@ -418,6 +453,10 @@ func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
 		}
 		r.balance -= terms.Amount
 		r.holds[fact.ModelCallID] = terms.Amount
+		if r.starts == nil {
+			r.starts = map[string]*ModelFact{}
+		}
+		r.starts[fact.ModelCallID] = fact
 		return nil
 	case StepModelCallFinished:
 		fact := req.Step.Model
@@ -427,10 +466,12 @@ func (r *creditRecorder) Commit(ctx context.Context, req CommitRequest) error {
 					return err
 				}
 				r.balance += hold
-				if fact.Cost != nil {
-					r.balance -= fact.Cost.Total
+				charge := ModelCallCostOf(r.starts[fact.ModelCallID], fact)
+				if charge.Cost != nil {
+					r.balance -= charge.Cost.Total
 				}
 				delete(r.holds, fact.ModelCallID)
+				delete(r.starts, fact.ModelCallID)
 				return nil
 			}
 		}
@@ -506,18 +547,18 @@ func TestBudgetRecorderReservesExactRiskAndFinishesCharge(t *testing.T) {
 		t.Fatalf("stop=%+v", out.Stop)
 	}
 	callStart := out.Turn.Steps[1].Model
-	finished := out.Turn.Steps[2].Model
-	if callStart.WorstCaseCost == nil || finished.Cost == nil {
-		t.Fatalf("risk or charge missing: start=%+v finished=%+v", callStart, finished)
+	charge := ModelCallCostOf(callStart, out.Turn.Steps[2].Model).Cost
+	if callStart.WorstCaseCost == nil || charge == nil {
+		t.Fatalf("risk or charge missing: start=%+v charge=%+v", callStart, charge)
 	}
-	if callStart.WorstCaseCost.Total <= finished.Cost.Total {
-		t.Fatalf("risk=%s charge=%s", callStart.WorstCaseCost.Total, finished.Cost.Total)
+	if callStart.WorstCaseCost.Total <= charge.Total {
+		t.Fatalf("risk=%s charge=%s", callStart.WorstCaseCost.Total, charge.Total)
 	}
 	if len(recorder.holds) != 0 {
 		t.Fatalf("remaining holds=%v", recorder.holds)
 	}
 	// Exact amounts make the ledger balance to the nano.
-	if recorder.balance != amount("0.01")-finished.Cost.Total {
-		t.Fatalf("balance=%s charge=%s", recorder.balance, finished.Cost.Total)
+	if recorder.balance != amount("0.01")-charge.Total {
+		t.Fatalf("balance=%s charge=%s", recorder.balance, charge.Total)
 	}
 }
