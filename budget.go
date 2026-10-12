@@ -108,12 +108,13 @@ type LimitDetail struct {
 	// resumes, or provider pauses, or Unix seconds for a deadline.
 	Limit int64 `json:"limit,omitempty"`
 	// Used is the count already consumed, or the current Unix time. A token
-	// count is only a lower bound when Spend.UsageIncomplete is true.
+	// count is only a lower bound when Spend.UsageIncomplete is true or
+	// Spend.CallsWithoutFinalUsage is nonzero.
 	Used int64 `json:"used,omitempty"`
 	// CostLimit is the cost cap for LimitCost, or a host's money ceiling or
 	// balance for LimitHost.
 	CostLimit money.Amount `json:"cost_limit,omitempty"`
-	// CostUsed is the measured or estimated cost already charged.
+	// CostUsed is the cost already charged from reported usage.
 	CostUsed money.Amount `json:"cost_used,omitempty"`
 	// WorstCaseCost is the worst-case cost of the proposed next model call.
 	WorstCaseCost money.Amount `json:"worst_case_cost,omitempty"`

@@ -1,7 +1,6 @@
 package dashi
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -18,16 +17,16 @@ func (r *runtime) nextCallPossible(s *replayState, extraInputTokens int) bool {
 // that still leaves the reserved final-reply call available (or fits in
 // ModelCalls when there is no reserve), before the deadline, with the
 // context live, and within every Budget cap for its worst case.
-// extraInputTokens is the size of input the caller would add, such as
-// added messages, estimated as Dashi estimates request input. A pause is
+// extraInputTokens is the input the caller would add, such as added
+// messages, estimated as llm.EstimatedMessageTokens does. A pause is
 // not a reason to refuse: the run pauses before the next model call anyway,
 // so a pause must never let a rejected call through.
 //
 // A model call in flight already counts as used, so the check holds while a
-// call runs. The cost term estimates the next call from the latest recorded
-// request, grown by what the model and tools returned since and by
-// extraInputTokens, priced like BeforeSend's check; a cost cap that cannot
-// be priced fails it, since that call would stop anyway.
+// call runs. The cost term estimates the next call from the latest call's
+// reported or estimated input, grown by what the model and tools returned
+// since and by extraInputTokens, priced like BeforeSend's check; a cost cap
+// that cannot be priced fails it, since that call would stop anyway.
 func (r *runtime) nextCallFits(s *replayState, extraInputTokens int) bool {
 	return r.callFits(s, extraInputTokens, false)
 }
@@ -83,9 +82,9 @@ func (r *runtime) callBlocked(s *replayState, extraInputTokens int) string {
 }
 
 // spendWithCallInFlight returns s with a model call in flight counted at its
-// worst case. Recorded spend counts an unfinished call at its estimated input
-// only, and the next call must fit beside everything the running one could
-// still cost. It fails when that worst case is unknown.
+// worst case. Recorded spend counts an unfinished call as nothing, and the
+// next call must fit beside everything the running one could still cost. It
+// fails when that worst case is unknown.
 func spendWithCallInFlight(s *replayState) (*replayState, bool) {
 	if s.modelCallStart == "" {
 		return s, true
@@ -96,18 +95,11 @@ func spendWithCallInFlight(s *replayState) (*replayState, bool) {
 		callStart.WorstCaseCost.Currency != limit.Currency {
 		return nil, false
 	}
-	counted := money.Amount(0)
-	if _, cost, _, _, _ := modelCallCost(callStart, nil); cost != nil {
-		if cost.Currency != limit.Currency {
-			return nil, false
-		}
-		counted = cost.Total
-	}
 	used, known := s.Spend.costIn(limit.Currency)
 	if !known {
 		return nil, false
 	}
-	total, ok := used.Add(callStart.WorstCaseCost.Total - counted)
+	total, ok := used.Add(callStart.WorstCaseCost.Total)
 	if !ok {
 		return nil, false
 	}
@@ -121,52 +113,59 @@ func spendWithCallInFlight(s *replayState) (*replayState, bool) {
 }
 
 // estimatedNextRequest stands in for the next model request when pricing it
-// before it exists. Its base is the latest real request: the call in flight,
-// if any, or else the one that produced the latest result. What the next
-// request adds is counted at twice its JSON size: the model's output since,
-// bounded by the in-flight call's max_tokens or measured from the recorded
-// result and tool outcomes, plus extraInputTokens. The doubling covers
-// providers that encode such content once more, such as tool arguments sent
-// as a JSON string, so the estimate stays an upper bound; the base is exact.
+// before it exists. It carries no real body: its input estimate is set in
+// RequestSnapshot.EstimatedInputTokens. The base is the latest real
+// request: the input the provider reported for the latest call, or else the
+// input estimated when that call, or the call in flight, started. What the
+// next request adds is the in-flight call's max_tokens, or the latest
+// result and its tool results, estimated by llm.EstimatedMessageTokens,
+// plus extraInputTokens. Like every input estimate it can run low.
 func estimatedNextRequest(s *replayState, extraInputTokens int) (llm.Request, bool) {
-	grown := max(extraInputTokens, 0)
 	var callStart *ModelFact
+	tokens := 0
 	if s.modelCallStart != "" {
 		callStart = s.startedModelCalls[s.modelCallStart]
 		if callStart != nil {
-			grown += max(callStart.Effective.MaxTokens, 0)
+			tokens = cappedCount(
+				max(callStart.EstimatedInputTokens, 0),
+				max(callStart.Effective.MaxTokens, 0),
+			)
 		}
 	} else {
 		callStart = s.startedModelCalls[s.latestModelCall]
-		if s.latestResult != nil {
-			if b, err := json.Marshal(s.latestResult.Message); err == nil {
-				grown += len(b)
+		if callStart != nil {
+			tokens = max(callStart.EstimatedInputTokens, 0)
+			latest, _ := modelCallCostOf(callStart, s.modelFinishes[s.latestModelCall])
+			if latest.UsageSource == UsageSourceReported && latest.Usage != nil &&
+				latest.Usage.TotalInputTokens() > 0 {
+				tokens = latest.Usage.TotalInputTokens()
 			}
+		}
+		var added []llm.Message
+		if s.latestResult != nil {
+			added = append(added, s.latestResult.Message)
 		}
 		for _, id := range s.callOrder {
 			if s.modelCallOfTool[id] != s.latestModelCall {
 				continue
 			}
-			if o := s.Tools[id].Outcome; o != nil {
-				if b, err := json.Marshal(o); err == nil {
-					grown += len(b)
-				}
+			if v := s.Tools[id]; v.Status == ToolFinished && v.Outcome != nil {
+				result := v.Result()
+				added = append(added, llm.Message{
+					Role: llm.RoleUser,
+					Content: []llm.Content{{
+						Kind:       llm.ContentToolResult,
+						ToolResult: &result,
+					}},
+				})
 			}
 		}
+		tokens = cappedCount(tokens, llm.EstimatedMessageTokens(added))
 	}
 	if callStart == nil {
 		return llm.Request{}, false
 	}
-	size := callStart.EstimatedInputTokens + 2*grown
-	// EstimatedInputTokens is the body size plus 1024, so the body carries
-	// the rest; a JSON string keeps it valid.
-	bodySize := max(size-1024, 2)
-	body := make([]byte, bodySize)
-	body[0] = '"'
-	for i := 1; i < bodySize-1; i++ {
-		body[i] = 'x'
-	}
-	body[bodySize-1] = '"'
+	tokens = cappedCount(tokens, max(extraInputTokens, 0))
 	req, err := llm.NewRequest(llm.RequestSnapshot{
 		Origin: callStart.Endpoint,
 		Input: llm.Input{
@@ -175,21 +174,20 @@ func estimatedNextRequest(s *replayState, extraInputTokens int) (llm.Request, bo
 			Tools:    callStart.Tools,
 			Settings: callStart.Effective,
 		},
-		Effective: callStart.Effective,
-		Body:      body,
-		ModelInfo: callStart.ModelInfo,
+		Effective:            callStart.Effective,
+		Body:                 []byte("{}"),
+		ModelInfo:            callStart.ModelInfo,
+		EstimatedInputTokens: max(tokens, 1),
 	})
 	return req, err == nil
 }
 
-// estimatedItemTokens sizes context items the way Dashi estimates request
-// input: one token per byte of their encoding, an upper bound.
+// estimatedItemTokens estimates the input tokens context items add to a
+// request, as llm.EstimatedMessageTokens does.
 func estimatedItemTokens(items []ContextItem) int {
-	n := 0
+	messages := make([]llm.Message, 0, len(items))
 	for _, item := range items {
-		if b, err := json.Marshal(item.Message); err == nil {
-			n += len(b)
-		}
+		messages = append(messages, item.Message)
 	}
-	return n
+	return llm.EstimatedMessageTokens(messages)
 }

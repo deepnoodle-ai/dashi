@@ -92,7 +92,7 @@ func TestInspectionCommandsPreserveOwnedSessionAndFacts(t *testing.T) {
 		t.Fatalf("completed accounting: %+v %v", completed.Accounting, err)
 	}
 	interrupted, err := cfg.Store.Inspect(t.Context(), cfg.Dir, bSaved.ID)
-	if err != nil || interrupted.Accounting.ModelCalls != 0 || interrupted.Accounting.Spend.Estimated != 1 || interrupted.Accounting.Spend.CostUnknown != 1 {
+	if err != nil || interrupted.Accounting.ModelCalls != 0 || interrupted.Accounting.Spend.CallsWithoutFinalUsage != 1 || interrupted.Accounting.Spend.CostUnknown != 0 {
 		t.Fatalf("interrupted no-response accounting: %+v %v", interrupted.Accounting, err)
 	}
 

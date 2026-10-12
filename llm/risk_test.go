@@ -52,8 +52,9 @@ func TestMaxCostAtRiskBoundsInputAndOutput(t *testing.T) {
 	if !ok {
 		t.Fatal("priced request had no cost bound")
 	}
-	if EstimatedInputTokens(request) != len(request.Body())+1024 {
-		t.Fatal("input bound did not include body and fixed margin")
+	// Eleven body bytes, four to a token.
+	if EstimatedInputTokens(request) != 3 {
+		t.Fatalf("input estimate=%d", EstimatedInputTokens(request))
 	}
 	// Input tokens × $4/MTok is 4 µ$ per token, exact in nanos.
 	wantInput := money.AmountFromNanos(int64(EstimatedInputTokens(request)) * 4000)

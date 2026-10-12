@@ -318,7 +318,7 @@ func TestActiveCompactionContinueAfterApplication(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				estimate := llm.EstimatedInputTokens(req)
+				estimate := llm.InputTokenUpperBound(req)
 				allowance := 16000 - req.Snapshot().Effective.MaxTokens
 				if float64(estimate) < .3*float64(allowance) || estimate > allowance {
 					t.Fatalf("replacement must exceed soft threshold and fit hard limit: estimate=%d allowance=%d", estimate, allowance)
@@ -563,7 +563,7 @@ func TestActiveCompactionNativeTextDocumentLongRequest(t *testing.T) {
 			}
 			activeDocumentWarnings(t, out, 0)
 			for i, req := range c.sent {
-				if llm.EstimatedInputTokens(req)+req.Effective().MaxTokens > 16000 {
+				if llm.InputTokenUpperBound(req)+req.Effective().MaxTokens > 16000 {
 					t.Fatalf("dispatch %d exceeds text context allowance", i)
 				}
 			}

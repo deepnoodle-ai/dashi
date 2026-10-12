@@ -96,7 +96,7 @@ func TestCLIActiveMediaPrintAndRecordedReopen(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			estimate := llm.EstimatedInputTokens(req)
+			estimate := llm.InputTokenUpperBound(req)
 			if len(data) < 1<<20 || estimate <= window {
 				t.Fatalf("image too small: PNG=%d estimate=%d", len(data), estimate)
 			}

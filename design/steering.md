@@ -117,15 +117,10 @@ urgent steer FR-6 adds from it records one `WarningSteering` per run.
   interrupt needs a new urgent steer, so user input bounds them, and even the
   reserved final-reply call may be cut and asked again.
 - **U-9. Billing.** The finish step keeps the response ID, partial output, and
-  observed usage. The output estimate counts every streamed delta (text,
-  reasoning, tool arguments). Under a `MaxCost` cap, every sent call cut off
-  by a steer is charged the worst case reserved by `BeforeSend`, written into
-  the finish step's `Cost` (which `modelCallCost` prefers, so replay needs no
-  cap logic). Without a cap, decision 24's estimate applies. For every
-  interrupt cause, `Result.Usage.OutputTokens` records the larger of the
-  reported count and the delta estimate (capped at `max_tokens`, in replay
-  too), so token caps and replay see it with no new field; the finish step is
-  `EstimatedUsage`. Crash recovery keeps decision 24's rule.
+  the usage the provider reported. A call cut off by a steer is charged that
+  usage and nothing more, with or without a `MaxCost` cap, like every other
+  interrupted call ([decision 47](decisions.md), which replaced the earlier
+  worst-case charge and streamed-delta estimate).
 - **U-10. Clients must stop remote work.** `llm.Client` documents that ending
   the call's context must stop generation at the provider.
 

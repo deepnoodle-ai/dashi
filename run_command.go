@@ -397,7 +397,6 @@ func (r Runner) apply(
 				fact.SendStatus = c.ModelFailure.SendStatus
 				fact.Evidence = c.ModelFailure.Evidence
 			}
-			setFinishCharge(state.startedModelCalls[c.CallID], fact)
 			step := Step{
 				Kind:        kind,
 				CommandID:   c.CommandID,

@@ -1,6 +1,6 @@
 # Budgets
 
-**Status:** Decided, [decisions 21–26](decisions.md) · **Date:** 2026-09-28
+**Status:** Decided, [decisions 21–26 and 47](decisions.md) · **Date:** 2026-09-28
 · **Brief:** [decision 7](decisions.md)
 
 > **Superseded API:** hooks ([hooks.md](hooks.md), decision 31) replaced
@@ -49,8 +49,9 @@ the raise.
 **A call whose final bill never arrived.** A worker is redeployed while a
 reply is streaming. Dashi may have input usage and some text, but no final
 output count. The call is sent again on resume ([decision 9](decisions.md));
-the lost try preserves the input count, counts the greater of streamed output
-and the visible-text estimate, and is marked estimated in the running total.
+the lost try counts only the usage the provider reported before the cut, or
+nothing, and is counted in `Spend.CallsWithoutFinalUsage`
+([decision 47](decisions.md)).
 
 ## How nvoken does it today
 
@@ -79,9 +80,10 @@ Server behavior lives in nvoken-cloud (`nc/`); nvoken has SDK and CLI mirrors.
   cost limit or credits apply (`generation.go:513-524`,
   `credit_authority.go:143-152`).
 
-Dashi keeps this shape and fixes two things: it compares the worst case with
-the turn's own cost cap, and it charges a best guess, not a full hold, for a
-call whose usage never arrived (nvoken treats every provider error as
+Dashi keeps this shape and fixes three things: it compares the worst case
+with the turn's own cost cap, it charges only reported usage, not a full
+hold, for a call whose usage never arrived, and it estimates input tokens
+realistically instead of one per byte (nvoken treats every provider error as
 result unknown, `generator.go:2343-2348`).
 
 **mobius-cloud** checked metered cost before each call, accepting a one-call
@@ -101,8 +103,12 @@ they should also move to the caller is not decided.
 **The check before each call.** `llm.WorstCaseCost(Request, Pricing)` values a
 prepared request: estimated input at the highest input-side rate, plus the
 effective `MaxTokens` at the output rate, in the price tier the input selects.
-Input size starts as a safe, size-based estimate (nvoken's byte bound); a
-provider token count may replace it later. Prices come from the ported model
+Input size is a realistic estimate, not a bound: about four bytes per text
+token, a per-item amount for each image, document page, audio, or video
+instead of its encoded bytes, and never more than the model's context
+window. A preparer may supply its own count in
+`RequestSnapshot.EstimatedInputTokens`. Rates and the output allowance are
+still the worst case. Prices come from the ported model
 catalog ([decision 4](decisions.md)), and an application supplies its own
 through the client's model info. With `MaxOutputTokens` set, Dashi lowers the
 request's `MaxTokens` to the remaining token allowance and records a warning.
@@ -144,17 +150,17 @@ spending deny from `BeforeSend` becomes `StopLimited` with kind `host` and the
 application's code, not `StopRefused` (`engine.go:558-559`), which stays for
 refusals.
 
-**Actual and estimated spend.** After each call Dashi records its cost: the
-provider-reported cost, else the price sheet applied to observed or estimated
-usage. A call without final usage (a crash or cut-off) keeps streamed counts,
-fills missing input, and counts the greater of streamed output and a
-visible-text estimate. The usage is marked estimated. The consequence,
-accepted: for such calls the cap is not a strict cost guarantee, since the
-guess can undercount. The pre-call check also relies on the supplied rates
-and the provider respecting its output allowance.
+**Reported spend only.** Each call counts the usage its provider reported:
+the provider-reported cost, else the price sheet applied to that usage
+([decision 47](decisions.md)). Dashi never fills in a token count. A call
+with no reported usage (a crash, a steer, an unknown result) counts zero; a
+call cut off after some usage arrived counts that usage. The consequence,
+accepted: a cap limits known spend and can be passed by what interrupted
+calls never reported. The pre-call check also relies on the supplied rates,
+the input estimate, and the provider respecting its output allowance.
 `TurnView.Spend` replaces the token-only `Usage` (`state.go:115-121`): token
-totals, model and local-tool cost per currency, and counts of estimated calls
-and calls with unknown model cost. A model cost in another currency counts as
+totals, model and local-tool cost per currency, and counts of calls without
+final usage and calls with unknown model cost. A model cost in another currency counts as
 unknown.
 `llm.Usage` gains provider tool request counts (such as web searches) and
 `Pricing` per-request rates; `tool.Outcome` gains an optional `Cost`.
@@ -174,11 +180,11 @@ transaction as the call's `model_call_started` step and rejects the write if it
 cannot. On the finish step it calls `ModelCallCostOf(started, finished)`, the
 same per-call entry that `TurnView.ModelCallCosts` lists, with the usage and
 cost counted into `Spend` (which is their sum), a `UsageSource` (reported,
-estimated, or not sent), and `Exact`. An exact call's hold becomes its cost.
+cut off, missing, or not sent), and `Exact`. An exact call's hold becomes its cost.
 For the rest, such as a call whose usage never arrived or whose cost is
 partial (`Cost.Partial`: provider tool requests without a price make `Total` a
-lower bound), the application releases or charges the hold by its own rule,
-for example by keeping it. Dashi records no later bill. Dashi owns
+lower bound), `Cost` is the known lower bound; the application charges it and
+releases the rest of the hold, or keeps the hold by its own rule. Dashi records no later bill. Dashi owns
 that classification, so hosts do not re-derive it from model facts. The
 model call ID is the idempotency key.
 
@@ -204,7 +210,7 @@ type Spend struct {
     Usage                  llm.Usage
     Cost                   map[string]money.Amount // model calls by currency
     ToolCost               map[string]money.Amount // local tools by currency
-    Estimated, CostUnknown int
+    CallsWithoutFinalUsage, CostUnknown int
 }
 // Start.Budget, Continue.Budget *Budget; ModelFact.WorstCaseCost, .Cost *llm.Cost;
 // TurnView.Budget, .Raises []BudgetRaise, .Spend, .ModelCallCosts []ModelCallCost;

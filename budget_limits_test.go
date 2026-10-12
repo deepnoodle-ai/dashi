@@ -128,9 +128,19 @@ func TestBudgetIncompleteUsagePreservesExactCostReservation(t *testing.T) {
 }
 
 func usageResolutionRecord() Turn {
-	turn := accountingRecord(llm.Usage{OutputTokens: 2})
+	// Unreported provider tool work that overflows the request count makes
+	// usage derivation incomplete.
+	turn := accountingRecord(llm.Usage{
+		OutputTokens: 2,
+		Requests:     map[string]int{llm.MeterUnreported: math.MaxInt},
+	})
 	turn.Steps[0].Started.Budget = &Budget{MaxOutputTokens: 10}
-	turn.Steps[1].Model.EstimatedInputTokens = math.MaxInt
+	turn.Steps[1].Model.Tools = []tool.Definition{{
+		Name: "search", Kind: tool.KindProviderTool,
+		ProviderTool: &tool.ProviderToolSpec{
+			Provider: "test", API: "test.chat", Type: "web_search",
+		},
+	}}
 	turn.Steps[2].Model.ResultUnknown = true
 	turn.Steps[2].Model.Error = "connection lost"
 	return turn
@@ -276,17 +286,23 @@ func TestBudgetIncompleteFinishRecoversToEndedStop(t *testing.T) {
 }
 
 func TestBudgetIncompleteCallStartRecoversBeforeTokenStop(t *testing.T) {
-	turn := accountingRecord(llm.Usage{InputTokens: math.MaxInt})
+	// The first call's unreported provider tool work overflows the request
+	// count, so usage derivation is incomplete.
+	turn := accountingRecord(llm.Usage{
+		Requests: map[string]int{llm.MeterUnreported: math.MaxInt},
+	})
 	turn.Steps[0].Started.Budget = &Budget{MaxOutputTokens: 100}
-	callStart := interruptionModelCallStart("model-2")
-	callStart.Model.EstimatedInputTokens = 1
-	callStart.Model.Tools = []tool.Definition{{
+	search := []tool.Definition{{
 		Name: "search",
 		Kind: tool.KindProviderTool,
 		ProviderTool: &tool.ProviderToolSpec{
 			Provider: "test", API: "test.chat", Type: "web_search",
 		},
 	}}
+	turn.Steps[1].Model.Tools = search
+	callStart := interruptionModelCallStart("model-2")
+	callStart.Model.EstimatedInputTokens = 1
+	callStart.Model.Tools = search
 	turn = interruptionRecord(append(turn.Steps, callStart)...)
 	view, err := turn.View()
 	if err != nil || !view.Spend.UsageIncomplete || !view.ReadyToContinue {

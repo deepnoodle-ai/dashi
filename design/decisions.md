@@ -156,7 +156,7 @@ request has prices, a finite output-token allowance, and a worst-case cost that
 fits the remaining cap. Provider tools with no bounded request count
 cannot run under that cap. Local tool costs are reported separately; an
 application promising an all-in customer ceiling must check and limit those
-tools itself. Missing usage has the exception in decision 24. Rationale: the
+tools itself. Missing usage has the exception in decision 47. Rationale: the
 worst case is what an application can reserve against tenant credit. The cost:
 turns sometimes stop with budget unused.
 
@@ -178,7 +178,8 @@ stops `limited` and asks for one; since preparation defaults `MaxTokens` to
 request count is unbounded stops likewise. Rationale: a cap must never be
 silently ignored; applications can supply prices without a catalog update.
 
-**24. A call without final usage counts a best guess.** Decided. When a worker
+**24. A call without final usage counts a best guess.** Superseded by
+decision 47. When a worker
 crashes or a call is cut off before final usage arrives, Dashi preserves any
 streamed counts, fills absent input from the recorded estimate, and counts the
 greater of streamed output and a visible-text estimate. The call is marked
@@ -548,3 +549,33 @@ without `Data`. So a read the model did not see in full is not delivery,
 and the notice still carries the whole reply. The rule is general, not a
 check in `delegate`, because any host that reads `Data` would otherwise
 trust a fact about a result the model never saw.
+
+**47. A model call is charged only the usage its provider reported.**
+Decided; supersedes decision 24 and steering U-9's worst-case charge. A
+call's `Spend` contribution is the usage in its result, priced by the
+provider's reported cost or else the price sheet. Dashi never fills in a
+token count: a call with no reported usage (worker stopped, cut by a steer
+before usage arrived, result unknown) counts zero, and a call cut off after
+some usage arrived counts that partial usage. `ModelCallCost.UsageSource`
+says which (`reported`, `cut_off`, `missing`, `not_sent`), and
+`Spend.CallsWithoutFinalUsage` counts the cut-off and missing calls, so an audit sees
+that `Spend` undercounts them. The cost recorded on a finish step was a
+copy of this derivation and is removed; replay derives every charge, so
+records written by earlier versions lose their stored charges and input
+estimates. Their output counts are not repaired: earlier versions wrote a
+visible-text estimate into an interrupted call's `Result.Usage`, which now
+reads as reported, and only for cut-off calls.
+Separately, the input estimate behind `WorstCaseCost` is realistic rather
+than a byte count: about four bytes per text token, a per-item amount for
+images, documents, audio, and video instead of their encoded bytes, never
+more than the model's context window, and, for the next call, the previous
+call's reported input plus what was added since. Context compaction keeps
+the one-token-per-byte upper bound (`llm.InputTokenUpperBound`), since fitting a
+window must not underestimate. Rationale: production turns stalled on
+budget holds made of charges for calls that never billed and reservations
+of ten times the real cost. Undercounting a call that was cut off is the
+safer error: the provider's own bill, not Dashi's guess, is the record, and
+a host that needs a strict guarantee keeps its `WorstCaseCost` hold for any
+call whose `ModelCallCost` is not `Exact`. The cost: a cap can be passed by
+the unreported part of interrupted calls, and by an input estimate that runs
+low, so a cap is a limit on known spend, not a guarantee.

@@ -131,7 +131,8 @@ func (r *runtime) finishPoint(
 	if !finish.rejects() {
 		return finish, nil
 	}
-	extra := estimatedItemTokens(finish.deliver) + len(finish.reason)
+	// The veto reason is text, about four bytes to a token.
+	extra := estimatedItemTokens(finish.deliver) + (len(finish.reason)+3)/4
 	if finish.reason != "" {
 		// Once the reply is vetoed, the reserve protects nothing, so the
 		// reserved final-reply call may reply again.

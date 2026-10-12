@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/internal/tooldef"
@@ -228,7 +227,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		if o, again, handled := r.guardActiveContext(s, input, req); handled {
 			return o, again
 		}
-	} else if llm.EstimatedInputTokens(req) > max(0, s.ActiveCompactionWindow-req.Snapshot().Effective.MaxTokens) {
+	} else if llm.InputTokenUpperBound(req) > max(0, s.ActiveCompactionWindow-req.Snapshot().Effective.MaxTokens) {
 		return r.contextLimit(s, req, "summary evidence or hook context does not fit"), false
 	}
 	// The call runs under its own context, so an urgent steer can end it
@@ -331,7 +330,6 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	var observedContent []llm.Content
 	lastTextIndex := -1
 	var observedUsage *llm.Usage
-	var streamed streamedOutput
 	for item, err := range llm.Stream(
 		callCtx,
 		r.runner.Client,
@@ -348,7 +346,6 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 				}
 				observedUsage.Absorb(item.Delta.Usage)
 			}
-			streamed.add(*item.Delta)
 			// Output that arrives after the call was cut short was never
 			// shown, so it is not part of the partial response (U-6).
 			live := callCtx.Err() == nil
@@ -388,18 +385,10 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		}
 	}
 	r.unregisterCall(call)
-	// Every interrupt, whatever its cause, folds the estimate from all
-	// streamed deltas into the recorded output (U-9), so text that arrived
-	// after the cut still counts.
+	// An interrupted call keeps what it produced and only the usage the
+	// provider reported (U-9).
 	partial := func(cause InterruptCause) *llm.Result {
-		return interruptedResult(
-			cause,
-			result,
-			observedContent,
-			observedUsage,
-			streamed.tokens(),
-			fact.Effective.MaxTokens,
-		)
+		return interruptedResult(cause, result, observedContent, observedUsage)
 	}
 	var sendReason llm.ErrorReason
 	if failure, ok := errors.AsType[*llm.Error](sendErr); ok {
@@ -417,8 +406,6 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		errors.Is(context.Cause(callCtx), errSteered) &&
 		!completeResult(result, sendErr, r.agent) {
 		return r.finishSteered(
-			s,
-			fact,
 			finished,
 			partial(InterruptSteering),
 			sendErr,
@@ -430,7 +417,6 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		finished.Error = context.Cause(r.ctx).Error()
 		finished.ResultUnknown = tooldef.UnsafeProviderTool(defs)
 		finished.Result = partial(InterruptRun)
-		setFinishCharge(fact, finished)
 		step := Step{Kind: StepModelCallFinished, Model: finished}
 		if o := r.commit(step); o != nil {
 			return *o, false
@@ -485,7 +471,6 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		result.Usage != nil {
 		finished.Result = &result
 	}
-	setFinishCharge(fact, finished)
 	if o := r.commit(Step{Kind: StepModelCallFinished, Model: finished}); o != nil {
 		return *o, false
 	}
@@ -576,13 +561,10 @@ func (r *runtime) handOff(
 // finishSteered records a call an urgent steer cut short after the hand-off
 // and goes back for the steer. The call counts as sent unless the client
 // reports it was not sent: a missing response proves nothing. It
-// does not count toward ModelCalls (U-8). Under a cost cap it is charged
-// the worst-case cost checked before sending, since a client may keep
-// generating after the cancel and the usage it reports so far is not final
-// (U-9).
+// does not count toward ModelCalls (U-8). It keeps its partial result and
+// is charged only the usage the provider reported, like any other
+// interrupted call (U-9, decision 47).
 func (r *runtime) finishSteered(
-	s *replayState,
-	callStart *ModelFact,
 	finished *ModelFact,
 	partial *llm.Result,
 	sendErr error,
@@ -591,41 +573,15 @@ func (r *runtime) finishSteered(
 	finished.Interrupted = InterruptSteering
 	finished.Error = errSteered.Error()
 	// A SendStatusProviderRejected error that coincides with the cut
-	// finishes as sent, and under a cap is charged the worst case. That
-	// over-charges a call the provider refused, which is harmless and keeps
-	// the rule simple.
-	switch {
-	case sendStatusOf(sendErr, result) == llm.SendStatusNotSent:
+	// finishes as sent and is charged any usage it reported, which keeps the
+	// rule simple.
+	if sendStatusOf(sendErr, result) == llm.SendStatusNotSent {
 		finished.NotSent = true
-	case s.Budget != nil && s.Budget.MaxCost != nil && callStart.WorstCaseCost != nil:
+	} else {
 		finished.Result = partial
-		charge := callStart.WorstCaseCost.Clone()
-		finished.Cost = &charge
-		finished.EstimatedUsage = true
-	default:
-		finished.Result = partial
-		setFinishCharge(callStart, finished)
 	}
 	if o := r.commit(Step{Kind: StepModelCallFinished, Model: finished}); o != nil {
 		return *o, false
 	}
 	return RunResult{}, true
-}
-
-// streamedOutput sizes every generated delta of a call, including those
-// that arrive after it was cut short: text, reasoning, and tool arguments.
-type streamedOutput struct {
-	runes int
-}
-
-func (o *streamedOutput) add(delta llm.Delta) {
-	switch delta.Kind {
-	case llm.DeltaText, llm.DeltaReasoning, llm.DeltaToolArguments:
-		o.runes += utf8.RuneCountInString(delta.Text)
-	}
-}
-
-// tokens estimates output tokens as estimatedOutputTokens does.
-func (o streamedOutput) tokens() int {
-	return o.runes/4 + min(1, o.runes%4)
 }

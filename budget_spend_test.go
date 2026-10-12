@@ -34,7 +34,7 @@ func TestSpendString(t *testing.T) {
 		},
 		{
 			name:  "tokens without cost",
-			spend: Spend{Usage: llm.Usage{InputTokens: 10, OutputTokens: 2}, Estimated: 1},
+			spend: Spend{Usage: llm.Usage{InputTokens: 10, OutputTokens: 2}, CallsWithoutFinalUsage: 1},
 			want:  "no recorded cost",
 		},
 		{
@@ -198,12 +198,12 @@ func TestSpendStringStableAndPreservesFields(t *testing.T) {
 			InputTokens: 10, OutputTokens: 2,
 			Requests: map[string]int{llm.MeterCodeExecution: 1},
 		},
-		Cost:             map[string]money.Amount{"USD": amount("1"), "EUR": amount("0.5")},
-		ToolCost:         map[string]money.Amount{"USD": amount("2"), "EUR": amount("3")},
-		CostPartial:      1,
-		CostUnknown:      2,
-		Estimated:        3,
-		UnpricedRequests: map[string]int{llm.MeterCodeExecution: 1},
+		Cost:                   map[string]money.Amount{"USD": amount("1"), "EUR": amount("0.5")},
+		ToolCost:               map[string]money.Amount{"USD": amount("2"), "EUR": amount("3")},
+		CostPartial:            1,
+		CostUnknown:            2,
+		CallsWithoutFinalUsage: 3,
+		UnpricedRequests:       map[string]int{llm.MeterCodeExecution: 1},
 	}
 	before := spend.Clone()
 	want := "model: at least 0.5 EUR, 1 USD; tools: at least 3 EUR, 2 USD; partial: 1; unknown: 2"
@@ -446,9 +446,10 @@ func TestModelCallCostClassifiesEachModelCall(t *testing.T) {
 			finished: true, basis: UsageSourceReported, charged: true, final: true,
 		},
 		{
+			// No reported usage counts zero, at a known zero cost.
 			name:     "missing usage",
 			finish:   &ModelFact{Result: usageResult(nil)},
-			finished: true, basis: UsageSourceEstimated, charged: true,
+			finished: true, basis: UsageSourceMissing, charged: true,
 		},
 		{
 			name: "interrupted stream",
@@ -456,18 +457,18 @@ func TestModelCallCostClassifiesEachModelCall(t *testing.T) {
 				Result:      usageResult(measured.Copy()),
 				Interrupted: InterruptRun,
 			},
-			finished: true, basis: UsageSourceEstimated, charged: true,
+			finished: true, basis: UsageSourceCutOff, charged: true,
 		},
 		{
 			// Usage without a final stop reason may describe an earlier frame.
 			name:     "no ending stop",
 			finish:   &ModelFact{Result: cutStop},
-			finished: true, basis: UsageSourceEstimated, charged: true,
+			finished: true, basis: UsageSourceCutOff, charged: true,
 		},
 		{
 			name:     "result unknown",
 			finish:   &ModelFact{Error: "timeout", ResultUnknown: true},
-			finished: true, basis: UsageSourceEstimated, charged: true,
+			finished: true, basis: UsageSourceMissing, charged: true,
 		},
 		{
 			name: "not dispatched",
@@ -502,7 +503,7 @@ func TestModelCallCostClassifiesEachModelCall(t *testing.T) {
 		},
 		{
 			name:  "pending",
-			basis: UsageSourceEstimated, charged: true,
+			basis: UsageSourceMissing, charged: true,
 		},
 	}
 	for _, tc := range tests {
@@ -559,7 +560,7 @@ func TestModelCallCostsSumToSpend(t *testing.T) {
 			t.Fatalf("attempt %d=%+v, want %s", i, a, ids[i])
 		}
 	}
-	if !view.ModelCallCosts[0].Exact || view.ModelCallCosts[1].UsageSource != UsageSourceEstimated ||
+	if !view.ModelCallCosts[0].Exact || view.ModelCallCosts[1].UsageSource != UsageSourceMissing ||
 		view.ModelCallCosts[1].Exact {
 		t.Fatalf("calls=%+v", view.ModelCallCosts)
 	}
@@ -594,7 +595,7 @@ func TestModelCallCostsSumToSpend(t *testing.T) {
 	}
 	if !reflect.DeepEqual(sum, view.Spend.Cost) ||
 		!reflect.DeepEqual(usage, view.Spend.Usage) ||
-		view.Spend.Estimated != 1 {
+		view.Spend.CallsWithoutFinalUsage != 1 {
 		t.Fatalf("attempts sum %v %+v, spend %+v", sum, usage, view.Spend)
 	}
 
@@ -625,10 +626,12 @@ func TestModelCallCostsIncludePendingModelCall(t *testing.T) {
 	}
 	a := view.ModelCallCosts[0]
 	if a.ModelCallID != "model-1" || a.Finished || a.Exact ||
-		a.UsageSource != UsageSourceEstimated {
+		a.UsageSource != UsageSourceMissing || a.Usage != nil {
 		t.Fatalf("pending attempt=%+v", a)
 	}
-	if view.Spend.Estimated != 1 || view.Spend.CostUnknown != 1 {
+	// A pending call counts nothing, so it is not an unknown cost, and it is
+	// not yet a call without final usage.
+	if view.Spend.CallsWithoutFinalUsage != 0 || view.Spend.CostUnknown != 0 {
 		t.Fatalf("spend=%+v", view.Spend)
 	}
 }

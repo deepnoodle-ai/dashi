@@ -56,7 +56,7 @@ func TestActiveCompactionLargeImageEstimateUnavailable(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			estimate := llm.EstimatedInputTokens(req)
+			estimate := llm.InputTokenUpperBound(req)
 			if estimate <= window || len(data) < 1000000 {
 				t.Fatalf("probe too small: PNG=%d estimate=%d window=%d", len(data), estimate, window)
 			}
@@ -162,7 +162,9 @@ func TestActiveCompactionMediaCostCheckUnchanged(t *testing.T) {
 			a.Settings.MaxTokens = 256
 			start := activeStart(a)
 			start.Input[0].Content = append(start.Input[0].Content, llm.Image(content.Source{Data: data, MIMEType: "image/png"}))
-			cap := "0.01"
+			// The image counts a fixed amount, not its bytes, so only a cap
+			// below about two thousand tokens refuses it.
+			cap := "0.001"
 			if affordable {
 				cap = "2"
 			}

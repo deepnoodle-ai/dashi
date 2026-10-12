@@ -290,7 +290,9 @@ func TestFinishVetoResumesAfterABudgetRaise(t *testing.T) {
 		}
 		return FinishDecision{}, nil
 	}}
-	client := newPricedClient(final("ssn 123"), final("redacted"))
+	first := final("ssn 123")
+	first.Usage = &llm.Usage{InputTokens: 1000, OutputTokens: 100}
+	client := newPricedClient(first, final("redacted"))
 	agent := testAgent()
 	agent.Settings = llm.Settings{MaxTokens: 100}
 	runner := Runner{Client: client, Hooks: veto.Hooks()}

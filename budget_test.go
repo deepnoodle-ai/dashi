@@ -69,8 +69,15 @@ func (c *pricedClient) Prepare(
 		Body:             []byte(`{"ok":true}`),
 		ModelInfo:        &info,
 		CapabilityPolicy: llm.CapabilityAdjust,
+		// A preparer's own count, so cap fixtures do not depend on the
+		// size of this placeholder body.
+		EstimatedInputTokens: pricedInputTokens,
 	})
 }
+
+// pricedInputTokens is the input estimate pricedClient reports for every
+// request.
+const pricedInputTokens = 1035
 
 func runBudgetTurn(
 	t *testing.T,
@@ -337,22 +344,22 @@ func TestBudgetClampsOutputAndRecordsCharge(t *testing.T) {
 	if view.Spend.Usage.OutputTokens != 40 {
 		t.Fatalf("output tokens=%d", view.Spend.Usage.OutputTokens)
 	}
-	if view.Spend.Estimated != 0 {
-		t.Fatalf("estimated calls=%d", view.Spend.Estimated)
+	if view.Spend.CallsWithoutFinalUsage != 0 {
+		t.Fatalf("calls without final usage=%d", view.Spend.CallsWithoutFinalUsage)
 	}
 	if len(view.Warnings) != 1 || view.Warnings[0].Code != WarningBudgetClamp {
 		t.Fatalf("warnings=%+v", view.Warnings)
 	}
 	callStart := out.Turn.Steps[1].Model
-	finished := out.Turn.Steps[2].Model
-	if callStart.WorstCaseCost == nil || finished.Cost == nil {
-		t.Fatalf("missing risk or charge: start=%+v finished=%+v", callStart, finished)
+	charge := view.ModelCallCosts[0]
+	if callStart.WorstCaseCost == nil || charge.Cost == nil {
+		t.Fatalf("missing risk or charge: start=%+v charge=%+v", callStart, charge)
 	}
-	if callStart.WorstCaseCost.Total <= finished.Cost.Total {
-		t.Fatalf("risk=%s charge=%s", callStart.WorstCaseCost.Total, finished.Cost.Total)
+	if callStart.WorstCaseCost.Total <= charge.Cost.Total {
+		t.Fatalf("risk=%s charge=%s", callStart.WorstCaseCost.Total, charge.Cost.Total)
 	}
-	if finished.EstimatedUsage {
-		t.Fatal("reported usage marked estimated")
+	if charge.UsageSource != UsageSourceReported || !charge.Exact {
+		t.Fatalf("reported usage not exact: %+v", charge)
 	}
 }
 
@@ -370,24 +377,24 @@ func TestValidationFailureKeepsFinishedProviderUsage(t *testing.T) {
 		finished.Result.Stop.Kind != llm.StopFinished {
 		t.Fatalf("finish=%+v", finished)
 	}
-	if finished.EstimatedUsage {
-		t.Fatal("finished provider usage was marked estimated")
-	}
 	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
+	if view.ModelCallCosts[0].UsageSource != UsageSourceReported {
+		t.Fatal("finished provider usage was not reported")
+	}
 	if view.Spend.Usage.InputTokens != 7 ||
-		view.Spend.Usage.OutputTokens != 1 || view.Spend.Estimated != 0 {
+		view.Spend.Usage.OutputTokens != 1 || view.Spend.CallsWithoutFinalUsage != 0 {
 		t.Fatalf("spend=%+v", view.Spend)
 	}
 	wantCharge, ok := client.pricing.Estimate(answer.Usage)
-	if !ok || !reflect.DeepEqual(finished.Cost, &wantCharge) {
-		t.Fatalf("charge=%+v, want %+v", finished.Cost, wantCharge)
+	if !ok || !reflect.DeepEqual(view.ModelCallCosts[0].Cost, &wantCharge) {
+		t.Fatalf("charge=%+v, want %+v", view.ModelCallCosts[0].Cost, wantCharge)
 	}
 }
 
-func TestInvalidStopKeepsPartialUsageEstimated(t *testing.T) {
+func TestInvalidStopCountsReportedUsageAsCutOff(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		kind llm.StopKind
@@ -411,12 +418,15 @@ func TestInvalidStopKeepsPartialUsageEstimated(t *testing.T) {
 				t.Fatalf("stop=%+v", out.Stop)
 			}
 			finished := out.Turn.Steps[2].Model
-			if finished == nil || !finished.EstimatedUsage ||
-				finished.Error == "" {
+			if finished == nil || finished.Error == "" {
 				t.Fatalf("finish=%+v", finished)
 			}
-			if out.Spend.Usage.OutputTokens != 12 ||
-				out.Spend.Estimated != 1 {
+			if got := ModelCallCostOf(out.Turn.Steps[1].Model, finished); got.UsageSource != UsageSourceCutOff {
+				t.Fatalf("charge=%+v", got)
+			}
+			// Only the reported output counts; no visible-text estimate.
+			if out.Spend.Usage.OutputTokens != 1 ||
+				out.Spend.CallsWithoutFinalUsage != 1 {
 				t.Fatalf("spend=%+v", out.Spend)
 			}
 		})
@@ -489,7 +499,7 @@ func TestBudgetRaiseResumesAndKeepsAudit(t *testing.T) {
 	}
 }
 
-func TestBudgetMissingUsageUsesRecordedBestGuess(t *testing.T) {
+func TestBudgetMissingUsageCountsZero(t *testing.T) {
 	client := newPricedClient(final("partial text"))
 	out := runBudgetTurn(
 		t,
@@ -503,30 +513,18 @@ func TestBudgetMissingUsageUsesRecordedBestGuess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	callStart := out.Turn.Steps[1].Model
-	finished := out.Turn.Steps[2].Model
-	if view.Spend.Estimated != 1 || !finished.EstimatedUsage {
-		t.Fatalf(
-			"missing estimation marker: spend=%+v finished=%+v",
-			view.Spend,
-			finished,
-		)
+	charge := view.ModelCallCosts[0]
+	if view.Spend.CallsWithoutFinalUsage != 1 ||
+		charge.UsageSource != UsageSourceMissing || charge.Exact {
+		t.Fatalf("missing usage marker: spend=%+v charge=%+v", view.Spend, charge)
 	}
-	if view.Spend.Usage.InputTokens != callStart.EstimatedInputTokens {
-		t.Fatalf(
-			"estimated input=%d, recorded=%d",
-			callStart.EstimatedInputTokens,
-			view.Spend.Usage.InputTokens,
-		)
+	// Dashi fills in no token count: neither the input estimate nor the
+	// visible text.
+	if !reflect.DeepEqual(view.Spend.Usage, llm.Usage{}) || charge.Usage != nil {
+		t.Fatalf("usage=%+v charge=%+v", view.Spend.Usage, charge.Usage)
 	}
-	if view.Spend.Usage.OutputTokens != 3 {
-		t.Fatalf("estimated output=%d", view.Spend.Usage.OutputTokens)
-	}
-	if finished.Cost == nil || callStart.WorstCaseCost == nil {
-		t.Fatalf("missing charge or risk: start=%+v finished=%+v", callStart, finished)
-	}
-	if finished.Cost.Total >= callStart.WorstCaseCost.Total {
-		t.Fatalf("charge=%s risk=%s", finished.Cost.Total, callStart.WorstCaseCost.Total)
+	if charge.Cost == nil || charge.Cost.Total != 0 || view.Spend.CostUnknown != 0 {
+		t.Fatalf("charge=%+v spend=%+v", charge.Cost, view.Spend)
 	}
 }
 
@@ -778,10 +776,8 @@ func TestBudgetPartialCostReportsKnownPart(t *testing.T) {
 		t.Fatalf("spend=%+v", spend)
 	}
 	var charge *llm.Cost
-	for _, step := range out.Turn.Steps {
-		if step.Kind == StepModelCallFinished && step.Model != nil {
-			charge = step.Model.Cost
-		}
+	for _, c := range view.ModelCallCosts {
+		charge = c.Cost
 	}
 	if charge == nil || !charge.Partial() {
 		t.Fatalf("final cost=%+v", charge)
@@ -907,34 +903,33 @@ func runInterruptedBudgetTurn(t *testing.T, usage *llm.Usage) RunResult {
 	return out
 }
 
-func TestBudgetInterruptedCallCountsPartialBestGuess(t *testing.T) {
+func TestBudgetInterruptedCallWithoutUsageCountsZero(t *testing.T) {
 	out := runInterruptedBudgetTurn(t, nil)
 	view, err := out.Turn.View()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Spend.Estimated != 1 {
-		t.Fatalf("estimated calls=%d", view.Spend.Estimated)
+	if view.Spend.CallsWithoutFinalUsage != 1 ||
+		view.ModelCallCosts[0].UsageSource != UsageSourceMissing {
+		t.Fatalf("spend=%+v calls=%+v", view.Spend, view.ModelCallCosts)
 	}
-	if view.Spend.Usage.OutputTokens != 2 {
-		t.Fatalf("partial output estimate=%d", view.Spend.Usage.OutputTokens)
+	if view.Spend.Usage.OutputTokens != 0 || view.Spend.Cost["USD"] != 0 ||
+		view.Spend.CostUnknown != 0 {
+		t.Fatalf("spend=%+v", view.Spend)
 	}
-	if view.Spend.Cost["USD"] <= 0 {
-		t.Fatalf("cost=%s", view.Spend.Cost["USD"])
-	}
-	if out.Turn.Steps[2].Model.Cost == nil ||
-		!out.Turn.Steps[2].Model.EstimatedUsage {
-		t.Fatalf("finish=%+v", out.Turn.Steps[2].Model)
+	if r := out.Turn.Steps[2].Model.Result; r != nil && r.Usage != nil {
+		t.Fatalf("streamed text was recorded as usage: %+v", r.Usage)
 	}
 }
 
-func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
+func TestBudgetCutOffCallCountsOnlyReportedUsage(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
 		reportedOutput int
+		charge         string
 	}{
-		{name: "input only"},
-		{name: "earlier output frame", reportedOutput: 1},
+		{name: "input only", charge: "0.0001"},
+		{name: "earlier output frame", reportedOutput: 1, charge: "0.000101"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out := runInterruptedBudgetTurn(
@@ -948,45 +943,21 @@ func TestBudgetInterruptedPartialUsageCountsVisibleOutput(t *testing.T) {
 			if view.Spend.Usage.InputTokens != 100 {
 				t.Fatalf("observed input tokens=%d", view.Spend.Usage.InputTokens)
 			}
-			if view.Spend.Usage.OutputTokens != 2 {
-				t.Fatalf("estimated output tokens=%d", view.Spend.Usage.OutputTokens)
+			// The streamed text adds no output estimate.
+			if view.Spend.Usage.OutputTokens != tc.reportedOutput {
+				t.Fatalf("output tokens=%d", view.Spend.Usage.OutputTokens)
 			}
-			if view.Spend.Estimated != 1 {
-				t.Fatalf("estimated calls=%d", view.Spend.Estimated)
+			if view.Spend.CallsWithoutFinalUsage != 1 ||
+				view.ModelCallCosts[0].UsageSource != UsageSourceCutOff {
+				t.Fatalf("spend=%+v calls=%+v", view.Spend, view.ModelCallCosts)
 			}
-			if view.Spend.Cost["USD"] != amount("0.000102") {
+			if view.Spend.Cost["USD"] != amount(tc.charge) {
 				t.Fatalf("replayed charge=%s", view.Spend.Cost["USD"])
 			}
 			finished := out.Turn.Steps[2].Model
-			if finished.Result == nil || finished.Result.Usage == nil {
-				t.Fatalf("partial usage was not recorded: %+v", finished)
-			}
-			// The recorded count is the larger of the reported count and
-			// the estimate from every streamed delta, for every cause.
-			if got := finished.Result.Usage.OutputTokens; got != 2 {
-				t.Fatalf("recorded output tokens=%d, want the estimate 2", got)
-			}
-			if !finished.EstimatedUsage {
-				t.Fatal("partial usage was not marked estimated")
-			}
-			if finished.Cost == nil {
-				t.Fatal("partial usage has no estimated charge")
-			}
-			if finished.Cost.Total != amount("0.000102") {
-				t.Fatalf("estimated charge=%s", finished.Cost.Total)
-			}
-			client := newPricedClient(final("unused"))
-			continued, err := (Runner{Client: client}).Run(
-				t.Context(),
-				out.Turn,
-				Continue{CommandID: "resume"},
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-			requireBudgetLimit(t, continued, LimitOutputTokens)
-			if client.sends != 0 {
-				t.Fatalf("spent output cap sent %d calls", client.sends)
+			if finished.Result == nil || finished.Result.Usage == nil ||
+				finished.Result.Usage.OutputTokens != tc.reportedOutput {
+				t.Fatalf("partial usage was not recorded as reported: %+v", finished)
 			}
 		})
 	}
@@ -1035,7 +1006,10 @@ func TestBudgetTotalTokensStopsBetweenCalls(t *testing.T) {
 	}
 }
 
-func TestBudgetCumulativeOverflowRejectsNextCallStart(t *testing.T) {
+// A started call counts no usage (decision 47), so the next call start
+// cannot overflow; the overflow arrives with its reported usage and stops
+// the turn, since the token cap can no longer be enforced.
+func TestBudgetCumulativeOverflowStopsAtTheFinish(t *testing.T) {
 	first := callResult("lookup-1", "lookup")
 	first.Usage = &llm.Usage{InputTokens: math.MaxInt - 1}
 	second := final("done")
@@ -1048,14 +1022,15 @@ func TestBudgetCumulativeOverflowRejectsNextCallStart(t *testing.T) {
 		tool.List{budgetLookup(nil)},
 		Hooks{},
 	)
-	if !nothingWritten(err) {
-		t.Fatalf("overflowing call start error=%v", err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if step := unacknowledged(err); step == nil || step.Kind != StepModelCallStarted {
-		t.Fatalf("overflowing call start was acknowledged: %+v", step)
+	if client.sends != 2 {
+		t.Fatalf("sends=%d", client.sends)
 	}
-	if client.sends != 1 {
-		t.Fatalf("overflowing call start dispatched a call: sends=%d", client.sends)
+	if out.Stop.Kind != StopLimited || !out.Stop.Ended ||
+		!out.Spend.UsageIncomplete {
+		t.Fatalf("stop=%+v spend=%+v", out.Stop, out.Spend)
 	}
 	view, err := out.Turn.View()
 	if err != nil {
@@ -1411,5 +1386,42 @@ func TestUnreportedRequestsMarkNonFinalCounts(t *testing.T) {
 	addUnreportedRequests(usage, &ModelFact{}, &llm.Result{})
 	if len(usage.Requests) != 0 {
 		t.Fatalf("call without provider tool activity marked unreported: %v", usage.Requests)
+	}
+}
+
+// A worker that stops mid-call leaves a call with no reported usage. Its
+// recovery charges nothing, so a tight cap does not stall the turn on a
+// phantom charge (issue 255).
+func TestBudgetWorkerStoppedCallChargesNothing(t *testing.T) {
+	client := newPricedClient(final("lost"))
+	budget := &Budget{MaxCost: &Money{Amount: amount("0.002"), Currency: "USD"}}
+	out := runBudgetTurn(t, client, budget, llm.Settings{MaxTokens: 100}, nil, Hooks{})
+	crashed := prefixThrough(t, out.Turn, StepModelCallStarted, 1)
+	retry := newPricedClient(final("done"))
+	out, err := (Runner{Client: retry}).Run(
+		t.Context(),
+		crashed,
+		Continue{CommandID: "recover"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Stop.Kind != StopCompleted || retry.sends != 1 || out.Reply != "done" {
+		t.Fatalf("stop=%+v sends=%d reply=%q", out.Stop, retry.sends, out.Reply)
+	}
+	view, err := out.Turn.View()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lost := view.ModelCallCosts[0]
+	if lost.UsageSource != UsageSourceMissing || lost.Usage != nil ||
+		lost.Cost == nil || lost.Cost.Total != 0 || lost.Exact {
+		t.Fatalf("lost call=%+v", lost)
+	}
+	if view.Spend.CostUnknown != 0 || view.Spend.CallsWithoutFinalUsage != 2 {
+		t.Fatalf("spend=%+v", view.Spend)
+	}
+	if finish := finishes(out.Turn)[0]; finish.Interrupted != InterruptWorker {
+		t.Fatalf("recovered finish=%+v", finish)
 	}
 }

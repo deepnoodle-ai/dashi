@@ -151,27 +151,25 @@ type ModelFact struct {
 	// Reservation carries each BeforeSend hook's reservation terms, keyed by
 	// hook name.
 	Reservation map[string]json.RawMessage `json:"reservation,omitempty"`
-	// WorstCaseCost is the most the call could cost, computed before it is
-	// sent; Cost is the amount recorded when it finishes.
+	// WorstCaseCost is the most the call could cost for its estimated input,
+	// computed before it is sent. What the call counts toward Spend is
+	// derived from its result (ModelCallCostOf), never stored.
 	WorstCaseCost *llm.Cost `json:"worst_case_cost,omitempty"`
-	// Cost is the call's final cost, which counts toward the turn's Spend.
-	Cost *llm.Cost `json:"cost,omitempty"`
-	// EstimatedInputTokens is the recorded fallback when input usage is absent.
-	EstimatedInputTokens int `json:"estimated_input_tokens,omitempty"`
-	// EstimatedUsage marks a finished call whose token usage was missing or
-	// partial.
-	EstimatedUsage   bool                 `json:"estimated_usage,omitempty"`
-	Provider         string               `json:"provider,omitempty"`
-	API              string               `json:"api,omitempty"`
-	Model            string               `json:"model,omitempty"`
-	Effective        llm.Settings         `json:"effective,omitzero"`
-	Endpoint         content.Origin       `json:"endpoint,omitzero"`
-	Adjustments      []llm.Adjustment     `json:"adjustments,omitempty"`
-	ContentChanges   []llm.ContentChange  `json:"content_changes,omitempty"`
-	ModelInfo        *llm.ModelInfo       `json:"model_info,omitempty"`
-	CapabilityPolicy llm.CapabilityPolicy `json:"capability_policy"`
-	Unverified       []llm.Feature        `json:"unverified,omitempty"`
-	Tools            []tool.Definition    `json:"tools,omitempty"`
+	// EstimatedInputTokens is llm.EstimatedInputTokens of the prepared
+	// request: what WorstCaseCost priced and the base of the next call's
+	// estimate. It is never charged.
+	EstimatedInputTokens int                  `json:"estimated_input_tokens,omitempty"`
+	Provider             string               `json:"provider,omitempty"`
+	API                  string               `json:"api,omitempty"`
+	Model                string               `json:"model,omitempty"`
+	Effective            llm.Settings         `json:"effective,omitzero"`
+	Endpoint             content.Origin       `json:"endpoint,omitzero"`
+	Adjustments          []llm.Adjustment     `json:"adjustments,omitempty"`
+	ContentChanges       []llm.ContentChange  `json:"content_changes,omitempty"`
+	ModelInfo            *llm.ModelInfo       `json:"model_info,omitempty"`
+	CapabilityPolicy     llm.CapabilityPolicy `json:"capability_policy"`
+	Unverified           []llm.Feature        `json:"unverified,omitempty"`
+	Tools                []tool.Definition    `json:"tools,omitempty"`
 	// Hidden names the tools BeforeModel hooks removed from this call. A
 	// call to one of them finishes as not available, by this record.
 	Hidden []string    `json:"hidden,omitempty"`
@@ -205,7 +203,8 @@ const (
 	// InterruptNone means the call was not interrupted.
 	InterruptNone InterruptCause = ""
 	// InterruptWorker finishes a call recovered after the worker stopped
-	// before its result was recorded (decision 24).
+	// before its result was recorded. With no reported usage it counts
+	// zero (decision 47).
 	InterruptWorker InterruptCause = "worker"
 	// InterruptRun finishes a call the run stopped: its context ended, the
 	// turn deadline passed, or a pause arrived before the call was sent.

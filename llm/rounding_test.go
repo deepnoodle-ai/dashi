@@ -59,7 +59,12 @@ func TestPricingEstimateRoundsHalfEvenOnce(t *testing.T) {
 
 func TestMaxCostAtRiskRoundsUp(t *testing.T) {
 	p := subNanoSheet()
-	request := riskRequest(t, 100, nil)
+	snapshot := riskRequest(t, 100, nil).Snapshot()
+	snapshot.EstimatedInputTokens = 1035
+	request, err := NewRequest(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cost, ok := WorstCaseCost(request, p)
 	if !ok {
 		t.Fatal("priced request had no cost bound")

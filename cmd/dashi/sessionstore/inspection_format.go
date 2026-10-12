@@ -56,8 +56,8 @@ func FormatAccounting(a Accounting) string {
 	if a.Incomplete || spend.UsageIncomplete {
 		out.WriteString("\nUsage incomplete; retained token counts are not complete totals.")
 	}
-	if spend.Estimated > 0 {
-		fmt.Fprintf(&out, "\nEstimated usage calls: %d", spend.Estimated)
+	if spend.CallsWithoutFinalUsage > 0 {
+		fmt.Fprintf(&out, "\nCalls without final usage: %d", spend.CallsWithoutFinalUsage)
 	}
 	if spend.Usage.CacheCreationInputTokensUnavailable {
 		out.WriteString("\nCache-write reporting unavailable.")
@@ -125,8 +125,8 @@ func FormatInspection(report Inspection) string {
 				fmt.Fprintf(&out, "\nLatest model request %s (%s): %d / %d tokens, %.1f%% (%s)", c.ModelCallID, known(string(c.Purpose)), c.Tokens, c.Window, 100*float64(c.Tokens)/float64(c.Window), c.WindowSource)
 			} else {
 				fmt.Fprintf(&out, "\nLatest model request context unavailable: %s", c.UnavailableReason)
-				if c.Estimated {
-					out.WriteString(" (usage estimated; no exact percentage)")
+				if c.Partial {
+					out.WriteString(" (usage partial; no exact percentage)")
 				}
 			}
 		}

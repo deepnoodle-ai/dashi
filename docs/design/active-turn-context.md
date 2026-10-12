@@ -47,7 +47,7 @@ No changing catalog can alter an accepted Turn's selected window.
 ## Request sizing and safe coverage
 
 Construct the ordinary candidate through existing tool selection, steering, `BeforeModel`, reference verification, and provider preparation.
-For text-only candidates, use `llm.EstimatedInputTokens(request)` (wire-body bytes plus 1024) and effective `MaxTokens` as output reserve.
+For text-only candidates, use `llm.InputTokenUpperBound(request)` (wire-body bytes plus 1024) and effective `MaxTokens` as output reserve.
 Saturating arithmetic computes allowance `max(0, Window - reserve)`.
 Trigger proactive compaction when estimated input reaches `Fraction * allowance`.
 The hard fit limit remains the allowance: reject ordinary dispatch only when input exceeds it.

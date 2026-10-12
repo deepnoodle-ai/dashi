@@ -33,13 +33,13 @@ Do not erase unknown provider tool cost merely because its inferred request coun
 
 After valid inputs pass, failed usage addition marks incompleteness instead of rejecting the turn.
 Reuse a private accumulation helper across Add and replay to keep arithmetic and flags consistent.
-Keep `modelCallCost` responsible for not-sent calls, estimated usage, and per-call price selection.
+Keep `modelCallCost` responsible for not-sent calls, calls without final usage, and per-call price selection.
 Never price an incomplete cumulative Usage to replace independently recorded costs.
 
 For each currency, failed monetary addition retains that currency's prior amount and increases `CostUnknown`.
 Other currencies and the other monetary category still accumulate.
 Replay uses the same rule instead of returning an error solely for a monetary aggregate overflow.
-Use checked, saturating addition for `Estimated`, `CostUnknown`, and `CostPartial`: overflow yields `math.MaxInt`, never a wrapped counter.
+Use checked, saturating addition for `CallsWithoutFinalUsage`, `CostUnknown`, and `CostPartial`: overflow yields `math.MaxInt`, never a wrapped counter.
 Use the same checked rule for increments. A positive unknown or partial count must never disappear through report addition.
 `UnpricedRequests` sums saturate independently by meter. A saturated count is a lower bound, and the cost remains partial.
 Document this exceptional count behavior. Do not clear partial-cost evidence or reject valid finished calls for diagnostic count overflow.

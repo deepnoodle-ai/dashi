@@ -23,41 +23,22 @@ func completeResult(result llm.Result, err error, agent Agent) bool {
 // cut the partial response is only the content streamed before the call's
 // context ended (U-6), because it goes into the next call's messages: a
 // message the client returns may hold text generated after the cut, which
-// was never shown, so that message only adds to the output estimate, and a
-// collected call keeps no partial. With any other cause the partial never
-// reaches the model, so it keeps the returned message for audit, including
-// provider tool records, or else the streamed content. The returned ID and
-// usage stand, with the usage observed on the stream. The output count is
-// the larger of the reported count and the estimate from every streamed
-// delta or the returned message, so View and token caps count output that was generated but never shown
-// (decision 24). The estimate is capped at maxTokens when positive, since a
-// provider bills no more output than the call allowed. It returns nil when
-// the call left no trace.
+// was never shown, and a collected call keeps no partial. With any other
+// cause the partial never reaches the model, so it keeps the returned
+// message for audit, including provider tool records, or else the streamed
+// content. The returned ID and usage stand, with the usage observed on the
+// stream. Usage holds only what the provider reported; Dashi adds no
+// estimate (decision 47). It returns nil when the call left no trace.
 func interruptedResult(
 	cause InterruptCause,
 	result llm.Result,
 	content []llm.Content,
 	observed *llm.Usage,
-	streamedTokens int,
-	maxTokens int,
 ) *llm.Result {
-	streamedTokens = max(streamedTokens, estimatedOutputTokens(&result))
 	if cause == InterruptSteering {
 		result.Message.Content = nil
 	}
 	result = mergeObserved(result, content, observed)
-	if maxTokens > 0 {
-		streamedTokens = min(streamedTokens, maxTokens)
-	}
-	if streamedTokens > 0 {
-		if result.Usage == nil {
-			result.Usage = &llm.Usage{}
-		}
-		result.Usage.OutputTokens = max(
-			result.Usage.OutputTokens,
-			streamedTokens,
-		)
-	}
 	markIncomplete(&result)
 	if result.ID == "" && len(result.Message.Content) == 0 &&
 		result.Usage == nil {
