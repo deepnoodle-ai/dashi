@@ -49,6 +49,19 @@ func estimate(m llm.Message) int {
 	return size/bytesPerToken + 1
 }
 
+// estimateAll returns the estimate of messages, saturating at math.MaxInt.
+func estimateAll(messages []llm.Message) int {
+	total := 0
+	for _, m := range messages {
+		n := estimate(m)
+		if n > math.MaxInt-total {
+			return math.MaxInt
+		}
+		total += n
+	}
+	return total
+}
+
 // referenceWireSize estimates the inline base64 bytes of a declared
 // reference. It never loads a reference or claims provider-specific media
 // token fit.

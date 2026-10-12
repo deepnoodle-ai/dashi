@@ -106,7 +106,8 @@ const CloseReason = "a new message moved on"
 
 // A session's own warnings. No turn records them; they arrive on
 // dashi.RunResult.SessionWarnings, beside the dashi.WarningTurnUnreadable and
-// dashi.WarningCompactionMismatch of building the session's history.
+// dashi.WarningCompactionMismatch and dashi.WarningSummaryFallback of
+// building the session's history.
 const (
 	// WarningTurnClosed means a new Start closed the session's last turn,
 	// which had stopped without ending, with Cancel and CloseReason.
@@ -118,10 +119,6 @@ const (
 	// cannot read the turn that may have taken some of them. New commands
 	// still run; RunQueue returns the error until the turn can be read.
 	WarningQueueBlocked dashi.WarningCode = "queue_blocked"
-	// WarningCompactionFailed means a compaction turn did not complete with
-	// a reply, or could not start. The session closed it, kept the
-	// previous history, and ran the next turn.
-	WarningCompactionFailed dashi.WarningCode = "compaction_failed"
 )
 
 var (
@@ -289,7 +286,9 @@ func (s *Session) Resolve(
 // session warnings of the earlier ones. With a Compactor, a compaction
 // turn may run first, before a Start, under the Start's Budget, or before
 // a queue turn: the next turn's result carries its session warnings, and
-// WarningCompactionFailed when it fails.
+// dashi.WarningSummaryFallback when it ended without a summary. A
+// compaction turn held for budget (a host limit without Ends) is not
+// closed: the Start refuses with a *TurnBusyError until it has ended.
 //
 // The result and error mean what dashi.Runner.Run's do, and
 // RunResult.SessionWarnings adds the session's own warnings.
@@ -505,7 +504,6 @@ func (s *Session) planStart(
 	s.created = true
 	var p startPlan
 	upTo := last // the turns the history holds
-	closed := false
 	needsCompaction := false
 	if last > 0 {
 		t, skip, err := s.readLast(ctx, last)
@@ -518,20 +516,20 @@ func (s *Session) planStart(
 		} else {
 			needsCompaction = NeedsCompaction(t.view)
 			var events []dashi.Event
+			var closed bool
 			closed, events, err = s.closeLast(ctx, last, t, opts, stream)
 			p.closing = events
 			if err != nil {
 				return p, err
 			}
-			if closed {
+			if closed && t.view.Origin != dashi.StartCompaction {
 				p.warnings = append(p.warnings, closedWarning(t))
 			}
 		}
 	}
 	history, unreadable := s.history(ctx, upTo)
-	// A Turn this Start closed did not complete as its caller meant, so no
-	// compaction follows it, unless it stopped because history grew too big.
-	if upTo == last && !compacted && (!closed || needsCompaction) {
+	// A turn this Start closed has ended too, so compaction may follow it.
+	if upTo == last && !compacted {
 		if cp := s.planCompaction(ctx, last, history, c.Budget, needsCompaction); cp != nil {
 			cp.closing, cp.warnings = p.closing, p.warnings
 			return *cp, nil
@@ -562,16 +560,11 @@ func NeedsCompaction(v dashi.TurnView) bool {
 		v.Stop.Kind == dashi.StopLimited && v.Stop.Reason == string(dashi.LimitContextWindow)
 }
 
-// closedWarning is the warning for a last turn a new turn closed: a
-// WarningCompactionFailed for a compaction turn, else a WarningTurnClosed.
+// closedWarning is the WarningTurnClosed for a last turn a new turn
+// closed. A closed compaction turn gets none here: its replacement then uses
+// its summary fallback, and building the history warns
+// dashi.WarningSummaryFallback.
 func closedWarning(t *sessionTurn) dashi.Warning {
-	if t.view.Origin == dashi.StartCompaction {
-		return compactionFailed(fmt.Sprintf(
-			"compaction turn %s stopped %s and was closed",
-			t.turn.ID,
-			t.view.Stop.Kind,
-		))
-	}
 	return dashi.Warning{
 		Code:    WarningTurnClosed,
 		Message: fmt.Sprintf("turn %s was closed: %s", t.turn.ID, CloseReason),
@@ -665,8 +658,8 @@ func (s *Session) readLast(
 }
 
 // closeLast applies the last-turn rules to a new Start: it returns an error
-// when the turn is busy, closes a stopped turn that has not ended, and
-// reports whether it closed one. Steers the closed turn never recorded move
+// when the turn is busy or is a compaction turn held for budget, closes a
+// stopped turn that has not ended, and reports whether it closed one. Steers the closed turn never recorded move
 // to the queue. With stream, it returns the closing run's events.
 func (s *Session) closeLast(
 	ctx context.Context,
@@ -681,6 +674,11 @@ func (s *Session) closeLast(
 	}
 	if r.next == dashi.NextNone {
 		return false, nil, nil
+	}
+	if t.view.Origin == dashi.StartCompaction && heldStop(t.view) {
+		// The summary waits for money; the turn after it would usually
+		// need the same.
+		return false, nil, &TurnBusyError{TurnID: t.turn.ID, Next: r.next, Origin: t.view.Origin}
 	}
 	id := t.turn.ID
 	var closing dashi.Command = dashi.Cancel{CommandID: "close:" + id, Reason: CloseReason}

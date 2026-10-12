@@ -52,29 +52,20 @@ Write these sections. Be concise and complete. Include details that prevent repe
 Put your summary between <summary> and </summary> tags.`
 
 // summaryRequest builds the one user message a summary call sends: the
-// messages as a text transcript, shortened to fit window, then the prompt
-// (DefaultPrompt when empty). It returns the output allowance with it:
-// maxTokens, or defaultSummaryTokens when zero, and at most a quarter of
-// the window, so the input has room.
+// messages as a text transcript, shortened to fit window less the output
+// allowance, then the prompt (DefaultPrompt when empty).
 func summaryRequest(
 	messages []llm.Message,
 	prompt string,
 	window int,
-	maxTokens int,
-) (llm.Message, int, error) {
-	if maxTokens <= 0 {
-		maxTokens = defaultSummaryTokens
-	}
+	allowance int,
+) llm.Message {
 	if prompt == "" {
 		prompt = DefaultPrompt
 	}
-	maxTokens = min(maxTokens, window/4)
-	budget := int(float64(window-maxTokens)*inputMargin) * bytesPerToken
-	items, err := fitTranscript(renderTranscript(messages), budget)
-	if err != nil {
-		return llm.Message{}, 0, err
-	}
+	budget := int(float64(max(0, window-allowance))*inputMargin) * bytesPerToken
+	items := shortenTranscript(renderTranscript(messages), budget)
 	request := "<conversation>\n" + strings.Join(items, "\n\n") +
 		"\n</conversation>\n\n" + prompt
-	return llm.UserMessage(llm.Text(request)), maxTokens, nil
+	return llm.UserMessage(llm.Text(request))
 }

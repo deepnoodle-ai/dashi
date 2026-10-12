@@ -344,7 +344,7 @@ func TestSkipsCompactionTurns(t *testing.T) {
 	srv, client := judge(t, map[string]float64{"port": 0.9})
 	ranker := &contextrank.Ranker{Client: client, Source: fixed(note("port", 60))}
 	full := dashitest.Reply("Noted.")
-	full.Usage = &llm.Usage{InputTokens: 900}
+	full.Usage = &llm.Usage{InputTokens: 210} // past the due count, 200
 	model := dashitest.NewClient(
 		full,
 		dashitest.Reply("<summary>The project is Heron.</summary>"),
@@ -400,15 +400,15 @@ func TestItemInKeptTailStaysPresent(t *testing.T) {
 		},
 	}
 	full := dashitest.Reply("Port 8443.")
-	full.Usage = &llm.Usage{InputTokens: 900}
+	full.Usage = &llm.Usage{InputTokens: 650}
 	model := dashitest.NewClient(
 		dashitest.Reply("Noted."),
 		full,
 		dashitest.Reply("<summary>The project is Heron.</summary>"),
 		dashitest.Reply("Yes, 8443."),
 	)
-	policy := compaction.Policy{}
-	policy.Model.Capabilities.ContextWindow = 1_000
+	policy := compaction.Policy{DueTokens: 600}
+	policy.Model.Capabilities.ContextWindow = 4_000
 	s := &session.Session{
 		Runner: dashi.Runner{Client: model, Hooks: ranker.Hook().Hooks()},
 		Agent:  dashi.Agent{Model: dashitest.Model},
@@ -424,7 +424,7 @@ func TestItemInKeptTailStaysPresent(t *testing.T) {
 	}
 	// Enable compaction after seeding both Turns. Projected-history sizing
 	// can otherwise compact the deliberately long first Turn early.
-	s.Compactor = compaction.New(policy) // keeps a quarter-window tail
+	s.Compactor = compaction.New(policy) // keeps a tail of a quarter of the room
 	out, err := s.Send(t.Context(), "Is it still 8443?")
 	if err != nil {
 		t.Fatal(err)

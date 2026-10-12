@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
@@ -19,9 +20,11 @@ var ErrNothingToCompact = errors.New("compaction: nothing to compact")
 // Compact runs one compaction turn without checking the automatic threshold.
 // It requires a Compactor and an ended last turn. A non-nil budget overrides
 // the compactor's budget. It never consumes queued input or dispatches it.
-// A recorded failed or empty summary warns WarningCompactionFailed and keeps
-// the previous history. No eligible history returns zero RunResult and
-// ErrNothingToCompact. Preparation and recorder failures remain Go errors.
+// A compaction turn that stops without a summary is closed, unless it is
+// held for budget, and its summary fallback then replaces the history: the
+// result warns dashi.WarningSummaryFallback. No eligible history returns
+// zero RunResult and ErrNothingToCompact. Preparation and recorder failures
+// remain Go errors.
 func (s *Session) Compact(
 	ctx context.Context,
 	budget *dashi.Budget,
@@ -66,6 +69,9 @@ func (cl *call) manualCompact(ctx context.Context, budget *dashi.Budget) (dashi.
 		s.mu.Lock()
 		out, err = s.compactionSlot(ctx, *p)
 		s.mu.Unlock()
+	}
+	if w := fallbackWarning(out.TurnView); w != nil && err == nil {
+		out.SessionWarnings = append(out.SessionWarnings, *w)
 	}
 	// A CommitError names the attempted Start even when its write was
 	// rejected or unacknowledged. That identity alone is not a turn record.
@@ -117,7 +123,7 @@ func (s *Session) planManualCompaction(
 		}
 	}
 	messages, warnings := s.history(ctx, last)
-	p := s.reserveCompaction(ctx, last, messages, budget)
+	p := s.reserveCompaction(ctx, last, messages, lastUsage(t.turn), budget)
 	p.warnings = warnings
 	return p, nil
 }
@@ -157,11 +163,14 @@ func (s *Session) compactionSlot(ctx context.Context, p startPlan) (dashi.RunRes
 			Next:   r.next,
 		}
 	}
-	out := dashi.RunResult{Turn: t.turn.Clone(), TurnView: t.view}
-	if _, ok := t.view.ReplacementHistory(); !ok {
-		out.SessionWarnings = append(out.SessionWarnings, closedWarning(t))
+	if heldStop(t.view) {
+		return dashi.RunResult{}, &TurnBusyError{
+			TurnID: t.turn.ID,
+			Origin: dashi.StartCompaction,
+			Next:   r.next,
+		}
 	}
-	return out, nil
+	return dashi.RunResult{Turn: t.turn.Clone(), TurnView: t.view}, nil
 }
 
 // Compactor decides when and how a Session compacts its history.
@@ -173,8 +182,9 @@ type Compactor interface {
 	Needed(messages []llm.Message, last llm.Usage) bool
 	// Start builds the compaction turn's Start: a summarizer agent, the
 	// summary request as Input, and Compaction with the kept messages,
-	// where the summary goes among them, its frame, and its Hash, the
-	// dashi.HistoryHash of messages. The session sets the command ID,
+	// where the summary goes among them, its frame, its SummaryFallback,
+	// and its Hash, the dashi.HistoryHash of messages. last is the usage
+	// of the last model call, as Needed gets it. The session sets the command ID,
 	// origin, history, and Through, fills an empty Hash, turns tools
 	// off, and applies the caller's Start.Budget when it has one.
 	//
@@ -184,7 +194,11 @@ type Compactor interface {
 	// and a new Start refuse with a *TurnBusyError, as they do while the
 	// compaction turn runs, so the handle calls Start once per compaction
 	// turn. ctx ends with the call that asked for the compaction.
-	Start(ctx context.Context, messages []llm.Message) (dashi.Start, error)
+	//
+	// ErrNothingToCompact means no compaction is needed after all. Any
+	// other error is a bug in the Compactor: the session returns it rather
+	// than send a history it knows is due.
+	Start(ctx context.Context, messages []llm.Message, last llm.Usage) (dashi.Start, error)
 }
 
 // isCompaction reports whether command c runs a compaction turn.
@@ -208,14 +222,14 @@ func lastUsage(turn dashi.Turn) llm.Usage {
 	return llm.Usage{}
 }
 
-// planCompaction runs the compaction check before turn last+1: when the
-// last turn completed and the Compactor asks for it, it reserves the slot
-// and returns the plan of a compaction turn, whose Start buildCompaction
-// makes outside mu. When needsCompaction is true, the last turn need not
-// have completed (see NeedsCompaction). The check is skipped after other
-// turns that failed or were canceled, and after a compaction turn, so a
-// failing summary is tried at most once per turn. A non-nil budget, the
-// caller's Start.Budget, caps the compaction turn too. The caller holds mu.
+// planCompaction runs the compaction check before turn last+1, by the rule
+// of compaction.Compactor.StartIfNeeded: after any ended turn but a
+// compaction turn, when the last turn overflowed (needsCompaction, see
+// NeedsCompaction) or the Compactor asks for it, it reserves the slot and
+// returns the plan of a compaction turn, whose Start buildCompaction makes
+// outside mu. After a compaction turn, its replacement, summarized or
+// fallback, is the history. A non-nil budget, the caller's Start.Budget,
+// caps the compaction turn too. The caller holds mu.
 func (s *Session) planCompaction(
 	ctx context.Context,
 	last int,
@@ -227,12 +241,14 @@ func (s *Session) planCompaction(
 		return nil
 	}
 	t, err := s.load(ctx, last)
-	if err != nil || !needsCompaction && t.view.Stop.Kind != dashi.StopCompleted ||
-		t.view.Origin == dashi.StartCompaction ||
-		!s.Compactor.Needed(messages, lastUsage(t.turn)) {
+	if err != nil || !t.view.Stop.Ended || t.view.Origin == dashi.StartCompaction {
 		return nil
 	}
-	return s.reserveCompaction(ctx, last, messages, budget)
+	usage := lastUsage(t.turn)
+	if !needsCompaction && !s.Compactor.Needed(messages, usage) {
+		return nil
+	}
+	return s.reserveCompaction(ctx, last, messages, usage, budget)
 }
 
 // compactionInput is what a compaction turn's Start is built from, outside
@@ -240,6 +256,7 @@ func (s *Session) planCompaction(
 // model writes the summary unless the Compactor names another.
 type compactionInput struct {
 	messages []llm.Message
+	usage    llm.Usage
 	budget   *dashi.Budget
 	agent    dashi.Agent
 }
@@ -252,6 +269,7 @@ func (s *Session) reserveCompaction(
 	ctx context.Context,
 	last int,
 	messages []llm.Message,
+	usage llm.Usage,
 	budget *dashi.Budget,
 ) *startPlan {
 	id := TurnID(s.ID, last+1)
@@ -264,6 +282,7 @@ func (s *Session) reserveCompaction(
 		compact: true,
 		summarize: &compactionInput{
 			messages: messages,
+			usage:    usage,
 			budget:   budget,
 			agent:    s.agentFor(ctx, dashi.Agent{}, last),
 		},
@@ -276,7 +295,7 @@ func (s *Session) reserveCompaction(
 // as the end of a run would.
 func (s *Session) buildCompaction(ctx context.Context, p *startPlan) error {
 	in := p.summarize
-	c, err := s.Compactor.Start(ctx, llmclone.Messages(in.messages))
+	c, err := s.Compactor.Start(ctx, llmclone.Messages(in.messages), in.usage)
 	if err == nil && c.Compaction == nil {
 		err = errors.New("the compactor's Start has no Compaction")
 	}
@@ -314,38 +333,33 @@ func (s *Session) buildCompaction(ctx context.Context, p *startPlan) error {
 }
 
 // compact runs a planned compaction turn. For Stream, it reports the
-// turn's RunResult event. A compaction turn that fails or ends without a
-// reply adds WarningCompactionFailed to the call, and one that stopped
-// without ending is closed first. It reports lost when another worker took
-// the slot, so the caller plans again and finds that worker's turn. It
-// returns an error only when the call must stop: the consumer broke the
-// range, or the context ended; the next Start then closes the turn.
+// turn's RunResult event. A compaction turn that stops without ending is
+// closed, unless it is held for budget; once it has ended, its replacement,
+// summarized or fallback, is the history. It reports lost when another
+// worker took the slot, so the caller plans again and finds that worker's
+// turn. When the Compactor finds nothing to compact, nothing runs, and the
+// caller plans its turn without compaction. It returns an error when the call must
+// stop: the Compactor or the run failed, the consumer broke the range, or
+// the context ended; the next Start then closes the turn.
 func (cl *call) compact(ctx context.Context, p startPlan) (lost bool, _ error) {
 	if err := cl.s.buildCompaction(ctx, &p); err != nil {
 		if ctx.Err() != nil {
 			return false, cl.fail(ctx.Err())
 		}
-		// The turn runs without compaction, and its result carries the
-		// warning.
-		cl.warnings = append(cl.warnings, compactionFailed(fmt.Sprintf(
-			"the compaction turn could not start: %v", err,
-		)))
-		return false, nil
+		if errors.Is(err, ErrNothingToCompact) {
+			return false, nil
+		}
+		return false, cl.fail(fmt.Errorf(
+			"session: the compaction turn could not start: %w", err))
 	}
 	out, lost, err := cl.runCompaction(ctx, p)
 	if lost {
 		return true, nil
 	}
-	// A preparation or recording failure is a warning for the automatic
-	// path, which still runs the caller's turn.
-	var reported error
-	if cl.stopped || ctx.Err() != nil {
-		reported = err
-	}
 	if len(out.Turn.Steps) > 0 {
-		cl.report(out, reported)
-	} else if reported != nil {
-		cl.fail(reported)
+		cl.report(out, err)
+	} else if err != nil {
+		cl.fail(err)
 	}
 	cl.warnings = append(cl.warnings, out.SessionWarnings...)
 	if cl.stopped {
@@ -354,8 +368,7 @@ func (cl *call) compact(ctx context.Context, p startPlan) (lost bool, _ error) {
 	if ctx.Err() != nil {
 		return false, ctx.Err()
 	}
-	// Automatic compaction is best effort. Manual calls return the error.
-	return false, nil
+	return false, err
 }
 
 func (cl *call) runCompaction(
@@ -371,52 +384,65 @@ func (cl *call) runCompaction(
 	if cl.stopped {
 		return out, false, context.Canceled
 	}
+	if err != nil {
+		return out, false, err
+	}
 	if err := ctx.Err(); err != nil {
 		return out, false, err
 	}
-	if _, ok := out.TurnView.ReplacementHistory(); ok && err == nil {
+	if out.Next() == dashi.NextNone || heldStop(out.TurnView) {
+		// Ended, so its replacement is decided; or held for budget, so it
+		// waits, and the next Start refuses with a *TurnBusyError.
 		return out, false, nil
 	}
-	var warning dashi.Warning
-	switch {
-	case err != nil:
-		warning = compactionFailed(fmt.Sprintf(
-			"compaction turn %s failed: %v", p.id, err,
-		))
-	case out.Next() == dashi.NextNone:
-		warning = compactionFailed(fmt.Sprintf(
-			"compaction turn %s ended %s without a summary",
-			p.id,
-			out.Stop.Kind,
-		))
-	default:
-		// Close it now, so a queue turn, which closes nothing, can follow.
-		s.mu.Lock()
-		t, closeErr := s.load(ctx, p.n)
-		var events []dashi.Event
+	// Close it now, so its fallback replaces the history and a queue turn,
+	// which closes nothing, can follow.
+	s.mu.Lock()
+	t, closeErr := s.load(ctx, p.n)
+	var events []dashi.Event
+	if closeErr == nil {
+		_, events, closeErr = s.closeLast(ctx, p.n, t, cl.opts, cl.yield != nil)
 		if closeErr == nil {
-			_, events, closeErr = s.closeLast(ctx, p.n, t, cl.opts, cl.yield != nil)
+			var closed *sessionTurn
+			closed, closeErr = s.load(ctx, p.n)
 			if closeErr == nil {
-				var closed *sessionTurn
-				closed, closeErr = s.load(ctx, p.n)
-				if closeErr == nil {
-					out.Turn, out.TurnView = closed.turn.Clone(), closed.view
-				}
+				out.Turn, out.TurnView = closed.turn.Clone(), closed.view
 			}
 		}
-		s.mu.Unlock()
-		if !cl.forward(events) {
-			return out, false, context.Canceled
-		}
-		if closeErr != nil {
-			out.SessionWarnings = append(out.SessionWarnings,
-				compactionFailed(fmt.Sprintf("compaction turn %s could not close: %v", p.id, closeErr)))
-			return out, false, closeErr
-		}
-		warning = closedWarning(t)
 	}
-	out.SessionWarnings = append(out.SessionWarnings, warning)
-	return out, false, err
+	s.mu.Unlock()
+	if !cl.forward(events) {
+		return out, false, context.Canceled
+	}
+	if closeErr != nil {
+		return out, false, fmt.Errorf(
+			"session: compaction turn %s could not close: %w", p.id, closeErr)
+	}
+	return out, false, nil
+}
+
+// heldStop reports whether v rests at a hold: a host limit that does not
+// end the turn, such as a balance too low for the next call. A compaction
+// turn held this way waits rather than being closed, since the turn after
+// it would usually need the same money.
+func heldStop(v dashi.TurnView) bool {
+	stop := v.Stop
+	return stop.Kind == dashi.StopLimited && !stop.Ended && !stop.Inferred &&
+		stop.Limit != nil && stop.Limit.Kind == dashi.LimitHost && !stop.Limit.Ends
+}
+
+// fallbackWarning returns the dashi.WarningSummaryFallback of a compaction
+// turn that ended without a summary, or nil.
+func fallbackWarning(v dashi.TurnView) *dashi.Warning {
+	if v.Origin != dashi.StartCompaction || !v.Stop.Ended ||
+		compactiontext.Summarized(v.Stop.Kind == dashi.StopCompleted, v.Reply) {
+		return nil
+	}
+	return &dashi.Warning{
+		Code:    dashi.WarningSummaryFallback,
+		TurnID:  v.ID,
+		Message: compactiontext.FallbackWarning(v.ID),
+	}
 }
 
 // takenSlot reports whether a compaction turn failed because another
@@ -427,14 +453,7 @@ func takenSlot(err error) bool {
 		errors.Is(err, dashi.ErrCommandIDReused)
 }
 
-func compactionFailed(msg string) dashi.Warning {
-	return dashi.Warning{
-		Code:    WarningCompactionFailed,
-		Message: msg + "; the previous history is kept",
-	}
-}
-
-// checkHash compares a completed compaction turn's hash with the history
+// checkHash compares an ended compaction turn's hash with the history
 // built from the turns it covers, when this handle already holds
 // them, and returns a WarningCompactionMismatch while they differ. Loading
 // the covered turns only to check would undo the short load. The caller

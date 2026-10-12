@@ -11,6 +11,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/compaction"
 	"github.com/deepnoodle-ai/dashi/dashitest"
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
 )
@@ -41,8 +42,8 @@ func TestSessionManualCompactionResults(t *testing.T) {
 			}
 			want := []string{"Summary:\n\nkept fact"}
 			if answer == "<summary> </summary>" {
-				want = []string{"first", "first answer"}
-				if !slices.Contains(codes(out.SessionWarnings), session.WarningCompactionFailed) {
+				want = []string{compactiontext.EmptyFallback}
+				if !slices.Contains(codes(out.SessionWarnings), dashi.WarningSummaryFallback) {
 					t.Fatal("empty summary lacks failure warning")
 				}
 			} else if len(out.SessionWarnings) != 0 {
@@ -63,8 +64,8 @@ func TestSessionManualCompactionResults(t *testing.T) {
 
 type cappedCompactor struct{ keepLast }
 
-func (c cappedCompactor) Start(ctx context.Context, h []llm.Message) (dashi.Start, error) {
-	start, err := c.keepLast.Start(ctx, h)
+func (c cappedCompactor) Start(ctx context.Context, h []llm.Message, last llm.Usage) (dashi.Start, error) {
+	start, err := c.keepLast.Start(ctx, h, last)
 	start.Budget = &dashi.Budget{MaxOutputTokens: 100}
 	start.Agent.Model = "summary-model"
 	return start, err
@@ -253,29 +254,30 @@ func TestSessionStreamManualCompactionStartFailure(t *testing.T) {
 	}
 }
 
+// A compaction Start the recorder rejects fails the call, rather than send
+// the history that is due; the next call tries again.
 func TestSessionStreamAutomaticCompactionRejectedStart(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
-	client := dashitest.NewClient(used("answer", 100), dashitest.Reply("next answer"))
+	client := dashitest.NewClient(used("answer", 100), dashitest.Reply("summary"), dashitest.Reply("next answer"))
 	s := handle(rec, client)
 	s.New = true
 	sendAll(t, s, "first")
 	s.Compactor = keepLast{limit: 100}
 	s.Runner.Recorder = &dashitest.FaultRecorder{Recorder: rec, Kind: dashi.StepTurnStarted, Fault: dashitest.Reject}
-	var outcomes []string
+	var gotErr error
 	for ev, err := range s.Stream(t.Context(), dashi.Say("second")) {
-		if err != nil {
-			t.Fatal(err)
-		}
 		if ev.Result != nil {
-			outcomes = append(outcomes, ev.TurnID)
-			if len(ev.Result.Turn.Steps) == 0 || ev.Result.Origin == dashi.StartCompaction ||
-				!slices.Contains(codes(ev.Result.SessionWarnings), session.WarningCompactionFailed) {
-				t.Fatalf("unrecorded summary outcome: %+v", ev.Result)
-			}
+			t.Fatalf("unrecorded outcome: %+v", ev.Result)
 		}
+		gotErr = errors.Join(gotErr, err)
 	}
-	if !slices.Equal(outcomes, []string{"s-2"}) || len(client.Inputs()) != 2 {
-		t.Fatalf("outcomes=%q calls=%d", outcomes, len(client.Inputs()))
+	if !errors.Is(gotErr, dashitest.ErrInjected) || len(client.Inputs()) != 1 {
+		t.Fatalf("err=%v calls=%d", gotErr, len(client.Inputs()))
+	}
+	s.Runner.Recorder = rec
+	out := sendAll(t, s, "second")
+	if out.Turn.ID != "s-3" || load(t, rec, "s-2").Origin != dashi.StartCompaction {
+		t.Fatalf("turn=%s", out.Turn.ID)
 	}
 }
 
@@ -290,12 +292,12 @@ func TestSessionManualCompactionFailedNonemptySummary(t *testing.T) {
 	sendAll(t, s, "first")
 	s.Compactor = keepLast{limit: 10000}
 	out, err := s.Compact(t.Context(), nil)
-	if err != nil || !slices.Contains(codes(out.SessionWarnings), session.WarningCompactionFailed) {
+	if err != nil || !slices.Contains(codes(out.SessionWarnings), dashi.WarningSummaryFallback) {
 		t.Fatalf("out=%+v err=%v", out, err)
 	}
 	projected, err := handle(rec, client).NextHistory(t.Context())
-	if err != nil || !slices.Equal(textsOf(projected), []string{"first", "answer"}) {
-		t.Fatalf("failed history=%q err=%v", textsOf(projected), err)
+	if err != nil || !slices.Equal(textsOf(projected), []string{compactiontext.EmptyFallback}) {
+		t.Fatalf("fallback history=%q err=%v", textsOf(projected), err)
 	}
 }
 

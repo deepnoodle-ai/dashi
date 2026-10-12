@@ -148,7 +148,7 @@ func (s *Session) History(ctx context.Context) ([]llm.Message, error) {
 
 // NextHistory returns what the next new turn sends as Start.History,
 // unless a compaction turn runs first: the replacement history of the
-// newest completed compaction turn, then the messages of the turns after
+// newest ended compaction turn, then the messages of the turns after
 // it. Without compaction turns it equals History. A turn that cannot be
 // read is left out.
 func (s *Session) NextHistory(ctx context.Context) ([]llm.Message, error) {

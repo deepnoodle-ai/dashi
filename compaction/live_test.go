@@ -84,7 +84,7 @@ func TestLiveCompactionContinuity(t *testing.T) {
 	// Keep no turns, so only the summary holds the fact.
 	c := &Compactor{Model: model, TailFraction: -1}
 	history, _ := dashi.BuildHistory(turns)
-	start, err := c.Start(t.Context(), history)
+	start, err := c.Start(t.Context(), history, llm.Usage{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -281,7 +281,7 @@ func (c *onceCompactor) Needed([]llm.Message, llm.Usage) bool {
 	return c.due.Load()
 }
 
-func (c *onceCompactor) Start(context.Context, []llm.Message) (dashi.Start, error) {
+func (c *onceCompactor) Start(context.Context, []llm.Message, llm.Usage) (dashi.Start, error) {
 	c.due.Store(false)
 	return dashi.Start{
 		Input:      []llm.Message{llm.UserMessage(llm.Text("summarize now"))},
