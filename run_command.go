@@ -177,6 +177,7 @@ func (r Runner) apply(
 		hooks:            hooks,
 		activeHooks:      r.Hooks.active(),
 		lastHooks:        state.activeHooks,
+		asking:           opts.asking,
 	}
 	defer rt.emitter.close()
 	defer rt.endSteering()

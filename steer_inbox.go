@@ -32,10 +32,17 @@ import (
 type MemoryInbox struct {
 	mu      sync.Mutex
 	entries []*inboxEntry
-	// ready holds one channel per turn, created on first use, so
+	// ready holds one channel per watched turn, created on first use, so
 	// MemoryInbox{} works. Its buffer of one coalesces signals: a run that
-	// has not yet looked still finds one.
-	ready map[string]chan struct{}
+	// has not yet looked still finds one. It is dropped when its last
+	// watcher unwatches.
+	ready map[string]*readyChannel
+}
+
+// readyChannel is a turn's Ready channel and its number of watchers.
+type readyChannel struct {
+	ch       chan struct{}
+	watchers int
 }
 
 type inboxEntry struct {
@@ -153,30 +160,42 @@ func (in *MemoryInbox) SendText(text string) (string, error) {
 	}})
 }
 
-// Ready signals, coalesced, that a command for turnID may be waiting. It
-// returns the same channel on every call for one turn. Only one run or
-// Drive of the turn should watch it at a time.
-func (in *MemoryInbox) Ready(turnID string) <-chan struct{} {
+// Ready signals, coalesced, that a command for turnID may be waiting. Its
+// watchers of one turn share a channel, which unwatch drops after the
+// last of them; unwatch may be called more than once.
+func (in *MemoryInbox) Ready(turnID string) (<-chan struct{}, func()) {
 	in.mu.Lock()
 	defer in.mu.Unlock()
-	return in.readyLocked(turnID)
-}
-
-func (in *MemoryInbox) readyLocked(turnID string) chan struct{} {
 	if in.ready == nil {
-		in.ready = map[string]chan struct{}{}
+		in.ready = map[string]*readyChannel{}
 	}
-	ch := in.ready[turnID]
-	if ch == nil {
-		ch = make(chan struct{}, 1)
-		in.ready[turnID] = ch
+	rc := in.ready[turnID]
+	if rc == nil {
+		rc = &readyChannel{ch: make(chan struct{}, 1)}
+		in.ready[turnID] = rc
 	}
-	return ch
+	rc.watchers++
+	var once sync.Once
+	return rc.ch, func() {
+		once.Do(func() {
+			in.mu.Lock()
+			defer in.mu.Unlock()
+			rc.watchers--
+			if rc.watchers == 0 && in.ready[turnID] == rc {
+				delete(in.ready, turnID)
+			}
+		})
+	}
 }
 
+// signalLocked wakes turnID's watchers, if any.
 func (in *MemoryInbox) signalLocked(turnID string) {
+	rc := in.ready[turnID]
+	if rc == nil {
+		return
+	}
 	select {
-	case in.readyLocked(turnID) <- struct{}{}:
+	case rc.ch <- struct{}{}:
 	default:
 	}
 }

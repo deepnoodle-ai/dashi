@@ -41,18 +41,24 @@ type runtime struct {
 	// listen watches an InboxNotifier for urgent steers and Cancel; nil
 	// when the inbox cannot signal.
 	listen *steerListener
+	// unwatch ends the listener's watch of the inbox's Ready channel.
+	unwatch func()
 	// cancelRun ends the run's context with an inboxCancel cause; nil
 	// without an inbox.
 	cancelRun context.CancelCauseFunc
-	// pendingDelivered lists inbox command IDs the next commit records,
+	// pendingDelivered lists the inbox commands the next commit records,
 	// for CommitRequest.Delivered.
-	pendingDelivered []string
+	pendingDelivered []DeliveredCommand
 	// pendingWarnings and pendingHooks ride on the next committed step, so
 	// a warning or hook decision is saved with the step it leads to.
 	pendingWarnings     []Warning
 	pendingHooks        []HookResult
 	compactionUsed      bool
 	compactionCandidate *llm.Input
+	// asking is set when Advance asks whether a held turn may send again:
+	// commits stay in memory, and the run ends before any model call is
+	// sent or tool runs (see run_advance_hold.go).
+	asking *sendAsk
 }
 
 // result pairs an RunResult with the recording failure that ended the run.
@@ -174,16 +180,19 @@ func (r *runtime) commit(step Step) *RunResult {
 		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 	}
-	err := r.runner.Recorder.Commit(
-		ctx,
-		CommitRequest{
-			Step:        step,
-			ExpectedSeq: step.Seq - 1,
-			Owner:       r.opts.owner,
-			ModelCall:   r.modelCallCost(step),
-			Delivered:   slices.Clone(r.pendingDelivered),
-		},
-	)
+	var err error
+	if r.asking == nil {
+		err = r.runner.Recorder.Commit(
+			ctx,
+			CommitRequest{
+				Step:        step,
+				ExpectedSeq: step.Seq - 1,
+				Owner:       r.opts.owner,
+				ModelCall:   r.modelCallCost(step),
+				Delivered:   slices.Clone(r.pendingDelivered),
+			},
+		)
+	}
 	if err != nil {
 		r.err = commitError(step, err)
 		o := r.current()
@@ -194,7 +203,7 @@ func (r *runtime) commit(step Step) *RunResult {
 	r.pendingWarnings = nil
 	r.pendingHooks = nil
 	r.pendingDelivered = nil
-	if r.emitter.active() || r.opts.streamSink != nil {
+	if r.asking == nil && (r.emitter.active() || r.opts.streamSink != nil) {
 		event := Event{TurnID: step.TurnID, Step: &step}
 		if step.Model != nil {
 			event.ModelCallID = step.Model.ModelCallID
@@ -292,6 +301,15 @@ func (r *runtime) stop(kind StopKind, reason string) RunResult {
 				Kind:  LimitModelCalls,
 				Limit: int64(state.modelCallCap),
 				Used:  int64(state.ModelCalls),
+			}
+			stop.Reason = fmt.Sprintf(
+				"model call limit: %d of %d calls used",
+				state.ModelCalls,
+				state.modelCallCap,
+			)
+			if state.ModelCalls < state.modelCallCap {
+				// Only compaction stops early: it needs two calls.
+				stop.Reason += "; compacting the context needs two"
 			}
 		case LimitResumes:
 			stop.Limit = &LimitDetail{

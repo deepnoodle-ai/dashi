@@ -143,8 +143,10 @@ A host that creates and stores its own turns needs no loop of its own:
 Both derive each `Continue`'s ID from the record, so a crash replays the same
 command and no outbox is needed. `NextRaiseBudget`, `NextRaiseModelCalls`,
 and `NextFix` wait for the host: put a raising `Continue` or a `Cancel` in the
-inbox. Watch turns with `dashi.FollowStops`, which shows a turn only at its
-stops, so a watcher never acts on an intermediate state.
+inbox. A host limit without `Ends`, such as a balance hold, needs neither:
+each pass asks `BeforeSend` again and runs the turn once it allows the call.
+Watch turns with `dashi.FollowNext`, which shows a turn at its stops and once
+as working after each, so a watcher never acts on an intermediate state.
 `ExampleRunner_Advance` and `ExampleRunner_Drive` run without an API key;
 [recovering turns](recovering-turns.md#advancing-saved-turns) has the rules.
 

@@ -27,10 +27,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   stop it recorded itself without new input, and always leaves the turn at
   a stop step. Drive repeats Advance, waiting for the inbox's signal, a
   15-second poll, or the turn's deadline, until the turn ends or ctx ends.
-  `WithHistory` supplies the Continue's history.
-- **`FollowStops`** yields a turn's view now and at each later stop, ending
-  after the stop that ends the turn, so a watcher never acts on an
-  intermediate state.
+  `WithHistory` supplies the Continue's history, and `WithHistoryMismatch`
+  sets how the Continues it runs treat a differing one (warn by default, or
+  reject). A turn held by a host limit without `Ends`, such as a balance too
+  low, is retried on every pass: Advance prepares the held call and asks
+  `BeforeModel` and `BeforeSend` again, sending and recording nothing while
+  they refuse with the same host limit code, and runs the turn once they
+  allow it. The host only tops up the balance. A hold the recorder made
+  with a `LimitError` is retried at most once per call and per inbox signal.
+- **`FollowNext`** yields a turn's view now, one working view
+  (`NextRunning`) when work starts after a stop, and a view at each later
+  stop, ending after the stop that ends the turn, so a watcher never acts
+  on an intermediate state and can show "running" without its own watcher.
 - **`LimitDetail.Ends`** makes a host limit end the turn; without it a host
   limit waits (`NextFix`). **`Limits.NoRaise`** makes model-call, cost, and
   token limits end the turn and rejects raises.
@@ -39,8 +47,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   limited stop recorded, as if `BeforeSend` had returned it.
 - **`CommitRequest.ModelCall`** carries the started or finished call's
   `ModelCallCost`, so a recorder reserves and settles without loading the
-  turn. **`CommitRequest.Delivered`** lists the inbox command IDs a step
-  records.
+  turn. **`CommitRequest.Delivered`** lists the inbox commands a step
+  records as `DeliveredCommand{ID, Kind}`, so a host that keeps steers apart
+  from other commands needs no guessing.
 - **`InboxRefuser`** hears the commands a turn did not take; **`WarningInbox`**
   records them on an open turn.
 
@@ -67,13 +76,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   is `MemoryInbox` (`NewMemoryInbox`, with `Put(turnID, command)`; its
   `Cancel(id)` is now `Withdraw(id)`),
   `SteeringReleaser` is `InboxReleaser`, and `SteeringNotifier` is
-  `InboxNotifier`, whose `Ready` takes the turn ID. `session.Session.Steering`
+  `InboxNotifier`, whose `Ready` takes the turn ID and also returns an
+  `unwatch` func that runs and `Drive` call when they stop watching, so an
+  inbox can drop the turn's channel. `session.Session.Steering`
   is `Session.Inbox`. A `Cancel` in the inbox ends a running turn, unless
   the turn's output is recorded, when it is refused; other commands wait
   for Advance. `Run` rejects a `Steer`: steers reach a turn only through an
   inbox. Inbox command IDs starting with `continue:` are reserved for
   Advance. A failing inbox or invalid steer records `WarningInbox` instead
   of `WarningSteering`.
+- **A model-call limit stop's `Stop.Reason` is prose**, such as "model call
+  limit: 8 of 8 calls used", instead of `model_calls`; read
+  `Stop.Limit.Kind` to recognize it.
 - **A context-window stop ends the turn** and always records
   `Limit{Kind: LimitContextWindow}`; start a successor turn.
 - **A turn whose only step is its Start is ready.** `Next` gives

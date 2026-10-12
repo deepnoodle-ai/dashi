@@ -135,16 +135,19 @@ turn in process and prints the model's text as it streams.
 
 ## Watching stops
 
-A reader that acts on a turn, rather than displays it, follows its stops
-with `dashi.FollowStops(ctx, reader, turnID)`. It yields the turn's view
-now, then once at each later stop, and ends after the stop that ends the
-turn. A burst of steps yields one view, so the reader never acts on an
-intermediate state, such as running a tool twice. A turn is *stopped* when
-its last step is a stop step and *working* otherwise; a working turn's view
-is for display ("running"), never for action. A turn driven by
+A reader that acts on a turn, rather than displays it, follows it with
+`dashi.FollowNext(ctx, reader, turnID)`. It yields the turn's view now, one
+*working* view when work starts after a stop, and a view at each later
+stop, and ends after the stop that ends the turn. A burst of steps yields at
+most one view, so the reader never acts on an intermediate state, such as
+running a tool twice. A turn is *stopped* when its last step is a stop step
+and *working* otherwise. A working view has no `Stop`, so `Next()` is
+`NextRunning`: show "running", never act on it. A turn driven by
 [`Advance`](recovering-turns.md#advancing-saved-turns) always rests at a
 stop, so a projection row needs nothing more: a stop step carries its
-`Stop`, and any other step means working.
+`Stop`, and any other step means working, with one exception. A model-call
+finish step that arrives after the ending stop corrects spend on an ended
+turn; keep the row ended.
 
 ## Observing a run in process
 

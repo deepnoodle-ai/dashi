@@ -6,8 +6,10 @@ import (
 
 func TestMemoryInboxPutAddressesOneTurn(t *testing.T) {
 	in := NewMemoryInbox()
-	ready := in.Ready("t1")
-	other := in.Ready("t2")
+	ready, unwatch := in.Ready("t1")
+	defer unwatch()
+	other, unwatchOther := in.Ready("t2")
+	defer unwatchOther()
 	mustPut(t, in, "t1", Cancel{CommandID: "cancel"})
 	select {
 	case <-ready:

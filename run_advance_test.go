@@ -103,8 +103,8 @@ func TestAdvanceAppliesToolResultFromInbox(t *testing.T) {
 	if inbox.Has(result.CommandID) {
 		t.Fatal("the applied result was not acknowledged")
 	}
-	if got := rec.deliveredFor(StepToolFinished); len(got) != 1 ||
-		got[0] != result.CommandID {
+	want := DeliveredCommand{ID: result.CommandID, Kind: CommandResolve}
+	if got := rec.deliveredFor(StepToolFinished); len(got) != 1 || got[0] != want {
 		t.Fatalf("CommitRequest.Delivered = %v", got)
 	}
 }
@@ -340,7 +340,7 @@ func TestDriveWaitsForTheInboxAndEndsWithTheTurn(t *testing.T) {
 	// Watch the stops until the turn waits for the result.
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	for view, err := range FollowStops(ctx, rec, id) {
+	for view, err := range FollowNext(ctx, rec, id) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -391,7 +391,7 @@ func TestAdvanceRecordsDeadlineStop(t *testing.T) {
 	}
 }
 
-func TestFollowStopsYieldsOnlyAtStops(t *testing.T) {
+func TestFollowNextCoalescesABurstIntoItsStop(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{
 		toolUse(toolCall("ext-1", "mail", `{}`)),
 		final("sent"),
@@ -406,7 +406,7 @@ func TestFollowStopsYieldsOnlyAtStops(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	var views []TurnView
-	for view, err := range FollowStops(ctx, rec, id) {
+	for view, err := range FollowNext(ctx, rec, id) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -435,7 +435,7 @@ func TestFollowStopsYieldsOnlyAtStops(t *testing.T) {
 	}
 }
 
-func TestFollowStopsEndsAtOnceForAnEndedTurn(t *testing.T) {
+func TestFollowNextEndsAtOnceForAnEndedTurn(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	rec := NewMemoryRecorder()
 	runner := Runner{Client: client, Recorder: rec}
@@ -443,7 +443,7 @@ func TestFollowStopsEndsAtOnceForAnEndedTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := 0
-	for view, err := range FollowStops(t.Context(), rec, "t1") {
+	for view, err := range FollowNext(t.Context(), rec, "t1") {
 		if err != nil || !view.Stop.Ended {
 			t.Fatalf("view=%+v err=%v", view.Stop, err)
 		}

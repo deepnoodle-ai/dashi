@@ -62,9 +62,15 @@ type InboxReleaser interface {
 // Waiting. An inbox without Ready still delivers, at the next safe point or
 // the next poll.
 type InboxNotifier interface {
-	// Ready returns the same channel on every call for one turn ID, or nil
-	// when the inbox never signals.
-	Ready(turnID string) <-chan struct{}
+	// Ready returns the turn's channel, or a nil channel when the inbox
+	// never signals, and an unwatch func, which must not be nil. Dashi
+	// calls unwatch exactly once per Ready call, even for a nil channel,
+	// when it stops watching: at the end of each run and each Drive. The
+	// run and Drive of one turn may watch at the same time, so an inbox
+	// that keeps one channel per turn counts its watchers and drops the
+	// channel when the count reaches zero. A watcher calls Waiting before
+	// it waits, so a signal sent while no one watched is not needed.
+	Ready(turnID string) (ready <-chan struct{}, unwatch func())
 }
 
 // InboxRefuser is implemented by inboxes that tell senders when a turn
@@ -278,7 +284,10 @@ func (r *runtime) commitSteers(step Step, steers []ContextItem) *RunResult {
 // CommitRequest.Delivered.
 func (r *runtime) markDelivered(steers []ContextItem) {
 	for _, item := range steers {
-		r.pendingDelivered = append(r.pendingDelivered, item.ID)
+		r.pendingDelivered = append(r.pendingDelivered, DeliveredCommand{
+			ID:   item.ID,
+			Kind: CommandSteer,
+		})
 	}
 }
 
@@ -482,7 +491,10 @@ func (r *runtime) cancelStop(c Cancel) RunResult {
 	if err != nil {
 		return r.stop(StopCanceled, c.Reason)
 	}
-	r.pendingDelivered = append(r.pendingDelivered, c.CommandID)
+	r.pendingDelivered = append(r.pendingDelivered, DeliveredCommand{
+		ID:   c.CommandID,
+		Kind: CommandCancel,
+	})
 	o := r.commit(Step{
 		Kind:        StepTurnStopped,
 		CommandID:   c.CommandID,

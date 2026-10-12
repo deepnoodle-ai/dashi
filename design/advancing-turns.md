@@ -73,7 +73,8 @@ applies the commands waiting in the inbox, and runs until the turn must wait.
 - Apply inbox commands in order. `Cancel` wins and ends the pass.
   `Resolve`, `AddMessages`, and a raising `Continue` apply as today.
 - If `Next()` is `NextContinue`, or `NextRecover` with `ReadyToContinue`,
-  run a `Continue`. Otherwise record a stop if the last step is not one
+  run a `Continue`. If the turn is held by a host limit without `Ends`, ask
+  first (decision 4). Otherwise record a stop if the last step is not one
   (decision 5) and return.
 - Repeat while the inbox had something new. Advance never continues from a
   stop it recorded itself in the same call unless an input arrived after it,
@@ -101,8 +102,11 @@ type Inbox interface {
 	Delivered(ctx context.Context, turnID string, ids []string) error
 }
 // InboxNotifier (was SteeringNotifier) now takes the turn ID, so one host
-// inbox serves many turns. A signal means "check again".
-type InboxNotifier interface{ Ready(turnID string) <-chan struct{} }
+// inbox serves many turns. A signal means "check again". Each run and each
+// Drive calls unwatch once when done, so the inbox can drop the channel.
+type InboxNotifier interface {
+	Ready(turnID string) (ready <-chan struct{}, unwatch func())
+}
 ```
 
 `Runner.Inbox` holds the host's inbox; `WithSteering` becomes `WithInbox`
@@ -130,6 +134,9 @@ same derivation from the same record and gets the same ID and content, which
 the recorder acknowledges as a retry. Two workers with a stale lease derive
 identical commands and the owner fence rejects one. `WithHistory` supplies
 the Continue's `History`; the host passes the history pinned at admission.
+`WithHistoryMismatch(HistoryMismatchReject)` makes those Continues, and
+inbox Continues that leave `OnHistoryMismatch` empty, refuse a differing
+history instead of warning.
 
 **4. Host limits say whether they wait or end.** No more `Cancel` plus a
 reason string:
@@ -138,8 +145,17 @@ reason string:
   this limit ends the turn. Replay's ending rule adds "limited by host with
   `Ends`", so `Stop.Ended` is set and `Next()` is `NextNone`. A routine cap is
   `Limit{Kind: LimitHost, Code: "routine_cap", Ends: true}`.
-- A host limit without `Ends` waits: `Next()` is `NextFix` and the host puts
-  a `Continue` in the inbox when the cause clears (a budget top-up).
+- A host limit without `Ends` holds: `Next()` is `NextFix`. On every pass
+  (the first, each inbox signal, and Drive's poll) Advance asks whether the
+  held call may go: it prepares the request the derived `Continue` would
+  send, in memory, and asks `BeforeModel` and `BeforeSend` with the
+  prepared request and worst-case estimate. Nothing is sent, no tool runs,
+  and nothing is recorded. Refused again with the same host limit code:
+  return, so polling writes no steps. Anything else: run the `Continue`,
+  which records what happens. The host only tops up the balance (and may
+  signal `Ready`); a restarted worker retries on its first pass. A hold the
+  recorder made (`LimitError`) cannot be asked about, so it is retried for
+  real at most once per Advance call and per inbox signal.
 - `Limits.NoRaise` on the agent: limits cannot be raised, so a model-call,
   cost, or token limit ends the turn. It is recorded with the agent.
 - A context-window stop always records `Limit{Kind: LimitContextWindow}`
@@ -163,13 +179,15 @@ turns themselves see no change. Whether a working turn has lost its worker is
 a lease question: the next lease holder's Advance recovers it.
 
 ```go
-// FollowStops yields the turn's view now, then at each later stop, and ends
-// after the stop that ends the turn.
-func FollowStops(ctx context.Context, r StepReader, turnID string) iter.Seq2[TurnView, error]
+// FollowNext yields the turn's view now, one working view when work starts
+// after a stop, and a view at each later stop; it ends after the ending stop.
+func FollowNext(ctx context.Context, r StepReader, turnID string) iter.Seq2[TurnView, error]
 ```
 
 It reads like `Follow`, extends one in-memory turn, and builds a view only at
-stops, so a burst of steps yields one view and no timer is needed.
+those points, so a burst of steps yields at most one view and no timer is
+needed. A working view has no `Stop`, so `Next()` is `NextRunning`: a host
+shows "running" after a resume without a commit watcher of its own.
 
 **6. Commits carry what accounting needs.** `CommitRequest` gains:
 
@@ -178,9 +196,10 @@ stops, so a burst of steps yields one view and no timer is needed.
 // TurnView.ModelCallCosts will show it: WorstCaseCost on a start; Cost,
 // Exact, and UsageSource on a finish. Nil on other steps.
 ModelCall *ModelCallCost
-// Delivered lists the inbox command IDs this step records, so a recorder
-// that shares a database with its inbox marks them in the same transaction.
-Delivered []string
+// Delivered lists the inbox commands this step records, each with its
+// CommandKind, so a recorder marks them in the same transaction and a host
+// that keeps steers in their own table needs no ID matching.
+Delivered []DeliveredCommand // {ID string; Kind CommandKind}
 ```
 
 A recorder reserves `ModelCall.WorstCaseCost` on a start and settles
@@ -190,7 +209,8 @@ not `Exact`, so the host's own fallback pricing goes. A late model-call
 finish after a turn ended still arrives with `ModelCall`, so spend stays
 correct; it is the only step accepted after the end, and it changes nothing a
 watcher acts on. A projection row needs nothing more: a stop step carries its
-`Stop`, and any other step means working.
+`Stop`, and any other step means working, except that late finish, which
+leaves an ended row ended.
 
 **7. Durable summarization is deferred.** With saved Starts and Drive, a
 compaction turn is an ordinary saved turn: save `Compactor.Start`, drive it,
@@ -216,10 +236,11 @@ settled for durable hosts. Revisit after this lands, measured by what is left.
 | Swarm function (dashirt) | Lines now | After |
 | --- | --- | --- |
 | `advance`, `drive`, `runAgain` | ~120 | ~15 around `Drive` |
+| `retryBudgetHold` and its call sites | ~45 | 0 |
 | `nextCommand`, `unapplied`, `plan`, `decodeCommand`, `hostLimit`, `contextWindowStop` | ~110 | 0 |
 | `CancelTurn` (stop worker, Start-then-Cancel) | ~95 | ~15: put `Cancel`, kick |
 | `SubmitToolResults` | ~35 | ~20: put `Resolve` |
-| `WatchTurn`, `catchUp`, `extend`, `driving`, watch timing | ~200 | ~40 over `FollowStops` |
+| `WatchTurn`, `catchUp`, `extend`, `driving`, watch timing | ~200 | ~40 over `FollowNext` |
 | `signals` lifecycle and commit wakes (follow.go) | ~60 | ~15 (inbox signal) |
 | `recorder.Commit`, `knownCost` | ~135 | ~60, no load |
 | `steering.Delivered` (reloads the turn) | ~25 | 0 |
@@ -231,14 +252,24 @@ stays (decision 7).
 
 ## Settled questions
 
-1. **Budget top-ups.** Advance does not re-ask `BeforeSend` on each signal
-   while a host limit waits. The host puts a `Continue` in the inbox when the
-   cause clears; one explicit input beats two steps per signal.
+1. **Budget top-ups.** Advance re-asks `BeforeSend` on every pass while a
+   host limit holds (decision 4). This reverses the first answer, "the host
+   puts a `Continue`": porting our first host showed that answer moves the
+   old driver logic back into it. It had to load the turn for the held
+   call's worst case, check the balance itself, put a `Continue`, and do so
+   from three places, including every worker start, so a hold funded while
+   the worker was down was not stranded. Asking without recording removes
+   the "two steps per signal" cost that had decided it.
 2. **`Steering` becomes `Inbox`.** The rename touches `session` and the CLI;
    the implementation gets a naming review before it opens.
-3. **`Stop.Inferred` is unchanged.** `FollowStops` alone keeps watchers off
+3. **`Stop.Inferred` is unchanged.** `FollowNext` alone keeps watchers off
    intermediate states; redefining `Inferred` would change `Next()` for hosts
    that do not use Advance, for no gain.
 4. **Drive does not retry failed model calls.** It returns at `NextFix` with
    the failure's category and retry-after on `ModelFact`; the host decides.
    Revisit when a second host shows the same retry policy.
+5. **One limit shape?** `SendDecision{Reason, Limit}` and
+   `LimitError{Reason, Limit}` carry the same pair but stay separate.
+   `SendDecision.Reason` also explains a `Deny`, and a hook error means the
+   hook failed, so neither can become the other without making one of them
+   ambiguous; a host builds the pair once and copies two fields.

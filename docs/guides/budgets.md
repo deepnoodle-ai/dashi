@@ -132,8 +132,13 @@ introduce a new cap. Each raise is saved as a continuation step and appears in
 `TurnView.Raises` with its time. A host credit hold needs no raise: after funds
 arrive, `Continue` makes `BeforeSend` check the balance again. A host that
 drives turns with [`Advance`](recovering-turns.md#advancing-saved-turns) puts
-that `Continue` in the turn's inbox; Dashi does not ask `BeforeSend` again on
-its own. Set `Limits.NoRaise` on the agent when no raise should ever happen:
+nothing in the inbox: each pass asks `BeforeSend` again about the held call,
+records nothing while it is refused with the same host limit, and runs the
+turn once it is allowed. Top up the balance and, to skip the poll, signal the
+inbox's `Ready`. Check the balance in `BeforeSend` as well as in the
+recorder: a hold the recorder made with a `LimitError` cannot be asked
+about, so `Advance` retries it for real at most once per call and per inbox
+signal. Set `Limits.NoRaise` on the agent when no raise should ever happen:
 a model-call, cost, or token limit then ends the turn, and a raising
 `Continue` is refused.
 

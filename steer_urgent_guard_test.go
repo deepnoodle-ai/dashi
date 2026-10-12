@@ -38,8 +38,8 @@ func newSignalingSource() *signalingSource {
 	}
 }
 
-func (s *signalingSource) Ready(string) <-chan struct{} {
-	return s.ready
+func (s *signalingSource) Ready(string) (<-chan struct{}, func()) {
+	return s.ready, func() {}
 }
 
 func (s *signalingSource) Steers(

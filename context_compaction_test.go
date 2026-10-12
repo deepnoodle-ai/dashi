@@ -106,7 +106,7 @@ func TestActiveCompactionOutputLimitRetryStops(t *testing.T) {
 			switch mode {
 			case "model calls":
 				start.Agent.Limits.ModelCalls = 4
-				wantSends, wantKind, wantReason = 3, StopLimited, string(LimitModelCalls)
+				wantSends, wantKind, wantReason = 3, StopLimited, "model call limit: 3 of 4 calls used; compacting the context needs two"
 			case "output budget":
 				start.Budget = &Budget{MaxOutputTokens: 6}
 				wantSends, wantKind, wantReason = 3, StopLimited, string(LimitOutputTokens)
@@ -424,7 +424,7 @@ func TestActiveCompactionModelCallAndOutputBudget(t *testing.T) {
 		a.Limits.ModelCalls = 3
 		calls := 0
 		out, err := (Runner{Client: c, Tools: activeTools(&calls)}).Run(t.Context(), Turn{}, activeStart(a))
-		if err != nil || out.Stop.Kind != StopLimited || out.Stop.Reason != "model_calls" || c.sends != 2 || calls != 2 {
+		if err != nil || out.Stop.Kind != StopLimited || out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitModelCalls || c.sends != 2 || calls != 2 {
 			t.Fatalf("stop=%+v sends=%d calls=%d err=%v", out.Stop, c.sends, calls, err)
 		}
 	})

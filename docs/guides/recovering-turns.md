@@ -101,9 +101,19 @@ The `continue:` prefix is reserved: `Advance` refuses an inbox command whose
 ID starts with it. A command the record already holds, as after a crash
 before its acknowledgment, is acknowledged without running again.
 `Advance` never continues from a stop it recorded itself without new input,
-so a turn that cannot progress returns instead of spinning. `Drive` repeats
-`Advance`, waiting between passes for the inbox's signal
-(`InboxNotifier`), a 15-second poll, or the turn's deadline. It does not
+so a turn that cannot progress returns instead of spinning. A turn held by a
+host limit without `Ends`, such as a balance too low, is the exception the
+host does not have to act on: each pass prepares the held call and asks
+`BeforeModel` and `BeforeSend` about it again, without sending or recording
+anything. While the hook refuses with the same host limit code, nothing is
+written; once it allows the call, the turn runs. A hold the recorder made
+(`LimitError`) is retried for real at most once per `Advance` call and per
+inbox signal, since only the recorder's transaction can answer for it. Pass
+`WithHistoryMismatch(dashi.HistoryMismatchReject)` to make the `Continue`s
+that `Advance` runs refuse a history that differs from the turn's start.
+`Drive` repeats `Advance`, waiting between passes for the inbox's signal
+(`InboxNotifier`), a 15-second poll, or the turn's deadline, and unwatches
+the signal when it returns. It does not
 retry a failed model call: the turn rests at `NextFix` with the failure's
 category on its `ModelFact`, and the host puts a `Continue` in the inbox when
 it wants another try.
@@ -153,7 +163,8 @@ transaction with your own rows:
   loading the turn. To refuse a start that would break a balance, return
   `&dashi.CommitError{NothingWritten: true, Err: &dashi.LimitError{...}}`;
   Dashi records the limited stop. `CommitRequest.Delivered` names the inbox
-  commands the step records, to mark them in the same transaction.
+  commands the step records, each with its `CommandKind`, to mark them in
+  the same transaction; steers have `CommandSteer`.
 
 ## Unfinished work
 

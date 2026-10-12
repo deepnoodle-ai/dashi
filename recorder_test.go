@@ -33,10 +33,10 @@ func (r *capturingRecorder) Commit(ctx context.Context, req CommitRequest) error
 	return nil
 }
 
-func (r *capturingRecorder) deliveredFor(kind StepKind) []string {
+func (r *capturingRecorder) deliveredFor(kind StepKind) []DeliveredCommand {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var out []string
+	var out []DeliveredCommand
 	for _, req := range r.requests {
 		if req.Step.Kind == kind {
 			out = append(out, req.Delivered...)
@@ -85,7 +85,8 @@ func TestCommitRequestCarriesDeliveredSteers(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if got := rec.deliveredFor(StepMessagesAdded); len(got) != 1 || got[0] != id {
+	if got := rec.deliveredFor(StepMessagesAdded); len(got) != 1 ||
+		got[0] != (DeliveredCommand{ID: id, Kind: CommandSteer}) {
 		t.Fatalf("delivered = %v", got)
 	}
 }

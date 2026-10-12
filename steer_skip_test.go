@@ -873,7 +873,7 @@ func newStaleInbox() *staleInbox {
 	}
 }
 
-func (s *staleInbox) Ready(string) <-chan struct{} { return s.ready }
+func (s *staleInbox) Ready(string) (<-chan struct{}, func()) { return s.ready, func() {} }
 
 func (s *staleInbox) signal() {
 	select {

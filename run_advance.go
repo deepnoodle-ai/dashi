@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"iter"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +20,18 @@ import (
 func WithHistory(history []llm.Message) RunOption {
 	return func(o *runOptions) {
 		o.history = llmclone.Messages(history)
+	}
+}
+
+// WithHistoryMismatch sets how the Continue commands that Advance and
+// Drive run treat a history that differs from the one the turn started
+// with: the ones they derive, and a Continue from the inbox that leaves
+// OnHistoryMismatch empty. The default is HistoryMismatchWarn; pass
+// HistoryMismatchReject to get ErrHistoryMismatch instead of running the
+// turn on the wrong history.
+func WithHistoryMismatch(m HistoryMismatch) RunOption {
+	return func(o *runOptions) {
+		o.historyMismatch = m
 	}
 }
 
@@ -40,9 +51,10 @@ var errReservedID = errors.New(
 
 // Advance loads a saved turn, applies the commands waiting in its inbox,
 // and runs it until it must wait. RunResult.Next says why it returned. The
-// Recorder must also be a Loader. Pass WithOwner for lease fencing and
-// WithHistory for the Continue's prior conversation; WithHooks, WithInbox,
-// and WithPause apply to the runs it makes.
+// Recorder must also be a Loader. Pass WithOwner for lease fencing, and
+// WithHistory and WithHistoryMismatch for the Continue's prior
+// conversation; WithHooks, WithInbox, and WithPause apply to the runs it
+// makes.
 //
 // Each pass applies the inbox's commands in order. Resolve, AddMessages,
 // and a Continue that raises a limit apply as Run applies them; a Cancel
@@ -59,6 +71,16 @@ var errReservedID = errors.New(
 // a stop it recorded itself unless an input arrived after it, so a turn
 // that cannot progress returns instead of spinning. A turn past its
 // Limits.Deadline gets its deadline stop.
+//
+// A turn held by a host limit without Ends, such as a balance too low, is
+// asked about on every call: Advance prepares the call the Continue would
+// make and asks the BeforeModel and BeforeSend hooks, without sending,
+// running tools, or recording anything. While they refuse with the same
+// host limit code, Advance returns with nothing written; otherwise it runs
+// the Continue. A host lifts a hold by fixing its cause, such as topping
+// up the balance, and may signal Ready to skip Drive's poll. A hold the
+// recorder made with a LimitError cannot be asked about: it is retried for
+// real at most once per Advance call and per inbox signal to Drive.
 //
 // A command the turn cannot take, such as a result for an unknown call or
 // a raise on a turn not stopped at a limit, never fails the turn: it is
@@ -102,7 +124,11 @@ func (r Runner) Drive(
 	}
 	var ready <-chan struct{}
 	if n, ok := a.inbox.(InboxNotifier); ok {
-		ready = n.Ready(turnID)
+		var unwatch func()
+		ready, unwatch = n.Ready(turnID)
+		if unwatch != nil {
+			defer unwatch()
+		}
 	}
 	for {
 		out, err := a.advance(ctx)
@@ -119,6 +145,7 @@ func (r Runner) Drive(
 			timer.Stop()
 			return out, ctx.Err()
 		case <-ready:
+			a.recorderRetry = true
 		case <-timer.C:
 		}
 		timer.Stop()
@@ -148,6 +175,9 @@ type advancer struct {
 	inboxFailed bool
 	// warnings ride on the next step this call records.
 	warnings []Warning
+	// recorderRetry allows one real retry of a hold the recorder made; it
+	// is set again by each inbox signal Drive receives.
+	recorderRetry bool
 }
 
 func (r Runner) newAdvancer(turnID string, o runOptions) (*advancer, error) {
@@ -165,6 +195,10 @@ func (r Runner) newAdvancer(turnID string, o runOptions) (*advancer, error) {
 	if err := JoinHooks(r.Hooks, o.hooks).validate(); err != nil {
 		return nil, err
 	}
+	if o.historyMismatch != "" && o.historyMismatch != HistoryMismatchWarn &&
+		o.historyMismatch != HistoryMismatchReject {
+		return nil, errors.New("dashi: invalid history-mismatch behavior")
+	}
 	if !o.inboxSet {
 		o.inbox, o.inboxSet = r.Inbox, true
 	}
@@ -179,11 +213,16 @@ func (r Runner) newAdvancer(turnID string, o runOptions) (*advancer, error) {
 		turnID:  turnID,
 		handled: map[string]bool{},
 		tried:   map[string]bool{},
+
+		recorderRetry: true,
 	}, nil
 }
 
 // advance runs passes until the turn must wait or has ended.
 func (a *advancer) advance(ctx context.Context) (RunResult, error) {
+	// ownStop is the Seq of the last stop this call recorded. A hold it
+	// recorded itself is not asked about again without new input.
+	var ownStop int64
 	for {
 		if err := ctx.Err(); err != nil {
 			return RunResult{}, err
@@ -209,7 +248,14 @@ func (a *advancer) advance(ctx context.Context) (RunResult, error) {
 		if d := view.Agent.Limits.Deadline; !d.IsZero() && !time.Now().Before(d) {
 			return a.recordStop(ctx, turn, nil)
 		}
-		if a.shouldContinue(view, turn, applied) {
+		run := a.shouldContinue(view, turn, applied)
+		if !run && heldStop(view) && (view.LastSeq != ownStop || applied) {
+			// A hold lifts when BeforeSend allows the call again: ask.
+			if run, err = a.askSend(ctx, turn, view); err != nil {
+				return unchangedResult(turn), err
+			}
+		}
+		if run {
 			out, err := a.runContinue(ctx, turn, view)
 			if err != nil || out.LastSeq <= view.LastSeq {
 				// On no new step, as when an inbox command already took
@@ -217,7 +263,7 @@ func (a *advancer) advance(ctx context.Context) (RunResult, error) {
 				return out, err
 			}
 			if last := lastStep(out.Turn); last.Kind == StepTurnStopped {
-				a.selfStop = last.Seq
+				a.selfStop, ownStop = last.Seq, last.Seq
 			}
 			continue
 		}
@@ -227,7 +273,7 @@ func (a *advancer) advance(ctx context.Context) (RunResult, error) {
 			if err != nil {
 				return out, err
 			}
-			a.selfStop = out.LastSeq
+			a.selfStop, ownStop = out.LastSeq, out.LastSeq
 		}
 		if !applied {
 			return out, nil
@@ -287,11 +333,7 @@ func (a *advancer) runContinue(
 	for _, id := range a.steers {
 		a.tried[id] = true
 	}
-	c := Continue{
-		CommandID: continuePrefix + strconv.FormatInt(view.LastSeq, 10),
-		History:   llmclone.Messages(a.opts.history),
-	}
-	return a.run(ctx, turn, c, nil)
+	return a.run(ctx, turn, a.derivedContinue(view), nil)
 }
 
 // run applies one command to the freshly loaded turn, with the call's
@@ -300,7 +342,7 @@ func (a *advancer) run(
 	ctx context.Context,
 	turn Turn,
 	c Command,
-	delivered []string,
+	delivered []DeliveredCommand,
 ) (RunResult, error) {
 	o := a.opts
 	o.delivered = delivered
@@ -369,11 +411,16 @@ func (a *advancer) applyInbox(ctx context.Context, turn Turn) (Turn, bool, error
 			}
 			continue
 		}
-		if v, ok := c.(Continue); ok && len(v.History) == 0 {
-			v.History = llmclone.Messages(a.opts.history)
+		if v, ok := c.(Continue); ok {
+			if len(v.History) == 0 {
+				v.History = llmclone.Messages(a.opts.history)
+			}
+			if v.OnHistoryMismatch == "" {
+				v.OnHistoryMismatch = a.opts.historyMismatch
+			}
 			c = v
 		}
-		out, err := a.run(ctx, turn, c, []string{id})
+		out, err := a.run(ctx, turn, c, []DeliveredCommand{{ID: id, Kind: CommandKindOf(c)}})
 		if err != nil && !isRefusal(err) {
 			return out.Turn, applied, err
 		}
@@ -485,18 +532,30 @@ func lastStep(t Turn) *Step {
 	return &t.Steps[len(t.Steps)-1]
 }
 
-// FollowStops yields the turn's view now, then at each later stop, and
-// ends after the stop that ends the turn. It reads like Follow, through r,
-// and extends one in-memory turn, but builds a view only at stops, so a
-// burst of steps yields one view and a reader never acts on an
-// intermediate state. A turn is stopped when its last step is a stop step
-// and working otherwise; a working turn's first view is for display, never
-// for action. Late model results after the ending stop are not read.
+// FollowNext yields the turn's view whenever what a host does next
+// changes: the view now, a working view once work starts after a stop,
+// and a view at each later stop. It ends after the stop that ends the
+// turn. It reads like Follow, through r, and extends one in-memory turn,
+// but builds a view only at those points, so a burst of steps yields at
+// most one working view and a reader never acts on an intermediate state.
+//
+// A turn is stopped when its last step is a stop step, and working
+// otherwise. A working view has no Stop, so its Next is NextRunning: it is
+// for display ("running"), never for action. A watcher cannot tell a live
+// worker from a crashed one, so FollowNext never yields NextRecover: when
+// the view now is of a working turn, it is a working view. Two kinds of
+// turn whose last step is not a stop are not working: a saved Start, whose
+// view now reads NextContinue, and an ended turn with late model results,
+// whose view now reads NextNone (the late results are not read). After a
+// view that is not working, the first steps other than stops yield one
+// working view, unless a stop follows them in the same read; so a stop
+// comes between any two working views. A host that tracks workers reads
+// Turn.View for NextRecover instead.
 //
 // A read error, including ErrCursorAhead, or a record that fails replay is
 // yielded once and ends the sequence. On an unknown turn it waits for the
 // first step.
-func FollowStops(
+func FollowNext(
 	ctx context.Context,
 	r StepReader,
 	turnID string,
@@ -504,6 +563,9 @@ func FollowStops(
 	return func(yield func(TurnView, error) bool) {
 		turn := Turn{ID: turnID}
 		first := true
+		// quiet means the last view yielded was not a working view, and
+		// worked that steps other than stops arrived after it.
+		quiet, worked := false, false
 		resting, woke := false, false
 		for ctx.Err() == nil {
 			cursor := int64(len(turn.Steps))
@@ -521,24 +583,35 @@ func FollowStops(
 					return
 				}
 				turn.Steps = append(turn.Steps, step)
-				if first || step.Kind != StepTurnStopped {
+				if step.Kind != StepTurnStopped {
+					worked = true
 					continue
 				}
-				if !yieldView(turn, yield) || step.Stop != nil && step.Stop.Ended {
+				if first {
+					continue
+				}
+				view, ok := yieldView(turn, false, yield)
+				if !ok || view.Stop.Ended {
 					return
 				}
+				quiet, worked = true, false
 			}
 			if full {
 				continue
 			}
 			if first && len(turn.Steps) > 0 {
 				first = false
-				if !yieldView(turn, yield) {
+				view, ok := yieldView(turn, nowWorking(turn), yield)
+				if !ok || view.Stop.Ended {
 					return
 				}
-				if last := lastStep(turn); last.Stop != nil && last.Stop.Ended {
+				quiet, worked = view.Next() != NextRunning, false
+			}
+			if quiet && worked {
+				if _, ok := yieldView(turn, true, yield); !ok {
 					return
 				}
+				quiet, worked = false, false
 			}
 			if last := lastStep(turn); last != nil {
 				resting = last.Kind == StepTurnStopped
@@ -551,13 +624,29 @@ func FollowStops(
 	}
 }
 
+// nowWorking reports whether FollowNext's view now of turn is a working
+// view: its last step is not a stop, and it is neither a saved Start nor
+// an ended turn, the cases where View infers a stop that gives NextRecover.
+func nowWorking(turn Turn) bool {
+	view, err := turn.View()
+	return err == nil && view.Next() == NextRecover
+}
+
 // yieldView builds turn's view and yields it, or yields the replay error.
-// It reports whether to go on.
-func yieldView(turn Turn, yield func(TurnView, error) bool) bool {
+// A working view has no Stop, so it reads as NextRunning. It reports the
+// view and whether to go on.
+func yieldView(
+	turn Turn,
+	working bool,
+	yield func(TurnView, error) bool,
+) (TurnView, bool) {
 	view, err := turn.View()
 	if err != nil {
 		yield(TurnView{}, err)
-		return false
+		return TurnView{}, false
 	}
-	return yield(view, nil)
+	if working {
+		view.Stop = Stop{}
+	}
+	return view, yield(view, nil)
 }
