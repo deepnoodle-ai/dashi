@@ -4,16 +4,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/tool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// convertResult maps an MCP result to a Dashi outcome. Blocks keep their
-// order and nothing vanishes silently: content that the model cannot use
-// becomes a text note, and the note text goes to warn.
-func convertResult(res *mcp.CallToolResult, warn func(string)) tool.Outcome {
+// ConvertResult maps an MCP tool result to a Dashi outcome, the same way
+// Toolset does. Use it when the application calls MCP tools itself, for
+// example to replay a result it saved with json.Marshal. Blocks keep their
+// order and nothing vanishes silently: content the model cannot use becomes a
+// text note, and each note is also returned as a warning. A result with
+// IsError is a failed outcome. A nil result is an empty succeeded outcome.
+func ConvertResult(res *mcp.CallToolResult) (tool.Outcome, []string) {
+	var warnings []string
+	warn := func(text string) { warnings = append(warnings, text) }
+	if res == nil {
+		res = &mcp.CallToolResult{}
+	}
 	var blocks []content.Block
 	carried := false
 	for _, c := range res.Content {
@@ -24,12 +33,12 @@ func convertResult(res *mcp.CallToolResult, warn func(string)) tool.Outcome {
 		case *mcp.ImageContent:
 			blocks = append(blocks, content.ImageBlock(content.Source{
 				Data:     c.Data,
-				MIMEType: c.MIMEType,
+				MIMEType: mimeType(c.MIMEType),
 			}))
 		case *mcp.AudioContent:
 			blocks = append(blocks, content.AudioBlock(content.Source{
 				Data:     c.Data,
-				MIMEType: c.MIMEType,
+				MIMEType: mimeType(c.MIMEType),
 			}))
 		case *mcp.ResourceLink:
 			blocks = append(blocks, content.TextBlock(
@@ -55,7 +64,17 @@ func convertResult(res *mcp.CallToolResult, warn func(string)) tool.Outcome {
 	if res.IsError {
 		outcome.State = tool.StateFailed
 	}
-	return outcome
+	return outcome, warnings
+}
+
+// mimeType lowercases a media type and maps the common image/jpg alias to
+// image/jpeg, which is what model providers accept.
+func mimeType(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "image/jpg" {
+		return "image/jpeg"
+	}
+	return s
 }
 
 func embedded(r *mcp.ResourceContents, warn func(string)) content.Block {

@@ -604,9 +604,11 @@ func (e *executor) Execute(
 	if err != nil {
 		return tool.Outcome{}, e.callError(ctx, cs, err)
 	}
-	return convertResult(res, func(text string) {
+	outcome, warnings := ConvertResult(res)
+	for _, text := range warnings {
 		e.set.note(e.c, text)
-	}), nil
+	}
+	return outcome, nil
 }
 
 // callError explains a failed call. A reply from the server means the call
