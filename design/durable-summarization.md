@@ -57,11 +57,14 @@ step.
 **Idea 2: every ended compaction turn replaces the history.** `Start`
 records, beside `Keep`, a mechanical stand-in for the summary:
 `CompactionFact.SummaryFallback`. It is built with no model call: a note that
-N earlier messages were removed without a summary, then the user's messages
-from that part (text only), each cut in the middle to a size limit, keeping
-the first and the newest when they do not all fit. Its limit is the summary's
-output allowance, so a fallback history is never longer than a summarized one
-could be. `ReplacementHistory` then uses:
+N earlier messages were removed without a summary, then, from that part, the
+user's messages, the name of each tool call, and the agent's last reply, as
+text. The tool names keep the model from redoing work, such as sending an
+email twice, that the user's words alone would invite. It is cut with the
+same `FitTranscript` as the summary request (failure 2), to half the
+summary's output allowance, so even with the byte-based token estimate a
+fallback history is no longer than a summarized one. `ReplacementHistory`
+then uses:
 
 - `Frame` and the summary, when the turn completed with one;
 - `SummaryFallback` as recorded, with no `Frame` (it is not a summary), when
@@ -81,7 +84,8 @@ pure function of the record. There is no second write for a crash to skip, no
 repair step, and no extra money: the stand-in was paid for in bytes at Start.
 Building it at replay from `Input` instead would mean parsing the summary
 request, which a custom compactor shapes as it likes, and a library upgrade
-would change old histories.
+would change old histories. A fixed note alone needs no field, but leaves the
+model with no trace of what was done.
 
 **Idea 3: one rule, read from the record.** `compaction` exports it, and
 `session.planCompaction` changes to the same rule (a shared test runs both
@@ -94,7 +98,9 @@ over the same turns):
 //     Its replacement, summarized or fallback, is the history.
 //   - The last turn overflowed (session.NeedsCompaction): needed.
 //   - Otherwise: needed when Needed(BuildHistory(turns), LastUsage(last)).
-//   - Nothing is old enough to compact: not needed (see failure 3).
+//   - Not needed when nothing is old enough to compact, or when the
+//     replacement would itself be due again (see failure 3), so compaction
+//     never repeats after every turn.
 // The Start's CommandID is "compact:" and the last turn's ID. It makes no
 // model call and writes nothing. Its only errors are encoding errors.
 func (c *Compactor) StartIfNeeded(ctx context.Context, turns []dashi.Turn) (
@@ -107,41 +113,47 @@ host's "at least two ordinary turns" minimum is dropped on purpose.
 
 **Also: a working-window cap.** `Policy.MaxWindow int`: compaction is due at
 `Fraction` of the smaller of `MaxWindow` and the model's window, and the kept
-tail is sized from it; the summary request still gets the summarizer's full
-window. When the model's window is unknown, `MaxWindow` replaces
-`DefaultWindow`. Every call resends the history, so on a 1M-token model an
-uncapped history makes each reply wait on prefilling it. The host's ~30 lines
-of fraction arithmetic become one field.
+tail and the summary's output allowance (`min(MaxTokens, window/4)`) are
+sized from it, so tail plus summary stays below `Fraction`; only the summary
+request's input gets the summarizer's full window. When the model's window is
+unknown, `MaxWindow` replaces `DefaultWindow`. Every call resends the
+history, so on a 1M-token model an uncapped history makes each reply wait on
+prefilling it. The host's ~30 lines of fraction arithmetic become one field.
 
 ## Each failure, and its answer
 
 1. **The summary call fails** after its retries, or the reply has no summary.
-   The turn stops; once it has ended (the host or session closes a stopped
-   one with `Cancel`), replay uses `SummaryFallback`. Not retried at this
-   position; the next compaction comes when the history is due again.
+   The turn stops; once it has ended (the host or session closes any stopped
+   compaction turn that is not held for budget with `Cancel`), replay uses
+   `SummaryFallback`. Not retried at this position; the next compaction comes
+   when the history is due again.
 2. **The summary request is too big for the summarizer.** `Start` already
    cuts large transcript items in the middle. When even 1 KB per item does
    not fit, it now drops whole items from the middle with one "[N items
    omitted]" marker, keeping the oldest (the task) and the newest. `Start` no
    longer fails on size.
 3. **Nothing old enough to compact, or the kept part too big.** The kept tail
-   fits its budget by construction, and a single oversized turn has no tail:
-   it is all summarized, its transcript cut as in 2. `Start` returns
-   `ErrNothingToCompact` only when the history holds nothing but system and
-   developer messages. Compaction never changes those operator instructions,
-   so `StartIfNeeded` says "not needed" and the next turn reports its own
-   context-window stop. A custom `session.Compactor` whose `Start` fails
-   otherwise is a bug in that code, and the session returns its error instead
-   of sending a history it knows is due.
+   fits its budget, and the summary or fallback its allowance, both sized
+   from the working window. A single oversized turn has no tail: it is all
+   summarized, its transcript cut as in 2. What compaction cannot shrink is
+   system and developer messages, which `Keep` holds outside the tail budget
+   and never changes, since they are operator instructions. When those alone
+   would make the replacement due (or are all there is,
+   `ErrNothingToCompact`), `StartIfNeeded` says "not needed", and the next
+   turn reports its own context-window stop: a configuration problem, not a
+   compaction one. A custom `session.Compactor` whose `Start` fails otherwise
+   is a bug in that code, and the session returns its error instead of
+   sending a history it knows is due.
 4. **A crash, or a second worker.** `SummaryFallback` is written in the same
    `Record` as the Start, and the outcome is read from the record, so a crash
    at any point leaves either no compaction turn (the next admission builds
    the same command ID) or one whose replay is already decided. A second
    worker meets the same key; the first record wins.
 5. **Budget.** A summary held for budget has not ended, so it waits like any
-   held turn; the work turn after it would need money too. The fallback needs
-   none. A host that would rather not wait may `Cancel` the held turn and
-   continue with the fallback.
+   held turn; the work turn after it would usually need the same money. The
+   fallback needs none, so a host that would rather not wait, for example
+   when the waiting work bills another account than the one the summary holds
+   (Idea 1), may `Cancel` the held turn and continue with the fallback.
 
 ## Host code
 
@@ -150,7 +162,8 @@ of fraction arithmetic become one field.
 ```go
 turns := conversationTurns(conv) // oldest first
 last := lastOf(turns)
-if isCompaction(last) && stoppedFailed(last) {
+if isCompaction(last) && stopped(last) && !ended(last) && !held(last) {
+	// Failed, limited, or anything else Drive leaves stopped.
 	inbox.Put(ctx, last.ID, dashi.Cancel{CommandID: "close:" + last.ID})
 	return errBusy // retry once it has ended; its replay then uses the fallback
 }
