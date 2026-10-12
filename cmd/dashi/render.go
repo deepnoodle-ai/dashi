@@ -367,14 +367,14 @@ func (r *Renderer) compactionBlock(id string, stop dashi.Stop) Block {
 			b.State, b.Text = StateOK, "Compaction completed."
 			break
 		}
-		b.State, b.Text = StateFailed, "Compaction failed: the summary was empty; previous history kept."
+		b.State, b.Text = StateFailed, "Compaction failed: the summary was empty; earlier history shortened without a summary."
 	case dashi.StopInterrupted:
 		b.State, b.Text = "interrupted", "Compaction interrupted. Press Enter to continue."
 	default:
 		b.State = StateFailed
-		b.Text = "Compaction " + string(stop.Kind) + "; previous history kept."
+		b.Text = "Compaction " + string(stop.Kind) + "; earlier history shortened without a summary."
 		if stop.Reason != "" {
-			b.Text = "Compaction " + string(stop.Kind) + ": " + stop.Reason + "; previous history kept."
+			b.Text = "Compaction " + string(stop.Kind) + ": " + stop.Reason + "; earlier history shortened without a summary."
 		}
 	}
 	b.Done = true

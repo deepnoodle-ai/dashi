@@ -74,7 +74,7 @@ func TestActiveContextRendererFailureUnavailableAndStops(t *testing.T) {
 	unavailable := onlyBlock(t, r.Event(stepEvent(dashi.Step{TurnID: "unknown", Warnings: []dashi.Warning{{
 		Code: dashi.WarningActiveCompactionUnavailable, Message: "Active-Turn protection unavailable; choose a model with a known window.",
 	}}})))
-	if unavailable.State != "unavailable" || strings.Contains(unavailable.Text, "128,000") {
+	if unavailable.State != "unavailable" || strings.Contains(unavailable.Text, "200,000") {
 		t.Fatalf("unavailable window became a safety claim: %+v", unavailable)
 	}
 	got := limitText(&dashi.Stop{Kind: dashi.StopLimited, Limit: &dashi.LimitDetail{Kind: dashi.LimitContextWindow}})

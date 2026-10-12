@@ -63,7 +63,7 @@ func (e *Engine) configureChat() *session.Session {
 		e.windowWarned[e.model] = true
 	}
 	threshold := e.cfg.CompactionThreshold
-	warnThreshold := threshold > window && !e.thresholdWarned[e.model]
+	warnThreshold := known && threshold > window && !e.thresholdWarned[e.model]
 	if warnThreshold {
 		if e.thresholdWarned == nil {
 			e.thresholdWarned = map[string]bool{}
@@ -73,7 +73,7 @@ func (e *Engine) configureChat() *session.Session {
 	model := e.model
 	e.mu.Unlock()
 	if warn {
-		e.warn("Model %s has no known context window; between-Turn history compaction uses 128,000 tokens. Active-Turn protection needs a known window.", model)
+		e.warn("Model %s has no known context window; between-Turn history compaction uses 200,000 tokens. Active-Turn protection needs a known window.", model)
 	}
 	if warnThreshold {
 		e.warn("--compaction-threshold %d is above the %d-token window of model %s; history compacts at %d tokens.", threshold, window, model, window)
@@ -82,16 +82,11 @@ func (e *Engine) configureChat() *session.Session {
 }
 
 // compactionPolicy is the compaction policy for a model. A
-// --compaction-threshold becomes the share of the model's window it is. A
-// threshold above the window counts as the window, because no model call can
-// use more; configureChat warns about it.
+// --compaction-threshold is its due count. A threshold above a known window
+// counts as the window, because no model call can use more; configureChat
+// warns about it.
 func (e *Engine) compactionPolicy(info llm.ModelInfo) compaction.Policy {
-	policy := compaction.Policy{Model: info}
-	if t := e.cfg.CompactionThreshold; t > 0 {
-		window, _ := policy.Window()
-		policy.Fraction = float64(t) / float64(window)
-	}
-	return policy
+	return compaction.Policy{Model: info, DueTokens: e.cfg.CompactionThreshold}
 }
 
 // Compact summarizes only. It cannot authorize execution of queued prompts.

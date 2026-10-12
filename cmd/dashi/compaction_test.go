@@ -20,7 +20,7 @@ import (
 // Usage tests the policy independently of the compactor's text-size cut.
 func fullWindow(ctx context.Context, call llm.Call) (llm.Result, error) {
 	r, err := say("Original response.")(ctx, call)
-	r.Usage = &llm.Usage{InputTokens: 3200, OutputTokens: 20}
+	r.Usage = &llm.Usage{InputTokens: 1500, OutputTokens: 20}
 	return r, err
 }
 func compactionSeed() string      { return strings.Repeat("Remember the project uses port 8443. ", 150) }
@@ -149,12 +149,14 @@ func TestCompactionFailureAndExitWarning(t *testing.T) {
 	h.submit("/compact")
 	h.app.ctrl.Wait()
 	got := h.render()
-	compactionMustHave(t, got, "summary was empty", "previous history kept")
+	compactionMustHave(t, got, "summary was empty", "shortened")
 	saveCompactionScreen(t, h, "failed-empty")
 	h.submit("after failure")
 	h.app.ctrl.Wait()
-	if !strings.Contains(inputText(h.client.inputAt(2)), "Original response.") {
-		t.Fatal("failure replaced history")
+	// The summary fallback replaced the history; it keeps the last reply.
+	if sent := inputText(h.client.inputAt(2)); !strings.Contains(sent, "shortened without a summary") ||
+		!strings.Contains(sent, "Original response.") {
+		t.Fatalf("history after the failure: %s", sent)
 	}
 	h.scr.Reset()
 	h.submit("/compact")

@@ -145,10 +145,10 @@ func TestCompactionPolicyThreshold(t *testing.T) {
 	info := llm.ModelInfo{Capabilities: llm.Capabilities{ContextWindow: 200_000}}
 	e := &Engine{cfg: EngineConfig{CompactionThreshold: 50_000}}
 	p := e.compactionPolicy(info)
-	if p.Fraction != 0.25 || p.Due(llm.Usage{InputTokens: 49_000}) || !p.Due(llm.Usage{InputTokens: 50_000}) {
+	if p.DueTokens != 50_000 || p.Due(llm.Usage{InputTokens: 49_000}) || !p.Due(llm.Usage{InputTokens: 50_000}) {
 		t.Fatalf("policy=%+v", p)
 	}
-	if p := (&Engine{}).compactionPolicy(info); p.Fraction != 0 {
+	if p := (&Engine{}).compactionPolicy(info); p.Fraction != 0 || p.DueTokens != 0 {
 		t.Fatalf("default policy=%+v", p)
 	}
 }
