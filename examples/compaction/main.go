@@ -1,8 +1,9 @@
 // Command compaction shows a session that compacts its history. A model's
-// context window is the most text it can read at once. When the window is
-// nearly full, the session asks the model to summarize the older messages,
-// and later turns send the summary in their place. It needs no API key: a
-// scripted test client plays the model, so the replies are fixed.
+// context window is the most text it can read at once. When the history
+// reaches a share of the window, the session asks the model to summarize the
+// older messages, and later turns send the summary in their place. It needs
+// no API key: a scripted test client plays the model, so the replies are
+// fixed.
 package main
 
 import (
@@ -11,6 +12,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/compaction"
@@ -36,20 +38,22 @@ func used(text string, tokens int) llm.Result {
 }
 
 func run(ctx context.Context) error {
-	// The script is what a model would answer. The third reply reports a
-	// context of 26,000 tokens, over 80% of the 32,000-token window below.
+	// The script is what a model would answer. Each reply reports the
+	// context its call used: the history, plus about 500 tokens of
+	// instructions. The third reaches 1,600 tokens, the due count: a fifth
+	// (compaction.DefaultFraction) of the 8,000-token window below.
 	client := dashitest.NewClient(
-		used("Noted: Heron deploys on port 8443.", 9_000),
-		used("Log in JSON, one event per line, with a request ID.", 17_000),
-		used("Review small changes, and read the tests first.", 26_000),
+		used("Noted: Heron deploys on port 8443.", 1_100),
+		used("Log in JSON, one event per line, with a request ID.", 1_250),
+		used("Review small changes, and read the tests first.", 1_650),
 		used("<summary>The user's project is Heron; it deploys on port 8443. "+
-			"They asked for tips on logs and code review.</summary>", 12_000),
-		used("Heron, on port 8443.", 3_000),
+			"They asked for tips on logs and code review.</summary>", 1_300),
+		used("Heron, on port 8443.", 650),
 	)
 	// A real program gets the window size from client.ModelInfo; the
 	// scripted client has none, so set it here.
 	policy := compaction.Policy{}
-	policy.Model.Capabilities.ContextWindow = 32_000
+	policy.Model.Capabilities.ContextWindow = 8_000
 	s := &session.Session{
 		ID:     "heron",
 		New:    true,
@@ -60,13 +64,15 @@ func run(ctx context.Context) error {
 		Compactor: &compaction.Compactor{Policy: policy, TailFraction: -1},
 	}
 
+	notes := "My project is called Heron. My notes: " +
+		strings.Repeat("Heron deploys on port 8443. ", 140)
 	for _, text := range []string{
-		"My project is called Heron and it deploys on port 8443.",
+		notes,
 		"Any tips for logs?",
 		"And for code review?",
 		"What is my project called, and which port does it use?",
 	} {
-		fmt.Println("> " + text)
+		fmt.Printf("> %.70s\n", text)
 		out, err := s.Send(ctx, text)
 		if err != nil {
 			return err

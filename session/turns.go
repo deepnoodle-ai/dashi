@@ -310,7 +310,7 @@ func (s *Session) store(n int, turn dashi.Turn) error {
 
 // history builds the history of turns 1 through n by the rule of
 // dashi.BuildHistory. It walks back from turn n, so a fresh handle loads
-// turns back to the newest completed compaction turn only, and it keeps
+// turns back to the newest ended compaction turn only, and it keeps
 // each ended turn's messages in the cache. A turn whose record or messages
 // fail to load is left out with a dashi.WarningTurnUnreadable. The caller
 // holds mu.
@@ -322,7 +322,10 @@ func (s *Session) history(ctx context.Context, n int) ([]llm.Message, []dashi.Wa
 		if err == nil && t.view.Origin == dashi.StartCompaction {
 			msgs, ok := t.view.ReplacementHistory()
 			if !ok {
-				continue // a failed compaction replaces nothing
+				continue // it has not ended, so no turn follows it yet
+			}
+			if w := fallbackWarning(t.view); w != nil {
+				warnings = append(warnings, *w)
 			}
 			if w := s.checkHash(ctx, t); w != nil {
 				warnings = append(warnings, *w)

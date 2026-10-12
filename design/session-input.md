@@ -278,17 +278,15 @@ turn builds, as `turn_unreadable` does.
 turns, and `s.Turns` does: the summary is a session event, not conversation. UIs
 hide compaction turns by `TurnView.Origin` or show a marker.
 
-**Failure.** If the compaction turn does not complete with a summary, the
-session closes it (`close:` cancel), keeps the history it had, adds
-`compaction_failed`, and starts the caller's turn. The session runs the
-compaction check only when the last turn completed, is not a compaction turn,
-and was not just closed by this `Start` (closing completes a turn that recorded
-structured output), so it never compacts a broken tail (ADK-Go, Nvoken), and a
-failing summary is tried at most once per completed turn, each time with a
-warning. A compactor whose `Start` fails warns the same way and records no turn.
-When the caller's context ends or a `Stream` consumer stops during a compaction
-turn, the call returns; the next `Start` closes that turn with
-`compaction_failed`.
+**Failure.** Superseded by [durable summarization](durable-summarization.md):
+a compaction turn that ends without a summary replaces the history with its
+recorded summary fallback, with `summary_fallback`. The session closes a
+stopped compaction turn unless it is held for budget, runs the compaction
+check after any ended turn but a compaction turn, and tries a failing summary
+at most once per position. A compactor whose `Start` fails returns its
+error. When the caller's context ends or a `Stream` consumer stops during a
+compaction turn, the call returns; the next `Start` closes that turn, and its
+fallback stands in.
 
 **Package `compaction`.** `compaction.New(policy Policy) *Compactor` implements
 the interface; `Compactor`'s zero value works, and its fields add `Model`,

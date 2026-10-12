@@ -194,6 +194,11 @@ const (
 	// longer build the history whose hash it recorded. The compaction
 	// turn is still honored, so every reader sends the same history.
 	WarningCompactionMismatch WarningCode = "compaction_mismatch"
+	// WarningSummaryFallback means a compaction turn ended without a
+	// summary, so its summary fallback stands in for the history it
+	// replaces: shorter, but with less of the earlier work. It is reported
+	// each time that history is built.
+	WarningSummaryFallback WarningCode = "summary_fallback"
 )
 
 // Warning is a visible, recorded reason to inspect a turn's inputs. It does
@@ -206,7 +211,8 @@ type Warning struct {
 	// hook failed.
 	Hook string `json:"hook,omitempty"`
 	// TurnID names the turn a BuildHistory warning is about: the turn left
-	// out, or the compaction turn that does not match. A warning a turn
+	// out, or the compaction turn that does not match or used its summary
+	// fallback. A warning a turn
 	// records about itself leaves it empty.
 	TurnID string `json:"turn_id,omitempty"`
 }

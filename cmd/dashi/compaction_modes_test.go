@@ -88,7 +88,7 @@ func TestUnknownCompactionWindowWarnsOncePerModel(t *testing.T) {
 	if got := strings.Count(h.ui.text(), "has no known context window"); got != 2 {
 		t.Fatalf("new model did not get one warning: %d", got)
 	}
-	compactionMustHave(t, h.ui.text(), "128,000 tokens")
+	compactionMustHave(t, h.ui.text(), "200,000 tokens")
 }
 
 // A threshold above the model's window compacts at the window, with one

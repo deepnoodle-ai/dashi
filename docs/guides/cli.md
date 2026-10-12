@@ -56,13 +56,14 @@ dashi runs, so `/quit`, Ctrl-C, Ctrl-D, `/new`, and `/sessions` first warn that
 they would drop them; repeat the action to go ahead.
 
 The CLI summarizes history before new work when the last model call uses
-80% of the selected model's context window, or the token count that
+20% of the selected model's context window, or the token count that
 `--compaction-threshold N` (or `DASHI_COMPACTION_THRESHOLD`) names. A
 threshold above the model's window counts as the window, with a warning.
 `/compact` requests a summary while idle, without sending queued prompts. The transcript shows compaction
-states and its usage footer; it hides the summary request and text. Unknown
-windows use 128,000 tokens for this between-Turn history workflow and warn
-once per selected model.
+states and its usage footer; it hides the summary request and text. If a
+summary fails, the history is shortened without one, and the CLI warns once.
+Unknown windows use 200,000 tokens for this between-Turn history workflow
+and warn once per selected model.
 
 Active-Turn protection checks text-only requests against their recorded model window;
 `/settings` shows that window. Media requests show one “protection unavailable for media”

@@ -76,6 +76,9 @@ type Engine struct {
 	// thresholdWarned names the models already warned that
 	// --compaction-threshold exceeds their window.
 	thresholdWarned map[string]bool
+	// fallbackWarned names the compaction turns already reported as having
+	// ended without a summary; every later history repeats the warning.
+	fallbackWarned map[string]bool
 	// sessionNotices maps each once-per-session notice text to the block
 	// that showed it in the open session.
 	sessionNotices    map[string]string
@@ -795,12 +798,27 @@ func (e *Engine) queuedTaskItems() int {
 	return st.Queued
 }
 
+// firstFallback reports whether the summary_fallback warning about
+// compaction turn id is new, and records it.
+func (e *Engine) firstFallback(id string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.fallbackWarned[id] {
+		return false
+	}
+	if e.fallbackWarned == nil {
+		e.fallbackWarned = map[string]bool{}
+	}
+	e.fallbackWarned[id] = true
+	return true
+}
+
 // finished shows the end of one turn: its footer, how to go on, the session's
 // warnings, and the steers that wait for a later turn.
 func (e *Engine) finished(r *Renderer, out dashi.RunResult) {
 	for _, w := range out.SessionWarnings {
 		if w.Code == dashi.WarningTurnUnreadable ||
-			w.Code == session.WarningCompactionFailed ||
+			w.Code == dashi.WarningSummaryFallback && e.firstFallback(w.TurnID) ||
 			w.Code == dashi.WarningCompactionMismatch {
 			e.warn("%s.", w.Message)
 		}

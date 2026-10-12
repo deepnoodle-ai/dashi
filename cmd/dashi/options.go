@@ -221,7 +221,7 @@ func agentFlags() []cli.Flag {
 		cli.String("max-tokens").Env("DASHI_MAX_TOKENS").ValidateWith(controlSyntax("--max-tokens")).
 			Help("output token limit, or default"),
 		cli.String("compaction-threshold").Env("DASHI_COMPACTION_THRESHOLD").ValidateWith(compactionThresholdSyntax).
-			Help("compact history once a model call uses this many tokens (default: 80% of the model's window)"),
+			Help("compact history once a model call uses this many tokens (default: 20% of the model's window)"),
 		cli.Bool("dangerously-skip-permissions").
 			Help("approve every tool call; use only in an externally sandboxed environment"),
 		cli.String("decide").Env("DASHI_DECIDE").ValidateWith(decideSyntax).

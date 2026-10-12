@@ -71,7 +71,7 @@ func TestCatalogRestoresValueAcrossFreshRunnerContinues(t *testing.T) {
 type catalogKeep struct{ keep bool }
 
 func (c catalogKeep) Needed(_ []llm.Message, u llm.Usage) bool { return u.InputTokens >= 100 }
-func (c catalogKeep) Start(_ context.Context, messages []llm.Message) (dashi.Start, error) {
+func (c catalogKeep) Start(_ context.Context, messages []llm.Message, _ llm.Usage) (dashi.Start, error) {
 	var keep []llm.Message
 	if c.keep {
 		for _, m := range messages {

@@ -28,7 +28,7 @@ func TestCompactorKeepsToolPairsValidAtEveryCut(t *testing.T) {
 	history, starts := conversation(6, 400)
 	for _, fraction := range []float64{0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7} {
 		c := &Compactor{Policy: policyWith(20_000), TailFraction: fraction}
-		s, err := c.Start(t.Context(), history)
+		s, err := c.Start(t.Context(), history, llm.Usage{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -49,7 +49,7 @@ func TestCompactorStartIsASummaryRequest(t *testing.T) {
 	}, exchange(0, 100)...)
 	history = append(history, exchange(1, 100)...)
 	c := &Compactor{Policy: policyWith(100_000), TailFraction: -1, Model: "m"}
-	s, err := c.Start(t.Context(), history)
+	s, err := c.Start(t.Context(), history, llm.Usage{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestCompactorSummaryRequestKeepsAgentMail(t *testing.T) {
 	)
 	history = append(history, exchange(1, 100)...)
 	c := &Compactor{Policy: policyWith(100_000), TailFraction: -1}
-	s, err := c.Start(t.Context(), history)
+	s, err := c.Start(t.Context(), history, llm.Usage{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,37 +111,91 @@ func TestCompactorSummaryRequestKeepsAgentMail(t *testing.T) {
 }
 
 func TestCompactorNeeded(t *testing.T) {
-	c := New(policyWith(1_000))
-	history := []llm.Message{llm.UserMessage(llm.Text("Hello")), llm.AssistantMessage(llm.Text("Hi"))}
-	if !c.Needed(history, llm.Usage{InputTokens: 800}) {
-		t.Fatal("not needed at 80%")
+	c := New(policyWith(100_000))        // due at 20,000 tokens
+	history, _ := conversation(4, 5_000) // about 15,000 tokens
+	if !c.Needed(history, llm.Usage{InputTokens: 20_000}) {
+		t.Fatal("not needed at the due count")
 	}
-	if c.Needed(history, llm.Usage{InputTokens: 799}) {
-		t.Fatal("needed below 80%")
+	if c.Needed(history, llm.Usage{InputTokens: 19_999}) {
+		t.Fatal("needed below the due count")
 	}
 	only := []llm.Message{system("Be terse.")}
-	if c.Needed(only, llm.Usage{InputTokens: 900}) {
+	if c.Needed(only, llm.Usage{InputTokens: 90_000}) {
 		t.Fatal("needed with nothing to summarize")
 	}
-	if _, err := c.Start(t.Context(), only); !errors.Is(err, ErrNothingToCompact) {
+	if _, err := c.Start(t.Context(), only, llm.Usage{}); !errors.Is(err, ErrNothingToCompact) {
 		t.Fatalf("err=%v", err)
 	}
 }
 
+// Failure 3: when the fixed part (what the last call sent besides the
+// history, such as tool definitions, or system messages) fills the window,
+// no replacement can be below the due count: it is not needed, and Start
+// makes no useless summary call. Below that, a fixed part over half the due
+// count raises the due count instead of turning compaction off.
+func TestCompactorFixedPart(t *testing.T) {
+	c := New(policyWith(100_000)) // due at 20,000 tokens
+	history, _ := conversation(4, 5_000)
+	// About 42,000 tokens of tools raise the due count to about 52,000.
+	short, _ := conversation(2, 5_000) // about 8,000 tokens
+	if c.Needed(short, llm.Usage{InputTokens: 50_000}) {
+		t.Fatal("needed below the raised due count")
+	}
+	if !c.Needed(history, llm.Usage{InputTokens: 60_000}) {
+		t.Fatal("large tools turned compaction off")
+	}
+	if c.Needed(history, llm.Usage{InputTokens: 120_000}) {
+		t.Fatal("needed although the tools alone fill the window")
+	}
+	if _, err := c.Start(t.Context(), history, llm.Usage{InputTokens: 120_000}); !errors.Is(err, ErrNothingToCompact) {
+		t.Fatalf("Start with no room: %v", err)
+	}
+	big := []llm.Message{system(strings.Repeat("rule ", 90_000))}
+	big = append(big, history...)
+	if c.Needed(big, llm.Usage{InputTokens: 140_000}) {
+		t.Fatal("needed although the system messages fill the window")
+	}
+}
+
 // Needed estimates tokens from history size, so tool output added after the
-// last model call counts. 800 tokens is about 3,200 bytes of history.
+// last model call counts. 2,000 tokens is about 8,000 bytes of history.
 func TestCompactorNeededHistorySize(t *testing.T) {
-	c := New(policyWith(1_000))
+	c := New(policyWith(10_000))
 	sized := func(bytes int) []llm.Message {
 		m := []llm.Message{llm.UserMessage(llm.Text(""))}
 		b, _ := json.Marshal(m)
 		return []llm.Message{llm.UserMessage(llm.Text(strings.Repeat("x", bytes-len(b))))}
 	}
-	if c.Needed(sized(3_196), llm.Usage{}) {
-		t.Fatal("needed just under 80%")
+	if c.Needed(sized(7_996), llm.Usage{}) {
+		t.Fatal("needed just under the due count")
 	}
-	if !c.Needed(sized(3_200), llm.Usage{}) {
-		t.Fatal("not needed at 80%")
+	if !c.Needed(sized(8_000), llm.Usage{}) {
+		t.Fatal("not needed at the due count")
+	}
+}
+
+// DueTokens sets the due count; the tail and the allowance are shares of the
+// room below it.
+func TestCompactorSizesFromDueTokens(t *testing.T) {
+	p := policyWith(1_000_000)
+	p.DueTokens = 40_000
+	history, starts := conversation(8, 4_000) // about 24,000 tokens
+	c := New(p)
+	if !c.Needed(history, llm.Usage{InputTokens: 40_000}) {
+		t.Fatal("not needed at DueTokens")
+	}
+	s, err := c.Start(t.Context(), history, llm.Usage{InputTokens: 40_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Room: 40,000 less about 16,000 of tools is about 24,000 tokens.
+	if got := s.Agent.Settings.MaxTokens; got > 24_000/4+500 || got < 24_000/4-1_000 {
+		t.Fatalf("allowance = %d, want a quarter of the room", got)
+	}
+	keep := s.Compaction.Keep
+	if len(keep) == 0 || len(keep) > len(history)/2 ||
+		!sameJSON(t, keep, history[len(history)-len(keep):]) || len(keep) < len(history)-starts[7] {
+		t.Fatalf("kept %d messages, want the newest turns", len(keep))
 	}
 }
 
@@ -156,11 +210,11 @@ func TestCompactorSummaryModelWindow(t *testing.T) {
 	session := &Compactor{Policy: policyWith(1_000_000), TailFraction: -1}
 	small := *session
 	small.Model = "claude-haiku-4-5" // a 200k-token window in the catalog
-	big, err := session.Start(t.Context(), history)
+	big, err := session.Start(t.Context(), history, llm.Usage{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := small.Start(t.Context(), history)
+	s, err := small.Start(t.Context(), history, llm.Usage{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +233,7 @@ func TestCompactorSummaryModelWindow(t *testing.T) {
 
 func TestCompactorKeepsTailWithinBudget(t *testing.T) {
 	history, starts := conversation(4, 2_000)
-	s, err := (&Compactor{Policy: policyWith(10_000)}).Start(t.Context(), history)
+	s, err := (&Compactor{Policy: policyWith(40_000)}).Start(t.Context(), history, llm.Usage{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +248,7 @@ func TestCompactorKeepsTailWithinBudget(t *testing.T) {
 func TestCompactorSummarizesAllWhenNewestTurnIsTooLarge(t *testing.T) {
 	history, _ := conversation(3, 100)
 	history = append(history, exchange(3, 60_000)...)
-	s, err := (&Compactor{Policy: policyWith(10_000)}).Start(t.Context(), history)
+	s, err := (&Compactor{Policy: policyWith(10_000)}).Start(t.Context(), history, llm.Usage{})
 	if err != nil {
 		t.Fatal(err)
 	}

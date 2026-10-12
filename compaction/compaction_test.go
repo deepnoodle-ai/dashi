@@ -10,13 +10,13 @@ import (
 
 func TestIsSummary(t *testing.T) {
 	history, _ := conversation(6, 400)
-	s, err := (&Compactor{Policy: policyWith(20_000)}).Start(t.Context(), history)
+	s, err := (&Compactor{Policy: policyWith(20_000)}).Start(t.Context(), history, llm.Usage{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	view := dashi.TurnView{
 		Compaction: s.Compaction,
-		Stop:       dashi.Stop{Kind: dashi.StopCompleted},
+		Stop:       dashi.Stop{Kind: dashi.StopCompleted, Ended: true},
 		Reply:      "<summary>Heron, port 8443.</summary>",
 	}
 	replaced, ok := view.ReplacementHistory()
@@ -34,6 +34,16 @@ func TestIsSummary(t *testing.T) {
 	}
 	if summaries != 1 {
 		t.Fatalf("%d summaries in the replacement history", summaries)
+	}
+	failed := view
+	failed.Stop, failed.Reply = dashi.Stop{Kind: dashi.StopFailed, Ended: true}, ""
+	fallback, ok := failed.ReplacementHistory()
+	if !ok || !IsSummary(fallback[s.Compaction.SummaryAt]) {
+		t.Fatal("the summary fallback does not read as a summary")
+	}
+	empty := llm.UserMessage(llm.Text(compactiontext.EmptyFallback))
+	if !IsSummary(empty) {
+		t.Fatal("the fixed note does not read as a summary")
 	}
 	active := llm.UserMessage(llm.Text(compactiontext.ActiveFrame + "\n\nsettled work"))
 	if !IsSummary(active) {

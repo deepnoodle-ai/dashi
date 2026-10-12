@@ -18,6 +18,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/compaction"
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/dashitest"
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -154,7 +155,7 @@ func (c keepLast) Needed(_ []llm.Message, last llm.Usage) bool {
 	return last.InputTokens+last.OutputTokens >= c.limit
 }
 
-func (c keepLast) Start(_ context.Context, projected []llm.Message) (dashi.Start, error) {
+func (c keepLast) Start(_ context.Context, projected []llm.Message, last llm.Usage) (dashi.Start, error) {
 	if c.err != nil {
 		return dashi.Start{}, c.err
 	}
@@ -371,8 +372,9 @@ func TestSessionCompactionMismatch(t *testing.T) {
 	}
 }
 
-// A summary that fails closes the compaction turn, keeps the previous
-// history, and warns; the next completed turn tries again.
+// Failure 1: a summary that fails closes the compaction turn, whose
+// summary fallback (here the fixed note, since keepLast records none) then
+// replaces the history, with a warning. The next due turn compacts again.
 func TestSessionCompactionFailed(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	refusal := llm.Result{
@@ -392,7 +394,7 @@ func TestSessionCompactionFailed(t *testing.T) {
 	sendAll(t, s, "first")
 	out := sendAll(t, s, "second")
 	if out.Turn.ID != "s-3" || !slices.Equal(codes(out.SessionWarnings),
-		[]dashi.WarningCode{session.WarningCompactionFailed}) {
+		[]dashi.WarningCode{dashi.WarningSummaryFallback}) {
 		t.Fatalf("turn=%s warnings=%v", out.Turn.ID, out.SessionWarnings)
 	}
 	c := load(t, rec, "s-2")
@@ -403,8 +405,11 @@ func TestSessionCompactionFailed(t *testing.T) {
 		t.Fatalf("closed by %q", got[len(got)-1].CommandID)
 	}
 	if got := textsOf(client.Inputs()[2].Messages); !slices.Equal(got,
-		[]string{"first", "one", "second"}) {
+		[]string{compactiontext.EmptyFallback, "second"}) {
 		t.Fatalf("turn 3 sent %q", got)
+	}
+	if w := out.SessionWarnings[0]; w.TurnID != "s-2" {
+		t.Fatalf("warning names %q", w.TurnID)
 	}
 	// Turn 3 completed, so the next Send compacts.
 	out = sendAll(t, s, "third")
@@ -414,13 +419,12 @@ func TestSessionCompactionFailed(t *testing.T) {
 	}
 }
 
-// No compaction runs right after a turn that failed or was canceled, nor
-// when the Compactor cannot build its Start, which warns.
-func TestSessionCompactionSkipped(t *testing.T) {
+// Compaction follows any ended turn, including one the next Start closed.
+func TestSessionCompactionAfterClosedTurn(t *testing.T) {
 	always := keepLast{limit: 0}
 	t.Run("after a closed turn", func(t *testing.T) {
 		rec := dashi.NewMemoryRecorder()
-		client := held(1, dashitest.Reply("two"))
+		client := held(1, dashitest.Reply("summary"), dashitest.Reply("two"))
 		s := handle(rec, client)
 		s.New = true
 		ctx, cancel := context.WithCancel(t.Context())
@@ -430,18 +434,17 @@ func TestSessionCompactionSkipped(t *testing.T) {
 		<-done
 		s.Compactor = always
 		out := sendAll(t, s, "second")
-		if out.Turn.ID != "s-2" || !slices.Equal(codes(out.SessionWarnings),
-			[]dashi.WarningCode{session.WarningTurnClosed}) {
+		if out.Turn.ID != "s-3" || load(t, rec, "s-2").Origin != dashi.StartCompaction ||
+			!slices.Equal(codes(out.SessionWarnings), []dashi.WarningCode{session.WarningTurnClosed}) {
 			t.Fatalf("turn=%s warnings=%v", out.Turn.ID, out.SessionWarnings)
 		}
 	})
 	t.Run("after a turn closed with structured output", func(t *testing.T) {
-		// Closing completes a turn that recorded structured output, and
-		// still no compaction follows it.
 		rec := dashi.NewMemoryRecorder()
 		client := dashitest.NewClient(
 			dashitest.CallTool("call-1", "lookup", `{}`),
 			dashitest.Reply(`{"answer":"42"}`),
+			dashitest.Reply("summary"),
 			dashitest.Reply("two"),
 		)
 		s := handle(rec, client)
@@ -465,43 +468,58 @@ func TestSessionCompactionSkipped(t *testing.T) {
 			}
 			if ev.Result != nil {
 				outcomes = append(outcomes, ev.TurnID)
-				if ev.TurnID == "s-2" && !slices.Equal(codes(ev.Result.SessionWarnings),
-					[]dashi.WarningCode{session.WarningTurnClosed}) {
-					t.Fatalf("warnings=%v", ev.Result.SessionWarnings)
-				}
 			}
 		}
-		if !closing || !slices.Equal(outcomes, []string{"s-1", "s-2"}) {
+		if !closing || !slices.Equal(outcomes, []string{"s-1", "s-2", "s-3"}) {
 			t.Fatalf("closing events=%v outcomes=%q", closing, outcomes)
 		}
 		if v := load(t, rec, "s-1"); v.Stop.Kind != dashi.StopCompleted {
 			t.Fatalf("s-1 stop=%s", v.Stop.Kind)
 		}
-		if v := load(t, rec, "s-2"); v.Origin == dashi.StartCompaction {
-			t.Fatal("s-2 is a compaction turn")
+		if v := load(t, rec, "s-2"); v.Origin != dashi.StartCompaction {
+			t.Fatal("s-2 is not a compaction turn")
 		}
 	})
+}
+
+// Failure 3: a Compactor whose Start fails is a bug in it; the session
+// returns its error rather than send a history it knows is due, and gives
+// the slot back. ErrNothingToCompact means no compaction is needed.
+func TestSessionCompactorStartFails(t *testing.T) {
 	t.Run("start fails", func(t *testing.T) {
 		rec := dashi.NewMemoryRecorder()
 		client := dashitest.NewClient(dashitest.Reply("one"), dashitest.Reply("two"))
 		s := handle(rec, client)
 		s.New = true
 		s.Compactor = keepLast{err: errors.New("no cut")}
-		out := sendAll(t, s, "first", "second")
-		if out.Turn.ID != "s-2" || !slices.Equal(codes(out.SessionWarnings),
-			[]dashi.WarningCode{session.WarningCompactionFailed}) ||
-			!strings.Contains(out.SessionWarnings[0].Message, "no cut") {
-			t.Fatalf("turn=%s warnings=%v", out.Turn.ID, out.SessionWarnings)
+		sendAll(t, s, "first")
+		if _, err := s.Send(t.Context(), "second"); err == nil ||
+			!strings.Contains(err.Error(), "no cut") {
+			t.Fatalf("err=%v", err)
+		}
+		if len(client.Inputs()) != 1 {
+			t.Fatalf("calls=%d", len(client.Inputs()))
 		}
 		// The failed Start gave the compaction slot back.
 		if q, err := s.Steer(t.Context(), "next"); err != nil || q.TurnID != "" {
 			t.Fatalf("steer: %+v err=%v; want it queued", q, err)
 		}
 	})
+	t.Run("nothing to compact", func(t *testing.T) {
+		rec := dashi.NewMemoryRecorder()
+		client := dashitest.NewClient(dashitest.Reply("one"), dashitest.Reply("two"))
+		s := handle(rec, client)
+		s.New = true
+		s.Compactor = keepLast{err: session.ErrNothingToCompact}
+		out := sendAll(t, s, "first", "second")
+		if out.Turn.ID != "s-2" || len(out.SessionWarnings) != 0 {
+			t.Fatalf("turn=%s warnings=%v", out.Turn.ID, out.SessionWarnings)
+		}
+	})
 }
 
-// A compaction turn cut short is closed by the next Start with
-// WarningCompactionFailed, and Steer refuses while one runs.
+// A compaction turn cut short is closed by the next Start, whose history
+// then starts from the summary fallback, and Steer refuses while one runs.
 func TestSessionCompactionInterrupted(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := held(2, used("one", 100), dashitest.Reply("two"))
@@ -530,7 +548,7 @@ func TestSessionCompactionInterrupted(t *testing.T) {
 	}
 	out := sendAll(t, s, "second")
 	if out.Turn.ID != "s-3" || !slices.Equal(codes(out.SessionWarnings),
-		[]dashi.WarningCode{session.WarningCompactionFailed}) {
+		[]dashi.WarningCode{dashi.WarningSummaryFallback}) {
 		t.Fatalf("turn=%s warnings=%v", out.Turn.ID, out.SessionWarnings)
 	}
 	if got := input(t, rec, "s-3"); !slices.Equal(got, []string{"later", "second"}) {
@@ -594,12 +612,12 @@ func TestSessionCompactionFailsBeforeQueueTurn(t *testing.T) {
 	out, ran, err := s.RunQueue(t.Context())
 	if err != nil || !ran || out.Turn.ID != "s-3" || !slices.Equal(
 		codes(out.SessionWarnings),
-		[]dashi.WarningCode{session.WarningCompactionFailed},
+		[]dashi.WarningCode{dashi.WarningSummaryFallback},
 	) {
 		t.Fatalf("ran=%v turn=%s warnings=%v err=%v", ran, out.Turn.ID, out.SessionWarnings, err)
 	}
 	if got := textsOf(client.Inputs()[2].Messages); !slices.Equal(got,
-		[]string{"first", "one", "task done"}) {
+		[]string{compactiontext.EmptyFallback, "task done"}) {
 		t.Fatalf("queue turn sent %q", got)
 	}
 }
@@ -685,7 +703,7 @@ func TestSessionContinueCompaction(t *testing.T) {
 // Two workers race for the compaction slot: worker B runs the compaction
 // turn and its own turn while worker A's turn_started commit waits. A
 // then finds the slot taken, plans again, and sends B's replacement
-// history, with no compaction_failed warning and no second summary call.
+// history, with no summary_fallback warning and no second summary call.
 func TestSessionCompactionRace(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	client := dashitest.NewClient(
@@ -737,7 +755,8 @@ func TestSessionCompactionRace(t *testing.T) {
 
 // The caller's Start.Budget caps the compaction turn that runs before it:
 // the summary call's output allowance is clamped to it, and a summary
-// that spends past it fails the compaction, not the caller's turn.
+// that spends past it stops the compaction, which the session closes, so
+// the fallback stands in and the caller's turn runs.
 func TestSessionCompactionBudget(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	summary := dashitest.Reply("summary")
@@ -766,7 +785,7 @@ func TestSessionCompactionBudget(t *testing.T) {
 	}
 	if out.Turn.ID != "s-3" || out.Reply != "two" || !slices.Equal(
 		codes(out.SessionWarnings),
-		[]dashi.WarningCode{session.WarningCompactionFailed},
+		[]dashi.WarningCode{dashi.WarningSummaryFallback},
 	) {
 		t.Fatalf("turn=%s answer=%q warnings=%v", out.Turn.ID, out.Reply, out.SessionWarnings)
 	}
@@ -774,7 +793,7 @@ func TestSessionCompactionBudget(t *testing.T) {
 
 // The summary is the text inside the reply's <summary> tags when it has
 // them, and the whole reply otherwise; a handle with no Compactor reads
-// the same. Empty tags replace nothing.
+// the same. Empty tags are no summary, so the fallback stands in.
 func TestSessionCompactionSummaryTags(t *testing.T) {
 	for _, tc := range []struct{ answer, want string }{
 		{"Here it is:\n<summary>\nHeron, port 8443.\n</summary>\nDone.", "Heron, port 8443."},
@@ -793,7 +812,7 @@ func TestSessionCompactionSummaryTags(t *testing.T) {
 		sendAll(t, s, "first", "second")
 		want := []string{"Summary:\n\n" + tc.want, "second", "two"}
 		if tc.want == "" {
-			want = []string{"first", "one", "second", "two"}
+			want = []string{compactiontext.EmptyFallback, "second", "two"}
 		}
 		for _, h := range []*session.Session{s, handle(rec, client)} {
 			projected, err := h.NextHistory(t.Context())
@@ -892,11 +911,11 @@ type gatedCompactor struct {
 	gate *gate
 }
 
-func (c gatedCompactor) Start(ctx context.Context, h []llm.Message) (dashi.Start, error) {
+func (c gatedCompactor) Start(ctx context.Context, h []llm.Message, last llm.Usage) (dashi.Start, error) {
 	if err := c.gate.wait(ctx); err != nil {
 		return dashi.Start{}, err
 	}
-	return c.keepLast.Start(ctx, h)
+	return c.keepLast.Start(ctx, h, last)
 }
 
 // within fails the test when f does not return soon: it is blocked.
@@ -1016,9 +1035,9 @@ func (c countingCompactor) Needed(h []llm.Message, last llm.Usage) bool {
 	return c.gatedCompactor.Needed(h, last)
 }
 
-func (c countingCompactor) Start(ctx context.Context, h []llm.Message) (dashi.Start, error) {
+func (c countingCompactor) Start(ctx context.Context, h []llm.Message, last llm.Usage) (dashi.Start, error) {
 	c.starts.Add(1)
-	return c.gatedCompactor.Start(ctx, h)
+	return c.gatedCompactor.Start(ctx, h, last)
 }
 
 // While the Compactor builds a Start, a second Send on the same handle
@@ -1065,5 +1084,83 @@ func TestSessionCompactorStartRunsOnce(t *testing.T) {
 	}
 	if n := starts.Load(); n != 1 {
 		t.Fatalf("Start ran %d times; want 1", n)
+	}
+}
+
+// Failure 5: a compaction turn held for budget (a host limit without Ends)
+// has not ended, so it waits: the session does not close it, and a new
+// Start refuses with a *TurnBusyError. Once funded, Continue runs it, and
+// the next Start uses its summary.
+func TestSessionCompactionHeldForBudgetWaits(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(
+		used("one", 100),
+		dashitest.Reply("summary"),
+		dashitest.Reply("two"),
+	)
+	var funded atomic.Bool
+	funded.Store(true)
+	s := handle(rec, client)
+	s.New = true
+	s.Compactor = keepLast{limit: 100}
+	s.Runner.Hooks.BeforeSend = []dashi.SendHook{{
+		Name: "balance",
+		Func: func(context.Context, dashi.SendPlan) (dashi.SendDecision, error) {
+			if funded.Load() {
+				return dashi.SendDecision{}, nil
+			}
+			return dashi.SendDecision{
+				Reason: "balance too low",
+				Limit:  &dashi.LimitDetail{Kind: dashi.LimitHost, Code: "balance"},
+			}, nil
+		},
+	}}
+	sendAll(t, s, "first")
+	funded.Store(false)
+	for range 2 {
+		_, err := s.Send(t.Context(), "second")
+		busy := requireBusy(t, err, dashi.NextFix, false)
+		if busy.TurnID != "s-2" || busy.Origin != dashi.StartCompaction {
+			t.Fatalf("busy=%+v", busy)
+		}
+	}
+	if v := load(t, rec, "s-2"); v.Stop.Kind != dashi.StopLimited || v.Stop.Ended {
+		t.Fatalf("s-2 stop=%+v; want held", v.Stop)
+	}
+	funded.Store(true)
+	if out, err := s.Run(t.Context(), dashi.Continue{}); err != nil || out.Reply != "summary" {
+		t.Fatalf("continue: %q %v", out.Reply, err)
+	}
+	out := sendAll(t, s, "second")
+	if out.Turn.ID != "s-3" || len(out.SessionWarnings) != 0 {
+		t.Fatalf("turn=%s warnings=%v", out.Turn.ID, out.SessionWarnings)
+	}
+	if got := textsOf(client.Inputs()[2].Messages); !slices.Equal(got,
+		[]string{"Summary:\n\nsummary", "second"}) {
+		t.Fatalf("turn 3 sent %q", got)
+	}
+}
+
+// A turn that ended at a limit (Limits.NoRaise) did not complete, but it
+// still grew the history, so compaction follows it.
+func TestSessionCompactionAfterLimitedTurn(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(
+		dashitest.CallTool("call-1", "lookup", `{}`),
+		dashitest.Reply("summary"),
+		dashitest.Reply("two"),
+	)
+	s := handle(rec, client)
+	s.New = true
+	s.Runner.Tools = (&chargeTool{}).tools()
+	s.Agent.Limits = dashi.Limits{ModelCalls: 1, NoRaise: true}
+	sendAll(t, s, "first")
+	if v := load(t, rec, "s-1"); v.Stop.Kind != dashi.StopLimited || !v.Stop.Ended {
+		t.Fatalf("s-1 stop=%+v", v.Stop)
+	}
+	s.Compactor = keepLast{limit: 0}
+	out := sendAll(t, s, "second")
+	if out.Turn.ID != "s-3" || load(t, rec, "s-2").Origin != dashi.StartCompaction {
+		t.Fatalf("turn=%s", out.Turn.ID)
 	}
 }
