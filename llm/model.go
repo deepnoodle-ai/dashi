@@ -81,6 +81,13 @@ const (
 	// Settings.PromptCache.TTL is set. APIs that cannot request a lifetime
 	// declare it unsupported, and Fit omits the TTL with a warning.
 	FeaturePromptCache Feature = "prompt_cache"
+	// FeatureAssistantPrefill describes support for a history that ends with
+	// an assistant message for the model to continue, which Anthropic calls
+	// a prefill. Only known rejection is checked: most APIs accept a final
+	// assistant message as ordinary history, so strict does not decline it
+	// when support is unknown. Fit rejects a known-unsupported prefill under
+	// both policies, because dropping the message would change the answer.
+	FeatureAssistantPrefill Feature = "assistant_prefill"
 )
 
 // ProviderToolFeature scopes model evidence to a provider's wire tool type.
@@ -258,7 +265,7 @@ func knownFeature(f Feature) bool {
 	case FeatureText, FeatureImage, FeatureDocument, FeatureAudio, FeatureResource,
 		FeatureTools, FeatureToolChoice, FeatureParallelTools, FeatureTemperature, FeatureMaxTokens,
 		FeatureReasoningEffort, FeatureReasoningBudget, FeatureReasoningSummary, FeatureStreaming,
-		FeatureCitations, FeatureStructuredOutput, FeaturePromptCache:
+		FeatureCitations, FeatureStructuredOutput, FeaturePromptCache, FeatureAssistantPrefill:
 		return true
 	}
 	return strings.HasPrefix(string(f), "provider_tool:") &&

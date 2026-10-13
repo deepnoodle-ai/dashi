@@ -52,6 +52,14 @@ DASHI_LIVE_AGENT_TEST=1 ANTHROPIC_MODEL=claude-haiku-4-5-20251001 \
 This makes three paid calls per provider and checks the recorded steps, replay,
 and duplicate start. Filter `-run` to one provider when needed.
 
+On 2026-10-13, Gemini API agent turns, the final-result check, and structured
+output passed for `gemini-4-argon`. One plain call each to `gemini-4-argon`
+and Meta's `muse-wonder-1.0` returned usage whose list-price estimate matched
+the catalog by hand: $0.00017 for 40 input and 9 output tokens on Argon, and
+$0.00772 for 15 input and 383 output tokens, 368 of them reasoning, on Muse
+Wonder. Meta reported service tier `auto`, as it does for Muse Spark, so the
+catalog prices `auto` for Meta.
+
 ## Prompt caching
 
 `TestLivePromptCache` in `./providers` sends two calls with a long shared
