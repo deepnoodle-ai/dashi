@@ -56,7 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   not drop the message, because that would change the answer. On Claude
   Haiku 5.5 this applies with or without reasoning; before, Messages
   rejected a prefill only when reasoning was on.
-- **Compaction never fails.** Every ended compaction turn replaces the
+- **A failed summary no longer stops compaction.** Every ended compaction turn replaces the
   history: with its summary when it completed with one, otherwise with its
   `SummaryFallback` (no frame), or a fixed note when that is empty.
   `IsSummary` recognizes the stand-in. A compaction turn that has not ended
