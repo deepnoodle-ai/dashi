@@ -2,6 +2,7 @@ package messages
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -83,5 +84,50 @@ func TestPrepareReasoningEffort(t *testing.T) {
 				t.Fatalf("effort = %q, want %q; body %s", body.OutputConfig.Effort, tc.want, request.Body())
 			}
 		})
+	}
+}
+
+func TestPrepareRejectsPrefillOnModelsThatRejectIt(t *testing.T) {
+	prefill := []llm.Message{
+		llm.UserMessage(llm.Text("Name a color.")),
+		llm.AssistantMessage(llm.Text("The color is")),
+	}
+	for _, policy := range []llm.CapabilityPolicy{
+		llm.CapabilityAdjust,
+		llm.CapabilityStrict,
+	} {
+		client, err := New(Config{APIKey: "test", CapabilityPolicy: policy})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Haiku 5.5 rejects a prefill even without reasoning.
+		_, err = client.Prepare(t.Context(), llm.Input{
+			Model:    "claude-haiku-5-5",
+			Messages: prefill,
+		})
+		failure, ok := errors.AsType[*llm.Error](err)
+		if !ok || failure.Category != llm.ErrorUnsupported ||
+			!strings.Contains(err.Error(), "end the history with a user message") {
+			t.Fatalf("policy %q: Haiku 5.5 prefill error = %v", policy, err)
+		}
+		// Haiku 4.5 accepts one when thinking is off.
+		request, err := client.Prepare(t.Context(), llm.Input{
+			Model:    "claude-haiku-4-5",
+			Messages: prefill,
+		})
+		if err != nil {
+			t.Fatalf("policy %q: Haiku 4.5 prefill was rejected: %v", policy, err)
+		}
+		var body struct {
+			Messages []struct {
+				Role string `json:"role"`
+			} `json:"messages"`
+		}
+		if err := json.Unmarshal(request.Body(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if n := len(body.Messages); n == 0 || body.Messages[n-1].Role != "assistant" {
+			t.Fatalf("policy %q: prefill was not sent last: %s", policy, request.Body())
+		}
 	}
 }

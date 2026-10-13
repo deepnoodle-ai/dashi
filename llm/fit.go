@@ -64,6 +64,10 @@ func (c Capabilities) Fit(
 		policy:      policy,
 		adjustments: slices.Clone(prior),
 	}
+	if c.Features[FeatureAssistantPrefill] == SupportUnsupported &&
+		endsWithAssistant(r) {
+		return Input{}, nil, unsupportedError(r.Model, FeatureAssistantPrefill)
+	}
 	s := &r.Settings
 	if s.MaxTokens == 0 && c.acceptsDefaultMaxTokens(policy) {
 		s.MaxTokens = DefaultMaxTokens
@@ -200,6 +204,20 @@ func (c Capabilities) Fit(
 		s.Citations = false
 	}
 	return r, f.adjustments, nil
+}
+
+// endsWithAssistant reports whether the last user or assistant message is
+// an assistant message, a prefill for the model to continue. System and
+// developer messages after it do not end the conversation, since APIs such
+// as Messages send them separately.
+func endsWithAssistant(r Input) bool {
+	for _, m := range slices.Backward(r.Messages) {
+		if m.Role == RoleSystem || m.Role == RoleDeveloper {
+			continue
+		}
+		return m.Role == RoleAssistant
+	}
+	return false
 }
 
 // hasDocument reports whether any message or tool result carries a document,
@@ -547,6 +565,9 @@ func unsupportedError(model string, f Feature) error {
 			"or use a model with reasoning budgets"
 	case FeaturePromptCache:
 		fix = "remove PromptCache.TTL; the provider's own caching still applies"
+	case FeatureAssistantPrefill:
+		fix = "end the history with a user message, and ask for the " +
+			"response's format with OutputSchema or instructions instead"
 	}
 	return fmt.Errorf(
 		"llm: model %q does not support %s; %s",

@@ -12,6 +12,41 @@
   ],
   "models": [
     {
+      "model": "gemini-4-argon",
+      "apis": [
+        "google.generate_content"
+      ],
+      "note": "Rates billed today. Google lists a scheduled increase to $4.00/$20.00 ($0.20 cache read) on 2026-12-01; revisit then. One rate at any prompt length. Implicit caching only; explicit caching is not supported. The 65,536-token output limit applies to synchronous calls; long decode up to 1,048,576 tokens needs background mode, which Dashi does not use. Thinking cannot be turned off; thinkingLevel accepts low, medium (the default), and high; thinkingBudget is deprecated and maps to the nearest level with a warning. Temperature, top_p, and top_k are ignored. Documented 2026-10-13: https://ai.google.dev/gemini-api/docs/latest-model.",
+      "qualified_at": "2026-10-13",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported",
+          "temperature": "unsupported"
+        },
+        "max_output_tokens": 65536,
+        "context_window": 1048576
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-10-13",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": "2",
+          "output": "10",
+          "cache_read": "0.1",
+          "cache_write": "2"
+        },
+        "requests": {
+          "code_execution": "0",
+          "file_search": "0",
+          "grounded_prompt": "0",
+          "url_context": "0",
+          "web_search": "0.014"
+        }
+      }
+    },
+    {
       "model": "gemini-3.8-flash",
       "apis": [
         "google.generate_content"
@@ -51,7 +86,8 @@
       "apis": [
         "google.generate_content"
       ],
-      "note": "Rates billed today. Google lists a scheduled increase to $1.50/$7.50 ($0.15 cache read) on 2027-01-01; revisit then. Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries.",
+      "lifecycle": "deprecated",
+      "note": "Deprecated 2026-10-08; Google announces no shutdown date and routes API requests for gemini-3.7-flash to gemini-3.8-flash, the replacement. The pricing page no longer lists gemini-3.7-flash. Documented 2026-10-13: https://ai.google.dev/gemini-api/docs/deprecations. Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries.",
       "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
@@ -121,6 +157,8 @@
       "apis": [
         "google.generate_content"
       ],
+      "lifecycle": "deprecated",
+      "note": "Deprecated 2026-10-08; Google announces no shutdown date and routes API requests for gemini-3.5-flash to gemini-3.6-flash, the replacement. The pricing page no longer lists gemini-3.5-flash. Documented 2026-10-13: https://ai.google.dev/gemini-api/docs/deprecations. Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries.",
       "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
@@ -148,8 +186,7 @@
           "url_context": "0",
           "web_search": "0.014"
         }
-      },
-      "note": "Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries."
+      }
     },
     {
       "model": "gemini-3.5-flash-lite",

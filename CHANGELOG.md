@@ -26,9 +26,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`Policy.DueTokens`** sets the due count in tokens; when positive it
   overrides `Fraction`, and it is capped at the window only when the window
   is known.
+- **`gemini-4-argon` in the model catalog,** generally available, with its
+  1,048,576-token context window, 65,536-token output limit for synchronous
+  calls, and prices of $2 input, $10 output, and $0.10 cache read per MTok at
+  any prompt length, plus $14 per 1,000 search requests. Temperature is marked
+  unsupported, since Google ignores it on this model. Google doubles these
+  rates on 2026-12-01; the entry notes it.
+- **`muse-wonder-1.0` in the model catalog** as a preview model on Meta's
+  Responses endpoint, with its 1,048,576-token context window, `minimal` to
+  `max` effort ladder, image, PDF, and tool support, and prices of $4 input,
+  $20 output, and $0.20 cached input per MTok, plus $2.50 per 1,000 search
+  queries. Audio input is left unknown.
+- **`llm.FeatureAssistantPrefill`** (`assistant_prefill`) records whether a
+  model accepts a history that ends with an assistant message to continue.
+  The catalog marks it unsupported for Claude Haiku 5.5, Opus 4.6 and later,
+  Sonnet 4.6 and later, and the Fable and Mythos models, as Anthropic's
+  migration guides document.
 
 ### Changed
 
+- **`gemini-3.5-flash` and `gemini-3.7-flash` are marked deprecated.** Google
+  routes their requests to `gemini-3.6-flash` and `gemini-3.8-flash`, and
+  names no shutdown date.
+- **A prefill on a model that rejects one fails during preparation** with an
+  `ErrorUnsupported` error that says to end the history with a user message,
+  under both capability policies, instead of a 400 from the API. Dashi does
+  not drop the message, because that would change the answer. On Claude
+  Haiku 5.5 this applies with or without reasoning; before, Messages
+  rejected a prefill only when reasoning was on.
 - **Compaction never fails.** Every ended compaction turn replaces the
   history: with its summary when it completed with one, otherwise with its
   `SummaryFallback` (no frame), or a fixed note when that is empty.

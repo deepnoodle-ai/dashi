@@ -175,6 +175,32 @@ func TestCatalogEstimatesAreExact(t *testing.T) {
 			total: "0.0205",
 		},
 		{
+			// 1000×2 + 500×10 + 10000×0.1 = 8000, plus one search request
+			// at 0.014. One rate applies at any prompt length.
+			provider: "google",
+			model:    "gemini-4-argon",
+			usage: llm.Usage{
+				InputTokens:          1000,
+				OutputTokens:         500,
+				CacheReadInputTokens: 10_000,
+				Requests:             map[string]int{llm.MeterWebSearch: 1},
+			},
+			total: "0.022",
+		},
+		{
+			// 1000×4 + 500×20 + 10000×0.2 = 16000, plus two search queries
+			// at 0.0025.
+			provider: "meta",
+			model:    "muse-wonder-1.0",
+			usage: llm.Usage{
+				InputTokens:          1000,
+				OutputTokens:         500,
+				CacheReadInputTokens: 10_000,
+				Requests:             map[string]int{llm.MeterWebSearch: 2},
+			},
+			total: "0.021",
+		},
+		{
 			// 1001×0.75 + 333×3.75 + 7×0.075 = 2000.025
 			provider: "google",
 			model:    "gemini-3.8-flash",

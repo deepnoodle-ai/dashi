@@ -445,6 +445,57 @@ func TestCheckUnsupportedFeatureNamesFix(t *testing.T) {
 	}
 }
 
+func TestFitRejectsKnownUnsupportedPrefill(t *testing.T) {
+	rejects := Capabilities{
+		Features: map[Feature]Support{
+			FeatureText:             SupportSupported,
+			FeatureAssistantPrefill: SupportUnsupported,
+		},
+	}
+	prefill := Input{
+		Model: "m",
+		Messages: []Message{
+			UserMessage(Text("question")),
+			AssistantMessage(Text("{")),
+			// A later system message does not end the conversation.
+			{Role: RoleSystem, Content: []Content{Text("system")}},
+		},
+	}
+	for _, policy := range []CapabilityPolicy{
+		CapabilityAdjust,
+		CapabilityStrict,
+	} {
+		_, _, err := rejects.Fit(prefill, policy, nil)
+		if err == nil || !strings.Contains(
+			err.Error(),
+			"end the history with a user message",
+		) {
+			t.Fatalf("policy %q: prefill was not rejected with a fix: %v", policy, err)
+		}
+		if _, err := rejects.Check(prefill, policy); err == nil {
+			t.Fatalf("policy %q: Check accepted a rejected prefill", policy)
+		}
+	}
+	// A history that ends with the user is not a prefill, even with
+	// assistant messages earlier in it.
+	answered := prefill
+	answered.Messages = append(
+		answered.Messages[:2:2],
+		UserMessage(Text("again")),
+	)
+	if _, _, err := rejects.Fit(answered, CapabilityStrict, nil); err != nil {
+		t.Fatalf("ordinary history was rejected: %v", err)
+	}
+	// Unknown support is not declined under strict: most APIs accept a final
+	// assistant message as history.
+	unknown := Capabilities{
+		Features: map[Feature]Support{FeatureText: SupportSupported},
+	}
+	if _, err := unknown.Check(prefill, CapabilityStrict); err != nil {
+		t.Fatalf("unknown prefill support was declined: %v", err)
+	}
+}
+
 func TestIntersectKeepsTighterLimits(t *testing.T) {
 	model := Capabilities{
 		Features: map[Feature]Support{

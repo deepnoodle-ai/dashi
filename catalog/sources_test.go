@@ -60,6 +60,10 @@ const (
 		"fable-5/migration-guide"
 	anthropicFable51Migration = "https://platform.claude.com/docs/en/models/" +
 		"fable-5-1/migration-guide"
+	anthropicHaiku55Migration = "https://platform.claude.com/docs/en/models/" +
+		"haiku-5-5/migration-guide"
+	anthropicSonnet55Migration = "https://platform.claude.com/docs/en/models/" +
+		"sonnet-5-5/migration-guide"
 	anthropicToolUse = "https://platform.claude.com/docs/en/agents-and-tools/" +
 		"tool-use/overview"
 	anthropicSonnet45 = "https://platform.claude.com/docs/en/models/" +
@@ -257,6 +261,56 @@ var claimSources = []claimSource{
 		support: llm.SupportUnsupported,
 	},
 	{
+		// "Claude Haiku 5.5 rejects it with a 400 error, even with thinking
+		// turned off. End messages with a user turn".
+		url:     anthropicHaiku55Migration,
+		models:  []string{"claude-haiku-5-5"},
+		feature: llm.FeatureAssistantPrefill,
+		support: llm.SupportUnsupported,
+	},
+	{
+		// "Prefilling assistant messages returns a 400 error on Claude Opus
+		// 4.6 and later Opus models, including Claude Opus 5.5".
+		url: anthropicOpus55Migration,
+		models: []string{
+			"claude-opus-5-5",
+			"claude-opus-5",
+			"claude-opus-4-8",
+			"claude-opus-4-7",
+			"claude-opus-4-6",
+		},
+		feature: llm.FeatureAssistantPrefill,
+		support: llm.SupportUnsupported,
+	},
+	{
+		// "Claude Sonnet 5.5 rejects a prefilled last assistant turn with a
+		// 400 error, as Claude Sonnet 4.6 and Claude Sonnet 5 do."
+		url: anthropicSonnet55Migration,
+		models: []string{
+			"claude-sonnet-5-5",
+			"claude-sonnet-5",
+			"claude-sonnet-4-6",
+		},
+		feature: llm.FeatureAssistantPrefill,
+		support: llm.SupportUnsupported,
+	},
+	{
+		// "The prefill and sampling-parameter restrictions ... carry over
+		// from Claude Opus 5 unchanged."
+		url:     anthropicFable5Migration,
+		models:  []string{"claude-fable-5", "claude-mythos-5"},
+		feature: llm.FeatureAssistantPrefill,
+		support: llm.SupportUnsupported,
+	},
+	{
+		// "Prefill: Prefilling the assistant message returns a 400 error,
+		// unchanged from Claude Fable 5."
+		url:     anthropicFable51Migration,
+		models:  []string{"claude-fable-5-1", "claude-mythos-5-1"},
+		feature: llm.FeatureAssistantPrefill,
+		support: llm.SupportUnsupported,
+	},
+	{
 		// The pricing table lists tool_choice any and tool for these
 		// models; forced choice is rejected on Opus 5.5, Sonnet 5.5, and the
 		// 5.1 models.
@@ -328,6 +382,54 @@ var claimSources = []claimSource{
 		feature: llm.FeatureReasoningEffort,
 		support: llm.SupportSupported,
 		efforts: []string{"minimal", "low", "medium", "high", "xhigh"},
+	},
+	{
+		// "max": "Supported by muse-wonder-1.0 and muse-spark-1.3"; "none"
+		// is "Not supported by Muse Wonder or Muse Spark".
+		url:     "https://dev.meta.ai/docs/reasoning",
+		models:  []string{"muse-wonder-1.0"},
+		feature: llm.FeatureReasoningEffort,
+		support: llm.SupportSupported,
+		efforts: []string{
+			"minimal",
+			"low",
+			"medium",
+			"high",
+			"xhigh",
+			"max",
+		},
+	},
+	{
+		// "Muse Wonder takes text, image, video, audio, and PDF input".
+		// Meta's launch post says audio needs confirmation on the release
+		// surface, so audio is not claimed.
+		url:     "https://dev.meta.ai/docs/models",
+		models:  []string{"muse-wonder-1.0"},
+		feature: llm.FeatureImage,
+		support: llm.SupportSupported,
+	},
+	{
+		url:     "https://dev.meta.ai/docs/models",
+		models:  []string{"muse-wonder-1.0"},
+		feature: llm.FeatureDocument,
+		support: llm.SupportSupported,
+	},
+	{
+		// "Muse Wonder also handles chat completion, image understanding,
+		// video and audio understanding, tool calling".
+		url:     "https://dev.meta.ai/docs/models",
+		models:  []string{"muse-wonder-1.0"},
+		feature: llm.FeatureTools,
+		support: llm.SupportSupported,
+	},
+	{
+		// "Remove temperature, top_p, and top_k from your requests. If
+		// provided, they are ignored." Fit omits it with a warning rather
+		// than send a value the model ignores.
+		url:     "https://ai.google.dev/gemini-api/docs/latest-model",
+		models:  []string{"gemini-4-argon"},
+		feature: llm.FeatureTemperature,
+		support: llm.SupportUnsupported,
 	},
 	{
 		// "Muse Spark is tuned to run at the default of 1.0 and performs
@@ -480,6 +582,7 @@ var openAIOutputLimits = map[string]int{
 // googleOutputLimits lists the "Output token limit" each Gemini model page
 // states in its model details table.
 var googleOutputLimits = map[string]int{
+	"gemini-4-argon":         65_536,
 	"gemini-3.8-flash":       65_536,
 	"gemini-3.7-flash":       65_536,
 	"gemini-3.6-flash":       65_536,
@@ -525,6 +628,13 @@ var contextWindowSources = []contextWindowSource{
 			"muse-spark-1.2-contributor",
 			"muse-spark-1.1",
 		},
+		window: 1_048_576,
+	},
+	{
+		// "Muse Wonder takes text, image, video, audio, and PDF input,
+		// returns text, has a 1,048,576-token context window".
+		url:    "https://dev.meta.ai/docs/models",
+		models: []string{"muse-wonder-1.0"},
 		window: 1_048_576,
 	},
 	{
@@ -611,6 +721,7 @@ var openAIContextWindows = map[string]int{
 // googleContextWindows lists the "Input token limit" each Gemini model page
 // states in its model details table.
 var googleContextWindows = map[string]int{
+	"gemini-4-argon":         1_048_576,
 	"gemini-3.8-flash":       1_048_576,
 	"gemini-3.7-flash":       1_048_576,
 	"gemini-3.6-flash":       1_048_576,
@@ -995,9 +1106,11 @@ var (
 		openAIReasoningPriced,
 		openAINonReasoningPriced,
 	)
-	// gemini3 lists the Gemini 3.x entries, whose pricing rows bill "search
+	// gemini3AndLater lists the Gemini 3 and later entries, whose pricing
+	// rows bill "search
 	// requests" at $14 per 1,000.
-	gemini3 = []string{
+	gemini3AndLater = []string{
+		"gemini-4-argon",
 		"gemini-3.8-flash",
 		"gemini-3.7-flash",
 		"gemini-3.6-flash",
@@ -1015,7 +1128,7 @@ var (
 		"gemini-2.5-flash",
 		"gemini-2.5-flash-lite",
 	}
-	geminiAll = slices.Concat(gemini3, gemini25)
+	geminiAll = slices.Concat(gemini3AndLater, gemini25)
 	grokChat  = []string{
 		"grok-4.7",
 		"grok-4.6",
@@ -1026,7 +1139,8 @@ var (
 		"grok-4.20-multi-agent-0309",
 		"grok-build-0.1",
 	}
-	museSpark = []string{
+	museText = []string{
+		"muse-wonder-1.0",
 		"muse-spark-1.3",
 		"muse-spark-1.3-contributor",
 		"muse-spark-1.2",
@@ -1126,7 +1240,7 @@ var requestPriceSources = []requestPriceSource{
 		// requests."
 		provider: "google",
 		meter:    llm.MeterWebSearch,
-		models:   gemini3,
+		models:   gemini3AndLater,
 		rate:     "0.014",
 		url:      googlePricing,
 		checked:  requestPricesChecked,
@@ -1136,7 +1250,7 @@ var requestPriceSources = []requestPriceSource{
 		// Gemini 3.x bills per search request, not per grounded prompt.
 		provider: "google",
 		meter:    llm.MeterGroundedPrompt,
-		models:   gemini3,
+		models:   gemini3AndLater,
 		rate:     "0",
 		url:      googlePricing,
 		checked:  requestPricesChecked,
@@ -1255,11 +1369,11 @@ var requestPriceSources = []requestPriceSource{
 	},
 	{
 		// "$2.50 per 1,000 search queries ... on text models such as Muse
-		// Spark". Muse Image includes search in its per-image price and
+		// Spark", and Muse Wonder. Muse Image includes search in its per-image price and
 		// has no catalog entry.
 		provider: "meta",
 		meter:    llm.MeterWebSearch,
-		models:   museSpark,
+		models:   museText,
 		rate:     "0.0025",
 		url:      metaPricing,
 		checked:  requestPricesChecked,
