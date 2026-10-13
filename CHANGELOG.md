@@ -91,6 +91,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   warning). `dashi.WarningSummaryFallback` replaces it; no path keeps the old
   history any more.
 
+### Fixed
+
+- **Meta calls get a cost estimate again.** Meta reports service tier `auto`
+  on every pay-as-you-go response, and the catalog did not price it, so
+  `catalog.Cost` estimated nothing for Muse Spark or Muse Wonder. The catalog
+  now prices `auto` for Meta at the model's standard rate.
+
 ## [0.7.0] - 2026-10-12
 
 ### Added
