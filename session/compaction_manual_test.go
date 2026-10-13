@@ -43,7 +43,7 @@ func TestSessionManualCompactionResults(t *testing.T) {
 			want := []string{"Summary:\n\nkept fact"}
 			if answer == "<summary> </summary>" {
 				want = []string{compactiontext.EmptyFallback}
-				if !slices.Contains(codes(out.SessionWarnings), dashi.WarningSummaryFallback) {
+				if !slices.Contains(codes(out.Warnings), dashi.WarningSummaryFallback) {
 					t.Fatal("empty summary lacks failure warning")
 				}
 			} else if len(out.SessionWarnings) != 0 {
@@ -292,7 +292,7 @@ func TestSessionManualCompactionFailedNonemptySummary(t *testing.T) {
 	sendAll(t, s, "first")
 	s.Compactor = keepLast{limit: 10000}
 	out, err := s.Compact(t.Context(), nil)
-	if err != nil || !slices.Contains(codes(out.SessionWarnings), dashi.WarningSummaryFallback) {
+	if err != nil || !out.Stop.Ended || !slices.Contains(codes(out.Warnings), dashi.WarningSummaryFallback) {
 		t.Fatalf("out=%+v err=%v", out, err)
 	}
 	projected, err := handle(rec, client).NextHistory(t.Context())

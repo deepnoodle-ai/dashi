@@ -275,6 +275,9 @@ func (s *replayState) ended() bool {
 // stopEnds works out whether stop ends the turn, from the steps up to the
 // proposed stop. It deliberately ignores the supplied Ended flag.
 func (s *replayState) stopEnds(stop Stop) bool {
+	if s.Origin == StartCompaction {
+		return s.compactionStopEnds(stop)
+	}
 	switch stop.Kind {
 	case StopCompleted, StopCanceled:
 		return true
@@ -308,6 +311,24 @@ func (s *replayState) stopEnds(stop Stop) bool {
 			s.Budget.MaxTotalTokens > 0
 	}
 	return false
+}
+
+// compactionStopEnds is stopEnds for a compaction turn. Its summary
+// fallback costs nothing, so retrying a failed summary is pointless: every
+// stop ends the turn, except a host hold (a host limit without Ends, such
+// as a credit hold), which waits for the host, and an interruption with no
+// model call in flight, which Continue resumes on any worker.
+func (s *replayState) compactionStopEnds(stop Stop) bool {
+	switch {
+	case stop.Kind == "" || stop.Inferred:
+		return false // no recorded stop yet
+	case stop.Kind == StopLimited && stop.Limit != nil &&
+		stop.Limit.Kind == LimitHost && !stop.Limit.Ends:
+		return false
+	case stop.Kind == StopInterrupted:
+		return s.modelCallStart != "" || s.unresolvedModel != ""
+	}
+	return true
 }
 
 // acceptsAfterEnd rejects a command on an ended turn unless it is a Resolve

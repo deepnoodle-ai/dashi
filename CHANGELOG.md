@@ -23,8 +23,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   were removed, then their user messages, the names of the tools called, and
   the agent's last reply, cut to half the summary's output allowance.
 - **`dashi.WarningSummaryFallback`** (`summary_fallback`, with the turn's ID)
-  is raised each time a history is built from a compaction turn that ended
-  without a summary.
+  is recorded once, on the stop that ends a compaction turn without a
+  summary, so it is in that turn's `RunResult` and `TurnView.Warnings`.
+  `BuildHistory` does not repeat it; `session` passes it on in the next
+  turn's `SessionWarnings`.
 - **`Policy.DueTokens`** sets the due count in tokens; when positive it
   overrides `Fraction`, and it is capped at the window only when the window
   is known.
@@ -62,6 +64,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   is empty.
   `IsSummary` recognizes the stand-in. A compaction turn that has not ended
   replaces nothing.
+- **A compaction turn ends itself.** The engine records `Stop.Ended` on
+  every stop of a compaction turn except a host hold (a host limit without
+  `Ends`) and an interruption with no model call in flight: a failure, a
+  refusal, its own budget or model-call cap, or an empty reply ends it, so
+  its fallback stands in with no host step. Run, Continue, Advance, and
+  Drive apply the same rule, and replay checks it. A host only waits while
+  the last turn has not ended.
 - **`Compactor.Start` never fails on size.** When transcript items do not fit
   the summary model even at 1 KB each, it drops whole items from the middle,
   keeping the oldest and newest, behind one "[N items omitted]" marker.
@@ -78,15 +87,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`session.Compactor.Start` takes the last call's usage**, as `Needed`
   does, so a compactor can size the fixed part.
 - **Sessions compact after any ended turn**, including one the new Start
-  closed or one ended at a limit, not only after a completed turn. A
-  stopped compaction turn is closed unless held for budget (a host limit
-  without `Ends`); a held one waits, and a new Start refuses with a
-  `*TurnBusyError`. A compactor `Start` error, or a compaction turn that
+  closed or one ended at a limit, not only after a completed turn. After a
+  compaction turn held for budget (a host limit without `Ends`), a new Start
+  refuses with a `*TurnBusyError`. A compactor `Start` error, or a compaction turn that
   cannot be recorded, is returned instead of running the next turn with
   the history that was due.
 - **The CLI** compacts at 20% of the window by default;
-  `--compaction-threshold` sets `Policy.DueTokens`. It warns once per
-  compaction turn that ended without a summary.
+  `--compaction-threshold` sets `Policy.DueTokens`. It warns once when a
+  compaction turn ends without a summary.
 
 ### Removed
 

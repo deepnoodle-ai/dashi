@@ -232,10 +232,10 @@ func sent(rec *dashi.MemoryRecorder, t *testing.T, id string) bool {
 	return false
 }
 
-// Failure 1: the summary call fails. The host closes the stopped turn with
-// Cancel, and replay uses its summary fallback: the user's messages, the
-// tools called, and the last reply, shorter than the history, with a
-// warning. The next turn is not due again.
+// Failure 1: the summary call fails. The engine ends the turn, warning once,
+// and replay uses its summary fallback: the user's messages, the tools
+// called, and the last reply, shorter than the history. The next turn is
+// not due again.
 func TestDurableCompactionFailureUsesFallback(t *testing.T) {
 	h := newDurableHost(t, 100_000) // due at 20,000 tokens
 	h.runner.Tools = tool.List{tool.MustFunc("send_email", "Send an email.",
@@ -250,22 +250,16 @@ func TestDurableCompactionFailureUsesFallback(t *testing.T) {
 	id := h.admit(h.turns())
 	// No scripted reply is left, so the summary call fails.
 	out, err := h.runner.Advance(t.Context(), id)
-	if err != nil || out.Stop.Ended || out.Next() != dashi.NextFix {
+	if err != nil || !out.Stop.Ended || out.Next() != dashi.NextNone {
 		t.Fatalf("advance: %+v next=%s err=%v", out.Stop, out.Next(), err)
 	}
-	if _, needed, _ := h.compactor.StartIfNeeded(t.Context(), h.turns()); needed {
-		t.Fatal("needed while the failed compaction turn has not ended")
-	}
-	if err := h.inbox.Put(id, dashi.Cancel{CommandID: "close:" + id}); err != nil {
-		t.Fatal(err)
-	}
-	if out, err := h.runner.Advance(t.Context(), id); err != nil || !out.Stop.Ended {
-		t.Fatalf("close: %+v %v", out.Stop, err)
+	if len(out.Warnings) != 1 || out.Warnings[0].Code != dashi.WarningSummaryFallback ||
+		out.Warnings[0].TurnID != id {
+		t.Fatalf("turn warnings=%v", out.Warnings)
 	}
 
 	history, warnings := dashi.BuildHistory(h.turns())
-	if len(warnings) != 1 || warnings[0].Code != dashi.WarningSummaryFallback ||
-		warnings[0].TurnID != id {
+	if len(warnings) != 0 {
 		t.Fatalf("warnings=%v", warnings)
 	}
 	if len(history) != 1 || !compaction.IsSummary(history[0]) {

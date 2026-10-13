@@ -106,8 +106,9 @@ const CloseReason = "a new message moved on"
 
 // A session's own warnings. No turn records them; they arrive on
 // dashi.RunResult.SessionWarnings, beside the dashi.WarningTurnUnreadable and
-// dashi.WarningCompactionMismatch and dashi.WarningSummaryFallback of
-// building the session's history.
+// dashi.WarningCompactionMismatch of building the session's history, and
+// the dashi.WarningSummaryFallback of a compaction turn that ran or closed
+// before the result's turn.
 const (
 	// WarningTurnClosed means a new Start closed the session's last turn,
 	// which had stopped without ending, with Cancel and CloseReason.
@@ -522,7 +523,12 @@ func (s *Session) planStart(
 			if err != nil {
 				return p, err
 			}
-			if closed && t.view.Origin != dashi.StartCompaction {
+			switch {
+			case closed && t.view.Origin == dashi.StartCompaction:
+				if c, err := s.load(ctx, last); err == nil {
+					p.warnings = append(p.warnings, fallbackWarnings(c.view)...)
+				}
+			case closed:
 				p.warnings = append(p.warnings, closedWarning(t))
 			}
 		}
@@ -561,9 +567,9 @@ func NeedsCompaction(v dashi.TurnView) bool {
 }
 
 // closedWarning is the WarningTurnClosed for a last turn a new turn
-// closed. A closed compaction turn gets none here: its replacement then uses
-// its summary fallback, and building the history warns
-// dashi.WarningSummaryFallback.
+// closed. A closed compaction turn gets none: its replacement then uses
+// its summary fallback, and the new turn's result carries the
+// dashi.WarningSummaryFallback the closing stop recorded.
 func closedWarning(t *sessionTurn) dashi.Warning {
 	return dashi.Warning{
 		Code:    WarningTurnClosed,
@@ -675,9 +681,10 @@ func (s *Session) closeLast(
 	if r.next == dashi.NextNone {
 		return false, nil, nil
 	}
-	if t.view.Origin == dashi.StartCompaction && heldStop(t.view) {
-		// The summary waits for money; the turn after it would usually
-		// need the same.
+	if t.view.Origin == dashi.StartCompaction && t.view.Stop.Kind == dashi.StopLimited {
+		// The engine ends a compaction turn at any limit but a hold, so
+		// this one waits for the host, usually for money the turn after
+		// it would need too. An interrupted one is closed below.
 		return false, nil, &TurnBusyError{TurnID: t.turn.ID, Next: r.next, Origin: t.view.Origin}
 	}
 	id := t.turn.ID

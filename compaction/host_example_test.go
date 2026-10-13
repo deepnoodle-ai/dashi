@@ -85,7 +85,8 @@ func ExampleCompactor_Start() {
 // retry or a second worker finds the same turn, and a worker drives it.
 // Here the first worker crashes in the middle of the summary call, and a
 // restarted worker resumes the turn from its record. Had the summary
-// failed, the host would Cancel the turn and replay its summary fallback.
+// failed, the turn would have ended, and replay would use its summary
+// fallback.
 // The scripted client needs no API key.
 func ExampleCompactor_StartIfNeeded() {
 	ctx := context.Background()

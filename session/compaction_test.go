@@ -372,9 +372,10 @@ func TestSessionCompactionMismatch(t *testing.T) {
 	}
 }
 
-// Failure 1: a summary that fails closes the compaction turn, whose
-// summary fallback (here the fixed note, since keepLast records none) then
-// replaces the history, with a warning. The next due turn compacts again.
+// Failure 1: a summary that fails ends the compaction turn, whose summary
+// fallback (here the fixed note, since keepLast records none) then
+// replaces the history; the next turn's result carries the warning once.
+// The next due turn compacts again.
 func TestSessionCompactionFailed(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	refusal := llm.Result{
@@ -398,11 +399,8 @@ func TestSessionCompactionFailed(t *testing.T) {
 		t.Fatalf("turn=%s warnings=%v", out.Turn.ID, out.SessionWarnings)
 	}
 	c := load(t, rec, "s-2")
-	if c.Origin != dashi.StartCompaction || c.Stop.Kind != dashi.StopCanceled {
-		t.Fatalf("s-2 origin=%q stop=%s", c.Origin, c.Stop.Kind)
-	}
-	if got := loadTurn(t, rec, "s-2").Steps; got[len(got)-1].CommandID != "close:s-2" {
-		t.Fatalf("closed by %q", got[len(got)-1].CommandID)
+	if c.Origin != dashi.StartCompaction || c.Stop.Kind != dashi.StopRefused || !c.Stop.Ended {
+		t.Fatalf("s-2 origin=%q stop=%+v", c.Origin, c.Stop)
 	}
 	if got := textsOf(client.Inputs()[2].Messages); !slices.Equal(got,
 		[]string{compactiontext.EmptyFallback, "second"}) {
@@ -755,8 +753,8 @@ func TestSessionCompactionRace(t *testing.T) {
 
 // The caller's Start.Budget caps the compaction turn that runs before it:
 // the summary call's output allowance is clamped to it, and a summary
-// that spends past it stops the compaction, which the session closes, so
-// the fallback stands in and the caller's turn runs.
+// that spends past it ends the compaction, so the fallback stands in and
+// the caller's turn runs.
 func TestSessionCompactionBudget(t *testing.T) {
 	rec := dashi.NewMemoryRecorder()
 	summary := dashitest.Reply("summary")
@@ -780,8 +778,8 @@ func TestSessionCompactionBudget(t *testing.T) {
 	if got := client.Inputs()[1].Settings.MaxTokens; got != 5 {
 		t.Fatalf("summary max tokens=%d; want 5", got)
 	}
-	if v := load(t, rec, "s-2"); v.Stop.Kind != dashi.StopCanceled {
-		t.Fatalf("s-2 stop=%s", v.Stop.Kind)
+	if v := load(t, rec, "s-2"); v.Stop.Kind != dashi.StopLimited || !v.Stop.Ended {
+		t.Fatalf("s-2 stop=%+v", v.Stop)
 	}
 	if out.Turn.ID != "s-3" || out.Reply != "two" || !slices.Equal(
 		codes(out.SessionWarnings),

@@ -280,8 +280,8 @@ hide compaction turns by `TurnView.Origin` or show a marker.
 
 **Failure.** Superseded by [durable summarization](durable-summarization.md):
 a compaction turn that ends without a summary replaces the history with its
-recorded summary fallback, with `summary_fallback`. The session closes a
-stopped compaction turn unless it is held for budget, runs the compaction
+recorded summary fallback, with `summary_fallback`. The engine ends a
+failed compaction turn itself; the session runs the compaction
 check after any ended turn but a compaction turn, and tries a failing summary
 at most once per position. A compactor whose `Start` fails returns its
 error. When the caller's context ends or a `Stream` consumer stops during a

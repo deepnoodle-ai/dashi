@@ -80,10 +80,9 @@ func TestBuildHistory(t *testing.T) {
 		t.Fatalf("no compaction: %q", got)
 	}
 
-	// A failed compaction turn that has not ended replaces nothing.
+	// A failed compaction turn ends, and its fixed note stands in.
 	h.compact(2, "")
-	if got := textsOf(h.history()); !slices.Equal(got,
-		[]string{"first", "one", "second", "two"}) {
+	if got := textsOf(h.history()); len(got) != 3 || got[1] != "second" {
 		t.Fatalf("failed compaction: %q", got)
 	}
 
@@ -110,8 +109,8 @@ func TestBuildHistory(t *testing.T) {
 }
 
 // A compaction turn that ended without a summary replaces the history with
-// its SummaryFallback, without the Frame, and warns each time; with no
-// fallback recorded, a fixed note stands in.
+// its SummaryFallback, without the Frame; with no fallback recorded, a fixed
+// note stands in. Its ending stop warned once, so BuildHistory does not.
 func TestBuildHistorySummaryFallback(t *testing.T) {
 	for _, fallback := range []string{"Earlier: the user asked for X.", ""} {
 		h := &hostTurns{t: t, client: dashitest.NewClient()}
@@ -129,17 +128,12 @@ func TestBuildHistorySummaryFallback(t *testing.T) {
 				SummaryFallback: fallback,
 			},
 		})
-		// Failed, and not ended: no replacement yet.
-		if got := textsOf(h.history()); len(got) != 4 {
-			t.Fatalf("before it ended: %q", got)
+		out, err := h.turns[len(h.turns)-1].View()
+		if err != nil || !out.Stop.Ended ||
+			!slices.Equal(codes(out.Warnings), []dashi.WarningCode{dashi.WarningSummaryFallback}) ||
+			out.Warnings[0].TurnID != out.ID {
+			t.Fatalf("compaction turn: stop=%+v warnings=%v err=%v", out.Stop, out.Warnings, err)
 		}
-		last := len(h.turns) - 1
-		out, err := dashi.Runner{Client: h.client}.Run(t.Context(), h.turns[last],
-			dashi.Cancel{CommandID: "close:" + h.turns[last].ID})
-		if err != nil || !out.Stop.Ended {
-			t.Fatalf("cancel: %+v %v", out.Stop, err)
-		}
-		h.turns[last] = out.Turn
 		got, warnings := dashi.BuildHistory(h.turns)
 		want := fallback
 		if want == "" {
@@ -151,8 +145,7 @@ func TestBuildHistorySummaryFallback(t *testing.T) {
 		if !slices.Equal(textsOf(got), []string{want, "second", "two"}) {
 			t.Fatalf("history=%q", textsOf(got))
 		}
-		if !slices.Equal(codes(warnings), []dashi.WarningCode{dashi.WarningSummaryFallback}) ||
-			warnings[0].TurnID != out.Turn.ID {
+		if len(warnings) != 0 {
 			t.Fatalf("warnings=%v", warnings)
 		}
 	}

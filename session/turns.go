@@ -324,9 +324,6 @@ func (s *Session) history(ctx context.Context, n int) ([]llm.Message, []dashi.Wa
 			if !ok {
 				continue // it has not ended, so no turn follows it yet
 			}
-			if w := fallbackWarning(t.view); w != nil {
-				warnings = append(warnings, *w)
-			}
 			if w := s.checkHash(ctx, t); w != nil {
 				warnings = append(warnings, *w)
 			}
