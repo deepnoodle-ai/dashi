@@ -1369,8 +1369,8 @@ var requestPriceSources = []requestPriceSource{
 	},
 	{
 		// "$2.50 per 1,000 search queries ... on text models such as Muse
-		// Spark", and Muse Wonder. Muse Image includes search in its per-image price and
-		// has no catalog entry.
+		// Spark", and Muse Wonder. Muse Image includes search in its
+		// per-image price and has no catalog entry.
 		provider: "meta",
 		meter:    llm.MeterWebSearch,
 		models:   museText,

@@ -567,7 +567,7 @@ func unsupportedError(model string, f Feature) error {
 		fix = "remove PromptCache.TTL; the provider's own caching still applies"
 	case FeatureAssistantPrefill:
 		fix = "end the history with a user message, and ask for the " +
-			"response's format with OutputSchema or instructions instead"
+			"response's format in the instructions instead"
 	}
 	return fmt.Errorf(
 		"llm: model %q does not support %s; %s",

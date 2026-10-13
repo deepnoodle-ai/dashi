@@ -16,7 +16,7 @@
         "openai.responses"
       ],
       "lifecycle": "preview",
-      "note": "Preview, Standard mode only: Meta offers no Contributor mode for Muse Wonder on pay-as-you-go. Meta publishes no long-context premium: one rate at any context length. Audio input is listed, but Meta's launch post says audio use needs confirmation on the release surface, so audio support is left unknown. Muse Wonder Full (muse-wonder-full-1.0) is not on the Model API. Documented 2026-10-13: https://dev.meta.ai/docs/models.",
+      "note": "Preview, Standard mode only: Meta offers no Contributor mode for Muse Wonder on pay-as-you-go. Meta publishes no long-context premium: one rate at any context length. Audio input is listed, but Meta's launch post says audio use needs confirmation on the release surface, so audio support is left unknown. Meta publishes no cache-write price; cache_write is set equal to input, following the Muse Spark entries. Muse Wonder Full (muse-wonder-full-1.0) is not on the Model API. Documented 2026-10-13: https://dev.meta.ai/docs/models.",
       "qualified_at": "2026-10-13",
       "capabilities": {
         "features": {

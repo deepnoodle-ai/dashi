@@ -472,6 +472,11 @@ func TestFitRejectsKnownUnsupportedPrefill(t *testing.T) {
 		) {
 			t.Fatalf("policy %q: prefill was not rejected with a fix: %v", policy, err)
 		}
+		// The Messages route rejects OutputSchema, so the fix must not
+		// suggest it.
+		if strings.Contains(err.Error(), "OutputSchema") {
+			t.Fatalf("policy %q: fix suggests OutputSchema: %v", policy, err)
+		}
 		if _, err := rejects.Check(prefill, policy); err == nil {
 			t.Fatalf("policy %q: Check accepted a rejected prefill", policy)
 		}
