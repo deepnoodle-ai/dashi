@@ -186,6 +186,6 @@ func preview(sink llm.Sink, result llm.Result) {
 		}
 	}
 	if result.Usage != nil {
-		sink(llm.Delta{Kind: llm.DeltaUsage, Usage: result.Usage.Copy()})
+		sink(llm.Delta{Kind: llm.DeltaUsage, Usage: result.Usage.Clone()})
 	}
 }
