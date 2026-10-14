@@ -81,8 +81,9 @@ wrapper; drifting entry points made one peer's streaming path ignore its session
 **`Session.Resolve`** runs a `Resolve` command for each item, then one
 `Continue`. The user makes one call; the record has separate steps, so decision
 18 holds. It stops at the first `Resolve` error. A `Resolve` without a command
-ID gets `resolve:` and its `CallID`, as `Pending`'s builders derive theirs from
-the call, and the `Continue`'s command ID is `resolve:` and the resolves' IDs, so
+ID gets its kind (`approval:`, `result:`, `provider-tool-approval:`, or
+`model:`) and its `CallID`, as `Pending`'s builders derive theirs from the call,
+so one call's approval and later result do not collide, and the `Continue`'s command ID is `resolve:` and the resolves' IDs, so
 a retried `Session.Resolve` is recognized. It takes `RunOption`s, as `Run` does,
 and passes them to each run, so a leasing host gives `WithOwner` and a live UI
 `WithObserver` the one way it gives them elsewhere.

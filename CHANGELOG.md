@@ -110,6 +110,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   structured reasoning now streams instead of failing the call. Fragments of
   one reasoning item are merged by `index`, so the result carries the same
   replayable content a complete response does.
+- **`session`: missed steers keep their order.** A steer sent while a turn
+  ran, that the turn never saw, now takes its arrival place in the queue:
+  behind input queued before it was sent, and ahead of input queued after,
+  so a new Start that closes the turn sends them in the order they were
+  typed.
+- **`session.Resolve` default command IDs name their kind.** A Resolve
+  without a command ID now gets `"approval:"`, `"result:"`,
+  `"provider-tool-approval:"`, or `"model:"` and its call ID, as `Pending`'s
+  builders derive theirs, instead of `"resolve:"` and the call ID. A call's
+  approval and the later result of its detached work no longer share one
+  command ID, which failed with `ErrCommandIDReused`. A provider tool
+  approval without a `CallID` uses its request ID. A Resolve first sent
+  before this change and retried after it gets a new ID, so the retry is
+  not recognized as the same command.
 
 ## [0.8.0] - 2026-10-13
 

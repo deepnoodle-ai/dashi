@@ -15,6 +15,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/dashitest"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // TestSessionIdempotency retries a keyed Start while its turn runs, after
@@ -594,6 +595,44 @@ func TestSessionResolveRetry(t *testing.T) {
 				t.Fatalf("model calls = %d; want 2", n)
 			}
 		})
+	}
+}
+
+// TestSessionResolveSameCallTwice resolves one call twice in a turn without
+// command IDs: first its approval, then the outcome of its detached work.
+// Each default command ID names its kind, so the second does not reuse the
+// first.
+func TestSessionResolveSameCallTwice(t *testing.T) {
+	client := dashitest.NewClient(
+		dashitest.CallTool("call-1", "notify", `{}`),
+		dashitest.Reply("Sent."),
+	)
+	notify, _ := tool.Func(
+		"notify",
+		"Send a notice.",
+		func(context.Context, tool.Call, struct{}) (tool.Outcome, error) {
+			return tool.Detached("msg-1"), nil
+		},
+	)
+	s := handle(nil, client)
+	s.New = true
+	s.Runner.Tools = tool.List{notify}
+	s.Runner.Hooks = dashi.RequireApproval("notify")
+	out, err := s.Send(t.Context(), "notify them")
+	if err != nil || out.Next() != dashi.NextResolvePending {
+		t.Fatalf("send: %v, next %s", err, out.Next())
+	}
+	approve := out.Pending[0].Approve()
+	approve.CommandID = ""
+	out, err = s.Resolve(t.Context(), []dashi.Resolve{approve})
+	if err != nil || out.Next() != dashi.NextResolvePending {
+		t.Fatalf("approve: %v, next %s", err, out.Next())
+	}
+	done := out.Pending[0].Result(tool.Succeeded("sent"))
+	done.CommandID = ""
+	out, err = s.Resolve(t.Context(), []dashi.Resolve{done})
+	if err != nil || out.Stop.Kind != dashi.StopCompleted || out.Reply != "Sent." {
+		t.Fatalf("result: %v, stop %+v", err, out.Stop)
 	}
 }
 
