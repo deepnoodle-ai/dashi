@@ -496,7 +496,7 @@ func TestAgentVersionIsPinned(t *testing.T) {
 		Instructions: "Be brief.",
 	}.resolved()
 	if got := agentVersion(agent); got != "auto:20557d1d87035206" {
-		t.Fatalf("agentRevision = %q", got)
+		t.Fatalf("agentVersion = %q", got)
 	}
 }
 
