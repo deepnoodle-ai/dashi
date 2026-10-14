@@ -14,7 +14,15 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-const defaultReadLimit = 2000
+const (
+	defaultReadLimit = 2000
+	// readMaxLine bounds one shown line. The tool cuts a longer line and
+	// says so, so a minified file cannot fill memory or the result.
+	readMaxLine = 2000
+	// readMaxBytes bounds the text of one result. The tool stops showing
+	// lines at the bound and tells the model the offset to read on from.
+	readMaxBytes = 256 << 10
+)
 
 type readArgs struct {
 	Path   string `json:"path" description:"File to read. Relative to the workspace, or absolute inside it."`
@@ -28,14 +36,14 @@ func newReadFile(s *scope) (tool.Tool, error) {
 		"Read a text file. Each line starts with its line number and a tab. "+
 			"Use offset and limit to read part of a long file. "+
 			"The tool refuses binary files.",
-		func(_ context.Context, _ tool.Call, in readArgs) (tool.Outcome, error) {
-			return readFile(s, in)
+		func(ctx context.Context, _ tool.Call, in readArgs) (tool.Outcome, error) {
+			return readFile(ctx, s, in)
 		},
 		tool.ReadOnly(),
 	))
 }
 
-func readFile(s *scope, in readArgs) (tool.Outcome, error) {
+func readFile(ctx context.Context, s *scope, in readArgs) (tool.Outcome, error) {
 	path, err := s.resolve(in.Path)
 	if err != nil {
 		return fail(err.Error())
@@ -48,6 +56,9 @@ func readFile(s *scope, in readArgs) (tool.Outcome, error) {
 		return fail(fmt.Sprintf("cannot read %s: %v", in.Path, err))
 	case info.IsDir():
 		return fail(fmt.Sprintf("%s is a directory. Use list_directory to see its files.", in.Path))
+	case !info.Mode().IsRegular():
+		// Opening a named pipe or a device can block forever.
+		return fail(fmt.Sprintf("%s is not a regular file. The read_file tool reads regular files only.", in.Path))
 	}
 	if in.Offset < 0 || in.Limit < 0 {
 		return fail("offset and limit must not be negative.")
@@ -61,24 +72,44 @@ func readFile(s *scope, in readArgs) (tool.Outcome, error) {
 		return fail(fmt.Sprintf("cannot read %s: %v", in.Path, err))
 	}
 	defer f.Close()
-	r := bufio.NewReader(f)
+	r := bufio.NewReaderSize(ctxReader{ctx, f}, 64<<10)
 	head, _ := r.Peek(8000)
 	if bytes.IndexByte(head, 0) >= 0 {
 		return fail(fmt.Sprintf("%s is a binary file. The read_file tool reads text only.", in.Path))
 	}
 	var out strings.Builder
-	total, shown := 0, 0
+	total, shown, full := 0, 0, false
+	// line keeps the start of the current line, at most readMaxLine bytes
+	// plus room for \r\n. size counts all of its bytes.
+	var line []byte
+	size := 0
 	for {
-		line, err := r.ReadString('\n')
-		if line != "" {
+		chunk, err := r.ReadSlice('\n')
+		size += len(chunk)
+		if room := readMaxLine + 2 - len(line); room > 0 {
+			line = append(line, chunk[:min(room, len(chunk))]...)
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		if size > 0 {
 			total++
-			if total >= offset && shown < limit {
-				fmt.Fprintf(&out, "%6d\t%s\n", total, strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"))
-				shown++
+			if total >= offset && shown < limit && !full {
+				text := formatReadLine(total, line, size-lineEndLen(chunk))
+				if out.Len()+len(text) > readMaxBytes {
+					full = true
+				} else {
+					out.WriteString(text)
+					shown++
+				}
 			}
+			line, size = line[:0], 0
 		}
 		if err == io.EOF {
 			break
+		}
+		if ctx.Err() != nil {
+			return fail(fmt.Sprintf("reading %s was canceled.", in.Path))
 		}
 		if err != nil {
 			return fail(fmt.Sprintf("cannot read %s: %v", in.Path, err))
@@ -94,6 +125,31 @@ func readFile(s *scope, in readArgs) (tool.Outcome, error) {
 		fmt.Fprintf(&out, "[Showed lines %d-%d of %d. Set offset to %d to read more.]\n", offset, last, total, last+1)
 	}
 	return tool.Succeeded(out.String()), nil
+}
+
+// lineEndLen is the length of the line end that closes chunk: 2 for \r\n,
+// 1 for \n, and 0 at the end of a file without a final line end.
+func lineEndLen(chunk []byte) int {
+	switch {
+	case bytes.HasSuffix(chunk, []byte("\r\n")):
+		return 2
+	case bytes.HasSuffix(chunk, []byte("\n")):
+		return 1
+	}
+	return 0
+}
+
+// formatReadLine numbers one line. line holds the start of the line and size
+// counts the bytes of its content, without the line end. A line longer than
+// readMaxLine is cut, and a note gives its full length.
+func formatReadLine(n int, line []byte, size int) string {
+	line = bytes.TrimSuffix(line, []byte("\n"))
+	line = bytes.TrimSuffix(line, []byte("\r"))
+	if len(line) <= readMaxLine && size <= readMaxLine {
+		return fmt.Sprintf("%6d\t%s\n", n, line)
+	}
+	text := strings.ToValidUTF8(string(line[:min(len(line), readMaxLine)]), "")
+	return fmt.Sprintf("%6d\t%s... [line cut at %d of %d bytes]\n", n, text, readMaxLine, size)
 }
 
 type listArgs struct {

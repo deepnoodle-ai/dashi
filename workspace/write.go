@@ -29,6 +29,9 @@ func newWriteFile(s *scope) (tool.Tool, error) {
 			}
 			if info, err := os.Stat(path); err == nil && info.IsDir() {
 				return fail(fmt.Sprintf("%s is a directory. Give a file path.", in.Path))
+			} else if err == nil && !info.Mode().IsRegular() {
+				// Opening a named pipe can block forever.
+				return fail(fmt.Sprintf("%s is not a regular file.", in.Path))
 			}
 			verb := "Overwrote"
 			if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
@@ -45,6 +48,10 @@ func newWriteFile(s *scope) (tool.Tool, error) {
 	)
 	return closedWorld(mutating(t), err)
 }
+
+// editMaxBytes bounds the file that edit_file loads into memory. Source
+// files are far smaller.
+const editMaxBytes = 32 << 20
 
 type editArgs struct {
 	Path       string `json:"path" description:"File to edit. Relative to the workspace, or absolute inside it."`
@@ -64,11 +71,25 @@ func newEditFile(s *scope) (tool.Tool, error) {
 			if err != nil {
 				return fail(err.Error())
 			}
-			data, err := os.ReadFile(path)
+			info, err := os.Stat(path)
 			switch {
 			case errors.Is(err, os.ErrNotExist):
 				return fail(fmt.Sprintf("file %s does not exist. Use write_file to create it.", in.Path))
 			case err != nil:
+				return fail(fmt.Sprintf("cannot read %s: %v", in.Path, err))
+			case info.IsDir():
+				return fail(fmt.Sprintf("%s is a directory. Give a file path.", in.Path))
+			case !info.Mode().IsRegular():
+				// Opening a named pipe or a device can block forever.
+				return fail(fmt.Sprintf("%s is not a regular file. The edit_file tool edits regular files only.", in.Path))
+			case info.Size() > editMaxBytes:
+				return fail(fmt.Sprintf(
+					"%s is %d bytes, more than the %d bytes that edit_file accepts.",
+					in.Path, info.Size(), editMaxBytes,
+				))
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
 				return fail(fmt.Sprintf("cannot read %s: %v", in.Path, err))
 			}
 			updated, count, err := applyEdit(in.Path, string(data), in)

@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -280,7 +281,7 @@ func (p *Policy) readOld(path string) (old string, ok bool) {
 	if err != nil {
 		return "", false
 	}
-	data, err := os.ReadFile(resolved)
+	data, err := readEditable(resolved)
 	switch {
 	case err == nil:
 		return string(data), true
@@ -288,6 +289,23 @@ func (p *Policy) readOld(path string) (old string, ok bool) {
 		return "", true
 	}
 	return "", false
+}
+
+// errNotEditable is the error of readEditable for a path that edit_file
+// refuses: one that is not a regular file, or one over editMaxBytes.
+var errNotEditable = errors.New("not an editable file")
+
+// readEditable reads a file only when edit_file would load it. It checks the
+// file type first, so a named pipe or a device never blocks the read.
+func readEditable(resolved string) ([]byte, error) {
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > editMaxBytes {
+		return nil, errNotEditable
+	}
+	return os.ReadFile(resolved)
 }
 
 func (p *Policy) writePreview(in writeArgs) string {

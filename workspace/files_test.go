@@ -290,3 +290,41 @@ func TestLineSinkCapsLineLength(t *testing.T) {
 		t.Fatalf("line holds %d bytes", len(k.lines[0]))
 	}
 }
+
+func TestFileToolsRefuseNamedPipes(t *testing.T) {
+	mkfifo, err := exec.LookPath("mkfifo")
+	if err != nil {
+		t.Skip("mkfifo not found")
+	}
+	list, dir := newTestTools(t)
+	if err := exec.Command(mkfifo, filepath.Join(dir, "pipe")).Run(); err != nil {
+		t.Skip("mkfifo failed:", err)
+	}
+	tests := []struct {
+		name string
+		args map[string]any
+	}{
+		{ToolReadFile, map[string]any{"path": "pipe"}},
+		{ToolEditFile, map[string]any{"path": "pipe", "old_string": "a", "new_string": "b"}},
+		{ToolWriteFile, map[string]any{"path": "pipe", "content": "x"}},
+		{ToolGrep, map[string]any{"pattern": "x", "path": "pipe"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			done := make(chan struct{})
+			var out tool.Outcome
+			var text string
+			go func() {
+				defer close(done)
+				out, text = call(t, list, tc.name, tc.args)
+			}()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the tool blocked on a named pipe")
+			}
+			wantState(t, out, text, tool.StateFailed)
+			wantContains(t, text, "not a regular file")
+		})
+	}
+}
