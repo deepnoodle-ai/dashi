@@ -7,8 +7,17 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 )
+
+// MaxEventBytes bounds one line and one event's joined data. It leaves room
+// for events that carry inline images while stopping a stream with no line
+// breaks from exhausting memory.
+const MaxEventBytes = 64 << 20
+
+// ErrEventTooLarge reports a line or event over MaxEventBytes.
+var ErrEventTooLarge = errors.New("sse: event exceeds size limit")
 
 // ServerSentEventsCallback observes raw lines before framing. An error stops
 // the reader and is returned by Err.
@@ -22,6 +31,7 @@ type ServerSentEventsReader[T any] struct {
 	err         error
 	done        bool
 	sseCallback ServerSentEventsCallback
+	maxBytes    int
 }
 
 // NewServerSentEventsReader borrows stream and starts before the first event.
@@ -29,8 +39,25 @@ func NewServerSentEventsReader[T any](
 	stream io.ReadCloser,
 ) *ServerSentEventsReader[T] {
 	return &ServerSentEventsReader[T]{
-		body:   stream,
-		reader: bufio.NewReader(stream),
+		body:     stream,
+		reader:   bufio.NewReader(stream),
+		maxBytes: MaxEventBytes,
+	}
+}
+
+// readLine returns the next line with its newline, failing with
+// ErrEventTooLarge once the line passes the limit.
+func (s *ServerSentEventsReader[T]) readLine() ([]byte, error) {
+	var line []byte
+	for {
+		chunk, err := s.reader.ReadSlice('\n')
+		if len(line)+len(chunk) > s.maxBytes {
+			return nil, ErrEventTooLarge
+		}
+		line = append(line, chunk...)
+		if err != bufio.ErrBufferFull {
+			return line, err
+		}
 	}
 }
 
@@ -57,7 +84,7 @@ func (s *ServerSentEventsReader[T]) Next() (T, bool) {
 	}
 	var data []byte
 	for {
-		line, err := s.reader.ReadBytes('\n')
+		line, err := s.readLine()
 		if err != nil && err != io.EOF {
 			s.err = err
 			return zero, false
@@ -77,6 +104,10 @@ func (s *ServerSentEventsReader[T]) Next() (T, bool) {
 		)
 		if bytes.HasPrefix(line, []byte("data:")) {
 			value := bytes.TrimPrefix(line[5:], []byte(" "))
+			if len(data)+len(value) > s.maxBytes {
+				s.err = ErrEventTooLarge
+				return zero, false
+			}
 			data = append(data, value...)
 			data = append(data, '\n')
 		}

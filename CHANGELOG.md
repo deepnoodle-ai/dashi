@@ -131,6 +131,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   a summary takes effect only once the summary finishes. A steer still
   waiting when the turn stops is not recorded; `MemoryInbox.Leftovers`
   returns it.
+- A hook stop can no longer use the reasons Dashi gives its own failed stops
+  `compaction_failed`, `empty_response`, or `incomplete_model_result`; like
+  the other reserved reasons, such a stop is ignored with a hook warning.
+- Comparing two values that do not encode as JSON (such as two different
+  invalid argument texts) no longer reports them as the same; they match only
+  when deeply equal.
+- `MemoryInbox` now deep-copies queued `Start`, `AddMessages`, `Continue`, and
+  `Resolve` commands on `Put` and on claim, as it already did for steers, so
+  a caller changing its slices cannot change the queued command. `Put` now
+  refuses a command that does not encode as JSON, which a turn could not
+  record anyway.
+- A video file reference from another provider scope is now refused when
+  adapting history, as image, document, and audio references already were.
+- Non-streaming model responses are read up to 256 MiB, and one streamed
+  event (line or joined data) up to 64 MiB; a larger body fails the call
+  instead of exhausting memory. Gemini bounds its response copy at 256 MiB
+  and reports a larger response as a protocol error, as the other providers
+  do.
 
 ## [0.8.0] - 2026-10-13
 

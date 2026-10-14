@@ -272,6 +272,7 @@ func (g *sdkGuard) RoundTrip(r *http.Request) (*http.Response, error) {
 		ReadCloser: response.Body,
 		output:     &g.resp,
 		mu:         &g.mu,
+		limit:      maxCaptureBytes,
 	}
 	return response, nil
 }
@@ -282,18 +283,29 @@ func (g *sdkGuard) responseBytes() []byte {
 	return bytes.Clone(g.resp.Bytes())
 }
 
+// maxCaptureBytes bounds the response copy, streamed or not. It leaves room
+// for inline media while stopping a runaway body from exhausting memory.
+const maxCaptureBytes = 256 << 20
+
+var errCaptureTooLarge = errors.New("gemini: response body exceeds 256 MiB")
+
 type captureBody struct {
 	io.ReadCloser
 	output *bytes.Buffer
 	mu     *sync.Mutex
+	limit  int
 }
 
-// Read retains the bytes observed while callers consume the SDK response.
+// Read retains the bytes observed while callers consume the SDK response,
+// and fails once they pass the limit.
 func (r *captureBody) Read(p []byte) (int, error) {
 	n, err := r.ReadCloser.Read(p)
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.output.Len()+n > r.limit {
+		return 0, errCaptureTooLarge
+	}
 	r.output.Write(p[:n])
-	r.mu.Unlock()
 	return n, err
 }
 
@@ -336,6 +348,10 @@ func sdkError(provider string, err error, body []byte, hasMedia bool) error {
 			Retryable:  api.Code == 408 || api.Code == 429 || api.Code >= 500,
 			Cause:      err,
 		}
+	}
+	if errors.Is(err, errCaptureTooLarge) {
+		// Classified as other providers classify an oversized body.
+		return providerhttp.Failure(provider, llm.ErrorProtocol, "SDK call: %w", err)
 	}
 	return providerhttp.Failure(provider, llm.ErrorTransport, "SDK call: %w", err)
 }

@@ -3,6 +3,7 @@
 package sse
 
 import (
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -111,6 +112,33 @@ func TestServerSentEventsReaderFramesData(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestServerSentEventsReaderBoundsEventSize(t *testing.T) {
+	small := func(stream string) *ServerSentEventsReader[map[string]any] {
+		r := NewServerSentEventsReader[map[string]any](io.NopCloser(strings.NewReader(stream)))
+		r.maxBytes = 64
+		return r
+	}
+	long := `{"s":"` + strings.Repeat("x", 8000) + `"}`
+	for name, stream := range map[string]string{
+		"one line":       "data: " + long + "\n\n",
+		"no line breaks": "data: " + long,
+		"joined lines":   strings.Repeat(`data: "`+strings.Repeat("y", 20)+"\"\n", 10) + "\n",
+	} {
+		r := small(stream)
+		if _, ok := r.Next(); ok || !errors.Is(r.Err(), ErrEventTooLarge) {
+			t.Fatalf("%s: err = %v, want ErrEventTooLarge", name, r.Err())
+		}
+	}
+	r := small("data: {\"n\":1}\n\n")
+	if v, ok := r.Next(); !ok || v["n"] != 1.0 {
+		t.Fatalf("small event = %v, ok = %t, err = %v", v, ok, r.Err())
+	}
+	big := NewServerSentEventsReader[map[string]any](io.NopCloser(strings.NewReader("data: " + long + "\n\n")))
+	if v, ok := big.Next(); !ok || len(v["s"].(string)) != 8000 {
+		t.Fatalf("event longer than the read buffer failed: %v", big.Err())
 	}
 }
 

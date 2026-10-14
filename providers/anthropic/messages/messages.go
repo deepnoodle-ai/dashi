@@ -23,7 +23,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"os"
 	"slices"
@@ -551,9 +550,9 @@ func (p *Client) Send(
 		}
 		return result, callErr
 	}
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := providerhttp.ReadResponse(wire.origin.Provider, resp.Body)
 	if err != nil {
-		return r, providerhttp.ReadFailure(wire.origin.Provider, err)
+		return r, err
 	}
 	decoded, err := wire.decode(raw, r.Requested)
 	if err == nil && decoded.Stop.Raw == "" {

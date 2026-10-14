@@ -2,6 +2,7 @@ package dashi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -65,8 +66,9 @@ func NewMemoryInbox() *MemoryInbox {
 }
 
 // Put queues command for turnID and signals Ready(turnID). The command
-// needs a command ID, which the inbox must not already hold; a steer needs
-// a valid item, and an empty Origin means ContextUser.
+// needs a command ID, which the inbox must not already hold, and must encode
+// as JSON, as the turn records it; a steer needs a valid item, and an empty
+// Origin means ContextUser. The inbox keeps its own copy of the command.
 func (in *MemoryInbox) Put(turnID string, command Command) error {
 	if turnID == "" {
 		return errors.New("dashi: turn ID is required")
@@ -78,6 +80,11 @@ func (in *MemoryInbox) Put(turnID string, command Command) error {
 		var err error
 		if command, err = newSteer(steer, false); err != nil {
 			return err
+		}
+	} else {
+		var err error
+		if command, err = cloneInboxCommand(command); err != nil {
+			return fmt.Errorf("dashi: cannot queue command: %w", err)
 		}
 	}
 	id := CommandIDOf(command)
@@ -226,18 +233,46 @@ func (in *MemoryInbox) Waiting(_ context.Context, turnID string) ([]Command, err
 			continue
 		}
 		e.turn = turnID
-		out = append(out, cloneInboxCommand(e.command))
+		// Put copied this command once, so copying it again cannot fail.
+		c, _ := cloneInboxCommand(e.command)
+		out = append(out, c)
 	}
 	return out, nil
 }
 
-// cloneInboxCommand copies a steer's item so a caller cannot change the
-// queued one; other commands are values the inbox does not share further.
-func cloneInboxCommand(c Command) Command {
-	if steer, ok := c.(Steer); ok {
-		return Steer{Item: cloneContextItem(steer.Item), Urgent: steer.Urgent}
+// cloneInboxCommand deep-copies a command so the inbox and its callers never
+// share slices or pointers. Commands other than steers are copied through
+// JSON, as recorded steps are, because the turn records them as JSON: a copy
+// keeps exactly what the record would. A command that does not encode cannot
+// be recorded either, so the error reports it; c is returned unchanged then.
+func cloneInboxCommand(c Command) (Command, error) {
+	switch v := c.(type) {
+	case Steer:
+		return Steer{Item: cloneContextItem(v.Item), Urgent: v.Urgent}, nil
+	case Start:
+		return cloneJSON(v)
+	case AddMessages:
+		return cloneJSON(v)
+	case Continue:
+		return cloneJSON(v)
+	case Resolve:
+		return cloneJSON(v)
 	}
-	return c
+	return c, nil
+}
+
+// cloneJSON returns a deep copy of v made by a JSON round trip, or v and the
+// error when it does not encode.
+func cloneJSON[T Command](v T) (Command, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return v, err
+	}
+	var out T
+	if err := json.Unmarshal(b, &out); err != nil {
+		return v, err
+	}
+	return out, nil
 }
 
 // Delivered removes commands the turn recorded or refused. A recorded steer

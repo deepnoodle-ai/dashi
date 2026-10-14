@@ -21,7 +21,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
 	"maps"
 	"net/http"
 	"os"
@@ -486,9 +485,9 @@ func (p *Client) Send(
 		}
 		return result, callErr
 	}
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := providerhttp.ReadResponse(wire.origin.Provider, resp.Body)
 	if err != nil {
-		return r, providerhttp.ReadFailure(wire.origin.Provider, err)
+		return r, err
 	}
 	result, callErr = wire.decode(raw, r.Requested)
 	if callErr == nil {

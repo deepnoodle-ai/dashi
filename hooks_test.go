@@ -1316,13 +1316,18 @@ func TestFinishFailureOnReservedFinalReplyResumesWithoutACall(t *testing.T) {
 }
 
 func TestHookStopCannotUseReservedReasons(t *testing.T) {
-	fake := ModelHook{Name: "fake", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
-		return ModelDecision{Stop: &Stop{Kind: StopFailed, Reason: StopReasonHookFailed}}, nil
-	}}
-	client := &scriptedClient{results: []llm.Result{final("done")}}
-	out, err := runHooked(t, client, nil, fake.Hooks())
-	if err != nil || out.Stop.Kind != StopCompleted || !hasWarning(out, WarningHookFailed) {
-		t.Fatalf("stop=%+v warnings=%+v err=%v", out.Stop, out.Warnings, err)
+	for _, reason := range []string{
+		StopReasonHookFailed, StopReasonCompactionFailed,
+		StopReasonEmptyResponse, StopReasonIncompleteModelResult,
+	} {
+		fake := ModelHook{Name: "fake", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+			return ModelDecision{Stop: &Stop{Kind: StopFailed, Reason: reason}}, nil
+		}}
+		client := &scriptedClient{results: []llm.Result{final("done")}}
+		out, err := runHooked(t, client, nil, fake.Hooks())
+		if err != nil || out.Stop.Kind != StopCompleted || !hasWarning(out, WarningHookFailed) {
+			t.Fatalf("%s: stop=%+v warnings=%+v err=%v", reason, out.Stop, out.Warnings, err)
+		}
 	}
 }
 
