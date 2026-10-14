@@ -202,22 +202,3 @@ func (m *resourceManager) approvalRequest(ctx context.Context, request ApprovalR
 	m.mu.Unlock()
 	return request
 }
-func resourceStartupSummary(found *discoveredResources) string {
-	instruction := "none"
-	for _, source := range found.InstructionSources {
-		if source.Status == "loaded" {
-			instruction = source.Path
-		}
-	}
-	return fmt.Sprintf("Instructions: %s; %d selected skills (%d model, %d shadowed). Use /resources for sources and access scopes.", instruction, len(found.Skills), modelSkillCount(found), len(found.Candidates)-len(found.Skills))
-}
-
-func modelSkillCount(found *discoveredResources) int {
-	count := 0
-	for _, source := range found.Skills {
-		if source.Info.ModelInvocable {
-			count++
-		}
-	}
-	return count
-}

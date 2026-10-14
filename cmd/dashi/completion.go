@@ -72,27 +72,32 @@ func indexWorkspace(dir string) *workspaceCompletion {
 	})
 	return index
 }
-func rankCompletion(fragment string, names []string) []string {
-	fragment = strings.ToLower(fragment)
-	rank := func(name string) int {
-		name = strings.ToLower(name)
-		if name == fragment {
-			return 0
-		}
-		if strings.HasPrefix(name, fragment) {
-			return 1
-		}
-		remaining := []rune(fragment)
-		for _, r := range name {
-			if len(remaining) > 0 && r == remaining[0] {
-				remaining = remaining[1:]
-			}
-		}
-		if len(remaining) == 0 {
-			return 2
-		}
-		return 3
+
+// completionRank orders a completion candidate for fragment: 0 for an
+// exact match, 1 for a prefix, 2 for a subsequence, and 3 for no match.
+// Case does not matter.
+func completionRank(fragment, name string) int {
+	fragment, name = strings.ToLower(fragment), strings.ToLower(name)
+	if name == fragment {
+		return 0
 	}
+	if strings.HasPrefix(name, fragment) {
+		return 1
+	}
+	remaining := []rune(fragment)
+	for _, r := range name {
+		if len(remaining) > 0 && r == remaining[0] {
+			remaining = remaining[1:]
+		}
+	}
+	if len(remaining) == 0 {
+		return 2
+	}
+	return 3
+}
+
+func rankCompletion(fragment string, names []string) []string {
+	rank := func(name string) int { return completionRank(fragment, name) }
 	var out []string
 	for _, name := range names {
 		if rank(name) < 3 {
@@ -109,6 +114,11 @@ func rankCompletion(fragment string, names []string) []string {
 }
 func (s *screen) completeDraft(value string) []string {
 	s.exitGuard.reset()
+	// Tab in the open command menu completes the selected command.
+	if name := s.commandMenu.complete; name != "" {
+		s.commandMenu.complete = ""
+		return []string{name + " "}
+	}
 	leading := len(value) - len(strings.TrimLeftFunc(value, unicode.IsSpace))
 	rest := value[leading:]
 	var candidates []string

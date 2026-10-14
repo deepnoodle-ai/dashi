@@ -82,6 +82,8 @@ func (s *screen) inputPaste(id uint64) tui.PasteHandler {
 		if s.promptActive || s.promptID != id {
 			return tui.PasteAccept, ""
 		}
+		// A paste edits the draft, so it may open the command menu.
+		s.commandMenu.typing = true
 		// Large text bypasses path detection without a file warning. Commands
 		// stay editable, even when their spelling is also an absolute path.
 		if len(info.Content) > attachmentPasteBytes || s.pastedCommand(info.Content) {

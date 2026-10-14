@@ -218,14 +218,9 @@ func (a *app) openSession(
 		return "", err
 	}
 	if resources := a.eng.cfg.Resources; resources != nil {
-		found, err := resources.discover()
-		if err != nil {
+		if _, err := resources.discover(); err != nil {
 			return "", err
 		}
-		if notice != "" {
-			notice += "\n"
-		}
-		notice += resourceStartupSummary(found)
 	}
 	return notice, nil
 }

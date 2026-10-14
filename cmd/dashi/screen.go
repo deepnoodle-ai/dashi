@@ -48,6 +48,7 @@ type screen struct {
 	attachmentUnsaved     atomic.Bool
 	historyStore          *inputHistory
 	pathCompletion        *workspaceCompletion
+	commandMenu           commandMenu
 	exitGuard             idleExitGuard
 	handoff               func(func() error) (error, error)
 	history               []string
@@ -649,6 +650,11 @@ func (s *screen) submit(value string) {
 func (s *screen) inputSubmit(id uint64) func(string) {
 	return func(value string) {
 		if !s.promptActive && s.promptID == id {
+			// Enter in the open command menu runs the selected command.
+			if name := s.commandMenu.submit; name != "" {
+				value = name
+			}
+			s.commandMenu.submit = ""
 			s.submit(value)
 		}
 	}

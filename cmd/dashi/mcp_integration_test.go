@@ -205,7 +205,7 @@ func TestMCPWontonInventoryEmpty(t *testing.T) {
 	})
 	h.typeText("/mc")
 	h.key(tui.KeyEvent{Key: tui.KeyTab})
-	h.wait(func(s transcriptState) bool { return s.input == "/mcp" })
+	h.wait(func(s transcriptState) bool { return s.input == "/mcp " })
 	h.key(tui.KeyEvent{Key: tui.KeyEnter})
 	h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "None configured.") })
 	if h.app.eng.Saved() {

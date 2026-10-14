@@ -32,6 +32,7 @@ func (s *screen) footer() tui.View {
 	if !s.vp.AtBottom && s.vp.LinesBelow > 0 {
 		views = append(views, tui.Text(" %d lines below · Ctrl+End returns to live output", s.vp.LinesBelow).Style(hintStyle))
 	}
+	var menu []commandMenuItem
 	switch {
 	case s.dialogStatus != nil:
 		views = append(views, s.dialogStatusView())
@@ -53,11 +54,14 @@ func (s *screen) footer() tui.View {
 			views = append(views, tui.Text(" %s", hint).Wrap().Style(hintStyle))
 		}
 		views = append(views, tui.Text(""), tui.Panel(tui.PaddingLTRB(1, 1, 1, 1, s.inputView(mode))).Style(promptStyle))
+		if menu = s.commandMenuMatches(); menu != nil {
+			views = append(views, s.commandMenuView(menu))
+		}
 	}
 	if line := s.decideStatus(); line != "" {
 		views = append(views, tui.Text(" %s", line).Fg(tui.ColorYellow))
 	}
-	views = append(views, s.statusView())
+	views = append(views, s.statusView(menu != nil))
 	return tui.Stack(views...).Gap(0)
 }
 
@@ -168,7 +172,9 @@ func (s *screen) decideStatus() string {
 	return s.ctrl.decide.status()
 }
 
-func (s *screen) statusView() tui.View {
+// statusView draws the status line. While the command menu is open, its
+// left side says how to close the menu.
+func (s *screen) statusView(menuOpen bool) tui.View {
 	model := workspace.PrintableText(s.model())
 	dir := workspace.PrintableText(shortDir(s.dir))
 	return tui.CanvasContext(func(ctx *tui.RenderContext) {
@@ -176,6 +182,9 @@ func (s *screen) statusView() tui.View {
 		help := " " + statusHint + " "
 		budget := max(1, width-runewidth.StringWidth(help)-1)
 		left := model + " · " + dir
+		if menuOpen {
+			left = "esc to cancel"
+		}
 		ctx.PrintTruncated(1, 0, runewidth.Truncate(left, budget, "…"), mutedStyle)
 		if width >= 16 {
 			ctx.PrintStyled(width-runewidth.StringWidth(help), 0, help, mutedStyle)
