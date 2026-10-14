@@ -3,6 +3,7 @@ package dashi
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/content"
@@ -426,3 +427,17 @@ const (
 	// bytes differs from the declared hash.
 	StopReasonContentHashMismatch = "content_hash_mismatch"
 )
+
+// clone returns a deep copy of s.
+func (s Stop) clone() Stop {
+	if s.Limit != nil {
+		s.Limit = new(*s.Limit)
+	}
+	return s
+}
+
+// clone returns a deep copy of o.
+func (o StructuredOutput) clone() StructuredOutput {
+	o.Value = slices.Clone(o.Value)
+	return o
+}

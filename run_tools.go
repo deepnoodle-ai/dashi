@@ -75,6 +75,10 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 		}
 	}
 	paused := false
+	// state is rebuilt only after a commit: callOrder holds every call of
+	// the turn, and most are finished.
+	var state *replayState
+	stateSteps := -1
 	for _, id := range s.callOrder {
 		if ctx.Err() != nil {
 			return r.contextStop(), true
@@ -82,7 +86,10 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 		if fatal != "" {
 			break
 		}
-		state, _ := replay(r.turn)
+		if stateSteps != len(r.turn.Steps) {
+			state, _ = r.replay()
+			stateSteps = len(r.turn.Steps)
+		}
 		v := state.Tools[id]
 		var boundExecutor tool.Executor
 		prehookBindingChecked := false
@@ -436,7 +443,7 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 	if ctx.Err() != nil {
 		return r.contextStop(), true
 	}
-	state, _ := replay(r.turn)
+	state, _ = r.replay()
 	for _, id := range state.callOrder {
 		v := state.Tools[id]
 		if v.Status == ToolResultUnknown {
@@ -545,12 +552,12 @@ func panicReason(v any) string {
 }
 
 func (r *runtime) finishOutputSubmission(call tool.Call) *RunResult {
-	state, replayErr := replay(r.turn)
+	state, replayErr := r.replay()
 	if replayErr != nil {
 		out := r.stop(StopFailed, replayErr.Error())
 		return &out
 	}
-	schema, err := compileOutputSchema(state.OutputSchema)
+	schema, err := state.outputSchema()
 	if err == nil {
 		err = validateOutputValue(schema, call.Args)
 	}

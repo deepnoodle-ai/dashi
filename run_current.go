@@ -149,7 +149,7 @@ func (r *runtime) turnAt() func() *replayState {
 	n := len(r.turn.Steps)
 	turn := Turn{ID: r.turn.ID, Steps: r.turn.Steps[:n:n]}
 	return sync.OnceValue(func() *replayState {
-		s, err := replay(turn)
+		s, err := r.replays.replay(turn)
 		if err != nil {
 			return nil
 		}

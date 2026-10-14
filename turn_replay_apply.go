@@ -62,9 +62,11 @@ func (s *replayState) apply(step Step) error {
 			outputSchema = step.Started.Agent.OutputSchema
 		}
 		if len(outputSchema) > 0 {
-			if _, err := compileOutputSchema(outputSchema); err != nil {
+			schema, err := compileOutputSchema(outputSchema)
+			if err != nil {
 				return err
 			}
+			s.compiledSchema = schema
 			if err := validateOutputToolChoice(step.Started.Agent.Settings); err != nil {
 				return err
 			}
@@ -586,7 +588,7 @@ func (s *replayState) apply(step Step) error {
 					return errors.New("reserved output tool requires runner start")
 				}
 				if step.Tool.Outcome.State == tool.StateSucceeded {
-					schema, err := compileOutputSchema(s.OutputSchema)
+					schema, err := s.outputSchema()
 					if err != nil {
 						return err
 					}
@@ -685,7 +687,7 @@ func (s *replayState) apply(step Step) error {
 			len(s.pending()) > 0 {
 			return errors.New("structured output without an eligible turn")
 		}
-		schema, err := compileOutputSchema(s.OutputSchema)
+		schema, err := s.outputSchema()
 		if err != nil {
 			return err
 		}

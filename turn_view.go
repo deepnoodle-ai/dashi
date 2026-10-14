@@ -2,6 +2,8 @@ package dashi
 
 import (
 	"encoding/json"
+	"maps"
+	"slices"
 
 	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -187,4 +189,75 @@ func (v TurnView) Context(
 		return ContextItem{}, false
 	}
 	return cloneContextItem(item), true
+}
+
+// clone returns a deep copy of v, so a caller can change the copy without
+// changing the turn's state. TestTurnViewCloneIsDeep fails when a field is
+// added without being copied.
+func (v TurnView) clone() TurnView {
+	v.Agent = v.Agent.clone()
+	v.ContextCompactions = slices.Clone(v.ContextCompactions)
+	v.OutputSchema = slices.Clone(v.OutputSchema)
+	v.Parent = cloneCallRef(v.Parent)
+	v.Input = cloneEach(v.Input, llm.Message.Clone)
+	v.Compaction = v.Compaction.clone()
+	v.Budget = cloneBudget(v.Budget)
+	v.Raises = cloneEach(v.Raises, BudgetRaise.Clone)
+	v.Spend = v.Spend.Clone()
+	v.ModelCallCosts = cloneEach(v.ModelCallCosts, ModelCallCost.clone)
+	v.Stop = v.Stop.clone()
+	if v.Output != nil {
+		v.Output = new(v.Output.clone())
+	}
+	v.Pending = cloneEach(v.Pending, Pending.clone)
+	v.Warnings = slices.Clone(v.Warnings)
+	if v.Tools != nil {
+		tools := make(map[string]ToolView, len(v.Tools))
+		for id, tv := range v.Tools {
+			tools[id] = tv.clone()
+		}
+		v.Tools = tools
+	}
+	if v.live != nil {
+		live := make(map[string]ContextItem, len(v.live))
+		for key, item := range v.live {
+			live[key] = cloneContextItem(item)
+		}
+		v.live = live
+	}
+	v.usedContextIDs = maps.Clone(v.usedContextIDs)
+	v.acted = maps.Clone(v.acted)
+	return v
+}
+
+// clone returns a deep copy of v.
+func (v ToolView) clone() ToolView {
+	v.Call = v.Call.Clone()
+	v.Definition = v.Definition.Clone()
+	if v.Outcome != nil {
+		v.Outcome = new(v.Outcome.Clone())
+	}
+	if v.Approval != nil {
+		v.Approval = new(*v.Approval)
+	}
+	if v.result != nil {
+		v.result = new(llmclone.ToolResult(*v.result))
+	}
+	if v.shortened != nil {
+		v.shortened = new(*v.shortened)
+	}
+	return v
+}
+
+// cloneEach returns a copy of s with each element copied by clone, and nil
+// for nil.
+func cloneEach[T any](s []T, clone func(T) T) []T {
+	if s == nil {
+		return nil
+	}
+	out := make([]T, len(s))
+	for i, v := range s {
+		out[i] = clone(v)
+	}
+	return out
 }

@@ -6,10 +6,10 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/deepnoodle-ai/dashi/internal/llmclone"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
 	"github.com/deepnoodle-ai/dashi/tool"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 type replayState struct {
@@ -71,6 +71,20 @@ type replayState struct {
 	// NextCallOnly item expires only after a later call is sent.
 	liveSeq      map[string]int64
 	callStartSeq map[string]int64
+	// compiledSchema is OutputSchema compiled, so replay compiles it once.
+	compiledSchema *jsonschema.Schema
+}
+
+// outputSchema returns the turn's OutputSchema compiled.
+func (s *replayState) outputSchema() (*jsonschema.Schema, error) {
+	if s.compiledSchema == nil {
+		schema, err := compileOutputSchema(s.OutputSchema)
+		if err != nil {
+			return nil, err
+		}
+		s.compiledSchema = schema
+	}
+	return s.compiledSchema, nil
 }
 
 // View checks the turn record and rebuilds what it means now: its stop,
@@ -86,29 +100,9 @@ func (t Turn) View() (TurnView, error) {
 	return view, nil
 }
 
+// snapshotView returns a deep copy of v for a caller outside replay.
 func snapshotView(v TurnView) TurnView {
-	b, _ := json.Marshal(v)
-	var out TurnView
-	_ = json.Unmarshal(b, &out)
-	for id, tv := range v.Tools {
-		if tv.result != nil {
-			copied := out.Tools[id]
-			copied.result = new(llmclone.ToolResult(*tv.result))
-			if tv.shortened != nil {
-				copied.shortened = new(*tv.shortened)
-			}
-			out.Tools[id] = copied
-		}
-	}
-	if len(v.live) > 0 {
-		out.live = make(map[string]ContextItem, len(v.live))
-		for k, item := range v.live {
-			out.live[k] = cloneContextItem(item)
-		}
-	}
-	out.acted = maps.Clone(v.acted)
-	out.usedContextIDs = maps.Clone(v.usedContextIDs)
-	return out
+	return v.clone()
 }
 
 func replay(t Turn) (*replayState, error) {
@@ -116,6 +110,16 @@ func replay(t Turn) (*replayState, error) {
 }
 
 func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
+	s, err := replaySteps(t, cache)
+	if err != nil {
+		return nil, err
+	}
+	return s.finish(t)
+}
+
+// replaySteps checks and applies every step of t, without the totals and
+// pending work that finish derives.
+func replaySteps(t Turn, cache *contextValidationCache) (*replayState, error) {
 	if cache.states == nil {
 		cache.states = map[int64]*replayState{}
 	}
@@ -143,39 +147,50 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 	if t.ID == "" {
 		return nil, fmt.Errorf("%w: empty ID", ErrInvalidTurn)
 	}
-	for i, step := range t.Steps {
+	if err := s.applySteps(t.Steps); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// applySteps checks and applies steps, which follow the LastSeq steps s
+// has applied. On an error s is left part-applied and must be dropped.
+func (s *replayState) applySteps(steps []Step) error {
+	cache := s.contextCache
+	for _, step := range steps {
+		i := int(s.LastSeq)
 		if _, err := json.Marshal(step); err != nil {
-			return nil, fmt.Errorf(
+			return fmt.Errorf(
 				"%w: step %d cannot serialize: %v",
 				ErrInvalidTurn,
 				i+1,
 				err,
 			)
 		}
-		if step.Version != 1 || step.TurnID != t.ID || step.Seq != int64(i+1) {
-			return nil, fmt.Errorf("%w: invalid step header at %d", ErrInvalidTurn, i+1)
+		if step.Version != 1 || step.TurnID != s.ID || step.Seq != int64(i+1) {
+			return fmt.Errorf("%w: invalid step header at %d", ErrInvalidTurn, i+1)
 		}
 		if err := validateStepPayload(step); err != nil {
-			return nil, fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
+			return fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
 		}
 		if step.CommandID != "" {
 			if step.CommandHash == "" {
-				return nil, fmt.Errorf("%w: command hash missing", ErrInvalidTurn)
+				return fmt.Errorf("%w: command hash missing", ErrInvalidTurn)
 			}
 			if old, ok := s.commandHashes[step.CommandID]; ok &&
 				old != step.CommandHash {
-				return nil, ErrCommandIDReused
+				return ErrCommandIDReused
 			}
 			s.commandHashes[step.CommandID] = step.CommandHash
 		}
 		if i == 0 && step.Kind != StepTurnStarted {
-			return nil, fmt.Errorf("%w: first step is not start", ErrInvalidTurn)
+			return fmt.Errorf("%w: first step is not start", ErrInvalidTurn)
 		}
 		if i > 0 && step.Kind == StepTurnStarted {
-			return nil, fmt.Errorf("%w: duplicate start", ErrInvalidTurn)
+			return fmt.Errorf("%w: duplicate start", ErrInvalidTurn)
 		}
 		if err := s.apply(step); err != nil {
-			return nil, fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
+			return fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
 		}
 		s.Warnings = append(s.Warnings, step.Warnings...)
 		if recordsActiveHooks(step) {
@@ -185,7 +200,7 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 		s.trackContext(step)
 		s.trackHooks(step)
 		if err := s.trackIDs(step); err != nil {
-			return nil, fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
+			return fmt.Errorf("%w: step %d: %v", ErrInvalidTurn, i+1, err)
 		}
 		if !s.awaitingClassification {
 			s.deliveredOnKept = 0
@@ -195,6 +210,12 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 			cache.states[step.Seq] = s.viewSnapshot()
 		}
 	}
+	return nil
+}
+
+// finish derives what the applied steps of t mean now: argument hashes,
+// pending work, reply, spend, and whether the turn can continue.
+func (s *replayState) finish(t Turn) (*replayState, error) {
 	// Derive ArgsHash from the final status, so no transition out of
 	// approval can leave a stale hash behind.
 	for id, v := range s.Tools {
@@ -219,7 +240,7 @@ func replayCached(t Turn, cache *contextValidationCache) (*replayState, error) {
 		// but the reply is fixed there, as TurnMessagesFull's messages are.
 		prefix := t
 		prefix.Steps = t.Steps[:end]
-		ended, err := replayCached(prefix, cache)
+		ended, err := replayCached(prefix, s.contextCache)
 		if err != nil {
 			return nil, err
 		}

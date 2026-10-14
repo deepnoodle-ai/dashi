@@ -482,7 +482,7 @@ func (r *runtime) refuseCancel(c Cancel) {
 // it. A turn whose output was recorded before the Cancel took effect
 // cannot be canceled: the Cancel is refused and the turn completes.
 func (r *runtime) cancelStop(c Cancel) RunResult {
-	state, err := replay(r.turn)
+	state, err := r.replay()
 	if err == nil && state.Output != nil {
 		r.refuseCancel(c)
 		return r.completeReply(state)

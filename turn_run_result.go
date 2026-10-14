@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -189,4 +190,16 @@ func commitError(step Step, err error) *CommitError {
 		}
 	}
 	return out
+}
+
+// clone returns a deep copy of p.
+func (p Pending) clone() Pending {
+	p.Args = slices.Clone(p.Args)
+	if p.Tool != nil {
+		p.Tool = new(p.Tool.clone())
+	}
+	if p.ProviderTool != nil {
+		p.ProviderTool = new(p.ProviderTool.Clone())
+	}
+	return p
 }

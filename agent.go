@@ -273,3 +273,34 @@ func agentChanged(agent, recorded Agent) error {
 func sameAgent(a, b Agent) bool {
 	return canonjson.SameValue(a, b)
 }
+
+// clone returns a deep copy of a.
+func (a Agent) clone() Agent {
+	a.Settings = cloneSettings(a.Settings)
+	a.OutputSchema = slices.Clone(a.OutputSchema)
+	a.Tools = slices.Clone(a.Tools)
+	if a.ActiveCompaction != nil {
+		a.ActiveCompaction = new(*a.ActiveCompaction)
+	}
+	return a
+}
+
+// cloneSettings returns a deep copy of s.
+func cloneSettings(s llm.Settings) llm.Settings {
+	if s.Temperature != nil {
+		s.Temperature = new(*s.Temperature)
+	}
+	if s.Reasoning != nil {
+		s.Reasoning = new(*s.Reasoning)
+	}
+	if s.ReasoningSummary != nil {
+		s.ReasoningSummary = new(*s.ReasoningSummary)
+	}
+	if s.ToolChoice != nil {
+		s.ToolChoice = new(*s.ToolChoice)
+	}
+	if s.ParallelTools != nil {
+		s.ParallelTools = new(*s.ParallelTools)
+	}
+	return s
+}

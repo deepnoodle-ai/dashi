@@ -65,6 +65,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llm.Usage.Copy` is now `llm.Usage.Clone`**, matching every other deep
   copy in the library.
 
+### Changed
+
+- **Long tool-calling turns run much faster.** A Run and the
+  `MemoryRecorder` now rebuild a turn's state from only the steps added
+  since the last rebuild, instead of replaying the whole record after each
+  tool call and commit, and views given to hooks are copied directly rather
+  than through JSON. A 396-step turn runs about 18x faster (8.0s to 0.44s
+  in the benchmark). `Turn.View` still replays the whole record.
+
 ### Removed
 
 - **The CLI no longer prints the instructions and skill counts at startup.**
