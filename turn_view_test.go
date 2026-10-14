@@ -3,7 +3,9 @@ package dashi
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -123,5 +125,50 @@ func TestTurnViewInputIsACopy(t *testing.T) {
 	}
 	if got := out.Turn.Steps[0].Started.Input[0].Text(); got != "do it" {
 		t.Fatalf("recorded input = %q", got)
+	}
+}
+
+// Views, events, and hook plans carry snake_case JSON keys that match their
+// field names, like the step facts they are built from.
+func TestViewJSONTags(t *testing.T) {
+	for _, v := range []any{
+		TurnView{}, ToolView{}, RunResult{}, Event{}, ToolProgress{},
+		ModelPlan{}, ModelDecision{}, SendPlan{}, SendDecision{},
+		ToolPlan{}, ToolDecision{}, ResultPlan{}, ResultDecision{},
+		FinishPlan{}, FinishDecision{},
+	} {
+		typ := reflect.TypeOf(v)
+		for f := range typ.Fields() {
+			if !f.IsExported() || f.Anonymous {
+				continue
+			}
+			tag, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+			if tag == "" {
+				t.Errorf("%s.%s has no json tag", typ.Name(), f.Name)
+			}
+		}
+	}
+
+	view := TurnView{ID: "t1", ModelCalls: 2, ReadyToContinue: true,
+		Tools: map[string]ToolView{"c1": {Status: ToolStarted}}}
+	raw, err := json.Marshal(RunResult{Turn: Turn{ID: "t1"}, TurnView: view})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		`"turn":`, `"model_calls":2`, `"ready_to_continue":true`,
+		`"status":"started"`,
+	} {
+		if !strings.Contains(string(raw), key) {
+			t.Errorf("RunResult JSON lacks %s: %s", key, raw)
+		}
+	}
+	var decoded RunResult
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.ModelCalls != 2 || !decoded.ReadyToContinue ||
+		decoded.Tools["c1"].Status != ToolStarted {
+		t.Fatalf("decoded %+v", decoded.TurnView)
 	}
 }

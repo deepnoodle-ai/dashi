@@ -22,12 +22,12 @@ import (
 // spend, pending work, and per-call state without calling Turn.View.
 type RunResult struct {
 	// Turn is the record to pass to the next Run.
-	Turn Turn
+	Turn Turn `json:"turn"`
 	TurnView
 	// SessionWarnings holds warnings that no turn records, which a host
 	// built on Runner adds: package session reports its own there, and
 	// those of BuildHistory. Runner.Run leaves it empty.
-	SessionWarnings []Warning
+	SessionWarnings []Warning `json:"session_warnings,omitempty"`
 }
 
 // PendingKind classifies what a stopped turn waits on.
