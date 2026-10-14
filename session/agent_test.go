@@ -196,3 +196,33 @@ func TestCompleteSettingsDoNotChangeRecordedContinuation(t *testing.T) {
 		t.Fatalf("continuation changed recorded agent: %+v", out.Agent)
 	}
 }
+
+// A carried NoInheritedSettings marks the recorded set as complete; it does
+// not stop later layers' partial settings from merging over that set.
+func TestCompleteSettingsAllowLaterPartialSettings(t *testing.T) {
+	client := dashitest.NewClient(dashitest.Reply("1"), dashitest.Reply("2"), dashitest.Reply("3"), dashitest.Reply("4"))
+	s := handle(dashi.NewMemoryRecorder(), client)
+	s.New = true
+	s.Agent.Settings = priorGenerationSettings()
+	steps := []struct {
+		agent dashi.Agent
+		want  llm.Settings
+	}{
+		{agent: dashi.Agent{NoInheritedSettings: true}, want: llm.Settings{}},
+		{agent: dashi.Agent{Settings: llm.Settings{MaxTokens: 2000}}, want: llm.Settings{MaxTokens: 2000}},
+		{agent: dashi.Agent{Settings: llm.Settings{Temperature: new(0.0)}}, want: llm.Settings{MaxTokens: 2000, Temperature: new(0.0)}},
+	}
+	if _, err := s.Send(t.Context(), "old"); err != nil {
+		t.Fatal(err)
+	}
+	for i, step := range steps {
+		s.Agent = step.agent
+		out, err := s.Send(t.Context(), "next")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(out.Agent.Settings, step.want) || !reflect.DeepEqual(client.Inputs()[i+1].Settings, step.want) {
+			t.Fatalf("turn %d settings=%+v, want %+v", i+2, out.Agent.Settings, step.want)
+		}
+	}
+}

@@ -261,21 +261,31 @@ func (s *Session) enqueue(item dashi.ContextItem) Queued {
 	return q
 }
 
-// moveLeftovers appends to the queue, in order, the steers the inbox holds
-// that turn never recorded, once the turn has ended or was closed. A host
-// source releases its own. The caller holds mu.
+// moveLeftovers moves to the queue, in order, the steers the inbox holds
+// that turn never recorded, once the turn has ended or was closed. They
+// were sent while the turn ran, so they go ahead of the free items, which
+// were queued after it stopped, and behind the items an earlier Start
+// reserved. A host source releases its own. The caller holds mu.
 func (s *Session) moveLeftovers(turn dashi.Turn) {
 	in, ok := s.currentInbox().(*dashi.MemoryInbox)
 	if !ok {
 		return
 	}
 	left, err := in.Leftovers(turn)
-	if err != nil {
+	if err != nil || len(left) == 0 {
 		return
 	}
-	for _, steer := range left {
-		s.queue = append(s.queue, &queuedItem{item: steer.Item})
+	items := make([]*queuedItem, len(left))
+	for i, steer := range left {
+		items[i] = &queuedItem{item: steer.Item}
 	}
+	at := slices.IndexFunc(s.queue, func(q *queuedItem) bool {
+		return q.reserved == nil
+	})
+	if at < 0 {
+		at = len(s.queue)
+	}
+	s.queue = slices.Insert(s.queue, at, items...)
 }
 
 func fromUser(item dashi.ContextItem) bool {

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -233,9 +234,11 @@ func (s *Session) Send(
 // Resolve records each dashi.Resolve command, then runs one Continue, so a
 // host resolves a waiting turn's pending work in one call; the record keeps
 // a step per Resolve. It stops at the first Resolve error. A Resolve without
-// a command ID gets "resolve:" and its CallID, as Pending's builders derive
-// theirs from the call, and the Continue's command ID derives from theirs,
-// so a retried Resolve is recognized. Each run gets opts, as Run's would:
+// a command ID gets one from its fact and call, as Pending's builders derive
+// theirs ("approval:", "result:", "provider-tool-approval:", or "model:"
+// and the call ID), so a call's approval and its later result get
+// different ones, and the Continue's command ID derives from theirs, so a
+// retried Resolve is recognized. Each run gets opts, as Run's would:
 // WithOwner for a leasing host, WithObserver for a live view of the
 // Continue.
 func (s *Session) Resolve(
@@ -245,10 +248,8 @@ func (s *Session) Resolve(
 ) (dashi.RunResult, error) {
 	ids := make([]string, 0, len(answers))
 	for _, answer := range answers {
-		if answer.CommandID == "" && answer.CallID != "" {
-			// Call IDs are unique within a turn, and command IDs are
-			// scoped to their turn.
-			answer.CommandID = "resolve:" + answer.CallID
+		if answer.CommandID == "" {
+			answer.CommandID = resolveID(answer)
 		}
 		if answer.CommandID == "" {
 			// The Continue's command ID derives from this one.
@@ -264,6 +265,32 @@ func (s *Session) Resolve(
 		next.CommandID = "resolve:" + strings.Join(ids, ",")
 	}
 	return s.Run(ctx, next, opts...)
+}
+
+// resolveID derives a command ID for a Resolve without one from its fact
+// and call. Call IDs are unique within a turn, and command IDs are scoped
+// to their turn. It returns "" when the Resolve names no call.
+func resolveID(r dashi.Resolve) string {
+	call := r.CallID
+	var kind string
+	switch {
+	case r.Approval != nil:
+		kind = "approval:"
+	case r.Outcome != nil:
+		kind = "result:"
+	case r.ProviderToolApproval != nil:
+		kind = "provider-tool-approval:"
+		call = cmp.Or(call, r.ProviderToolApproval.RequestID)
+	case r.ModelResult != nil, r.ModelFailure != nil:
+		kind = "model:"
+	default:
+		// The engine refuses a Resolve without a fact.
+		kind = "resolve:"
+	}
+	if call == "" {
+		return ""
+	}
+	return kind + call
 }
 
 // Run applies one command to the session. A Start opens the next turn,
