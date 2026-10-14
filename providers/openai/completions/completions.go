@@ -395,7 +395,7 @@ func (wire codec) validateOutput(
 	found := false
 	for _, part := range result.Message.Content {
 		if part.ToolCall != nil ||
-			part.Opaque != nil && part.Opaque.Type == "tool_call" {
+			(part.Opaque != nil && part.Opaque.Type == "tool_call") {
 			return providerhttp.Failure(
 				wire.provider,
 				llm.ErrorProtocol,

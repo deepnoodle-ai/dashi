@@ -43,8 +43,9 @@ For independent public reasoning-summary requests, see
 
 For a direct call that needs one JSON object, set `llm.Input.OutputSchema`.
 The Responses and Chat Completions clients send OpenAI's strict JSON Schema
-format, then check the finished reply locally. `Result.Output` contains the validated JSON object;
-`Result.Message` and `Result.Raw` still describe the provider response.
+format, then check the finished reply locally. `Result.Output` contains the
+validated JSON object; `Result.Message` and `Result.Raw` still describe the
+provider response.
 
 ```go
 schema := json.RawMessage(`{

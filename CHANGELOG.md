@@ -107,8 +107,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   replays as the assistant's `refusal` field to OpenAI and as assistant text
   to compatible services.
 - **Chat Completions streams accept `reasoning_details`.** OpenRouter's
-  structured reasoning now streams instead of failing the call, and the
-  result carries the same replayable content a complete response does.
+  structured reasoning now streams instead of failing the call. Fragments of
+  one reasoning item are merged by `index`, so the result carries the same
+  replayable content a complete response does.
 
 ## [0.8.0] - 2026-10-13
 

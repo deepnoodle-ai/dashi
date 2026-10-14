@@ -118,10 +118,12 @@ func TestRefusalReplaysAsAssistantMessage(t *testing.T) {
 }
 
 func TestStreamedReasoningDetailsMatchCompleteResponse(t *testing.T) {
-	complete := `{"id":"r","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"answer","reasoning":"think","reasoning_details":[{"type":"reasoning.text","text":"thi","index":0},{"type":"reasoning.text","text":"nk","index":0}]},"finish_reason":"stop"}]}`
+	complete := `{"id":"r","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"answer","reasoning":"think","reasoning_details":[{"type":"reasoning.text","text":"think","index":0,"signature":"sig"},{"type":"reasoning.encrypted","data":"abc","index":1}]},"finish_reason":"stop"}]}`
 	streamed := dialectEvents(
 		`{"id":"r","model":"m","choices":[{"index":0,"delta":{"role":"assistant","reasoning":"thi","reasoning_details":[{"type":"reasoning.text","text":"thi","index":0}]}}]}`,
-		`{"choices":[{"index":0,"delta":{"reasoning":"nk","reasoning_details":[{"type":"reasoning.text","text":"nk","index":0}]}}]}`,
+		`{"choices":[{"index":0,"delta":{"reasoning":"nk","reasoning_details":[{"type":"reasoning.text","text":"nk","index":0,"signature":null}]}}]}`,
+		`{"choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.text","text":"","index":0,"signature":"sig"},{"type":"reasoning.encrypted","data":"ab","index":1}]}}]}`,
+		`{"choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.encrypted","data":"c","index":1}]}}]}`,
 		`{"choices":[{"index":0,"delta":{"content":"answer","reasoning_details":null}}]}`,
 		`{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
 	)
@@ -145,7 +147,8 @@ func TestStreamedReasoningDetailsMatchCompleteResponse(t *testing.T) {
 			t.Fatalf("details: stream %s complete %s", g.Opaque.Raw, w.Opaque.Raw)
 		}
 	}
-	// The streamed details replay verbatim as one array.
+	// Fragments sharing an index replay as one merged item; separate
+	// indexes stay separate.
 	details := got.Message.Content[1]
 	encoded, err := codec{origin: details.Opaque.Origin, provider: "openai"}.encodeMessage(
 		llm.Message{Role: llm.RoleAssistant, Content: []llm.Content{details}},
@@ -154,7 +157,7 @@ func TestStreamedReasoningDetailsMatchCompleteResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	if replay := completionsJSON(t, encoded[0].(map[string]any)["reasoning_details"]); replay !=
-		`[{"type":"reasoning.text","text":"thi","index":0},{"type":"reasoning.text","text":"nk","index":0}]` {
+		`[{"type":"reasoning.text","text":"think","index":0,"signature":"sig"},{"type":"reasoning.encrypted","data":"abc","index":1}]` {
 		t.Fatalf("replayed details = %s", replay)
 	}
 }
