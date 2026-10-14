@@ -29,9 +29,10 @@ model-free stand-in compaction turns use, and the turn goes on.
   not spent. Every other failure, and a failed retry, falls back.
 - The fallback replaces the covered messages with
   `compactiontext.Fallback`: the fallback note, then the user's messages, the
-  tools called, and the last reply, cut to the summary's output allowance in
-  bytes. If that does not make the next request smaller, the note alone
-  stands in.
+  tools called, and the last reply, cut to half the summary's output
+  allowance, converted to bytes, as for compaction turns
+  (`compactiontext.FallbackBudget`). If that does not make the next
+  request smaller, the note alone stands in.
 - The step that applies it records `WarningSummaryFallback`, so the turn's
   `RunResult` and view say it happened.
 - Whether the shortened request fits the window is the next request's

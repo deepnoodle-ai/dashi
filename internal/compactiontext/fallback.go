@@ -12,6 +12,17 @@ import (
 // IsSummary recognizes it.
 const FallbackNote = "Your conversation history was shortened without a summary."
 
+// BytesPerToken converts encoded size to a rough token estimate, and a
+// token allowance to a byte budget.
+const BytesPerToken = 4
+
+// FallbackBudget is the byte budget of a summary fallback that stands in
+// for a summary of at most maxTokens output tokens: the half of them a
+// summary is asked to aim for, in bytes.
+func FallbackBudget(maxTokens int) int {
+	return maxTokens / 2 * BytesPerToken
+}
+
 // EmptyFallback is the stand-in replayed for a compaction turn that ended
 // without a summary and recorded no fallback of its own.
 const EmptyFallback = FallbackNote + " The earlier messages were removed." +

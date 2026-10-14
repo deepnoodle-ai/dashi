@@ -5,18 +5,17 @@ import (
 	"math"
 	"slices"
 
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
+
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/contentsrc"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
-// bytesPerToken converts encoded size to a token estimate. The estimate is
-// rough and only guides where to cut.
-const bytesPerToken = 4
-
 // estimate returns a rough token count for one message: its encoded size,
-// plus the inline size of media it references, over bytesPerToken. It
-// saturates at math.MaxInt instead of overflowing.
+// plus the inline size of media it references, over
+// compactiontext.BytesPerToken. It saturates at math.MaxInt instead of
+// overflowing.
 func estimate(m llm.Message) int {
 	m.Context = nil
 	b, _ := json.Marshal(m)
@@ -46,7 +45,7 @@ func estimate(m llm.Message) int {
 			size += wire
 		}
 	}
-	return size/bytesPerToken + 1
+	return size/compactiontext.BytesPerToken + 1
 }
 
 // estimateAll returns the estimate of messages, saturating at math.MaxInt.

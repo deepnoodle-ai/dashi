@@ -45,7 +45,7 @@ func TestStartFallbackWithinHalfTheAllowance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	limit := s.Agent.Settings.MaxTokens / 2 * bytesPerToken
+	limit := s.Agent.Settings.MaxTokens / 2 * compactiontext.BytesPerToken
 	if got := len(s.Compaction.SummaryFallback); got > limit+500 {
 		t.Fatalf("fallback is %d bytes; limit %d", got, limit)
 	}

@@ -174,7 +174,7 @@ func (c *Compactor) start(messages []llm.Message, p plan) (dashi.Start, error) {
 			SummaryAt:       len(kept),
 			Frame:           summaryFrame,
 			Hash:            hash,
-			SummaryFallback: compactiontext.Fallback(p.covered, removed, p.allowance/2*bytesPerToken),
+			SummaryFallback: compactiontext.Fallback(p.covered, removed, compactiontext.FallbackBudget(p.allowance)),
 		},
 	}, nil
 }

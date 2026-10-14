@@ -98,7 +98,7 @@ func (r *runtime) compactWithoutSummary(s *replayState, modelCall, cause string)
 	}
 	fact := ContextCompactionFact{
 		ModelCallID:     modelCall,
-		SummaryFallback: compactiontext.Fallback(covered, len(covered), r.summaryMaxTokens(r.agent.Settings.MaxTokens)),
+		SummaryFallback: compactiontext.Fallback(covered, len(covered), compactiontext.FallbackBudget(r.summaryMaxTokens(r.agent.Settings.MaxTokens))),
 	}
 	after, err := r.activeEstimate(plan, fact)
 	if err != nil || after >= plan.EstimatedBefore {
