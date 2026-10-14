@@ -83,6 +83,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `/tasks`, `/attach`, or an alias such as `/q`, are now reported by
   `/resources` as shadowed by the built-in, and a skill can no longer take
   a built-in alias's name in the command list.
+- A turn whose structured output was recorded now completes when
+  `Limits.Deadline` passes before its stop is written, instead of stopping
+  `limited` at the deadline. This holds both in the running worker and in
+  `Runner.Advance` after a worker died between the output and its stop. A
+  late `Cancel` already behaved this way.
+- `Runner.Advance` and `Runner.Drive` now end a turn that recorded an
+  interruption at its `Limits.Resumes` limit: they run the `Continue` that
+  records the `resumes` limit, as they already did for a crashed turn out of
+  resumes. Before, the turn stayed at `NextFix` and `Drive` waited on it.
 
 ## [0.8.0] - 2026-10-13
 

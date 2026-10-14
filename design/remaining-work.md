@@ -378,8 +378,6 @@ items above; hook state has a deferred design in the linked document.
 
 - **Hook state (hooks part 2c).** Deferred from decision 31; see
   [AfterTool hooks](hooks-after-tool.md).
-- **Output, then a deadline.** A turn whose structured output is recorded
-  stops `limited` at the deadline instead of completing.
 - **Tool-argument deltas** carry no byte offset or call ID.
 - **Messages after a paused provider tool call.** A `BeforeModel` hook's
   `AddMessages`, or a host `AddMessages` while paused, can land after an

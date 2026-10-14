@@ -73,9 +73,10 @@ applies the commands waiting in the inbox, and runs until the turn must wait.
 - Apply inbox commands in order. `Cancel` wins and ends the pass.
   `Resolve`, `AddMessages`, and a raising `Continue` apply as today.
 - If `Next()` is `NextContinue`, or `NextRecover` with `ReadyToContinue`,
-  run a `Continue`. If the turn is held by a host limit without `Ends`, ask
-  first (decision 4). Otherwise record a stop if the last step is not one
-  (decision 5) and return.
+  run a `Continue`. A turn out of resumes (crashed or interrupted) also gets
+  the `Continue`, which records the `resumes` limit and ends it. If the turn
+  is held by a host limit without `Ends`, ask first (decision 4). Otherwise
+  record a stop if the last step is not one (decision 5) and return.
 - Repeat while the inbox had something new. Advance never continues from a
   stop it recorded itself in the same call unless an input arrived after it,
   so a turn that cannot progress returns instead of spinning.

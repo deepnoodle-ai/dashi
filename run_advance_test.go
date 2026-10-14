@@ -376,6 +376,23 @@ func TestDriveReturnsWhenContextEnds(t *testing.T) {
 	}
 }
 
+// A turn interrupted at its resume limit has a recorded stop and gives
+// NextFix; Advance ends it with the Continue that records the limit, as it
+// does for a crashed turn out of resumes.
+func TestAdvanceEndsAnInterruptedTurnOutOfResumes(t *testing.T) {
+	rec, turn := interruptionLimitedHistoryTurn(t, nil)
+	if view, _ := turn.View(); view.Next() != NextFix {
+		t.Fatalf("next = %s", view.Next())
+	}
+	client := &scriptedClient{}
+	out, err := (Runner{Client: client, Recorder: rec}).Advance(t.Context(), turn.ID)
+	if err != nil || out.Stop.Limit == nil ||
+		out.Stop.Limit.Kind != LimitResumes || !out.Stop.Ended ||
+		out.Next() != NextNone || client.sends != 0 {
+		t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
+	}
+}
+
 func TestAdvanceRecordsDeadlineStop(t *testing.T) {
 	agent := testAgent()
 	client := &scriptedClient{}
@@ -388,6 +405,35 @@ func TestAdvanceRecordsDeadlineStop(t *testing.T) {
 	if err != nil || out.Stop.Limit == nil || out.Stop.Limit.Kind != LimitDeadline ||
 		!out.Stop.Ended || client.sends != 0 {
 		t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
+	}
+}
+
+// A worker that recorded output and died before its stop leaves the turn
+// open. Advance past the deadline completes it with that output.
+func TestAdvancePastDeadlineCompletesRecordedOutput(t *testing.T) {
+	agent := structuredAgent()
+	agent.Limits.Deadline = time.Now().Add(time.Second)
+	rec := &hookRecorder{
+		MemoryRecorder: NewMemoryRecorder(),
+		before:         failOnce(StepTurnStopped),
+	}
+	client := &scriptedClient{
+		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
+	}
+	runner := Runner{Client: client, Recorder: rec}
+	if _, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Agent:     agent,
+		Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
+	}); err == nil {
+		t.Fatal("stop commit did not fail")
+	}
+	time.Sleep(time.Until(agent.Limits.Deadline) + 10*time.Millisecond)
+	out, err := runner.Advance(t.Context(), "t1")
+	if err != nil || out.Stop.Kind != StopCompleted || out.Output == nil ||
+		client.sends != 1 {
+		t.Fatalf("stop=%+v output=%v sends=%d err=%v",
+			out.Stop, out.Output, client.sends, err)
 	}
 }
 
