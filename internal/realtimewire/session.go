@@ -167,8 +167,9 @@ func (s *Session) read(ctx context.Context) (map[string]any, error) {
 	return m, nil
 }
 func (s *Session) Send(ctx context.Context, c realtime.Command) error {
+	// An expired call context before any I/O leaves the socket intact, so the
+	// session stays usable. A write cut off mid-frame below does close it.
 	if ctx.Err() != nil {
-		s.Close()
 		return realtime.Fail(realtime.ErrorCanceled)
 	}
 	s.writeMu.Lock()
@@ -282,8 +283,8 @@ func (s *Session) call(id, name string, args any, response, item string) error {
 	return s.enqueue(realtime.Event{Kind: realtime.EventToolCall, ResponseID: response, ItemID: item, ToolCall: &realtime.ToolCall{ID: id, Name: name, Arguments: b}})
 }
 func (s *Session) Receive(ctx context.Context) (realtime.Event, error) {
+	// As in Send, an expired call context before any read keeps the session.
 	if ctx.Err() != nil {
-		s.Close()
 		return realtime.Event{}, realtime.Fail(realtime.ErrorCanceled)
 	}
 	s.readMu.Lock()
@@ -498,7 +499,9 @@ func (s *Session) grok(m map[string]any) error {
 		e.ResponseID = str(object(m, "response"), "id")
 	case "input_audio_buffer.speech_started":
 		e.Kind = realtime.EventSpeechStarted
-		if s.response != "" {
+		// Speech interrupts only a response still in progress, not one that
+		// response.done already finished.
+		if s.active && s.response != "" {
 			if err := s.enqueue(realtime.Event{Kind: realtime.EventInterrupted, ResponseID: s.response}); err != nil {
 				return err
 			}

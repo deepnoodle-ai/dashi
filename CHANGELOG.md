@@ -20,6 +20,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **The CLI no longer prints the instructions and skill counts at startup.**
   `/resources` still shows sources and access scopes.
 
+### Fixed
+
+- Grok voice no longer emits `EventInterrupted` when the user starts
+  speaking after a response has already finished; only a response still in
+  progress is interrupted.
+- Realtime `Send` and `Receive` called with an already-expired context
+  return `ErrorCanceled` and leave the session open. A write or read that
+  the context cuts off partway still closes the session.
+- `realtime.Error.Error()` now includes `Code` and `Cause` when set.
+
 ## [0.8.0] - 2026-10-13
 
 ### Added

@@ -311,7 +311,6 @@ func TestGrokCancellationOwnsOnlyCanceledResponseTools(t *testing.T) {
 	next(t, s, realtime.EventResponseStarted)
 	next(t, s, realtime.EventToolCall)
 	next(t, s, realtime.EventResponseCompleted)
-	next(t, s, realtime.EventInterrupted)
 	next(t, s, realtime.EventSpeechStarted)
 	next(t, s, realtime.EventResponseStarted)
 	next(t, s, realtime.EventToolCall)
@@ -346,4 +345,33 @@ func TestGeminiOutputTranscriptBoundsAccumulatedText(t *testing.T) {
 	if _, err := s.Receive(context.Background()); err == nil {
 		t.Fatal("accepted accumulated transcript above limit")
 	}
+}
+
+func TestGrokSpeechInterruptsOnlyActiveResponse(t *testing.T) {
+	s, _ := connect(t, false, fake(`{"type":"session.updated"}`, `{"type":"response.created","response":{"id":"r1"}}`, `{"type":"response.done","response":{"id":"r1","status":"completed"}}`, `{"type":"input_audio_buffer.speech_started"}`, `{"type":"response.created","response":{"id":"r2"}}`, `{"type":"input_audio_buffer.speech_started"}`))
+	next(t, s, realtime.EventResponseStarted)
+	next(t, s, realtime.EventResponseCompleted)
+	next(t, s, realtime.EventSpeechStarted) // r1 finished: no interruption.
+	next(t, s, realtime.EventResponseStarted)
+	if e := next(t, s, realtime.EventInterrupted); e.ResponseID != "r2" {
+		t.Fatalf("interrupted %q, want r2", e.ResponseID)
+	}
+	next(t, s, realtime.EventSpeechStarted)
+}
+
+func TestExpiredCallContextKeepsSession(t *testing.T) {
+	s, _ := connect(t, false, fake(`{"type":"session.updated"}`, `{"type":"response.created","response":{"id":"r1"}}`))
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+	var re *realtime.Error
+	if err := s.Send(expired, realtime.Command{Kind: realtime.CommandText, Text: "hi"}); !errors.As(err, &re) || re.Category != realtime.ErrorCanceled {
+		t.Fatalf("send error %v, want canceled", err)
+	}
+	if _, err := s.Receive(expired); !errors.As(err, &re) || re.Category != realtime.ErrorCanceled {
+		t.Fatalf("receive error %v, want canceled", err)
+	}
+	if err := s.Send(context.Background(), realtime.Command{Kind: realtime.CommandText, Text: "hi"}); err != nil {
+		t.Fatalf("session closed by expired call context: %v", err)
+	}
+	next(t, s, realtime.EventResponseStarted)
 }
