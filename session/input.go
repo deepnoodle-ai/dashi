@@ -31,6 +31,16 @@ type Queued struct {
 type queuedItem struct {
 	item     dashi.ContextItem
 	reserved *reservation
+	// seq is the item's arrival number (see Session.seq).
+	seq uint64
+}
+
+// sentSteer is a steer this handle sent to a running turn: the turn and
+// the steer's arrival number, which places it in the queue if the turn
+// misses it.
+type sentSteer struct {
+	turn string
+	seq  uint64
 }
 
 // reservation marks queued items a Start carries: the Start's command ID
@@ -93,6 +103,11 @@ func (s *Session) SteerItem(ctx context.Context, steer dashi.Steer) (Queued, err
 	if _, err := in.Send(steer); err != nil {
 		return Queued{}, err
 	}
+	if s.sent == nil {
+		s.sent = map[string]sentSteer{}
+	}
+	s.seq++
+	s.sent[item.ID] = sentSteer{turn: s.driving, seq: s.seq}
 	return Queued{ID: item.ID, TurnID: s.driving}, nil
 }
 
@@ -247,7 +262,8 @@ func (s *Session) newItem(item dashi.ContextItem) (dashi.ContextItem, error) {
 
 // enqueue appends an item. The caller holds mu.
 func (s *Session) enqueue(item dashi.ContextItem) Queued {
-	s.queue = append(s.queue, &queuedItem{item: item})
+	s.seq++
+	s.queue = append(s.queue, &queuedItem{item: item, seq: s.seq})
 	q := Queued{ID: item.ID}
 	if r := s.Runner.Recorder; r != nil {
 		if _, ok := r.(*dashi.MemoryRecorder); !ok {
@@ -262,30 +278,38 @@ func (s *Session) enqueue(item dashi.ContextItem) Queued {
 }
 
 // moveLeftovers moves to the queue, in order, the steers the inbox holds
-// that turn never recorded, once the turn has ended or was closed. They
-// were sent while the turn ran, so they go ahead of the free items, which
-// were queued after it stopped, and behind the items an earlier Start
-// reserved. A host source releases its own. The caller holds mu.
+// that turn never recorded, once the turn has ended or was closed. Each
+// goes where it arrived: behind the free items queued before it was sent,
+// ahead of those queued after, and always behind the items an earlier Start
+// reserved. A steer sent to the inbox directly, not through this handle,
+// has no arrival number and follows the steer before it, or goes ahead of
+// the free items. A host source releases its own. The caller holds mu.
 func (s *Session) moveLeftovers(turn dashi.Turn) {
 	in, ok := s.currentInbox().(*dashi.MemoryInbox)
 	if !ok {
 		return
 	}
 	left, err := in.Leftovers(turn)
-	if err != nil || len(left) == 0 {
-		return
+	var seq uint64
+	for _, steer := range left {
+		if sent, ok := s.sent[steer.Item.ID]; ok {
+			seq = sent.seq
+		}
+		at := slices.IndexFunc(s.queue, func(q *queuedItem) bool {
+			return q.reserved == nil && q.seq > seq
+		})
+		if at < 0 {
+			at = len(s.queue)
+		}
+		s.queue = slices.Insert(s.queue, at, &queuedItem{item: steer.Item, seq: seq})
 	}
-	items := make([]*queuedItem, len(left))
-	for i, steer := range left {
-		items[i] = &queuedItem{item: steer.Item}
+	if err == nil {
+		for id, sent := range s.sent {
+			if sent.turn == turn.ID {
+				delete(s.sent, id)
+			}
+		}
 	}
-	at := slices.IndexFunc(s.queue, func(q *queuedItem) bool {
-		return q.reserved == nil
-	})
-	if at < 0 {
-		at = len(s.queue)
-	}
-	s.queue = slices.Insert(s.queue, at, items...)
 }
 
 func fromUser(item dashi.ContextItem) bool {

@@ -42,6 +42,37 @@ func TestSessionLeftoversKeepOrder(t *testing.T) {
 	}
 }
 
+// A steer the turn missed keeps its arrival order relative to input queued
+// while the turn ran: input queued before the steer stays ahead of it.
+func TestSessionLeftoversAfterEarlierEnqueue(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := held(1, dashitest.Reply("fresh"))
+	s := handle(rec, client)
+	s.New = true
+	ctx, cancel := context.WithCancel(t.Context())
+	done := sendAsync(ctx, s, "start")
+	entered(t, client)
+	if _, err := s.Enqueue(t.Context(), "E"); err != nil {
+		t.Fatal(err)
+	}
+	if q, err := s.Steer(t.Context(), "S"); err != nil || q.TurnID != "s-1" {
+		t.Fatalf("queued=%+v err=%v", q, err)
+	}
+	cancel()
+	if r := <-done; r.err != nil || r.out.Next() != dashi.NextContinue {
+		t.Fatalf("next=%s err=%v", r.out.Next(), r.err)
+	}
+	close(client.gate.release)
+	out, err := s.Send(t.Context(), "new")
+	if err != nil || out.Turn.ID != "s-2" {
+		t.Fatalf("turn=%s err=%v", out.Turn.ID, err)
+	}
+	want := []string{"E", "S", "new"}
+	if got := input(t, rec, "s-2"); !slices.Equal(got, want) {
+		t.Fatalf("input=%q, want %q", got, want)
+	}
+}
+
 // A turn that ends when its context does, under ContextCancel, moves a
 // steer it never saw to the queue, from Run and from Stream.
 func TestSessionLeftoversAfterContextCancel(t *testing.T) {

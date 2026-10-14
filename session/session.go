@@ -79,6 +79,12 @@ type Session struct {
 	inbox *dashi.MemoryInbox
 	// queue holds input for the next turn, in order (see Enqueue).
 	queue []*queuedItem
+	// seq numbers queued items and sent steers in arrival order, so a steer
+	// that misses its turn takes its place in the queue.
+	seq uint64
+	// sent holds the steers this handle sent to running turns, by item ID,
+	// until their turn ends.
+	sent map[string]sentSteer
 	// driving is the turn a Start, Continue, or queue turn of this handle
 	// is running, which Steer reaches; empty when none runs.
 	driving string
