@@ -20,11 +20,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   reasoning, tool-argument, and usage deltas, so live views can be tested
   without a provider. The final result is unchanged.
 
-### Fixed
-
-- **`dashitest.Client.Inputs` returns independent copies.** Editing a
-  returned input no longer changes what later calls report.
-
 ### Changed (breaking)
 
 - **`mcp`: tool names longer than 64 characters change.** A name of the form
@@ -64,9 +59,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   exported fields.
 - **`llm.Usage.Copy` is now `llm.Usage.Clone`**, matching every other deep
   copy in the library.
-
-### Changed
-
 - **Long tool-calling turns run much faster.** A Run and the
   `MemoryRecorder` now rebuild a turn's state from only the steps added
   since the last rebuild, instead of replaying the whole record after each
@@ -81,6 +73,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **`dashitest.Client.Inputs` returns independent copies.** Editing a
+  returned input no longer changes what later calls report.
 - Grok voice no longer emits `EventInterrupted` when the user starts
   speaking after a response has already finished; only a response still in
   progress is interrupted.
