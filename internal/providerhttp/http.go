@@ -509,7 +509,7 @@ func Emit(sink llm.Sink, d llm.Delta) {
 		d.Content = &v
 	}
 	if d.Usage != nil {
-		d.Usage = d.Usage.Copy()
+		d.Usage = d.Usage.Clone()
 	}
 	sink(d)
 }

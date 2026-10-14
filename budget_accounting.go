@@ -24,7 +24,7 @@ func modelCallCost(
 	var reported *llm.Cost
 	if finish != nil && finish.Result != nil {
 		if finish.Result.Usage != nil {
-			usage = finish.Result.Usage.Copy()
+			usage = finish.Result.Usage.Clone()
 		}
 		reported = finish.Result.Cost
 	}
@@ -40,7 +40,7 @@ func modelCallCost(
 		(usage == nil || !usage.RequestsComplete) {
 		next := &llm.Usage{}
 		if usage != nil {
-			next = usage.Copy()
+			next = usage.Clone()
 		}
 		// Enrichment of valid recorded facts can overflow. Preserve the
 		// original usage atomically, and never price its omitted

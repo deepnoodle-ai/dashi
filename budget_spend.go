@@ -103,7 +103,7 @@ type Spend struct {
 
 // Clone copies the mutable usage and currency totals for independent use.
 func (s Spend) Clone() Spend {
-	s.Usage = *s.Usage.Copy()
+	s.Usage = *s.Usage.Clone()
 	s.Cost = maps.Clone(s.Cost)
 	s.ToolCost = maps.Clone(s.ToolCost)
 	s.UnpricedRequests = maps.Clone(s.UnpricedRequests)

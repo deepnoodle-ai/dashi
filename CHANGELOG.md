@@ -52,6 +52,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `FinishPlan.OutputErr` encodes as the string `"output_err"`.
   `SendPlan.Request` is not encoded yet, because `llm.Request` has no
   exported fields.
+- **`llm.Usage.Copy` is now `llm.Usage.Clone`**, matching every other deep
+  copy in the library.
 
 ### Removed
 

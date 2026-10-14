@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
 	"github.com/deepnoodle-ai/dashi/media"
 )
 
@@ -227,8 +228,7 @@ func allInline(refs []content.Block, mask *content.Block) bool {
 
 func encodeMultipart(fields map[string]any, refs []content.Block,
 	mask *content.Block) ([]byte, string, error) {
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
+	var keys, values []string
 	for _, key := range []string{
 		"model",
 		"prompt",
@@ -242,9 +242,30 @@ func encodeMultipart(fields map[string]any, refs []content.Block,
 		"output_compression",
 	} {
 		if value, ok := fields[key]; ok {
-			if err := writer.WriteField(key, fmt.Sprint(value)); err != nil {
-				return nil, "", err
-			}
+			keys = append(keys, key)
+			values = append(values, fmt.Sprint(value))
+		}
+	}
+	// A boundary derived from the form's values keeps the body the same for
+	// the same input.
+	var parts [][]byte
+	for _, value := range values {
+		parts = append(parts, []byte(value))
+	}
+	for _, ref := range refs {
+		parts = append(parts, ref.Image.Source.Data)
+	}
+	if mask != nil {
+		parts = append(parts, mask.Image.Source.Data)
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.SetBoundary(providerhttp.MultipartBoundary(parts...)); err != nil {
+		return nil, "", err
+	}
+	for i, key := range keys {
+		if err := writer.WriteField(key, values[i]); err != nil {
+			return nil, "", err
 		}
 	}
 	imageField := "image"

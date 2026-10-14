@@ -17,7 +17,7 @@ func LastUsage(t dashi.Turn) llm.Usage {
 		if m == nil || m.Result == nil || m.Result.Usage == nil {
 			continue
 		}
-		return *m.Result.Usage.Copy()
+		return *m.Result.Usage.Clone()
 	}
 	return llm.Usage{}
 }

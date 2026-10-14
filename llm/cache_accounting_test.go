@@ -49,7 +49,7 @@ func TestUsageOneHourWritesAreASubset(t *testing.T) {
 	}); err != nil || total.CacheCreation1hInputTokens != 5 {
 		t.Fatalf("add lost one-hour writes: %+v, %v", total, err)
 	}
-	if cp := total.Copy(); cp.CacheCreation1hInputTokens != 5 {
+	if cp := total.Clone(); cp.CacheCreation1hInputTokens != 5 {
 		t.Fatalf("copy lost one-hour writes: %+v", cp)
 	}
 	frame := Usage{CacheCreationInputTokens: 7, CacheCreation1hInputTokens: 4}

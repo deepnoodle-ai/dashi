@@ -163,7 +163,7 @@ func accountingRecord(usages ...llm.Usage) Turn {
 		callStart := interruptionModelCallStart(id)
 		callStart.Model.MessageID = id + ":message"
 		result := final("answer")
-		result.Usage = usage.Copy()
+		result.Usage = usage.Clone()
 		result.Cost = &llm.Cost{
 			Total:    amount("0.25"),
 			Currency: "USD",
@@ -306,7 +306,7 @@ func TestReplayDerivedUsageOverflowPreservesRecordedCharge(t *testing.T) {
 			if !view.Spend.UsageIncomplete || view.Spend.CostUnknown != 0 {
 				t.Fatal("valid-fact enrichment failure lost its separate signal")
 			}
-			want := tc.usage.Copy()
+			want := tc.usage.Clone()
 			want.RequestsComplete = false
 			if !reflect.DeepEqual(view.Spend.Usage, *want) {
 				t.Fatal("failed enrichment changed the valid recorded usage")

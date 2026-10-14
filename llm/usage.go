@@ -241,8 +241,8 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Copy returns a deep copy of the usage data.
-func (u *Usage) Copy() *Usage {
+// Clone returns a deep copy of the usage data.
+func (u *Usage) Clone() *Usage {
 	cp := &Usage{
 		Requests:                                maps.Clone(u.Requests),
 		RequestsComplete:                        u.RequestsComplete,
@@ -350,7 +350,7 @@ func (u *Usage) Add(other *Usage) error {
 	if err := other.Validate(); err != nil {
 		return err
 	}
-	next := u.Copy()
+	next := u.Clone()
 	for _, field := range []struct {
 		value *int
 		add   int
