@@ -177,8 +177,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   results now hold only item IDs, question keys, answers, and fixed
   messages: they no longer quote the query or the list name the model
   sent, and a failed read says "Could not read <list>." with the host's
-  error kept in `Result.Err`. `List.ID` should return a key the host
-  assigns, not outside text. Both tools read their arguments with exact,
+  error kept in `Result.Err`. Question keys and `find` keys must be short
+  identifiers (1 to 40 lowercase letters, digits, or underscores, starting
+  with a letter), so an error that names a key carries no free text, and a
+  bad type or `find` answer is not quoted back. `List.ID` should return a
+  key the host assigns, not outside text. Both tools read their arguments with exact,
   case-sensitive keys, as the runner's schema check does, so a key such as
   `"List"` no longer replaces the checked `"list"`, and a repeated key
   fails the call as invalid arguments.

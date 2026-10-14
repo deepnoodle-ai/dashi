@@ -94,7 +94,7 @@ func JudgeItems(cfg Config) (tool.Tool, error) {
 					"properties": map[string]any{
 						"key": map[string]any{
 							"type":        "string",
-							"pattern":     "^[a-z][a-z0-9_]{0,39}$",
+							"pattern":     keyPattern,
 							"description": "A short name for the question, such as billing. find and the result use it.",
 						},
 						"type": map[string]any{
@@ -272,6 +272,8 @@ func (j *judge) checkQuestions(args judgeArgs) ([]condition, error) {
 		switch {
 		case q.Key == "":
 			return nil, errors.New("Every question needs a key.")
+		case !isKey(q.Key):
+			return nil, errors.New(badKey)
 		case byKey[q.Key].Key != "":
 			return nil, fmt.Errorf("Two questions have the key %q. Give each question its own key.", q.Key)
 		case strings.TrimSpace(q.Text) == "":
@@ -283,7 +285,7 @@ func (j *judge) checkQuestions(args judgeArgs) ([]condition, error) {
 		case q.Type == typeChoice && len(q.Options) > maxOptions:
 			return nil, fmt.Errorf("Question %q has %d options; the limit is %d.", q.Key, len(q.Options), maxOptions)
 		case q.Type != typeYesNo && q.Type != typeChoice:
-			return nil, fmt.Errorf("Question %q has type %q; use yes_no or choice.", q.Key, q.Type)
+			return nil, fmt.Errorf("Question %q has an unknown type; use yes_no or choice.", q.Key)
 		}
 		for i, o := range q.Options {
 			if o == "" || slices.Contains(q.Options[:i], o) {
@@ -292,6 +294,11 @@ func (j *judge) checkQuestions(args judgeArgs) ([]condition, error) {
 		}
 		byKey[q.Key] = q
 	}
+	for key := range args.Find {
+		if !isKey(key) {
+			return nil, errors.New("Every find key must be a question key. " + badKey)
+		}
+	}
 	var conds []condition
 	for _, q := range qs { // in question order, so the result reads in order
 		answer, ok := args.Find[q.Key]
@@ -299,8 +306,8 @@ func (j *judge) checkQuestions(args judgeArgs) ([]condition, error) {
 			continue
 		}
 		if !slices.Contains(q.answers(), answer) {
-			return nil, fmt.Errorf("find wants %q for %q; its answers are %s.",
-				answer, q.Key, strings.Join(q.answers(), ", "))
+			return nil, fmt.Errorf("find wants an answer for %q that it cannot have; its answers are %s.",
+				q.Key, strings.Join(q.answers(), ", "))
 		}
 		conds = append(conds, condition{q, answer})
 	}
@@ -310,6 +317,29 @@ func (j *judge) checkQuestions(args judgeArgs) ([]condition, error) {
 		}
 	}
 	return conds, nil
+}
+
+// keyPattern is the form of a question key. Keys are echoed in
+// judge_items results, which are closed-world, so they must stay short
+// identifiers rather than free text.
+const keyPattern = "^[a-z][a-z0-9_]{0,39}$"
+
+// badKey is the fixed message for a key that does not match keyPattern.
+// It does not quote the key.
+const badKey = "A question key is 1 to 40 lowercase letters, digits, or underscores, starting with a letter."
+
+// isKey reports whether s matches keyPattern.
+func isKey(s string) bool {
+	if len(s) == 0 || len(s) > 40 || s[0] < 'a' || s[0] > 'z' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // answers are the answers a question can have, in order.
