@@ -65,6 +65,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`mcp`: `Status` no longer reports servers as connected after `Close`.**
   Each server that was connected now shows `StateFailed` with the error "the
   MCP toolset is closed".
+- **`delegate`**: a child turn interrupted while `Tasks` is open, such as by
+  a pause, now reports its notice, and mail that missed it starts the next
+  turn. Before, the notice was dropped as if `Close` had interrupted it, and
+  the unread mail kept `Tasks.Wait` and `RunUntilQuiet` waiting forever.
+- **`delegate`**: `message_parent` and `task_send` match a turn to its task
+  by the whole turn number, so a turn of the child for call `call-1` no
+  longer counts as a turn of the child for call `call`.
+- **`delegate`**: `NewTasks` now extends a `Delivered` function the parent
+  session already has instead of leaving it alone, so a host that set
+  `DeliveredNotices` still gets agent messages dropped from queue turns.
 
 ## [0.8.0] - 2026-10-13
 

@@ -264,10 +264,11 @@ func (c *childTurn) view() dashi.TurnView {
 }
 
 // NewTasks returns an empty Tasks. A Recorder in cfg.Runner that does not
-// implement dashi.Loader logs one warning. When cfg.Session has no
-// Delivered function, NewTasks sets it to the union of DeliveredNotices and
-// DeliveredMessages, so a queue turn never carries a result or a message
-// that the agent already read.
+// implement dashi.Loader logs one warning. NewTasks sets the Delivered
+// function of cfg.Session to the union of DeliveredNotices,
+// DeliveredMessages, and the function the session already had, so a queue
+// turn never carries a result or a message that the agent already read.
+// Call NewTasks before the session runs.
 func NewTasks(cfg Config) *Tasks {
 	catalog := cfg.Subagents
 	if len(catalog) == 0 {
@@ -284,8 +285,8 @@ func NewTasks(cfg Config) *Tasks {
 	if cfg.Runner.Recorder != nil && !loads(cfg.Runner.Recorder) {
 		t.warnNoLoader()
 	}
-	if s := cfg.Session; s != nil && s.Delivered == nil {
-		s.Delivered = deliveredToParent
+	if s := cfg.Session; s != nil {
+		s.Delivered = withParentDelivered(s.Delivered)
 	}
 	return t
 }
@@ -1060,7 +1061,9 @@ func (ts *Tasks) endTurn(t *task, id string, out dashi.RunResult, err error) {
 	}
 	t.setStarted()
 	c.markRecorded()
-	interrupted := c.state == TaskState(dashi.StopInterrupted)
+	// Only Close interrupts silently: an interruption from elsewhere, such
+	// as a pause, is an end like any other.
+	interrupted := ts.closed && c.state == TaskState(dashi.StopInterrupted)
 	if c == t.last() && dropOnStop(c.state) {
 		// No later turn of this run will read the mail, and the next one
 		// must not.

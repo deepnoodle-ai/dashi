@@ -39,6 +39,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -219,6 +220,19 @@ func ChildID(parentTurnID, callID string) string {
 		parentTurnID,
 		callID,
 	)
+}
+
+// isTurnOf reports whether turnID is a turn of session sessionID: the
+// session ID, a dash, and a turn number from 1 (see session.TurnID). A
+// prefix test alone would take a turn of child "…:call-1" for one of
+// child "…:call".
+func isTurnOf(turnID, sessionID string) bool {
+	rest, ok := strings.CutPrefix(turnID, sessionID+"-")
+	if !ok {
+		return false
+	}
+	n, err := strconv.Atoi(rest)
+	return err == nil && n > 0 && strconv.Itoa(n) == rest
 }
 
 // Report sums the spend of parent and of the child turns its calls started.

@@ -94,3 +94,72 @@ type internalWaiting struct{}
 func (internalWaiting) Execute(context.Context, tool.Call) (tool.Outcome, error) {
 	return tool.Waiting("external worker"), nil
 }
+
+// A child turn interrupted while Tasks is open, such as by a pause, is an
+// end like any other: its notice is reported, and mail that missed it
+// starts the next turn, so Wait does not count the mail forever. Close
+// interrupts silently and leaves the mail for Recover.
+func TestInterruptionOutsideCloseReportsAndPassesMailOn(t *testing.T) {
+	for _, closed := range []bool{false, true} {
+		ts := NewTasks(Config{})
+		ref := dashi.CallRef{TurnID: "p", CallID: "c"}
+		task := newTask(Subagent{Name: "scout"}, ref, "")
+		id := session.TurnID(task.sessionID, 1)
+		task.turns = []*childTurn{{id: id, state: TaskRunning}}
+		task.mail = []*mail{{msg: Message{ID: MessageID("p", "m"), Text: "more"}, call: ref}}
+		ts.tasks[task.id] = task
+		ts.closed = closed
+		ts.endTurn(task, id, dashi.RunResult{Stop: dashi.Stop{Kind: dashi.StopInterrupted}}, nil)
+		ts.mu.Lock()
+		c := task.turns[0]
+		next := ts.passOnLocked(task)
+		ts.mu.Unlock()
+		if c.suppressed != closed || c.reported != closed {
+			t.Fatalf("closed=%v: suppressed=%v reported=%v", closed, c.suppressed, c.reported)
+		}
+		if closed != (next == nil) {
+			t.Fatalf("closed=%v: next turn %v", closed, next)
+		}
+		if start, ok := next.(dashi.Start); !closed && (!ok || start.CommandID != MessageID("p", "m")) {
+			t.Fatalf("next turn %#v", next)
+		}
+	}
+}
+
+func TestIsTurnOfMatchesWholeTurnNumbers(t *testing.T) {
+	call := ChildID("p", "call")
+	sibling := ChildID("p", "call-1")
+	for _, tc := range []struct {
+		turn, session string
+		want          bool
+	}{
+		{session.TurnID(call, 1), call, true},
+		{session.TurnID(call, 12), call, true},
+		{session.TurnID(sibling, 1), call, false},
+		{session.TurnID(sibling, 1), sibling, true},
+		{call + "-0", call, false},
+		{call + "-01", call, false},
+		{call + "-", call, false},
+		{call, call, false},
+	} {
+		if got := isTurnOf(tc.turn, tc.session); got != tc.want {
+			t.Errorf("isTurnOf(%q, %q) = %v", tc.turn, tc.session, got)
+		}
+	}
+}
+
+// NewTasks keeps a Delivered function the host set and adds the notices
+// and messages Tasks needs.
+func TestNewTasksExtendsTheSessionsDelivered(t *testing.T) {
+	msg := MessageID("child-1:p:c-1", "call")
+	s := &session.Session{Delivered: func([]dashi.Turn) map[string]bool {
+		return map[string]bool{"host-item": true}
+	}}
+	NewTasks(Config{Session: s})
+	got := s.Delivered([]dashi.Turn{{Steps: []dashi.Step{{
+		Kind: dashi.StepTurnStarted, CommandID: msg,
+	}}}})
+	if !got["host-item"] || !got[msg] {
+		t.Fatalf("delivered = %v", got)
+	}
+}

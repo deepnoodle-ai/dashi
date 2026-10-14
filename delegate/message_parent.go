@@ -119,7 +119,7 @@ func (ts *Tasks) execMessageParent(
 	ts.mu.Lock()
 	t := ts.tasks[taskID]
 	ts.mu.Unlock()
-	if t == nil || !strings.HasPrefix(ref.TurnID, t.sessionID+"-") {
+	if t == nil || !isTurnOf(ref.TurnID, t.sessionID) {
 		return tool.Outcome{}, tool.Fatal(fmt.Errorf(
 			"delegate: message_parent runs only in the turns of task %s", taskID,
 		))
@@ -390,13 +390,21 @@ func DeliveredMessages(turns []dashi.Turn) map[string]bool {
 	return out
 }
 
-// deliveredToParent is the parent session's Delivered function when
-// NewTasks sets it: the notices and messages its record holds, so a queue
-// turn carries neither twice.
-func deliveredToParent(turns []dashi.Turn) map[string]bool {
-	out := DeliveredNotices(turns)
-	maps.Copy(out, DeliveredMessages(turns))
-	return out
+// withParentDelivered returns the parent session's Delivered function that
+// NewTasks sets: the notices and messages its record holds, so a queue turn
+// carries neither twice, and the IDs that host, the session's earlier
+// function, names.
+func withParentDelivered(
+	host func([]dashi.Turn) map[string]bool,
+) func([]dashi.Turn) map[string]bool {
+	return func(turns []dashi.Turn) map[string]bool {
+		out := DeliveredNotices(turns)
+		maps.Copy(out, DeliveredMessages(turns))
+		if host != nil {
+			maps.Copy(out, host(turns))
+		}
+		return out
+	}
 }
 
 // steersSince returns the steer messages of t past the first since.
