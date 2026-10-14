@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"sync"
 
 	"github.com/deepnoodle-ai/dashi/content"
 )
@@ -70,6 +71,9 @@ type RequestSnapshot struct {
 type Request struct {
 	snapshot []byte
 	body     []byte
+	// decoded holds the snapshot decoded from its JSON once, without Body.
+	// Accessors return clones of it, so callers never share its memory.
+	decoded func() RequestSnapshot
 }
 
 // NewRequest snapshots provider-produced evidence. Providers must ensure
@@ -148,13 +152,35 @@ func NewRequest(p RequestSnapshot) (Request, error) {
 	if err != nil {
 		return Request{}, err
 	}
-	return Request{snapshot: raw, body: slices.Clone(p.Body)}, nil
+	return Request{
+		snapshot: raw,
+		body:     slices.Clone(p.Body),
+		decoded:  sync.OnceValue(func() RequestSnapshot { return decodeSnapshot(raw) }),
+	}, nil
+}
+
+// decodeSnapshot decodes a snapshot NewRequest encoded. Decoding, rather than
+// keeping the caller's value, gives every reader what a recorded snapshot
+// restores to. Body is left out: Request keeps the exact wire bytes.
+func decodeSnapshot(raw []byte) RequestSnapshot {
+	var v RequestSnapshot
+	_ = json.Unmarshal(raw, &v)
+	v.Body = nil
+	return v
+}
+
+// view returns the decoded snapshot shared by all accessors. Callers must
+// clone what they return.
+func (p Request) view() RequestSnapshot {
+	if p.decoded == nil {
+		return RequestSnapshot{}
+	}
+	return p.decoded()
 }
 
 // Snapshot returns independently owned evidence suitable for recording.
 func (p Request) Snapshot() RequestSnapshot {
-	var v RequestSnapshot
-	_ = json.Unmarshal(p.snapshot, &v)
+	v := p.view().clone()
 	// Keep the exact wire bytes, including insignificant JSON whitespace.
 	v.Body = p.Body()
 	return v
@@ -162,17 +188,17 @@ func (p Request) Snapshot() RequestSnapshot {
 
 // Input returns the original caller input, including its chosen transport mode.
 func (p Request) Input() Input {
-	return p.Snapshot().Input
+	return p.view().Input.clone()
 }
 
 // Origin identifies the provider, API, model, and replay scope pinned by Prepare.
 func (p Request) Origin() content.Origin {
-	return p.Snapshot().Origin
+	return p.view().Origin
 }
 
 // Effective returns the settings used to encode the wire body.
 func (p Request) Effective() Settings {
-	return p.Snapshot().Effective
+	return p.view().Effective.clone()
 }
 
 // Body returns an independent copy of the exact encoded request payload.
@@ -182,18 +208,18 @@ func (p Request) Body() []byte {
 
 // Adjustments explains each default or change made during preparation.
 func (p Request) Adjustments() []Adjustment {
-	return p.Snapshot().Adjustments
+	return cloneAdjustments(p.view().Adjustments)
 }
 
 // Warnings returns what the caller asked for that was not sent as asked, so
 // an application can pass it on. The same warnings appear on the Result.
 func (p Request) Warnings() []Warning {
-	return p.Snapshot().Warnings
+	return slices.Clone(p.view().Warnings)
 }
 
 // ContentChanges returns independent decisions made while adapting history.
 func (p Request) ContentChanges() []ContentChange {
-	return p.Snapshot().ContentChanges
+	return slices.Clone(p.view().ContentChanges)
 }
 
 // Generate prepares and sends through the same contracts as explicit users.

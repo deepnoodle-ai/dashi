@@ -38,6 +38,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   get cost estimates. A turn with a cost limit on one of these models now
   runs under that limit instead of stopping for want of a price.
   gpt-5-codex-mini is still unpriced because the page lists no rate for it.
+- **`llm.Request` accessors no longer decode JSON on every call.** The
+  snapshot is decoded once, on first use, and `Snapshot`, `Input`,
+  `Effective`, `Adjustments`, `Warnings`, and `ContentChanges` return deep
+  copies of it, so callers still own what they get. The accessors one model
+  call makes run about 20 times faster with a sixth of the memory.
 
 ### Removed
 
@@ -185,6 +190,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   case-sensitive keys, as the runner's schema check does, so a key such as
   `"List"` no longer replaces the checked `"list"`, and a repeated key
   fails the call as invalid arguments.
+- **`filerecorder` keeps its in-process index current after a commit.** A
+  commit now adds the step it wrote to the index, so the next commit and
+  `Wait` need not read it back, and an index scanned earlier never replaces
+  a longer one of the same log.
 
 ## [0.8.0] - 2026-10-13
 

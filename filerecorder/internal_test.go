@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -356,6 +357,96 @@ func TestClaimReturnsPlainErrors(t *testing.T) {
 	if _, ok := errors.AsType[*dashi.CommitError](err); ok {
 		t.Fatalf("claim returned a *dashi.CommitError: %v", err)
 	}
+}
+
+// TestCommitIndexesTheWrittenStep checks that a commit leaves the cached
+// index matching the log, as a fresh scan reads it.
+func TestCommitIndexesTheWrittenStep(t *testing.T) {
+	r := newTestRecorder(t)
+	commitStep(t, r, 1)
+	commitStep(t, r, 2)
+	r.mu.Lock()
+	cached := r.index.get("turn")
+	r.mu.Unlock()
+	f, err := os.Open(r.Path("turn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	fresh, _, err := scan(f, "turn", turnLog{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cached.steps, fresh.steps) ||
+		cached.end != fresh.end ||
+		cached.size != fresh.size ||
+		cached.lines != fresh.lines ||
+		!cached.hasHeader ||
+		!cached.dirsSynced {
+		t.Fatalf("cached index %+v; want %+v with directories synced", cached, fresh)
+	}
+	// With the index current, Wait answers from it without reading.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := r.Wait(ctx, "turn", 1); err != nil {
+		t.Fatalf("Wait after seq 1: %v", err)
+	}
+}
+
+// TestOlderIndexDoesNotReplaceANewerOne puts an index scanned before a
+// commit after that commit, as a slow reader could.
+func TestOlderIndexDoesNotReplaceANewerOne(t *testing.T) {
+	r := newTestRecorder(t)
+	commitStep(t, r, 1)
+	r.mu.Lock()
+	older := r.index.get("turn")
+	r.mu.Unlock()
+	older.dirsSynced = false
+	commitStep(t, r, 2)
+	r.mu.Lock()
+	r.index.put("turn", older)
+	cached := r.index.get("turn")
+	r.mu.Unlock()
+	if len(cached.steps) != 2 || !cached.dirsSynced {
+		t.Fatalf(
+			"index has %d steps, directories synced %t; want 2 and true",
+			len(cached.steps),
+			cached.dirsSynced,
+		)
+	}
+}
+
+// TestConcurrentCommitsAndReads runs commits beside readers of the same
+// turn; run with -race.
+func TestConcurrentCommitsAndReads(t *testing.T) {
+	r := newTestRecorder(t)
+	commitStep(t, r, 1)
+	const steps = 30
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for seq := int64(2); seq <= steps; seq++ {
+			if err := r.Commit(t.Context(), request(seq)); err != nil {
+				t.Errorf("commit seq %d: %v", seq, err)
+				return
+			}
+		}
+	})
+	for range 4 {
+		wg.Go(func() {
+			for {
+				got, err := r.StepsAfter(t.Context(), "turn", 0, steps)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if len(got) == steps {
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+	requireCount(t, r, steps)
 }
 
 func newTestRecorder(t *testing.T) *Recorder {

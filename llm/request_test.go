@@ -3,7 +3,10 @@ package llm
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/content"
@@ -246,5 +249,125 @@ func TestNewRequestRejectsUnresolvedReferenceInProviderToolUseOutput(t *testing.
 
 	if err == nil {
 		t.Fatal("a request with an unresolved provider tool use reference was accepted")
+	}
+}
+
+// TestRequestAccessorsMatchRecordedSnapshot checks that the decoded snapshot
+// each accessor reads is what a recorded snapshot restores to.
+func TestRequestAccessorsMatchRecordedSnapshot(t *testing.T) {
+	req := testRequest(t, 6)
+	var want RequestSnapshot
+	if err := json.Unmarshal(req.snapshot, &want); err != nil {
+		t.Fatal(err)
+	}
+	want.Body = req.Body()
+	if got := req.Snapshot(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Snapshot() = %#v; want %#v", got, want)
+	}
+	if !reflect.DeepEqual(req.Input(), want.Input) ||
+		req.Origin() != want.Origin ||
+		!reflect.DeepEqual(req.Effective(), want.Effective) ||
+		!reflect.DeepEqual(req.Warnings(), want.Warnings) {
+		t.Fatal("an accessor differs from the recorded snapshot")
+	}
+	if got := (Request{}).Snapshot(); !reflect.DeepEqual(got, RequestSnapshot{}) {
+		t.Fatalf("zero Request snapshot = %#v", got)
+	}
+}
+
+func TestRequestAccessorsReturnOwnedValues(t *testing.T) {
+	req := testRequest(t, 2)
+	in := req.Input()
+	in.Messages[0].Content[0].Block.Text.Text = "changed"
+	in.Tools[0].Schema[0] = '['
+	snapshot := req.Snapshot()
+	snapshot.Input.Messages = nil
+	effective := req.Effective()
+	*effective.Temperature = 2
+	if got := req.Input(); got.Messages[0].Text() != "start" ||
+		got.Tools[0].Schema[0] != '{' ||
+		*req.Effective().Temperature != 0.5 ||
+		len(req.Snapshot().Input.Messages) == 0 {
+		t.Fatal("changing a returned value changed the request")
+	}
+}
+
+func TestRequestAccessorsAreSafeConcurrently(t *testing.T) {
+	req := testRequest(t, 4)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			in := req.Input()
+			in.Messages[0].Content[0].Block.Text.Text = "changed"
+			_ = req.Snapshot()
+			_ = req.Origin()
+		})
+	}
+	wg.Wait()
+	if req.Input().Messages[0].Text() != "start" {
+		t.Fatal("a concurrent reader changed the request")
+	}
+}
+
+// testRequest prepares a request whose history has about the given number
+// of messages, alternating tool calls and tool results.
+func testRequest(tb testing.TB, messages int) Request {
+	tb.Helper()
+	temperature := 0.5
+	settings := Settings{MaxTokens: 1000, Temperature: &temperature}
+	input := Input{
+		Model:  "m",
+		System: strings.Repeat("You are a careful assistant. ", 40),
+		Tools: []tool.Definition{{
+			Name:   "act",
+			Schema: json.RawMessage(`{"type":"object","properties":{"limit":{"type":"integer"}}}`),
+		}},
+		Messages: []Message{UserMessage(Text("start"))},
+		Settings: settings,
+	}
+	for i := range messages / 2 {
+		id := fmt.Sprintf("call-%d", i)
+		input.Messages = append(input.Messages,
+			AssistantMessage(Text(strings.Repeat("thinking out loud ", 20)), Content{
+				Kind:     ContentToolCall,
+				ToolCall: &tool.Call{ID: id, Name: "act", Args: json.RawMessage(`{"limit":1}`)},
+			}),
+			UserMessage(Content{
+				Kind: ContentToolResult,
+				ToolResult: &ToolResult{
+					CallID: id,
+					Output: tool.TextOutput(strings.Repeat("result line\n", 40)),
+				},
+			}),
+		)
+	}
+	req, err := NewRequest(RequestSnapshot{
+		Origin:    content.Origin{Provider: "p", API: "api", Model: "m", Scope: "s"},
+		Input:     input,
+		Effective: settings,
+		Body:      []byte(`{}`),
+	})
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return req
+}
+
+// BenchmarkRequestAccessors reads a request the way one model call does:
+// the runner, budget checks, and provider each ask for parts of it.
+func BenchmarkRequestAccessors(b *testing.B) {
+	for _, n := range []int{10, 100} {
+		b.Run(fmt.Sprintf("messages=%d", n), func(b *testing.B) {
+			req := testRequest(b, n)
+			b.ReportAllocs()
+			for b.Loop() {
+				_ = req.Origin()
+				_ = req.Snapshot()
+				_ = req.Effective()
+				_ = req.Input()
+				_ = req.Snapshot()
+				_ = req.Warnings()
+			}
+		})
 	}
 }

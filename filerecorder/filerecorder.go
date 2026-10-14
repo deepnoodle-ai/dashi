@@ -48,6 +48,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
@@ -440,9 +441,9 @@ func (r *Recorder) Wait(ctx context.Context, turnID string, after int64) error {
 		return nil
 	}
 	if size != cached.size {
-		// The index is behind the log (a commit updates it only before
-		// appending), so read to learn whether a newer step exists. A read
-		// error is for the caller's next read to report.
+		// The index is behind the log, as after another process's commit,
+		// so read to learn whether a newer step exists. A read error is for
+		// the caller's next read to report.
 		steps, err := r.StepsAfter(ctx, turnID, after, 1)
 		if err != nil || len(steps) > 0 {
 			return nil
@@ -588,26 +589,46 @@ func (r *Recorder) append(
 		}
 		return rejected(fmt.Errorf("filerecorder: write: %w", err))
 	}
-	if !r.sync {
-		return nil
-	}
-	if err := r.syncFile(f); err != nil {
-		// After a failed fsync the kernel may have discarded the written
-		// pages while still serving them from cache, so whether the write
-		// landed is unknown and this process stops trusting the log.
-		r.retire(turnID, err)
-		return unknown(fmt.Errorf("filerecorder: sync: %w", err))
-	}
-	if !log.dirsSynced {
-		if err := r.syncDirs(f.Name()); err != nil {
+	if r.sync {
+		if err := r.syncFile(f); err != nil {
+			// After a failed fsync the kernel may have discarded the written
+			// pages while still serving them from cache, so whether the write
+			// landed is unknown and this process stops trusting the log.
 			r.retire(turnID, err)
-			return unknown(err)
+			return unknown(fmt.Errorf("filerecorder: sync: %w", err))
 		}
-		r.mu.Lock()
-		r.index.markDirsSynced(turnID)
-		r.mu.Unlock()
+		if !log.dirsSynced {
+			if err := r.syncDirs(f.Name()); err != nil {
+				r.retire(turnID, err)
+				return unknown(err)
+			}
+			log.dirsSynced = true
+		}
 	}
+	r.indexWritten(f, turnID, log, buf.Bytes())
 	return nil
+}
+
+// indexWritten adds the lines append just wrote at log.end to the cached
+// index, so the next commit and Wait need not read them back. The caller
+// still holds the exclusive lock. If a line fails to index, the cache keeps
+// the older index and the next scan reads the lines from the file.
+func (r *Recorder) indexWritten(f *os.File, turnID string, log turnLog, written []byte) {
+	log.steps = slices.Clip(log.steps)
+	off := log.end
+	for rest := written; len(rest) > 0; {
+		n := bytes.IndexByte(rest, '\n') + 1
+		log.lines++
+		if err := log.add(rest[:n], off, turnID, f.Name()); err != nil {
+			return
+		}
+		rest, off = rest[n:], off+int64(n)
+	}
+	log.end = off
+	log.size = off
+	r.mu.Lock()
+	r.index.put(turnID, log)
+	r.mu.Unlock()
 }
 
 func corrupt(path string, line int, reason string) error {
