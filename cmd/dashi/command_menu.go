@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"unicode"
@@ -175,16 +176,15 @@ func (s *screen) commandMenuView(matches []commandMenuItem) tui.View {
 		nameWidth = max(nameWidth, runewidth.StringWidth(item.name))
 	}
 	nameWidth = min(nameWidth, commandMenuNameWidth)
-	views := make([]tui.View, 0, commandMenuRows+5)
-	if m.offset > 0 {
-		views = append(views, tui.Text("   ↑ %d more", m.offset).Style(mutedStyle))
-	}
+	views := make([]tui.View, 0, commandMenuRows+3)
 	end := min(len(matches), m.offset+commandMenuRows)
 	for i := m.offset; i < end; i++ {
 		views = append(views, commandMenuRow(matches[i], nameWidth, i == m.selected))
 	}
-	if below := len(matches) - end; below > 0 {
-		views = append(views, tui.Text("   ↓ %d more", below).Style(mutedStyle))
+	// One count line, kept while the list overflows, so scrolling never
+	// changes the menu's height and the composer above it stays still.
+	if len(matches) > commandMenuRows {
+		views = append(views, tui.Text("   %s", commandMenuMore(m.offset, len(matches)-end)).Style(mutedStyle))
 	}
 	keyStyle := tui.NewStyle().WithBold()
 	hint := tui.Group(
@@ -196,6 +196,19 @@ func (s *screen) commandMenuView(matches []commandMenuItem) tui.View {
 	)
 	views = append(views, tui.Text(""), tui.Height(1, hint))
 	return tui.Stack(views...).Gap(0)
+}
+
+// commandMenuMore describes the commands scrolled out of view above and
+// below, such as "↑ 2 more · ↓ 3 more".
+func commandMenuMore(above, below int) string {
+	var parts []string
+	if above > 0 {
+		parts = append(parts, fmt.Sprintf("↑ %d more", above))
+	}
+	if below > 0 {
+		parts = append(parts, fmt.Sprintf("↓ %d more", below))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // commandMenuRow draws one command on one row, cut to the width.

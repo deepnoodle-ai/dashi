@@ -236,6 +236,47 @@ func TestCommandMenuView(t *testing.T) {
 	}
 }
 
+func TestCommandMenuHeightIsStableWhileScrolling(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	typeDraft(h, "/m")
+	n := len(h.scr.commandMenuMatches())
+	if n <= commandMenuRows {
+		t.Fatalf("need more than %d matches, got %d", commandMenuRows, n)
+	}
+	// The composer row must not move as the selection scrolls.
+	composerRow := func() int {
+		for i, line := range strings.Split(h.render(), "\n") {
+			if strings.HasSuffix(strings.TrimRight(line, " "), "/m") {
+				return i
+			}
+		}
+		t.Fatalf("composer not found:\n%s", h.render())
+		return -1
+	}
+	want := composerRow()
+	for i := 0; i < n; i++ {
+		h.scr.commandMenuKey(tui.KeyEvent{Key: tui.KeyArrowDown})
+		if got := composerRow(); got != want {
+			t.Fatalf("after %d Down keys the composer is on row %d, want %d:\n%s", i+1, got, want, h.render())
+		}
+	}
+}
+
+func TestCommandMenuMore(t *testing.T) {
+	for _, tc := range []struct {
+		above, below int
+		want         string
+	}{
+		{0, 3, "↓ 3 more"},
+		{2, 1, "↑ 2 more · ↓ 1 more"},
+		{3, 0, "↑ 3 more"},
+	} {
+		if got := commandMenuMore(tc.above, tc.below); got != tc.want {
+			t.Errorf("commandMenuMore(%d, %d) = %q, want %q", tc.above, tc.below, got, tc.want)
+		}
+	}
+}
+
 func TestCommandMenuRowTruncates(t *testing.T) {
 	row := commandMenuRow(commandMenuItem{name: "/model", description: "choose the next-turn destination/model"}, 6, true)
 	got := strings.TrimRight(tui.SprintScreen(row, tui.WithWidth(24), tui.WithHeight(1)).Text(), "\n")
