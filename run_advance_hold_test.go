@@ -509,9 +509,18 @@ func TestAdvanceRetriesARecorderHoldOncePerCall(t *testing.T) {
 	// call, then Drive's polls write nothing.
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
-	out, err := runner.Drive(ctx, id)
-	if !errors.Is(err, context.DeadlineExceeded) || out.LastSeq != held.LastSeq+2 {
-		t.Fatalf("seq=%d want %d err=%v", out.LastSeq, held.LastSeq+2, err)
+	// The deadline can end Drive inside a poll, which returns no view, so
+	// the record is read instead.
+	if _, err := runner.Drive(ctx, id); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err=%v", err)
+	}
+	turn, err := rec.Load(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := turn.View()
+	if err != nil || view.LastSeq != held.LastSeq+2 {
+		t.Fatalf("seq=%d want %d err=%v", view.LastSeq, held.LastSeq+2, err)
 	}
 	mu.Lock()
 	funded = true

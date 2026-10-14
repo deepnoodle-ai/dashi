@@ -92,6 +92,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   interruption at its `Limits.Resumes` limit: they run the `Continue` that
   records the `resumes` limit, as they already did for a crashed turn out of
   resumes. Before, the turn stayed at `NextFix` and `Drive` waited on it.
+- **A `task` call with `wait_seconds` returns the answer of a task that
+  ends quickly.** A task that ended before the call returned got the
+  "already ended" text instead of its answer, and the notice was not marked
+  delivered.
+- **The CLI no longer races or panics when a task result arrives while it
+  waits for background work.** Waiting for idle used a `sync.WaitGroup` that
+  task wakes reused during a wait, which could panic with "WaitGroup is
+  reused before previous Wait has returned".
 
 ## [0.8.0] - 2026-10-13
 

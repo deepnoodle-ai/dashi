@@ -31,7 +31,9 @@ func newInlineScreen(s *screen, output io.Writer) *inlineScreen {
 		}
 	}
 	i.runner = tui.NewInlineApp(tui.WithInlineOutput(output), tui.WithInlineFPS(30), tui.WithInlineBracketedPaste(true))
+	s.pendMu.Lock()
 	s.send = i.runner.SendEvent
+	s.pendMu.Unlock()
 	s.handoff = i.runner.Handoff
 	s.clipboardOut = output
 	s.mouseEnabled = false // Native terminal selection remains available.

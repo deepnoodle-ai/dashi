@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+// fixtureClipboardTimeout replaces clipboardTimeout in these tests. On a
+// loaded machine, starting a freshly written fixture script can take longer
+// than the production bound; these tests check what is written, not how fast.
+const fixtureClipboardTimeout = time.Minute
+
 func TestNativeClipboardUsesStdinAndBoundedProcesses(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("fixture replaces pbcopy")
@@ -27,23 +32,24 @@ func TestNativeClipboardUsesStdinAndBoundedProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := "日本 long line\n$(this is literal) `also literal`"
-	if result, err := writeClipboard(t.Context(), source); err != nil || !result.confirmed {
+	if result, err := writeClipboardWithin(t.Context(), source, fixtureClipboardTimeout); err != nil || !result.confirmed {
 		t.Fatalf("local write result=%+v error=%v", result, err)
 	}
 	got, err := os.ReadFile(capture)
 	if err != nil || string(got) != source {
 		t.Fatalf("clipboard source changed: %q %v", got, err)
 	}
-	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexec sleep 10\n"), 0700); err != nil {
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexec sleep 60\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	if _, err := writeClipboard(ctx, source); err == nil {
+	if _, err := writeClipboardWithin(ctx, source, fixtureClipboardTimeout); err == nil {
 		t.Fatal("hanging clipboard claimed success")
 	}
-	if time.Since(start) > time.Second {
+	// Well under the fixture's sleep, with room for a slow process start.
+	if time.Since(start) > 10*time.Second {
 		t.Fatal("clipboard process outlived its bounded context")
 	}
 }
@@ -78,7 +84,7 @@ func TestTmuxClipboardDoesNotClaimConfirmedReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	const source = "世界\nexact source"
-	result, err := writeClipboard(t.Context(), source)
+	result, err := writeClipboardWithin(t.Context(), source, fixtureClipboardTimeout)
 	if err != nil || result.confirmed || !strings.Contains(result.notice, "unconfirmed") {
 		t.Fatalf("tmux result=%+v error=%v", result, err)
 	}

@@ -29,13 +29,17 @@ func parentTurnCount(t *testing.T, e *Engine) int {
 // The user's /tasks and /task do not count as delivery: the parent still
 // gets the result after the user looked at it.
 func TestUserInspectionDoesNotDeliverTheResult(t *testing.T) {
-	client := &taskFixtureClient{}
+	// Hold the child until the parent's turn ends. A child that ends during
+	// that turn steers its notice into it, which is a delivery.
+	hold := make(chan struct{})
+	client := &taskFixtureClient{childHold: hold}
 	ui := newRecorderUI()
 	a, _ := taskTestApp(t, client, ui)
 	result, err := a.eng.Prompt(t.Context(), "Delegate this job")
 	if err != nil {
 		t.Fatal(err)
 	}
+	close(hold)
 	task := waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopCompleted) })
 	if _, err := a.eng.taskHost().tasks.Wait(t.Context()); err != nil {
 		t.Fatal(err)

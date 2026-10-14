@@ -50,6 +50,8 @@ type transcriptState struct {
 	text, input, selected                           string
 	follow, approval, question, own, denying, mouse bool
 	mode                                            Mode
+	// focus is the field the screen means to focus (screen.focusID).
+	focus string
 }
 type transcriptRuntime struct {
 	*screen
@@ -91,7 +93,7 @@ func (s *transcriptRuntime) HandleEvent(e tui.Event) []tui.Cmd {
 			}
 			b.WriteByte('\n')
 		}
-		p.reply <- transcriptState{text: b.String(), input: s.input, selected: s.vp.SelectedText(), follow: s.vp.Follow, mode: s.ctrl.Mode(), approval: s.approval != nil, question: s.asking != nil, own: s.asking != nil && s.asking.own, denying: s.approval != nil && s.approval.denying, mouse: s.mouseEnabled}
+		p.reply <- transcriptState{text: b.String(), input: s.input, selected: s.vp.SelectedText(), follow: s.vp.Follow, mode: s.ctrl.Mode(), approval: s.approval != nil, question: s.asking != nil, own: s.asking != nil && s.asking.own, denying: s.approval != nil && s.approval.denying, mouse: s.mouseEnabled, focus: s.focusID()}
 		return nil
 	}
 	return s.screen.HandleEvent(e)
@@ -173,6 +175,13 @@ func (h *runtimeFixture) wait(want func(transcriptState) bool) transcriptState {
 		case last = <-p.reply:
 			if want(last) {
 				h.frames = append(h.frames, last.text)
+				// The runtime applies a tui.Focus command through its own
+				// goroutine, so a key sent before that event lands goes to
+				// the old field. Focusing here, in order, settles it first.
+				// An empty ID would clear focus, so it is never sent.
+				if last.focus != "" {
+					h.scr.rt.SendEvent(tui.FocusSetEvent{ID: last.focus, Time: time.Now()})
+				}
 				return last
 			}
 		case <-deadline.C:
