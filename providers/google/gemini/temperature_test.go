@@ -83,3 +83,36 @@ func TestPrepareRejectsTemperatureUnderStrict(t *testing.T) {
 		t.Fatal("a rejected preparation dispatched a request")
 	}
 }
+
+// A model known only from the built-in catalog is fitted to the catalog's
+// limits, as a model supplied in Config.Models is.
+func TestPrepareFitsCatalogModel(t *testing.T) {
+	client, err := New(Config{APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := client.ModelInfo("gemini-4-argon"); !ok {
+		t.Fatal("catalog lacks gemini-4-argon")
+	}
+	input := sampleInput(false)
+	input.Model = "gemini-4-argon"
+	input.Settings.Temperature = new(0.5)
+	input.Settings.MaxTokens = 100_000
+	request, err := client.Prepare(t.Context(), input)
+	if err != nil {
+		t.Fatalf("default policy rejected fittable settings: %v", err)
+	}
+	effective := request.Effective()
+	if effective.Temperature != nil {
+		t.Fatalf("temperature = %g, want it removed", *effective.Temperature)
+	}
+	if effective.MaxTokens != 65_536 {
+		t.Fatalf("max tokens = %d, want 65536", effective.MaxTokens)
+	}
+	if bytes.Contains(request.Body(), []byte(`"temperature"`)) {
+		t.Fatalf("body kept an unsupported temperature: %s", request.Body())
+	}
+	if len(request.Warnings()) != 2 {
+		t.Fatalf("warnings = %+v, want one per fitted setting", request.Warnings())
+	}
+}

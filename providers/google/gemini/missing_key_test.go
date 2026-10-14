@@ -48,6 +48,16 @@ func TestMediaMissingAPIKeyFailsAtSend(t *testing.T) {
 	if _, err := interactions.do(t.Context(), nil); !errors.Is(err, llm.ErrNoAPIKey) {
 		t.Fatalf("interactions send error = %v, want ErrNoAPIKey", err)
 	}
+	// Polling and fetching a video File also need the key, so they fail
+	// before dispatch instead of sending an empty key header.
+	jobs, err := NewInteractionsVideoJobs(InteractionsMediaConfig{})
+	if err != nil {
+		t.Fatalf("NewInteractionsVideoJobs without a key: %v", err)
+	}
+	files := "https://generativelanguage.googleapis.com/v1beta/files/abc"
+	if _, err := jobs.getFile(t.Context(), files, 1, false); !errors.Is(err, llm.ErrNoAPIKey) {
+		t.Fatalf("video file read error = %v, want ErrNoAPIKey", err)
+	}
 	// A custom HTTP client may add credentials itself.
 	custom, err := NewMedia(MediaConfig{
 		Client: &http.Client{Transport: failingTransport{}},

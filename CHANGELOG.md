@@ -29,6 +29,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   return `ErrorCanceled` and leave the session open. A write or read that
   the context cuts off partway still closes the session.
 - `realtime.Error.Error()` now includes `Code` and `Cause` when set.
+- **Gemini video Files without an API key**: `InteractionsVideoJobClient`
+  `PollVideo` and `FetchVideo` now fail before dispatch with an error that
+  wraps `llm.ErrNoAPIKey`, as `SubmitVideo` does, instead of sending a
+  request with an empty key header to the public endpoint.
 
 ## [0.8.0] - 2026-10-13
 
