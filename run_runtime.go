@@ -60,6 +60,14 @@ type runtime struct {
 	// commits stay in memory, and the run ends before any model call is
 	// sent or tool runs (see run_advance_hold.go).
 	asking *sendAsk
+	// replays rebuilds the turn's state from only the steps committed
+	// since the last rebuild; see replay.
+	replays replayCache
+}
+
+// replay returns the turn's state, as replay(r.turn) does.
+func (r *runtime) replay() (*replayState, error) {
+	return r.replays.replay(r.turn)
 }
 
 // result pairs an RunResult with the recording failure that ended the run.
@@ -156,9 +164,7 @@ func (r *runtime) commit(step Step) *RunResult {
 		// The fallback usage counts toward spend before the call is sent.
 		// Refuse a model_call_started step that would break a token cap,
 		// with either recorder.
-		candidate := r.turn
-		candidate.Steps = append(slices.Clone(r.turn.Steps), step)
-		state, err := replay(candidate)
+		state, err := r.replays.replayWith(r.turn, &step)
 		if err == nil && incompleteUsageStop(state) != nil {
 			err = errors.New("dashi: model call start usage aggregation overflows")
 		}
@@ -230,7 +236,7 @@ func (r *runtime) commit(step Step) *RunResult {
 // WarningSummaryFallback the stop step records, so the warning is raised
 // once, with the turn's outcome.
 func (r *runtime) endsTurnAfter(stop Stop) (bool, *Warning) {
-	state, err := replay(r.turn)
+	state, err := r.replay()
 	if err != nil {
 		// The commit's own record check reports the broken record.
 		return false, nil
@@ -291,7 +297,7 @@ func cloneEvent(event Event) Event {
 }
 
 func (r *runtime) current() RunResult {
-	s, e := replay(r.turn)
+	s, e := r.replay()
 	if e != nil {
 		if r.err == nil {
 			r.err = fmt.Errorf("%w: %w: %v", ErrRecordInvalid, ErrInvalidTurn, e)
@@ -315,7 +321,7 @@ func (r *runtime) stop(kind StopKind, reason string) RunResult {
 	if kind == StopLimited {
 		// A limit kind is recorded even when the counts are unavailable,
 		// since whether the stop ends the turn depends on it.
-		state, err := replay(r.turn)
+		state, err := r.replay()
 		if err != nil {
 			state = &replayState{}
 		}

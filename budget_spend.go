@@ -295,3 +295,17 @@ func addCurrencyCost(
 	totals[currency] = total
 	return nil
 }
+
+// clone returns a deep copy of c.
+func (c ModelCallCost) clone() ModelCallCost {
+	if c.Usage != nil {
+		c.Usage = c.Usage.Clone()
+	}
+	if c.Cost != nil {
+		c.Cost = new(c.Cost.Clone())
+	}
+	if c.WorstCaseCost != nil {
+		c.WorstCaseCost = new(c.WorstCaseCost.Clone())
+	}
+	return c
+}

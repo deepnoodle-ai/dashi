@@ -366,6 +366,11 @@ func TestChattyChildStartsOneParentTurnPerChildTurn(t *testing.T) {
 	cfg := delegate.Config{Subagents: []delegate.Subagent{oneAtATime()}}
 	h := newHarness(t, model, cfg, nil)
 	s := sessionTasks(t, h)
+	// A steer that reaches a running parent turn between its model calls
+	// costs it another call, so the number of calls depends on timing.
+	// Under the default limit a fast child can stop a parent turn as
+	// limited, which leaves the queue waiting.
+	s.Agent.Limits.ModelCalls = 64
 	if _, err := s.Send(t.Context(), "go"); err != nil {
 		t.Fatal(err)
 	}

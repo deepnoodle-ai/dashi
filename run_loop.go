@@ -11,7 +11,7 @@ import (
 
 func (r *runtime) run() RunResult {
 	for {
-		s, e := replay(r.turn)
+		s, e := r.replay()
 		if e != nil {
 			return r.stop(StopFailed, e.Error())
 		}

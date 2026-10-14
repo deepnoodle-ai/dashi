@@ -34,7 +34,7 @@ func (r *runtime) authorizeTool(
 	// A mid-run view: its Stop stays empty, unlike turn.View()'s. Nothing
 	// is committed during the chain, so one view serves every hook.
 	view := TurnView{}
-	if current, err := replay(r.turn); err == nil {
+	if current, err := r.replay(); err == nil {
 		view = current.TurnView
 	}
 restart:
@@ -259,7 +259,7 @@ func (r *runtime) afterToolHooks(
 ) llm.ToolResult {
 	current := llmclone.ToolResult(base)
 	view := TurnView{}
-	if s, err := replay(r.turn); err == nil {
+	if s, err := r.replay(); err == nil {
 		view = s.TurnView
 	}
 	def := view.Tools[fact.Call.ID].Definition

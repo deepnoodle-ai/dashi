@@ -135,7 +135,7 @@ func (r *runtime) classify(result llm.Result) (RunResult, bool) {
 	}
 	switch result.Stop.Kind {
 	case llm.StopPause:
-		state, _ := replay(r.turn)
+		state, _ := r.replay()
 		if state.ProviderPauses > max(r.agent.Limits.ProviderPauses, 0) {
 			return r.stop(StopLimited, string(LimitProviderPauses)), false
 		}
@@ -161,7 +161,7 @@ func (r *runtime) classify(result llm.Result) (RunResult, bool) {
 // hooks' items or accepts the reply. The parse comes first so hooks see the
 // value, or why it failed, and can ask for a correction.
 func (r *runtime) finishText(result llm.Result, useful bool) (RunResult, bool) {
-	state, err := replay(r.turn)
+	state, err := r.replay()
 	if err != nil {
 		return r.stop(StopFailed, err.Error()), false
 	}
@@ -175,7 +175,7 @@ func (r *runtime) finishText(result llm.Result, useful bool) (RunResult, bool) {
 		if result.Stop.Kind != llm.StopFinished {
 			plan.OutputErr = errors.New("unrecognized model stop")
 		} else {
-			schema, err := compileOutputSchema(state.OutputSchema)
+			schema, err := state.outputSchema()
 			if err != nil {
 				return r.stop(StopFailed, err.Error()), false
 			}
