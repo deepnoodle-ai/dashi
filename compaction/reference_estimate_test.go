@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
+
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -27,7 +29,7 @@ func TestReferenceEstimateCountsEveryOccurrenceWithoutIO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := (len(encoded)+5*12)/bytesPerToken + 1
+	want := (len(encoded)+5*12)/compactiontext.BytesPerToken + 1
 	if got := estimate(m); got != want {
 		t.Fatalf("estimate=%d want=%d", got, want)
 	}

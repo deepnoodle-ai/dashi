@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
+
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
@@ -219,7 +221,7 @@ func TestCompactorSummaryModelWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	fits := func(s dashi.Start, window int) bool {
-		in := len(s.Input[0].Text()) / bytesPerToken
+		in := len(s.Input[0].Text()) / compactiontext.BytesPerToken
 		return in+s.Agent.Settings.MaxTokens <= window
 	}
 	if !fits(s, 200_000) || fits(big, 200_000) {

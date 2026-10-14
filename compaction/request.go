@@ -3,6 +3,8 @@ package compaction
 import (
 	"strings"
 
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
+
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -63,7 +65,7 @@ func summaryRequest(
 	if prompt == "" {
 		prompt = DefaultPrompt
 	}
-	budget := int(float64(max(0, window-allowance))*inputMargin) * bytesPerToken
+	budget := int(float64(max(0, window-allowance))*inputMargin) * compactiontext.BytesPerToken
 	items := shortenTranscript(renderTranscript(messages), budget)
 	request := "<conversation>\n" + strings.Join(items, "\n\n") +
 		"\n</conversation>\n\n" + prompt

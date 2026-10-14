@@ -75,14 +75,14 @@ func (r *runtime) run() RunResult {
 			}
 			continue
 		}
-		if s.failedModel != "" {
-			if lastModelPurpose(r.turn) == ModelPurposeCompaction {
-				o, again := r.retrySummary(s)
-				if !again {
-					return o
-				}
-				continue
+		if s.failedSummary != "" {
+			o, again := r.recoverSummary(s)
+			if !again {
+				return o
 			}
+			continue
+		}
+		if s.failedModel != "" {
 			return r.stop(StopFailed, s.failedModel)
 		}
 		if stop := budgetSpentStop(s); stop != nil {

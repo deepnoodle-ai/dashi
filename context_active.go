@@ -60,11 +60,16 @@ type ContextCompactionPlan struct {
 	EstimatedBefore int              `json:"estimated_before"`
 }
 
-// ContextCompactionFact records the successfully applied summary and estimate.
+// ContextCompactionFact records the replacement applied for the summary
+// call ModelCallID: its Summary, or, when that call failed or its summary
+// could not be used, a SummaryFallback built without a model call. Exactly
+// one of the two is set. EstimatedAfter is the prepared size of the next
+// ordinary request; a fallback whose size could not be measured records 0.
 type ContextCompactionFact struct {
-	ModelCallID    string `json:"model_call_id"`
-	Summary        string `json:"summary"`
-	EstimatedAfter int    `json:"estimated_after"`
+	ModelCallID     string `json:"model_call_id"`
+	Summary         string `json:"summary,omitempty"`
+	SummaryFallback string `json:"summary_fallback,omitempty"`
+	EstimatedAfter  int    `json:"estimated_after"`
 }
 
 func (p *ContextCompactionPlan) clone() *ContextCompactionPlan {

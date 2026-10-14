@@ -91,5 +91,5 @@ func (p Policy) dueHistory(messages []llm.Message, last llm.Usage, due int) bool
 		return false
 	}
 	b, err := json.Marshal(messages)
-	return err == nil && reached(len(b)/bytesPerToken)
+	return err == nil && reached(len(b)/compactiontext.BytesPerToken)
 }

@@ -67,9 +67,16 @@ func TestActiveContextRendererFailureUnavailableAndStops(t *testing.T) {
 	failure := onlyBlock(t, r.Event(stepEvent(dashi.Step{Kind: dashi.StepModelCallFinished, Model: &dashi.ModelFact{
 		ModelCallID: "bad", Purpose: dashi.ModelPurposeCompaction, Error: "summary did not shrink",
 	}})))
-	compactionMustHave(t, failure.Text, "previous context kept", "summary did not shrink")
+	compactionMustHave(t, failure.Text, "summary failed", "summary did not shrink")
 	if failure.State != StateFailed || !failure.Done {
 		t.Fatalf("invalid failed marker: %+v", failure)
+	}
+	fallback := onlyBlock(t, r.Event(stepEvent(dashi.Step{Kind: dashi.StepContextCompacted, Compacted: &dashi.ContextCompactionFact{
+		ModelCallID: "bad", SummaryFallback: "Your conversation history was shortened without a summary.", EstimatedAfter: 900,
+	}})))
+	compactionMustHave(t, fallback.Text, "summary failed", "without a summary")
+	if fallback.ID != failure.ID || !fallback.Done {
+		t.Fatalf("fallback did not replace the failed marker: %+v", fallback)
 	}
 	unavailable := onlyBlock(t, r.Event(stepEvent(dashi.Step{TurnID: "unknown", Warnings: []dashi.Warning{{
 		Code: dashi.WarningActiveCompactionUnavailable, Message: "Active-Turn protection unavailable; choose a model with a known window.",

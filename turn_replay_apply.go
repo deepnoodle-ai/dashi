@@ -355,11 +355,17 @@ func (s *replayState) apply(step Step) error {
 				return err
 			}
 		}
+		if step.Model.Error != "" && step.Model.Interrupted == InterruptNone &&
+			!step.Model.ResultUnknown &&
+			s.startedModelCalls[step.Model.ModelCallID].Purpose == ModelPurposeCompaction {
+			s.failedSummary = step.Model.ModelCallID
+		}
 		if step.Model.Error == "" &&
 			step.Model.Interrupted == InterruptNone {
 			if s.startedModelCalls[step.Model.ModelCallID].Purpose == ModelPurposeCompaction {
 				s.failedModel = ""
 				s.pendingCompaction = step.Model.ModelCallID
+				s.failedSummary = ""
 			} else {
 				s.compactionUsed = false
 				s.awaitingClassification = true
@@ -393,6 +399,10 @@ func (s *replayState) apply(step Step) error {
 				step.Model.Evidence == "") {
 			return errors.New("host-supplied model failure lacks evidence")
 		}
+		if step.Model.Error != "" &&
+			s.startedModelCalls[step.Model.ModelCallID].Purpose == ModelPurposeCompaction {
+			s.failedSummary = step.Model.ModelCallID
+		}
 		if step.Model.Error == "" {
 			if s.startedModelCalls[step.Model.ModelCallID].Purpose != ModelPurposeCompaction {
 				if err := s.recordResult(
@@ -408,6 +418,7 @@ func (s *replayState) apply(step Step) error {
 			}
 			if s.startedModelCalls[step.Model.ModelCallID].Purpose == ModelPurposeCompaction {
 				s.pendingCompaction = step.Model.ModelCallID
+				s.failedSummary = ""
 			} else {
 				s.compactionUsed = false
 				s.awaitingClassification = true

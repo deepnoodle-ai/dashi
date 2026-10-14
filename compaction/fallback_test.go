@@ -12,7 +12,7 @@ import (
 // counted), and the last reply, within its budget.
 func TestSummaryFallback(t *testing.T) {
 	history, _ := conversation(3, 50)
-	got := summaryFallback(history, len(history), 10_000)
+	got := compactiontext.Fallback(history, len(history), 10_000)
 	for _, want := range []string{
 		compactiontext.FallbackNote,
 		"12 earlier messages were removed",
@@ -30,7 +30,7 @@ func TestSummaryFallback(t *testing.T) {
 	}
 
 	big, _ := conversation(40, 5_000)
-	got = summaryFallback(big, len(big), 4_000)
+	got = compactiontext.Fallback(big, len(big), 4_000)
 	if len(got) > 4_000+500 || !strings.Contains(got, "prompt 0") ||
 		!strings.Contains(got, "answer 39") {
 		t.Fatalf("fallback of %d bytes:\n%s", len(got), got)
@@ -45,7 +45,7 @@ func TestStartFallbackWithinHalfTheAllowance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	limit := s.Agent.Settings.MaxTokens / 2 * bytesPerToken
+	limit := s.Agent.Settings.MaxTokens / 2 * compactiontext.BytesPerToken
 	if got := len(s.Compaction.SummaryFallback); got > limit+500 {
 		t.Fatalf("fallback is %d bytes; limit %d", got, limit)
 	}

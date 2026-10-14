@@ -53,13 +53,17 @@ func lastSummaryCutOff(s *replayState) (start, finish *ModelFact) {
 	return start, finish
 }
 
-// retrySummary asks once for a shorter summary when the last summary was cut
-// off at its output limit, has text, and made no tool calls. It counts the
-// recorded summary calls, so reloading the Turn cannot allow a second retry.
-func (r *runtime) retrySummary(s *replayState) (RunResult, bool) {
+// recoverSummary handles the failed summary call s.failedSummary. It asks
+// once for a shorter summary when that summary was cut off at its output
+// limit, has text, and made no tool calls, and the turn can afford two more
+// model calls. It counts the recorded summary calls, so reloading the Turn
+// cannot allow a second retry. Every other failure gets a summary fallback,
+// so a failed summary never fails the turn.
+func (r *runtime) recoverSummary(s *replayState) (RunResult, bool) {
+	failed := s.modelFinishes[s.failedSummary]
 	start, finish := lastSummaryCutOff(s)
-	if start == nil || finish.Interrupted != InterruptNone || finish.ResultUnknown || finish.SendStatus != "" {
-		return r.stop(StopFailed, StopReasonCompactionFailed), false
+	if start == nil || finish != failed || finish.ResultUnknown || finish.SendStatus != "" {
+		return r.compactWithoutSummary(s, s.failedSummary, failed.Error)
 	}
 	res := finish.Result
 	refused := slices.ContainsFunc(res.Message.Content, func(c llm.Content) bool { return c.Kind == llm.ContentRefusal })
@@ -69,16 +73,50 @@ func (r *runtime) retrySummary(s *replayState) (RunResult, bool) {
 			tries++
 		}
 	}
-	if refused || tries != 1 || activeSummaryText(res) == "" || activeSummaryHasTools(res) || validateModelResult(*res, r.agent) != nil {
-		return r.stop(StopFailed, StopReasonCompactionFailed), false
-	}
-	if stop := budgetSpentStop(s); stop != nil {
-		return r.stopWith(stop), false
-	}
-	if s.modelCallCap-s.ModelCalls < 2 {
-		return r.stop(StopLimited, string(LimitModelCalls)), false
+	if refused || tries != 1 || activeSummaryText(res) == "" || activeSummaryHasTools(res) ||
+		validateModelResult(*res, r.agent) != nil || budgetSpentStop(s) != nil || s.modelCallCap-s.ModelCalls < 2 {
+		return r.compactWithoutSummary(s, s.failedSummary, failed.Error)
 	}
 	return r.modelPurpose(s, ModelPurposeCompaction, start.Compaction)
+}
+
+// compactWithoutSummary replaces the messages that summary call modelCall
+// covers with a summary fallback, built without a model call, and warns
+// WarningSummaryFallback. It is used when that call failed (cause says
+// why) or its summary could not be verified, so the turn continues with a
+// shorter history instead of failing. The fallback is sized like a summary;
+// when that does not shrink the next request, the fallback is the note
+// alone. Whether the result fits the window is the next request's check.
+func (r *runtime) compactWithoutSummary(s *replayState, modelCall, cause string) (RunResult, bool) {
+	if r.ctx.Err() != nil {
+		return r.contextStop(), false
+	}
+	plan := s.startedModelCalls[modelCall].Compaction
+	covered, err := coveredMessages(r.turn, plan)
+	if err != nil {
+		return r.stop(StopFailed, err.Error()), false
+	}
+	fact := ContextCompactionFact{
+		ModelCallID:     modelCall,
+		SummaryFallback: compactiontext.Fallback(covered, len(covered), compactiontext.FallbackBudget(r.summaryMaxTokens(r.agent.Settings.MaxTokens))),
+	}
+	after, err := r.activeEstimate(plan, fact)
+	if err != nil || after >= plan.EstimatedBefore {
+		fact.SummaryFallback = compactiontext.Fallback(covered, len(covered), 0)
+		if after, err = r.activeEstimate(plan, fact); err != nil {
+			after = 0
+		}
+	}
+	fact.EstimatedAfter = after
+	warning := Warning{Code: WarningSummaryFallback, Message: fmt.Sprintf(
+		"active compaction had no usable summary (%s); %d earlier messages of this turn were shortened without one",
+		cause, len(covered),
+	)}
+	if o := r.commit(Step{Kind: StepContextCompacted, Compacted: &fact, Warnings: []Warning{warning}}); o != nil {
+		return *o, false
+	}
+	r.compactionUsed = true
+	return RunResult{}, true
 }
 
 func (r *runtime) contextLimit(s *replayState, req llm.Request, reason string) RunResult {
@@ -245,12 +283,26 @@ func (r *runtime) activeSummaryMessages(plan *ContextCompactionPlan) ([]llm.Mess
 }
 
 // activeEstimateAfter verifies actual prepared bytes for the ordinary request
-// with the replacement, without sending or reserving for that candidate.
+// with the replacement, without sending or reserving for that candidate, and
+// that the summary makes that request smaller.
 func (r *runtime) activeEstimateAfter(plan *ContextCompactionPlan, result *llm.Result) (int, error) {
 	summary, err := validActiveSummary(result)
 	if err != nil {
 		return 0, err
 	}
+	after, err := r.activeEstimate(plan, ContextCompactionFact{Summary: summary})
+	if err != nil {
+		return 0, err
+	}
+	if after >= plan.EstimatedBefore {
+		return 0, errors.New("summary did not reduce prepared request size")
+	}
+	return after, nil
+}
+
+// activeEstimate returns the prepared size of the ordinary request with
+// fact's replacement in place.
+func (r *runtime) activeEstimate(plan *ContextCompactionPlan, fact ContextCompactionFact) (int, error) {
 	messagesTurn := r.turn
 	// A summary call that is unsent or still streaming is not ordinary
 	// conversation. Validate its result against the already-finished prefix
@@ -268,7 +320,7 @@ func (r *runtime) activeEstimateAfter(plan *ContextCompactionPlan, result *llm.R
 	if err != nil {
 		return 0, err
 	}
-	replaced := replaceContext(messages, plan, ContextCompactionFact{Summary: summary}, int64(len(r.turn.Steps))+1)
+	replaced := replaceContext(messages, plan, fact, int64(len(r.turn.Steps))+1)
 	var input llm.Input
 	if r.compactionCandidate != nil {
 		input = llmclone.Input(*r.compactionCandidate)
@@ -302,11 +354,7 @@ func (r *runtime) activeEstimateAfter(plan *ContextCompactionPlan, result *llm.R
 	if req.Origin().Provider != r.agent.Provider || req.Origin().API != r.agent.API || req.Origin().Model != r.agent.Model || !canonjson.SameValue(req.Snapshot().Input, hydrated) {
 		return 0, errors.New("prepared replacement changed original input or destination")
 	}
-	after := llm.InputTokenUpperBound(req)
-	if after >= plan.EstimatedBefore {
-		return 0, errors.New("summary did not reduce prepared request size")
-	}
-	return after, nil
+	return llm.InputTokenUpperBound(req), nil
 }
 func (r *runtime) activeOrdinaryDefinitions(s *replayState) ([]tool.Definition, error) {
 	var defs []tool.Definition
@@ -330,7 +378,12 @@ func (r *runtime) applyActiveCompaction(s *replayState) *RunResult {
 	result := s.modelFinishes[modelCall].Result
 	after, err := r.activeEstimateAfter(plan, result)
 	if err != nil {
-		o := r.failureOrContext(err)
+		// A resumed run checks the summary against a rebuilt request, which
+		// can differ from the one the summary was made for.
+		o, again := r.compactWithoutSummary(s, modelCall, err.Error())
+		if again {
+			return nil
+		}
 		return &o
 	}
 	summary, _ := validActiveSummary(result)

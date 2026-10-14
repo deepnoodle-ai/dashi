@@ -90,13 +90,13 @@ The matching `model_call_finished` steps inherit that purpose; reject any explic
 | Fact | Recorded fields and validation |
 | --- | --- |
 | `ContextCompactionPlan` | `Through int64`, ordered `Covered []TurnMessageRef`, `Hash string`, `Window int`, `EstimatedBefore int`. `Through` ends before the call's start. Coverage names visible eligible messages at that step. `Hash` uses the existing canonical message hash. |
-| `StepContextCompacted` (`context_compacted`) | `Step.Compacted *ContextCompactionFact`, containing `ModelCallID string`, `Summary string`, `EstimatedAfter int`. The model call must have an acknowledged complete summary result and an unapplied plan. |
+| `StepContextCompacted` (`context_compacted`) | `Step.Compacted *ContextCompactionFact`, containing `ModelCallID string`, `Summary string`, `SummaryFallback string`, `EstimatedAfter int`. With `Summary`, the model call must have an acknowledged complete summary result and an unapplied plan. With `SummaryFallback` (see [active compaction fallback](../../design/active-compaction-fallback.md)), the call failed or its summary is unapplied. |
 
 Replay validates coverage, group closure, protected messages, hash, summary extraction, and strict estimate savings.
 Validation operates on the frozen prefix through `Through`, including earlier replacements.
 It does not depend on a current policy, model call, or supplied caller history.
 The result and application both retain summary text so public readers can inspect application directly; they must agree exactly.
-Repeated application is invalid. Failed, interrupted, empty, or non-shrinking summaries never produce this step.
+Repeated application is invalid. Failed, empty, or non-shrinking summaries produce this step only with a `SummaryFallback`; interrupted ones never do.
 
 Summary model calls keep the same request hash, reservation terms, pricing evidence, identities, and result accounting as ordinary model calls.
 Replay separates `pendingCompaction` from ordinary `latestResult` and `awaitingClassification`.
@@ -105,9 +105,9 @@ Before recording the result, reject tool or provider tool calls, incomplete stop
 Preserve the raw result and accounting, and record the rejection in `ModelFact.Error`.
 A known output-limit result permits one shorter admitted retry of identical coverage, bounded by recorded starts.
 Empty summary text, tool content, or refusal content blocks that retry.
-Other rejection or an exhausted retry stops with `StopReasonCompactionFailed="compaction_failed"`.
+Other rejection, a send failure, or an exhausted retry applies a summary fallback and warns `summary_fallback`; the turn continues.
 The [recovery amendment](compaction-recovery.md) specifies this bound and later-request Session recovery.
-Only complete finished calls without an error derive pending application. Explicit continuation can start a new model call after a rejected summary.
+Only complete finished calls without an error derive pending application. A rejected summary needs no explicit continuation: its fallback applies in the same run.
 No `BeforeFinish` or output-schema handling runs for summary results.
 
 ## Runtime, hooks, and limits

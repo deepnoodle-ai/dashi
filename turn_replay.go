@@ -16,6 +16,11 @@ type replayState struct {
 	contextCache      *contextValidationCache
 	source            Turn
 	pendingCompaction string
+	// failedSummary is the model call ID of the latest summary call that
+	// finished with an error, so the run retries it once or applies a
+	// summary fallback. It outlasts an interrupted retry, so that retry
+	// falls back too, and clears when a summary or fallback is recorded.
+	failedSummary string
 	// compactionUsed holds an applied summary's guard until ordinary work
 	// succeeds. Rebuilding the view keeps the guard across interruption
 	// and reload.

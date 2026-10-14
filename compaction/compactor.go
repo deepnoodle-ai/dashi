@@ -6,6 +6,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/catalog"
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/session"
 )
@@ -173,7 +174,7 @@ func (c *Compactor) start(messages []llm.Message, p plan) (dashi.Start, error) {
 			SummaryAt:       len(kept),
 			Frame:           summaryFrame,
 			Hash:            hash,
-			SummaryFallback: summaryFallback(p.covered, removed, p.allowance/2*bytesPerToken),
+			SummaryFallback: compactiontext.Fallback(p.covered, removed, compactiontext.FallbackBudget(p.allowance)),
 		},
 	}, nil
 }
