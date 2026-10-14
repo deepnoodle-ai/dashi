@@ -182,11 +182,13 @@ const (
 	// WarningActiveCompactionMediaEstimateUnavailable means this request has
 	// prepared media, whose context size cannot be estimated from wire bytes.
 	WarningActiveCompactionMediaEstimateUnavailable WarningCode = "active_compaction_media_estimate_unavailable"
-	// WarningSummaryFallback means a compaction turn ended without a
-	// summary, so its summary fallback stands in for the history it
-	// replaces: shorter, but with less of the earlier work. The stop step
-	// that ended the turn records it, once, so it is in that turn's
-	// RunResult and TurnView.Warnings.
+	// WarningSummaryFallback means a compaction had no usable summary, so
+	// a summary fallback stands in for the history it replaces: shorter,
+	// but with less of the earlier work. For a compaction turn, the stop
+	// step that ended the turn records it, once. For active compaction
+	// within a turn, the context_compacted step that applied the fallback
+	// records it. Either way it is in that turn's RunResult and
+	// TurnView.Warnings.
 	WarningSummaryFallback WarningCode = "summary_fallback"
 
 	// BuildHistory reports the warnings below, which no turn records.

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/internal/llmtext"
@@ -52,7 +53,12 @@ func replaceContext(messages []contextMessage, plan *ContextCompactionPlan, fact
 	for _, m := range messages {
 		if covered[m.Ref] {
 			if !inserted {
-				out = append(out, contextMessage{Ref: TurnMessageRef{Seq: seq}, Message: llm.UserMessage(llm.Text(activeSummaryFrame + "\n\n" + fact.Summary))})
+				// A fallback is not a summary, so it has no summary frame.
+				text := fact.SummaryFallback
+				if fact.Summary != "" {
+					text = activeSummaryFrame + "\n\n" + fact.Summary
+				}
+				out = append(out, contextMessage{Ref: TurnMessageRef{Seq: seq}, Message: llm.UserMessage(llm.Text(text))})
 				inserted = true
 			}
 			continue
@@ -263,36 +269,42 @@ func activeSummaryHasTools(result *llm.Result) bool {
 }
 func (s *replayState) applyContextCompaction(step Step) error {
 	f := step.Compacted
-	if f == nil || f.ModelCallID != s.pendingCompaction || s.Stop.Ended {
-		return errors.New("context replacement has no unapplied summary")
+	if f == nil || f.ModelCallID == "" || s.Stop.Ended {
+		return errors.New("context replacement has no summary call")
 	}
 	callStart := s.startedModelCalls[f.ModelCallID]
 	finished := s.modelFinishes[f.ModelCallID]
-	if callStart == nil || finished == nil || finished.Error != "" || finished.Interrupted != "" {
-		return errors.New("context replacement has no completed summary")
+	if callStart == nil || callStart.Purpose != ModelPurposeCompaction || callStart.Compaction == nil || finished == nil || finished.Interrupted != "" {
+		return errors.New("context replacement has no finished summary call")
 	}
-	text, err := validActiveSummary(finished.Result)
-	if err != nil {
-		return err
+	switch {
+	case f.Summary != "" && f.SummaryFallback == "":
+		if f.ModelCallID != s.pendingCompaction || finished.Error != "" {
+			return errors.New("context replacement has no unapplied summary")
+		}
+		text, err := validActiveSummary(finished.Result)
+		if err != nil {
+			return err
+		}
+		if text != f.Summary || f.EstimatedAfter < 0 || f.EstimatedAfter >= callStart.Compaction.EstimatedBefore {
+			return errors.New("context replacement lacks matching summary or savings")
+		}
+	case f.Summary == "" && strings.HasPrefix(f.SummaryFallback, compactiontext.FallbackNote):
+		// A fallback stands in for a failed summary call, or for a finished
+		// summary that a resumed run could not verify.
+		if f.ModelCallID != s.pendingCompaction && f.ModelCallID != s.failedSummary || f.EstimatedAfter < 0 {
+			return errors.New("summary fallback has no failed or unapplied summary")
+		}
+	default:
+		return errors.New("context replacement needs a summary or a summary fallback")
 	}
-	if text != f.Summary || f.EstimatedAfter < 0 || f.EstimatedAfter >= callStart.Compaction.EstimatedBefore {
-		return errors.New("context replacement lacks matching summary or savings")
-	}
-	if _, err = coveredMessagesCached(s.source, callStart.Compaction, s.contextCache); err != nil {
+	if _, err := coveredMessagesCached(s.source, callStart.Compaction, s.contextCache); err != nil {
 		return fmt.Errorf("context replacement: %w", err)
 	}
 	s.ContextCompactions = append(s.ContextCompactions, *f)
 	s.pendingCompaction = ""
+	s.failedSummary = ""
+	s.failedModel = ""
 	s.compactionUsed = true
 	return nil
-}
-
-func lastModelPurpose(t Turn) ModelPurpose {
-	for i := len(t.Steps) - 1; i >= 0; i-- {
-		step := t.Steps[i]
-		if step.Kind == StepModelCallStarted {
-			return step.Model.Purpose
-		}
-	}
-	return ""
 }

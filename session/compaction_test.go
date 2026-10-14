@@ -37,18 +37,16 @@ func (c *sizedRecoveryClient) Prepare(_ context.Context, in llm.Input) (llm.Requ
 	})
 }
 
+// An in-turn summary that fails falls back instead of failing its turn (see
+// the root package's tests), so the stop a later session turn recovers from
+// is a context-window stop.
 func TestSessionCompactionRecoversSettledContextStops(t *testing.T) {
-	for _, reason := range []string{"context window", "failed retry"} {
+	for _, reason := range []string{"context window"} {
 		t.Run(reason, func(t *testing.T) {
 			first := used("unfinished", 100)
 			first.Stop.Kind = llm.StopContextLimit
 			results := []llm.Result{usedToolCall(), first}
 			agent := dashi.Agent{Model: dashitest.Model, Settings: llm.Settings{MaxTokens: 256}, Limits: dashi.Limits{ModelCalls: 8}}
-			if reason == "failed retry" {
-				first.Stop.Kind = llm.StopOutputLimit
-				results = []llm.Result{usedToolCall(), first, first}
-				agent.ActiveCompaction = &dashi.ActiveCompactionPolicy{Window: 16000, MaxTokens: 256}
-			}
 			results = append(results, used("<summary>Read the evidence. The saved finding is 42.</summary>", 100), used("The saved finding is 42.", 100))
 			client := &sizedRecoveryClient{dashitest.NewClient(results...)}
 			calls := 0
@@ -59,7 +57,7 @@ func TestSessionCompactionRecoversSettledContextStops(t *testing.T) {
 			rec := jsonContextRecorder{dashi.NewMemoryRecorder()}
 			s := &session.Session{ID: "recovery", New: true, Runner: dashi.Runner{Client: client, Recorder: rec, Tools: tools}, Agent: agent}
 			out, err := s.Send(t.Context(), "Read the evidence.")
-			if err != nil || out.Stop.Reason != map[string]string{"context window": string(dashi.LimitContextWindow), "failed retry": dashi.StopReasonCompactionFailed}[reason] || calls != 1 {
+			if err != nil || out.Stop.Reason != string(dashi.LimitContextWindow) || calls != 1 {
 				t.Fatalf("stop=%+v effects=%d err=%v", out.Stop, calls, err)
 			}
 			// A fresh handle sees only durable facts, including rejected summaries.
@@ -81,13 +79,9 @@ func TestSessionCompactionRecoversSettledContextStops(t *testing.T) {
 			if out.Stop.Kind != dashi.StopCompleted || out.Turn.ID != "recovery-3" || out.Reply != "The saved finding is 42." || calls != 1 {
 				t.Fatalf("out=%+v effects=%d", out.TurnView, calls)
 			}
-			// A context-window stop already ended its turn, so only the
-			// failed retry needs a closing stop.
-			wantStops := 3
-			if reason == "context window" {
-				wantStops = 2
-			}
-			if len(stops) != wantStops || reason != "context window" && stops[0] != "recovery-1" {
+			// A context-window stop already ended its turn, so it needs no
+			// closing stop.
+			if len(stops) != 2 {
 				t.Fatalf("closing events=%v", stops)
 			}
 			history, _ := fresh.History(t.Context())

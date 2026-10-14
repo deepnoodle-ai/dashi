@@ -12,6 +12,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
+	"github.com/deepnoodle-ai/dashi/internal/compactiontext"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -95,42 +96,88 @@ func TestActiveCompactionOutputLimitRetry(t *testing.T) {
 	}
 }
 
-func TestActiveCompactionOutputLimitRetryStops(t *testing.T) {
+// summarySends counts the summary requests c sent.
+func summarySends(c *activeClient) int {
+	n := 0
+	for _, in := range c.sent {
+		if strings.HasPrefix(in.System, activeSummaryPrompt) {
+			n++
+		}
+	}
+	return n
+}
+
+// requireFallback fails unless out's first active compaction is a summary
+// fallback that the turn warned about.
+func requireFallback(t *testing.T, out RunResult) {
+	t.Helper()
+	if len(out.ContextCompactions) == 0 {
+		t.Fatal("no active compaction applied")
+	}
+	f := out.ContextCompactions[0]
+	if f.Summary != "" || !strings.HasPrefix(f.SummaryFallback, compactiontext.FallbackNote) {
+		t.Fatalf("first compaction is not a summary fallback: %+v", f)
+	}
+	warned := false
+	for _, step := range out.Turn.Steps {
+		for _, w := range step.Warnings {
+			if w.Code == WarningSummaryFallback {
+				warned = step.Kind == StepContextCompacted
+			}
+		}
+	}
+	if !warned {
+		t.Fatal("summary fallback was not warned on its context_compacted step")
+	}
+}
+
+// A summary that cannot be retried, or whose retry fails too, falls back to
+// a summary fallback and the turn goes on; it never fails the turn.
+func TestActiveCompactionOutputLimitRetryFallsBack(t *testing.T) {
 	for _, mode := range []string{"second limit", "model calls", "output budget", "tool call", "no text", "reasoning only", "refusal"} {
 		t.Run(mode, func(t *testing.T) {
 			c, a := activeFixture()
 			c.results[2] = outputLimitedSummary()
 			c.results = append(c.results[:3], append([]llm.Result{outputLimitedSummary()}, c.results[3:]...)...)
 			start := activeStart(a)
-			wantSends, wantKind, wantReason := 4, StopFailed, StopReasonCompactionFailed
+			wantSummaries := 1
 			switch mode {
+			case "second limit":
+				wantSummaries = 2
 			case "model calls":
 				start.Agent.Limits.ModelCalls = 4
-				wantSends, wantKind, wantReason = 3, StopLimited, "model call limit: 3 of 4 calls used; compacting the context needs two"
 			case "output budget":
 				start.Budget = &Budget{MaxOutputTokens: 6}
-				wantSends, wantKind, wantReason = 3, StopLimited, string(LimitOutputTokens)
 			case "tool call":
 				c.results[2].Message = callResult("truncated", "read").Message
-				wantSends = 3
 			case "no text":
 				c.results[2].Message = llm.AssistantMessage(llm.Text("<summary> \n </summary>"))
-				wantSends = 3
 			case "reasoning only":
 				c.results[2].Message = llm.AssistantMessage(llm.Content{Kind: llm.ContentReasoning, Reasoning: &llm.Reasoning{Text: "no summary"}})
-				wantSends = 3
 			case "refusal":
 				refusal := "Cannot summarize this."
 				c.results[2].Message.Content = append(c.results[2].Message.Content, llm.Content{Kind: llm.ContentRefusal, Refusal: &refusal})
-				wantSends = 3
 			}
 			calls := 0
 			out, err := (Runner{Client: c, Tools: activeTools(&calls)}).Run(t.Context(), Turn{ID: "retry-stop"}, start)
-			if err != nil || out.Stop.Kind != wantKind || out.Stop.Reason != wantReason || c.sends != wantSends || calls != 2 || len(out.ContextCompactions) != 0 || out.Reply != "" {
-				t.Fatalf("stop=%+v sends=%d effects=%d applied=%d err=%v", out.Stop, c.sends, calls, len(out.ContextCompactions), err)
+			if err != nil || out.Stop.Kind == StopFailed || summarySends(c) < wantSummaries {
+				t.Fatalf("stop=%+v sends=%d summaries=%d effects=%d err=%v", out.Stop, c.sends, summarySends(c), calls, err)
 			}
+			requireFallback(t, out)
 			if mode == "output budget" && !strings.Contains(c.sent[2].System, "within 2 output tokens") {
 				t.Fatal("summary prompt did not reflect the clamped budget")
+			}
+			// The ordinary request after the summary sees the fallback. A
+			// spent budget leaves none.
+			if mode == "output budget" {
+				if out.Stop.Kind != StopLimited || len(c.sent) != 3 {
+					t.Fatalf("stop=%+v sends=%d", out.Stop, len(c.sent))
+				}
+				return
+			}
+			next := c.sent[2+wantSummaries]
+			if strings.HasPrefix(next.System, activeSummaryPrompt) || !strings.Contains(next.Messages[1].Text(), compactiontext.FallbackNote) {
+				t.Fatalf("next request lacks the fallback: %q", next.Messages[1].Text())
 			}
 		})
 	}
@@ -187,8 +234,13 @@ func TestActiveCompactionOutputLimitRetryReload(t *testing.T) {
 				if out.Stop.Kind != StopCompleted || calls != 4 || c.sends != 8 {
 					t.Fatalf("stop=%+v calls=%d sends=%d", out.Stop, calls, c.sends)
 				}
-			} else if out.Stop.Reason != StopReasonCompactionFailed || calls != 2 || c.sends != 3 {
-				t.Fatalf("lost retry start authorized more work: stop=%+v calls=%d sends=%d", out.Stop, calls, c.sends)
+			} else {
+				// A lost retry start is not retried again: the cut-off
+				// summary falls back, and no further summary is asked for.
+				if out.Stop.Kind == StopFailed || summarySends(c) != 1 || c.sends != 4 {
+					t.Fatalf("lost retry start: stop=%+v calls=%d sends=%d summaries=%d", out.Stop, calls, c.sends, summarySends(c))
+				}
+				requireFallback(t, out)
 			}
 		})
 	}
@@ -400,23 +452,62 @@ func TestActiveCompactionRejectsSummaryWorkAndNoSavings(t *testing.T) {
 			calls := 0
 			r := Runner{Client: c, Tools: activeTools(&calls)}
 			out, err := r.Run(t.Context(), Turn{ID: "reject"}, activeStart(a))
-			if err != nil || out.Stop.Kind != StopFailed || out.Stop.Reason != StopReasonCompactionFailed || len(out.ContextCompactions) != 0 || calls != 2 || out.ModelCalls != 3 || out.Spend.Usage.InputTokens != 300 {
-				t.Fatalf("stop=%+v calls=%d calls=%d applied=%d spend=%+v err=%v", out.Stop, calls, out.ModelCalls, len(out.ContextCompactions), out.Spend, err)
+			// The rejected summary is replaced by a summary fallback, and the
+			// turn finishes its work.
+			if err != nil || out.Stop.Kind != StopCompleted || len(out.ContextCompactions) != 2 || calls != 4 || out.ModelCalls != 7 || out.Reply != "Fixed and verified." {
+				t.Fatalf("stop=%+v calls=%d calls=%d applied=%d err=%v", out.Stop, calls, out.ModelCalls, len(out.ContextCompactions), err)
 			}
-			if out.Reply != "" {
-				t.Fatalf("summary became answer: %q", out.Reply)
+			requireFallback(t, out)
+			if strings.Contains(c.sent[3].Messages[1].Text(), "expanded") || strings.Contains(c.sent[3].Messages[1].Text(), "evil") {
+				t.Fatal("rejected summary reached the next request")
 			}
-			// A new accepted summary on explicit Continue replaces the
-			// rejected one.
-			retry := final("<summary>Original objective. Evidence 1 and 2 checked.</summary>")
-			retry.Usage = &llm.Usage{InputTokens: 100, OutputTokens: 2}
-			c.results = append(c.results[:3], append([]llm.Result{retry}, c.results[3:]...)...)
-			resumed, err := r.Run(t.Context(), out.Turn, Continue{CommandID: "retry"})
-			if err != nil || resumed.Stop.Kind != StopCompleted || calls != 4 {
-				t.Fatalf("resume=%+v calls=%d err=%v", resumed.Stop, calls, err)
+			if _, err := replay(out.Turn); err != nil {
+				t.Fatalf("recorded fallback does not replay: %v", err)
 			}
 		})
 	}
+}
+
+// A summary call that fails to send falls back instead of failing the turn.
+func TestActiveCompactionSendFailureFallsBack(t *testing.T) {
+	c, a := activeFixture()
+	c.results[2] = llm.Result{}
+	c.errors = []error{nil, nil, &llm.Error{Provider: "test", Status: 529, SendStatus: llm.SendStatusProviderRejected}}
+	calls := 0
+	out, err := (Runner{Client: c, Tools: activeTools(&calls)}).Run(t.Context(), Turn{ID: "send-failure"}, activeStart(a))
+	if err != nil || out.Stop.Kind != StopCompleted || calls != 4 || out.Reply != "Fixed and verified." {
+		t.Fatalf("stop=%+v calls=%d sends=%d err=%v", out.Stop, calls, c.sends, err)
+	}
+	requireFallback(t, out)
+}
+
+// After a crash between a summary's result and its context_compacted step,
+// a resumed run that cannot verify the summary against the rebuilt request
+// applies a summary fallback instead of failing the turn.
+func TestActiveCompactionResumeUnverifiedSummaryFallsBack(t *testing.T) {
+	c, a := activeFixture()
+	calls := 0
+	rec := NewMemoryRecorder()
+	r := Runner{Client: c, Tools: activeTools(&calls), Recorder: &activeFault{Recorder: rec, kind: StepModelCallFinished}}
+	if _, err := r.Run(t.Context(), Turn{ID: "unverified"}, activeStart(a)); err == nil {
+		t.Fatal("expected a lost acknowledgement")
+	}
+	loaded, err := rec.Load(t.Context(), "unverified")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Stand in for a rebuilt request that no longer looks smaller with the
+	// summary, as when BeforeModel hooks had shrunk the original request.
+	for _, step := range loaded.Steps {
+		if step.Kind == StepModelCallStarted && step.Model.Purpose == ModelPurposeCompaction {
+			step.Model.Compaction.EstimatedBefore = 1
+		}
+	}
+	out, err := r.Run(t.Context(), loaded, Continue{CommandID: "continue"})
+	if err != nil || out.Stop.Kind != StopCompleted || calls != 4 || out.Reply != "Fixed and verified." {
+		t.Fatalf("stop=%+v calls=%d err=%v", out.Stop, calls, err)
+	}
+	requireFallback(t, out)
 }
 func TestActiveCompactionModelCallAndOutputBudget(t *testing.T) {
 	t.Run("reserve response", func(t *testing.T) {

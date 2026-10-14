@@ -75,7 +75,7 @@ func (r *Renderer) activeContextFinished(s dashi.Step) []Block {
 		return []Block{activeContextBlock(m.ModelCallID, "interrupted", "Active-Turn compaction interrupted; no replacement applied.", true)}
 	case m.Error != "":
 		a.done = true
-		return []Block{activeContextBlock(m.ModelCallID, StateFailed, "Active-Turn summary failed; previous context kept. "+m.Error, true)}
+		return []Block{activeContextBlock(m.ModelCallID, StateFailed, "Active-Turn summary failed: "+m.Error, true)}
 	default:
 		return []Block{activeContextBlock(m.ModelCallID, StateRunning, "Active-Turn summary recorded; applying context...", false)}
 	}
@@ -87,13 +87,22 @@ func (r *Renderer) activeContextApplied(s dashi.Step) []Block {
 	}
 	f := s.Compacted
 	text := "Active-Turn context compacted. Full execution record retained."
+	state := StateOK
+	if f.SummaryFallback != "" {
+		text = "Active-Turn summary failed; context shortened without a summary. Full execution record retained."
+		state = StateFailed
+	}
 	if a := r.activeContext[f.ModelCallID]; a != nil {
 		a.done = true
-		if a.before > 0 {
-			text = fmt.Sprintf("Active-Turn context compacted: estimated input %s → %s tokens. Full record retained.", groupDigits(a.before), groupDigits(f.EstimatedAfter))
+		if a.before > 0 && f.EstimatedAfter > 0 {
+			verb := "compacted"
+			if f.SummaryFallback != "" {
+				verb = "shortened without a summary (the summary failed)"
+			}
+			text = fmt.Sprintf("Active-Turn context %s: estimated input %s → %s tokens. Full record retained.", verb, groupDigits(a.before), groupDigits(f.EstimatedAfter))
 		}
 	}
-	return []Block{activeContextBlock(f.ModelCallID, StateOK, text, true)}
+	return []Block{activeContextBlock(f.ModelCallID, state, text, true)}
 }
 
 func (r *Renderer) activeContextStopped(stop dashi.Stop) []Block {

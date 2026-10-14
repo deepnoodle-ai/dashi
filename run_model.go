@@ -510,11 +510,16 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		if finished.ResultUnknown {
 			return r.stop(StopResultUnknown, sendErr.Error()), false
 		}
+		if purpose == ModelPurposeCompaction {
+			// The run loop applies a summary fallback.
+			return RunResult{}, true
+		}
 		return r.stop(StopFailed, sendErr.Error()), false
 	}
 	if validationErr != nil {
 		if purpose == ModelPurposeCompaction {
-			// The run loop decides whether to ask once for a shorter summary.
+			// The run loop asks once for a shorter summary or applies a
+			// summary fallback.
 			return RunResult{}, true
 		}
 		return r.stop(StopFailed, validationErr.Error()), false

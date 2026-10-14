@@ -236,6 +236,13 @@ request, caller-owned history, operator steering, and named context. A summary
 retains the objective, findings, changed files, verification, and remaining work.
 Completed tools remain recorded and are not executed again by compaction.
 
+A summary that fails, comes back unusable, or does not shrink the request
+never fails the Turn. After one retry for a summary cut off at its output
+limit, the Runner replaces the same exchanges with a summary fallback built
+without a model call: a note, the tools called, and the last reply. The
+`context_compacted` step records it in `ContextCompactionFact.SummaryFallback`
+and warns `summary_fallback`, and the Turn continues.
+
 The policy uses the client's context-window evidence. Set `Window` when the
 client has no window; a known smaller client window still caps that value.
 If neither is known, the Turn records `active_compaction_unavailable` and runs
