@@ -124,6 +124,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   approval without a `CallID` uses its request ID. A Resolve first sent
   before this change and retried after it gets a new ID, so the retry is
   not recognized as the same command.
+- **An urgent steer no longer cuts an active-compaction summary call.**
+  Cutting it spent the turn's summary, so a turn already over its window
+  ended `limited` with `context_window`. Steers, urgent or not, now wait for
+  the ordinary model call after the summary.
 
 ## [0.8.0] - 2026-10-13
 

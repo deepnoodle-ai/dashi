@@ -21,8 +21,13 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		return r.stop(StopFailed, errNoModelClient.Error()), false
 	}
 	// Steers waiting now reach this call. They are recorded before the
-	// BeforeModel hooks run, so the hooks' input includes them.
-	if steers := r.waitingSteers(s); len(steers) > 0 {
+	// BeforeModel hooks run, so the hooks' input includes them. A summary
+	// call takes none: they wait for the ordinary call after it.
+	var steers []ContextItem
+	if purpose != ModelPurposeCompaction {
+		steers = r.waitingSteers(s)
+	}
+	if len(steers) > 0 {
 		o := r.commitSteers(
 			Step{
 				Kind:    StepMessagesAdded,
@@ -242,7 +247,14 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		// The steer could not follow the paused result anyway (FR-6).
 		never = "it finishes a provider tool call the provider paused"
 	}
-	call, back := r.registerCall(cancelCall, never)
+	// An urgent steer never cuts a summary call. Cutting it would spend
+	// the turn's one summary and leave the history too long to send; the
+	// steer waits for the ordinary call after the summary instead.
+	var call *steerableCall
+	var back bool
+	if purpose != ModelPurposeCompaction {
+		call, back = r.registerCall(cancelCall, never)
+	}
 	defer r.dropCall(call)
 	if back {
 		r.dropHooks(mark)
