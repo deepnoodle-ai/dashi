@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/media"
 )
 
 func TestMissingAPIKeyFailsAtSend(t *testing.T) {
@@ -47,6 +49,40 @@ func TestMediaMissingAPIKeyFailsAtSend(t *testing.T) {
 	}
 	if _, err := interactions.do(t.Context(), nil); !errors.Is(err, llm.ErrNoAPIKey) {
 		t.Fatalf("interactions send error = %v, want ErrNoAPIKey", err)
+	}
+	// Polling and fetching a video File also need the key, so they fail
+	// before dispatch instead of sending an empty key header. Without a
+	// configured client the request would use http.DefaultTransport, so
+	// that transport fails the test if anything is sent.
+	defaultTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		t.Errorf("no-key video File call sent %s %s", r.Method, r.URL)
+		return nil, errFixtureTransport
+	})
+	t.Cleanup(func() { http.DefaultTransport = defaultTransport })
+	jobs, err := NewInteractionsVideoJobs(InteractionsMediaConfig{})
+	if err != nil {
+		t.Fatalf("NewInteractionsVideoJobs without a key: %v", err)
+	}
+	job := media.Job{
+		ID:     "files/abc",
+		Kind:   media.KindVideo,
+		Origin: jobs.client.origin("veo"),
+	}
+	if _, err := jobs.PollVideo(t.Context(), job); !errors.Is(err, llm.ErrNoAPIKey) {
+		t.Fatalf("PollVideo error = %v, want ErrNoAPIKey", err)
+	}
+	poll := media.JobPoll{
+		Job:   job,
+		State: media.JobSucceeded,
+		Content: []content.Block{content.VideoBlock(content.Source{
+			URI:      jobs.fileURL(job.ID, true),
+			MIMEType: "video/mp4",
+			Origin:   job.Origin,
+		})},
+	}
+	if _, err := jobs.FetchVideo(t.Context(), poll); !errors.Is(err, llm.ErrNoAPIKey) {
+		t.Fatalf("FetchVideo error = %v, want ErrNoAPIKey", err)
 	}
 	// A custom HTTP client may add credentials itself.
 	custom, err := NewMedia(MediaConfig{

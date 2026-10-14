@@ -459,6 +459,9 @@ func (p *InteractionsVideoJobClient) getFile(
 	maxBytes int64,
 	expectVideo bool,
 ) ([]byte, error) {
+	if p.client.noKey != nil {
+		return nil, p.client.noKey
+	}
 	return doGeminiMedia(
 		ctx,
 		p.Provider(),
