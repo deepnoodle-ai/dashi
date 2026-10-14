@@ -11,20 +11,15 @@ import (
 	"time"
 )
 
-// slowClipboardFixtures raises clipboardTimeout for the test. On a loaded
-// machine, starting a freshly written fixture script can take longer than
-// the production bound; these tests check what is written, not how fast.
-func slowClipboardFixtures(t *testing.T) {
-	old := clipboardTimeout
-	clipboardTimeout = time.Minute
-	t.Cleanup(func() { clipboardTimeout = old })
-}
+// fixtureClipboardTimeout replaces clipboardTimeout in these tests. On a
+// loaded machine, starting a freshly written fixture script can take longer
+// than the production bound; these tests check what is written, not how fast.
+const fixtureClipboardTimeout = time.Minute
 
 func TestNativeClipboardUsesStdinAndBoundedProcesses(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("fixture replaces pbcopy")
 	}
-	slowClipboardFixtures(t)
 	dir := t.TempDir()
 	capture := filepath.Join(dir, "captured")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -37,7 +32,7 @@ func TestNativeClipboardUsesStdinAndBoundedProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := "日本 long line\n$(this is literal) `also literal`"
-	if result, err := writeClipboard(t.Context(), source); err != nil || !result.confirmed {
+	if result, err := writeClipboardWithin(t.Context(), source, fixtureClipboardTimeout); err != nil || !result.confirmed {
 		t.Fatalf("local write result=%+v error=%v", result, err)
 	}
 	got, err := os.ReadFile(capture)
@@ -50,7 +45,7 @@ func TestNativeClipboardUsesStdinAndBoundedProcesses(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	if _, err := writeClipboard(ctx, source); err == nil {
+	if _, err := writeClipboardWithin(ctx, source, fixtureClipboardTimeout); err == nil {
 		t.Fatal("hanging clipboard claimed success")
 	}
 	// Well under the fixture's sleep, with room for a slow process start.
@@ -80,7 +75,6 @@ func TestTmuxClipboardDoesNotClaimConfirmedReceipt(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fixture uses a shell command")
 	}
-	slowClipboardFixtures(t)
 	dir := t.TempDir()
 	capture := filepath.Join(dir, "captured")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -90,7 +84,7 @@ func TestTmuxClipboardDoesNotClaimConfirmedReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	const source = "世界\nexact source"
-	result, err := writeClipboard(t.Context(), source)
+	result, err := writeClipboardWithin(t.Context(), source, fixtureClipboardTimeout)
 	if err != nil || result.confirmed || !strings.Contains(result.notice, "unconfirmed") {
 		t.Fatalf("tmux result=%+v error=%v", result, err)
 	}

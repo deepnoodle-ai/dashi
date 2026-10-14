@@ -184,8 +184,9 @@ func (c *Controller) WaitForInput() {
 	}
 }
 
-// goWork counts work before scheduling it. WaitForInput can stop at a dialog
-// without leaving a WaitGroup waiter behind when the next command begins.
+// goWork counts fn as background work before it starts, so Wait and
+// WaitForInput see it at once. The first action opens workIdle and the last
+// one to end closes it, which releases Wait.
 func (c *Controller) goWork(fn func()) {
 	c.workMu.Lock()
 	if c.work.Add(1) == 1 {

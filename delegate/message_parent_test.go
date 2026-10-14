@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -500,7 +501,11 @@ func TestStatusWaitEndsOnAMessage(t *testing.T) {
 			}, delegate.Config{}, nil)
 			// The wait counts messages sent after it begins, so the child
 			// sends only once the task_status call runs.
-			opened := func() { go func() { time.Sleep(50 * time.Millisecond); g.open() }() }
+			// The gate opens once, however many status calls run.
+			var once sync.Once
+			opened := func() {
+				once.Do(func() { go func() { time.Sleep(50 * time.Millisecond); g.open() }() })
+			}
 			var out dashi.RunResult
 			var err error
 			if withSession {

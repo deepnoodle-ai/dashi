@@ -178,7 +178,10 @@ func (h *runtimeFixture) wait(want func(transcriptState) bool) transcriptState {
 				// The runtime applies a tui.Focus command through its own
 				// goroutine, so a key sent before that event lands goes to
 				// the old field. Focusing here, in order, settles it first.
-				h.scr.rt.SendEvent(tui.FocusSetEvent{ID: last.focus, Time: time.Now()})
+				// An empty ID would clear focus, so it is never sent.
+				if last.focus != "" {
+					h.scr.rt.SendEvent(tui.FocusSetEvent{ID: last.focus, Time: time.Now()})
+				}
 				return last
 			}
 		case <-deadline.C:
