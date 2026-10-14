@@ -77,7 +77,8 @@ gone; only their typed prompts survive in its `history.jsonl`.
    - `copy_written`: `copy_path`, `original_path`, `app`, `kind`,
      `original_bytes`, `modified_at`, `hash`. Its `time` is `copied_at`.
    - `copy_superseded` (`copy_path` before and after the rename),
-     `modified_at_updated`, and `original_gone`.
+     `modified_at_updated`, `original_gone`, and `original_returned` (an
+     original marked gone is listed again).
 
    Everything else is recomputed from the copies by the current parser:
    `parse_status`, `parse_error`, `parser_version`, `line_types`, and the

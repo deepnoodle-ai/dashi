@@ -32,6 +32,9 @@ const (
 // original is copied again as if it had no copy, with a warning, so an
 // original is never left without one.
 //
+// An original that was marked gone and is listed again is recorded as
+// returned first, whatever the rule then does.
+//
 // An error here is about this original only; the run goes on. Errors from
 // the copy log or database are returned wrapped in fatalError.
 func (a *archive) copyOriginal(o original, prev *copyRow) (copyOutcome, error) {
@@ -39,6 +42,13 @@ func (a *archive) copyOriginal(o original, prev *copyRow) (copyOutcome, error) {
 		if _, err := os.Lstat(a.abs(prev.CopyPath)); errors.Is(err, fs.ErrNotExist) {
 			a.warn("the newest copy of %s was missing, so it was copied again: %s", o.Path, prev.CopyPath)
 			prev = nil
+		}
+	}
+	if prev != nil && prev.OriginalGoneAt.Valid {
+		// The original was marked gone but is back. A new copy_written
+		// would also clear the mark, but an unchanged original writes none.
+		if err := a.record(logEvent{Event: eventOriginalReturned, CopyPath: o.CopyPath}); err != nil {
+			return 0, fatal(err)
 		}
 	}
 	modifiedAt := formatTime(o.ModifiedAt)

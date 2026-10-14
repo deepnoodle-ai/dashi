@@ -321,6 +321,30 @@ func TestOriginalGone(t *testing.T) {
 	}
 }
 
+func TestOriginalReturnsUnchanged(t *testing.T) {
+	e := newEnv(t)
+	const cp = "claude-code/paste-cache/p1.txt"
+	p := e.claude("paste-cache/p1.txt", "pasted", baseTime)
+	e.copy()
+	os.Remove(p)
+	e.copy()
+	e.claude("paste-cache/p1.txt", "pasted", baseTime)
+	n := len(e.events())
+	if sum := e.copy(); sum.OriginalsCopied != 0 {
+		t.Fatalf("copied %d after an unchanged return, want 0", sum.OriginalsCopied)
+	}
+	if got := eventsOf(e.events(), n, eventOriginalReturned); len(got) != 1 {
+		t.Fatalf("%d original_returned events, want 1", len(got))
+	}
+	if row, _ := e.copyRowAt(cp); row.OriginalGoneAt.Valid {
+		t.Fatal("original_gone_at not cleared")
+	}
+	os.Remove(p)
+	if sum := e.copy(); sum.Gone != 1 {
+		t.Fatalf("gone %d after a second removal, want 1", sum.Gone)
+	}
+}
+
 func TestMissingAppDirectoryMarksNothingGone(t *testing.T) {
 	e := newEnv(t)
 	e.codex("history.jsonl", "{}\n", baseTime)
