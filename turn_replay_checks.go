@@ -265,7 +265,7 @@ func (s *replayState) canContinueWith(raise *Budget, raisedCap int) bool {
 	return true
 }
 
-// terminal reports whether the turn has ended. It keeps an accepted ended
+// ended reports whether the turn has ended. It keeps an accepted ended
 // stop even when a late result corrects its accounting. New stops check
 // their Ended flag with stopEnds.
 func (s *replayState) ended() bool {

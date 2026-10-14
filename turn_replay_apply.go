@@ -55,7 +55,7 @@ func (s *replayState) apply(step Step) error {
 		// The runner records a resolved agent; only its ID may be empty.
 		if a := step.Started.Agent; a.Version == "" || a.Provider == "" ||
 			a.API == "" || a.Model == "" {
-			return errors.New("recorded agent requires revision, provider, API, and model")
+			return errors.New("recorded agent requires version, provider, API, and model")
 		}
 		outputSchema := step.Started.OutputSchema
 		if len(outputSchema) == 0 {

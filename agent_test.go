@@ -58,7 +58,7 @@ func TestZeroConfigTurnGeneratesAndRecordsIdentity(t *testing.T) {
 	agent := first.Started.Agent
 	if agent.ID != "" || !strings.HasPrefix(agent.Version, "auto:") ||
 		len(agent.Version) != len("auto:")+16 {
-		t.Fatalf("recorded agent ID=%q revision=%q", agent.ID, agent.Version)
+		t.Fatalf("recorded agent ID=%q version=%q", agent.ID, agent.Version)
 	}
 	// The generated turn ID reaches the recorder, so the not-found path of
 	// Loader and the saved record agree with the outcome.
@@ -209,7 +209,7 @@ func TestAgentVersionTracksBehaviorFields(t *testing.T) {
 	}.resolved()
 	want := agentVersion(base)
 	if agentVersion(base) != want {
-		t.Fatal("revision is not stable")
+		t.Fatal("version is not stable")
 	}
 	changes := map[string]func(*Agent){
 		"instructions": func(a *Agent) { a.Instructions = "x" },
@@ -225,19 +225,19 @@ func TestAgentVersionTracksBehaviorFields(t *testing.T) {
 		a := base
 		change(&a)
 		if agentVersion(a) == want {
-			t.Errorf("%s change kept revision %s", name, want)
+			t.Errorf("%s change kept version %s", name, want)
 		}
 	}
 	same := map[string]func(*Agent){
 		"id":       func(a *Agent) { a.ID = "b" },
-		"revision": func(a *Agent) { a.Version = "r9" },
+		"version":  func(a *Agent) { a.Version = "r9" },
 		"deadline": func(a *Agent) { a.Limits.Deadline = time.Now().Add(time.Hour) },
 	}
 	for name, change := range same {
 		a := base
 		change(&a)
 		if agentVersion(a) != want {
-			t.Errorf("%s change altered revision", name)
+			t.Errorf("%s change altered version", name)
 		}
 	}
 }
@@ -496,7 +496,7 @@ func TestAgentVersionIsPinned(t *testing.T) {
 		Instructions: "Be brief.",
 	}.resolved()
 	if got := agentVersion(agent); got != "auto:20557d1d87035206" {
-		t.Fatalf("agentRevision = %q", got)
+		t.Fatalf("agentVersion = %q", got)
 	}
 }
 

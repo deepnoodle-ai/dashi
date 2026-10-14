@@ -95,13 +95,13 @@ func RetryAfter(err error) (time.Duration, bool) {
 	return providerErr.RetryAfter()
 }
 
-// terminalErrorCodes are provider error codes that never succeed on retry even
-// though their status code normally would. OpenAI returns all of these with
+// nonRetryableErrorCodes are provider error codes that never succeed on retry,
+// even though their status code normally would. OpenAI returns all of these with
 // 429, the same status as an ordinary rate limit, so the status code alone
 // cannot tell a request that is merely too fast from an account that is out of
 // money. Retrying a spend limit burns the retry budget and delays the error
 // the caller needs to see.
-var terminalErrorCodes = map[string]bool{
+var nonRetryableErrorCodes = map[string]bool{
 	"credit_balance_exhausted":          true,
 	"insufficient_quota":                true,
 	"organization_spend_limit_exceeded": true,
@@ -111,7 +111,7 @@ var terminalErrorCodes = map[string]bool{
 
 // shouldRetry supplies an advisory retry hint for an explicit HTTP failure.
 func shouldRetry(statusCode int, code string) bool {
-	if terminalErrorCodes[code] {
+	if nonRetryableErrorCodes[code] {
 		return false
 	}
 	return statusCode == http.StatusTooManyRequests || // 429

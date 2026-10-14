@@ -287,6 +287,26 @@ func TestTranscriptionPreflightRejectsUnsupportedInputs(t *testing.T) {
 	}
 }
 
+func TestTranscriptionBodyIsSameForSameInput(t *testing.T) {
+	c := testClient(t, func(*http.Request) (*http.Response, error) {
+		t.Fatal("network request during Prepare")
+		return nil, nil
+	})
+	in := audioInput(fixtureMP3, "audio/mpeg")
+	first, err := c.PrepareTranscription(t.Context(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := c.PrepareTranscription(t.Context(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := first.(*preparedTranscription), second.(*preparedTranscription)
+	if !bytes.Equal(a.body, b.body) || a.ctype != b.ctype {
+		t.Fatal("same input prepared different multipart bodies")
+	}
+}
+
 func TestTranscriptionFormatAndLimitBoundaries(t *testing.T) {
 	c := testClient(t, func(*http.Request) (*http.Response, error) {
 		t.Fatal("network request during Prepare")

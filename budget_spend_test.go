@@ -427,7 +427,7 @@ func usageResult(usage *llm.Usage) *llm.Result {
 
 func TestModelCallCostClassifiesEachModelCall(t *testing.T) {
 	measured := &llm.Usage{InputTokens: 10, OutputTokens: 5}
-	cutStop := usageResult(measured.Copy())
+	cutStop := usageResult(measured.Clone())
 	cutStop.Stop = llm.Stop{}
 	tests := []struct {
 		name     string
@@ -442,7 +442,7 @@ func TestModelCallCostClassifiesEachModelCall(t *testing.T) {
 		{
 			// No recorded Cost: Dashi prices the reported usage.
 			name:     "measured",
-			finish:   &ModelFact{Result: usageResult(measured.Copy())},
+			finish:   &ModelFact{Result: usageResult(measured.Clone())},
 			finished: true, basis: UsageSourceReported, charged: true, final: true,
 		},
 		{
@@ -454,7 +454,7 @@ func TestModelCallCostClassifiesEachModelCall(t *testing.T) {
 		{
 			name: "interrupted stream",
 			finish: &ModelFact{
-				Result:      usageResult(measured.Copy()),
+				Result:      usageResult(measured.Clone()),
 				Interrupted: InterruptRun,
 			},
 			finished: true, basis: UsageSourceCutOff, charged: true,
@@ -498,7 +498,7 @@ func TestModelCallCostClassifiesEachModelCall(t *testing.T) {
 		{
 			name:     "unpriced model",
 			unpriced: true,
-			finish:   &ModelFact{Result: usageResult(measured.Copy())},
+			finish:   &ModelFact{Result: usageResult(measured.Clone())},
 			finished: true, basis: UsageSourceReported,
 		},
 		{

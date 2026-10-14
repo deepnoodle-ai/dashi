@@ -213,6 +213,13 @@ func (c *Client) PrepareTranscription(ctx context.Context,
 	}
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
+	// A boundary derived from the form's values keeps the body the same for
+	// the same input.
+	err = writer.SetBoundary(providerhttp.MultipartBoundary(source.Data,
+		[]byte(in.Model), []byte(in.Language), []byte(in.Prompt)))
+	if err != nil {
+		return nil, fail(speech.ErrorInvalidRequest, err)
+	}
 	header := textproto.MIMEHeader{}
 	header.Set("Content-Disposition", fmt.Sprintf(
 		`form-data; name="file"; filename="audio.%s"`, format.extension))

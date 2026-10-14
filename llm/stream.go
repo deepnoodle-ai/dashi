@@ -83,7 +83,7 @@ func detach(delta Delta) Delta {
 		delta.Content = &value
 	}
 	if delta.Usage != nil {
-		delta.Usage = delta.Usage.Copy()
+		delta.Usage = delta.Usage.Clone()
 	}
 	return delta
 }

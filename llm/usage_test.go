@@ -158,7 +158,7 @@ func TestUsageCopyAndAddPreserveMeasurements(t *testing.T) {
 		!usage.InputModalityTokenDetailsIncomplete {
 		t.Fatal("usage aggregation lost measurement quality flags")
 	}
-	copy := usage.Copy()
+	copy := usage.Clone()
 	copy.ModalityTokens["text"] = ModalityTokenUsage{InputTokens: 999}
 	if usage.ModalityTokens["text"].InputTokens != 15 {
 		t.Fatal("usage copy shared modality measurements")
@@ -240,7 +240,7 @@ func TestUsageAddRejectsCumulativeOverflowWithoutMutation(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			usage := tc.start.Copy()
+			usage := tc.start.Clone()
 			if err := usage.Add(&tc.add); err == nil {
 				t.Fatal("cumulative token overflow was accepted")
 			}
@@ -286,7 +286,7 @@ func TestUsageRequestsFinalMerging(t *testing.T) {
 		Requests:         map[string]int{MeterWebSearch: 1},
 		RequestsComplete: true,
 	})
-	if !partial.RequestsComplete || !partial.Copy().RequestsComplete {
+	if !partial.RequestsComplete || !partial.Clone().RequestsComplete {
 		t.Fatal("a final frame did not complete earlier counts")
 	}
 	sum := &Usage{RequestsComplete: true}

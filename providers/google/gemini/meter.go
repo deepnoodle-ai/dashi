@@ -164,7 +164,7 @@ func recordMeters(usage *llm.Usage, counts map[string]int) {
 // usage delta. Deltas carry cumulative counts; llm.Usage.Absorb keeps the
 // largest count per key.
 func usageWithMeters(usage *llm.Usage, counts map[string]int) *llm.Usage {
-	out := usage.Copy()
+	out := usage.Clone()
 	recordMeters(out, counts)
 	return out
 }

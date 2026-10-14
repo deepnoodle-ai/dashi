@@ -225,7 +225,7 @@ func (r *runtime) commit(step Step) *RunResult {
 }
 
 // endsTurnAfter reports whether recording stop would end the turn. A stop
-// changes none of the state terminal reads except the stop itself. When
+// changes none of the state replayState.ended reads except the stop. When
 // the stop ends a compaction turn without a summary, it also returns the
 // WarningSummaryFallback the stop step records, so the warning is raised
 // once, with the turn's outcome.
@@ -283,7 +283,7 @@ func cloneEvent(event Event) Event {
 			delta.Content = &content
 		}
 		if delta.Usage != nil {
-			delta.Usage = delta.Usage.Copy()
+			delta.Usage = delta.Usage.Clone()
 		}
 		event.Delta = &delta
 	}
