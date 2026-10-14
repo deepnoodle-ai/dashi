@@ -432,6 +432,16 @@ var claimSources = []claimSource{
 		support: llm.SupportUnsupported,
 	},
 	{
+		// The thinkingBudget table gives a range for 2.5 Pro, 2.5 Flash, and
+		// 2.5 Flash Lite, and "Gemini 2.5 series models don't support
+		// thinkingLevel; use thinkingBudget". Gemini 3 accepts a budget only
+		// "for backwards compatibility", so it stays unknown there.
+		url:     "https://ai.google.dev/gemini-api/docs/generate-content/thinking",
+		models:  gemini25,
+		feature: llm.FeatureReasoningBudget,
+		support: llm.SupportSupported,
+	},
+	{
 		// "Muse Spark is tuned to run at the default of 1.0 and performs
 		// best there".
 		url: "https://dev.meta.ai/docs/protocols/chat-completions",
@@ -475,6 +485,64 @@ var openAIEfforts = map[string][]string{
 // openAINonReasoning names models whose page says they have no reasoning
 // step ("non-reasoning model", "without a reasoning step").
 var openAINonReasoning = []string{"gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"}
+
+// openAIFeatures lists, for each feature, the models whose page states it:
+// image where "Input modalities" names image, tools where "Supported
+// features" names function_calling, and structured_output where it names
+// structured_outputs. o3-mini takes text input only, the pro models from
+// gpt-5.2-pro to gpt-5.4-pro list no structured_outputs, and
+// gpt-5-codex-mini has no model page; their support stays unknown. Pages
+// name file_uploads without saying which file types, so document stays
+// unknown. Checked 2026-10-13.
+var openAIFeatures = map[llm.Feature][]string{
+	llm.FeatureImage: openAIModelsExcept("o3-mini", "gpt-5-codex-mini"),
+	llm.FeatureTools: openAIModelsExcept("gpt-5-codex-mini"),
+	llm.FeatureStructuredOutput: openAIModelsExcept(
+		"gpt-5.2-pro",
+		"gpt-5.4-pro",
+		"gpt-5-codex-mini",
+	),
+}
+
+// googleFeatures lists, for each feature, the models whose page states it in
+// the "Supported data types" inputs (image, audio, PDF) or as "Supported" in
+// the capabilities row (function calling, structured outputs). The
+// gemini-2.5-flash page lists no PDF input, so its document support stays
+// unknown. Checked 2026-10-13.
+var googleFeatures = map[llm.Feature][]string{
+	llm.FeatureImage:            geminiAll,
+	llm.FeatureAudio:            geminiAll,
+	llm.FeatureDocument:         geminiExcept("gemini-2.5-flash"),
+	llm.FeatureTools:            geminiAll,
+	llm.FeatureStructuredOutput: geminiAll,
+}
+
+func openAIModelsExcept(skip ...string) []string {
+	var models []string
+	for _, e := range Entries("openai") {
+		if !slices.Contains(skip, e.Model) {
+			models = append(models, e.Model)
+		}
+	}
+	return models
+}
+
+func geminiExcept(skip ...string) []string {
+	return slices.DeleteFunc(
+		slices.Clone(geminiAll),
+		func(m string) bool { return slices.Contains(skip, m) },
+	)
+}
+
+// geminiClaimPage is the page that states a Gemini model's data types and
+// capabilities. The customtools ID is listed under Versions on the
+// gemini-3.1-pro-preview page and has no page of its own.
+func geminiClaimPage(model string) string {
+	if model == "gemini-3.1-pro-preview-customtools" {
+		return googleModelPage("gemini-3.1-pro-preview")
+	}
+	return googleModelPage(model)
+}
 
 func openAIModelPage(model string) string {
 	return "https://developers.openai.com/api/docs/models/" + model
@@ -815,6 +883,27 @@ func allClaimSources() []claimSource {
 			},
 		)
 	}
+	for _, table := range []struct {
+		features map[llm.Feature][]string
+		page     func(string) string
+	}{
+		{openAIFeatures, openAIModelPage},
+		{googleFeatures, geminiClaimPage},
+	} {
+		for _, f := range slices.Sorted(maps.Keys(table.features)) {
+			for _, model := range table.features[f] {
+				sources = append(
+					sources,
+					claimSource{
+						url:     table.page(model),
+						models:  []string{model},
+						feature: f,
+						support: llm.SupportSupported,
+					},
+				)
+			}
+		}
+	}
 	for _, model := range openAINonReasoning {
 		sources = append(
 			sources,
@@ -1068,7 +1157,7 @@ var (
 	// openAIReasoningPriced lists the priced OpenAI entries in the gpt-5
 	// family, which the pricing page's "reasoning models, including gpt-5,
 	// o-series" row covers. The Daybreak aliases point at gpt-5.6 models.
-	// The o-series entries have no price sheet.
+	// gpt-5-codex-mini is not on the pricing page and has no price sheet.
 	openAIReasoningPriced = []string{
 		"gpt-6-astra",
 		"gpt-6.1-sol",
@@ -1091,8 +1180,14 @@ var (
 		"gpt-5.2-pro",
 		"gpt-5.1",
 		"gpt-5",
+		"gpt-5-pro",
 		"gpt-5-mini",
 		"gpt-5-nano",
+		"o3",
+		"o3-pro",
+		"o3-mini",
+		"o4-mini",
+		"gpt-5.3-codex",
 	}
 	// openAINonReasoningPriced lists the priced OpenAI entries without a
 	// reasoning step.

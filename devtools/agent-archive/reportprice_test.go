@@ -93,7 +93,7 @@ func TestPriceBookLookup(t *testing.T) {
 		{appClaudeCode, "claude-opus-5-5", ""},
 		{appClaudeCode, "claude-haiku-4-5-20251001", ""}, // a dated snapshot
 		{appCodex, "gpt-5.5", ""},
-		{appCodex, "gpt-5.3-codex", unpricedNoPrice},
+		{appCodex, "gpt-5-codex-mini", unpricedNoPrice},
 		{appCodex, "no-such-model", unpricedNotInCatalog},
 		{appCodex, "", unpricedNotInCatalog},
 		{appCodex, "claude-opus-5-5", unpricedNotInCatalog}, // the app picks the provider
