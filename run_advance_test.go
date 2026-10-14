@@ -408,6 +408,35 @@ func TestAdvanceRecordsDeadlineStop(t *testing.T) {
 	}
 }
 
+// A worker that recorded output and died before its stop leaves the turn
+// open. Advance past the deadline completes it with that output.
+func TestAdvancePastDeadlineCompletesRecordedOutput(t *testing.T) {
+	agent := structuredAgent()
+	agent.Limits.Deadline = time.Now().Add(time.Second)
+	rec := &hookRecorder{
+		MemoryRecorder: NewMemoryRecorder(),
+		before:         failOnce(StepTurnStopped),
+	}
+	client := &scriptedClient{
+		results: []llm.Result{submitResult("submission", `{"answer":8}`)},
+	}
+	runner := Runner{Client: client, Recorder: rec}
+	if _, err := runner.Run(t.Context(), Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Agent:     agent,
+		Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
+	}); err == nil {
+		t.Fatal("stop commit did not fail")
+	}
+	time.Sleep(time.Until(agent.Limits.Deadline) + 10*time.Millisecond)
+	out, err := runner.Advance(t.Context(), "t1")
+	if err != nil || out.Stop.Kind != StopCompleted || out.Output == nil ||
+		client.sends != 1 {
+		t.Fatalf("stop=%+v output=%v sends=%d err=%v",
+			out.Stop, out.Output, client.sends, err)
+	}
+}
+
 func TestFollowNextCoalescesABurstIntoItsStop(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{
 		toolUse(toolCall("ext-1", "mail", `{}`)),

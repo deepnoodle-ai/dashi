@@ -471,8 +471,9 @@ func (a *advancer) warn(message string) {
 	a.warnings = append(a.warnings, Warning{Code: WarningInbox, Message: message})
 }
 
-// recordStop records stop, or the deadline stop when stop is nil, with
-// the call's pending warnings.
+// recordStop records stop with the call's pending warnings. A nil stop
+// means the deadline passed: recorded output completes the turn, and
+// otherwise the turn stops at the deadline limit.
 func (a *advancer) recordStop(ctx context.Context, turn Turn, stop *Stop) (RunResult, error) {
 	state, err := replay(turn)
 	if err != nil {
@@ -494,9 +495,14 @@ func (a *advancer) recordStop(ctx context.Context, turn Turn, stop *Stop) (RunRe
 	}
 	defer rt.emitter.close()
 	var out RunResult
-	if stop == nil {
+	switch {
+	case stop == nil && state.Output != nil:
+		// Output recorded before the deadline completes the turn, as in
+		// contextStop.
+		out = rt.completeReply(state)
+	case stop == nil:
 		out = rt.stop(StopLimited, string(LimitDeadline))
-	} else {
+	default:
 		out = rt.stopWith(stop)
 	}
 	if rt.err == nil {

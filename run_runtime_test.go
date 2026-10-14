@@ -18,7 +18,7 @@ import (
 // output: the turn completes, as it does for a late Cancel.
 func TestDeadlineAfterRecordedOutputCompletes(t *testing.T) {
 	agent := structuredAgent()
-	agent.Limits.Deadline = time.Now().Add(50 * time.Millisecond)
+	agent.Limits.Deadline = time.Now().Add(time.Second)
 	rec := &hookRecorder{
 		MemoryRecorder: NewMemoryRecorder(),
 		before: func(_ context.Context, req CommitRequest) error {
