@@ -326,3 +326,28 @@ func TestResourceLineStartupPrintsPathsSafely(t *testing.T) {
 		t.Fatalf("unsafe startup output: %q", out.String())
 	}
 }
+
+// TestResourceSkillNamedLikeBuiltinCommand checks that every built-in
+// command and alias, such as /status and /q, takes precedence over a skill
+// of the same name, and that /resources says so.
+func TestResourceSkillNamedLikeBuiltinCommand(t *testing.T) {
+	h := newHarness(t)
+	for _, name := range []string{"status", "q", "review"} {
+		fixtureResourceSkill(t, h.dir, name, "Body", "")
+	}
+	for _, entry := range h.app.ctrl.commands() {
+		if entry.group == skillGroup && (entry.name == "/status" || entry.name == "/q") {
+			t.Fatalf("skill %s shadows a built-in command", entry.name)
+		}
+	}
+	h.app.ctrl.resources(t.Context())
+	text := h.ui.text()
+	for _, name := range []string{"status", "q", "review"} {
+		_, rest, _ := strings.Cut(text, "/"+name+" (")
+		line, _, _ := strings.Cut(rest, "Source:")
+		wins := strings.Contains(line, "Built-in command wins")
+		if wins != (name != "review") {
+			t.Fatalf("/%s: built-in note %v:\n%s", name, wins, text)
+		}
+	}
+}

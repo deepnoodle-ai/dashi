@@ -462,7 +462,7 @@ func TestDiffShownAfterBash(t *testing.T) {
 		}
 	}
 	text := strings.Join(diff.Lines, "\n")
-	if !strings.Contains(text, "a.txt | 2 +-") || !strings.Contains(text, "-old") ||
+	if !strings.Contains(text, "a.txt | +1 -1") || !strings.Contains(text, "-old") ||
 		!strings.Contains(text, "+new") {
 		t.Fatalf("diff block=%q", text)
 	}
@@ -484,6 +484,45 @@ func TestDiffShownAfterBash(t *testing.T) {
 	}
 }
 
+// A read-only bash call in a dirty tree shows no diff: the changes were
+// there before the call.
+func TestNoDiffAfterReadOnlyBash(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	h := newHarness(t,
+		callTool("c1", "bash", `{"command":"cat a.txt"}`),
+		say("Read it."),
+	)
+	dir := h.dir
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"config", "user.email", "t@example.com"},
+		{"config", "user.name", "T"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "a.txt"}, {"commit", "-q", "-m", "init"}} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("dirty\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.input("read it")
+	for _, b := range h.ui.blocks() {
+		if b.Kind == KindDiff {
+			t.Fatalf("diff block after a read-only call:\n%s", strings.Join(b.Lines, "\n"))
+		}
+	}
+}
+
 func TestDiffIsCappedAt40Lines(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
@@ -502,18 +541,65 @@ func TestDiffIsCappedAt40Lines(t *testing.T) {
 	run("add", "big.txt")
 	run("commit", "-q", "-m", "init")
 	os.WriteFile(file, []byte(strings.Repeat("line\n", 200)), 0o600)
-	b, ok := gitDiffBlock(t.Context(), dir, 1)
+	b, ok := gitDiffBlock(t.Context(), dir, 1, nil)
 	if !ok || len(b.Lines) != maxDiffLines+1 ||
 		!strings.HasPrefix(b.Lines[maxDiffLines], "... ") {
 		t.Fatalf("ok=%v lines=%d", ok, len(b.Lines))
 	}
 	// A clean tree and a non-repository give no block.
 	run("checkout", "-q", "--", "big.txt")
-	if _, ok := gitDiffBlock(t.Context(), dir, 2); ok {
+	if _, ok := gitDiffBlock(t.Context(), dir, 2, nil); ok {
 		t.Fatal("diff block for a clean tree")
 	}
-	if _, ok := gitDiffBlock(t.Context(), t.TempDir(), 3); ok {
+	if _, ok := gitDiffBlock(t.Context(), t.TempDir(), 3, nil); ok {
 		t.Fatal("diff block outside a repository")
+	}
+}
+
+// TestDiffShowsOnlyWhatTheCallChanged checks that changes already in the
+// tree when a shell call starts are not shown again after it.
+func TestDiffShowsOnlyWhatTheCallChanged(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	dir := t.TempDir()
+	run := func(args ...string) {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	run("config", "user.email", "t@example.com")
+	run("config", "user.name", "T")
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		os.WriteFile(filepath.Join(dir, name), []byte("one\n"), 0o600)
+	}
+	run("add", ".")
+	run("commit", "-q", "-m", "init")
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("dirty\n"), 0o600)
+	os.WriteFile(filepath.Join(dir, "c.txt"), []byte("dirty\n"), 0o600)
+
+	// A read-only call leaves the dirty tree as it was: no block.
+	before, ok := gitDiffFiles(t.Context(), dir)
+	if !ok || len(before) != 2 {
+		t.Fatalf("ok=%v files=%d", ok, len(before))
+	}
+	if b, ok := gitDiffBlock(t.Context(), dir, 1, before); ok {
+		t.Fatalf("diff block for a call that changed nothing:\n%s",
+			strings.Join(b.Lines, "\n"))
+	}
+
+	// A call that edits b.txt and undoes c.txt shows only those two.
+	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("two\n"), 0o600)
+	run("checkout", "-q", "--", "c.txt")
+	b, ok := gitDiffBlock(t.Context(), dir, 2, before)
+	if !ok {
+		t.Fatal("no diff block for a call that changed b.txt")
+	}
+	text := strings.Join(b.Lines, "\n")
+	if strings.Contains(text, "a.txt") || !strings.Contains(text, " b.txt | +1 -1") ||
+		!strings.Contains(text, "+two") || !strings.Contains(text, " c.txt | no longer changed") {
+		t.Fatalf("diff block:\n%s", text)
 	}
 }
 

@@ -660,6 +660,9 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 		res    Result
 		have   bool
 		runErr error
+		// diffBefore holds each running shell call's diff from when it
+		// started.
+		diffBefore = map[string][]fileDiff{}
 	)
 	for ev, err := range events {
 		if err != nil {
@@ -736,9 +739,18 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 				e.cfg.Emit(b)
 			}
 		}
+		// A shell call's diff shows only what the call changed. The
+		// started step is streamed before the call runs, so the diff
+		// taken then is the tree as the call found it.
+		if ev.Step != nil && ev.Step.Kind == dashi.StepToolStarted &&
+			r.CallName(ev.Step.Tool.Call.ID) == "bash" {
+			diffBefore[ev.Step.Tool.Call.ID], _ = gitDiffFiles(ctx, e.cfg.Dir)
+		}
 		if ev.Step != nil && ev.Step.Kind == dashi.StepToolFinished &&
 			r.CallName(ev.Step.Tool.Call.ID) == "bash" {
-			if b, ok := gitDiffBlock(ctx, e.cfg.Dir, ev.Step.Seq); ok {
+			before := diffBefore[ev.Step.Tool.Call.ID]
+			delete(diffBefore, ev.Step.Tool.Call.ID)
+			if b, ok := gitDiffBlock(ctx, e.cfg.Dir, ev.Step.Seq, before); ok {
 				b.ID = diffID(ev.TurnID, ev.Step.Seq)
 				e.saveDiff(ev.TurnID, ev.Step.Seq, b.Lines)
 				e.cfg.Emit(b)
@@ -935,23 +947,93 @@ func warnBlock(format string, args ...any) Block {
 // maxDiffLines caps the diff shown after a shell call.
 const maxDiffLines = 40
 
-// gitDiffBlock returns the uncommitted changes of dir, capped at 40 lines. It
-// reports false when dir is not a Git repository or nothing changed.
-func gitDiffBlock(ctx context.Context, dir string, seq int64) (Block, bool) {
-	stat, err := gitOutput(ctx, dir, "diff", "--stat")
-	if err != nil || strings.TrimSpace(stat) == "" {
+// fileDiff is one file's part of a git diff: its "diff --git" header and
+// every line from the header to the next file's.
+type fileDiff struct {
+	header string
+	lines  []string
+}
+
+// gitDiffFiles returns the uncommitted changes of dir, one entry per file.
+// It reports false when dir is not a Git repository.
+func gitDiffFiles(ctx context.Context, dir string) ([]fileDiff, bool) {
+	out, err := gitOutput(ctx, dir, "diff", "--no-color", "--no-ext-diff")
+	if err != nil {
+		return nil, false
+	}
+	var files []fileDiff
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		if strings.HasPrefix(line, "diff --git ") {
+			files = append(files, fileDiff{header: line})
+		}
+		if len(files) > 0 {
+			f := &files[len(files)-1]
+			f.lines = append(f.lines, line)
+		}
+	}
+	return files, true
+}
+
+// gitDiffBlock returns the changes a shell call made in dir, capped at 40
+// lines. before is the diff taken when the call started: only files whose
+// diff differs from it are shown, so changes that were already there are
+// not shown again. It reports false when dir is not a Git repository or
+// the call changed nothing.
+func gitDiffBlock(ctx context.Context, dir string, seq int64, before []fileDiff) (Block, bool) {
+	after, ok := gitDiffFiles(ctx, dir)
+	if !ok {
 		return Block{}, false
 	}
-	diff, _ := gitOutput(ctx, dir, "diff")
-	lines := strings.Split(strings.TrimRight(stat, "\n"), "\n")
-	lines = append(lines, "")
-	lines = append(lines, strings.Split(strings.TrimRight(diff, "\n"), "\n")...)
+	old := make(map[string]string, len(before))
+	for _, f := range before {
+		old[f.header] = strings.Join(f.lines, "\n")
+	}
+	var summary, body []string
+	for _, f := range after {
+		text, seen := old[f.header]
+		delete(old, f.header)
+		if seen && text == strings.Join(f.lines, "\n") {
+			continue
+		}
+		added, removed := 0, 0
+		for _, line := range f.lines[1:] {
+			switch {
+			case strings.HasPrefix(line, "+++ "), strings.HasPrefix(line, "--- "):
+			case strings.HasPrefix(line, "+"):
+				added++
+			case strings.HasPrefix(line, "-"):
+				removed++
+			}
+		}
+		summary = append(summary,
+			fmt.Sprintf(" %s | +%d -%d", diffPath(f.header), added, removed))
+		body = append(body, f.lines...)
+	}
+	for _, f := range before {
+		if _, undone := old[f.header]; undone {
+			summary = append(summary,
+				fmt.Sprintf(" %s | no longer changed", diffPath(f.header)))
+		}
+	}
+	if len(summary) == 0 {
+		return Block{}, false
+	}
+	lines := summary
+	if len(body) > 0 {
+		lines = append(append(lines, ""), body...)
+	}
 	if len(lines) > maxDiffLines {
 		hidden := len(lines) - maxDiffLines
 		lines = append(lines[:maxDiffLines],
 			fmt.Sprintf("... %d more lines", hidden))
 	}
 	return diffBlock("", seq, lines), true
+}
+
+// diffPath returns the file path that a "diff --git a/x b/x" header names.
+func diffPath(header string) string {
+	path, _, _ := strings.Cut(strings.TrimPrefix(header, "diff --git a/"), " b/")
+	return path
 }
 
 func diffID(turnID string, seq int64) string {
