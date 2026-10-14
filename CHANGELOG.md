@@ -127,7 +127,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **An urgent steer no longer cuts an active-compaction summary call.**
   Cutting it spent the turn's summary, so a turn already over its window
   ended `limited` with `context_window`. Steers, urgent or not, now wait for
-  the ordinary model call after the summary.
+  the ordinary model call after the summary, so an urgent steer sent during
+  a summary takes effect only once the summary finishes. A steer still
+  waiting when the turn stops is not recorded; `MemoryInbox.Leftovers`
+  returns it.
 
 ## [0.8.0] - 2026-10-13
 
