@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-14
+
 ### Added
 
 - **The CLI shows a command menu while you type a slash command.** Under the
@@ -65,6 +67,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   tool call and commit, and views given to hooks are copied directly rather
   than through JSON. A 396-step turn runs about 18x faster (8.0s to 0.44s
   in the benchmark). `Turn.View` still replays the whole record.
+
+- **A compaction turn ends itself.** The engine records `Stop.Ended` on
+  every stop of a compaction turn except a host hold (a host limit without
+  `Ends`) and an interruption with no model call in flight. A failed
+  summary therefore needs no host `Cancel`: its fallback stands in. A host
+  only waits while the last turn has not ended, and `session` no longer
+  closes a stopped compaction turn.
+- **`summary_fallback` is recorded once**, on the stop that ends a
+  compaction turn without a summary, so it is in that turn's `RunResult`
+  and `TurnView.Warnings`. `BuildHistory` no longer raises it on every
+  replay; `session` passes it on once, in the next turn's `SessionWarnings`.
+- **Active compaction falls back instead of failing the turn.** When a turn
+  cannot use the summary of its own finished work (a send failure, an
+  invalid reply, or no budget for the shorter retry), it swaps in the
+  summary fallback, records a `summary_fallback` warning on the
+  `context_compacted` step, and keeps going. `ContextCompactionFact` gains
+  `SummaryFallback`; exactly one of it and `Summary` is set.
 
 ### Removed
 
@@ -221,6 +240,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   commit now adds the step it wrote to the index, so the next commit and
   `Wait` need not read it back.
 
+- **`workspace` tools bound their work.** `glob` and `grep` expand nested
+  `{a,b}` groups and fail past 64 patterns; `read_file` cuts lines at 2000
+  bytes and results at 256 KiB; `edit_file` refuses files over 32 MiB; the
+  file tools refuse named pipes; walks and reads stop when canceled; and a
+  shell `DefaultTimeout` is capped at `MaxTimeout`.
+- OpenAI image edit and transcription requests now build the same body for
+  the same input: the multipart boundary is derived from the form values
+  instead of chosen at random.
+
 ## [0.8.0] - 2026-10-13
 
 ### Added
@@ -238,10 +266,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   were removed, then their user messages, the names of the tools called, and
   the agent's last reply, cut to half the summary's output allowance.
 - **`dashi.WarningSummaryFallback`** (`summary_fallback`, with the turn's ID)
-  is recorded once, on the stop that ends a compaction turn without a
-  summary, so it is in that turn's `RunResult` and `TurnView.Warnings`.
-  `BuildHistory` does not repeat it; `session` passes it on in the next
-  turn's `SessionWarnings`.
+  is raised each time a history is built from a compaction turn that ended
+  without a summary.
 - **`Policy.DueTokens`** sets the due count in tokens; when positive it
   overrides `Fraction`, and it is capped at the window only when the window
   is known.
@@ -279,13 +305,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   is empty.
   `IsSummary` recognizes the stand-in. A compaction turn that has not ended
   replaces nothing.
-- **A compaction turn ends itself.** The engine records `Stop.Ended` on
-  every stop of a compaction turn except a host hold (a host limit without
-  `Ends`) and an interruption with no model call in flight: a failure, a
-  refusal, its own budget or model-call cap, or an empty reply ends it, so
-  its fallback stands in with no host step. Run, Continue, Advance, and
-  Drive apply the same rule, and replay checks it. A host only waits while
-  the last turn has not ended.
 - **`Compactor.Start` never fails on size.** When transcript items do not fit
   the summary model even at 1 KB each, it drops whole items from the middle,
   keeping the oldest and newest, behind one "[N items omitted]" marker.
@@ -302,14 +321,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`session.Compactor.Start` takes the last call's usage**, as `Needed`
   does, so a compactor can size the fixed part.
 - **Sessions compact after any ended turn**, including one the new Start
-  closed or one ended at a limit, not only after a completed turn. After a
-  compaction turn held for budget (a host limit without `Ends`), a new Start
-  refuses with a `*TurnBusyError`. A compactor `Start` error, or a compaction turn that
+  closed or one ended at a limit, not only after a completed turn. A
+  stopped compaction turn is closed unless held for budget (a host limit
+  without `Ends`); a held one waits, and a new Start refuses with a
+  `*TurnBusyError`. A compactor `Start` error, or a compaction turn that
   cannot be recorded, is returned instead of running the next turn with
   the history that was due.
 - **The CLI** compacts at 20% of the window by default;
-  `--compaction-threshold` sets `Policy.DueTokens`. It warns once when a
-  compaction turn ends without a summary.
+  `--compaction-threshold` sets `Policy.DueTokens`. It warns once per
+  compaction turn that ended without a summary.
 
 ### Removed
 
