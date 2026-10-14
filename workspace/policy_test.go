@@ -226,10 +226,8 @@ func TestPolicyEditThatCannotSucceedSkipsPrompt(t *testing.T) {
 	p := f.ws.Policy(r.ask)
 	ctx := context.Background()
 	for name, args := range map[string]map[string]any{
-		"missing text": {"path": "m.go", "old_string": "zzz", "new_string": "y"},
-		"not unique":   {"path": "m.go", "old_string": "a", "new_string": "y"},
-		"no file":      {"path": "none.go", "old_string": "a", "new_string": "y"},
-		"outside":      {"path": "../x", "old_string": "a", "new_string": "y"},
+		"empty old_string": {"path": "m.go", "old_string": "", "new_string": "y"},
+		"no change":        {"path": "m.go", "old_string": "a", "new_string": "a"},
 	} {
 		d, err := p.decide(ctx, f.plan(t, ToolEditFile, args))
 		if err != nil || d.Kind != dashi.DecisionAllow {
@@ -245,8 +243,38 @@ func TestPolicyEditThatCannotSucceedSkipsPrompt(t *testing.T) {
 		t.Fatal("a working edit skipped the prompt")
 	}
 	// The tools themselves report the failures to the model.
-	out, text := call(t, f.tools, ToolEditFile, map[string]any{"path": "m.go", "old_string": "a", "new_string": "y"})
+	out, text := call(t, f.tools, ToolEditFile, map[string]any{"path": "m.go", "old_string": "a", "new_string": "a"})
 	wantState(t, out, text, tool.StateFailed)
+}
+
+// An edit that fails against the file now may work once an earlier call of
+// its batch runs, so the policy asks for it. Otherwise a batch such as
+// [write_file a.go "v1", edit_file a.go "v1" -> "v2"] would run the edit
+// unasked while the write is still running or waiting for approval.
+func TestPolicyEditThatFailsNowStillAsks(t *testing.T) {
+	f := newPolicyFixture(t)
+	writeTestFile(t, f.dir, "m.go", "a\na\nb\n")
+	ctx := context.Background()
+	for name, args := range map[string]map[string]any{
+		"missing text": {"path": "m.go", "old_string": "zzz", "new_string": "y"},
+		"not unique":   {"path": "m.go", "old_string": "a", "new_string": "y"},
+		"no file":      {"path": "none.go", "old_string": "v1", "new_string": "v2"},
+		"outside":      {"path": "../x", "old_string": "a", "new_string": "y"},
+	} {
+		r := &recordingAsk{answer: Approval{Allow: true}}
+		d, err := f.ws.Policy(r.ask).decide(ctx, f.plan(t, ToolEditFile, args))
+		if err != nil || len(r.requests) != 1 || d.Kind != dashi.DecisionAllow {
+			t.Errorf("%s: asks = %d, decision = %+v, err = %v", name, len(r.requests), d, err)
+		}
+		if got := r.requests; len(got) == 1 && got[0].Preview != "" {
+			t.Errorf("%s: preview = %q", name, got[0].Preview)
+		}
+		// With no ApprovalFunc the call waits for the durable approval.
+		d, err = f.ws.Policy(nil).decide(ctx, f.plan(t, ToolEditFile, args))
+		if err != nil || d.Kind != dashi.DecisionNeedsApproval {
+			t.Errorf("%s: deferred decision = %+v, err = %v", name, d, err)
+		}
+	}
 }
 
 func TestPolicyRememberCoversFileToolsAndExactCommands(t *testing.T) {

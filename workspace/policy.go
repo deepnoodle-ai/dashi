@@ -23,8 +23,11 @@ type ApprovalRequest struct {
 	// Summary is one line, such as "edit main.go" or "run: go test ./...".
 	Summary string
 
-	// Preview is a unified diff for write_file and edit_file. It is empty
-	// when the tool cannot compute one.
+	// Preview is a unified diff for write_file and edit_file, against the
+	// file as it is when the Policy asks. An earlier call of the same batch
+	// may still change the file before this call runs. Preview is empty when
+	// the tool cannot compute one, such as when the edit's text is not in the
+	// file yet.
 	Preview string
 
 	// Dir is the working directory, for bash.
@@ -139,7 +142,7 @@ func (p *Policy) decide(
 	if owned && readOnly {
 		return dashi.Allow("read-only tool"), nil
 	}
-	if owned && p.editCannotSucceed(plan) {
+	if owned && editCannotSucceed(plan) {
 		// The tool fails without a change, and its error text tells the
 		// model what to fix. A prompt would ask the person to approve a
 		// call that cannot do anything.
@@ -308,9 +311,11 @@ func (p *Policy) editPreview(in editArgs) string {
 }
 
 // editCannotSucceed reports whether plan is an edit_file call that the tool
-// will reject: a path outside the workspace, a missing or unreadable file, or
-// text that is missing or not unique.
-func (p *Policy) editCannotSucceed(plan dashi.ToolPlan) bool {
+// rejects whatever the file holds: old_string is empty or equals new_string.
+// It does not read the file. An earlier call of the same batch may still be
+// running or waiting for approval, and it may create the text an edit looks
+// for, so a check against the file now could let a later edit run unasked.
+func editCannotSucceed(plan dashi.ToolPlan) bool {
 	if plan.Call.Name != ToolEditFile {
 		return false
 	}
@@ -318,16 +323,7 @@ func (p *Policy) editCannotSucceed(plan dashi.ToolPlan) bool {
 	if json.Unmarshal(plan.Call.Args, &in) != nil {
 		return false
 	}
-	resolved, err := p.ws.scope.resolve(in.Path)
-	if err != nil {
-		return true
-	}
-	data, err := os.ReadFile(resolved)
-	if err != nil {
-		return true
-	}
-	_, _, err = applyEdit(in.Path, string(data), in)
-	return err != nil
+	return in.OldString == "" || in.OldString == in.NewString
 }
 
 func ptrTrue(p *bool) bool {
