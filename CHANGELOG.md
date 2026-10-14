@@ -163,6 +163,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   instead of exhausting memory. Gemini bounds its response copy at 256 MiB
   and reports a larger response as a protocol error, as the other providers
   do.
+- **`turnwatch`** counts a call that never ran (`tool.StateNotExecuted`),
+  such as one with invalid arguments or one a hook denied, as failed, so
+  repeating it unchanged triggers `failed_again`. A check with no recent
+  activity to judge sends no Decide request; a turn whose messages hold
+  none of its tool calls sends its latest reply instead. A P(yes) that is
+  NaN or outside 0 to 1 fails the check rather than being compared.
+- **`contextrank`** treats a P(yes) that is NaN or outside 0 to 1 as
+  unanswered (`CauseUnanswered`). Before, with no floor, a NaN candidate
+  was chosen.
+- **`listtool`**: `judge_items` sets its open-world hint to false, since
+  its results hold no item text, so `toolcheck.PromptInjection` no longer
+  sends them to Decide. Both tools read their arguments with exact,
+  case-sensitive keys, as the runner's schema check does, so a key such as
+  `"List"` no longer replaces the checked `"list"`.
 
 ## [0.8.0] - 2026-10-13
 

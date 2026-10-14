@@ -135,6 +135,10 @@ func JudgeItems(cfg Config) (tool.Tool, error) {
 		Kind: tool.KindLocal,
 	}
 	def.Annotations.ReadOnly = new(true)
+	// The result holds only item IDs and the decision model's answers,
+	// never item text, so a check on outside content, such as
+	// decide/toolcheck, can skip it.
+	def.Annotations.OpenWorld = new(false)
 	j := &judge{s}
 	return tool.Tool{Definition: def, Executor: executor(j.execute)}, nil
 }
@@ -169,7 +173,7 @@ func (j *judge) execute(ctx context.Context, call tool.Call) (tool.Outcome, erro
 		return j.finish(ctx, call, r, err.Error())
 	}
 	var args judgeArgs
-	if err := json.Unmarshal(call.Args, &args); err != nil {
+	if err := decodeArgs(call.Args, &args); err != nil {
 		return fail(fmt.Errorf("Invalid arguments: %v.", err))
 	}
 	r.List, r.Query = args.List, args.Query

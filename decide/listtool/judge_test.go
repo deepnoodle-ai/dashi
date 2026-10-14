@@ -732,3 +732,38 @@ func TestJudgeItemsReportsListErrors(t *testing.T) {
 		})
 	}
 }
+
+// judge_items results hold no item text, so the tool is closed-world and a
+// check on outside content skips it. pick_item shows item text, so it stays
+// unset and counts as open-world.
+func TestOpenWorld(t *testing.T) {
+	_, client := newFakeDecide(t)
+	list := &fakeList{name: "tickets"}
+	cfg := listtool.Config{Client: client, Lists: []listtool.AnyList{list.list()}}
+	if ow := newJudge(t, cfg).Definition.Annotations.OpenWorld; ow == nil || *ow {
+		t.Errorf("judge_items OpenWorld = %v; want false", ow)
+	}
+	if ow := newPick(t, cfg).Definition.Annotations.OpenWorld; ow != nil {
+		t.Errorf("pick_item OpenWorld = %v; want unset", *ow)
+	}
+}
+
+// A key that differs from a schema property only in case is not that
+// property. The schema check reads "list" and never sees "List", so the
+// tool must read "list" too.
+func TestArgsAreCaseSensitive(t *testing.T) {
+	_, client := newFakeDecide(t)
+	list := &fakeList{name: "tickets", entries: tickets(2, func(int) string { return "billing=0.9" })}
+	cfg := listtool.Config{Client: client, Lists: []listtool.AnyList{list.list()}}
+
+	args := strings.Replace(billingUrgent, `"list": "tickets",`, `"list": "tickets", "List": "orders",`, 1)
+	o, err := call(t, context.Background(), newJudge(t, cfg), args)
+	if err != nil || o.State != tool.StateSucceeded {
+		t.Fatalf("judge_items: outcome %q, error %v", text(o), err)
+	}
+	o, err = call(t, context.Background(), newPick(t, cfg),
+		`{"list": "tickets", "List": "orders", "looking_for": "the billing ticket"}`)
+	if err != nil || strings.Contains(text(o), "Unknown list") {
+		t.Fatalf("pick_item: outcome %q, error %v", text(o), err)
+	}
+}
