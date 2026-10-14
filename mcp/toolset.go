@@ -239,9 +239,14 @@ func (t *Toolset) Status() []ServerStatus {
 // for approval again: a declined server stays declined.
 //
 // Call it between turns, not during one. It returns an error only when ctx
-// ends; a server that fails is reported in Status.
+// ends or the Toolset is closed; a server that fails is reported in Status.
+// The snapshot matches Status even when ctx ends partway.
 func (t *Toolset) Refresh(ctx context.Context, names ...string) error {
 	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		return errors.New("the MCP toolset is closed")
+	}
 	var pick []*conn
 	for _, name := range slices.Sorted(maps.Keys(t.conns)) {
 		if len(names) == 0 || slices.Contains(names, name) {
@@ -260,13 +265,10 @@ func (t *Toolset) Refresh(ctx context.Context, names ...string) error {
 			t.dial(ctx, c)
 		}
 	})
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	t.rebuild()
-	return nil
+	t.mu.Unlock()
+	return ctx.Err()
 }
 
 // Close stops every server and its child process. It is safe to call twice.
@@ -331,6 +333,16 @@ func (t *Toolset) dial(ctx context.Context, c *conn) {
 		err = errTail.explain(err)
 	}
 	t.mu.Lock()
+	if t.closed {
+		// Close already stopped the old session. Keep the new one out of
+		// the record, so Status never reports a server that Close stopped
+		// as connected.
+		t.mu.Unlock()
+		if cs != nil {
+			cs.Close()
+		}
+		return
+	}
 	old := c.session
 	c.session, c.listed, c.changed, c.stderr = cs, tools, false, errTail
 	c.notes = warnings
@@ -339,16 +351,11 @@ func (t *Toolset) dial(ctx context.Context, c *conn) {
 	} else {
 		c.state, c.err = StateConnected, nil
 	}
-	closed := t.closed
 	t.mu.Unlock()
 	if old != nil {
 		old.Close()
 	}
 	if cs == nil {
-		return
-	}
-	if closed {
-		cs.Close()
 		return
 	}
 	go func() {
@@ -377,10 +384,13 @@ func (t *Toolset) connect(
 		for _, k := range slices.Sorted(maps.Keys(s.Env)) {
 			cmd.Env = append(cmd.Env, k+"="+s.Env[k])
 		}
-		transport = &mcp.CommandTransport{
+		// The child gets its own process group, so a Ctrl-C meant for the
+		// host does not stop it. Closing the session stops the group.
+		ownGroup(cmd)
+		transport = &groupTransport{CommandTransport: mcp.CommandTransport{
 			Command:           cmd,
 			TerminateDuration: 2 * time.Second,
-		}
+		}}
 	} else {
 		transport = &mcp.StreamableClientTransport{
 			Endpoint:   s.URL,

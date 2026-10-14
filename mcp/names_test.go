@@ -37,3 +37,12 @@ func TestToolNameCutsLongNamesWithStableHash(t *testing.T) {
 		t.Fatal("different long names share one short name")
 	}
 }
+
+func TestToolNameHashesTheRawNames(t *testing.T) {
+	long := strings.Repeat("x", 80)
+	a := toolName("s", long+".a")
+	b := toolName("s", long+"/a")
+	if a == b {
+		t.Fatalf("names that differ before sanitizing share %q", a)
+	}
+}

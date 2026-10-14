@@ -42,6 +42,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   now runs without a prompt. The `Hook` and `ApprovalRequest.Preview` docs
   say that a hook and a preview see the files before earlier calls of the
   batch take effect.
+- **`mcp`: stdio servers survive a host Ctrl-C.** Each stdio server now runs
+  in its own process group (a new console process group on Windows), so a
+  terminal interrupt meant for the host no longer stops it. `Close` still
+  stops the server, and on Unix also kills any children it left behind.
+- **`mcp`: an empty image or audio result no longer ends the turn.** It
+  becomes a text note and a status warning instead of a media block that
+  failed validation.
+- **`mcp`: `Refresh` keeps the tool snapshot in step with `Status`** when its
+  context ends partway, and returns an error instead of reconnecting servers
+  after `Close`.
+- **`mcp`: shortened tool names hash the raw server and tool names,** so two
+  long names that differ only in characters replaced by `_` get different
+  names.
 
 ## [0.8.0] - 2026-10-13
 
