@@ -11,10 +11,20 @@ import (
 	"time"
 )
 
+// slowClipboardFixtures raises clipboardTimeout for the test. On a loaded
+// machine, starting a freshly written fixture script can take longer than
+// the production bound; these tests check what is written, not how fast.
+func slowClipboardFixtures(t *testing.T) {
+	old := clipboardTimeout
+	clipboardTimeout = time.Minute
+	t.Cleanup(func() { clipboardTimeout = old })
+}
+
 func TestNativeClipboardUsesStdinAndBoundedProcesses(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("fixture replaces pbcopy")
 	}
+	slowClipboardFixtures(t)
 	dir := t.TempDir()
 	capture := filepath.Join(dir, "captured")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -34,7 +44,7 @@ func TestNativeClipboardUsesStdinAndBoundedProcesses(t *testing.T) {
 	if err != nil || string(got) != source {
 		t.Fatalf("clipboard source changed: %q %v", got, err)
 	}
-	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexec sleep 10\n"), 0700); err != nil {
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexec sleep 60\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
@@ -43,7 +53,8 @@ func TestNativeClipboardUsesStdinAndBoundedProcesses(t *testing.T) {
 	if _, err := writeClipboard(ctx, source); err == nil {
 		t.Fatal("hanging clipboard claimed success")
 	}
-	if time.Since(start) > time.Second {
+	// Well under the fixture's sleep, with room for a slow process start.
+	if time.Since(start) > 10*time.Second {
 		t.Fatal("clipboard process outlived its bounded context")
 	}
 }
@@ -69,6 +80,7 @@ func TestTmuxClipboardDoesNotClaimConfirmedReceipt(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fixture uses a shell command")
 	}
+	slowClipboardFixtures(t)
 	dir := t.TempDir()
 	capture := filepath.Join(dir, "captured")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))

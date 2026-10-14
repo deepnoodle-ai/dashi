@@ -15,10 +15,13 @@ type clipboardWriteResult struct {
 	confirmed bool
 }
 
+// clipboardTimeout bounds the local clipboard processes of one write.
+var clipboardTimeout = 2 * time.Second
+
 // writeClipboard uses bounded local processes. OSC52 is emitted separately
 // on the terminal's owning loop because receipt cannot be confirmed.
 func writeClipboard(ctx context.Context, text string) (clipboardWriteResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, clipboardTimeout)
 	defer cancel()
 	run := func(name string, args ...string) error {
 		cmd := exec.CommandContext(ctx, name, args...)

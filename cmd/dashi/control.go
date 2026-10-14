@@ -84,9 +84,13 @@ type Controller struct {
 	quitAction string
 	// dropping is the action (a slash command, or Ctrl-C) that was just
 	// warned about dropping queued prompts; repeating it goes ahead.
-	dropping         string
-	answers          chan string
-	wg               sync.WaitGroup
+	dropping string
+	answers  chan string
+	// work counts background actions. workIdle is closed when the count
+	// falls to zero; workMu guards both changes. A WaitGroup does not fit:
+	// task wakes start work at any time, also while Wait waits.
+	workMu           sync.Mutex
+	workIdle         chan struct{}
 	work             atomic.Int64
 	answerPending    atomic.Bool
 	base             context.Context
@@ -159,7 +163,12 @@ func (c *Controller) setMode(m Mode) {
 
 // Wait blocks until every background action ends.
 func (c *Controller) Wait() {
-	c.wg.Wait()
+	c.workMu.Lock()
+	idle := c.workIdle
+	c.workMu.Unlock()
+	if idle != nil {
+		<-idle
+	}
 }
 
 // WaitForInput blocks until every background action ends or a run waits for
@@ -178,8 +187,22 @@ func (c *Controller) WaitForInput() {
 // goWork counts work before scheduling it. WaitForInput can stop at a dialog
 // without leaving a WaitGroup waiter behind when the next command begins.
 func (c *Controller) goWork(fn func()) {
-	c.work.Add(1)
-	c.wg.Go(func() { defer c.work.Add(-1); fn() })
+	c.workMu.Lock()
+	if c.work.Add(1) == 1 {
+		c.workIdle = make(chan struct{})
+	}
+	c.workMu.Unlock()
+	go func() {
+		defer func() {
+			c.workMu.Lock()
+			if c.work.Add(-1) == 0 {
+				close(c.workIdle)
+				c.workIdle = nil
+			}
+			c.workMu.Unlock()
+		}()
+		fn()
+	}()
 }
 
 // CancelUnanswered cancels the run when it waits for an approval answer that

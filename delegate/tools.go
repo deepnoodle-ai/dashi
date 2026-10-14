@@ -270,7 +270,9 @@ func (ts *Tasks) execStart(
 		}
 		return tool.Outcome{}, err
 	}
-	if !v.Running() {
+	// With a wait, a task that ended before the call returned gets the same
+	// answer as one that ends during the wait.
+	if !v.Running() && wait == 0 {
 		return tool.Succeeded(fmt.Sprintf(
 			"Task %s (%s): %s. It has already ended (%s). A message that "+
 				"starts with \"[task %s\" carries the result. Do not poll.",
