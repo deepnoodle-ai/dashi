@@ -27,7 +27,10 @@ func (wire codec) readStream(
 ) (llm.Result, error) {
 	reader := sse.NewServerSentEventsReader[json.RawMessage](body)
 	result := initial
-	var text, reasoning strings.Builder
+	var text, reasoning, refusalText strings.Builder
+	// details collects the elements of each streamed reasoning_details array
+	// in order, the array a complete response carries.
+	var details []json.RawMessage
 	calls := map[int]*ToolCall{}
 	callIDs := map[string]int{}
 	callRaw := map[int][]byte{}
@@ -44,10 +47,22 @@ func (wire codec) readStream(
 				},
 			)
 		}
+		if len(details) > 0 {
+			// Marshaling a slice of valid raw JSON values cannot fail.
+			raw, _ := json.Marshal(details)
+			c, _ := wire.reasoningDetails(raw)
+			result.Message.Content = append(result.Message.Content, c)
+		}
 		if text.Len() > 0 {
 			result.Message.Content = append(
 				result.Message.Content,
 				llm.Text(text.String()),
+			)
+		}
+		if refusalText.Len() > 0 {
+			result.Message.Content = append(
+				result.Message.Content,
+				refusal(refusalText.String()),
 			)
 		}
 		for _, index := range slices.Sorted(maps.Keys(calls)) {
@@ -74,6 +89,9 @@ func (wire codec) readStream(
 		}
 		if complete {
 			result.Stop = llm.Stop{Kind: llm.ClassifyStopReason(reason), Raw: reason}
+			if refusalText.Len() > 0 {
+				result.Stop.Kind = refusalStop(result.Stop.Kind)
+			}
 		}
 		return result
 	}
@@ -161,8 +179,11 @@ func (wire codec) readStream(
 			)
 		}
 		if len(choice.Delta.ReasoningDetails) > 0 {
-			partial := build(false, false)
-			return partial, wire.unsupported("structured reasoning details")
+			var fragment []json.RawMessage
+			if err := json.Unmarshal(choice.Delta.ReasoningDetails, &fragment); err != nil {
+				return protocolError(raw, "decode stream reasoning details: %w", err)
+			}
+			details = append(details, fragment...)
 		}
 		if choice.Delta.Content != "" {
 			text.WriteString(choice.Delta.Content)
@@ -171,6 +192,16 @@ func (wire codec) readStream(
 				llm.Delta{
 					Kind: llm.DeltaText,
 					Text: choice.Delta.Content,
+				},
+			)
+		}
+		if choice.Delta.Refusal != "" {
+			refusalText.WriteString(choice.Delta.Refusal)
+			providerhttp.Emit(
+				sink,
+				llm.Delta{
+					Kind: llm.DeltaText,
+					Text: choice.Delta.Refusal,
 				},
 			)
 		}

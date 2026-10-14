@@ -100,6 +100,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   waits for background work.** Waiting for idle used a `sync.WaitGroup` that
   task wakes reused during a wait, which could panic with "WaitGroup is
   reused before previous Wait has returned".
+- **Chat Completions refusals are no longer lost.** A `refusal` in a response
+  or stream becomes `llm.ContentRefusal`, streams as text deltas, and stops
+  with `StopRefusal` when the service reports a plain `stop`. Before, the
+  reply was empty and looked like a normal finish. A refusal in history
+  replays as the assistant's `refusal` field to OpenAI and as assistant text
+  to compatible services.
+- **Chat Completions streams accept `reasoning_details`.** OpenRouter's
+  structured reasoning now streams instead of failing the call, and the
+  result carries the same replayable content a complete response does.
 
 ## [0.8.0] - 2026-10-13
 
