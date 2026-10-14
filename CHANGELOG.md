@@ -73,6 +73,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **The CLI no longer lets model or tool text write terminal escape
+  sequences.** A link or line containing control characters could clear the
+  screen, set the title, or write the clipboard (Wonton v0.7.3).
 - **`dashitest.Client.Inputs` returns independent copies.** Editing a
   returned input no longer changes what later calls report.
 - Grok voice no longer emits `EventInterrupted` when the user starts
