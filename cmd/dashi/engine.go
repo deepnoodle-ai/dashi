@@ -739,9 +739,12 @@ func (e *Engine) streamBounded(ctx context.Context, events iter.Seq2[dashi.Event
 				e.cfg.Emit(b)
 			}
 		}
-		// A shell call's diff shows only what the call changed. The
+		// A shell call's diff shows the files the call changed. The
 		// started step is streamed before the call runs, so the diff
-		// taken then is the tree as the call found it.
+		// taken then is the tree as the call found it. This assumes
+		// shell calls do not overlap: with Limits.ToolConcurrency above
+		// 1 (the default is 1), one call's block can also show the
+		// edits of another call that ran at the same time.
 		if ev.Step != nil && ev.Step.Kind == dashi.StepToolStarted &&
 			r.CallName(ev.Step.Tool.Call.ID) == "bash" {
 			diffBefore[ev.Step.Tool.Call.ID], _ = gitDiffFiles(ctx, e.cfg.Dir)
@@ -974,11 +977,14 @@ func gitDiffFiles(ctx context.Context, dir string) ([]fileDiff, bool) {
 	return files, true
 }
 
-// gitDiffBlock returns the changes a shell call made in dir, capped at 40
+// gitDiffBlock returns the files a shell call changed in dir, capped at 40
 // lines. before is the diff taken when the call started: only files whose
-// diff differs from it are shown, so changes that were already there are
-// not shown again. It reports false when dir is not a Git repository or
-// the call changed nothing.
+// diff differs from it are shown, so files that were already dirty and
+// that the call left alone are not shown again. The comparison is per
+// file, not per hunk: a file that was already dirty and that the call
+// changed again is shown with its full diff, older hunks included. It
+// reports false when dir is not a Git repository or the call changed
+// nothing.
 func gitDiffBlock(ctx context.Context, dir string, seq int64, before []fileDiff) (Block, bool) {
 	after, ok := gitDiffFiles(ctx, dir)
 	if !ok {
