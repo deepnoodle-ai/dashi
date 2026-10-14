@@ -49,7 +49,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `*Decision` types now have `json` tags matching their field names, like the
   step facts, so an encoded view reads `"model_calls"` instead of
   `"ModelCalls"`. Optional fields are omitted when empty.
-  `FinishPlan.OutputErr` encodes as the string `"output_error"`.
+  `FinishPlan.OutputErr` encodes as the string `"output_err"`.
   `SendPlan.Request` is not encoded yet, because `llm.Request` has no
   exported fields.
 

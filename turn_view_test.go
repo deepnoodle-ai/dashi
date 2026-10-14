@@ -209,7 +209,7 @@ func TestSnakeCase(t *testing.T) {
 	}
 }
 
-// A FinishPlan carries OutputErr as the string output_error, so a policy
+// A FinishPlan carries OutputErr as the string output_err, so a policy
 // service sees why the output did not parse.
 func TestFinishPlanJSONOutputError(t *testing.T) {
 	plan := FinishPlan{ModelCallID: "m1", Reply: "not json",
@@ -220,7 +220,7 @@ func TestFinishPlanJSONOutputError(t *testing.T) {
 	}
 	for _, key := range []string{
 		`"model_call_id":"m1"`, `"reply":"not json"`,
-		`"output_error":"invalid character 'o'"`,
+		`"output_err":"invalid character 'o'"`,
 	} {
 		if !strings.Contains(string(raw), key) {
 			t.Errorf("FinishPlan JSON lacks %s: %s", key, raw)
@@ -239,7 +239,7 @@ func TestFinishPlanJSONOutputError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), "output_error") {
-		t.Errorf("FinishPlan without error has output_error: %s", raw)
+	if strings.Contains(string(raw), "output_err") {
+		t.Errorf("FinishPlan without error has output_err: %s", raw)
 	}
 }
