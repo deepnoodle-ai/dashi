@@ -23,13 +23,15 @@ var ErrScriptDone = errors.New("dashitest: no scripted reply left")
 
 // Client is a scripted llm.Client for tests and keyless examples: each Send
 // returns the next reply in order, whatever the request says, so a turn
-// runs without a provider or an API key. Build replies with Reply and
-// CallTool. It is safe for concurrent use.
+// runs without a provider or an API key. Build replies with Reply,
+// CallTool, and CallTools. When the input asks to stream, as a runner with
+// an observer does, Send previews each reply as deltas before returning it,
+// so live views can be tested. It is safe for concurrent use.
 type Client struct {
-	mu      sync.Mutex
-	replies []llm.Result
-	inputs  []llm.Input
-	release <-chan struct{}
+	mu       sync.Mutex
+	replies  []llm.Result
+	requests []llm.Request
+	release  <-chan struct{}
 }
 
 // NewClient returns a client that answers with replies, in order.
@@ -47,13 +49,20 @@ func Reply(text string) llm.Result {
 
 // CallTool is a model reply that calls one tool with JSON arguments.
 func CallTool(id, name, args string) llm.Result {
-	call := tool.Call{ID: id, Name: name, Args: []byte(args)}
+	return CallTools(tool.Call{ID: id, Name: name, Args: []byte(args)})
+}
+
+// CallTools is a model reply that calls several tools at once, in order, as
+// a model making parallel tool calls does.
+func CallTools(calls ...tool.Call) llm.Result {
+	parts := make([]llm.Content, len(calls))
+	for i, call := range calls {
+		call := call.Clone()
+		parts[i] = llm.Content{Kind: llm.ContentToolCall, ToolCall: &call}
+	}
 	return llm.Result{
-		Message: llm.AssistantMessage(llm.Content{
-			Kind:     llm.ContentToolCall,
-			ToolCall: &call,
-		}),
-		Stop: llm.Stop{Kind: llm.StopToolUse},
+		Message: llm.AssistantMessage(parts...),
+		Stop:    llm.Stop{Kind: llm.StopToolUse},
 	}
 }
 
@@ -75,11 +84,14 @@ func (c *Client) Hold(release <-chan struct{}) {
 
 // Inputs returns the input of each Send so far, in order, so a test can
 // check what the model was shown, such as the history of earlier turns.
+// Each call returns new copies, so editing them changes nothing recorded.
 func (c *Client) Inputs() []llm.Input {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	out := make([]llm.Input, len(c.inputs))
-	copy(out, c.inputs)
+	out := make([]llm.Input, len(c.requests))
+	for i, req := range c.requests {
+		out[i] = req.Input()
+	}
 	return out
 }
 
@@ -114,7 +126,10 @@ func (*Client) Prepare(_ context.Context, in llm.Input) (llm.Request, error) {
 }
 
 // Send returns the next scripted reply, or ErrScriptDone when none is left.
-// After Hold, it first waits for the release.
+// After Hold, it first waits for the release. When the input asks to
+// stream, Send first reports the reply to call.Sink: one delta for each
+// text, reasoning, and tool call part, then one for usage when the reply
+// has it. The returned result is the same either way.
 func (c *Client) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
 	c.mu.Lock()
 	release := c.release
@@ -128,15 +143,49 @@ func (c *Client) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
 	if err := ctx.Err(); err != nil {
 		return llm.Result{}, err
 	}
-	in := call.Request.Snapshot().Input
+	in := call.Request.Input()
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.inputs = append(c.inputs, in)
+	c.requests = append(c.requests, call.Request)
 	if len(c.replies) == 0 {
+		c.mu.Unlock()
 		return llm.Result{}, ErrScriptDone
 	}
 	result := c.replies[0]
 	c.replies = c.replies[1:]
+	c.mu.Unlock()
 	result.Requested = llm.ModelRef{Provider: Provider, Model: in.Model}
+	if in.Stream && call.Sink != nil {
+		preview(call.Sink, result)
+	}
 	return result, nil
+}
+
+// preview reports a reply as the deltas a streaming provider would send
+// before its final result: each part whole, at its position in the message.
+func preview(sink llm.Sink, result llm.Result) {
+	for i, part := range result.Message.Content {
+		switch {
+		case part.Block != nil && part.Block.Text != nil:
+			sink(llm.Delta{
+				Kind:  llm.DeltaText,
+				Index: i,
+				Text:  part.Block.Text.Text,
+			})
+		case part.Reasoning != nil:
+			sink(llm.Delta{
+				Kind:  llm.DeltaReasoning,
+				Index: i,
+				Text:  part.Reasoning.Text,
+			})
+		case part.ToolCall != nil:
+			sink(llm.Delta{
+				Kind:  llm.DeltaToolArguments,
+				Index: i,
+				Text:  string(part.ToolCall.Args),
+			})
+		}
+	}
+	if result.Usage != nil {
+		sink(llm.Delta{Kind: llm.DeltaUsage, Usage: result.Usage.Copy()})
+	}
 }

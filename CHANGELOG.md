@@ -14,6 +14,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   selection, Tab completes the name, Enter runs a command that needs no
   argument or fills in one that does, and Esc closes the menu and keeps the
   draft.
+- **`dashitest.Client` streams its replies, and `dashitest.CallTools` scripts
+  parallel tool calls.** When the input asks to stream, as `Runner.Stream`
+  and a runner with an observer do, each reply is first reported as text,
+  reasoning, tool-argument, and usage deltas, so live views can be tested
+  without a provider. The final result is unchanged.
+
+### Fixed
+
+- **`dashitest.Client.Inputs` returns independent copies.** Editing a
+  returned input no longer changes what later calls report.
 
 ### Changed (breaking)
 
