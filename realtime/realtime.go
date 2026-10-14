@@ -132,7 +132,16 @@ type Error struct {
 	Cause    error
 }
 
-func (e *Error) Error() string          { return "realtime: " + string(e.Category) }
+func (e *Error) Error() string {
+	msg := "realtime: " + string(e.Category)
+	if e.Code != "" {
+		msg += " (" + e.Code + ")"
+	}
+	if e.Cause != nil {
+		msg += ": " + e.Cause.Error()
+	}
+	return msg
+}
 func (e *Error) Unwrap() error          { return e.Cause }
 func Fail(category ErrorCategory) error { return &Error{Category: category} }
 
