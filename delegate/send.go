@@ -437,9 +437,11 @@ func (ts *Tasks) passOnLocked(t *task) dashi.Command {
 	if ts.closed || len(t.mail) == 0 {
 		return nil
 	}
+	// A turn that stopped otherwise, interrupted too, takes a new turn, as
+	// a message that arrives later starts one (see deliver). Close
+	// interrupts with ts.closed set.
 	state := t.state()
-	if state == TaskRunning || state == TaskState(dashi.StopInterrupted) ||
-		dropOnStop(state) {
+	if state == TaskRunning || dropOnStop(state) {
 		return nil
 	}
 	first := t.mail[0]
@@ -544,7 +546,7 @@ func (ts *Tasks) execSend(
 	t, found := ts.tasks[args.TaskID]
 	fromChild := false
 	for _, other := range ts.tasks {
-		fromChild = fromChild || strings.HasPrefix(ref.TurnID, other.sessionID+"-")
+		fromChild = fromChild || isTurnOf(ref.TurnID, other.sessionID)
 	}
 	ts.mu.Unlock()
 	if fromChild {
