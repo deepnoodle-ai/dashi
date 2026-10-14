@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -129,7 +130,7 @@ func (s *Session) Setup(ctx context.Context, setup any, ack string) error {
 				s.info.SessionID = str(session, "id")
 				if len(s.info.SessionID) > 256 {
 					s.Close()
-					return realtime.Fail(realtime.ErrorProtocol)
+					return realtime.Failf(realtime.ErrorProtocol, "session id is %d bytes", len(s.info.SessionID))
 				}
 				for _, direction := range []string{"input", "output"} {
 					format := object(object(object(session, "audio"), direction), "format")
@@ -146,11 +147,11 @@ func (s *Session) Setup(ctx context.Context, setup any, ack string) error {
 		}
 		if _, ok := m["error"]; ok {
 			s.Close()
-			return realtime.Fail(realtime.ErrorProvider)
+			return &realtime.Error{Category: realtime.ErrorProvider, Code: providerErrorCode(m), Cause: providerErrorCause(m)}
 		}
 	}
 	s.Close()
-	return realtime.Fail(realtime.ErrorProtocol)
+	return realtime.Failf(realtime.ErrorProtocol, "no %q among the first 32 messages", ack)
 }
 func (s *Session) read(ctx context.Context) (map[string]any, error) {
 	b, e := s.conn.Read(ctx)
@@ -158,11 +159,11 @@ func (s *Session) read(ctx context.Context) (map[string]any, error) {
 		return nil, classify(ctx, e)
 	}
 	if len(b) > realtime.MaxMessageBytes {
-		return nil, realtime.Fail(realtime.ErrorProtocol)
+		return nil, realtime.Failf(realtime.ErrorProtocol, "message is %d bytes", len(b))
 	}
 	var m map[string]any
 	if json.Unmarshal(b, &m) != nil || m == nil {
-		return nil, realtime.Fail(realtime.ErrorProtocol)
+		return nil, realtime.Failf(realtime.ErrorProtocol, "message is not a JSON object")
 	}
 	return m, nil
 }
@@ -247,27 +248,39 @@ func str(m map[string]any, k string) string            { v, _ := m[k].(string); 
 func object(m map[string]any, k string) map[string]any { v, _ := m[k].(map[string]any); return v }
 func (s *Session) enqueue(e realtime.Event) error {
 	if len(s.events) >= 128 {
-		return realtime.Fail(realtime.ErrorProtocol)
+		return realtime.Failf(realtime.ErrorProtocol, "more than 128 events queued")
 	}
 	s.events = append(s.events, e)
 	return nil
 }
+
+// audio queues a provider's audio chunk as frames of at most
+// MaxAudioBytes. Providers choose their own chunk size (Grok sends about
+// 1.4 s, just over the cap), and a large chunk is ordinary pacing, not a
+// fault; the message limit already bounds the whole.
 func (s *Session) audio(data string, response, item string) error {
 	b, e := base64.StdEncoding.DecodeString(data)
-	if e != nil || len(b) == 0 || len(b) > realtime.MaxAudioBytes || len(b)%2 != 0 {
-		return realtime.Fail(realtime.ErrorProtocol)
+	if e != nil || len(b) == 0 || len(b)%2 != 0 {
+		return realtime.Failf(realtime.ErrorProtocol, "audio chunk of %d bytes (decode error %v)", len(b), e)
 	}
-	return s.enqueue(realtime.Event{Kind: realtime.EventAudio, ResponseID: response, ItemID: item, Audio: &realtime.AudioFrame{Data: b, Format: s.info.OutputFormat}})
+	for len(b) > 0 {
+		n := min(len(b), realtime.MaxAudioBytes)
+		if e := s.enqueue(realtime.Event{Kind: realtime.EventAudio, ResponseID: response, ItemID: item, Audio: &realtime.AudioFrame{Data: b[:n], Format: s.info.OutputFormat}}); e != nil {
+			return e
+		}
+		b = b[n:]
+	}
+	return nil
 }
 func (s *Session) call(id, name string, args any, response, item string) error {
 	if id == "" || len(id) > 256 || name == "" || !s.allowed[name] {
-		return realtime.Fail(realtime.ErrorProtocol)
+		return realtime.Failf(realtime.ErrorProtocol, "tool call %q to %q is not one of the session's tools", clip(id), clip(name))
 	}
 	if s.seen[id] {
 		return nil
 	}
 	if len(s.pending) >= realtime.MaxPendingTools || len(s.seen) >= 4096 {
-		return realtime.Fail(realtime.ErrorProtocol)
+		return realtime.Failf(realtime.ErrorProtocol, "too many tool calls (%d pending, %d seen)", len(s.pending), len(s.seen))
 	}
 	b, e := json.Marshal(args)
 	if raw, ok := args.(string); ok {
@@ -275,7 +288,7 @@ func (s *Session) call(id, name string, args any, response, item string) error {
 	}
 	var obj map[string]any
 	if e != nil || len(b) > realtime.MaxToolBytes || json.Unmarshal(b, &obj) != nil || obj == nil {
-		return realtime.Fail(realtime.ErrorProtocol)
+		return realtime.Failf(realtime.ErrorProtocol, "tool call %q to %q has arguments that are not a JSON object (%d bytes)", clip(id), clip(name), len(b))
 	}
 	s.pending[id] = name
 	s.owners[id] = response
@@ -323,7 +336,7 @@ func (s *Session) Receive(ctx context.Context) (realtime.Event, error) {
 }
 func (s *Session) transcript(text string, speaker realtime.Speaker, mode realtime.TranscriptMode, final bool, response, item string) error {
 	if len(text) > realtime.MaxToolBytes {
-		return realtime.Fail(realtime.ErrorProtocol)
+		return realtime.Failf(realtime.ErrorProtocol, "transcript is %d bytes", len(text))
 	}
 	return s.enqueue(realtime.Event{Kind: realtime.EventTranscript, ResponseID: response, ItemID: item, Transcript: &realtime.Transcript{Text: text, Speaker: speaker, Mode: mode, Final: final}})
 }
@@ -406,7 +419,7 @@ func (s *Session) google(m map[string]any) error {
 				part, _ := v.(map[string]any)
 				if audio := object(part, "inlineData"); audio != nil {
 					if mime := str(audio, "mimeType"); mime != "audio/pcm;rate=24000" && mime != "audio/pcm" {
-						return realtime.Fail(realtime.ErrorProtocol)
+						return realtime.Failf(realtime.ErrorProtocol, "audio is %q", clip(mime))
 					}
 					if e := s.audio(str(audio, "data"), s.response, s.response); e != nil {
 						return e
@@ -420,7 +433,7 @@ func (s *Session) google(m map[string]any) error {
 			}
 			text := str(t, "text")
 			if len(s.outputText)+len(text) > realtime.MaxToolBytes {
-				return realtime.Fail(realtime.ErrorProtocol)
+				return realtime.Failf(realtime.ErrorProtocol, "output transcript is over %d bytes", realtime.MaxToolBytes)
 			}
 			s.outputText += text
 			if e := s.transcript(str(t, "text"), realtime.SpeakerAssistant, realtime.TranscriptModeDelta, false, s.response, s.response); e != nil {
@@ -522,7 +535,7 @@ func (s *Session) grok(m map[string]any) error {
 		return s.call(str(m, "call_id"), str(m, "name"), m["arguments"], r, i)
 	case "error":
 		e.Kind = realtime.EventError
-		e.Error = &realtime.Error{Category: realtime.ErrorProvider}
+		e.Error = &realtime.Error{Category: realtime.ErrorProvider, Code: providerErrorCode(m), Cause: providerErrorCause(m)}
 	default:
 		return nil
 	}
@@ -540,7 +553,7 @@ func (s *Session) usage(m map[string]any, google bool) error {
 		return nil
 	}
 	if a < 0 || b < 0 || a > 1e9 || b > 1e9 {
-		return realtime.Fail(realtime.ErrorProtocol)
+		return realtime.Failf(realtime.ErrorProtocol, "usage of %v input and %v output tokens", a, b)
 	}
 	u := &llm.Usage{InputTokens: int(a), OutputTokens: int(b), InputModalityTokenDetailsIncomplete: true, OutputModalityTokenDetailsIncomplete: true}
 	return s.enqueue(realtime.Event{Kind: realtime.EventUsage, ResponseID: s.response, Usage: u})
@@ -583,4 +596,38 @@ func (s *Session) cancelResponseTools(response string) error {
 	}
 	slices.Sort(ids)
 	return s.enqueue(realtime.Event{Kind: realtime.EventToolCanceled, ResponseID: response, CanceledCallIDs: ids})
+}
+
+// providerErrorCode and providerErrorCause read an "error" message's code
+// and text, so the caller can say what the provider objected to.
+func providerErrorCode(m map[string]any) string {
+	code := str(object(m, "error"), "code")
+	if code == "" {
+		code = str(object(m, "error"), "type")
+	}
+	if len(code) > 128 {
+		code = code[:128]
+	}
+	return code
+}
+func providerErrorCause(m map[string]any) error {
+	message := str(object(m, "error"), "message")
+	if message == "" {
+		message, _ = m["error"].(string)
+	}
+	if message == "" {
+		return nil
+	}
+	if len(message) > 1024 {
+		message = message[:1024]
+	}
+	return errors.New(message)
+}
+
+// clip bounds a provider-chosen name quoted into an error.
+func clip(v string) string {
+	if len(v) > 64 {
+		return v[:64] + "…"
+	}
+	return v
 }

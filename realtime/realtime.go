@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/deepnoodle-ai/dashi/content"
@@ -149,6 +150,12 @@ func (e *Error) Error() string {
 }
 func (e *Error) Unwrap() error          { return e.Cause }
 func Fail(category ErrorCategory) error { return &Error{Category: category} }
+
+// Failf is Fail with a cause saying which check failed, so a caller's log
+// can tell one protocol failure from another.
+func Failf(category ErrorCategory, format string, args ...any) error {
+	return &Error{Category: category, Cause: fmt.Errorf(format, args...)}
+}
 
 // Connection is the bounded JSON transport seam. Implementations must support
 // one reader and serialized writes, and Close must unblock an outstanding read.

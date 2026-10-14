@@ -2,6 +2,7 @@ package realtimewire
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -125,7 +126,7 @@ func TestMalformedPayloadSanitized(t *testing.T) {
 	s, _ := connect(t, false, fake(`{"type":"session.updated"}`, `secret broken payload`))
 	_, err := s.Receive(context.Background())
 	var e *realtime.Error
-	if !errors.As(err, &e) || e.Category != realtime.ErrorProtocol || err.Error() != "realtime: protocol" {
+	if !errors.As(err, &e) || e.Category != realtime.ErrorProtocol || strings.Contains(err.Error(), "secret") || e.Cause == nil {
 		t.Fatalf("unsafe error %v", err)
 	}
 }
@@ -374,4 +375,24 @@ func TestExpiredCallContextKeepsSession(t *testing.T) {
 		t.Fatalf("session closed by expired call context: %v", err)
 	}
 	next(t, s, realtime.EventResponseStarted)
+}
+func TestGrokErrorsSayWhatFailed(t *testing.T) {
+	s, _ := connect(t, false, fake(`{"type":"session.updated"}`, `{"type":"error","error":{"type":"invalid_request_error","code":"bad_audio","message":"Audio format not supported"}}`))
+	event, err := s.Receive(context.Background())
+	if err != nil || event.Kind != realtime.EventError || event.Error.Code != "bad_audio" || event.Error.Cause == nil || event.Error.Cause.Error() != "Audio format not supported" {
+		t.Fatalf("%+v %v", event.Error, err)
+	}
+	s, _ = connect(t, false, fake(`{"type":"session.updated"}`, `{"type":"response.output_audio.delta","delta":""}`))
+	if _, err := s.Receive(context.Background()); err == nil || !strings.Contains(err.Error(), "audio chunk of 0 bytes") {
+		t.Fatal(err)
+	}
+}
+func TestLargeAudioChunkSplitsIntoFrames(t *testing.T) {
+	chunk := base64.StdEncoding.EncodeToString(make([]byte, realtime.MaxAudioBytes+4000))
+	s, _ := connect(t, false, fake(`{"type":"session.updated"}`, `{"type":"response.output_audio.delta","response_id":"r","item_id":"i","delta":"`+chunk+`"}`))
+	a := next(t, s, realtime.EventAudio)
+	b := next(t, s, realtime.EventAudio)
+	if len(a.Audio.Data) != realtime.MaxAudioBytes || len(b.Audio.Data) != 4000 || b.ResponseID != "r" {
+		t.Fatal(len(a.Audio.Data), len(b.Audio.Data), b.ResponseID)
+	}
 }
