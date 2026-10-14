@@ -538,6 +538,8 @@ func checkBlock(b content.Block, origin content.Origin) error {
 		source = &b.Document.Source
 	case b.Audio != nil:
 		source = &b.Audio.Source
+	case b.Video != nil:
+		source = &b.Video.Source
 	case b.Text != nil:
 		for _, citation := range b.Text.Citations {
 			if citation.Origin != origin ||

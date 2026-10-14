@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"os"
 	"slices"
@@ -367,9 +366,9 @@ func (p *Client) Send(
 		}
 		return result, callErr
 	}
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := providerhttp.ReadResponse(p.Provider(), resp.Body)
 	if err != nil {
-		return result, providerhttp.ReadFailure(p.Provider(), err)
+		return result, err
 	}
 	result, callErr = wire.decode(raw, result.Requested)
 	if callErr == nil {

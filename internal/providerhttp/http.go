@@ -428,6 +428,33 @@ func Failure(
 	}
 }
 
+// MaxResponseBytes bounds a non-streaming model response body. It leaves room
+// for inline images and audio while stopping a runaway body from exhausting
+// memory.
+const MaxResponseBytes = 256 << 20
+
+// ReadResponse reads a successful non-streaming response body, failing once
+// it passes MaxResponseBytes.
+func ReadResponse(provider string, body io.Reader) ([]byte, error) {
+	return readResponse(provider, body, MaxResponseBytes)
+}
+
+func readResponse(provider string, body io.Reader, limit int) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(body, int64(limit)+1))
+	if err != nil {
+		return nil, ReadFailure(provider, err)
+	}
+	if len(raw) > limit {
+		return nil, Failure(
+			provider,
+			llm.ErrorProtocol,
+			"response body exceeds %d bytes",
+			limit,
+		)
+	}
+	return raw, nil
+}
+
 // Overlay retains private fields while replacing the public values with the
 // caller's current content. Replay never silently crosses providers.
 func Overlay(

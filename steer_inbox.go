@@ -2,6 +2,7 @@ package dashi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -79,6 +80,8 @@ func (in *MemoryInbox) Put(turnID string, command Command) error {
 		if command, err = newSteer(steer, false); err != nil {
 			return err
 		}
+	} else {
+		command = cloneInboxCommand(command)
 	}
 	id := CommandIDOf(command)
 	if id == "" {
@@ -231,13 +234,37 @@ func (in *MemoryInbox) Waiting(_ context.Context, turnID string) ([]Command, err
 	return out, nil
 }
 
-// cloneInboxCommand copies a steer's item so a caller cannot change the
-// queued one; other commands are values the inbox does not share further.
+// cloneInboxCommand deep-copies a command so the inbox and its callers never
+// share slices or pointers. Commands other than steers are copied through
+// JSON, as recorded steps are; one that does not encode is returned as is.
 func cloneInboxCommand(c Command) Command {
-	if steer, ok := c.(Steer); ok {
-		return Steer{Item: cloneContextItem(steer.Item), Urgent: steer.Urgent}
+	switch v := c.(type) {
+	case Steer:
+		return Steer{Item: cloneContextItem(v.Item), Urgent: v.Urgent}
+	case Start:
+		return cloneJSON(v)
+	case AddMessages:
+		return cloneJSON(v)
+	case Continue:
+		return cloneJSON(v)
+	case Resolve:
+		return cloneJSON(v)
 	}
 	return c
+}
+
+// cloneJSON returns a deep copy of v made by a JSON round trip, or v itself
+// when it does not encode.
+func cloneJSON[T any](v T) T {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return v
+	}
+	var out T
+	if err := json.Unmarshal(b, &out); err != nil {
+		return v
+	}
+	return out
 }
 
 // Delivered removes commands the turn recorded or refused. A recorded steer

@@ -2,7 +2,29 @@ package dashi
 
 import (
 	"testing"
+
+	"github.com/deepnoodle-ai/dashi/llm"
 )
+
+func TestMemoryInboxCopiesQueuedCommands(t *testing.T) {
+	in := NewMemoryInbox()
+	items := []ContextItem{{ID: "a", Message: llm.UserMessage(llm.Text("first"))}}
+	mustPut(t, in, "t1", AddMessages{CommandID: "add", Items: items})
+	items[0].ID = "changed"
+	got, err := in.Waiting(t.Context(), "t1")
+	if err != nil || len(got) != 1 {
+		t.Fatalf("got %v err=%v", got, err)
+	}
+	add := got[0].(AddMessages)
+	if add.Items[0].ID != "a" {
+		t.Fatalf("queued command aliases the caller's slice: %q", add.Items[0].ID)
+	}
+	add.Items[0].ID = "changed again"
+	again, _ := in.Waiting(t.Context(), "t1")
+	if again[0].(AddMessages).Items[0].ID != "a" {
+		t.Fatal("a claimed command aliases the queued one")
+	}
+}
 
 func TestMemoryInboxPutAddressesOneTurn(t *testing.T) {
 	in := NewMemoryInbox()
