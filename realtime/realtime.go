@@ -166,7 +166,10 @@ type Connection interface {
 }
 type DialFunc func(context.Context, string, http.Header, *http.Client) (Connection, error)
 
-const MaxAudioBytes = 64 * 1024
+// MaxAudioBytes bounds one audio frame either way: about 5.5 s of 24 kHz
+// PCM16 mono. Providers' own chunks fit (Grok's run about 69 KB), and a
+// larger one is split rather than refused.
+const MaxAudioBytes = 256 * 1024
 const MaxMessageBytes = 2 * 1024 * 1024
 const MaxToolBytes = 64 * 1024
 const MaxPendingTools = 32
