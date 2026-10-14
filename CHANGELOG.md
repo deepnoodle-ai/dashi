@@ -33,6 +33,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `PollVideo` and `FetchVideo` now fail before dispatch with an error that
   wraps `llm.ErrNoAPIKey`, as `SubmitVideo` does, instead of sending a
   request with an empty key header to the public endpoint.
+- **`workspace.Policy` no longer skips the prompt for an `edit_file` call
+  because its text is missing from the file.** `BeforeTool` runs while
+  earlier calls of the batch still run or wait for approval, so in a batch
+  such as `write_file a.go "v1"` then `edit_file a.go "v1" -> "v2"` the edit
+  was allowed unasked and then changed the file. Only an edit that fails
+  whatever the file holds (empty `old_string`, or one equal to `new_string`)
+  now runs without a prompt. The `Hook` and `ApprovalRequest.Preview` docs
+  say that a hook and a preview see the files before earlier calls of the
+  batch take effect.
 
 ## [0.8.0] - 2026-10-13
 

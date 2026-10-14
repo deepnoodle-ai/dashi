@@ -25,7 +25,11 @@ import (
 // place. It should honor ctx, which ends with the run. One Runner may run
 // many turns at once and calls the same hook from each, so a hook that keeps
 // state must guard it. A BeforeTool hook that blocks, such as a terminal
-// prompt, holds up the batch it belongs to while earlier calls run.
+// prompt, holds up the batch it belongs to while earlier calls run. So a
+// BeforeTool hook may run before the earlier calls of its batch take effect:
+// they may still be running or waiting for approval. A hook must not
+// allow a call because of state that an earlier call can change, such as a
+// file's content.
 type Hook[P, D any] struct {
 	// Name identifies the hook in the record. It must be nonempty and unique
 	// within its hook point. Reusable packages should prefix their names. A

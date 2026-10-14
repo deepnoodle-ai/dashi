@@ -108,9 +108,12 @@ exact `Command` and the workspace `Dir`. The fields hold text that the model
 controls. A host must not print them raw: an escape sequence or a carriage
 return can rewrite the prompt. Show `ApprovalRequest.Printable()` instead. It
 replaces control characters with visible marks and keeps newline and tab. The
-policy reads the files in the workspace to build previews. An `edit_file` call
-that cannot work (the text is missing or not unique) runs with no prompt,
-because the tool fails and tells the model.
+policy reads the files in the workspace to build previews. A preview shows the
+file as it is when the policy asks; an earlier call of the same batch may still
+change it. An `edit_file` call with an empty `old_string`, or one equal to
+`new_string`, runs with no prompt, because the tool fails and tells the model.
+Every other edit asks, also when its text is not in the file yet: an earlier
+call of the batch may add it.
 
 `Remember: true` on an allow stores a rule in the `Policy`. The rule lives as
 long as the `Policy`. A new `Policy` starts with none. For `write_file` and
