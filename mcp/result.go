@@ -31,11 +31,19 @@ func ConvertResult(res *mcp.CallToolResult) (tool.Outcome, []string) {
 			blocks = append(blocks, content.TextBlock(c.Text))
 			carried = carried || sameJSON(c.Text, res.StructuredContent)
 		case *mcp.ImageContent:
+			if len(c.Data) == 0 {
+				blocks = append(blocks, emptyMedia("image", c.MIMEType, warn))
+				continue
+			}
 			blocks = append(blocks, content.ImageBlock(content.Source{
 				Data:     c.Data,
 				MIMEType: mimeType(c.MIMEType),
 			}))
 		case *mcp.AudioContent:
+			if len(c.Data) == 0 {
+				blocks = append(blocks, emptyMedia("audio", c.MIMEType, warn))
+				continue
+			}
 			blocks = append(blocks, content.AudioBlock(content.Source{
 				Data:     c.Data,
 				MIMEType: mimeType(c.MIMEType),
@@ -75,6 +83,14 @@ func mimeType(s string) string {
 		return "image/jpeg"
 	}
 	return s
+}
+
+// emptyMedia notes an image or audio block with no bytes. A media block needs
+// data, so an empty one would make the whole outcome invalid.
+func emptyMedia(kind, mime string, warn func(string)) content.Block {
+	note := fmt.Sprintf("empty %s (%s) was not shown", kind, mimeType(mime))
+	warn(note)
+	return content.TextBlock(note)
 }
 
 func embedded(r *mcp.ResourceContents, warn func(string)) content.Block {

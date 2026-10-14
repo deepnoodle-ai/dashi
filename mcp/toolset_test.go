@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -586,5 +588,116 @@ func TestCallAfterCloseSaysTheToolsetIsClosed(t *testing.T) {
 	_, err = echo.Executor.Execute(t.Context(), tool.Call{ID: "c", Name: echo.Definition.Name, Args: []byte(`{"text":"x"}`)})
 	if err == nil || !strings.Contains(err.Error(), "closed") || strings.Contains(err.Error(), "may have run") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestStdioServerRunsInItsOwnProcessGroup(t *testing.T) {
+	srv, _ := stdioServer(t)
+	ts := open(t, map[string]Server{"test": srv}, Options{})
+	out, err := run(t, ts, "mcp__test__pid", `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(texts(out)[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, err := syscall.Getpgid(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if group != pid || group == syscall.Getpgrp() {
+		t.Fatalf(
+			"child group = %d, child = %d, host group = %d",
+			group, pid, syscall.Getpgrp(),
+		)
+	}
+}
+
+func TestCloseEndsChildrenTheServerLeftBehind(t *testing.T) {
+	srv, _ := stdioServer(t)
+	pidFile := filepath.Join(t.TempDir(), "sleep.pid")
+	srv.Args = []string{"-c", fmt.Sprintf(
+		"sleep 300 </dev/null >/dev/null 2>&1 & echo $! > %s; exec %s",
+		pidFile, srv.Command,
+	)}
+	srv.Command = "sh"
+	ts, err := Open(t.Context(), Config{Servers: map[string]Server{"test": srv}}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := statusOf(t, ts, "test"); st.State != StateConnected {
+		t.Fatalf("status = %+v", st)
+	}
+	raw, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Kill the sleep even when the test fails before Close.
+	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+	if err := ts.Close(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the left-behind child to exit", func() bool {
+		// The child is not ours, so once killed it is gone, not a zombie.
+		return syscall.Kill(pid, 0) == syscall.ESRCH
+	})
+}
+
+func TestRefreshKeepsTheSnapshotInStepWhenContextEnds(t *testing.T) {
+	srv, _ := stdioServer(t)
+	ts := open(t, map[string]Server{"test": srv}, Options{})
+	if _, err := run(t, ts, "mcp__test__exit", `{}`); err == nil {
+		t.Fatal("call to an exiting server succeeded")
+	}
+	waitFor(t, "the failed status", func() bool {
+		return statusOf(t, ts, "test").State == StateFailed
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := ts.Refresh(ctx); err == nil {
+		t.Fatal("Refresh ignored a cancelled context")
+	}
+	st := statusOf(t, ts, "test")
+	if got := len(toolNames(t, ts)); got != st.Tools {
+		t.Fatalf("snapshot has %d tools, status says %d", got, st.Tools)
+	}
+	if st.Tools != 0 {
+		t.Fatalf("a server that did not reconnect offers %d tools", st.Tools)
+	}
+}
+
+func TestRefreshAfterCloseSaysTheToolsetIsClosed(t *testing.T) {
+	srv, _ := stdioServer(t)
+	ts, err := Open(t.Context(), Config{Servers: map[string]Server{"test": srv}}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts.Close()
+	err = ts.Refresh(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestStatusAfterCloseReportsNoServerConnected(t *testing.T) {
+	srv, _ := stdioServer(t)
+	ts, err := Open(t.Context(), Config{Servers: map[string]Server{"test": srv}}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := statusOf(t, ts, "test"); st.State != StateConnected {
+		t.Fatalf("status before Close = %+v", st)
+	}
+	if err := ts.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st := statusOf(t, ts, "test")
+	if st.State != StateFailed || st.Err == nil || !strings.Contains(st.Err.Error(), "closed") {
+		t.Fatalf("status after Close = %+v", st)
 	}
 }

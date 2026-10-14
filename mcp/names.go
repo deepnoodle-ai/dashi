@@ -18,7 +18,8 @@ func toolName(server, remote string) string {
 	if len(name) <= maxNameLen {
 		return name
 	}
-	sum := sha256.Sum256([]byte(name))
+	// Hash the raw names: distinct names can sanitize to the same text.
+	sum := sha256.Sum256([]byte(server + "\x00" + remote))
 	return name[:maxNameLen-7] + "_" + hex.EncodeToString(sum[:3])
 }
 

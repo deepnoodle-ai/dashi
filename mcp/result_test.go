@@ -43,6 +43,25 @@ func TestConvertResultKeepsTextAndImage(t *testing.T) {
 	checkScreenshot(t, out, warnings)
 }
 
+func TestConvertResultNotesEmptyMedia(t *testing.T) {
+	out, warnings := ConvertResult(&mcp.CallToolResult{Content: []mcp.Content{
+		&mcp.ImageContent{MIMEType: "image/png"},
+		&mcp.AudioContent{Data: []byte{}, MIMEType: "audio/wav"},
+	}})
+	if err := out.Validate(); err != nil {
+		t.Fatalf("outcome invalid: %v", err)
+	}
+	got := texts(out)
+	if len(got) != 2 ||
+		!strings.Contains(got[0], "empty image") ||
+		!strings.Contains(got[1], "empty audio") {
+		t.Fatalf("texts = %q", got)
+	}
+	if len(warnings) != 2 {
+		t.Fatalf("warnings = %q", warnings)
+	}
+}
+
 func TestConvertResultAfterJSONRoundTrip(t *testing.T) {
 	saved, err := json.Marshal(screenshotResult())
 	if err != nil {
