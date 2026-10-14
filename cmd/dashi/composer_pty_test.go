@@ -175,6 +175,8 @@ func TestComposerInlineFocused(t *testing.T) {
 		}
 	}
 	typeText("/m")
+	// Esc closes the command menu, so Tab cycles native completions.
+	key(tui.KeyEvent{Key: tui.KeyEscape})
 	key(tui.KeyEvent{Key: tui.KeyTab})
 	key(tui.KeyEvent{Key: tui.KeyEscape})
 	wait("/m")

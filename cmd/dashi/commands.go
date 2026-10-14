@@ -207,14 +207,16 @@ func (c *Controller) dispatchCommand(line string, running bool) {
 }
 func (c *Controller) commandNames() []string {
 	var names []string
+	var items []commandMenuItem
 	for _, entry := range c.commands() {
 		if entry.hidden {
 			continue
 		}
 		names = append(names, entry.name)
 		names = append(names, entry.aliases...)
+		items = append(items, commandMenuItem{name: entry.name, aliases: entry.aliases, usage: entry.usage, description: entry.description})
 	}
-	c.knownNames.store(names)
+	c.knownNames.store(names, items)
 	return names
 }
 
@@ -222,22 +224,24 @@ func (c *Controller) commandNames() []string {
 // names. A skill added on disk is highlighted within about this long.
 const commandNamesMaxAge = 2 * time.Second
 
-// commandNameCache holds the names that commandNames last returned. Listing
-// commands discovers skills on disk, which is too slow for every render.
+// commandNameCache holds the names that commandNames last returned and the
+// command menu's items. Listing commands discovers skills on disk, which is
+// too slow for every render.
 type commandNameCache struct {
 	mu         sync.Mutex
 	names      map[string]bool // lowercase
+	items      []commandMenuItem
 	loaded     time.Time
 	refreshing bool
 }
 
-func (k *commandNameCache) store(names []string) {
+func (k *commandNameCache) store(names []string, items []commandMenuItem) {
 	set := make(map[string]bool, len(names))
 	for _, name := range names {
 		set[strings.ToLower(name)] = true
 	}
 	k.mu.Lock()
-	k.names, k.loaded = set, time.Now()
+	k.names, k.items, k.loaded = set, items, time.Now()
 	k.mu.Unlock()
 }
 
@@ -249,6 +253,31 @@ func (c *Controller) knownCommand(name string) bool {
 	k := &c.knownNames
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	c.refreshCommandNamesLocked()
+	return k.names[strings.ToLower(name)]
+}
+
+// commandMenuItems returns the cached commands the command menu offers. The
+// first call lists the commands at once; later calls refresh an old cache in
+// the background, as knownCommand does.
+func (c *Controller) commandMenuItems() []commandMenuItem {
+	k := &c.knownNames
+	k.mu.Lock()
+	loaded := !k.loaded.IsZero()
+	k.mu.Unlock()
+	if !loaded {
+		c.commandNames()
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	c.refreshCommandNamesLocked()
+	return k.items
+}
+
+// refreshCommandNamesLocked starts a background refresh when the cache is
+// old. The caller holds c.knownNames.mu.
+func (c *Controller) refreshCommandNamesLocked() {
+	k := &c.knownNames
 	if !k.refreshing && time.Since(k.loaded) > commandNamesMaxAge {
 		k.refreshing = true
 		go func() {
@@ -260,7 +289,6 @@ func (c *Controller) knownCommand(name string) bool {
 			c.commandNames()
 		}()
 	}
-	return k.names[strings.ToLower(name)]
 }
 
 // helpGroups orders the built-in command groups in help. Skills follow.

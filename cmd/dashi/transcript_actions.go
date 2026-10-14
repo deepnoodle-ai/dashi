@@ -47,6 +47,9 @@ func (s *screen) inputKey(e tui.KeyEvent) bool {
 		return false
 	}
 	s.exitGuard.reset()
+	if s.commandMenuKey(e) {
+		return true
+	}
 	// Main Escape must reach native completion before application handling.
 	if e.Key == tui.KeyEscape && !s.promptActive {
 		return false

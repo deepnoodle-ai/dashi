@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **The CLI shows a command menu while you type a slash command.** Under the
+  composer it lists up to five matching commands and skills with their
+  descriptions, ordered as Tab completion orders them. ↑/↓ move the
+  selection, Tab completes the name, Enter runs a command that needs no
+  argument or fills in one that does, and Esc closes the menu and keeps the
+  draft.
+
 ## [0.8.0] - 2026-10-13
 
 ### Added

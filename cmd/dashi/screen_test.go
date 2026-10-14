@@ -309,7 +309,7 @@ func TestStatusLineRightAlignsHelpHintWhenItFits(t *testing.T) {
 	line := func(width int) string {
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		return strings.TrimRight(tui.SprintScreen(h.scr.statusView(), tui.WithWidth(width), tui.WithHeight(1)).Text(), " \n")
+		return strings.TrimRight(tui.SprintScreen(h.scr.statusView(false), tui.WithWidth(width), tui.WithHeight(1)).Text(), " \n")
 	}
 	wide := line(160)
 	if !strings.HasPrefix(wide, " fixture · ") || !strings.HasSuffix(wide, "/help") || len([]rune(wide)) != 159 {

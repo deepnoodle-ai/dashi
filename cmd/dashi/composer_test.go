@@ -213,6 +213,8 @@ func TestExitGuardExpiryDraftAndQueueRevision(t *testing.T) {
 func TestComposerRuntimeCompletionEscapeAndCtrlD(t *testing.T) {
 	h := newTranscriptRuntime(t)
 	h.typeText("/m")
+	// Esc closes the command menu, so Tab cycles native completions.
+	h.key(tui.KeyEvent{Key: tui.KeyEscape})
 	h.key(tui.KeyEvent{Key: tui.KeyTab})
 	h.wait(func(s transcriptState) bool { return s.input != "/m" })
 	h.key(tui.KeyEvent{Key: tui.KeyTab, Shift: true})
