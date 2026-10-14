@@ -14,6 +14,35 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
+// A deadline that passes after the output is recorded does not undo the
+// output: the turn completes, as it does for a late Cancel.
+func TestDeadlineAfterRecordedOutputCompletes(t *testing.T) {
+	agent := structuredAgent()
+	agent.Limits.Deadline = time.Now().Add(50 * time.Millisecond)
+	rec := &hookRecorder{
+		MemoryRecorder: NewMemoryRecorder(),
+		before: func(_ context.Context, req CommitRequest) error {
+			if req.Step.Kind == StepOutputRecorded {
+				time.Sleep(time.Until(agent.Limits.Deadline) + 10*time.Millisecond)
+			}
+			return nil
+		},
+	}
+	out, err := (Runner{
+		Client: &scriptedClient{
+			results: []llm.Result{submitResult("submission", `{"answer":8}`)},
+		},
+		Recorder: rec,
+	}).Run(t.Context(), Turn{ID: "t1"}, Start{
+		CommandID: "start",
+		Agent:     agent,
+		Input:     []llm.Message{llm.UserMessage(llm.Text("answer"))},
+	})
+	if err != nil || out.Stop.Kind != StopCompleted || out.Output == nil {
+		t.Fatalf("stop=%+v output=%v err=%v", out.Stop, out.Output, err)
+	}
+}
+
 func TestContextInterruptLeavesToolBatchPending(t *testing.T) {
 	a := tool.Call{ID: "a", Name: "first", Args: []byte(`{}`)}
 	b := tool.Call{ID: "b", Name: "second", Args: []byte(`{}`)}

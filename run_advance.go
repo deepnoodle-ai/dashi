@@ -297,15 +297,16 @@ func (a *advancer) load(ctx context.Context) (Turn, error) {
 // ready, and it is not resting at a stop this call recorded with no input
 // since. A steer no Continue of this call ran for counts as input, once.
 func (a *advancer) shouldContinue(view TurnView, turn Turn, applied bool) bool {
-	switch view.Next() {
-	case NextContinue:
-	case NextRecover:
-		// A Continue also records the stop of a turn out of resumes.
-		if !view.ReadyToContinue {
-			state, err := replay(turn)
-			if err != nil || !state.resumeLimitReached() {
-				return false
-			}
+	next := view.Next()
+	switch {
+	case next == NextContinue:
+	case next == NextRecover && view.ReadyToContinue:
+	case next == NextRecover, next == NextFix:
+		// A Continue also records the ending stop of a turn out of
+		// resumes, after a crash or a recorded interruption.
+		state, err := replay(turn)
+		if err != nil || !state.resumeLimitReached() {
+			return false
 		}
 	default:
 		return false

@@ -376,6 +376,23 @@ func TestDriveReturnsWhenContextEnds(t *testing.T) {
 	}
 }
 
+// A turn interrupted at its resume limit has a recorded stop and gives
+// NextFix; Advance ends it with the Continue that records the limit, as it
+// does for a crashed turn out of resumes.
+func TestAdvanceEndsAnInterruptedTurnOutOfResumes(t *testing.T) {
+	rec, turn := interruptionLimitedHistoryTurn(t, nil)
+	if view, _ := turn.View(); view.Next() != NextFix {
+		t.Fatalf("next = %s", view.Next())
+	}
+	client := &scriptedClient{}
+	out, err := (Runner{Client: client, Recorder: rec}).Advance(t.Context(), turn.ID)
+	if err != nil || out.Stop.Limit == nil ||
+		out.Stop.Limit.Kind != LimitResumes || !out.Stop.Ended ||
+		out.Next() != NextNone || client.sends != 0 {
+		t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
+	}
+}
+
 func TestAdvanceRecordsDeadlineStop(t *testing.T) {
 	agent := testAgent()
 	client := &scriptedClient{}

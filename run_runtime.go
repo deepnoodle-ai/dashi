@@ -75,6 +75,11 @@ func (r *runtime) contextStop() RunResult {
 		return r.cancelStop(c.command)
 	}
 	if errors.Is(cause, errTurnDeadline) {
+		// Output recorded before the deadline completes the turn, as it
+		// does for a late Cancel.
+		if state, err := replay(r.turn); err == nil && state.Output != nil {
+			return r.completeReply(state)
+		}
 		return r.stop(StopLimited, string(LimitDeadline))
 	}
 	if cause == nil {
