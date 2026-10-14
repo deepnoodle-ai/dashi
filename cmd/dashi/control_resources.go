@@ -37,6 +37,7 @@ func (c *Controller) resources(ctx context.Context) {
 	fmt.Fprintln(&out, "  Instructions are contextual; they grant no tool authority.")
 	fmt.Fprintf(&out, "Skills: %d selected, %d shadowed\n", len(found.Skills), len(found.Candidates)-len(found.Skills))
 	seen := map[string]bool{}
+	builtins := c.builtinCommands()
 	for _, info := range found.Candidates {
 		key := strings.ToLower(info.Name)
 		status := "selected"
@@ -45,7 +46,7 @@ func (c *Controller) resources(ctx context.Context) {
 		}
 		seen[key] = true
 		fmt.Fprintf(&out, "  /%s (%s; user %t, model %t) — %s\n", info.Name, status, info.UserInvocable, info.ModelInvocable, resourceTier(manager.workspace, manager.home, info.Path))
-		if builtinCommand(info.Name) {
+		if namesCommand(builtins, "/"+info.Name) {
 			fmt.Fprintln(&out, "    Built-in command wins; custom slash invocation is unavailable.")
 		}
 		fmt.Fprintf(&out, "    Source: %s\n", info.Path)
@@ -115,12 +116,17 @@ func writeSupportingScope(out *strings.Builder, source selectedSkillSource) {
 	}
 }
 
-func builtinCommand(name string) bool {
-	switch strings.ToLower(name) {
-	case "copy", "scrollback", "mouse", "compact", "model", "settings", "effort", "thinking", "temperature", "max-tokens", "new", "sessions", "continue", "queue", "done", "discard", "quit", "exit", "help", "resources", "mcp":
-		return true
+// builtinCommands returns the built-in commands this screen offers, without
+// the skill commands. A skill whose name is one of their names or aliases
+// cannot be invoked with a slash.
+func (c *Controller) builtinCommands() []commandEntry {
+	var builtins []commandEntry
+	for _, entry := range c.commands() {
+		if entry.group != skillGroup {
+			builtins = append(builtins, entry)
+		}
 	}
-	return false
+	return builtins
 }
 func resourceTier(dir, home, path string) string {
 	for _, level := range []struct{ base, label string }{{dir, "project"}, {home, "home"}} {

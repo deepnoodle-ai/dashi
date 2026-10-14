@@ -139,7 +139,7 @@ func (c *Controller) commands() []commandEntry {
 		if found, err := c.eng.cfg.Resources.discover(); err == nil {
 			for _, info := range found.Set.Skills() {
 				name := "/" + info.Name
-				if slices.ContainsFunc(entries, func(e commandEntry) bool { return strings.EqualFold(e.name, name) }) {
+				if namesCommand(entries, name) {
 					continue
 				}
 				usage := info.ArgumentHint
@@ -155,6 +155,15 @@ func (c *Controller) commands() []commandEntry {
 		}
 	}
 	return entries
+}
+
+// namesCommand reports whether name, such as "/quit", is the name or an
+// alias of one of entries, ignoring case.
+func namesCommand(entries []commandEntry, name string) bool {
+	return slices.ContainsFunc(entries, func(e commandEntry) bool {
+		return strings.EqualFold(e.name, name) ||
+			slices.ContainsFunc(e.aliases, func(a string) bool { return strings.EqualFold(a, name) })
+	})
 }
 
 func splitCommand(line string) (name, arg string) {

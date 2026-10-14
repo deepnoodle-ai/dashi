@@ -75,6 +75,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`delegate`**: `NewTasks` now extends a `Delivered` function the parent
   session already has instead of leaving it alone, so a host that set
   `DeliveredNotices` still gets agent messages dropped from queue turns.
+- **`dashi` CLI diffs after shell calls** show only what the call changed.
+  Changes already in the working tree when the call started are no longer
+  shown again after every command, so a read-only command such as `ls`
+  shows no diff. A file the call reverted is listed as no longer changed.
+- **`dashi` CLI skills named like a built-in command** such as `/status`,
+  `/tasks`, `/attach`, or an alias such as `/q`, are now reported by
+  `/resources` as shadowed by the built-in, and a skill can no longer take
+  a built-in alias's name in the command list.
 
 ## [0.8.0] - 2026-10-13
 
