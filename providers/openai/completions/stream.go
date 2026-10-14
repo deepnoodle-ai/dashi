@@ -1,6 +1,7 @@
 package completions
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -27,7 +28,11 @@ func (wire codec) readStream(
 ) (llm.Result, error) {
 	reader := sse.NewServerSentEventsReader[json.RawMessage](body)
 	result := initial
-	var text, reasoning strings.Builder
+	var text, reasoning, refusalText strings.Builder
+	// details collects the elements of each streamed reasoning_details array,
+	// merging fragments of one item, into the array a complete response
+	// carries.
+	var details reasoningDetailItems
 	calls := map[int]*ToolCall{}
 	callIDs := map[string]int{}
 	callRaw := map[int][]byte{}
@@ -44,10 +49,21 @@ func (wire codec) readStream(
 				},
 			)
 		}
+		if len(details) > 0 {
+			raw := details.marshal()
+			c, _ := wire.reasoningDetails(raw)
+			result.Message.Content = append(result.Message.Content, c)
+		}
 		if text.Len() > 0 {
 			result.Message.Content = append(
 				result.Message.Content,
 				llm.Text(text.String()),
+			)
+		}
+		if refusalText.Len() > 0 {
+			result.Message.Content = append(
+				result.Message.Content,
+				refusal(refusalText.String()),
 			)
 		}
 		for _, index := range slices.Sorted(maps.Keys(calls)) {
@@ -74,6 +90,9 @@ func (wire codec) readStream(
 		}
 		if complete {
 			result.Stop = llm.Stop{Kind: llm.ClassifyStopReason(reason), Raw: reason}
+			if refusalText.Len() > 0 {
+				result.Stop.Kind = refusalStop(result.Stop.Kind)
+			}
 		}
 		return result
 	}
@@ -161,8 +180,13 @@ func (wire codec) readStream(
 			)
 		}
 		if len(choice.Delta.ReasoningDetails) > 0 {
-			partial := build(false, false)
-			return partial, wire.unsupported("structured reasoning details")
+			var fragment []json.RawMessage
+			if err := json.Unmarshal(choice.Delta.ReasoningDetails, &fragment); err != nil {
+				return protocolError(raw, "decode stream reasoning details: %w", err)
+			}
+			for _, element := range fragment {
+				details.add(element)
+			}
 		}
 		if choice.Delta.Content != "" {
 			text.WriteString(choice.Delta.Content)
@@ -171,6 +195,16 @@ func (wire codec) readStream(
 				llm.Delta{
 					Kind: llm.DeltaText,
 					Text: choice.Delta.Content,
+				},
+			)
+		}
+		if choice.Delta.Refusal != "" {
+			refusalText.WriteString(choice.Delta.Refusal)
+			providerhttp.Emit(
+				sink,
+				llm.Delta{
+					Kind: llm.DeltaText,
+					Text: choice.Delta.Refusal,
 				},
 			)
 		}
@@ -347,4 +381,126 @@ func (wire codec) partialToolCall(call ToolCall) llm.Content {
 			Raw:     raw,
 		},
 	}
+}
+
+// reasoningDetailItems merges streamed reasoning_details elements. A provider
+// such as OpenRouter splits one item over several chunks that share an
+// "index" and "type"; the complete response carries the merged item. String
+// fields that carry content (text, summary, data) are concatenated in arrival
+// order. Other fields keep their first non-null value. Field order follows
+// first arrival so the merged item replays as the provider sent it. Elements
+// that are not objects or have no index stay separate.
+type reasoningDetailItems []*reasoningDetailItem
+
+type reasoningDetailItem struct {
+	raw    json.RawMessage // set for an element that is not merged
+	keys   []string
+	fields map[string]json.RawMessage
+	index  string
+	kind   string
+}
+
+func (items *reasoningDetailItems) add(element json.RawMessage) {
+	var fields map[string]json.RawMessage
+	var keys []string
+	if err := json.Unmarshal(element, &fields); err == nil && fields != nil {
+		keys = objectKeys(element)
+	}
+	index, hasIndex := fields["index"]
+	if fields == nil || !hasIndex || len(keys) != len(fields) {
+		*items = append(*items, &reasoningDetailItem{raw: element})
+		return
+	}
+	kind := string(fields["type"])
+	for _, item := range *items {
+		if item.raw != nil || item.index != string(index) || item.kind != kind {
+			continue
+		}
+		item.merge(keys, fields)
+		return
+	}
+	*items = append(*items, &reasoningDetailItem{
+		keys:   keys,
+		fields: fields,
+		index:  string(index),
+		kind:   kind,
+	})
+}
+
+func (item *reasoningDetailItem) merge(
+	keys []string,
+	fields map[string]json.RawMessage,
+) {
+	for _, key := range keys {
+		value := fields[key]
+		current, ok := item.fields[key]
+		if !ok || string(current) == "null" {
+			if !ok {
+				item.keys = append(item.keys, key)
+			}
+			item.fields[key] = value
+			continue
+		}
+		switch key {
+		case "text", "summary", "data":
+			var a, b string
+			if json.Unmarshal(current, &a) != nil ||
+				json.Unmarshal(value, &b) != nil {
+				continue
+			}
+			// Marshaling a string cannot fail.
+			item.fields[key], _ = json.Marshal(a + b)
+		}
+	}
+}
+
+// marshal returns the merged items as one JSON array.
+func (items reasoningDetailItems) marshal() json.RawMessage {
+	var buf bytes.Buffer
+	buf.WriteByte('[')
+	for i, item := range items {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		if item.raw != nil {
+			buf.Write(item.raw)
+			continue
+		}
+		buf.WriteByte('{')
+		for j, key := range item.keys {
+			if j > 0 {
+				buf.WriteByte(',')
+			}
+			// Marshaling a string cannot fail.
+			name, _ := json.Marshal(key)
+			buf.Write(name)
+			buf.WriteByte(':')
+			buf.Write(item.fields[key])
+		}
+		buf.WriteByte('}')
+	}
+	buf.WriteByte(']')
+	return buf.Bytes()
+}
+
+// objectKeys returns the top-level keys of a JSON object in source order.
+func objectKeys(object json.RawMessage) []string {
+	decoder := json.NewDecoder(bytes.NewReader(object))
+	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
+		return nil
+	}
+	var keys []string
+	for decoder.More() {
+		token, err := decoder.Token()
+		if err != nil {
+			return nil
+		}
+		key, _ := token.(string)
+		keys = append(keys, key)
+		var skip json.RawMessage
+		if err := decoder.Decode(&skip); err != nil {
+			return nil
+		}
+	}
+	return keys
 }

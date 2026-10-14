@@ -39,12 +39,13 @@ Running the example makes a paid request.
 For independent public reasoning-summary requests, see
 [reasoning summaries](reasoning-summaries.md).
 
-## Native structured output on OpenAI Responses
+## Native structured output on OpenAI
 
 For a direct call that needs one JSON object, set `llm.Input.OutputSchema`.
-The Responses client sends OpenAI's strict JSON Schema format, then checks the
-finished reply locally. `Result.Output` contains the validated JSON object;
-`Result.Message` and `Result.Raw` still describe the provider response.
+The Responses and Chat Completions clients send OpenAI's strict JSON Schema
+format, then check the finished reply locally. `Result.Output` contains the
+validated JSON object; `Result.Message` and `Result.Raw` still describe the
+provider response.
 
 ```go
 schema := json.RawMessage(`{
@@ -85,7 +86,8 @@ An empty `OutputSchema` keeps ordinary model-call behavior.
 
 This route does not combine a schema with current-call tools or an agent turn.
 For other providers, native output is not yet qualified and `Prepare` rejects
-the request. A custom Responses-compatible endpoint requires matching
+the request. A custom Responses or Chat Completions endpoint, including the
+OpenRouter, Mistral, and DeepInfra clients, requires matching
 `Config.Models` evidence that explicitly supports structured output. Unknown
 model support on the public OpenAI endpoint follows the capability policy;
 check `RequestSnapshot.Unverified` when that matters. Refusals and output

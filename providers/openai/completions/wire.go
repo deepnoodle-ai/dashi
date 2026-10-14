@@ -25,6 +25,9 @@ type Message struct {
 	Name         string        `json:"name,omitempty"`
 	ToolCallID   string        `json:"tool_call_id,omitempty"`
 	ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
+	// Refusal is the model's explanation when it declines a request. OpenAI
+	// sends it in place of content.
+	Refusal string `json:"refusal,omitempty"`
 	// Reasoning is the OpenAI-compatible plaintext reasoning extension used by
 	// gateways such as OpenRouter.
 	Reasoning string `json:"reasoning,omitempty"`
@@ -57,6 +60,7 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 		Name             string          `json:"name"`
 		ToolCallID       string          `json:"tool_call_id"`
 		ToolCalls        []ToolCall      `json:"tool_calls"`
+		Refusal          *string         `json:"refusal"`
 		Reasoning        string          `json:"reasoning"`
 		ReasoningDetails json.RawMessage `json:"reasoning_details"`
 	}
@@ -67,6 +71,10 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	m.Name = aux.Name
 	m.ToolCallID = aux.ToolCallID
 	m.ToolCalls = aux.ToolCalls
+	m.Refusal = ""
+	if aux.Refusal != nil {
+		m.Refusal = *aux.Refusal
+	}
 	m.Reasoning = aux.Reasoning
 	reasoningDetails := bytes.TrimSpace(aux.ReasoningDetails)
 	if len(reasoningDetails) == 0 || bytes.Equal(
@@ -258,6 +266,7 @@ type StreamDelta struct {
 	// array form used by Mistral while it streams thinking chunks.
 	Content          string          `json:"-"`
 	ContentParts     []ContentPart   `json:"-"`
+	Refusal          string          `json:"refusal,omitempty"`
 	Reasoning        string          `json:"reasoning,omitempty"`
 	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"`
 	ToolCalls        []ToolCallDelta `json:"tool_calls,omitempty"`
@@ -269,6 +278,7 @@ func (d *StreamDelta) UnmarshalJSON(data []byte) error {
 	var aux struct {
 		Role             string          `json:"role"`
 		Content          json.RawMessage `json:"content"`
+		Refusal          *string         `json:"refusal"`
 		Reasoning        string          `json:"reasoning"`
 		ReasoningDetails json.RawMessage `json:"reasoning_details"`
 		ToolCalls        []ToolCallDelta `json:"tool_calls"`
@@ -277,6 +287,10 @@ func (d *StreamDelta) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	d.Role = aux.Role
+	d.Refusal = ""
+	if aux.Refusal != nil {
+		d.Refusal = *aux.Refusal
+	}
 	d.Reasoning = aux.Reasoning
 	reasoningDetails := bytes.TrimSpace(aux.ReasoningDetails)
 	if len(reasoningDetails) == 0 || bytes.Equal(

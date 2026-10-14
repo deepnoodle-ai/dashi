@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/internal/outputschema"
 	"github.com/deepnoodle-ai/dashi/internal/providercontent"
 	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -166,7 +167,25 @@ func (p *Client) Prepare(
 	}
 	wire := codec{origin: p.client.Origin(r.Model), provider: p.Provider()}
 	if len(r.OutputSchema) > 0 {
-		return llm.Request{}, wire.unsupported("output_schema is not supported by this route")
+		// Compatible services differ in json_schema support, so a custom
+		// endpoint opts in only through endpoint-scoped model evidence.
+		if p.client.Endpoint != openAIEndpoint {
+			info, known := p.client.ModelInfo(r.Model)
+			if !known || info.Capabilities.Features[llm.FeatureStructuredOutput] != llm.SupportSupported {
+				return llm.Request{}, wire.unsupported(
+					"output_schema on a custom Chat Completions endpoint requires endpoint-scoped ModelInfo support",
+				)
+			}
+		}
+		if len(r.Tools) > 0 || r.Settings.ToolChoice != nil ||
+			r.Settings.ParallelTools != nil {
+			return llm.Request{}, wire.unsupported(
+				"output_schema cannot be combined with current-call tools, tool_choice, or parallel_tools",
+			)
+		}
+		if err := outputschema.CheckOpenAIStrict(r.OutputSchema); err != nil {
+			return llm.Request{}, wire.unsupported("%v", err)
+		}
 	}
 	var changes []llm.ContentChange
 	var err error
@@ -185,6 +204,16 @@ func (p *Client) Prepare(
 		return llm.Request{}, err
 	}
 	body := map[string]any{"model": r.Model}
+	if len(r.OutputSchema) > 0 {
+		body["response_format"] = map[string]any{
+			"type": "json_schema",
+			"json_schema": map[string]any{
+				"name":   "dashi_output",
+				"strict": true,
+				"schema": r.OutputSchema,
+			},
+		}
+	}
 	if n := r.Settings.MaxTokens; n > 0 {
 		body[maxTokensField(p.client.Endpoint, r.Model)] = n
 	}
@@ -276,6 +305,8 @@ var apiLimits = llm.Capabilities{
 		llm.FeatureCitations:        llm.SupportUnsupported,
 		llm.FeatureMaxTokens:        llm.SupportSupported,
 		llm.FeatureReasoningBudget:  llm.SupportUnsupported,
+		// Custom endpoints also need model evidence; see Prepare.
+		llm.FeatureStructuredOutput: llm.SupportSupported,
 		// No cache lifetime is sent; the service's own caching applies.
 		llm.FeaturePromptCache: llm.SupportUnsupported,
 	},
@@ -331,6 +362,9 @@ func (p *Client) Send(
 		if callErr == nil {
 			callErr = providerhttp.Complete(p.Provider(), resp.Body)
 		}
+		if callErr == nil && len(prepared.Input().OutputSchema) > 0 {
+			callErr = wire.validateOutput(&result, prepared.Input().OutputSchema)
+		}
 		return result, callErr
 	}
 	raw, err := io.ReadAll(resp.Body)
@@ -341,7 +375,62 @@ func (p *Client) Send(
 	if callErr == nil {
 		callErr = providerhttp.Complete(p.Provider(), resp.Body)
 	}
+	if callErr == nil && len(prepared.Input().OutputSchema) > 0 {
+		callErr = wire.validateOutput(&result, prepared.Input().OutputSchema)
+	}
 	return result, callErr
+}
+
+// validateOutput checks a finished reply against the requested schema and
+// records it as Result.Output. It runs only after transport completion. A
+// refusal or limit stop is returned as is, without Output.
+func (wire codec) validateOutput(
+	result *llm.Result,
+	rawSchema json.RawMessage,
+) error {
+	if result.Stop.Kind != llm.StopFinished {
+		return nil
+	}
+	var text strings.Builder
+	found := false
+	for _, part := range result.Message.Content {
+		if part.ToolCall != nil ||
+			(part.Opaque != nil && part.Opaque.Type == "tool_call") {
+			return providerhttp.Failure(
+				wire.provider,
+				llm.ErrorProtocol,
+				"output_schema: final response contains a tool call",
+			)
+		}
+		if part.Block == nil || part.Block.Text == nil {
+			continue
+		}
+		// Array-shaped content arrives as several text parts of one message.
+		text.WriteString(part.Block.Text.Text)
+		found = true
+	}
+	if !found {
+		return providerhttp.Failure(
+			wire.provider,
+			llm.ErrorProtocol,
+			"output_schema: final response contains no text object",
+		)
+	}
+	raw := json.RawMessage(strings.TrimSpace(text.String()))
+	schema, err := outputschema.Compile(rawSchema)
+	if err == nil {
+		err = outputschema.Validate(schema, raw)
+	}
+	if err != nil {
+		return providerhttp.Failure(
+			wire.provider,
+			llm.ErrorProtocol,
+			"output_schema: %w",
+			err,
+		)
+	}
+	result.Output = slices.Clone(raw)
+	return nil
 }
 
 type codec struct {
@@ -389,7 +478,7 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 	var parts []ContentPart
 	var calls []ToolCall
 	var results []llm.ToolResult
-	var reasoning strings.Builder
+	var reasoning, refusals strings.Builder
 	var reasoningDetails json.RawMessage
 	for _, c := range m.Content {
 		if c.Replay != nil {
@@ -437,6 +526,21 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 				continue
 			}
 			reasoning.WriteString(c.Reasoning.Text)
+		case llm.ContentRefusal:
+			if m.Role != llm.RoleAssistant {
+				return nil, wire.unsupported("refusal in %s message", m.Role)
+			}
+			// OpenAI documents refusal on assistant messages. Compatible
+			// services may reject fields they do not know, so they receive
+			// the refusal as the assistant's text.
+			if wire.provider != "openai" {
+				parts = append(parts, ContentPart{Type: "text", Text: *c.Refusal})
+				continue
+			}
+			if refusals.Len() > 0 {
+				refusals.WriteString("\n\n")
+			}
+			refusals.WriteString(*c.Refusal)
 		case llm.ContentOpaque:
 			if c.Opaque.Origin != wire.origin ||
 				c.Opaque.Unit != llm.OpaqueUnitItem ||
@@ -465,6 +569,7 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 		(len(parts) > 0 ||
 			len(calls) > 0 ||
 			reasoning.Len() > 0 ||
+			refusals.Len() > 0 ||
 			reasoningDetails != nil) {
 		return nil, wire.unsupported("mixed tool results and message content")
 	}
@@ -472,6 +577,7 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 	if len(parts) > 0 ||
 		len(calls) > 0 ||
 		reasoning.Len() > 0 ||
+		refusals.Len() > 0 ||
 		reasoningDetails != nil ||
 		len(results) == 0 {
 		message := map[string]any{"role": m.Role}
@@ -486,6 +592,9 @@ func (wire codec) encodeMessage(m llm.Message) ([]any, error) {
 		}
 		if len(calls) > 0 {
 			message["tool_calls"] = calls
+		}
+		if refusals.Len() > 0 {
+			message["refusal"] = refusals.String()
 		}
 		if reasoning.Len() > 0 {
 			message["reasoning"] = reasoning.String()
@@ -646,26 +755,11 @@ func (wire codec) decode(
 		)
 	}
 	if len(message.ReasoningDetails) > 0 {
-		raw, err := json.Marshal(map[string]any{
-			"type":    "reasoning_details",
-			"details": message.ReasoningDetails,
-		})
+		details, err := wire.reasoningDetails(message.ReasoningDetails)
 		if err != nil {
 			return result, err
 		}
-		result.Message.Content = append(
-			result.Message.Content,
-			llm.Content{
-				Kind: llm.ContentOpaque,
-				Opaque: &llm.Opaque{
-					Version: 1,
-					Origin:  wire.origin,
-					Type:    "reasoning_details",
-					Unit:    llm.OpaqueUnitItem,
-					Raw:     raw,
-				},
-			},
-		)
+		result.Message.Content = append(result.Message.Content, details)
 	}
 	if len(message.ContentParts) > 0 {
 		for _, part := range message.ContentParts {
@@ -692,6 +786,10 @@ func (wire codec) decode(
 			result.Message.Content,
 			llm.Text(message.Content),
 		)
+	}
+	if message.Refusal != "" {
+		result.Message.Content = append(result.Message.Content, refusal(message.Refusal))
+		result.Stop.Kind = refusalStop(result.Stop.Kind)
 	}
 	validatedCalls := make([]tool.Call, 0, len(message.ToolCalls))
 	seenCallIDs := make(map[string]bool, len(message.ToolCalls))
@@ -741,6 +839,43 @@ func (wire codec) decode(
 		)
 	}
 	return result, nil
+}
+
+// reasoningDetails keeps OpenRouter's structured reasoning verbatim as
+// same-origin opaque content, which encodeMessage replays.
+func (wire codec) reasoningDetails(details json.RawMessage) (llm.Content, error) {
+	raw, err := json.Marshal(map[string]any{
+		"type":    "reasoning_details",
+		"details": details,
+	})
+	if err != nil {
+		return llm.Content{}, err
+	}
+	return llm.Content{
+		Kind: llm.ContentOpaque,
+		Opaque: &llm.Opaque{
+			Version: 1,
+			Origin:  wire.origin,
+			Type:    "reasoning_details",
+			Unit:    llm.OpaqueUnitItem,
+			Raw:     raw,
+		},
+	}, nil
+}
+
+func refusal(text string) llm.Content {
+	return llm.Content{Kind: llm.ContentRefusal, Refusal: &text}
+}
+
+// refusalStop classifies a response that carries a refusal. OpenAI ends a
+// refusal with finish_reason "stop", which alone does not distinguish it from
+// a normal end, as the Responses adapter also finds. A limit or other reason
+// is kept.
+func refusalStop(kind llm.StopKind) llm.StopKind {
+	if kind == llm.StopFinished {
+		return llm.StopRefusal
+	}
+	return kind
 }
 
 func (wire codec) reportedCost(reported Usage) *llm.Cost {
