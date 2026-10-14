@@ -242,19 +242,16 @@ func (c *indexCache) get(turnID string) turnLog {
 	return e.Value.(*cacheItem).log
 }
 
-// put stores log unless the cache already holds a longer index of the same
-// file, so a reader that scanned before a commit cannot roll the index back.
-// The directory sync a newer index records for the same file carries over.
-// A log rewritten shorter in place, which the format never does, then keeps
-// the stale index; scan still detects that and returns a fresh one.
+// put replaces the turn's index with log. Every caller holds the log's flock
+// from its scan through put, and a commit's exclusive lock excludes readers,
+// so log is never older than the cached index; a log rewritten shorter in
+// place gets the reset index scan built. A directory sync recorded for the
+// same file carries over.
 func (c *indexCache) put(turnID string, log turnLog) {
 	if e, ok := c.items[turnID]; ok {
 		item := e.Value.(*cacheItem)
 		if old := item.log; old.file != nil && log.file != nil &&
 			os.SameFile(old.file, log.file) {
-			if old.end > log.end {
-				log = old
-			}
 			log.dirsSynced = log.dirsSynced || old.dirsSynced
 		}
 		item.log = log

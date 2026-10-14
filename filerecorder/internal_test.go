@@ -151,6 +151,18 @@ func TestShrunkLogResetsTheIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	commitStep(t, r, 2)
+	r.mu.Lock()
+	cached := r.index.get("turn")
+	r.mu.Unlock()
+	if len(cached.steps) != 2 {
+		t.Fatalf("index has %d steps; want 2", len(cached.steps))
+	}
+	// A stale index of three steps would make Wait return at once.
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	if err := r.Wait(ctx, "turn", 2); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Wait after seq 2 returned %v; want the deadline", err)
+	}
 	requireCount(t, r, 2)
 }
 
@@ -393,26 +405,20 @@ func TestCommitIndexesTheWrittenStep(t *testing.T) {
 	}
 }
 
-// TestOlderIndexDoesNotReplaceANewerOne puts an index scanned before a
-// commit after that commit, as a slow reader could.
-func TestOlderIndexDoesNotReplaceANewerOne(t *testing.T) {
+// TestIndexKeepsTheDirectorySync puts an index of the same log without the
+// directory sync mark, as a reader's scan builds: the mark must carry over so
+// the next commit does not sync the directories again.
+func TestIndexKeepsTheDirectorySync(t *testing.T) {
 	r := newTestRecorder(t)
 	commitStep(t, r, 1)
 	r.mu.Lock()
-	older := r.index.get("turn")
-	r.mu.Unlock()
-	older.dirsSynced = false
-	commitStep(t, r, 2)
-	r.mu.Lock()
-	r.index.put("turn", older)
+	unsynced := r.index.get("turn")
+	unsynced.dirsSynced = false
+	r.index.put("turn", unsynced)
 	cached := r.index.get("turn")
 	r.mu.Unlock()
-	if len(cached.steps) != 2 || !cached.dirsSynced {
-		t.Fatalf(
-			"index has %d steps, directories synced %t; want 2 and true",
-			len(cached.steps),
-			cached.dirsSynced,
-		)
+	if !cached.dirsSynced {
+		t.Fatal("index lost the directory sync mark")
 	}
 }
 

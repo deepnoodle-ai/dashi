@@ -41,8 +41,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`llm.Request` accessors no longer decode JSON on every call.** The
   snapshot is decoded once, on first use, and `Snapshot`, `Input`,
   `Effective`, `Adjustments`, `Warnings`, and `ContentChanges` return deep
-  copies of it, so callers still own what they get. The accessors one model
-  call makes run about 20 times faster with a sixth of the memory.
+  copies of it, so callers still own what they get. In
+  `BenchmarkRequestAccessors` (the accessor calls one model call makes, one
+  Apple M4 Max), they ran about 20 times faster with a sixth of the memory.
 
 ### Removed
 
@@ -192,8 +193,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   fails the call as invalid arguments.
 - **`filerecorder` keeps its in-process index current after a commit.** A
   commit now adds the step it wrote to the index, so the next commit and
-  `Wait` need not read it back, and an index scanned earlier never replaces
-  a longer one of the same log.
+  `Wait` need not read it back.
 
 ## [0.8.0] - 2026-10-13
 
