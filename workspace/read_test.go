@@ -17,7 +17,7 @@ func TestReadFileCutsLongLines(t *testing.T) {
 	out, text := call(t, list, ToolReadFile, map[string]any{"path": "min.js"})
 	wantState(t, out, text, tool.StateSucceeded)
 	wantContains(t, text, "     1\tshort\n")
-	wantContains(t, text, fmt.Sprintf("[line cut at %d of 100001 bytes]", readMaxLine))
+	wantContains(t, text, fmt.Sprintf("[line cut at %d of 100000 bytes]", readMaxLine))
 	wantContains(t, text, "     3\t"+exact+"\n")
 	wantContains(t, text, "     4\tend\n")
 	if len(text) > 3*readMaxLine+200 {

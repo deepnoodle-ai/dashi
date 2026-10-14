@@ -32,7 +32,9 @@ const (
 )
 
 // ShellConfig sets the limits of the bash tool. The zero value of each field
-// selects a default. A negative timeout means no limit.
+// selects a default. A negative MaxTimeout means no maximum. A negative
+// DefaultTimeout means no default limit only when MaxTimeout is negative too;
+// otherwise it is capped at MaxTimeout.
 type ShellConfig struct {
 	// DefaultTimeout applies when a call sets no timeout. Default 2 minutes.
 	DefaultTimeout time.Duration

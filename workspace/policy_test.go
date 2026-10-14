@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -273,6 +275,60 @@ func TestPolicyEditThatFailsNowStillAsks(t *testing.T) {
 		d, err = f.ws.Policy(nil).decide(ctx, f.plan(t, ToolEditFile, args))
 		if err != nil || d.Kind != dashi.DecisionNeedsApproval {
 			t.Errorf("%s: deferred decision = %+v, err = %v", name, d, err)
+		}
+	}
+}
+
+// Under a Policy, edit_file and write_file on a named pipe return quickly
+// with the tool's refusal. The policy's own reads must not block on the pipe.
+func TestPolicyEditDoesNotBlockOnNamedPipe(t *testing.T) {
+	mkfifo, err := exec.LookPath("mkfifo")
+	if err != nil {
+		t.Skip("mkfifo not found")
+	}
+	f := newPolicyFixture(t)
+	if err := exec.Command(mkfifo, filepath.Join(f.dir, "pipe")).Run(); err != nil {
+		t.Skip("mkfifo failed:", err)
+	}
+	r := &recordingAsk{answer: Approval{Allow: true}}
+	p := f.ws.Policy(r.ask)
+	tests := []struct {
+		name string
+		args map[string]any
+	}{
+		{ToolEditFile, map[string]any{"path": "pipe", "old_string": "a", "new_string": "b"}},
+		{ToolWriteFile, map[string]any{"path": "pipe", "content": "x"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			done := make(chan struct{})
+			var d dashi.ToolDecision
+			var derr error
+			go func() {
+				defer close(done)
+				d, derr = p.decide(context.Background(), f.plan(t, tc.name, tc.args))
+			}()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the policy blocked on a named pipe")
+			}
+			if derr != nil || d.Kind != dashi.DecisionAllow {
+				t.Fatalf("decision = %+v, err = %v", d, derr)
+			}
+			out, text := call(t, f.tools, tc.name, tc.args)
+			wantState(t, out, text, tool.StateFailed)
+			wantContains(t, text, "not a regular file")
+		})
+	}
+	// Both calls are asked about, as for any edit or write, and neither
+	// preview read the pipe.
+	if len(r.requests) != 2 {
+		t.Fatalf("asks = %d, want 2", len(r.requests))
+	}
+	for _, req := range r.requests {
+		if req.Preview != "" {
+			t.Errorf("%s preview = %q, want empty", req.Tool, req.Preview)
 		}
 	}
 }

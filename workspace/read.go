@@ -95,7 +95,7 @@ func readFile(ctx context.Context, s *scope, in readArgs) (tool.Outcome, error) 
 		if size > 0 {
 			total++
 			if total >= offset && shown < limit && !full {
-				text := formatReadLine(total, line, size)
+				text := formatReadLine(total, line, size-lineEndLen(chunk))
 				if out.Len()+len(text) > readMaxBytes {
 					full = true
 				} else {
@@ -127,13 +127,25 @@ func readFile(ctx context.Context, s *scope, in readArgs) (tool.Outcome, error) 
 	return tool.Succeeded(out.String()), nil
 }
 
+// lineEndLen is the length of the line end that closes chunk: 2 for \r\n,
+// 1 for \n, and 0 at the end of a file without a final line end.
+func lineEndLen(chunk []byte) int {
+	switch {
+	case bytes.HasSuffix(chunk, []byte("\r\n")):
+		return 2
+	case bytes.HasSuffix(chunk, []byte("\n")):
+		return 1
+	}
+	return 0
+}
+
 // formatReadLine numbers one line. line holds the start of the line and size
-// counts all of its bytes, with the line end. A line longer than readMaxLine
-// is cut, and a note gives its full length.
+// counts the bytes of its content, without the line end. A line longer than
+// readMaxLine is cut, and a note gives its full length.
 func formatReadLine(n int, line []byte, size int) string {
 	line = bytes.TrimSuffix(line, []byte("\n"))
 	line = bytes.TrimSuffix(line, []byte("\r"))
-	if len(line) <= readMaxLine && size <= readMaxLine+2 {
+	if len(line) <= readMaxLine && size <= readMaxLine {
 		return fmt.Sprintf("%6d\t%s\n", n, line)
 	}
 	text := strings.ToValidUTF8(string(line[:min(len(line), readMaxLine)]), "")
