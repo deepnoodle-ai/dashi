@@ -25,6 +25,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   v0.8.0: update permission rules, hooks, and saved references that name one.
   Names of 64 characters or fewer are unchanged.
 
+### Changed
+
+- **Catalog**: OpenAI entries now claim image input, tools, and structured
+  output where each model page states them, and Gemini entries claim image,
+  audio, PDF document input, tools, structured output, and (on Gemini 2.5)
+  a thinking budget. These features were unknown before, so the adjust
+  policy sent them and recorded them as unverified; now they are verified,
+  and the strict policy accepts them.
+- **Catalog**: o3, o3-pro, o3-mini, o4-mini, gpt-5-pro, and gpt-5.3-codex
+  have standard-tier price sheets from OpenAI's pricing page, so their calls
+  get cost estimates. A turn with a cost limit on one of these models now
+  runs under that limit instead of stopping for want of a price.
+  gpt-5-codex-mini is still unpriced because the page lists no rate for it.
+
 ### Removed
 
 - **The CLI no longer prints the instructions and skill counts at startup.**

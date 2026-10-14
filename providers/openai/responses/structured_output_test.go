@@ -146,7 +146,7 @@ func TestStructuredOutputPrepareRejectsUnsupportedInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	strictInput := structuredInput(false)
-	strictInput.Model = "gpt-4o" // catalog knows text and max_tokens, not this feature
+	strictInput.Model = "gpt-5.2-pro" // its page lists no structured_outputs
 	_, err = strict.Prepare(t.Context(), strictInput)
 	failure, ok := errors.AsType[*llm.Error](err)
 	if !ok || failure.Category != llm.ErrorUnsupported ||

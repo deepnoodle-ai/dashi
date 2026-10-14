@@ -25,6 +25,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported",
@@ -82,6 +85,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -138,6 +144,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -195,6 +204,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -253,6 +265,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -311,6 +326,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -369,6 +387,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -427,6 +448,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -484,6 +508,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
         },
@@ -521,6 +548,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
         },
@@ -569,6 +599,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
         },
@@ -607,6 +640,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -665,6 +701,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -722,6 +761,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -780,6 +822,8 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -835,6 +879,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -883,6 +930,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -929,6 +979,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -975,6 +1028,8 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -1021,6 +1076,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -1067,6 +1125,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -1112,6 +1173,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -1125,7 +1189,25 @@
           "5m"
         ],
         "cache_key_default": true
-      }
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-10-13",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": "15",
+          "output": "120",
+          "cache_read": "15",
+          "cache_write": "15"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
+      },
+      "note": "OpenAI publishes no cached-input rate for the pro models, so cache reads are stated at the input rate."
     },
     {
       "model": "gpt-5-mini",
@@ -1137,6 +1219,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
         },
@@ -1175,6 +1260,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
         },
@@ -1213,6 +1301,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "unsupported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -1253,6 +1344,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "unsupported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -1291,6 +1385,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "unsupported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -1330,6 +1427,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
         },
@@ -1367,6 +1467,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
         },
@@ -1376,6 +1479,23 @@
           "5m"
         ],
         "cache_key_default": true
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-10-13",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": "2",
+          "output": "8",
+          "cache_read": "0.5",
+          "cache_write": "2"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {
@@ -1387,6 +1507,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
         },
@@ -1396,7 +1519,25 @@
           "5m"
         ],
         "cache_key_default": true
-      }
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-10-13",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": "20",
+          "output": "80",
+          "cache_read": "20",
+          "cache_write": "20"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
+      },
+      "note": "OpenAI publishes no cached-input rate for the pro models, so cache reads are stated at the input rate."
     },
     {
       "model": "o3-mini",
@@ -1407,6 +1548,8 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
         },
@@ -1416,6 +1559,23 @@
           "5m"
         ],
         "cache_key_default": true
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-10-13",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": "1.1",
+          "output": "4.4",
+          "cache_read": "0.55",
+          "cache_write": "1.1"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {
@@ -1427,6 +1587,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported",
           "reasoning_summary": "supported"
@@ -1438,7 +1601,24 @@
         ],
         "cache_key_default": true
       },
-      "note": "Public summary request documented 2026-09-30: https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries."
+      "note": "Public summary request documented 2026-09-30: https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries.",
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-10-13",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": "1.1",
+          "output": "4.4",
+          "cache_read": "0.275",
+          "cache_write": "1.1"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
+      }
     },
     {
       "model": "gpt-5.3-codex",
@@ -1451,6 +1631,9 @@
       "capabilities": {
         "features": {
           "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
           "reasoning_effort": "supported",
           "max_tokens": "supported",
           "prompt_cache": "supported"
@@ -1467,6 +1650,23 @@
           "5m"
         ],
         "cache_key_default": true
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-10-13",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": "1.75",
+          "output": "14",
+          "cache_read": "0.175",
+          "cache_write": "1.75"
+        },
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
       }
     },
     {

@@ -238,6 +238,39 @@ func TestMissingCacheRatesAreStatedAtInputRate(t *testing.T) {
 	}
 }
 
+func TestOpenAIReasoningModelPricesMatchPricingPage(t *testing.T) {
+	// Standard-tier rows of https://developers.openai.com/api/docs/pricing
+	// as of 2026-10-13; gpt-5.3-codex is in the Specialized models table.
+	// A "-" cached-input cell is stated at the input rate.
+	for _, tc := range []struct {
+		model, input, cacheRead, output string
+	}{
+		{"o3", "2", "0.5", "8"},
+		{"o3-pro", "20", "20", "80"},
+		{"o3-mini", "1.1", "0.55", "4.4"},
+		{"o4-mini", "1.1", "0.275", "4.4"},
+		{"gpt-5-pro", "15", "15", "120"},
+		{"gpt-5.3-codex", "1.75", "0.175", "14"},
+	} {
+		e, ok := Find("openai", tc.model)
+		if !ok || e.Pricing == nil {
+			t.Fatalf("%s has no price", tc.model)
+		}
+		want := llm.Rates{
+			Input:      money.MustParseAmount(tc.input),
+			Output:     money.MustParseAmount(tc.output),
+			CacheRead:  money.MustParseAmount(tc.cacheRead),
+			CacheWrite: money.MustParseAmount(tc.input),
+		}
+		if e.Pricing.Base != want || len(e.Pricing.Tiers) != 0 {
+			t.Fatalf("%s pricing = %+v, want base %+v", tc.model, e.Pricing, want)
+		}
+	}
+	if e, _ := Find("openai", "gpt-5-codex-mini"); e.Pricing != nil {
+		t.Fatal("gpt-5-codex-mini is priced, but the pricing page lists no rate")
+	}
+}
+
 func TestLongContextTierReplacesEveryRate(t *testing.T) {
 	e, ok := Find("google", "gemini-2.5-pro")
 	if !ok {
