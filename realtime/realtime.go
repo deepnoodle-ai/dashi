@@ -90,10 +90,15 @@ type Transcript struct {
 type EventKind string
 
 const (
-	EventAudio             EventKind = "audio"
-	EventTranscript        EventKind = "transcript"
-	EventSpeechStarted     EventKind = "speech_started"
-	EventSpeechStopped     EventKind = "speech_stopped"
+	EventAudio      EventKind = "audio"
+	EventTranscript EventKind = "transcript"
+	// EventSpeechStarted reports that the user began speaking. It arrives on
+	// every speech start, so a client that plays audio should stop playback
+	// here: audio from a finished response may still be playing.
+	EventSpeechStarted EventKind = "speech_started"
+	EventSpeechStopped EventKind = "speech_stopped"
+	// EventInterrupted reports that the provider cut off a response still in
+	// progress. It does not arrive for a response that already completed.
 	EventInterrupted       EventKind = "interrupted"
 	EventToolCall          EventKind = "tool_call"
 	EventToolCanceled      EventKind = "tool_canceled"
