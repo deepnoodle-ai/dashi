@@ -307,8 +307,10 @@ type ModelDecision struct {
 // call.
 type SendPlan struct {
 	Purpose ModelPurpose `json:"purpose,omitempty"`
-	// Request is the immutable provider request after preparation.
-	Request llm.Request `json:"request"`
+	// Request is the immutable provider request after preparation. It is
+	// not encoded yet: llm.Request has no exported fields, so it would
+	// encode as an empty object.
+	Request llm.Request `json:"-"`
 	// Turn is a snapshot of committed spend and state before the reservation.
 	Turn TurnView `json:"turn"`
 	// WorstCaseCost is nil when the call cannot be bounded by available prices.
@@ -428,9 +430,42 @@ type FinishPlan struct {
 	Reply string `json:"reply,omitempty"`
 	// Output is the structured result on a turn with an output schema: the
 	// submitted value, or the value parsed from the text. It is nil when
-	// parsing failed, in which case OutputErr says why.
+	// parsing failed, in which case OutputErr says why. OutputErr encodes
+	// as the string "output_error".
 	Output    json.RawMessage `json:"output,omitempty"`
 	OutputErr error           `json:"-"`
+}
+
+// finishPlanJSON is FinishPlan's encoded form: OutputErr travels as its
+// message.
+type finishPlanJSON struct {
+	finishPlanFields
+	OutputError string `json:"output_error,omitempty"`
+}
+
+type finishPlanFields FinishPlan
+
+// MarshalJSON writes OutputErr as the string "output_error", so a policy
+// service sees why the output did not parse.
+func (p FinishPlan) MarshalJSON() ([]byte, error) {
+	out := finishPlanJSON{finishPlanFields: finishPlanFields(p)}
+	if p.OutputErr != nil {
+		out.OutputError = p.OutputErr.Error()
+	}
+	return json.Marshal(out)
+}
+
+// UnmarshalJSON reads "output_error" back into OutputErr.
+func (p *FinishPlan) UnmarshalJSON(data []byte) error {
+	var in finishPlanJSON
+	if err := json.Unmarshal(data, &in); err != nil {
+		return err
+	}
+	*p = FinishPlan(in.finishPlanFields)
+	if in.OutputError != "" {
+		p.OutputErr = errors.New(in.OutputError)
+	}
+	return nil
 }
 
 // FinishDecision is a BeforeFinish answer. The zero value accepts the
