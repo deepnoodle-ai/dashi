@@ -42,7 +42,12 @@ Each tool sets `Annotations.ReadOnly` (see
 [read-only and idempotent tools](tools.md#read-only-and-idempotent-tools)).
 Use `WithoutTools` to remove tools.
 The package does not bound the size of results, except `read_file` (2000
-lines) and `grep` and `glob` (a result count). Bound results in the host.
+lines by default, 256 KiB, and 2000 bytes per line, cutting a longer line with
+a note) and `grep` and `glob` (a result count). Bound results in the host.
+Other limits: a `{a,b}` pattern in `glob` or the `grep` glob may expand to at
+most 64 patterns, and `edit_file` refuses a file over 32 MiB. The file tools
+refuse named pipes and devices, which could block forever, and stop when the
+call's context ends.
 
 Failures that the model can fix return as failed outcomes. The text names the
 problem and the next step. For example, `edit_file` gives the line numbers of

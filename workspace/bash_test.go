@@ -188,3 +188,14 @@ func TestShellOutputCounts(t *testing.T) {
 		t.Fatalf("small = %q", got)
 	}
 }
+
+func TestBashDefaultTimeoutRespectsMax(t *testing.T) {
+	list, _ := newTestTools(t, WithShell(ShellConfig{MaxTimeout: 200 * time.Millisecond}))
+	start := time.Now()
+	out, text := call(t, list, ToolBash, map[string]any{"command": "sleep 5"})
+	wantState(t, out, text, tool.StateFailed)
+	wantContains(t, text, "timeout of 200ms")
+	if time.Since(start) > 4*time.Second {
+		t.Fatal("the default timeout was not capped by MaxTimeout")
+	}
+}

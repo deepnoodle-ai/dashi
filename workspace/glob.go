@@ -16,6 +16,10 @@ import (
 
 const maxGlobResults = 1000
 
+// maxBracePatterns caps the patterns that brace expansion may produce. Each
+// group multiplies the count, so ten {a,b} groups already make 1024.
+const maxBracePatterns = 64
+
 // skipDirs are directories that glob and the Go search never enter. They hold
 // dependencies and version-control data, which bury the results the model
 // wants.
@@ -31,14 +35,14 @@ func newGlob(s *scope) (tool.Tool, error) {
 		ToolGlob,
 		"Find files by name pattern. ** matches any number of directories. "+
 			"The result lists paths relative to the workspace, newest first.",
-		func(_ context.Context, _ tool.Call, in globArgs) (tool.Outcome, error) {
-			return glob(s, in)
+		func(ctx context.Context, _ tool.Call, in globArgs) (tool.Outcome, error) {
+			return glob(ctx, s, in)
 		},
 		tool.ReadOnly(),
 	))
 }
 
-func glob(s *scope, in globArgs) (tool.Outcome, error) {
+func glob(ctx context.Context, s *scope, in globArgs) (tool.Outcome, error) {
 	if in.Pattern == "" {
 		return fail("pattern is empty. Give a pattern such as **/*.go.")
 	}
@@ -49,7 +53,10 @@ func glob(s *scope, in globArgs) (tool.Outcome, error) {
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return fail(fmt.Sprintf("%s is not a directory that exists.", in.Path))
 	}
-	patterns := expandBraces(in.Pattern)
+	patterns, err := expandBraces(in.Pattern)
+	if err != nil {
+		return fail(err.Error())
+	}
 	for i, p := range patterns {
 		if !strings.Contains(p, "/") {
 			patterns[i] = "**/" + p
@@ -64,6 +71,9 @@ func glob(s *scope, in globArgs) (tool.Outcome, error) {
 	}
 	var matches []match
 	walk := func(p string, d fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil {
 			return nil
 		}
@@ -89,6 +99,9 @@ func glob(s *scope, in globArgs) (tool.Outcome, error) {
 		return nil
 	}
 	if err := filepath.WalkDir(dir, walk); err != nil {
+		if ctx.Err() != nil {
+			return fail("The search was canceled.")
+		}
 		return fail(fmt.Sprintf("cannot search %s: %v", in.Path, err))
 	}
 	if len(matches) == 0 {
@@ -136,21 +149,68 @@ func matchSegments(pat, name []string) bool {
 	return len(name) == 0
 }
 
-// expandBraces expands the first {a,b} group of p, recursively. Models often
-// write *.{ts,tsx}, which path.Match does not support.
-func expandBraces(p string) []string {
-	open := strings.IndexByte(p, '{')
-	if open < 0 {
-		return []string{p}
-	}
-	end := strings.IndexByte(p[open:], '}')
-	if end < 0 {
-		return []string{p}
-	}
-	end += open
+// expandBraces expands each {a,b} group of p, including nested groups.
+// Models often write *.{ts,tsx}, which path.Match does not support. A { with
+// no matching } stays literal. The error, written for the model, reports a
+// pattern that would expand to more than maxBracePatterns patterns.
+func expandBraces(p string) ([]string, error) {
 	var out []string
-	for _, alt := range strings.Split(p[open+1:end], ",") {
-		out = append(out, expandBraces(p[:open]+alt+p[end+1:])...)
+	if !expandBracesInto(p, &out) {
+		return nil, fmt.Errorf(
+			"pattern %q expands to more than %d patterns. Use fewer {a,b} groups.",
+			p, maxBracePatterns,
+		)
 	}
-	return out
+	return out, nil
+}
+
+// expandBracesInto appends the expansions of p to out. It reports false, and
+// stops early, when out would grow past maxBracePatterns.
+func expandBracesInto(p string, out *[]string) bool {
+	open, end, alts := firstBraceGroup(p)
+	if open < 0 {
+		if len(*out) >= maxBracePatterns {
+			return false
+		}
+		*out = append(*out, p)
+		return true
+	}
+	for _, alt := range alts {
+		if !expandBracesInto(p[:open]+alt+p[end+1:], out) {
+			return false
+		}
+	}
+	return true
+}
+
+// firstBraceGroup finds the first { that has a matching }, and splits the
+// text between them at its top-level commas. open is -1 when p has no group.
+func firstBraceGroup(p string) (open, end int, alts []string) {
+	for open = strings.IndexByte(p, '{'); open >= 0; {
+		depth, start := 0, open+1
+		for i := open; i < len(p); i++ {
+			switch p[i] {
+			case '{':
+				depth++
+			case ',':
+				if depth == 1 {
+					alts = append(alts, p[start:i])
+					start = i + 1
+				}
+			case '}':
+				depth--
+				if depth == 0 {
+					return open, i, append(alts, p[start:i])
+				}
+			}
+		}
+		// This { has no match. Try a later one.
+		alts = nil
+		next := strings.IndexByte(p[open+1:], '{')
+		if next < 0 {
+			break
+		}
+		open += 1 + next
+	}
+	return -1, -1, nil
 }

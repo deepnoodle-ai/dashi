@@ -1,11 +1,34 @@
 package workspace
 
 import (
+	"context"
 	"io"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/deepnoodle-ai/dashi/tool"
 )
+
+func TestGoSearchRefusesHugeBraceGlobAndStopsWhenCanceled(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a.go", "hit\n")
+	s, err := newScope(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := grep(context.Background(), s, "", grepArgs{Pattern: "hit", Glob: strings.Repeat("{a,b}", 30)})
+	text := out.Output.Content[0].Text.Text
+	wantState(t, out, text, tool.StateFailed)
+	wantContains(t, text, "fewer {a,b} groups")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	out, _ = grep(ctx, s, "", grepArgs{Pattern: "hit"})
+	text = out.Output.Content[0].Text.Text
+	wantState(t, out, text, tool.StateFailed)
+	wantContains(t, text, "canceled")
+}
 
 // countingReader counts the bytes read from it.
 type countingReader struct {

@@ -100,18 +100,34 @@ func grep(
 	if err != nil {
 		return fail(err.Error())
 	}
-	if _, err := os.Stat(target); err != nil {
+	info, err := os.Stat(target)
+	if err != nil {
 		return fail(fmt.Sprintf("path %s does not exist.", in.Path))
+	}
+	// Opening a named pipe or a device can block forever.
+	if !info.IsDir() && !info.Mode().IsRegular() {
+		return fail(fmt.Sprintf("%s is not a regular file or a directory.", in.Path))
 	}
 	re, err := regexp.Compile(regexpFlags(in) + in.Pattern)
 	if err != nil {
 		return fail(fmt.Sprintf("pattern is not a valid regular expression: %v", err))
 	}
+	var globs []string
+	if in.Glob != "" {
+		// Both engines refuse the same globs, so results do not depend on
+		// whether rg is installed.
+		if globs, err = expandBraces(in.Glob); err != nil {
+			return fail(err.Error())
+		}
+	}
 	sink := &lineSink{limit: limit}
 	if rg != "" {
 		err = ripgrep(ctx, s, rg, target, in, mode, sink)
 	} else {
-		err = goSearch(s, re, target, in, mode, sink)
+		err = goSearch(ctx, s, re, target, globs, in, mode, sink)
+	}
+	if ctx.Err() != nil {
+		return fail("The search was canceled.")
 	}
 	if err != nil {
 		return fail(err.Error())
@@ -209,10 +225,14 @@ func ripgrep(
 	return nil
 }
 
+// goSearch searches target, a file or a directory, with re. globs holds the
+// expanded glob patterns; an empty list matches every file.
 func goSearch(
+	ctx context.Context,
 	s *scope,
 	re *regexp.Regexp,
 	target string,
+	globs []string,
 	in grepArgs,
 	mode string,
 	sink *lineSink,
@@ -222,7 +242,7 @@ func goSearch(
 			return
 		}
 		rel := s.rel(p)
-		if in.Glob != "" && !globMatchesPath(in.Glob, rel) {
+		if len(globs) > 0 && !globMatchesPath(globs, rel) {
 			return
 		}
 		f, err := os.Open(p)
@@ -235,7 +255,7 @@ func goSearch(
 		if bytes.IndexByte(head[:k], 0) >= 0 {
 			return
 		}
-		r := io.MultiReader(bytes.NewReader(head[:k]), f)
+		r := ctxReader{ctx, io.MultiReader(bytes.NewReader(head[:k]), f)}
 		searchFile(r, re, rel, in.Context, mode, sink.add)
 	}
 	info, err := os.Stat(target)
@@ -248,6 +268,8 @@ func goSearch(
 	}
 	err = filepath.WalkDir(target, func(p string, d fs.DirEntry, err error) error {
 		switch {
+		case ctx.Err() != nil:
+			return ctx.Err()
 		case sink.full:
 			return filepath.SkipAll
 		case err != nil:
@@ -263,8 +285,8 @@ func goSearch(
 	return err
 }
 
-func globMatchesPath(pattern, rel string) bool {
-	for _, p := range expandBraces(pattern) {
+func globMatchesPath(patterns []string, rel string) bool {
+	for _, p := range patterns {
 		if !strings.Contains(p, "/") {
 			p = "**/" + p
 		}
@@ -273,6 +295,20 @@ func globMatchesPath(pattern, rel string) bool {
 		}
 	}
 	return false
+}
+
+// ctxReader stops reading once ctx ends, so a search through a large file
+// ends soon after the call is canceled.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return c.r.Read(p)
 }
 
 // grepMatchLine is the most bytes of one line that the search keeps in

@@ -37,8 +37,8 @@ type ShellConfig struct {
 	// DefaultTimeout applies when a call sets no timeout. Default 2 minutes.
 	DefaultTimeout time.Duration
 
-	// MaxTimeout caps the timeout that a call may ask for. Default 10
-	// minutes.
+	// MaxTimeout caps the timeout that a call may ask for, and caps
+	// DefaultTimeout too. Default 10 minutes.
 	MaxTimeout time.Duration
 
 	// Path is the shell program, run as Path -c command. The default is bash
@@ -64,6 +64,9 @@ func newBash(s *scope, cfg ShellConfig) (tool.Tool, error) {
 	}
 	if cfg.MaxTimeout == 0 {
 		cfg.MaxTimeout = defaultShellMax
+	}
+	if cfg.MaxTimeout > 0 && (cfg.DefaultTimeout < 0 || cfg.DefaultTimeout > cfg.MaxTimeout) {
+		cfg.DefaultTimeout = cfg.MaxTimeout
 	}
 	if cfg.Path == "" {
 		cfg.Path = "sh"
