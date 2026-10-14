@@ -349,6 +349,10 @@ func sdkError(provider string, err error, body []byte, hasMedia bool) error {
 			Cause:      err,
 		}
 	}
+	if errors.Is(err, errCaptureTooLarge) {
+		// Classified as other providers classify an oversized body.
+		return providerhttp.Failure(provider, llm.ErrorProtocol, "SDK call: %w", err)
+	}
 	return providerhttp.Failure(provider, llm.ErrorTransport, "SDK call: %w", err)
 }
 

@@ -3,10 +3,13 @@ package gemini
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 func TestCaptureBodyBoundsResponseCopy(t *testing.T) {
@@ -27,5 +30,16 @@ func TestCaptureBodyBoundsResponseCopy(t *testing.T) {
 	}
 	if _, _, err := read("123456789", 8); !errors.Is(err, errCaptureTooLarge) {
 		t.Fatalf("body over the limit: err=%v", err)
+	}
+}
+
+func TestSDKErrorClassifiesOversizedResponseAsProtocol(t *testing.T) {
+	// The SDK returns the body's read error as is, or wrapped.
+	for _, cause := range []error{errCaptureTooLarge, fmt.Errorf("read: %w", errCaptureTooLarge)} {
+		var got *llm.Error
+		if !errors.As(sdkError("google", cause, nil, false), &got) ||
+			got.Category != llm.ErrorProtocol || got.Retryable {
+			t.Fatalf("cause %v: got %#v", cause, got)
+		}
 	}
 }
