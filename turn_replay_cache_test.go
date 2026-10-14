@@ -82,3 +82,17 @@ func TestReplayCacheReplaysChangedTurn(t *testing.T) {
 	want, _ = replay(turn)
 	sameReplayState(got, want, "after a broken step")
 }
+
+// TestReplayCacheCatchesRewrittenStep rewrites the last applied step in
+// place, in the same backing array, and shows the cache replays in full.
+func TestReplayCacheCatchesRewrittenStep(t *testing.T) {
+	turn := runBenchToolTurn(t, 3)
+	var c replayCache
+	if _, err := c.replay(turn); err != nil {
+		t.Fatal(err)
+	}
+	turn.Steps[len(turn.Steps)-1].Seq = 99
+	if _, err := c.replay(turn); err == nil {
+		t.Fatal("rewritten step passed")
+	}
+}

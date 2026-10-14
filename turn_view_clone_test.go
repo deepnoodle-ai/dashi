@@ -10,11 +10,18 @@ import (
 
 // fillValue sets every field reachable from v to a non-zero value: one
 // element per slice and map, a target for every pointer. Interfaces stay
-// nil. depth bounds recursive types.
+// nil. A recursive type is filled one level inside itself, and depth bounds
+// the nesting of all others.
 func fillValue(v reflect.Value, depth int) {
-	if depth > 10 {
+	fillValueOnPath(v, depth, map[reflect.Type]int{})
+}
+
+func fillValueOnPath(v reflect.Value, depth int, onPath map[reflect.Type]int) {
+	if depth > 24 || onPath[v.Type()] > 1 {
 		return
 	}
+	onPath[v.Type()]++
+	defer func() { onPath[v.Type()]-- }()
 	if v.Type() == reflect.TypeFor[time.Time]() {
 		v.Set(reflect.ValueOf(time.Unix(1, 0).UTC()))
 		return
@@ -32,27 +39,27 @@ func fillValue(v reflect.Value, depth int) {
 		v.SetString("x")
 	case reflect.Pointer:
 		p := reflect.New(v.Type().Elem())
-		fillValue(p.Elem(), depth+1)
+		fillValueOnPath(p.Elem(), depth+1, onPath)
 		v.Set(p)
 	case reflect.Slice:
 		s := reflect.MakeSlice(v.Type(), 1, 2)
-		fillValue(s.Index(0), depth+1)
+		fillValueOnPath(s.Index(0), depth+1, onPath)
 		v.Set(s)
 	case reflect.Array:
 		for i := range v.Len() {
-			fillValue(v.Index(i), depth+1)
+			fillValueOnPath(v.Index(i), depth+1, onPath)
 		}
 	case reflect.Map:
 		m := reflect.MakeMap(v.Type())
 		key := reflect.New(v.Type().Key()).Elem()
-		fillValue(key, depth+1)
+		fillValueOnPath(key, depth+1, onPath)
 		value := reflect.New(v.Type().Elem()).Elem()
-		fillValue(value, depth+1)
+		fillValueOnPath(value, depth+1, onPath)
 		m.SetMapIndex(key, value)
 		v.Set(m)
 	case reflect.Struct:
 		for i := range v.NumField() {
-			fillValue(settable(v.Field(i)), depth+1)
+			fillValueOnPath(settable(v.Field(i)), depth+1, onPath)
 		}
 	}
 }

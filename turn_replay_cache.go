@@ -86,17 +86,29 @@ func (c *replayCache) rebuild(t, full Turn) (*replayState, error) {
 	if err := s.applySteps(full.Steps[len(t.Steps):]); err != nil {
 		return nil, err
 	}
-	return s.finish(full)
+	out, err := s.finish(full)
+	if err != nil {
+		// finish may reject a step that base already holds, and a caller
+		// may then write a different step into the same slot of the backing
+		// array. Drop the cache so that step is checked again.
+		c.base, c.steps = nil, nil
+		return nil, err
+	}
+	return out, nil
 }
 
 // extends reports whether t is base's turn with zero or more steps
-// appended.
+// appended. Sharing the backing array does not show that no step was
+// rewritten in place; comparing the last applied step's Seq catches the
+// rewrites a caller is most likely to make.
 func (c *replayCache) extends(t Turn) bool {
+	n := len(c.steps)
 	return c.base != nil &&
 		t.ID == c.base.ID &&
-		len(t.Steps) >= len(c.steps) &&
-		len(c.steps) > 0 &&
-		&t.Steps[0] == &c.steps[0]
+		len(t.Steps) >= n &&
+		n > 0 &&
+		&t.Steps[0] == &c.steps[0] &&
+		t.Steps[n-1].Seq == c.base.LastSeq
 }
 
 // clone copies s so that applying more steps to either copy, or finishing

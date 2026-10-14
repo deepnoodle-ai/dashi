@@ -126,6 +126,10 @@ func replaySteps(t Turn, cache *contextValidationCache) (*replayState, error) {
 	if cache.needed == nil {
 		cache.needed = map[int64]bool{}
 	}
+	// needed is set only here, from the steps known now. A replayCache
+	// that later applies a compaction step through applySteps has no
+	// snapshot for its Through, so building its history replays that
+	// prefix once instead (see coveredMessagesCached). The result is the same.
 	for _, step := range t.Steps {
 		if step.Kind == StepModelCallStarted && step.Model != nil && step.Model.Compaction != nil {
 			cache.needed[step.Model.Compaction.Through] = true

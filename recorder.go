@@ -175,7 +175,7 @@ type MemoryRecorder struct {
 	owners map[string]string
 	wakes  wake.Set
 	// replays checks each commit against only the steps added since the
-	// turn's last commit.
+	// turn's last commit. A turn's entry is dropped once the turn ends.
 	replays map[string]*replayCache
 }
 
@@ -342,8 +342,14 @@ func (r *MemoryRecorder) Commit(ctx context.Context, req CommitRequest) error {
 		cache = &replayCache{}
 		r.replays[t.ID] = cache
 	}
-	if _, err := cache.replay(t); err != nil {
+	state, err := cache.replay(t)
+	if err != nil {
 		return &CommitError{NothingWritten: true, Err: err}
+	}
+	if state.Stop.Ended {
+		// Only rare late model results follow the end; they replay in full
+		// rather than keep a cache for every turn the recorder has seen.
+		delete(r.replays, t.ID)
 	}
 	r.turns[t.ID] = t
 	r.wakes.Notify(t.ID)
