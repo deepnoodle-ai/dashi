@@ -262,6 +262,8 @@ func applyEventTx(tx *sql.Tx, ev logEvent) error {
 		return execOne(tx, `UPDATE copies SET modified_at = ? WHERE copy_path = ?`, formatTime(*ev.ModifiedAt), ev.CopyPath)
 	case eventOriginalGone:
 		return execOne(tx, `UPDATE copies SET original_gone_at = ? WHERE copy_path = ?`, at, ev.CopyPath)
+	case eventOriginalReturned:
+		return execOne(tx, `UPDATE copies SET original_gone_at = NULL WHERE copy_path = ?`, ev.CopyPath)
 	}
 	return fmt.Errorf("unknown event %q", ev.Event)
 }

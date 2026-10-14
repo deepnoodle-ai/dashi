@@ -17,6 +17,7 @@ const (
 	eventCopySuperseded    = "copy_superseded"
 	eventModifiedAtUpdated = "modified_at_updated"
 	eventOriginalGone      = "original_gone"
+	eventOriginalReturned  = "original_returned"
 )
 
 // copyLogName is the append-only log beside the copies. It holds every
@@ -30,7 +31,8 @@ type logEvent struct {
 	Time  time.Time `json:"time"`
 	RunID string    `json:"run_id"`
 
-	// copy_written, copy_superseded, modified_at_updated, original_gone
+	// copy_written, copy_superseded, modified_at_updated, original_gone,
+	// original_returned
 	CopyPath string `json:"copy_path,omitempty"`
 	// copy_superseded: the copy's path after the rename.
 	SupersededPath string `json:"superseded_path,omitempty"`
