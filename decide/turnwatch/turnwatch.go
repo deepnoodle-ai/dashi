@@ -198,7 +198,13 @@ func (w *Watcher) check(
 	}
 	key, reason := QuestionRepeating, detail
 	if !heuristic {
-		resp, err := w.ask(ctx, p)
+		s := buildState(p)
+		if len(s.Recent) == 0 {
+			// Nothing for the decision model to judge, so a request would
+			// cost money for no answer.
+			return dashi.ModelDecision{}, nil
+		}
+		resp, err := w.ask(ctx, s)
 		if resp != nil {
 			c.Model, c.RequestID = resp.Model, resp.RequestID
 			c.Answers, c.Usage = resp.Answers, resp.Usage

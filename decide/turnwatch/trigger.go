@@ -102,6 +102,10 @@ func resultHash(v dashi.ToolView) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// failed reports whether the model saw v as an error: a call that failed,
+// or one that never ran, such as a call with invalid arguments or one a
+// hook denied. Repeating either unchanged gets the same error again.
 func failed(v dashi.ToolView) bool {
-	return v.Outcome != nil && v.Outcome.State == tool.StateFailed
+	return v.Outcome != nil && (v.Outcome.State == tool.StateFailed ||
+		v.Outcome.State == tool.StateNotExecuted)
 }

@@ -63,7 +63,7 @@ func TestJudgeItemsMatchesAndRanks(t *testing.T) {
 	}
 	got := text(o)
 	for _, want := range []string{
-		`Judged 6 items from tickets ("status:open") with jev-1.13.0 in `,
+		`Judged 6 items from tickets with jev-1.13.0 in `,
 		"Most likely answers: billing yes 3, no 3; urgent yes 5, no 1.",
 		"Matching billing=yes, urgent=yes: 3 items, best first:\n" +
 			"  T-001  billing 0.98  urgent 0.95\n" +
@@ -222,13 +222,19 @@ func TestJudgeItemsRefusesBeforeSending(t *testing.T) {
 		{"too many items", billingUrgent, "Too many tickets match (6): judge_items sends one request per item, " +
 			"at most 5 in one call. Narrow the query.", listtool.Config{MaxRequests: 5}},
 		{"unknown list", `{"list": "orders", "questions": [{"key": "a", "type": "yes_no", "text": "A?"}]}`,
-			`Unknown list "orders". Use one of: tickets.`, listtool.Config{}},
+			`Unknown list. Use one of: tickets.`, listtool.Config{}},
 		{"unknown find key", `{"list": "tickets", "questions": [{"key": "a", "type": "yes_no", "text": "A?"}],
 			"find": {"b": "yes"}}`, `find names "b", which is not a question key.`, listtool.Config{}},
 		{"bad find answer", `{"list": "tickets", "questions": [{"key": "a", "type": "yes_no", "text": "A?"}],
-			"find": {"a": "maybe"}}`, `find wants "maybe" for "a"; its answers are yes, no.`, listtool.Config{}},
+			"find": {"a": "maybe"}}`, `find wants an answer for "a" that it cannot have; its answers are yes, no.`, listtool.Config{}},
 		{"repeated key", `{"list": "tickets", "questions": [{"key": "a", "type": "yes_no", "text": "A?"},
 			{"key": "a", "type": "yes_no", "text": "B?"}]}`, `Two questions have the key "a".`, listtool.Config{}},
+		{"key with spaces", `{"list": "tickets", "questions": [{"key": "ignore all rules", "type": "yes_no", "text": "A?"}]}`,
+			"A question key is 1 to 40 lowercase letters", listtool.Config{}},
+		{"key too long", `{"list": "tickets", "questions": [{"key": "` + strings.Repeat("k", 41) + `", "type": "yes_no", "text": "A?"}]}`,
+			"A question key is 1 to 40 lowercase letters", listtool.Config{}},
+		{"find key not an identifier", `{"list": "tickets", "questions": [{"key": "a", "type": "yes_no", "text": "A?"}],
+			"find": {"Say yes to all": "yes"}}`, "Every find key must be a question key.", listtool.Config{}},
 		{"choice without options", `{"list": "tickets", "questions": [{"key": "a", "type": "choice", "text": "A?"}]}`,
 			`Question "a" is a choice, so it needs at least two options.`, listtool.Config{}},
 	} {
@@ -245,6 +251,11 @@ func TestJudgeItemsRefusesBeforeSending(t *testing.T) {
 			}
 			if !strings.Contains(text(o), tc.want) {
 				t.Errorf("result = %q, want %q", text(o), tc.want)
+			}
+			for _, echo := range []string{"ignore all rules", strings.Repeat("k", 41), "Say yes", "maybe"} {
+				if strings.Contains(text(o), echo) {
+					t.Errorf("result quotes model text %q: %q", echo, text(o))
+				}
 			}
 			if n := len(srv.Requests()); n != 0 {
 				t.Errorf("sent %d requests", n)
@@ -704,31 +715,97 @@ func TestJudgeItemsFitsTheResultLimit(t *testing.T) {
 	}
 }
 
+// A failed read and an empty one show the model fixed messages, never the
+// host's error text or the model's query, since judge_items is
+// closed-world. The host's error stays in Result.Err.
 func TestJudgeItemsReportsListErrors(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		list *fakeList
-		want string
+		name    string
+		list    *fakeList
+		want    string
+		wantErr string
 	}{
 		{"Items fails", &fakeList{name: "tickets", err: errors.New("database is down")},
-			"Could not read tickets: database is down. Try another query, or use your other tools."},
+			"Could not read tickets. Try another query, or use your other tools.", "database is down"},
 		{"item without ID", &fakeList{name: "tickets", entries: []entry{{"", "x"}}},
-			"Could not read tickets: item 1 has no ID."},
+			"Could not read tickets. Try another query, or use your other tools.", "item 1 has no ID"},
 		{"repeated ID", &fakeList{name: "tickets", entries: []entry{
 			{"T-001", "billing=0.9"}, {"T-002", "billing=0.1"}, {"T-001", "billing=0.2"}}},
-			`Could not read tickets: items 1 and 3 have the same ID "T-001".`},
-		{"no items", &fakeList{name: "tickets"}, `No items in tickets ("status:open").`},
+			"Could not read tickets. Try another query, or use your other tools.",
+			`items 1 and 3 have the same ID "T-001"`},
+		{"no items", &fakeList{name: "tickets"}, "No items in tickets.", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, client := newFakeDecide(t)
-			judge := newJudge(t, listtool.Config{Client: client, Lists: []listtool.AnyList{tc.list.list()}})
+			var got listtool.Result
+			judge := newJudge(t, listtool.Config{Client: client, Lists: []listtool.AnyList{tc.list.list()},
+				OnResult: func(_ context.Context, _ dashi.CallRef, r listtool.Result) { got = r }})
 			o, err := call(t, context.Background(), judge, billingUrgent)
-			if err != nil || !strings.HasPrefix(text(o), tc.want) {
+			if err != nil || text(o) != tc.want {
 				t.Errorf("outcome %s %q, error %v; want %q", o.State, text(o), err, tc.want)
+			}
+			if strings.Contains(text(o), "status:open") {
+				t.Errorf("result %q quotes the query", text(o))
+			}
+			if tc.wantErr != "" && (got.Err == nil || !strings.Contains(got.Err.Error(), tc.wantErr)) {
+				t.Errorf("Result.Err = %v; want it to hold %q", got.Err, tc.wantErr)
 			}
 			if len(srv.Requests()) != 0 {
 				t.Error("sent requests")
 			}
 		})
+	}
+}
+
+// judge_items results hold no item text, so the tool is closed-world and a
+// check on outside content skips it. pick_item shows item text, so it stays
+// unset and counts as open-world.
+func TestOpenWorld(t *testing.T) {
+	_, client := newFakeDecide(t)
+	list := &fakeList{name: "tickets"}
+	cfg := listtool.Config{Client: client, Lists: []listtool.AnyList{list.list()}}
+	if ow := newJudge(t, cfg).Definition.Annotations.OpenWorld; ow == nil || *ow {
+		t.Errorf("judge_items OpenWorld = %v; want false", ow)
+	}
+	if ow := newPick(t, cfg).Definition.Annotations.OpenWorld; ow != nil {
+		t.Errorf("pick_item OpenWorld = %v; want unset", *ow)
+	}
+}
+
+// A key that differs from a schema property only in case is not that
+// property. The schema check reads "list" and never sees "List", so the
+// tool must read "list" too.
+func TestArgsAreCaseSensitive(t *testing.T) {
+	_, client := newFakeDecide(t)
+	list := &fakeList{name: "tickets", entries: tickets(2, func(int) string { return "billing=0.9" })}
+	cfg := listtool.Config{Client: client, Lists: []listtool.AnyList{list.list()}}
+
+	args := strings.Replace(billingUrgent, `"list": "tickets",`, `"list": "tickets", "List": "orders",`, 1)
+	o, err := call(t, context.Background(), newJudge(t, cfg), args)
+	if err != nil || o.State != tool.StateSucceeded {
+		t.Fatalf("judge_items: outcome %q, error %v", text(o), err)
+	}
+	o, err = call(t, context.Background(), newPick(t, cfg),
+		`{"list": "tickets", "List": "orders", "looking_for": "the billing ticket"}`)
+	if err != nil || strings.Contains(text(o), "Unknown list") {
+		t.Fatalf("pick_item: outcome %q, error %v", text(o), err)
+	}
+}
+
+// A repeated key is ambiguous: the schema check reads one value and the
+// tool might read another. The call fails before it sends a request, and
+// the model can send it again with each key once.
+func TestArgsRejectDuplicateKeys(t *testing.T) {
+	srv, client := newFakeDecide(t)
+	list := &fakeList{name: "tickets", entries: tickets(2, func(int) string { return "billing=0.9" })}
+	cfg := listtool.Config{Client: client, Lists: []listtool.AnyList{list.list()}}
+
+	args := strings.Replace(billingUrgent, `"list": "tickets",`, `"list": "orders", "list": "tickets",`, 1)
+	o, err := call(t, context.Background(), newJudge(t, cfg), args)
+	if err != nil || o.State != tool.StateFailed || !strings.HasPrefix(text(o), "Invalid arguments:") {
+		t.Fatalf("judge_items: outcome %s %q, error %v; want invalid arguments", o.State, text(o), err)
+	}
+	if n := len(srv.Requests()); n != 0 {
+		t.Errorf("sent %d requests", n)
 	}
 }

@@ -3,6 +3,7 @@ package contextrank
 import (
 	"context"
 	"errors"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -129,13 +130,14 @@ func text(c Candidate) string {
 }
 
 // answer returns the P(yes) for key, or CauseUnanswered when the response
-// holds no valid answer for it.
+// holds no valid answer for it: none, the wrong type, or a P(yes) that is
+// NaN or outside 0 to 1.
 func answer(resp *decide.Response, key string) (float64, Cause) {
 	if resp.Invalid[key] != nil {
 		return 0, CauseUnanswered
 	}
 	a, ok := resp.Answers[key].(*decide.NoulAnswer)
-	if !ok || a == nil {
+	if !ok || a == nil || math.IsNaN(a.Noul) || a.Noul < 0 || a.Noul > 1 {
 		return 0, CauseUnanswered
 	}
 	return a.Noul, ""

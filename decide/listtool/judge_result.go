@@ -14,12 +14,12 @@ import (
 // judgeOutput is what one judge_items call found, ready to write for the
 // model.
 type judgeOutput struct {
-	list, query, model string
-	took               time.Duration
-	questions          []question
-	conds              []condition
-	items              []judged
-	maxItemBytes       int
+	list, model  string
+	took         time.Duration
+	questions    []question
+	conds        []condition
+	items        []judged
+	maxItemBytes int
 	// show is how many items the model asked to see.
 	show int
 }
@@ -63,7 +63,7 @@ func (v judgeOutput) render(show, closeShown, failShown int) string {
 			ok = append(ok, it)
 		}
 	}
-	fmt.Fprintf(&b, "Judged %s from %s%s", itemCount(len(v.items)), v.list, quoted(v.query))
+	fmt.Fprintf(&b, "Judged %s from %s", itemCount(len(v.items)), v.list)
 	if v.model != "" {
 		fmt.Fprintf(&b, " with %s", v.model)
 	}

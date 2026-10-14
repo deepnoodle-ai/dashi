@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"unicode/utf8"
 
@@ -57,13 +58,13 @@ type entry struct {
 	Failed        bool   `json:"failed,omitempty"`
 }
 
-// ask sends one request with both questions, bounded by Timeout.
-func (w *Watcher) ask(ctx context.Context, p dashi.ModelPlan) (*decide.Response, error) {
+// ask sends one request with both questions about s, bounded by Timeout.
+func (w *Watcher) ask(ctx context.Context, s watchState) (*decide.Response, error) {
 	c, err := client.Default(w.Client)
 	if err != nil {
 		return nil, fmt.Errorf("turnwatch: no decide client: %w", err)
 	}
-	req := decide.NewRequest(buildState(p))
+	req := decide.NewRequest(s)
 	decide.Ask(req, QuestionRepeating, repeatingQuestion)
 	decide.Ask(req, QuestionOffRequest, offRequestQuestion)
 	ctx, cancel := context.WithTimeout(ctx, cmp.Or(w.Timeout, defaultTimeout))
@@ -76,13 +77,13 @@ func (w *Watcher) ask(ctx context.Context, p dashi.ModelPlan) (*decide.Response,
 }
 
 // yesProbabilities reads P(yes) for both keys; a missing or wrong-typed
-// answer is an error.
+// answer, or a P(yes) that is NaN or outside 0 to 1, is an error.
 func yesProbabilities(resp *decide.Response) (map[string]float64, error) {
 	out := map[string]float64{}
 	for _, key := range []string{QuestionRepeating, QuestionOffRequest} {
 		a, ok := resp.Answers[key].(*decide.NoulAnswer)
-		if !ok || a == nil {
-			return nil, fmt.Errorf("turnwatch: decide gave no %s answer", key)
+		if !ok || a == nil || math.IsNaN(a.Noul) || a.Noul < 0 || a.Noul > 1 {
+			return nil, fmt.Errorf("turnwatch: decide gave no valid %s answer", key)
 		}
 		out[key] = a.Noul
 	}
@@ -91,7 +92,9 @@ func yesProbabilities(resp *decide.Response) (map[string]float64, error) {
 
 // buildState collects the user's request, the turn's recent assistant text
 // and tool calls with their results, cut short, and the watcher's earlier
-// reminders.
+// reminders. When the messages hold none of the turn's tool calls, such as
+// in a turn of text replies or after a summary replaced them, the turn's
+// latest reply is its recent activity.
 func buildState(p dashi.ModelPlan) watchState {
 	s := watchState{UserRequest: state.Request(p.Turn, maxRequestBytes)}
 	// The model input starts with history from earlier turns; this turn's
@@ -130,6 +133,11 @@ func buildState(p dashi.ModelPlan) watchState {
 				Result:    cutMiddle(outputText(v.Result().Output), maxTextBytes),
 				Failed:    failed(v),
 			})
+		}
+	}
+	if len(recent) == 0 {
+		if text := strings.TrimSpace(p.Turn.Reply); text != "" {
+			recent = append(recent, entry{AssistantText: state.Cut(text, maxTextBytes)})
 		}
 	}
 	if len(recent) > maxEntries {

@@ -119,7 +119,7 @@ func (p *picker) execute(ctx context.Context, call tool.Call) (tool.Outcome, err
 	}
 	failText := func(err error) (tool.Outcome, error) { return fail(err, err.Error()) }
 	var args pickArgs
-	if err := json.Unmarshal(call.Args, &args); err != nil {
+	if err := decodeArgs(call.Args, &args); err != nil {
 		return failText(fmt.Errorf("Invalid arguments: %v.", err))
 	}
 	r.List, r.Query = args.List, args.LookingFor

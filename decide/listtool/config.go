@@ -3,6 +3,7 @@ package listtool
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -419,6 +420,16 @@ func schema(props map[string]any, required ...string) json.RawMessage {
 		panic(err)
 	}
 	return b
+}
+
+// decodeArgs decodes a call's arguments with exact, case-sensitive key
+// names, the way the runner's schema check reads them. encoding/json
+// would match "List" to the list field, so a case alias the schema never
+// checked could replace a value it did. A repeated key, such as two
+// "list" keys, is an error for the same reason: the schema check reads one
+// value, and the call should not depend on which.
+func decodeArgs(args json.RawMessage, v any) error {
+	return jsonv2.Unmarshal(args, v)
 }
 
 // executor adapts a function to tool.Executor.
