@@ -57,7 +57,7 @@ func TestResourcePrintStartupNoticeUsesStderr(t *testing.T) {
 	if code := runPrint(t.Context(), cfg, Options{Prompt: "start", Run: true}, &out, &errOut); code != 0 {
 		t.Fatal(errOut.String())
 	}
-	if out.String() != "only answer\n" || !strings.Contains(errOut.String(), "AGENTS.md") || strings.Contains(errOut.String(), "private-instruction-body") {
+	if out.String() != "only answer\n" || strings.Contains(errOut.String(), "private-instruction-body") {
 		t.Fatalf("notice boundary stdout=%q stderr=%q", out.String(), errOut.String())
 	}
 }
@@ -324,8 +324,5 @@ func TestResourceLineStartupPrintsPathsSafely(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "\x1b") || strings.Contains(out.String(), "private-body") {
 		t.Fatalf("unsafe startup output: %q", out.String())
-	}
-	if !strings.Contains(out.String(), "Instructions:") {
-		t.Fatal("missing resource summary")
 	}
 }

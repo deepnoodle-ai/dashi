@@ -119,3 +119,13 @@ func TestResourceDiscoveryRefreshesAndHonorsInvocationRestrictions(t *testing.T)
 		t.Fatalf("refresh=%q/%v", expanded, ok)
 	}
 }
+
+func modelSkillCount(found *discoveredResources) int {
+	count := 0
+	for _, source := range found.Skills {
+		if source.Info.ModelInvocable {
+			count++
+		}
+	}
+	return count
+}

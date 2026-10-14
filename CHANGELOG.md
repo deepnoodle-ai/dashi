@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   argument or fills in one that does, and Esc closes the menu and keeps the
   draft.
 
+### Removed
+
+- **The CLI no longer prints the instructions and skill counts at startup.**
+  `/resources` still shows sources and access scopes.
+
 ## [0.8.0] - 2026-10-13
 
 ### Added
