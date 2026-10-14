@@ -637,6 +637,8 @@ func TestCloseEndsChildrenTheServerLeftBehind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Kill the sleep even when the test fails before Close.
+	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
 	if err := ts.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -679,5 +681,23 @@ func TestRefreshAfterCloseSaysTheToolsetIsClosed(t *testing.T) {
 	err = ts.Refresh(t.Context())
 	if err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestStatusAfterCloseReportsNoServerConnected(t *testing.T) {
+	srv, _ := stdioServer(t)
+	ts, err := Open(t.Context(), Config{Servers: map[string]Server{"test": srv}}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := statusOf(t, ts, "test"); st.State != StateConnected {
+		t.Fatalf("status before Close = %+v", st)
+	}
+	if err := ts.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st := statusOf(t, ts, "test")
+	if st.State != StateFailed || st.Err == nil || !strings.Contains(st.Err.Error(), "closed") {
+		t.Fatalf("status after Close = %+v", st)
 	}
 }

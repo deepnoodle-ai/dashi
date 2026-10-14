@@ -22,6 +22,9 @@ import (
 // defaultConnectTimeout bounds one server's start and tool discovery.
 const defaultConnectTimeout = 10 * time.Second
 
+// errClosed is the error after Close.
+var errClosed = errors.New("the MCP toolset is closed")
+
 // State is the connection state of a server.
 type State string
 
@@ -245,7 +248,7 @@ func (t *Toolset) Refresh(ctx context.Context, names ...string) error {
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
-		return errors.New("the MCP toolset is closed")
+		return errClosed
 	}
 	var pick []*conn
 	for _, name := range slices.Sorted(maps.Keys(t.conns)) {
@@ -271,7 +274,8 @@ func (t *Toolset) Refresh(ctx context.Context, names ...string) error {
 	return ctx.Err()
 }
 
-// Close stops every server and its child process. It is safe to call twice.
+// Close stops every server and its child process. Afterward Status reports
+// each server that was connected as failed. It is safe to call twice.
 func (t *Toolset) Close() error {
 	var err error
 	t.closing.Do(func() {
@@ -281,6 +285,11 @@ func (t *Toolset) Close() error {
 		for _, c := range t.conns {
 			if c.session != nil {
 				sessions = append(sessions, c.session)
+			}
+			// fail ignores a closed Toolset, so set the state here: Status
+			// must not report a stopped server as connected.
+			if c.state == StateConnected {
+				c.state, c.err = StateFailed, errClosed
 			}
 		}
 		t.mu.Unlock()
@@ -594,7 +603,7 @@ func (e *executor) Execute(
 	cs, state, cause, closed := e.c.session, e.c.state, e.c.err, e.set.closed
 	e.set.mu.Unlock()
 	if closed {
-		return tool.Outcome{}, errors.New("the MCP toolset is closed")
+		return tool.Outcome{}, errClosed
 	}
 	if cs == nil || state != StateConnected {
 		return tool.Outcome{}, fmt.Errorf(

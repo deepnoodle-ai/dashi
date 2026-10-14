@@ -15,6 +15,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   argument or fills in one that does, and Esc closes the menu and keeps the
   draft.
 
+### Changed (breaking)
+
+- **`mcp`: tool names longer than 64 characters change.** A name of the form
+  `mcp__<server>__<tool>` that is over 64 characters is cut and given a hash
+  suffix. The suffix now hashes the raw server and tool names, not the forms
+  with characters replaced by `_`, so two long names that differ only in those
+  characters no longer collide. Every shortened name therefore differs from
+  v0.8.0: update permission rules, hooks, and saved references that name one.
+  Names of 64 characters or fewer are unchanged.
+
 ### Removed
 
 - **The CLI no longer prints the instructions and skill counts at startup.**
@@ -52,9 +62,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`mcp`: `Refresh` keeps the tool snapshot in step with `Status`** when its
   context ends partway, and returns an error instead of reconnecting servers
   after `Close`.
-- **`mcp`: shortened tool names hash the raw server and tool names,** so two
-  long names that differ only in characters replaced by `_` get different
-  names.
+- **`mcp`: `Status` no longer reports servers as connected after `Close`.**
+  Each server that was connected now shows `StateFailed` with the error "the
+  MCP toolset is closed".
 
 ## [0.8.0] - 2026-10-13
 
