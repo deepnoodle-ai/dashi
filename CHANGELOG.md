@@ -35,8 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   and the strict policy accepts them.
 - **Catalog**: o3, o3-pro, o3-mini, o4-mini, gpt-5-pro, and gpt-5.3-codex
   have standard-tier price sheets from OpenAI's pricing page, so their calls
-  get cost estimates. gpt-5-codex-mini is still unpriced because the page
-  lists no rate for it.
+  get cost estimates. A turn with a cost limit on one of these models now
+  runs under that limit instead of stopping for want of a price.
+  gpt-5-codex-mini is still unpriced because the page lists no rate for it.
 
 ### Removed
 
