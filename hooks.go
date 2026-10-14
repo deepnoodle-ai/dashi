@@ -257,20 +257,20 @@ type ActiveHooks struct {
 // ModelPlan gives BeforeModel the proposed model input and current turn
 // state.
 type ModelPlan struct {
-	Purpose ModelPurpose
+	Purpose ModelPurpose `json:"purpose,omitempty"`
 	// Input is the proposed request, with settings as changed by earlier
 	// hooks.
-	Input llm.Input
+	Input llm.Input `json:"input"`
 	// Turn is the committed state as it stands before the next model call.
-	Turn TurnView
+	Turn TurnView `json:"turn"`
 }
 
 // ModelDecision changes the next model input or stops before preparation.
 type ModelDecision struct {
 	// Settings replaces the input settings when non-nil.
-	Settings *llm.Settings
+	Settings *llm.Settings `json:"settings,omitempty"`
 	// AddMessages records additional context before preparing the model request.
-	AddMessages []ContextItem
+	AddMessages []ContextItem `json:"add_messages,omitempty"`
 	// Hide removes the named tools from this call; every hook's list
 	// applies, and names must match exactly. Names no tool of this call has,
 	// and dashi_submit_output, which cannot be hidden, are ignored with one
@@ -289,59 +289,61 @@ type ModelDecision struct {
 	// BeforeTool, so the deny acts only when a failed hook offered the tool
 	// again. Changing the offered tools resets the whole cached prompt,
 	// not only the tools, so keep hides stable.
-	Hide []string
+	Hide []string `json:"hide,omitempty"`
 	// Stop ends this run before a model call when non-nil. Its kind must be
 	// StopRefused, StopFailed, or StopLimited with a host, cost or token
 	// Limit; other stops could end the turn for good by accident.
-	Stop *Stop
+	Stop *Stop `json:"stop,omitempty"`
 	// Reason is recorded with a change or a stop and is never shown to the
 	// model. A stop with no Reason records Stop.Reason.
-	Reason string
+	Reason string `json:"reason,omitempty"`
 	// RulesVersion is audit data naming the rules that decided, such as a
 	// policy or decision model version.
-	RulesVersion string
+	RulesVersion string `json:"rules_version,omitempty"`
 }
 
 // SendPlan gives BeforeSend the immutable prepared request, the turn's spend,
 // and the cost of allowing this call. A nil WorstCaseCost is not a zero-cost
 // call.
 type SendPlan struct {
-	Purpose ModelPurpose
-	// Request is the immutable provider request after preparation.
-	Request llm.Request
+	Purpose ModelPurpose `json:"purpose,omitempty"`
+	// Request is the immutable provider request after preparation. It is
+	// not encoded yet: llm.Request has no exported fields, so it would
+	// encode as an empty object.
+	Request llm.Request `json:"-"`
 	// Turn is a snapshot of committed spend and state before the reservation.
-	Turn TurnView
+	Turn TurnView `json:"turn"`
 	// WorstCaseCost is nil when the call cannot be bounded by available prices.
-	WorstCaseCost *llm.Cost
+	WorstCaseCost *llm.Cost `json:"worst_case_cost,omitempty"`
 	// Remaining is nil when the turn has no cost cap.
-	Remaining *Money
+	Remaining *Money `json:"remaining,omitempty"`
 }
 
 // SendDecision is a BeforeSend answer. The zero value allows the call.
 type SendDecision struct {
 	// Deny stops the turn as StopRefused with Reason.
-	Deny   bool
-	Reason string
+	Deny   bool   `json:"deny,omitempty"`
+	Reason string `json:"reason,omitempty"`
 	// Limit stops the turn as StopLimited instead, so a host spending denial
 	// can resume after funding. It implies Deny, and its kind must be host,
 	// cost, or a token cap.
-	Limit *LimitDetail
+	Limit *LimitDetail `json:"limit,omitempty"`
 	// Reservation is host-owned, non-secret JSON recorded on the
 	// model_call_started step under this hook's name, so a recorder can
 	// atomically reserve spending against these exact terms. All hooks'
 	// reservations share a 16 KiB limit. BeforeSend may be asked again for
 	// the same reply, so reserve in the recorder when it commits the
 	// model_call_started step, not in the hook.
-	Reservation json.RawMessage
+	Reservation json.RawMessage `json:"reservation,omitempty"`
 }
 
 // ToolPlan gives BeforeTool a call whose arguments already match the tool's
 // schema.
 type ToolPlan struct {
-	Call       tool.Call
-	Definition tool.Definition
+	Call       tool.Call       `json:"call"`
+	Definition tool.Definition `json:"definition,omitzero"`
 	// Turn is a mid-run view: its Stop is empty.
-	Turn TurnView
+	Turn TurnView `json:"turn"`
 }
 
 // DecisionKind identifies a tool authorization result.
@@ -361,16 +363,16 @@ const (
 // no opinion, the call runs: binding a tool is the app's statement that the
 // model may use it.
 type ToolDecision struct {
-	Kind DecisionKind
+	Kind DecisionKind `json:"kind,omitempty"`
 	// Reason is recorded; for a denial it is also the result the model sees.
-	Reason string
+	Reason string `json:"reason,omitempty"`
 	// RulesVersion is audit data naming the rules that decided, such as a policy
 	// version.
-	RulesVersion string
+	RulesVersion string `json:"rules_version,omitempty"`
 	// Rewrite replaces the call's arguments. The new arguments are checked
 	// against the tool's schema, and every hook is asked again about them.
 	// Kind is ignored.
-	Rewrite json.RawMessage
+	Rewrite json.RawMessage `json:"rewrite,omitempty"`
 }
 
 // ToolVerdict is the combined BeforeTool result recorded for a call. An allow
@@ -393,12 +395,12 @@ type ToolVerdict struct {
 // events, and ToolView.Outcome keep the raw output, so a result hook is not
 // storage redaction; keep a secret out of the record in the executor.
 type ResultPlan struct {
-	Call       tool.Call
-	Definition tool.Definition
-	Outcome    tool.Outcome
-	Result     llm.ToolResult
+	Call       tool.Call       `json:"call"`
+	Definition tool.Definition `json:"definition,omitzero"`
+	Outcome    tool.Outcome    `json:"outcome"`
+	Result     llm.ToolResult  `json:"result"`
 	// Turn is the state before this result is recorded.
-	Turn TurnView
+	Turn TurnView `json:"turn"`
 }
 
 // ResultDecision is an AfterTool answer. The zero value keeps the result.
@@ -406,31 +408,64 @@ type ResultDecision struct {
 	// Replace is what the model sees instead of Result. The runner sets its
 	// CallID. A replacement with the same JSON meaning as Result is no
 	// opinion, so a hook may return one on every call.
-	Replace *llm.ToolResult
+	Replace *llm.ToolResult `json:"replace,omitempty"`
 	// Reason is recorded with a replacement and is never shown to the
 	// model. With no replacement, a Reason or RulesVersion is recorded as
 	// a no_change result, such as a check that passed.
-	Reason string
+	Reason string `json:"reason,omitempty"`
 	// RulesVersion is audit data naming the rules that decided, such as a
 	// policy or decision model version.
-	RulesVersion string
+	RulesVersion string `json:"rules_version,omitempty"`
 }
 
 // FinishPlan gives BeforeFinish a candidate final reply: model text that
 // would end the turn, or a schema-valid dashi_submit_output call.
 type FinishPlan struct {
-	Turn        TurnView
-	ModelCallID string
+	Turn        TurnView `json:"turn"`
+	ModelCallID string   `json:"model_call_id"`
 	// CallID is the dashi_submit_output call for a submitted output, and
 	// empty for a final text reply.
-	CallID string
+	CallID string `json:"call_id,omitempty"`
 	// Reply is the candidate model message's text.
-	Reply string
+	Reply string `json:"reply,omitempty"`
 	// Output is the structured result on a turn with an output schema: the
 	// submitted value, or the value parsed from the text. It is nil when
-	// parsing failed, in which case OutputErr says why.
-	Output    json.RawMessage
-	OutputErr error
+	// parsing failed, in which case OutputErr says why. OutputErr encodes
+	// as the string "output_err".
+	Output    json.RawMessage `json:"output,omitempty"`
+	OutputErr error           `json:"-"`
+}
+
+// finishPlanJSON is FinishPlan's encoded form: OutputErr travels as its
+// message.
+type finishPlanJSON struct {
+	finishPlanFields
+	OutputErr string `json:"output_err,omitempty"`
+}
+
+type finishPlanFields FinishPlan
+
+// MarshalJSON writes OutputErr as the string "output_err", so a policy
+// service sees why the output did not parse.
+func (p FinishPlan) MarshalJSON() ([]byte, error) {
+	out := finishPlanJSON{finishPlanFields: finishPlanFields(p)}
+	if p.OutputErr != nil {
+		out.OutputErr = p.OutputErr.Error()
+	}
+	return json.Marshal(out)
+}
+
+// UnmarshalJSON reads "output_err" back into OutputErr.
+func (p *FinishPlan) UnmarshalJSON(data []byte) error {
+	var in finishPlanJSON
+	if err := json.Unmarshal(data, &in); err != nil {
+		return err
+	}
+	*p = FinishPlan(in.finishPlanFields)
+	if in.OutputErr != "" {
+		p.OutputErr = errors.New(in.OutputErr)
+	}
+	return nil
 }
 
 // FinishDecision is a BeforeFinish answer. The zero value accepts the
@@ -440,7 +475,7 @@ type FinishDecision struct {
 	// of accepting the candidate. When no further normal model call can
 	// happen, such as on the reserved final-reply call, the items are
 	// dropped with a warning and the candidate stands.
-	AddMessages []ContextItem
+	AddMessages []ContextItem `json:"add_messages,omitempty"`
 	// Reason vetoes the candidate: it is unacceptable. The model sees "Not
 	// accepted: " and the reason, on either path, and replies again, using
 	// the reserved final-reply call if that is the only one left. When no
@@ -451,10 +486,10 @@ type FinishDecision struct {
 	// and is dropped when no normal call remains. The first hook's
 	// reason is used, bounded to 1 KiB. An empty reason on a submission
 	// turned down by items gives "a check did not accept this output".
-	Reason string
+	Reason string `json:"reason,omitempty"`
 	// AcceptEmpty accepts a candidate with no text, which otherwise fails the
 	// turn as empty_response.
-	AcceptEmpty bool
+	AcceptEmpty bool `json:"accept_empty,omitempty"`
 }
 
 // validate reports hooks that cannot run: an empty or repeated name within a

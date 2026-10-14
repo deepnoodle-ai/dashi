@@ -35,19 +35,19 @@ const (
 
 // ToolView is a tool call's current state, built from the committed steps.
 type ToolView struct {
-	Call       tool.Call
-	Definition tool.Definition
-	Status     ToolStatus
+	Call       tool.Call       `json:"call"`
+	Definition tool.Definition `json:"definition,omitzero"`
+	Status     ToolStatus      `json:"status"`
 	// Verdict is the combined BeforeTool result.
-	Verdict ToolVerdict
-	Outcome *tool.Outcome
+	Verdict ToolVerdict   `json:"verdict,omitzero"`
+	Outcome *tool.Outcome `json:"outcome,omitempty"`
 	// ArgsHash is set while Status is ToolApprovalPending. It identifies
 	// Call.Args by JSON meaning; echo it in ApprovalDecision.ArgsHash to approve
 	// or deny exactly the arguments shown.
-	ArgsHash string
+	ArgsHash string `json:"args_hash,omitempty"`
 	// Approval is the host's decision on a call that needed approval,
 	// recorded by Resolve. Verdict still holds the hooks' NeedsApproval.
-	Approval *ApprovalDecision
+	Approval *ApprovalDecision `json:"approval,omitempty"`
 	// result is what the model sees instead of the outcome; see Result.
 	result    *llm.ToolResult
 	shortened *Shortened
@@ -82,70 +82,70 @@ func (v ToolView) Result() llm.ToolResult {
 // TurnView is a turn's current state, rebuilt from its saved steps. Get one
 // from Turn.View or from a RunResult.
 type TurnView struct {
-	ID                     string
-	Agent                  Agent
-	ActiveCompactionWindow int
-	ContextCompactions     []ContextCompactionFact
+	ID                     string                  `json:"id"`
+	Agent                  Agent                   `json:"agent"`
+	ActiveCompactionWindow int                     `json:"active_compaction_window,omitempty"`
+	ContextCompactions     []ContextCompactionFact `json:"context_compactions,omitempty"`
 	// OutputSchema is the schema pinned at Start for this turn.
-	OutputSchema json.RawMessage
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 	// Parent is the tool call that caused this turn, or nil for a root
 	// turn. It is fixed at Start.
-	Parent *CallRef
+	Parent *CallRef `json:"parent,omitempty"`
 	// Origin is who supplied the turn's initial work, recorded at Start: an
 	// unset Start.Origin reads as StartUser. It is empty before Start.
-	Origin StartOrigin
+	Origin StartOrigin `json:"origin,omitempty"`
 	// Input is the turn's input, in record order: Start.Input, then the
 	// message of each later item from the user (origin ContextUser) that an
 	// AddMessages command or a steer added. Items that hooks add are not
 	// input. A named item's message carries its slot in Context, as in the
 	// turn's messages. A hook or tool reads the user's request here.
-	Input []llm.Message
+	Input []llm.Message `json:"input"`
 	// Compaction is what a compaction turn replaces, recorded at Start; nil
 	// for other turns.
-	Compaction *CompactionFact
+	Compaction *CompactionFact `json:"compaction,omitempty"`
 	// LastSeq is the latest acknowledged step sequence number.
-	LastSeq int64
+	LastSeq int64 `json:"last_seq"`
 	// ModelCalls counts finished model calls that were not interrupted.
-	ModelCalls int
+	ModelCalls int `json:"model_calls,omitempty"`
 	// Resumes counts resumes after a context stop or worker crash,
 	// except an interrupted stop before the first model call.
-	Resumes        int
-	ProviderPauses int
+	Resumes        int `json:"resumes,omitempty"`
+	ProviderPauses int `json:"provider_pauses,omitempty"`
 	// Budget is the current cap, including any recorded raises.
-	Budget *Budget
+	Budget *Budget `json:"budget,omitempty"`
 	// Raises preserves the authorized cap changes in order.
-	Raises []BudgetRaise
+	Raises []BudgetRaise `json:"raises,omitempty"`
 	// Spend is rebuilt from the committed model and tool steps. Its model
 	// usage and cost are the sum of ModelCallCosts.
-	Spend Spend
+	Spend Spend `json:"spend"`
 	// ModelCallCosts lists every model call in record order, including one
 	// still pending, with what it counts toward Spend.
-	ModelCallCosts []ModelCallCost
+	ModelCallCosts []ModelCallCost `json:"model_call_costs,omitempty"`
 	// Stop is why the last run ended. When the record holds no stop, View
 	// and RunResult infer one the way Run would, and set Stop.Inferred:
 	// result_unknown for a model call with no recorded result, interrupted
 	// for work in flight, waiting for pending work. A hook's view is taken
 	// mid-run, so its Stop is empty. Next says what to do about the stop.
-	Stop   Stop
-	Output *StructuredOutput
+	Stop   Stop              `json:"stop,omitzero"`
+	Output *StructuredOutput `json:"output,omitempty"`
 	// Reply is the text of the latest assistant message. On a completed
 	// turn it is the final reply, and valid tool-only work can leave it
 	// empty; on a waiting turn it is text the model wrote alongside its
 	// tool calls. On an ended turn (Stop.Ended) it is fixed at the stop
 	// that ended the turn, as TurnMessagesFull is: a late model result does
 	// not change it.
-	Reply string
+	Reply string `json:"reply,omitempty"`
 	// Pending lists the work waiting for the host to act or resolve it:
 	// model calls, then local tool calls in call order, then provider tool
 	// approval requests in the order the model made them.
-	Pending []Pending
+	Pending []Pending `json:"pending,omitempty"`
 	// Warnings includes nonfatal conditions from acknowledged steps.
-	Warnings []Warning
+	Warnings []Warning `json:"warnings,omitempty"`
 	// ReadyToContinue means Continue can run without first raising a budget.
 	// A limited turn with a spent cap can still accept a Continue that raises it.
-	ReadyToContinue bool
+	ReadyToContinue bool `json:"ready_to_continue,omitempty"`
 	// Tools is keyed by tool call ID and rebuilt from committed steps.
-	Tools map[string]ToolView
+	Tools map[string]ToolView `json:"tools,omitempty"`
 
 	// live holds the latest named context item per origin and name that the
 	// next model call would still see; see Context.

@@ -44,6 +44,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   copies of it, so callers still own what they get. In
   `BenchmarkRequestAccessors` (the accessor calls one model call makes, one
   Apple M4 Max), they ran about 20 times faster with a sixth of the memory.
+- **Views, events, and hook plans encode to snake_case JSON.** `TurnView`,
+  `ToolView`, `RunResult`, `Event`, `ToolProgress`, and the hook `*Plan` and
+  `*Decision` types now have `json` tags matching their field names, like the
+  step facts, so an encoded view reads `"model_calls"` instead of
+  `"ModelCalls"`. Optional fields are omitted when empty.
+  `FinishPlan.OutputErr` encodes as the string `"output_err"`.
+  `SendPlan.Request` is not encoded yet, because `llm.Request` has no
+  exported fields.
 
 ### Removed
 

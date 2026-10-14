@@ -16,10 +16,10 @@ import (
 // canceled turn delivers no more.
 type ToolProgress struct {
 	// CallID identifies the call, as on its tool_started step.
-	CallID string
+	CallID string `json:"call_id"`
 
 	// Name is the tool name, so a display can label the call.
-	Name string
+	Name string `json:"name"`
 
 	tool.Progress
 }

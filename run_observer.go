@@ -9,21 +9,21 @@ import (
 // Event carries one committed step, provisional model delta, tool progress
 // snapshot, or gap marker, from Runner.Stream or to an Observer.
 type Event struct {
-	TurnID      string
-	ModelCallID string
-	MessageID   string
+	TurnID      string `json:"turn_id"`
+	ModelCallID string `json:"model_call_id,omitempty"`
+	MessageID   string `json:"message_id,omitempty"`
 	// Seq places the event in the turn's record. On a step event it equals
 	// Step.Seq. On a preview or gap it is the Seq of the last step committed
 	// before it: the preview belongs after that step and is superseded by a
 	// later one. A delta's Seq is its model_call_started step; a progress
 	// snapshot's lies between its tool_started and tool_finished steps. A
 	// relay that carries events between processes keeps Seq unchanged.
-	Seq   int64
-	Step  *Step
-	Delta *llm.Delta
+	Seq   int64      `json:"seq"`
+	Step  *Step      `json:"step,omitempty"`
+	Delta *llm.Delta `json:"delta,omitempty"`
 	// Progress is the latest tool.Report snapshot of a running tool call. It
 	// is a preview, like Delta: never recorded and never replayed.
-	Progress *ToolProgress
+	Progress *ToolProgress `json:"progress,omitempty"`
 	// Gap marks model deltas the Observer dropped because it fell behind.
 	// ModelCallID and MessageID name the message that lost them. Its preview
 	// now has a hole: discard it, and ignore further deltas for that
@@ -32,10 +32,10 @@ type Event struct {
 	// as after a failed commit; load the turn from the recorder. Dropped
 	// tool progress makes no gap, since each snapshot replaces the last.
 	// Runner.Stream never drops, so it never yields a gap.
-	Gap bool
+	Gap bool `json:"gap,omitempty"`
 	// Result is set only on the final Runner.Stream event. Observer receives
 	// steps, deltas, progress, and gaps, not this final event.
-	Result *RunResult
+	Result *RunResult `json:"result,omitempty"`
 }
 
 // Observer receives events while a run is in progress. It runs on its own

@@ -3,8 +3,12 @@ package dashi
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"reflect"
 	"slices"
+	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -123,5 +127,119 @@ func TestTurnViewInputIsACopy(t *testing.T) {
 	}
 	if got := out.Turn.Steps[0].Started.Input[0].Text(); got != "do it" {
 		t.Fatalf("recorded input = %q", got)
+	}
+}
+
+// Views, events, and hook plans carry snake_case JSON keys that match their
+// field names, like the step facts they are built from.
+func TestViewJSONTags(t *testing.T) {
+	for _, v := range []any{
+		TurnView{}, ToolView{}, RunResult{}, Event{}, ToolProgress{},
+		ModelPlan{}, ModelDecision{}, SendPlan{}, SendDecision{},
+		ToolPlan{}, ToolDecision{}, ResultPlan{}, ResultDecision{},
+		FinishPlan{}, FinishDecision{},
+	} {
+		typ := reflect.TypeOf(v)
+		for f := range typ.Fields() {
+			if !f.IsExported() || f.Anonymous {
+				continue
+			}
+			tag, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+			if tag == "" {
+				t.Errorf("%s.%s has no json tag", typ.Name(), f.Name)
+			} else if want := snakeCase(f.Name); tag != "-" && tag != want {
+				t.Errorf("%s.%s json tag = %q, want %q",
+					typ.Name(), f.Name, tag, want)
+			}
+		}
+	}
+
+	view := TurnView{ID: "t1", ModelCalls: 2, ReadyToContinue: true,
+		Tools: map[string]ToolView{"c1": {Status: ToolStarted}}}
+	raw, err := json.Marshal(RunResult{Turn: Turn{ID: "t1"}, TurnView: view})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		`"turn":`, `"model_calls":2`, `"ready_to_continue":true`,
+		`"status":"started"`,
+	} {
+		if !strings.Contains(string(raw), key) {
+			t.Errorf("RunResult JSON lacks %s: %s", key, raw)
+		}
+	}
+	var decoded RunResult
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.ModelCalls != 2 || !decoded.ReadyToContinue ||
+		decoded.Tools["c1"].Status != ToolStarted {
+		t.Fatalf("decoded %+v", decoded.TurnView)
+	}
+}
+
+// snakeCase converts a Go field name to snake_case, keeping acronyms
+// together: CallID is call_id and HTTPStatus is http_status.
+func snakeCase(name string) string {
+	runes := []rune(name)
+	var b strings.Builder
+	for i, r := range runes {
+		upper := unicode.IsUpper(r)
+		if upper && i > 0 {
+			prevLower := !unicode.IsUpper(runes[i-1])
+			nextLower := i+1 < len(runes) && unicode.IsLower(runes[i+1])
+			if prevLower || nextLower {
+				b.WriteByte('_')
+			}
+		}
+		b.WriteRune(unicode.ToLower(r))
+	}
+	return b.String()
+}
+
+func TestSnakeCase(t *testing.T) {
+	for name, want := range map[string]string{
+		"ID": "id", "CallID": "call_id", "TurnID": "turn_id",
+		"ArgsHash": "args_hash", "HTTPStatus": "http_status",
+		"ModelCalls": "model_calls",
+	} {
+		if got := snakeCase(name); got != want {
+			t.Errorf("snakeCase(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// A FinishPlan carries OutputErr as the string output_err, so a policy
+// service sees why the output did not parse.
+func TestFinishPlanJSONOutputError(t *testing.T) {
+	plan := FinishPlan{ModelCallID: "m1", Reply: "not json",
+		OutputErr: errors.New("invalid character 'o'")}
+	raw, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		`"model_call_id":"m1"`, `"reply":"not json"`,
+		`"output_err":"invalid character 'o'"`,
+	} {
+		if !strings.Contains(string(raw), key) {
+			t.Errorf("FinishPlan JSON lacks %s: %s", key, raw)
+		}
+	}
+	var decoded FinishPlan
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.ModelCallID != "m1" || decoded.OutputErr == nil ||
+		decoded.OutputErr.Error() != "invalid character 'o'" {
+		t.Fatalf("decoded %+v", decoded)
+	}
+
+	raw, err = json.Marshal(FinishPlan{Output: json.RawMessage(`{"a":1}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "output_err") {
+		t.Errorf("FinishPlan without error has output_err: %s", raw)
 	}
 }
