@@ -172,11 +172,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`contextrank`** treats a P(yes) that is NaN or outside 0 to 1 as
   unanswered (`CauseUnanswered`). Before, with no floor, a NaN candidate
   was chosen.
-- **`listtool`**: `judge_items` sets its open-world hint to false, since
-  its results hold no item text, so `toolcheck.PromptInjection` no longer
-  sends them to Decide. Both tools read their arguments with exact,
+- **`listtool`**: `judge_items` sets its open-world hint to false, so
+  `toolcheck.PromptInjection` no longer sends its results to Decide. Its
+  results now hold only item IDs, question keys, answers, and fixed
+  messages: they no longer quote the query or the list name the model
+  sent, and a failed read says "Could not read <list>." with the host's
+  error kept in `Result.Err`. `List.ID` should return a key the host
+  assigns, not outside text. Both tools read their arguments with exact,
   case-sensitive keys, as the runner's schema check does, so a key such as
-  `"List"` no longer replaces the checked `"list"`.
+  `"List"` no longer replaces the checked `"list"`, and a repeated key
+  fails the call as invalid arguments.
 
 ## [0.8.0] - 2026-10-13
 

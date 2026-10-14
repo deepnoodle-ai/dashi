@@ -23,13 +23,16 @@ type List[T any] struct {
 	// Items returns the items for a query: judge_items passes the model's
 	// query, and pick_item passes its looking_for text, so Items can
 	// filter by it. ctx carries the host's values, and dashi.CurrentTurn
-	// reads the turn from it. An error fails the call, and the model sees
-	// its text.
+	// reads the turn from it. An error fails the call. pick_item shows the
+	// model its text; judge_items shows a fixed message and keeps the text
+	// in Result.Err.
 	Items func(ctx context.Context, query string) ([]T, error)
 	// ID returns the item's ID in the host, such as "T-1042". The model
 	// sees it, and the tools return it. Every item needs one, and the items
 	// of one call need different IDs; otherwise the call fails before it
-	// sends a request.
+	// sends a request. Use a key the host assigns, never outside text such
+	// as an email subject: judge_items is closed-world, so a prompt
+	// injection check skips its results.
 	ID func(T) string
 	// Text returns what the decision model reads about the item. The model
 	// never sees it in a judge_items result; pick_item shows the first

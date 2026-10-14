@@ -135,8 +135,9 @@ func JudgeItems(cfg Config) (tool.Tool, error) {
 		Kind: tool.KindLocal,
 	}
 	def.Annotations.ReadOnly = new(true)
-	// The result holds only item IDs and the decision model's answers,
-	// never item text, so a check on outside content, such as
+	// The result holds only item IDs, question keys, the decision model's
+	// answers, and fixed messages: never item text, host error text, or
+	// the model's query. A check on outside content, such as
 	// decide/toolcheck, can skip it.
 	def.Annotations.OpenWorld = new(false)
 	j := &judge{s}
@@ -179,8 +180,7 @@ func (j *judge) execute(ctx context.Context, call tool.Call) (tool.Outcome, erro
 	r.List, r.Query = args.List, args.Query
 	list, ok := j.find(args.List)
 	if !ok {
-		return fail(fmt.Errorf("Unknown list %q. Use one of: %s.",
-			args.List, strings.Join(j.names(), ", ")))
+		return fail(fmt.Errorf("Unknown list. Use one of: %s.", strings.Join(j.names(), ", ")))
 	}
 	conds, err := j.checkQuestions(args)
 	if err != nil {
@@ -191,11 +191,14 @@ func (j *judge) execute(ctx context.Context, call tool.Call) (tool.Outcome, erro
 		if ctx.Err() != nil {
 			return fail(ctx.Err())
 		}
-		return fail(fmt.Errorf("Could not read %s: %v. Try another query, or use your other tools.",
-			list.name(), err))
+		// The host's error text stays in Result.Err: judge_items is
+		// closed-world, so its output holds no outside text.
+		r.Err = fmt.Errorf("read %s: %w", list.name(), err)
+		return j.finish(ctx, call, r, fmt.Sprintf(
+			"Could not read %s. Try another query, or use your other tools.", list.name()))
 	}
 	if len(items) == 0 {
-		return j.finish(ctx, call, r, fmt.Sprintf("No items in %s%s.", list.name(), quoted(args.Query)))
+		return j.finish(ctx, call, r, fmt.Sprintf("No items in %s.", list.name()))
 	}
 	if n := len(items); n > j.maxRequests {
 		return fail(fmt.Errorf("Too many %s match (%s): judge_items sends one request per item, "+
@@ -243,7 +246,7 @@ func (j *judge) execute(ctx context.Context, call tool.Call) (tool.Outcome, erro
 			"other tools, or ask the user.", list.name(), reason(lastErr)))
 	}
 	v := judgeOutput{
-		list: list.name(), query: args.Query, model: r.Model, took: time.Since(start),
+		list: list.name(), model: r.Model, took: time.Since(start),
 		questions: args.Questions, conds: conds, items: results, maxItemBytes: j.maxItemBytes,
 		show: defaultShow,
 	}
@@ -251,13 +254,6 @@ func (j *judge) execute(ctx context.Context, call tool.Call) (tool.Outcome, erro
 		v.show = min(args.Show, maxShow)
 	}
 	return j.finish(ctx, call, r, v.fit(resultBytes(ctx)))
-}
-
-func quoted(query string) string {
-	if query == "" {
-		return ""
-	}
-	return fmt.Sprintf(" (%q)", query)
 }
 
 // checkQuestions says, in words the model can act on, what is wrong
