@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/coder/websocket"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -342,7 +343,7 @@ func (s *Session) transcript(text string, speaker realtime.Speaker, mode realtim
 }
 func (s *Session) google(m map[string]any) error {
 	if _, ok := m["error"]; ok {
-		return s.enqueue(realtime.Event{Kind: realtime.EventError, Error: &realtime.Error{Category: realtime.ErrorProvider}})
+		return s.enqueue(realtime.Event{Kind: realtime.EventError, Error: &realtime.Error{Category: realtime.ErrorProvider, Code: providerErrorCode(m), Cause: providerErrorCause(m)}})
 	}
 	if activity := object(m, "voiceActivity"); activity != nil {
 		kind := str(activity, "type")
@@ -600,15 +601,16 @@ func (s *Session) cancelResponseTools(response string) error {
 
 // providerErrorCode and providerErrorCause read an "error" message's code
 // and text, so the caller can say what the provider objected to.
+// providerErrorCode reads Grok's string code or type, or Google's status
+// (Google's numeric code is only the HTTP status).
 func providerErrorCode(m map[string]any) string {
-	code := str(object(m, "error"), "code")
-	if code == "" {
-		code = str(object(m, "error"), "type")
+	e := object(m, "error")
+	for _, k := range []string{"code", "type", "status"} {
+		if code := str(e, k); code != "" {
+			return truncate(code, 128)
+		}
 	}
-	if len(code) > 128 {
-		code = code[:128]
-	}
-	return code
+	return ""
 }
 func providerErrorCause(m map[string]any) error {
 	message := str(object(m, "error"), "message")
@@ -618,16 +620,24 @@ func providerErrorCause(m map[string]any) error {
 	if message == "" {
 		return nil
 	}
-	if len(message) > 1024 {
-		message = message[:1024]
-	}
-	return errors.New(message)
+	return errors.New(truncate(message, 1024))
 }
 
 // clip bounds a provider-chosen name quoted into an error.
 func clip(v string) string {
 	if len(v) > 64 {
-		return v[:64] + "…"
+		return truncate(v, 64) + "…"
 	}
 	return v
+}
+
+// truncate cuts v to at most n bytes without splitting a UTF-8 character.
+func truncate(v string, n int) string {
+	if len(v) <= n {
+		return v
+	}
+	for n > 0 && !utf8.RuneStart(v[n]) {
+		n--
+	}
+	return v[:n]
 }

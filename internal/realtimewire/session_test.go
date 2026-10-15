@@ -387,6 +387,18 @@ func TestGrokErrorsSayWhatFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+func TestGeminiErrorsSayWhatFailed(t *testing.T) {
+	s, _ := connect(t, true, fake(`{"setupComplete":{}}`, `{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"Request contains an invalid argument."}}`))
+	event, err := s.Receive(context.Background())
+	if err != nil || event.Kind != realtime.EventError || event.Error.Code != "INVALID_ARGUMENT" || event.Error.Cause == nil || event.Error.Cause.Error() != "Request contains an invalid argument." {
+		t.Fatalf("%+v %v", event.Error, err)
+	}
+}
+func TestTruncateKeepsCharactersWhole(t *testing.T) {
+	if got := truncate("ab€", 4); got != "ab" {
+		t.Fatalf("%q", got)
+	}
+}
 func TestLargeAudioChunkSplitsIntoFrames(t *testing.T) {
 	chunk := base64.StdEncoding.EncodeToString(make([]byte, realtime.MaxAudioBytes+4000))
 	s, _ := connect(t, false, fake(`{"type":"session.updated"}`, `{"type":"response.output_audio.delta","response_id":"r","item_id":"i","delta":"`+chunk+`"}`))
