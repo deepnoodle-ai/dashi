@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Grok voice sessions no longer end when the provider sends a large audio
+  chunk.** A chunk over `realtime.MaxAudioBytes` is split into frames.
+  `MaxAudioBytes` rises from 64 KiB to 256 KiB (about 5.5 s of 24 kHz PCM16),
+  which also raises the cap on caller audio input by the same amount.
+- **Realtime errors say why a session failed.** Grok and Gemini error events
+  carry the provider's error code and message, and the new `realtime.Failf`
+  names the failing check in protocol errors.
+
 ## [0.9.0] - 2026-10-14
 
 ### Added

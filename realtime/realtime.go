@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/deepnoodle-ai/dashi/content"
@@ -150,6 +151,12 @@ func (e *Error) Error() string {
 func (e *Error) Unwrap() error          { return e.Cause }
 func Fail(category ErrorCategory) error { return &Error{Category: category} }
 
+// Failf is Fail with a cause saying which check failed, so a caller's log
+// can tell one protocol failure from another.
+func Failf(category ErrorCategory, format string, args ...any) error {
+	return &Error{Category: category, Cause: fmt.Errorf(format, args...)}
+}
+
 // Connection is the bounded JSON transport seam. Implementations must support
 // one reader and serialized writes, and Close must unblock an outstanding read.
 type Connection interface {
@@ -159,7 +166,10 @@ type Connection interface {
 }
 type DialFunc func(context.Context, string, http.Header, *http.Client) (Connection, error)
 
-const MaxAudioBytes = 64 * 1024
+// MaxAudioBytes bounds one audio frame either way: about 5.5 s of 24 kHz
+// PCM16 mono. Providers' own chunks fit (Grok's run about 69 KB), and a
+// larger one is split rather than refused.
+const MaxAudioBytes = 256 * 1024
 const MaxMessageBytes = 2 * 1024 * 1024
 const MaxToolBytes = 64 * 1024
 const MaxPendingTools = 32
