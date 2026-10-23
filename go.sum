@@ -2,8 +2,6 @@ github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9
 github.com/coder/websocket v1.8.14/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/deepnoodle-ai/decide v0.4.0 h1:w6ie3jxPj0BTHQDqcmPuAIq31tNkQzM7G1EHB1zDdqI=
 github.com/deepnoodle-ai/decide v0.4.0/go.mod h1:1ipa8271yR+qXkjZ7gOyIZptnUOhYpdjp9vvObc/Lj4=
-github.com/deepnoodle-ai/wonton v0.7.2 h1:BhWfEBE9n9gKxQWT4VimRa7q4bA7qgEwA+de1Sj24Fg=
-github.com/deepnoodle-ai/wonton v0.7.2/go.mod h1:G3fVZXXX/Oo01ATag//PH/6khtBNlDmxznXjORuG9gE=
 github.com/deepnoodle-ai/wonton v0.7.3 h1:JF90Y3Vw3RdS9cUoK7B4T9/3pTT1U47rjZ32Z5gMEy4=
 github.com/deepnoodle-ai/wonton v0.7.3/go.mod h1:G3fVZXXX/Oo01ATag//PH/6khtBNlDmxznXjORuG9gE=
 github.com/dlclark/regexp2 v1.11.0 h1:G/nrcoOa7ZXlpoa/91N3X7mM3r8eIlMBBJZvsz/mxKI=
