@@ -173,6 +173,12 @@ const (
 	// Tools did not offer for a model call. The call runs without it. Each
 	// name warns once per turn.
 	WarningToolNotOffered WarningCode = "tool_not_offered"
+	// WarningTaskBudgetAdjusted means the task budget sent differs from the
+	// one the Turn would otherwise send: a BeforeModel hook lowered Total
+	// below the Remaining it was given, so Remaining was lowered to Total,
+	// or Remaining could not be derived after a compaction, so the agent's
+	// budget was sent unchanged.
+	WarningTaskBudgetAdjusted WarningCode = "task_budget_adjusted"
 	// WarningToolDataDropped means the call's outcome was recorded without
 	// its Data: the Data was not valid JSON or exceeded 64 KiB, or the model
 	// saw a changed result (see tool.Outcome.Data).

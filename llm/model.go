@@ -88,6 +88,10 @@ const (
 	// when support is unknown. Fit rejects a known-unsupported prefill under
 	// both policies, because dropping the message would change the answer.
 	FeatureAssistantPrefill Feature = "assistant_prefill"
+	// FeatureTaskBudget describes support for an advisory token budget the
+	// model can see for a whole Turn (Settings.TaskBudget). APIs without one
+	// declare it unsupported, and Fit omits the setting with a warning.
+	FeatureTaskBudget Feature = "task_budget"
 )
 
 // ProviderToolFeature scopes model evidence to a provider's wire tool type.
@@ -138,6 +142,10 @@ type Capabilities struct {
 	// MaxTemperature is a known upper bound on sampling temperature; zero
 	// adds no constraint.
 	MaxTemperature float64 `json:"max_temperature,omitempty"`
+
+	// MinTaskBudget is a known lower bound on TaskBudget.Total; zero adds no
+	// constraint.
+	MinTaskBudget int `json:"min_task_budget,omitempty"`
 
 	// CacheTTLs lists the prompt cache lifetimes the route offers, shortest
 	// first. The shortest is the route's default, which needs no request
@@ -239,6 +247,7 @@ func (m ModelInfo) Validate() error {
 	c := m.Capabilities
 	if c.MaxOutputTokens < 0 || c.ContextWindow < 0 ||
 		c.MinReasoningBudget < 0 || c.MaxReasoningBudget < 0 ||
+		c.MinTaskBudget < 0 ||
 		(c.MaxReasoningBudget > 0 &&
 			c.MinReasoningBudget > c.MaxReasoningBudget) ||
 		!(c.MaxTemperature >= 0) || math.IsInf(c.MaxTemperature, 0) {
@@ -265,7 +274,8 @@ func knownFeature(f Feature) bool {
 	case FeatureText, FeatureImage, FeatureDocument, FeatureAudio, FeatureResource,
 		FeatureTools, FeatureToolChoice, FeatureParallelTools, FeatureTemperature, FeatureMaxTokens,
 		FeatureReasoningEffort, FeatureReasoningBudget, FeatureReasoningSummary, FeatureStreaming,
-		FeatureCitations, FeatureStructuredOutput, FeaturePromptCache, FeatureAssistantPrefill:
+		FeatureCitations, FeatureStructuredOutput, FeaturePromptCache, FeatureAssistantPrefill,
+		FeatureTaskBudget:
 		return true
 	}
 	return strings.HasPrefix(string(f), "provider_tool:") &&
@@ -324,6 +334,9 @@ func requestedFeatures(r Input) []Feature {
 	}
 	if r.Settings.PromptCache.TTL > 0 {
 		add(FeaturePromptCache)
+	}
+	if r.Settings.TaskBudget != nil {
+		add(FeatureTaskBudget)
 	}
 	if s := r.Settings.ReasoningSummary; s != nil && *s {
 		add(FeatureReasoningSummary)

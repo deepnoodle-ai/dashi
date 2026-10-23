@@ -429,6 +429,32 @@ type Settings struct {
 	// zero value caches where Dashi places cache points, with the
 	// provider's default lifetime; see PromptCache.
 	PromptCache PromptCache `json:"prompt_cache,omitzero"`
+
+	// TaskBudget gives the model a token budget it can see for one Turn; see
+	// TaskBudget. An API or model without task budgets omits it and warns;
+	// under CapabilityStrict that is an error.
+	TaskBudget *TaskBudget `json:"task_budget,omitempty"`
+}
+
+// TaskBudget is an advisory token budget the model can see for one Turn:
+// every model call that answers one user message. The model sees the budget
+// count down as it thinks, calls tools, reads tool results, and writes, and
+// paces itself to finish within it. It is a hint, not a limit: the model can
+// overrun it, and MaxTokens remains the hard limit on each response.
+//
+// It is Anthropic's task budget (output_config.task_budget), whose total must
+// be at least 20,000 tokens; preparation raises a smaller Total with a
+// warning, or fails under CapabilityStrict. It is unrelated to dashi.Budget,
+// which the runner enforces as a cap on a Turn's tokens and cost.
+type TaskBudget struct {
+	// Total is the number of tokens the Turn may spend. It must be positive.
+	Total int `json:"total"`
+
+	// Remaining is what is left of Total, from 0 to Total. Leave it nil while
+	// every call sends the Turn's full history: the provider derives the
+	// spend from that history. The Turn engine sets it after active
+	// compaction has replaced messages of the Turn.
+	Remaining *int `json:"remaining,omitempty"`
 }
 
 // Input specifies a model call before preparation binds it to a destination.
@@ -493,6 +519,14 @@ func (r Input) Validate() error {
 	}
 	if s := r.Settings.Reasoning; s != nil && !validReasoning(s) {
 		return errors.New("llm: choose reasoning effort or token budget")
+	}
+	if b := r.Settings.TaskBudget; b != nil {
+		if b.Total <= 0 {
+			return errors.New("llm: task budget total must be positive")
+		}
+		if b.Remaining != nil && (*b.Remaining < 0 || *b.Remaining > b.Total) {
+			return errors.New("llm: task budget remaining must be between 0 and the total")
+		}
 	}
 	names := map[string]bool{}
 	for _, d := range r.Tools {

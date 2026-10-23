@@ -29,6 +29,8 @@ const (
 	// SettingPromptCacheTTL identifies the prompt cache lifetime,
 	// PromptCache.TTL. Its values are duration strings such as "1h".
 	SettingPromptCacheTTL Setting = "prompt_cache.ttl"
+	// SettingTaskBudget identifies the task budget as one value.
+	SettingTaskBudget Setting = "task_budget"
 )
 
 // AdjustmentAction names an authorized preparation behavior. Defaults fill
@@ -108,7 +110,8 @@ func (a Adjustment) Validate() error {
 		SettingToolChoice,
 		SettingParallelTools,
 		SettingCitations,
-		SettingPromptCacheTTL:
+		SettingPromptCacheTTL,
+		SettingTaskBudget:
 	default:
 		return fmt.Errorf("llm: invalid adjustment field %q", a.Field)
 	}
