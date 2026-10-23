@@ -588,13 +588,22 @@ func TestFitTaskBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.Settings.TaskBudget
-	if got.Total != 20_000 || *got.Remaining != 5_000 || requested.Total != 10_000 ||
+	// Remaining rises with Total, so the countdown matches a 20,000 budget
+	// of which 15,000 is left.
+	if got.Total != 20_000 || *got.Remaining != 15_000 || requested.Total != 10_000 ||
+		*requested.Remaining != 5_000 ||
 		len(adjustments) != 1 || adjustments[0].Action != AdjustmentClamp ||
 		adjustments[0].Field != SettingTaskBudget {
 		t.Fatalf("budget = %+v, adjustments = %+v", got, adjustments)
 	}
 	if _, _, err := limits.Fit(in, CapabilityStrict, nil); err == nil {
 		t.Fatal("strict accepted a total below the minimum")
+	}
+	unset := in
+	unset.Settings.TaskBudget = &TaskBudget{Total: 10_000}
+	out, _, err = limits.Fit(unset, CapabilityAdjust, nil)
+	if err != nil || out.Settings.TaskBudget.Total != 20_000 || out.Settings.TaskBudget.Remaining != nil {
+		t.Fatalf("budget = %+v, err = %v", out.Settings.TaskBudget, err)
 	}
 
 	rejected := Capabilities{Features: map[Feature]Support{FeatureTaskBudget: SupportUnsupported}}

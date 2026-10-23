@@ -49,6 +49,7 @@ func (r *runtime) beforeModel(
 		if err == nil {
 			if d.Settings != nil {
 				candidate.Settings = *d.Settings
+				warnings = keepTaskBudgetRemaining(input.Settings.TaskBudget, &candidate.Settings, h.Name)
 			}
 			if !finalReplyOnly {
 				candidateHidden = hideTools(
@@ -58,7 +59,7 @@ func (r *runtime) beforeModel(
 					bound,
 					&hookIgnored,
 				)
-				warnings = keepToolChoiceOffered(&candidate, h.Name, candidateHidden)
+				warnings = append(warnings, keepToolChoiceOffered(&candidate, h.Name, candidateHidden)...)
 			}
 			err = validModelDecision(d, candidate)
 		}

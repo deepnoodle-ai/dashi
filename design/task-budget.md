@@ -38,7 +38,9 @@ programmer errors.
 Opus 4.7, 4.8, 5, and 5.5, Sonnet 5.5, Haiku 5.5, Fable 5 and 5.1, and Mythos 5
 and 5.1; unsupported on the 4.5 and 4.6 generations and Sonnet 5 (which answers
 200 but is documented unsupported). Responses, Chat Completions, and Gemini
-declare it unsupported in their API limits. `Fit` handles it like citations:
+declare it unsupported in their API limits, and so does Ollama through the
+Messages client's `Unsupported` list, since it does not implement the beta and
+its models are all unknown to the catalog. `Fit` handles it like citations:
 an unsupported budget is omitted with a `setting_omitted` warning, or an
 Unsupported error under `CapabilityStrict`. An unknown model follows the
 general rule: adjust sends it and records the feature as unverified; strict
@@ -46,8 +48,10 @@ refuses it.
 
 The 20,000-token minimum is a new limit, `Capabilities.MinTaskBudget`, which
 the Messages client states for the whole API, like `MinReasoningBudget`. Under
-adjust, `Fit` raises a smaller `Total` to it with a `setting_clamped` warning
-(`Remaining`, already within the old total, stays); strict fails.
+adjust, `Fit` raises a smaller `Total` to it with a `setting_clamped` warning,
+and raises a set `Remaining` by the same amount, so a 10,000 budget counts
+down exactly as a 20,000 one would, also after the Turn engine derives
+`Remaining` from the smaller total; strict fails.
 
 ### Wire format
 
@@ -65,9 +69,10 @@ they drop `ToolChoice`. Hooks may change it like any setting.
 Active compaction removes messages, and their spend, from the request. After a
 `context_compacted` step, the runner sends `Remaining` = the agent's
 `Remaining` (or `Total`) − the tokens of the Turn's messages that are no longer
-sent, floored at 0. It derives this from the record alone: the Turn's messages
-without replacements (`TurnMessagesFull`) minus those still sent
-(`TurnMessages`), compared by message reference. A replaced model reply counts
+sent, floored at 0. It derives this from the record alone: the messages each
+compaction's plan covered (`ContextCompactionPlan.Covered`). The runner keeps
+each compaction's count, so later calls do not count it again. A replaced
+model reply counts
 the output tokens its `model_call_finished` step recorded, which include
 reasoning the message may not carry; any other replaced message (tool results,
 added context) uses `llm.EstimatedMessageTokens`, the estimator budget checks
@@ -75,6 +80,13 @@ already use. A summary a later compaction replaces counts nothing, since the
 messages it stood for were counted already. Because only recorded facts are
 read, a recovered or replayed Turn computes the same value; the budget sent is
 also recorded in `ModelFact.Effective`.
+
+The budget is advisory, so it never fails a Turn. If `Remaining` cannot be
+derived, the call sends the agent's budget as is with a
+`task_budget_adjusted` warning. A BeforeModel hook that lowers `Total` below
+the `Remaining` it was given, leaving `Remaining` as it was, gets `Remaining`
+lowered to the new `Total` with the same warning; a `Remaining` the hook sets
+out of range fails validation like any invalid setting.
 
 ## Limits
 
@@ -89,6 +101,8 @@ also recorded in `ModelFact.Effective`.
 
 Messages encoding (body, `remaining`, beta header, merge with the MCP beta),
 omission on unsupported models and other APIs, strict errors, the below-minimum
-clamp, unknown models, validation, and a Turn with two active compactions whose
-recorded budgets match a replay of each prefix and of a recovered Turn. One
-live call to Haiku 5.5 with a 20,000-token budget passed on 2026-10-23.
+clamp with its `Remaining`, Ollama's omission, a hook lowering `Total`, the
+fallback when `Remaining` cannot be derived, unknown models, validation, a
+10,000 budget that sends what a 20,000 one does across compactions, and a Turn
+with two active compactions whose recorded budgets match a replay of each
+prefix and of a recovered Turn. One live call to Haiku 5.5 with a 20,000-token budget passed on 2026-10-23.

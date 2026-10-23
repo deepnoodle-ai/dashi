@@ -218,7 +218,9 @@ agent.Settings.TaskBudget = &llm.TaskBudget{Total: 40_000}
   same `Total`, and Anthropic counts the spend from the history. Summary calls
   send none. After active compaction replaces messages of the Turn, the runner
   also sends `Remaining`: your `Remaining` (or `Total`) less the replaced
-  messages' tokens, computed from the recorded Turn.
+  messages' tokens, computed from the recorded Turn. A BeforeModel hook that
+  lowers `Total` below that `Remaining` has `Remaining` lowered to its
+  `Total`, with a `task_budget_adjusted` warning.
 - **Tool results and earlier turns count.** A Turn that reads 36,000 tokens of
   tool output under a 40,000-token budget has little left for its answer, and
   earlier turns' history in the context counts too. Size the budget from
@@ -228,9 +230,10 @@ agent.Settings.TaskBudget = &llm.TaskBudget{Total: 40_000}
   on a Turn's tokens and cost (see [Turn budgets](budgets.md)); set both when
   you want the model to pace itself and a cap behind it.
 - **Models.** Claude Opus 4.7 and later, Sonnet 5.5, Haiku 5.5, Fable 5 and
-  5.1, and Mythos 5 and 5.1, as the catalog records. Other models and APIs
-  omit the setting with a warning, and a `Total` below Anthropic's minimum of
-  20,000 is raised to it with a warning; both are errors under
+  5.1, and Mythos 5 and 5.1, as the catalog records. Other models and APIs,
+  Ollama included, omit the setting with a warning, and a `Total` below
+  Anthropic's minimum of 20,000 is raised to it with a warning (a set
+  `Remaining` rises by the same amount); both are errors under
   `CapabilityStrict`. The beta header is sent for you. See
   [task budgets](../../design/task-budget.md).
 

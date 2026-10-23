@@ -90,6 +90,8 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		)
 	}
 	system := modelSystem(r.agent.Instructions, structured, finalReplyOnly)
+	// budgetWarnings ride on this call's model_call_started step.
+	var budgetWarnings []Warning
 	input := llm.Input{
 		Model:    r.agent.Model,
 		System:   system,
@@ -111,10 +113,10 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		// task budget.
 		input.Settings.TaskBudget = nil
 	} else {
-		input.Settings.TaskBudget, err = turnTaskBudget(r.turn, input.Settings.TaskBudget)
-		if err != nil {
-			return r.stop(StopFailed, err.Error()), false
+		if r.compactedTokens == nil {
+			r.compactedTokens = map[int64]int{}
 		}
+		input.Settings.TaskBudget, budgetWarnings = callTaskBudget(r.turn, input.Settings.TaskBudget, r.compactedTokens)
 	}
 	if key := r.runner.CacheKey; key != "" &&
 		input.Settings.PromptCache.Key == "" {
@@ -183,7 +185,6 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	if len(input.OutputSchema) > 0 {
 		return r.stop(StopFailed, "native output_schema is not supported in agent turns"), false
 	}
-	var budgetWarnings []Warning
 	if stop := incompleteUsageStop(s); stop != nil {
 		return r.stopWith(stop), false
 	}

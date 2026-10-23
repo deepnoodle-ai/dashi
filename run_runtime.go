@@ -52,9 +52,13 @@ type runtime struct {
 	pendingDelivered []DeliveredCommand
 	// pendingWarnings and pendingHooks ride on the next committed step, so
 	// a warning or hook decision is saved with the step it leads to.
-	pendingWarnings     []Warning
-	pendingHooks        []HookResult
-	compactionUsed      bool
+	pendingWarnings []Warning
+	pendingHooks    []HookResult
+	compactionUsed  bool
+	// compactedTokens memoizes, by the seq of each context_compacted step,
+	// the tokens that compaction took out of the request; see
+	// replacedTurnTokens.
+	compactedTokens     map[int64]int
 	compactionCandidate *llm.Input
 	// asking is set when Advance asks whether a held turn may send again:
 	// commits stay in memory, and the run ends before any model call is

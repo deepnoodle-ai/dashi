@@ -1,6 +1,7 @@
 package dashi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -30,7 +31,7 @@ func checkTaskBudgets(t *testing.T, turn Turn, budget llm.TaskBudget) int {
 			}
 			continue
 		}
-		want, err := turnTaskBudget(Turn{ID: turn.ID, Steps: turn.Steps[:i]}, &budget)
+		want, err := turnTaskBudget(Turn{ID: turn.ID, Steps: turn.Steps[:i]}, &budget, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -101,19 +102,19 @@ func TestTurnTaskBudgetStartsFromRemainingAndFloorsAtZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	replaced, err := replacedTurnTokens(out.Turn)
+	replaced, err := replacedTurnTokens(out.Turn, nil)
 	if err != nil || replaced == 0 {
 		t.Fatalf("replaced = %d, err = %v", replaced, err)
 	}
-	got, err := turnTaskBudget(out.Turn, &llm.TaskBudget{Total: 100_000, Remaining: new(replaced + 7)})
+	got, err := turnTaskBudget(out.Turn, &llm.TaskBudget{Total: 100_000, Remaining: new(replaced + 7)}, nil)
 	if err != nil || *got.Remaining != 7 {
 		t.Fatalf("remaining = %v, err = %v", got.Remaining, err)
 	}
-	got, err = turnTaskBudget(out.Turn, &llm.TaskBudget{Total: 100_000, Remaining: new(1)})
+	got, err = turnTaskBudget(out.Turn, &llm.TaskBudget{Total: 100_000, Remaining: new(1)}, nil)
 	if err != nil || *got.Remaining != 0 {
 		t.Fatalf("remaining = %v, err = %v", got.Remaining, err)
 	}
-	if got, _ := turnTaskBudget(out.Turn, nil); got != nil {
+	if got, _ := turnTaskBudget(out.Turn, nil, nil); got != nil {
 		t.Fatal("no budget became one")
 	}
 }
@@ -152,4 +153,171 @@ func TestTaskBudgetAfterRecovery(t *testing.T) {
 func isCommitError(err error) bool {
 	_, ok := errors.AsType[*CommitError](err)
 	return ok
+}
+
+// replacedTurnTokens counts each compaction's covered messages, which are
+// exactly the Turn's messages no longer sent, and a memo spares a run from
+// counting a compaction twice.
+func TestReplacedTurnTokensCountsUnsentMessages(t *testing.T) {
+	c, a := activeFixture()
+	calls := 0
+	r := Runner{Client: c, Tools: activeTools(&calls), Recorder: NewMemoryRecorder()}
+	out, err := r.Run(t.Context(), Turn{ID: "budget"}, activeStart(a))
+	if err != nil || len(out.ContextCompactions) != 2 {
+		t.Fatalf("err = %v, compactions = %d", err, len(out.ContextCompactions))
+	}
+	full, err := turnMessages(out.Turn, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent, err := turnMessages(out.Turn, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := map[TurnMessageRef]bool{}
+	for _, m := range sent {
+		kept[m.Ref] = true
+	}
+	want := 0
+	for _, m := range full {
+		if kept[m.Ref] {
+			continue
+		}
+		if m.Message.Role == llm.RoleAssistant {
+			want += 2 // the fixture's recorded output tokens
+			continue
+		}
+		want += llm.EstimatedMessageTokens([]llm.Message{m.Message})
+	}
+	memo := map[int64]int{}
+	got, err := replacedTurnTokens(out.Turn, memo)
+	if err != nil || got != want || len(memo) != 2 {
+		t.Fatalf("replaced = %d, want %d, memo = %v, err = %v", got, want, memo, err)
+	}
+	for seq := range memo {
+		memo[seq] = 1
+	}
+	if got, _ := replacedTurnTokens(out.Turn, memo); got != 2 {
+		t.Fatalf("replaced with memo = %d, want the memoized 2", got)
+	}
+}
+
+// minTaskBudgetClient fits each input to a 20,000-token task budget
+// minimum, as the Messages client does, and records the fitted settings.
+type minTaskBudgetClient struct{ *activeClient }
+
+func (c minTaskBudgetClient) Prepare(ctx context.Context, in llm.Input) (llm.Request, error) {
+	fitted, adjustments, err := llm.Capabilities{MinTaskBudget: 20_000}.Fit(in, llm.CapabilityAdjust, nil)
+	if err != nil {
+		return llm.Request{}, err
+	}
+	req, err := c.activeClient.Prepare(ctx, in)
+	if err != nil {
+		return llm.Request{}, err
+	}
+	snapshot := req.Snapshot()
+	snapshot.Effective = fitted.Settings
+	snapshot.Adjustments = adjustments
+	return llm.NewRequest(snapshot)
+}
+
+// A budget below the provider minimum behaves as the minimum would across
+// compactions: the raised countdown never drops by the difference.
+func TestTaskBudgetBelowMinimumAcrossCompaction(t *testing.T) {
+	sentBudgets := func(total int) []llm.TaskBudget {
+		c, a := activeFixture()
+		a.Settings.TaskBudget = &llm.TaskBudget{Total: total}
+		calls := 0
+		r := Runner{Client: minTaskBudgetClient{c}, Tools: activeTools(&calls)}
+		out, err := r.Run(t.Context(), Turn{ID: "budget"}, activeStart(a))
+		if err != nil || out.Stop.Kind != StopCompleted || len(out.ContextCompactions) != 2 {
+			t.Fatalf("err=%v stop=%+v compactions=%d", err, out.Stop, len(out.ContextCompactions))
+		}
+		var budgets []llm.TaskBudget
+		for _, step := range out.Turn.Steps {
+			if step.Kind == StepModelCallStarted && step.Model.Purpose == "" {
+				budgets = append(budgets, *step.Model.Effective.TaskBudget)
+			}
+		}
+		return budgets
+	}
+	low, minimum := sentBudgets(10_000), sentBudgets(20_000)
+	if len(low) != 5 || len(low) != len(minimum) {
+		t.Fatalf("calls = %d and %d", len(low), len(minimum))
+	}
+	for i := range low {
+		if low[i].Total != 20_000 || (low[i].Remaining == nil) != (minimum[i].Remaining == nil) ||
+			low[i].Remaining != nil && *low[i].Remaining != *minimum[i].Remaining {
+			t.Fatalf("call %d: sent %+v for 10,000, %+v for 20,000", i, low[i], minimum[i])
+		}
+	}
+	if low[4].Remaining == nil || *low[4].Remaining >= 20_000 {
+		t.Fatalf("last call remaining = %v", low[4].Remaining)
+	}
+}
+
+// A BeforeModel hook that lowers Total below the derived Remaining gets
+// Remaining lowered to its Total, with a warning, instead of failing.
+func TestHookLowersTaskBudgetTotal(t *testing.T) {
+	c, a := activeFixture()
+	a.Settings.TaskBudget = &llm.TaskBudget{Total: 100_000}
+	calls := 0
+	lower := ModelHook{Name: "lower", Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
+		s := p.Input.Settings
+		if s.TaskBudget == nil {
+			return ModelDecision{}, nil
+		}
+		s.TaskBudget.Total = 30_000
+		return ModelDecision{Settings: &s}, nil
+	}}
+	r := Runner{Client: c, Tools: activeTools(&calls), Hooks: lower.Hooks()}
+	out, err := r.Run(t.Context(), Turn{ID: "budget"}, activeStart(a))
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("err=%v stop=%+v", err, out.Stop)
+	}
+	clamped := 0
+	for _, step := range out.Turn.Steps {
+		if step.Kind != StepModelCallStarted || step.Model.Purpose != "" {
+			continue
+		}
+		b := step.Model.Effective.TaskBudget
+		if b.Total != 30_000 || b.Remaining != nil && *b.Remaining != 30_000 {
+			t.Fatalf("sent %+v", b)
+		}
+		if b.Remaining != nil {
+			clamped++
+		}
+	}
+	warned := 0
+	for _, w := range out.Warnings {
+		if w.Code == WarningTaskBudgetAdjusted {
+			warned++
+		}
+	}
+	// A hook pass whose call gave way to a compaction warns too.
+	if clamped != 3 || warned < clamped {
+		t.Fatalf("clamped = %d, warnings = %+v", clamped, out.Warnings)
+	}
+	// A Remaining the caller sets out of range is still an error on a
+	// direct call.
+	in := llm.Input{Model: "m", Settings: llm.Settings{TaskBudget: &llm.TaskBudget{Total: 30_000, Remaining: new(40_000)}}}
+	if err := in.Validate(); err == nil {
+		t.Fatal("an out-of-range Remaining passed validation")
+	}
+}
+
+// A Remaining that cannot be derived sends the agent's budget with a
+// warning instead of failing the call.
+func TestCallTaskBudgetWarnsWhenRemainingUnknown(t *testing.T) {
+	broken := Turn{ID: "broken", Steps: []Step{{
+		Seq:       1,
+		Kind:      StepContextCompacted,
+		Compacted: &ContextCompactionFact{ModelCallID: "missing", Summary: "s"},
+	}}}
+	budget := &llm.TaskBudget{Total: 30_000, Remaining: new(25_000)}
+	got, warnings := callTaskBudget(broken, budget, nil)
+	if got == budget || got.Total != 30_000 || *got.Remaining != 25_000 ||
+		len(warnings) != 1 || warnings[0].Code != WarningTaskBudgetAdjusted {
+		t.Fatalf("budget = %+v, warnings = %+v", got, warnings)
+	}
 }

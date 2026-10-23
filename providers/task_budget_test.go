@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/ollama"
 	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
 	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
@@ -28,6 +29,13 @@ func TestOtherAPIsOmitTaskBudgetWithWarning(t *testing.T) {
 				APIKey:           "test",
 				Endpoint:         "http://unused.invalid",
 			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return p
+		},
+		"ollama": func(policy llm.CapabilityPolicy) llm.Client {
+			p, err := ollama.New(ollama.Config{CapabilityPolicy: policy})
 			if err != nil {
 				t.Fatal(err)
 			}

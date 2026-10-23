@@ -73,13 +73,19 @@ type Config struct {
 	// recorded, and values beyond known limits are fitted with a warning.
 	// CapabilityStrict rejects both instead.
 	CapabilityPolicy llm.CapabilityPolicy
+
+	// Unsupported lists features a Messages-compatible destination rejects
+	// for every model, such as a beta it does not implement. Prepare omits
+	// them with a warning, or refuses them under CapabilityStrict.
+	Unsupported []llm.Feature
 }
 
 // Client implements llm.Client for a configured Messages destination.
 // It holds no per-call state and is safe for concurrent calls. Model knowledge
 // is owned; the configured HTTP client and transport remain shared.
 type Client struct {
-	client providerhttp.Client
+	client      providerhttp.Client
+	unsupported []llm.Feature
 }
 
 var _ llm.Client = (*Client)(nil)
@@ -127,7 +133,7 @@ func New(config Config) (*Client, error) {
 		public,
 		"ANTHROPIC_API_KEY",
 	)
-	return &Client{client: client}, nil
+	return &Client{client: client, unsupported: slices.Clone(config.Unsupported)}, nil
 }
 
 // Provider identifies the configured destination in model references and
@@ -535,6 +541,9 @@ func (p *Client) limits(r llm.Input) llm.Capabilities {
 		Features: map[llm.Feature]llm.Support{
 			llm.FeatureMaxTokens: llm.SupportSupported,
 		},
+	}
+	for _, f := range p.unsupported {
+		api.Features[f] = llm.SupportUnsupported
 	}
 	if r.Settings.Reasoning != nil && p.client.Policy() == llm.CapabilityAdjust {
 		api.Features[llm.FeatureTemperature] = llm.SupportUnsupported

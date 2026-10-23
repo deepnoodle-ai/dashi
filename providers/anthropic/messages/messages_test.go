@@ -263,7 +263,7 @@ func TestTaskBudgetOmittedOnUnsupportedModel(t *testing.T) {
 }
 
 // A Total below the API minimum is raised to it with a warning under the
-// adjust policy, keeping Remaining; strict refuses it.
+// adjust policy, raising Remaining by the same amount; strict refuses it.
 func TestTaskBudgetBelowMinimum(t *testing.T) {
 	remaining := 5_000
 	input := taskBudgetInput("claude-haiku-5-5", llm.TaskBudget{Total: 10_000, Remaining: &remaining})
@@ -277,7 +277,7 @@ func TestTaskBudgetBelowMinimum(t *testing.T) {
 		warnings[0].Field != llm.SettingTaskBudget {
 		t.Fatalf("warnings = %+v", warnings)
 	}
-	if !strings.Contains(string(request.Body()), `"task_budget":{"remaining":5000,"total":20000,"type":"tokens"}`) {
+	if !strings.Contains(string(request.Body()), `"task_budget":{"remaining":15000,"total":20000,"type":"tokens"}`) {
 		t.Fatalf("body = %s", request.Body())
 	}
 	if input.Settings.TaskBudget.Total != 10_000 {

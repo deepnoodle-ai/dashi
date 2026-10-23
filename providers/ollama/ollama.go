@@ -51,6 +51,8 @@ func New(config Config) (*Client, error) {
 		Timeouts:         config.Timeouts,
 		Models:           config.Models,
 		CapabilityPolicy: config.CapabilityPolicy,
+		// Ollama does not implement Anthropic's task budget beta.
+		Unsupported: []llm.Feature{llm.FeatureTaskBudget},
 	})
 	if err != nil {
 		return nil, err

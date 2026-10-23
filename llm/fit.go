@@ -211,9 +211,11 @@ func (c Capabilities) Fit(
 
 // fitTaskBudget omits a task budget the destination rejects, since the model
 // then works without one as it would by default, and raises a Total below
-// MinTaskBudget to that minimum. Remaining is already within the old Total,
-// so it stays within the new one. The caller's budget is never changed in
-// place.
+// MinTaskBudget to that minimum. A set Remaining rises by the same amount,
+// so the model counts down from the raised Total as if it had been asked
+// for: a caller that derives Remaining from its own Total then sends the
+// same budgets as one that asked for the minimum. The caller's budget is
+// never changed in place.
 func (c Capabilities) fitTaskBudget(f *fitter, budget **TaskBudget) error {
 	b := *budget
 	if b == nil {
@@ -239,6 +241,9 @@ func (c Capabilities) fitTaskBudget(f *fitter, budget **TaskBudget) error {
 	}
 	fitted := *b
 	fitted.Total = low
+	if b.Remaining != nil {
+		fitted.Remaining = new(min(*b.Remaining+low-b.Total, low))
+	}
 	err := f.clamp(
 		SettingTaskBudget,
 		*b,

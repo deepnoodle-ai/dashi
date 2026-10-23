@@ -13,9 +13,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `output_config.task_budget` with its beta header. Every ordinary call of the
   Turn sends the same budget; summary calls send none, and after active
   compaction the runner sends `Remaining`, computed from the recorded Turn so a
-  recovered Turn sends the same value. Models and APIs without task budgets
-  omit the setting with a warning, and a total below Anthropic's 20,000-token
+  recovered Turn sends the same value. Models and APIs without task budgets,
+  Ollama included, omit the setting with a warning, and a total below Anthropic's 20,000-token
   minimum is raised with a warning; both are errors under `CapabilityStrict`.
+  `messages.Config.Unsupported` lets a Messages-compatible destination declare
+  features it rejects, and `WarningTaskBudgetAdjusted` records a budget the
+  runner adjusted instead of failing the Turn.
 
 ### Fixed
 
