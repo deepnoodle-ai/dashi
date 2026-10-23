@@ -302,6 +302,7 @@ var apiLimits = llm.Capabilities{
 	Features: map[llm.Feature]llm.Support{
 		llm.FeatureReasoningSummary: llm.SupportUnsupported,
 		llm.FeatureCitations:        llm.SupportUnsupported,
+		llm.FeatureTaskBudget:       llm.SupportUnsupported,
 		llm.FeatureMaxTokens:        llm.SupportSupported,
 		llm.FeatureReasoningBudget:  llm.SupportUnsupported,
 		// Custom endpoints also need model evidence; see Prepare.

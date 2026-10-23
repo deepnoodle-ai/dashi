@@ -302,5 +302,12 @@ func cloneSettings(s llm.Settings) llm.Settings {
 	if s.ParallelTools != nil {
 		s.ParallelTools = new(*s.ParallelTools)
 	}
+	if s.TaskBudget != nil {
+		b := *s.TaskBudget
+		if b.Remaining != nil {
+			b.Remaining = new(*b.Remaining)
+		}
+		s.TaskBudget = &b
+	}
 	return s
 }

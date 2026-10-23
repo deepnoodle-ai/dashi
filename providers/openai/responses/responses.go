@@ -413,6 +413,7 @@ func wireCacheKey(key string) string {
 var apiLimits = llm.Capabilities{
 	Features: map[llm.Feature]llm.Support{
 		llm.FeatureCitations:        llm.SupportUnsupported,
+		llm.FeatureTaskBudget:       llm.SupportUnsupported,
 		llm.FeatureMaxTokens:        llm.SupportSupported,
 		llm.FeatureReasoningBudget:  llm.SupportUnsupported,
 		llm.FeatureStructuredOutput: llm.SupportSupported,

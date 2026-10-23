@@ -107,6 +107,14 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		input.Settings.MaxTokens = r.summaryMaxTokens(input.Settings.MaxTokens)
 		input.Settings.ToolChoice = nil
 		input.Settings.ParallelTools = nil
+		// A summary is not work toward the Turn's answer, so it gets no
+		// task budget.
+		input.Settings.TaskBudget = nil
+	} else {
+		input.Settings.TaskBudget, err = turnTaskBudget(r.turn, input.Settings.TaskBudget)
+		if err != nil {
+			return r.stop(StopFailed, err.Error()), false
+		}
 	}
 	if key := r.runner.CacheKey; key != "" &&
 		input.Settings.PromptCache.Key == "" {
@@ -154,6 +162,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		input.Settings.MaxTokens = r.summaryMaxTokens(input.Settings.MaxTokens)
 		input.Settings.ToolChoice = nil
 		input.Settings.ParallelTools = nil
+		input.Settings.TaskBudget = nil
 		input.Tools = nil
 		defs = nil
 	}

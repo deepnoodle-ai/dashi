@@ -574,3 +574,40 @@ func TestIntersectKeepsTighterContextWindow(t *testing.T) {
 		})
 	}
 }
+
+// Fit raises a task budget below a known minimum and omits one the
+// destination rejects, without changing the caller's value; strict refuses
+// both.
+func TestFitTaskBudget(t *testing.T) {
+	remaining := 5_000
+	requested := &TaskBudget{Total: 10_000, Remaining: &remaining}
+	in := Input{Model: "m", Settings: Settings{MaxTokens: 1, TaskBudget: requested}}
+	limits := Capabilities{MinTaskBudget: 20_000}
+	out, adjustments, err := limits.Fit(in, CapabilityAdjust, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := out.Settings.TaskBudget
+	if got.Total != 20_000 || *got.Remaining != 5_000 || requested.Total != 10_000 ||
+		len(adjustments) != 1 || adjustments[0].Action != AdjustmentClamp ||
+		adjustments[0].Field != SettingTaskBudget {
+		t.Fatalf("budget = %+v, adjustments = %+v", got, adjustments)
+	}
+	if _, _, err := limits.Fit(in, CapabilityStrict, nil); err == nil {
+		t.Fatal("strict accepted a total below the minimum")
+	}
+
+	rejected := Capabilities{Features: map[Feature]Support{FeatureTaskBudget: SupportUnsupported}}
+	out, adjustments, err = rejected.Fit(in, CapabilityAdjust, nil)
+	if err != nil || out.Settings.TaskBudget != nil || len(adjustments) != 1 ||
+		adjustments[0].Action != AdjustmentOmit {
+		t.Fatalf("err = %v, budget = %+v, adjustments = %+v", err, out.Settings.TaskBudget, adjustments)
+	}
+	if _, _, err := rejected.Fit(in, CapabilityStrict, nil); err == nil ||
+		!strings.Contains(err.Error(), "remove TaskBudget") {
+		t.Fatalf("strict err = %v", err)
+	}
+	if got := limits.Intersect(Capabilities{MinTaskBudget: 30_000}).MinTaskBudget; got != 30_000 {
+		t.Fatalf("intersected minimum = %d", got)
+	}
+}

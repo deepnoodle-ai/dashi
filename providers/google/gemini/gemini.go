@@ -447,6 +447,7 @@ func (p *Client) Prepare(
 var apiLimits = llm.Capabilities{
 	Features: map[llm.Feature]llm.Support{
 		llm.FeatureCitations:       llm.SupportUnsupported,
+		llm.FeatureTaskBudget:      llm.SupportUnsupported,
 		llm.FeatureMaxTokens:       llm.SupportSupported,
 		llm.FeatureParallelTools:   llm.SupportUnsupported,
 		llm.FeatureReasoningEffort: llm.SupportUnsupported,

@@ -74,6 +74,8 @@ const (
 		"pdf-support"
 	anthropicCitations = "https://platform.claude.com/docs/en/" +
 		"build-with-claude/citations"
+	anthropicTaskBudgets = "https://platform.claude.com/docs/en/" +
+		"build-with-claude/task-budgets"
 )
 
 var (
@@ -151,6 +153,32 @@ var claimSources = []claimSource{
 		models:  claudeAll,
 		feature: llm.FeatureCitations,
 		support: llm.SupportSupported,
+	},
+	{
+		// The supported-models list. The 4.5 and 4.6 generations answer
+		// "does not support user-configurable task budgets"; Sonnet 5 is
+		// documented as unsupported although it answers 200.
+		url: anthropicTaskBudgets,
+		models: []string{
+			"claude-fable-5-1",
+			"claude-mythos-5-1",
+			"claude-fable-5",
+			"claude-mythos-5",
+			"claude-opus-5-5",
+			"claude-opus-5",
+			"claude-sonnet-5-5",
+			"claude-haiku-5-5",
+			"claude-opus-4-8",
+			"claude-opus-4-7",
+		},
+		feature: llm.FeatureTaskBudget,
+		support: llm.SupportSupported,
+	},
+	{
+		url:     anthropicTaskBudgets,
+		models:  append([]string{"claude-sonnet-5"}, claudeBudget...),
+		feature: llm.FeatureTaskBudget,
+		support: llm.SupportUnsupported,
 	},
 	{
 		// The max and xhigh rows name these models.

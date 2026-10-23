@@ -203,7 +203,63 @@ func (c Capabilities) Fit(
 		}
 		s.Citations = false
 	}
+	if err := c.fitTaskBudget(&f, &s.TaskBudget); err != nil {
+		return Input{}, nil, err
+	}
 	return r, f.adjustments, nil
+}
+
+// fitTaskBudget omits a task budget the destination rejects, since the model
+// then works without one as it would by default, and raises a Total below
+// MinTaskBudget to that minimum. Remaining is already within the old Total,
+// so it stays within the new one. The caller's budget is never changed in
+// place.
+func (c Capabilities) fitTaskBudget(f *fitter, budget **TaskBudget) error {
+	b := *budget
+	if b == nil {
+		return nil
+	}
+	if c.Features[FeatureTaskBudget] == SupportUnsupported {
+		err := f.omit(
+			SettingTaskBudget,
+			*b,
+			"task budgets are not supported here; "+
+				"the model works without one",
+			unsupportedError(f.model, FeatureTaskBudget),
+		)
+		if err != nil {
+			return err
+		}
+		*budget = nil
+		return nil
+	}
+	low := c.MinTaskBudget
+	if low == 0 || b.Total >= low {
+		return nil
+	}
+	fitted := *b
+	fitted.Total = low
+	err := f.clamp(
+		SettingTaskBudget,
+		*b,
+		fitted,
+		fmt.Sprintf(
+			"task budget total %d is below the minimum %d; sent %d",
+			b.Total,
+			low,
+			low,
+		),
+		fmt.Errorf(
+			"llm: task budget total %d is below the minimum %d; raise Total",
+			b.Total,
+			low,
+		),
+	)
+	if err != nil {
+		return err
+	}
+	*budget = &fitted
+	return nil
 }
 
 // endsWithAssistant reports whether the last user or assistant message is
@@ -263,7 +319,8 @@ func (c Capabilities) Intersect(o Capabilities) Capabilities {
 			c.MaxTemperature,
 			o.MaxTemperature,
 		),
-		Features: make(map[Feature]Support),
+		MinTaskBudget: max(c.MinTaskBudget, o.MinTaskBudget),
+		Features:      make(map[Feature]Support),
 		// A key default is model evidence; API limits never state it.
 		CacheKeyDefault: c.CacheKeyDefault || o.CacheKeyDefault,
 	}
@@ -565,6 +622,8 @@ func unsupportedError(model string, f Feature) error {
 			"or use a model with reasoning budgets"
 	case FeaturePromptCache:
 		fix = "remove PromptCache.TTL; the provider's own caching still applies"
+	case FeatureTaskBudget:
+		fix = "remove TaskBudget or use a model with task budgets"
 	case FeatureAssistantPrefill:
 		fix = "end the history with a user message, and ask for the " +
 			"response's format in the instructions instead"

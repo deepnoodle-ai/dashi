@@ -121,6 +121,11 @@ func (s Settings) clone() Settings {
 	s.ReasoningSummary = clonePointer(s.ReasoningSummary)
 	s.ToolChoice = clonePointer(s.ToolChoice)
 	s.ParallelTools = clonePointer(s.ParallelTools)
+	if s.TaskBudget != nil {
+		b := *s.TaskBudget
+		b.Remaining = clonePointer(b.Remaining)
+		s.TaskBudget = &b
+	}
 	return s
 }
 

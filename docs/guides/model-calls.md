@@ -201,6 +201,39 @@ when the request carries a document. See the [documents
 example](../../examples/documents/main.go) and
 [document citations](../../design/document-citations.md).
 
+## Task budgets
+
+`MaxTokens` caps each response, but the model cannot see it, so a long
+reasoning pass can use the whole cap and leave no answer. Set
+`Settings.TaskBudget` to give the model a budget it can see for a whole Turn:
+it counts down as the model reasons, calls tools, reads tool results, and
+writes, and the model paces itself to finish within it.
+
+```go
+agent.Settings.Reasoning = &llm.ReasoningSettings{Effort: "medium"}
+agent.Settings.TaskBudget = &llm.TaskBudget{Total: 40_000}
+```
+
+- **One budget per Turn.** Every ordinary model call of the Turn sends the
+  same `Total`, and Anthropic counts the spend from the history. Summary calls
+  send none. After active compaction replaces messages of the Turn, the runner
+  also sends `Remaining`: your `Remaining` (or `Total`) less the replaced
+  messages' tokens, computed from the recorded Turn.
+- **Tool results and earlier turns count.** A Turn that reads 36,000 tokens of
+  tool output under a 40,000-token budget has little left for its answer, and
+  earlier turns' history in the context counts too. Size the budget from
+  measured turns: `RunResult.Spend` reports what similar turns used.
+- **Advisory.** The model can overrun it; `MaxTokens` stays the hard limit on
+  each response. It is not `dashi.Budget`, which the runner enforces as a cap
+  on a Turn's tokens and cost (see [Turn budgets](budgets.md)); set both when
+  you want the model to pace itself and a cap behind it.
+- **Models.** Claude Opus 4.7 and later, Sonnet 5.5, Haiku 5.5, Fable 5 and
+  5.1, and Mythos 5 and 5.1, as the catalog records. Other models and APIs
+  omit the setting with a warning, and a `Total` below Anthropic's minimum of
+  20,000 is raised to it with a warning; both are errors under
+  `CapabilityStrict`. The beta header is sent for you. See
+  [task budgets](../../design/task-budget.md).
+
 ## Send, Stream, and Generate
 
 `Send` takes an `llm.Call`: the prepared `Request`, an optional `Sink`, and an

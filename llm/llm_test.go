@@ -133,6 +133,27 @@ func TestInputValidateRejectsInvalid(t *testing.T) {
 			},
 		},
 		{
+			name: "task budget without a total",
+			request: Input{
+				Model:    "m",
+				Settings: Settings{TaskBudget: &TaskBudget{}},
+			},
+		},
+		{
+			name: "task budget remaining below zero",
+			request: Input{
+				Model:    "m",
+				Settings: Settings{TaskBudget: &TaskBudget{Total: 20_000, Remaining: new(-1)}},
+			},
+		},
+		{
+			name: "task budget remaining above the total",
+			request: Input{
+				Model:    "m",
+				Settings: Settings{TaskBudget: &TaskBudget{Total: 20_000, Remaining: new(20_001)}},
+			},
+		},
+		{
 			name: "reasoning effort and budget",
 			request: Input{
 				Model: "m",

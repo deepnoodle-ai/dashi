@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **Claude task budgets.** `llm.Settings.TaskBudget` gives the model an
+  advisory token budget it can see for a whole Turn, sent as Anthropic's
+  `output_config.task_budget` with its beta header. Every ordinary call of the
+  Turn sends the same budget; summary calls send none, and after active
+  compaction the runner sends `Remaining`, computed from the recorded Turn so a
+  recovered Turn sends the same value. Models and APIs without task budgets
+  omit the setting with a warning, and a total below Anthropic's 20,000-token
+  minimum is raised with a warning; both are errors under `CapabilityStrict`.
+
 ### Fixed
 
 - **Grok voice sessions no longer end when the provider sends a large audio

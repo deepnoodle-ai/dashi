@@ -69,6 +69,12 @@ with the keys and models above; `OPENAI_KEY_CHECK_MODEL` (a GPT-5.6 or later
 model) adds the key check, and `DASHI_LIVE_CACHE_PAUSE=6m` measures a call
 after a pause. It has **not been run** as of 2026-09-29.
 
+## Task budgets
+
+`TestLiveTaskBudget` in `./providers` sends one call to `claude-haiku-5-5`
+with a 20,000-token task budget under the strict policy. Set
+`DASHI_LIVE_TEST=1` and `ANTHROPIC_API_KEY`. It passed on 2026-10-23.
+
 ## Structured output
 
 ### Native direct-call output

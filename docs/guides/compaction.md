@@ -270,8 +270,8 @@ bytes, so a cost cap can still refuse the request.
 Summary calls use the same sender, hooks, billing identities, model-call
 limit, and cumulative budget as ordinary work. `ModelPlan.Purpose`,
 `SendPlan.Purpose`, and `ModelFact.Purpose` identify `ModelPurposeCompaction`.
-Summary calls offer no tools or structured output and never become the Turn's
-reply. They leave one ordinary model call available, which permits a final
+Summary calls offer no tools, structured output, or task budget and never
+become the Turn's reply. They leave one ordinary model call available, which permits a final
 reply but does not guarantee completion after another tool selection.
 
 `TurnMessagesFull` and `Session.History` retain ordinary messages and omit

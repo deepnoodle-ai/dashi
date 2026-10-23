@@ -243,6 +243,20 @@ func (p *Client) Prepare(
 			body["output_config"] = map[string]any{"effort": s.Effort}
 		}
 	}
+	if b := r.Settings.TaskBudget; b != nil {
+		// The task budget sits beside effort in output_config and needs
+		// the task-budgets beta header, which Send adds.
+		config, _ := body["output_config"].(map[string]any)
+		if config == nil {
+			config = map[string]any{}
+		}
+		budget := map[string]any{"type": "tokens", "total": b.Total}
+		if b.Remaining != nil {
+			budget["remaining"] = *b.Remaining
+		}
+		config["task_budget"] = budget
+		body["output_config"] = config
+	}
 	if summary := r.Settings.ReasoningSummary; summary != nil && r.Settings.Reasoning != nil {
 		info, _ := p.client.ModelInfo(r.Model)
 		if *summary {
@@ -467,6 +481,32 @@ func (p *Client) cachePoint(
 	return point, adjustments
 }
 
+// Beta features this client sends in the Anthropic-Beta header.
+const (
+	betaMCPClient   = "mcp-client-2025-11-20"
+	betaTaskBudgets = "task-budgets-2026-03-13"
+)
+
+// requestBetas lists the beta features a prepared request uses, in a fixed
+// order, for one comma-separated Anthropic-Beta header.
+func requestBetas(prepared llm.Request) []string {
+	var betas []string
+	for _, definition := range prepared.Input().Tools {
+		if definition.ProviderTool != nil &&
+			definition.ProviderTool.Type == MCPToolsetType {
+			betas = append(betas, betaMCPClient)
+			break
+		}
+	}
+	if prepared.Effective().TaskBudget != nil {
+		betas = append(betas, betaTaskBudgets)
+	}
+	return betas
+}
+
+// minTaskBudget is the smallest task budget total the Messages API accepts.
+const minTaskBudget = 20_000
+
 // efforts are the output_config.effort values the Messages API accepts from
 // some model. Fit narrows them to a known model's catalog reasoning_efforts.
 var efforts = []string{"low", "medium", "high", "xhigh", "max"}
@@ -490,6 +530,7 @@ func (p *Client) limits(r llm.Input) llm.Capabilities {
 		// The thinking budget must stay below max_tokens.
 		MaxReasoningBudget: max(maxTokens-1, 1),
 		MaxTemperature:     1,
+		MinTaskBudget:      minTaskBudget,
 		CacheTTLs:          cacheTTLs,
 		Features: map[llm.Feature]llm.Support{
 			llm.FeatureMaxTokens: llm.SupportSupported,
@@ -530,13 +571,9 @@ func (p *Client) Send(
 		Message: llm.Message{Role: llm.RoleAssistant},
 	}
 	client := p.client
-	for _, definition := range prepared.Input().Tools {
-		if definition.ProviderTool != nil &&
-			definition.ProviderTool.Type == MCPToolsetType {
-			client.Headers = client.Headers.Clone()
-			client.Headers.Set("Anthropic-Beta", "mcp-client-2025-11-20")
-			break
-		}
+	if betas := requestBetas(prepared); len(betas) > 0 {
+		client.Headers = client.Headers.Clone()
+		client.Headers.Set("Anthropic-Beta", strings.Join(betas, ","))
 	}
 	resp, err := client.Post(ctx, prepared)
 	if err != nil {

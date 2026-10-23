@@ -6,6 +6,11 @@ budget; it still owns the existing model-call, resume, and deadline limits.
 separately and need an application-owned ceiling for an all-in price promise.
 A zero token cap or nil cost cap means that dimension is uncapped.
 
+A budget is enforced by the runner and invisible to the model. To let the model
+see a token budget and pace itself, set `llm.Settings.TaskBudget` (see [task
+budgets](model-calls.md#task-budgets)); it is advisory and independent of
+this budget.
+
 ```go
 start := dashi.Start{
 	CommandID: "start-123",
