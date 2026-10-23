@@ -73,13 +73,12 @@ agent's `Total` raised to the provider minimum, it counts from the raised
 `Total` and sends it, so a 10,000 budget still sends what a 20,000 one does
 once the replaced tokens exceed 10,000. It derives this from the record
 alone: the messages each compaction's plan covered
-(`ContextCompactionPlan.Covered`). The runner keeps
-each compaction's count, so later calls do not count it again. A replaced
-model reply counts
-the output tokens its `model_call_finished` step recorded, which include
-reasoning the message may not carry; any other replaced message (tool results,
-added context) uses `llm.EstimatedMessageTokens`, the estimator budget checks
-already use. A summary a later compaction replaces counts nothing, since the
+(`ContextCompactionPlan.Covered`). The runner keeps each compaction's count,
+so later calls do not count it again. A replaced model reply counts the output
+tokens its `model_call_finished` step recorded, which include reasoning the
+message may not carry; any other replaced message (tool results, added
+context) uses `llm.EstimatedMessageTokens`, the estimator budget checks already
+use. A summary a later compaction replaces counts nothing, since the
 messages it stood for were counted already. Because only recorded facts are
 read, a recovered or replayed Turn computes the same value; the budget sent is
 also recorded in `ModelFact.Effective`.
@@ -108,4 +107,5 @@ clamp with its `Remaining`, Ollama's omission, a hook lowering `Total`, the
 fallback when `Remaining` cannot be derived, unknown models, validation, a
 10,000 budget that sends what a 20,000 one does across compactions, and a Turn
 with two active compactions whose recorded budgets match a replay of each
-prefix and of a recovered Turn. One live call to Haiku 5.5 with a 20,000-token budget passed on 2026-10-23.
+prefix and of a recovered Turn. One live call to Haiku 5.5 with a
+20,000-token budget passed on 2026-10-23.
