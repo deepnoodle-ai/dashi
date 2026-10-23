@@ -1,6 +1,7 @@
 package dashi
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -32,6 +33,12 @@ func callTaskBudget(t Turn, budget *llm.TaskBudget, memo map[int64]int) (*llm.Ta
 // when that is unset, less the tokens of the Turn's messages that are no
 // longer sent, floored at 0.
 //
+// A Total the provider raised to its minimum on an earlier call of t counts
+// from the raised Total, as the provider's raise does: the result has the
+// raised Total and a Remaining raised by the same amount before the
+// replaced tokens are taken off, so a budget below the minimum sends what
+// the minimum would.
+//
 // It reads only the recorded Turn, so a recovered or replayed Turn computes
 // the same value. memo, when not nil, keeps each compaction's count by the
 // seq of its context_compacted step, so a run counts each compaction once.
@@ -48,8 +55,40 @@ func turnTaskBudget(t Turn, budget *llm.TaskBudget, memo map[int64]int) (*llm.Ta
 	if out.Remaining != nil {
 		remaining = *out.Remaining
 	}
+	if total := raisedTaskBudgetTotal(t, out.Total); total > out.Total {
+		remaining += total - out.Total
+		out.Total = total
+	}
 	out.Remaining = new(max(remaining-replaced, 0))
 	return out, nil
+}
+
+// raisedTaskBudgetTotal returns the Total the provider sent in place of
+// total on the last ordinary model call of t that raised it, as recorded in
+// the call's task budget clamp, or 0 when no call raised it. A raise of a
+// different Total, such as one a BeforeModel hook set, is not counted.
+func raisedTaskBudgetTotal(t Turn, total int) int {
+	raised := 0
+	for _, step := range t.Steps {
+		if step.Kind != StepModelCallStarted || step.Model == nil ||
+			step.Model.Purpose != "" {
+			continue
+		}
+		for _, a := range step.Model.Adjustments {
+			if a.Field != llm.SettingTaskBudget || a.Action != llm.AdjustmentClamp {
+				continue
+			}
+			var requested, effective llm.TaskBudget
+			if json.Unmarshal(a.Requested, &requested) != nil ||
+				json.Unmarshal(a.Effective, &effective) != nil {
+				continue
+			}
+			if requested.Total == total && effective.Total > total {
+				raised = effective.Total
+			}
+		}
+	}
+	return raised
 }
 
 // replacedTurnTokens counts the tokens of t's messages that active compaction

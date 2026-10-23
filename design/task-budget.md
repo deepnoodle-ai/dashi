@@ -50,8 +50,7 @@ The 20,000-token minimum is a new limit, `Capabilities.MinTaskBudget`, which
 the Messages client states for the whole API, like `MinReasoningBudget`. Under
 adjust, `Fit` raises a smaller `Total` to it with a `setting_clamped` warning,
 and raises a set `Remaining` by the same amount, so a 10,000 budget counts
-down exactly as a 20,000 one would, also after the Turn engine derives
-`Remaining` from the smaller total; strict fails.
+down exactly as a 20,000 one would; strict fails.
 
 ### Wire format
 
@@ -69,8 +68,12 @@ they drop `ToolChoice`. Hooks may change it like any setting.
 Active compaction removes messages, and their spend, from the request. After a
 `context_compacted` step, the runner sends `Remaining` = the agent's
 `Remaining` (or `Total`) − the tokens of the Turn's messages that are no longer
-sent, floored at 0. It derives this from the record alone: the messages each
-compaction's plan covered (`ContextCompactionPlan.Covered`). The runner keeps
+sent, floored at 0. When an earlier call's recorded adjustments show the
+agent's `Total` raised to the provider minimum, it counts from the raised
+`Total` and sends it, so a 10,000 budget still sends what a 20,000 one does
+once the replaced tokens exceed 10,000. It derives this from the record
+alone: the messages each compaction's plan covered
+(`ContextCompactionPlan.Covered`). The runner keeps
 each compaction's count, so later calls do not count it again. A replaced
 model reply counts
 the output tokens its `model_call_finished` step recorded, which include

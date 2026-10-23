@@ -35,7 +35,7 @@ func checkTaskBudgets(t *testing.T, turn Turn, budget llm.TaskBudget) int {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got == nil || got.Total != budget.Total ||
+		if got == nil || got.Total != want.Total ||
 			(got.Remaining == nil) != (want.Remaining == nil) ||
 			got.Remaining != nil && *got.Remaining != *want.Remaining {
 			t.Fatalf("step %d: task budget %+v, replay gives %+v", i, got, want)
@@ -222,11 +222,17 @@ func (c minTaskBudgetClient) Prepare(ctx context.Context, in llm.Input) (llm.Req
 }
 
 // A budget below the provider minimum behaves as the minimum would across
-// compactions: the raised countdown never drops by the difference.
+// compactions: the raised countdown never drops by the difference, also when
+// the replaced tokens exceed the smaller Total. Each recorded budget is what
+// a replay of the Turn gives.
 func TestTaskBudgetBelowMinimumAcrossCompaction(t *testing.T) {
-	sentBudgets := func(total int) []llm.TaskBudget {
+	sentBudgets := func(t *testing.T, total, replyTokens int) []llm.TaskBudget {
 		c, a := activeFixture()
-		a.Settings.TaskBudget = &llm.TaskBudget{Total: total}
+		for i := range c.results {
+			c.results[i].Usage.OutputTokens = replyTokens
+		}
+		budget := llm.TaskBudget{Total: total}
+		a.Settings.TaskBudget = &budget
 		calls := 0
 		r := Runner{Client: minTaskBudgetClient{c}, Tools: activeTools(&calls)}
 		out, err := r.Run(t.Context(), Turn{ID: "budget"}, activeStart(a))
@@ -234,25 +240,50 @@ func TestTaskBudgetBelowMinimumAcrossCompaction(t *testing.T) {
 			t.Fatalf("err=%v stop=%+v compactions=%d", err, out.Stop, len(out.ContextCompactions))
 		}
 		var budgets []llm.TaskBudget
-		for _, step := range out.Turn.Steps {
-			if step.Kind == StepModelCallStarted && step.Model.Purpose == "" {
-				budgets = append(budgets, *step.Model.Effective.TaskBudget)
+		for i, step := range out.Turn.Steps {
+			if step.Kind != StepModelCallStarted || step.Model.Purpose != "" {
+				continue
+			}
+			got := *step.Model.Effective.TaskBudget
+			budgets = append(budgets, got)
+			if got.Remaining == nil {
+				continue
+			}
+			want, err := turnTaskBudget(Turn{ID: out.Turn.ID, Steps: out.Turn.Steps[:i]}, &budget, nil)
+			if err != nil || want.Total != got.Total || *want.Remaining != *got.Remaining {
+				t.Fatalf("step %d: sent %+v, replay gives %+v, err = %v", i, got, want, err)
 			}
 		}
 		return budgets
 	}
-	low, minimum := sentBudgets(10_000), sentBudgets(20_000)
-	if len(low) != 5 || len(low) != len(minimum) {
-		t.Fatalf("calls = %d and %d", len(low), len(minimum))
-	}
-	for i := range low {
-		if low[i].Total != 20_000 || (low[i].Remaining == nil) != (minimum[i].Remaining == nil) ||
-			low[i].Remaining != nil && *low[i].Remaining != *minimum[i].Remaining {
-			t.Fatalf("call %d: sent %+v for 10,000, %+v for 20,000", i, low[i], minimum[i])
-		}
-	}
-	if low[4].Remaining == nil || *low[4].Remaining >= 20_000 {
-		t.Fatalf("last call remaining = %v", low[4].Remaining)
+	for _, tc := range []struct {
+		name        string
+		replyTokens int
+	}{
+		{"replaced below the smaller total", 2},
+		// Four replaced replies of 1,500 output tokens and about 9,000
+		// tokens of tool results exceed 10,000.
+		{"replaced above the smaller total", 1_500},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			low, minimum := sentBudgets(t, 10_000, tc.replyTokens), sentBudgets(t, 20_000, tc.replyTokens)
+			if len(low) != 5 || len(low) != len(minimum) {
+				t.Fatalf("calls = %d and %d", len(low), len(minimum))
+			}
+			for i := range low {
+				if low[i].Total != 20_000 || (low[i].Remaining == nil) != (minimum[i].Remaining == nil) ||
+					low[i].Remaining != nil && *low[i].Remaining != *minimum[i].Remaining {
+					t.Fatalf("call %d: sent %+v for 10,000, %+v for 20,000", i, low[i], minimum[i])
+				}
+			}
+			last := low[4].Remaining
+			if last == nil || *last >= 20_000 || *last == 0 {
+				t.Fatalf("last call remaining = %v", last)
+			}
+			if tc.replyTokens > 2 && *last >= 10_000 {
+				t.Fatalf("last call remaining = %d, want replaced tokens above 10,000", *last)
+			}
+		})
 	}
 }
 
