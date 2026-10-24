@@ -1,5 +1,5 @@
-github.com/deepnoodle-ai/dashi v0.13.0 h1:z6xQACTrD+qQIK3uVSky1qtFGcbY79/YxY/TnnCaDE0=
-github.com/deepnoodle-ai/dashi v0.13.0/go.mod h1:m4dJFy0yD+Z5uH+oRtm0PAyZdnBkK2vM4Eid19z9J2g=
+github.com/deepnoodle-ai/dashi v0.14.0 h1:B3pMqosQtELMlVSIb+dVLuj8PXnJevY560qvAr5jb7g=
+github.com/deepnoodle-ai/dashi v0.14.0/go.mod h1:m4dJFy0yD+Z5uH+oRtm0PAyZdnBkK2vM4Eid19z9J2g=
 github.com/deepnoodle-ai/wonton v0.9.0 h1:Lz6RMJafSsBYlZTI40n38d3okEVEUz1227jKosHbipw=
 github.com/deepnoodle-ai/wonton v0.9.0/go.mod h1:G3fVZXXX/Oo01ATag//PH/6khtBNlDmxznXjORuG9gE=
 github.com/dlclark/regexp2 v1.11.0 h1:G/nrcoOa7ZXlpoa/91N3X7mM3r8eIlMBBJZvsz/mxKI=
