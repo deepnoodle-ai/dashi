@@ -88,6 +88,18 @@ func (p *Client) Prepare(
 	ctx context.Context,
 	input llm.Input,
 ) (llm.Request, error) {
+	// Cancellation and invalid input take precedence, as in every Prepare.
+	if err := ctx.Err(); err != nil {
+		return llm.Request{}, err
+	}
+	if err := input.Validate(); err != nil {
+		return llm.Request{}, providerhttp.Failure(
+			p.Provider(),
+			llm.ErrorInvalidRequest,
+			"%w",
+			err,
+		)
+	}
 	for _, message := range input.Messages {
 		for _, part := range message.Content {
 			if part.Block != nil && part.Block.Kind == content.KindDocument {
@@ -106,7 +118,7 @@ func (p *Client) Prepare(
 // New found no API key for the public endpoint.
 func (c *Client) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
 	if c.noKey != nil {
-		return llm.Result{}, c.noKey
+		return providerhttp.NotSentResult(call.Request), c.noKey
 	}
 	return c.Client.Send(ctx, call)
 }

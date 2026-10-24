@@ -118,9 +118,11 @@ func (wire codec) decode(
 		)
 	}
 	result.ID = response.ResponseID
-	result.Served = llm.ModelRef{
-		Provider: wire.origin.Provider,
-		Model:    response.ModelVersion,
+	if response.ModelVersion != "" {
+		result.Served = llm.ModelRef{
+			Provider: wire.origin.Provider,
+			Model:    response.ModelVersion,
+		}
 	}
 	if response.UsageMetadata != nil {
 		usage, err := response.UsageMetadata.normalize()
@@ -165,6 +167,18 @@ func (wire codec) decode(
 		hash := sha256.Sum256(raw)
 		seed = fmt.Sprintf("%x", hash[:12])
 	}
+	// Provenance describes received output, so a message with no parts has
+	// none, and a part that fails to decode keeps it for the parts before it.
+	source := func() {
+		if len(result.Message.Content) > 0 {
+			result.Message.Source = &llm.MessageSource{
+				Requested:  requested,
+				Served:     result.Served,
+				API:        wire.origin.API,
+				ResponseID: result.ID,
+			}
+		}
+	}
 	var codeID string
 	for index, rawPart := range candidate.Content.Parts {
 		part, err := wire.decodePartWithCodeID(
@@ -174,6 +188,7 @@ func (wire codec) decode(
 			codeID,
 		)
 		if err != nil {
+			source()
 			return result, err
 		}
 		result.Message.Content = append(result.Message.Content, part)
@@ -183,12 +198,7 @@ func (wire codec) decode(
 		}
 	}
 	recordMeters(result.Usage, meters)
-	result.Message.Source = &llm.MessageSource{
-		Requested:  requested,
-		Served:     result.Served,
-		API:        wire.origin.API,
-		ResponseID: result.ID,
-	}
+	source()
 	return result, nil
 }
 
@@ -300,7 +310,7 @@ func (wire codec) decodePartWithCodeID(
 				"function call requires name",
 			)
 		}
-		args, err := json.Marshal(part.FunctionCall.Args)
+		args, err := callArgs(part.FunctionCall.Args)
 		if err != nil {
 			return llm.Content{}, err
 		}
@@ -317,6 +327,15 @@ func (wire codec) decodePartWithCodeID(
 	default:
 		return llm.Content{Kind: llm.ContentOpaque, Opaque: replay}, nil
 	}
+}
+
+// callArgs encodes function call arguments as a JSON object. Gemini omits
+// args, or sends null, for a call with no arguments; that is an empty object.
+func callArgs(args map[string]any) (json.RawMessage, error) {
+	if args == nil {
+		return json.RawMessage(`{}`), nil
+	}
+	return json.Marshal(args)
 }
 
 func callID(responseID, name string, index int) string {

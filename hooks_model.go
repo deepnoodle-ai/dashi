@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/internal/llmclone"
@@ -50,6 +51,12 @@ func (r *runtime) beforeModel(
 			if d.Settings != nil {
 				candidate.Settings = *d.Settings
 				warnings = keepTaskBudgetRemaining(input.Settings.TaskBudget, &candidate.Settings, h.Name)
+				if purpose == ModelPurposeCompaction || finalReplyOnly {
+					// The call offers no application tools and clears the
+					// tool choice anyway, so a hook's choice cannot fail it.
+					candidate.Settings.ToolChoice = nil
+					candidate.Settings.ParallelTools = nil
+				}
 			}
 			if !finalReplyOnly {
 				candidateHidden = hideTools(
@@ -62,6 +69,11 @@ func (r *runtime) beforeModel(
 				warnings = append(warnings, keepToolChoiceOffered(&candidate, h.Name, candidateHidden)...)
 			}
 			err = validModelDecision(d, candidate)
+			if err == nil && d.Settings != nil && purpose == "" && len(s.OutputSchema) > 0 {
+				// A choice that takes away the submission tool would fail
+				// the turn; it skips the hook instead.
+				err = validateOutputToolChoice(candidate.Settings)
+			}
 		}
 		if err != nil {
 			if r.ctx.Err() != nil {
@@ -107,8 +119,12 @@ func (r *runtime) beforeModel(
 		input.Settings = candidate.Settings
 		input.Tools = candidate.Tools
 		hidden = candidateHidden
-		for _, item := range d.AddMessages {
-			deliver = append(deliver, cloneContextItem(item))
+		for i, item := range d.AddMessages {
+			item = cloneContextItem(item)
+			if item.ID == "" {
+				item.ID = hookItemID(r.turn.ID, s, purpose, h.Name, i)
+			}
+			deliver = append(deliver, item)
 		}
 		r.addHookResult(HookResult{
 			Point:        HookBeforeModel,
@@ -122,6 +138,27 @@ func (r *runtime) beforeModel(
 		r.pendingWarnings = append(r.pendingWarnings, w)
 	}
 	return deliver, hidden, nil, nil
+}
+
+// hookItemID names the i-th item without an ID that hook h adds for the
+// next model call. The items are recorded before the call is sent, and the
+// hooks run again when a pass is sent back for an urgent steer, replaced by
+// an active compaction summary, or stopped and continued. The ID stays the
+// same across those passes, so the turn's repeated-ID check skips the item
+// the second time. It counts only ordinary calls, so a summary call between
+// two passes does not change it.
+func hookItemID(turnID string, s *replayState, purpose ModelPurpose, h string, i int) string {
+	n := 0
+	for _, id := range s.modelOrder {
+		if s.startedModelCalls[id].Purpose == "" {
+			n++
+		}
+	}
+	call := strconv.Itoa(n + 1)
+	if purpose != "" {
+		call += ":" + string(purpose)
+	}
+	return turnID + ":model:" + call + ":hook:" + h + ":" + strconv.Itoa(i+1)
 }
 
 // hideTools removes names from in.Tools and returns the hidden names so

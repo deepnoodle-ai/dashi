@@ -115,6 +115,13 @@ func applyEdit(name, text string, in editArgs) (string, int, error) {
 		return "", 0, errors.New("old_string and new_string are the same. Nothing would change.")
 	}
 	count := strings.Count(text, in.OldString)
+	if count == 0 && strings.Contains(in.OldString, "\n") && strings.Contains(text, "\r\n") {
+		// read_file shows lines without their \r, so the model writes \n.
+		// Match and write the file's CRLF line ends instead.
+		crlf := strings.NewReplacer("\r\n", "\r\n", "\n", "\r\n")
+		in.OldString, in.NewString = crlf.Replace(in.OldString), crlf.Replace(in.NewString)
+		count = strings.Count(text, in.OldString)
+	}
 	switch {
 	case count == 0:
 		return "", 0, fmt.Errorf("old_string not found in %s. Read the file again and copy the text exactly, with its whitespace.", name)

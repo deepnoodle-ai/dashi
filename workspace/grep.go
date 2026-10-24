@@ -119,6 +119,9 @@ func grep(
 		if globs, err = expandBraces(in.Glob); err != nil {
 			return fail(err.Error())
 		}
+		if err := checkGlobs(in.Glob, globs); err != nil {
+			return fail(err.Error())
+		}
 	}
 	sink := &lineSink{limit: limit}
 	if rg != "" {

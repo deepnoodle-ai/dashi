@@ -393,13 +393,13 @@ func likely(a decide.Answer) (string, float64) {
 	return "", 0
 }
 
-// fits says whether a has the answer type q asks for.
+// fits says whether a is a non-nil answer of the type q asks for.
 func (q question) fits(a decide.Answer) bool {
-	switch a.(type) {
+	switch a := a.(type) {
 	case *decide.NoulAnswer:
-		return q.Type == typeYesNo
+		return a != nil && q.Type == typeYesNo
 	case *decide.ChoiceAnswer:
-		return q.Type == typeChoice
+		return a != nil && q.Type == typeChoice
 	}
 	return false
 }
@@ -482,7 +482,9 @@ func (j *judge) judgeOne(
 	r.cut = len(text) < len(it.text)
 	req := decide.NewRequest(text)
 	req.Questions = questions // shared and never changed; Decide only reads it
-	resp, err := j.client.SystemOne(ctx, req)
+	// Validation stays on even when the host's client turns it off: the
+	// scores below need finite probabilities and a listed choice.
+	resp, err := j.client.SystemOne(ctx, req, decide.WithCallValidation(true))
 	if resp != nil {
 		r.requestID, r.model, r.usage = resp.RequestID, resp.Model, resp.Usage
 	}

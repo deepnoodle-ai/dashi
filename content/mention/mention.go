@@ -166,6 +166,10 @@ type word struct {
 
 	// pathEnd ends the path text; the rest of the word stays as prose.
 	pathEnd int
+
+	// lineRef is a line reference such as ":42" that was inside quotes or
+	// escapes, so it follows the label rather than staying in the input.
+	lineRef string
 }
 
 func (e *expander) expand(input string) Result {
@@ -178,6 +182,7 @@ func (e *expander) expand(input string) Result {
 		}
 		out.WriteString(input[last:w.start])
 		out.WriteString(label)
+		out.WriteString(w.lineRef)
 		last = w.pathEnd
 	}
 	out.WriteString(input[last:])
@@ -202,8 +207,14 @@ func (e *expander) attach(input string, w *word) (string, bool) {
 			if f, i, err2 := e.lookup(w.path[:len(w.path)-len(m)]); err2 == nil {
 				full, info, err = f, i, nil
 				w.path = w.path[:len(w.path)-len(m)]
-				w.pathEnd -= len(m)
-				typed = input[w.start:w.pathEnd]
+				if strings.HasSuffix(typed, m) {
+					w.pathEnd -= len(m)
+					typed = input[w.start:w.pathEnd]
+				} else {
+					// In @"file.go:10" the closing quote follows the
+					// reference, so pathEnd stays after the whole token.
+					w.lineRef = m
+				}
 			}
 		}
 	}

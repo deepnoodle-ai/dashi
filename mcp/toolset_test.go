@@ -177,6 +177,19 @@ func TestApproveSeesRawEntry(t *testing.T) {
 	}
 }
 
+// An entry with a command and a url is a stdio server. A command made of an
+// unset variable fails it; it does not turn it into the http server.
+func TestUnsetCommandDoesNotSwitchToHTTP(t *testing.T) {
+	web, _ := httpServer(t, nil)
+	ts := open(t, map[string]Server{
+		"p": {Command: "${MCP_TEST_UNSET_BIN}", URL: web.URL},
+	}, Options{})
+	st := statusOf(t, ts, "p")
+	if st.State != StateFailed || !strings.Contains(st.Err.Error(), "needs a command") {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
 func TestApprovalErrorDeclinesOnlyThatServer(t *testing.T) {
 	bad, _ := stdioServer(t)
 	bad.Untrusted = true
@@ -555,6 +568,26 @@ func TestFailedStatusIncludesServerStderr(t *testing.T) {
 			Args:    []string{"-c", "echo 'missing API_KEY' >&2; exit 1"},
 		},
 	}, Options{})
+	st := statusOf(t, ts, "sad")
+	if st.State != StateFailed || !strings.Contains(st.Err.Error(), "missing API_KEY") {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+// A Refresh whose context has ended keeps a failed server's own error, so
+// the cancel does not hide why it failed.
+func TestCanceledRefreshKeepsTheFailure(t *testing.T) {
+	ts := open(t, map[string]Server{
+		"sad": {
+			Command: "sh",
+			Args:    []string{"-c", "echo 'missing API_KEY' >&2; exit 1"},
+		},
+	}, Options{})
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := ts.Refresh(ctx); err == nil {
+		t.Fatal("Refresh ignored a cancelled context")
+	}
 	st := statusOf(t, ts, "sad")
 	if st.State != StateFailed || !strings.Contains(st.Err.Error(), "missing API_KEY") {
 		t.Fatalf("status = %+v", st)

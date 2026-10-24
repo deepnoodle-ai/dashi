@@ -201,3 +201,28 @@ func TestNextRequestEstimateUsesReportedInput(t *testing.T) {
 		t.Fatal("fixture changed the recorded estimate")
 	}
 }
+
+// The next call's estimate bounds max_tokens by the output tokens left in
+// the budget, as the runner does before it sends.
+func TestNextRequestEstimateBoundsMaxTokensByOutputBudget(t *testing.T) {
+	first := callResult("lookup-1", "lookup")
+	first.Usage = &llm.Usage{InputTokens: 100, OutputTokens: 900}
+	client := newPricedClient(first, final("done"))
+	out := runBudgetTurn(
+		t, client,
+		&Budget{MaxOutputTokens: 1200, MaxCost: &Money{Amount: amount("1000000"), Currency: "USD"}},
+		llm.Settings{MaxTokens: 1000},
+		tool.List{budgetLookup(nil)}, Hooks{},
+	)
+	s, err := replay(prefixThrough(t, out.Turn, StepToolFinished, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, ok := estimatedNextRequest(s, 0)
+	if !ok {
+		t.Fatal("no estimate")
+	}
+	if got := req.Snapshot().Effective.MaxTokens; got != 300 {
+		t.Fatalf("max_tokens=%d, want the 300 output tokens left", got)
+	}
+}

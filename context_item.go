@@ -52,7 +52,8 @@ type ContextItem struct {
 	// once, and a repeat with the same content is skipped, so a source that
 	// retries adding it cannot add it twice. Name, by contrast, names a
 	// slot that a later snapshot replaces. ID is optional for AddMessages and
-	// hook items and required for steers.
+	// hook items and required for steers. The runner gives a BeforeModel
+	// item without one an ID for its model call.
 	ID string `json:"id,omitempty"`
 	// Name identifies an item that a later snapshot may replace.
 	Name string `json:"name,omitempty"`

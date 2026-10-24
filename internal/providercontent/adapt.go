@@ -394,6 +394,38 @@ func (history *providerToolHistory) check(
 	return nil
 }
 
+// DuplicateToolID reports a tool call, provider tool use, or provider tool
+// approval request whose ID an earlier one of the same kind already used.
+// Adapt rejects such history, so a decoder rejects the response that would
+// create it.
+func DuplicateToolID(parts []llm.Content) error {
+	calls := map[string]bool{}
+	uses := map[string]bool{}
+	approvals := map[string]bool{}
+	check := func(seen map[string]bool, kind, id string) error {
+		if seen[id] {
+			return fmt.Errorf("duplicate %s ID %q", kind, id)
+		}
+		seen[id] = true
+		return nil
+	}
+	for _, c := range parts {
+		var err error
+		switch {
+		case c.ToolCall != nil:
+			err = check(calls, "tool call", c.ToolCall.ID)
+		case c.ProviderToolUse != nil:
+			err = check(uses, "provider tool use", c.ProviderToolUse.ID)
+		case c.ProviderToolApprovalRequest != nil:
+			err = check(approvals, "provider tool approval request", c.ProviderToolApprovalRequest.ID)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func providerToolTail(messages []llm.Message, from int) bool {
 	for _, message := range messages[from+1:] {
 		if message.Role != llm.RoleUser {

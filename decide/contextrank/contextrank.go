@@ -81,7 +81,8 @@ type Candidate struct {
 	// most 4 KiB is read.
 	Text string
 	// Content is what the agent's model sees if the item is chosen. A
-	// candidate with no Content is ignored and listed as CauseInvalid.
+	// candidate with no Content, or Content that is not valid UTF-8, is
+	// ignored and listed as CauseInvalid.
 	Content string
 }
 
@@ -357,7 +358,16 @@ func (r *Ranker) prepare(
 			continue
 		}
 		seen[c.ID] = true
-		o := &option{Candidate: c, item: contextItem(c)}
+		item := contextItem(c)
+		if item.Validate() != nil {
+			// Such as text that is not valid UTF-8. The runner would refuse
+			// the item, and every other chosen item with it.
+			options = append(options, &option{
+				result: CandidateResult{ID: c.ID, Cause: CauseInvalid},
+			})
+			continue
+		}
+		o := &option{Candidate: c, item: item}
 		o.size = len(reminderContent(o.item))
 		o.result.ID = c.ID
 		switch {
