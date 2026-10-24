@@ -3,7 +3,7 @@ module github.com/deepnoodle-ai/dashi/providers/google/gemini
 go 1.27
 
 require (
-	github.com/deepnoodle-ai/dashi v0.12.1
+	github.com/deepnoodle-ai/dashi v0.12.2
 	google.golang.org/genai v1.71.0
 )
 
