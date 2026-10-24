@@ -461,14 +461,14 @@ func TestSessionCommandMatchesCallerInputExactly(t *testing.T) {
 		}
 		requireTurns(t, rec, 1)
 	})
-	t.Run("caller sets QueuedInput", func(t *testing.T) {
+	t.Run("caller sets QueuedInputCount", func(t *testing.T) {
 		s := handle(dashi.NewMemoryRecorder(), dashitest.NewClient())
 		s.New = true
 		c := start("a")
-		c.QueuedInput = 1
+		c.QueuedInputCount = 1
 		if _, err := s.Run(t.Context(), c); err == nil ||
-			!strings.Contains(err.Error(), "QueuedInput") {
-			t.Fatalf("err = %v; want the QueuedInput error", err)
+			!strings.Contains(err.Error(), "QueuedInputCount") {
+			t.Fatalf("err = %v; want the QueuedInputCount error", err)
 		}
 	})
 }

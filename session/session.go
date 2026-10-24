@@ -357,9 +357,9 @@ func checkCommand(c dashi.Command) error {
 				"session: compaction turns are started by the session's Compactor",
 			)
 		}
-		if c.QueuedInput != 0 {
+		if c.QueuedInputCount != 0 {
 			return errors.New(
-				"session: QueuedInput is set by the session for the queued input it adds",
+				"session: QueuedInputCount is set by the session for the queued input it adds",
 			)
 		}
 	}
@@ -601,7 +601,7 @@ func (s *Session) planStart(
 	// items run as a queue turn afterwards.
 	if items := s.free(fromUser); len(items) > 0 {
 		c.Input = append(itemMessages(items), c.Input...)
-		c.QueuedInput = len(items)
+		c.QueuedInputCount = len(items)
 		p.reserved = s.reserve(items, c.CommandID, last+1)
 	}
 	p.n, p.id, p.command, p.runner = last+1, TurnID(s.ID, last+1), c, s.runner()
@@ -893,10 +893,10 @@ func (s *Session) withMemoryWarningLocked(out dashi.RunResult) dashi.RunResult {
 }
 
 // sameCallerInput reports whether a recorded start's input, without the
-// queued user items the session put ahead of it (QueuedInput), is input
+// queued user items the session put ahead of it (QueuedInputCount), is input
 // by JSON meaning.
 func sameCallerInput(started dashi.StartFact, input []llm.Message) bool {
-	n := min(max(started.QueuedInput, 0), len(started.Input))
+	n := min(max(started.QueuedInputCount, 0), len(started.Input))
 	recorded := started.Input[n:]
 	if len(recorded) != len(input) {
 		return false

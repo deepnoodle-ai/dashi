@@ -186,7 +186,7 @@ func (r Runner) apply(
 		if len(turn.Steps) != 0 || len(c.Input) == 0 {
 			return refused(errors.New("dashi: start requires a new turn and input"))
 		}
-		if c.QueuedInput < 0 || c.QueuedInput > len(c.Input) {
+		if c.QueuedInputCount < 0 || c.QueuedInputCount > len(c.Input) {
 			return refused(errors.New("dashi: start queued input count is out of range"))
 		}
 		if c.Budget != nil {
@@ -262,7 +262,7 @@ func (r Runner) apply(
 				Origin:                 origin,
 				HistoryHash:            hash,
 				Input:                  llmclone.Messages(c.Input),
-				QueuedInput:            c.QueuedInput,
+				QueuedInputCount:       c.QueuedInputCount,
 				Items:                  items,
 				Parent:                 cloneCallRef(c.Parent),
 				Compaction:             c.Compaction.clone(),

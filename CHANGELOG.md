@@ -34,7 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   The explicit run also reads the child's inbox, and mail it leaves unread
   starts the next turn, as after any turn.
 - **A reused session command ID must repeat the caller's input exactly.**
-  `Start.QueuedInput` records how many queued user messages a
+  `Start.QueuedInputCount` records how many queued user messages a
   `session.Session` put ahead of the caller's input, so a Start whose input
   is only a suffix of the recorded input, or empty, is `ErrCommandIDReused`
   rather than a retry.

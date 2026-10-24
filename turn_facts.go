@@ -104,9 +104,9 @@ type StartFact struct {
 	// Start.
 	HistoryHash string        `json:"history_hash,omitempty"`
 	Input       []llm.Message `json:"input"`
-	// QueuedInput is Start.QueuedInput: the leading Input messages a host
-	// put ahead of the caller's input.
-	QueuedInput int `json:"queued_input,omitempty"`
+	// QueuedInputCount is Start.QueuedInputCount: the number of leading
+	// messages in Input that a host put ahead of the caller's input.
+	QueuedInputCount int `json:"queued_input_count,omitempty"`
 	// Items are the Start's context items, which follow Input.
 	Items []ContextItem `json:"items,omitempty"`
 	// Parent is the tool call that caused this turn, when another turn's
