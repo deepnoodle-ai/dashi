@@ -68,6 +68,11 @@ func (wire codec) readStream(
 		envelope["status"] = "incomplete"
 		raw, _ := json.Marshal(envelope)
 		decoded, _ := wire.decodeWithPartial(raw, result.Requested, partial)
+		// Usage seen before a terminal event is a lower bound; only a
+		// terminal response reports final provider tool counts.
+		if decoded.Usage != nil {
+			decoded.Usage.RequestsComplete = false
+		}
 		return decoded
 	}
 
@@ -111,6 +116,20 @@ func (wire codec) readStream(
 			}
 			items[e.OutputIndex] = item
 			completed[e.OutputIndex] = e.Type == "response.output_item.done"
+			// A message item can arrive with parts already in place. Seed
+			// them, so later deltas extend them and an interrupted stream
+			// keeps them.
+			if e.Type == "response.output_item.added" && item["type"] == "message" {
+				if cs, ok := item["content"].([]any); ok && len(cs) > 0 {
+					seeded := map[int]map[string]any{}
+					for j, c := range cs {
+						if part, ok := c.(map[string]any); ok {
+							seeded[j] = part
+						}
+					}
+					parts[e.OutputIndex] = seeded
+				}
+			}
 			// A finished item carries its complete content and summary, which
 			// supersede the parts accumulated from deltas.
 			if e.Type == "response.output_item.done" {
@@ -262,11 +281,14 @@ func (wire codec) readStream(
 		case "response.completed", "response.incomplete", "response.failed":
 			return wire.decode(e.Response, result.Requested)
 		case "error":
+			rejection := providerhttp.ParseRejection(0, raw)
 			return build(), providerhttp.Classify(
 				&llm.Error{
 					Provider: wire.origin.Provider,
 					Category: llm.ErrorProtocol,
+					Code:     rejection.Code,
 					Body:     raw,
+					Cause:    providerhttp.StreamErrorCause(rejection.Message),
 				},
 				providerhttp.OpenAIReason,
 				wire.media,
@@ -283,7 +305,7 @@ func (wire codec) readStream(
 	if err == nil {
 		err = io.ErrUnexpectedEOF
 	}
-	return build(), providerhttp.ReadFailure(wire.origin.Provider, err)
+	return build(), providerhttp.StreamFailure(wire.origin.Provider, err)
 }
 
 // appendString appends s to the string stored under key in m, treating a

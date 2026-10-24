@@ -457,6 +457,11 @@ func TestResultDoesNotInventMessageSourceWithoutOutput(t *testing.T) {
 				if variant == "cancelled" && !errors.Is(err, context.Canceled) {
 					t.Fatal(err)
 				}
+				// A stop kind is evidence that a response arrived, so a call
+				// that failed before any response must not carry one.
+				if variant != "empty-stream" && result.Stop.Kind != "" {
+					t.Fatalf("stop kind = %q before any response", result.Stop.Kind)
+				}
 			})
 		}
 	}

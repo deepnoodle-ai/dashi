@@ -334,6 +334,7 @@ func (p *Client) Send(
 		},
 		Message: llm.Message{Role: llm.RoleAssistant},
 	}
+	responded := false
 	defer func() {
 		// Provenance belongs to provider output, including a partial message
 		// returned with an error. An empty response is not a generated message.
@@ -348,7 +349,9 @@ func (p *Client) Send(
 		// Warnings ride on every result, including partial ones, so a failed
 		// call still explains how its request differed from the input.
 		result.Warnings = prepared.Warnings()
-		if callErr != nil {
+		// A stop kind is evidence that the provider answered, so a call
+		// that failed before any response carries none.
+		if callErr != nil && responded {
 			result.Stop.Kind = llm.StopIncomplete
 		}
 	}()
@@ -356,6 +359,7 @@ func (p *Client) Send(
 	if err != nil {
 		return result, err
 	}
+	responded = true
 	defer resp.Body.Close()
 	if prepared.Input().Stream {
 		result, callErr = wire.readStream(ctx, resp.Body, result, sink)

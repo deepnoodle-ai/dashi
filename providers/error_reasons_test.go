@@ -538,3 +538,56 @@ func TestInStreamRejectionsCarryReasons(t *testing.T) {
 		})
 	}
 }
+
+// TestMalformedStreamEventsAreProtocolErrors covers an event stream whose
+// data is not JSON. A complete call classifies a malformed body as a
+// protocol error, so a streamed call must too, not as a transport failure.
+func TestMalformedStreamEventsAreProtocolErrors(t *testing.T) {
+	clients := map[string]func(url string) llm.Client{
+		"anthropic": func(url string) llm.Client {
+			return newMessages(t, messages.Config{
+				Provider:         "anthropic",
+				APIKey:           "k",
+				Endpoint:         url,
+				CapabilityPolicy: llm.CapabilityAdjust,
+			})
+		},
+		"responses": func(url string) llm.Client {
+			return newResponses(t, responses.Config{
+				Provider:         "openai",
+				APIKey:           "k",
+				Endpoint:         url,
+				CapabilityPolicy: llm.CapabilityAdjust,
+			})
+		},
+		"completions": func(url string) llm.Client {
+			c, err := completions.New(completions.Config{
+				Provider:         "openai",
+				APIKey:           "k",
+				Endpoint:         url,
+				CapabilityPolicy: llm.CapabilityAdjust,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return c
+		},
+	}
+	for name, newClient := range clients {
+		t.Run(name, func(t *testing.T) {
+			server := serve(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				io.WriteString(w, "data: {not-json}\n\n")
+			})
+			client := newClient(server.URL)
+			_, err := client.Send(
+				t.Context(),
+				llm.Call{Request: preparedRequest(t, client, true)},
+			)
+			e, ok := errors.AsType[*llm.Error](err)
+			if !ok || e.Category != llm.ErrorProtocol {
+				t.Fatalf("err = %v, want a protocol error", err)
+			}
+		})
+	}
+}

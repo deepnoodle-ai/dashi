@@ -4,8 +4,8 @@
 package messages
 
 import (
+	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"maps"
 	"slices"
@@ -62,10 +62,11 @@ func (wire codec) readStream(
 					delete(unfinished, "input")
 					unfinished["partial_json"] = a
 					raw, _ := json.Marshal(unfinished)
+					kind, _ := b["type"].(string)
 					partial[position] = &llm.Opaque{
 						Version: 1,
 						Origin:  wire.origin,
-						Type:    "tool_use",
+						Type:    kind,
 						Unit:    llm.OpaqueUnitContentBlock,
 						Partial: true,
 						Raw:     raw,
@@ -235,6 +236,15 @@ func (wire codec) readStream(
 				// Signatures are accumulated for replay but not emitted.
 				appendString(b, "signature", e.Delta.Signature)
 			case "input_json_delta":
+				if b["type"] != "tool_use" && b["type"] != "server_tool_use" && b["type"] != "mcp_tool_use" {
+					return build(), providerhttp.Failure(
+						wire.origin.Provider,
+						llm.ErrorProtocol,
+						"tool arguments for %v block %d",
+						b["type"],
+						e.Index,
+					)
+				}
 				// Skip empty fragments so a tool with no arguments keeps
 				// its starting {}.
 				if e.Delta.PartialJSON != "" {
@@ -242,10 +252,6 @@ func (wire codec) readStream(
 				}
 				d.Kind = "tool_arguments"
 				d.Text = e.Delta.PartialJSON
-				if b["type"] != "tool_use" && b["type"] != "server_tool_use" && b["type"] != "mcp_tool_use" {
-					d.Kind = ""
-					d.Text = ""
-				}
 			case "citations_delta":
 				var c any
 				if err := providerhttp.Decode(e.Delta.Citation, &c); err != nil {
@@ -325,7 +331,13 @@ func (wire codec) readStream(
 					if usage == nil {
 						usage = map[string]json.RawMessage{}
 					}
-					maps.Copy(usage, fields)
+					// A null field reports nothing new; it must not erase
+					// a value message_start reported.
+					for k, v := range fields {
+						if !bytes.Equal(bytes.TrimSpace(v), []byte("null")) {
+							usage[k] = v
+						}
+					}
 					if result.Usage == nil {
 						result.Usage = &llm.Usage{}
 					}
@@ -366,12 +378,14 @@ func (wire codec) readStream(
 		case "ping":
 			// Keep-alive with no content.
 		case "error":
+			rejection := providerhttp.ParseRejection(0, raw)
 			return build(), providerhttp.Classify(
 				&llm.Error{
 					Provider: wire.origin.Provider,
 					Category: llm.ErrorProtocol,
+					Code:     rejection.Code,
 					Body:     raw,
-					Cause:    errors.New("provider stream error"),
+					Cause:    providerhttp.StreamErrorCause(rejection.Message),
 				},
 				errorReason,
 				wire.media,
@@ -389,7 +403,7 @@ func (wire codec) readStream(
 	if err == nil {
 		err = io.ErrUnexpectedEOF
 	}
-	return build(), providerhttp.ReadFailure(wire.origin.Provider, err)
+	return build(), providerhttp.StreamFailure(wire.origin.Provider, err)
 }
 
 // appendString appends s to the string stored under key in m, treating a
