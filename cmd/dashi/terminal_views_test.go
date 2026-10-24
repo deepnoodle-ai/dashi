@@ -605,3 +605,16 @@ func TestBlankRowAboveTheLiveUI(t *testing.T) {
 		})
 	}
 }
+
+// The steering tip is UI of its own: an empty row separates it from the
+// working line above it.
+func TestBlankRowAboveTheSteeringTip(t *testing.T) {
+	s := terminalVisualFixture(t, "streaming", 80, 24)
+	s.drain()
+	rows := strings.Split(tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24)).Text(), "\n")
+	working := transcriptRow(t, strings.Join(rows, "\n"), "Working")
+	tip := transcriptRow(t, strings.Join(rows, "\n"), "Type to steer")
+	if tip != working+2 || strings.TrimSpace(rows[working+1]) != "" {
+		t.Fatalf("want one empty row between the working line and the tip:\n%s", strings.Join(rows, "\n"))
+	}
+}

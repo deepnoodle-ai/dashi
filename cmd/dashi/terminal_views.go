@@ -66,8 +66,10 @@ func (s *screen) footer() tui.View {
 		for _, row := range attachmentPreviewRows(&s.attachments, s.ctrl.attachmentRoot) {
 			views = append(views, tui.Text(" %s", row).Style(mutedStyle))
 		}
+		// A hint such as the steering tip is UI of its own, so it gets an
+		// empty row above it too.
 		if hint := s.inputHint(mode); hint != "" {
-			views = append(views, tui.Text(" %s", hint).Wrap().Style(hintStyle))
+			views = append(separate(views), tui.Text(" %s", hint).Wrap().Style(hintStyle))
 		}
 		views = append(separate(views), tui.Panel(tui.PaddingLTRB(1, 1, 1, 1, s.inputView(mode))).Style(promptStyle))
 		if menu = s.commandMenuMatches(); menu != nil {
@@ -625,7 +627,11 @@ func toolState(b Block) tui.View {
 	case StateCheckingResult:
 		return tui.Text("decide: checking result…").Style(mutedStyle)
 	}
-	return tui.Text("running").Style(mutedStyle)
+	// The phrase already says the call is running.
+	if b.Elapsed <= 0 {
+		return tui.Text("")
+	}
+	return tui.Text("%s", elapsed).Style(mutedStyle)
 }
 
 // sourceLabel draws a label and its source text in one style. Only the
