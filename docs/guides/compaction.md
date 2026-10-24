@@ -159,6 +159,9 @@ history, warnings := dashi.BuildHistory(turns) // starts from the replacement
 `StartIfNeeded` applies the session's rule to the stored turns: not needed
 while the last turn has not ended or is a compaction turn; needed when it
 overflowed or `Needed` says so. It makes no model call and writes nothing.
+With an empty `Model`, set `compactor.Client` to the runner's client: the
+Start then uses the newest user turn's model while its provider and API
+match that client, as a Session does.
 Its command ID names the compaction turn by the turn it follows, so a retry,
 a restarted worker, or a second worker finds the same turn, and the first
 record wins. The Start holds everything: the summary request, the kept

@@ -33,10 +33,20 @@ type Compactor struct {
 	// kept tail and the summary.
 	Policy Policy
 
-	// Model writes the summary. Empty means the session's model. When the
-	// catalog knows Model and its window is smaller than Policy's, the
-	// transcript is sized to fit it.
+	// Model writes the summary. When the catalog knows Model and its window
+	// is smaller than Policy's, the transcript is sized to fit it. Empty
+	// means the conversation's model: a Session uses the model of its newest
+	// user turn, and so does StartIfNeeded when Client is set (see Client).
+	// Otherwise the runner fills it with its catalog default.
 	Model string
+
+	// Client is the client of the runner that runs StartIfNeeded's
+	// compaction turn. With an empty Model, the Start takes the provider,
+	// API, and model of the newest user turn only while they match Client,
+	// as a Session does, so a host that changed clients does not get a
+	// turn for a provider it no longer runs. Nil leaves them empty. A
+	// Session ignores it and checks its own runner's client.
+	Client llm.Client
 
 	// Prompt replaces DefaultPrompt. The summary is the text inside the
 	// reply's last <summary> and </summary> tags, or the whole reply
@@ -86,7 +96,10 @@ func (c *Compactor) Needed(messages []llm.Message, last llm.Usage) bool {
 //     every turn.
 //
 // The Start's CommandID is "compact:" and the last turn's ID, so a retry, a
-// restarted worker, or a second worker finds the same turn. It makes no
+// restarted worker, or a second worker finds the same turn. When Model is
+// empty and Client is set, the Start's agent takes the provider, API, and
+// model of the newest user turn while they match Client, as a Session's
+// compaction turn does. It makes no
 // model call and writes nothing. Its only errors are encoding errors.
 func (c *Compactor) StartIfNeeded(ctx context.Context, turns []dashi.Turn) (
 	start dashi.Start, needed bool, err error) {
@@ -114,8 +127,28 @@ func (c *Compactor) StartIfNeeded(ctx context.Context, turns []dashi.Turn) (
 	if err != nil {
 		return dashi.Start{}, false, err
 	}
+	if start.Agent.Model == "" && c.Client != nil {
+		provider, api, model := lastUserModel(turns)
+		if provider == c.Client.Provider() && api == c.Client.API() {
+			start.Agent.Provider, start.Agent.API, start.Agent.Model = provider, api, model
+		}
+	}
 	start.CommandID = "compact:" + last.ID
 	return start, true, nil
+}
+
+// lastUserModel returns the provider, API, and model of the newest user
+// turn in turns, which write the summary when Compactor.Model is empty and
+// they match Compactor.Client.
+func lastUserModel(turns []dashi.Turn) (provider, api, model string) {
+	for i := len(turns) - 1; i >= 0; i-- {
+		view, err := turns[i].View()
+		if err == nil && view.Origin == dashi.StartUser {
+			a := view.Agent
+			return a.Provider, a.API, a.Model
+		}
+	}
+	return "", "", ""
 }
 
 // Start builds the compaction turn's Start. It keeps the newest messages

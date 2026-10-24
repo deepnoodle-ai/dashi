@@ -299,7 +299,7 @@ func (ts *Tasks) execStart(
 	if !v.Running() {
 		text = describe(v, true)
 		if final {
-			d.DeliveredTurnID = v.TurnID
+			d.DeliveredNoticeID = v.NoticeID
 		}
 	}
 	if len(steers) > 0 {
@@ -313,7 +313,7 @@ func (ts *Tasks) execStart(
 // withStatusData records what a result delivered in its outcome's Data,
 // when it delivered anything.
 func withStatusData(out tool.Outcome, d statusData) (tool.Outcome, error) {
-	if d.DeliveredTurnID == "" && len(d.DeliveredMessageIDs) == 0 {
+	if d.DeliveredNoticeID == "" && len(d.DeliveredMessageIDs) == 0 {
 		return out, nil
 	}
 	var err error
@@ -353,9 +353,9 @@ func (ts *Tasks) execStatus(
 		}
 		text = describe(v, true)
 		if final {
-			// The record names the child turn whose result the model saw,
-			// so a host can skip its notice (see DeliveredNotices).
-			d.DeliveredTurnID = v.TurnID
+			// The record names the notice whose result the model saw, so
+			// a host can skip it (see DeliveredNotices).
+			d.DeliveredNoticeID = v.NoticeID
 		}
 	} else {
 		var views []TaskView

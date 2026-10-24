@@ -428,8 +428,10 @@ var waitCheck = 250 * time.Millisecond
 // Wait returns when the turn may have a step after the cursor: at once when
 // one exists, on this process's next commit to the turn, or within
 // waitCheck of another process's commit, which it notices by the log's size.
-// It returns ctx's error when ctx ends first. It reads the log only when
-// this process's index is behind it; a false wake costs one read.
+// It returns ctx's error when ctx ends first. It reads the log when this
+// process's index is behind it, and on every check while the log ends in a
+// torn write, since a commit can replace it with one of equal length; a
+// false wake costs one read.
 func (r *Recorder) Wait(ctx context.Context, turnID string, after int64) error {
 	woken, done := r.wakes.Watch(turnID)
 	defer done()
@@ -448,7 +450,13 @@ func (r *Recorder) Wait(ctx context.Context, turnID string, after int64) error {
 		if err != nil || len(steps) > 0 {
 			return nil
 		}
+		r.mu.Lock()
+		cached = r.index.get(turnID)
+		r.mu.Unlock()
 	}
+	// A commit replaces a torn tail, and a line of the same length leaves
+	// the size unchanged, so while the log has one each check reads it.
+	torn := cached.size != cached.end
 	tick := time.NewTicker(waitCheck)
 	defer tick.Stop()
 	for {
@@ -460,6 +468,12 @@ func (r *Recorder) Wait(ctx context.Context, turnID string, after int64) error {
 		case <-tick.C:
 			if r.logSize(turnID) != size {
 				return nil
+			}
+			if torn {
+				steps, err := r.StepsAfter(ctx, turnID, after, 1)
+				if err != nil || len(steps) > 0 {
+					return nil
+				}
 			}
 		}
 	}

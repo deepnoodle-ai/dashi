@@ -215,7 +215,8 @@ type State struct {
 	Last *dashi.TurnView
 	// Next is the last turn's next action, refined with worker status:
 	// NextRunning when this handle runs it or WorkerChecker reports it
-	// live. It is NextNone for a new session.
+	// live, and also while this handle starts the turn after it or a
+	// compaction turn. It is otherwise NextNone for a new session.
 	Next dashi.Next
 	// Queued counts the items waiting in this handle's queue, including
 	// those reserved for a turn that is starting.
@@ -356,6 +357,11 @@ func checkCommand(c dashi.Command) error {
 				"session: compaction turns are started by the session's Compactor",
 			)
 		}
+		if c.QueuedInputCount != 0 {
+			return errors.New(
+				"session: QueuedInputCount is set by the session for the queued input it adds",
+			)
+		}
 	}
 	return nil
 }
@@ -380,18 +386,29 @@ func (s *Session) Open(ctx context.Context) (State, error) {
 		return State{}, err
 	}
 	queued, user := len(s.queue), s.queuedUser()
+	// A turn this handle is starting or compacting runs, though the
+	// recorder does not show it yet.
+	starting := s.startingBusy(last+1) != nil
 	if last == 0 {
-		return State{Next: dashi.NextNone, Queued: queued, QueuedUser: user}, nil
+		next := dashi.NextNone
+		if starting {
+			next = dashi.NextRunning
+		}
+		return State{Next: next, Queued: queued, QueuedUser: user}, nil
 	}
 	t, err := s.load(ctx, last)
 	if err != nil {
 		return State{}, err
 	}
 	view := t.view
+	next := s.refine(ctx, t).next
+	if starting {
+		next = dashi.NextRunning
+	}
 	return State{
 		Turns:      last,
 		Last:       &view,
-		Next:       s.refine(ctx, t).next,
+		Next:       next,
 		Queued:     queued,
 		QueuedUser: user,
 	}, nil
@@ -436,6 +453,9 @@ func (s *Session) planCommand(
 	}
 	if last == 0 {
 		return commandPlan{}, fmt.Errorf("%w: %s", ErrNotFound, s.ID)
+	}
+	if busy := s.startingBusy(last + 1); busy != nil {
+		return commandPlan{}, busy
 	}
 	t, err := s.load(ctx, last)
 	if err != nil {
@@ -530,7 +550,7 @@ func (s *Session) planStart(
 	if err := s.checkExists(last); err != nil {
 		return startPlan{}, err
 	}
-	if busy := s.compactingBusy(); busy != nil {
+	if busy := s.startingBusy(last + 1); busy != nil {
 		return startPlan{}, busy
 	}
 	// This handle now makes the session, so New no longer applies to it,
@@ -581,6 +601,7 @@ func (s *Session) planStart(
 	// items run as a queue turn afterwards.
 	if items := s.free(fromUser); len(items) > 0 {
 		c.Input = append(itemMessages(items), c.Input...)
+		c.QueuedInputCount = len(items)
 		p.reserved = s.reserve(items, c.CommandID, last+1)
 	}
 	p.n, p.id, p.command, p.runner = last+1, TurnID(s.ID, last+1), c, s.runner()
@@ -646,7 +667,7 @@ func (s *Session) duplicate(
 		}
 		start := t.turn.Steps[0]
 		if start.CommandID == c.CommandID {
-			if !sameInputTail(start.Started.Input, c.Input) {
+			if !sameCallerInput(*start.Started, c.Input) {
 				return nil, fmt.Errorf(
 					"%w: command %s started turn %s with other input",
 					dashi.ErrCommandIDReused,
@@ -712,6 +733,12 @@ func (s *Session) closeLast(
 		return false, nil, busy
 	}
 	if r.next == dashi.NextNone {
+		if s.sentTo(t.turn.ID) {
+			// The turn ended without this handle seeing it end, as when
+			// its last commit lost its acknowledgement or another worker
+			// ended it, so its missed steers are still in the inbox.
+			s.moveLeftovers(t.turn)
+		}
 		return false, nil, nil
 	}
 	if t.view.Origin == dashi.StartCompaction && t.view.Stop.Kind == dashi.StopLimited {
@@ -783,9 +810,14 @@ func (s *Session) finish(
 		s.store(n, out.Turn)
 		s.created = true
 	}
-	if err == nil && out.Turn.ID == id && out.Next() == dashi.NextNone &&
-		out.Origin != dashi.StartCompaction {
+	switch {
+	case err == nil && out.Turn.ID == id && out.Next() == dashi.NextNone &&
+		out.Origin != dashi.StartCompaction:
 		s.moveLeftovers(out.Turn)
+	case len(out.Turn.Steps) == 0 && !started && s.turns[n] == nil && notStarted(err):
+		// The Start's turn never began, so no turn will record the steers
+		// sent to it.
+		s.moveLeftovers(dashi.NewTurn(id))
 	}
 	out.SessionWarnings = append(warnings, out.SessionWarnings...)
 	out.SessionWarnings = append(out.SessionWarnings, s.queueBlocked()...)
@@ -804,6 +836,21 @@ func (s *Session) stopRunning(id string) {
 	if s.compacting == id && s.running[id] == 0 {
 		s.compacting = ""
 	}
+}
+
+// startingBusy returns the *TurnBusyError for turn n when this handle runs
+// it, or for the compaction turn this handle is building or running, and
+// nil otherwise. Turn n is the turn after the last one the recorder shows,
+// so a turn this handle planned but has not yet recorded is not free.
+// The caller holds mu.
+func (s *Session) startingBusy(n int) *TurnBusyError {
+	if busy := s.compactingBusy(); busy != nil {
+		return busy
+	}
+	if id := TurnID(s.ID, n); s.running[id] > 0 {
+		return &TurnBusyError{TurnID: id, Next: dashi.NextRunning}
+	}
+	return nil
 }
 
 // runner returns the Runner with the recorder the session uses and the
@@ -845,13 +892,16 @@ func (s *Session) withMemoryWarningLocked(out dashi.RunResult) dashi.RunResult {
 	return out
 }
 
-// sameInputTail reports whether recorded ends with input by JSON meaning.
-// Queued user items the session put ahead of a caller's input come first.
-func sameInputTail(recorded, input []llm.Message) bool {
-	if len(input) > len(recorded) {
+// sameCallerInput reports whether a recorded start's input, without the
+// queued user items the session put ahead of it (QueuedInputCount), is input
+// by JSON meaning.
+func sameCallerInput(started dashi.StartFact, input []llm.Message) bool {
+	n := min(max(started.QueuedInputCount, 0), len(started.Input))
+	recorded := started.Input[n:]
+	if len(recorded) != len(input) {
 		return false
 	}
-	return canonjson.SameValue(recorded[len(recorded)-len(input):], input)
+	return len(input) == 0 || canonjson.SameValue(recorded, input)
 }
 
 // internalKey reports whether a Start's command ID marks one of the

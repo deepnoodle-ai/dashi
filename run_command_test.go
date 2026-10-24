@@ -54,6 +54,36 @@ func TestRunnerStartUsesHistoryWithoutRecordingIt(t *testing.T) {
 	}
 }
 
+// TestRunnerStartRecordsQueuedInputCount records Start.QueuedInputCount in
+// the start fact and refuses a count outside 0..len(Input).
+func TestRunnerStartRecordsQueuedInputCount(t *testing.T) {
+	input := []llm.Message{
+		llm.UserMessage(llm.Text("queued")),
+		llm.UserMessage(llm.Text("current input")),
+	}
+	for _, n := range []int{-1, 3} {
+		_, err := (Runner{Recorder: NewMemoryRecorder()}).Record(
+			t.Context(),
+			Turn{ID: "queued-bad"},
+			Start{Agent: testAgent(), Input: input, QueuedInputCount: n},
+		)
+		if err == nil || !strings.Contains(err.Error(), "queued input count") {
+			t.Fatalf("QueuedInputCount %d: err = %v; want the range error", n, err)
+		}
+	}
+	out, err := (Runner{Recorder: NewMemoryRecorder()}).Record(
+		t.Context(),
+		Turn{ID: "queued"},
+		Start{Agent: testAgent(), Input: input, QueuedInputCount: 1},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := out.Turn.Steps[0].Started.QueuedInputCount; n != 1 {
+		t.Fatalf("recorded QueuedInputCount = %d; want 1", n)
+	}
+}
+
 func TestRunnerContinueUsesHistoryWithoutRecordingIt(t *testing.T) {
 	history := []llm.Message{llm.UserMessage(llm.Text("prior exchange"))}
 	client := &scriptedClient{results: []llm.Result{final("answer")}}

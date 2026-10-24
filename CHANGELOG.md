@@ -234,6 +234,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   sends nothing and shows a hint. A submit or `/detach` drops the mentions.
   Enter on an empty composer after `/attach` still sends the selections
   alone.
+- **Session steers are no longer stranded.** A steer sent to a turn that
+  never started, or to a turn that ended without the handle seeing it end
+  (a lost acknowledgement, or another worker), now moves to the queue.
+- **A turn a `session.Session` handle is starting counts as running.** Until
+  its first step is recorded, `Open` reports `NextRunning`, and a second
+  Start, a `Continue`, `Compact`, and `RunQueue` wait for it instead of
+  planning the same turn.
+- **`WarningTurnClosed` arrives exactly once.** It was lost when the
+  Compactor found nothing to compact, and repeated in `Stream` when a
+  compaction turn ran.
+- **Compaction keeps provider tool approval pairs together.** The kept tail
+  no longer starts at a `ProviderToolApprovalResponse` whose request was
+  summarized, and tail sizes no longer overflow on huge media references.
+- **`compaction.Compactor.StartIfNeeded` can use the conversation's model.**
+  With an empty `Model` and the new `Compactor.Client` set to the runner's
+  client, the Start uses the newest user turn's provider, API, and model
+  while they match that client, as a Session does. Without `Client` they
+  stay empty, and the runner fills them.
+- **`delegate.Tasks.Run` reports history warnings.** The warnings of
+  building a child's earlier history are in the result's `SessionWarnings`.
+- **`delegate.Tasks.Run` continues later child turns with their history,**
+  and a retried `Continue` that sets `OnHistoryMismatch` is a retry, not a
+  reused command ID.
+- **The parent learns when `delegate.Tasks.Run` finishes a child turn,**
+  even when the turn's earlier waiting stop already used its notice. Each
+  later stop gets a `TaskEnded` event and a notice of its own, whose ID is
+  the new `TaskView.NoticeID`; `task_status` records that ID as delivered.
+  Format change: the `task_status` outcome field `delivered_turn_id` is now
+  `delivered_notice_id`, and a read recorded by 0.10.0 no longer counts as
+  delivered, so `Recover` may send that notice again.
+  The explicit run also reads the child's inbox, and mail it leaves unread
+  starts the next turn, as after any turn.
+- **A reused session command ID must repeat the caller's input exactly.**
+  `Start.QueuedInputCount` records how many queued user messages a
+  `session.Session` put ahead of the caller's input, so a Start whose input
+  is only a suffix of the recorded input, or empty, is `ErrCommandIDReused`
+  rather than a retry. A turn recorded before this change has no count, so
+  a retry of a command that had queued messages ahead of its input is now
+  `ErrCommandIDReused` too.
+- **`filerecorder.Recorder.Wait` sees a commit that replaces a torn tail of
+  the same length,** and lock waits report `context.Canceled` rather than
+  the context's cause.
 
 ## [0.11.0] - 2026-10-23
 

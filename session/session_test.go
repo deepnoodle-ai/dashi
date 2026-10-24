@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -402,6 +403,76 @@ func TestSessionCommandConflict(t *testing.T) {
 	}
 }
 
+// TestSessionCommandMatchesCallerInputExactly reuses a command ID with
+// input that is only part of the recorded input. The session recorded how
+// many queued items it put ahead of the caller's input, so it compares the
+// caller's input exactly: the same input is a retry, while a suffix, no
+// input, or the queued items plus the input are ErrCommandIDReused.
+func TestSessionCommandMatchesCallerInputExactly(t *testing.T) {
+	start := func(texts ...string) dashi.Start {
+		c := dashi.Start{CommandID: "k"}
+		for _, text := range texts {
+			c.Input = append(c.Input, llm.UserMessage(llm.Text(text)))
+		}
+		return c
+	}
+	t.Run("suffix or no input", func(t *testing.T) {
+		rec := dashi.NewMemoryRecorder()
+		client := dashitest.NewClient(dashitest.Reply("first"))
+		s := handle(rec, client)
+		s.New = true
+		if _, err := s.Run(t.Context(), start("a", "b")); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []dashi.Start{start("b"), start()} {
+			if _, err := s.Run(t.Context(), c); !errors.Is(err, dashi.ErrCommandIDReused) {
+				t.Fatalf("input %d messages: err = %v; want ErrCommandIDReused", len(c.Input), err)
+			}
+		}
+		if out, err := s.Run(t.Context(), start("a", "b")); err != nil || out.Reply != "first" {
+			t.Fatalf("retry: %v, reply %q", err, out.Reply)
+		}
+		requireTurns(t, rec, 1)
+	})
+	t.Run("after queued input", func(t *testing.T) {
+		rec := dashi.NewMemoryRecorder()
+		client := dashitest.NewClient(dashitest.Reply("first"))
+		s := handle(rec, client)
+		s.New = true
+		if _, err := s.Enqueue(t.Context(), "queued"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Run(t.Context(), start("hello")); err != nil {
+			t.Fatal(err)
+		}
+		if got := input(t, rec, "s-1"); !slices.Equal(got, []string{"queued", "hello"}) {
+			t.Fatalf("s-1 input=%q", got)
+		}
+		if out, err := s.Run(t.Context(), start("hello")); err != nil || out.Reply != "first" {
+			t.Fatalf("retry: %v, reply %q", err, out.Reply)
+		}
+		for _, c := range []dashi.Start{start("queued", "hello"), start()} {
+			if _, err := s.Run(t.Context(), c); !errors.Is(err, dashi.ErrCommandIDReused) {
+				t.Fatalf("input %d messages: err = %v; want ErrCommandIDReused", len(c.Input), err)
+			}
+		}
+		if n := len(client.Inputs()); n != 1 {
+			t.Fatalf("model calls = %d; want 1", n)
+		}
+		requireTurns(t, rec, 1)
+	})
+	t.Run("caller sets QueuedInputCount", func(t *testing.T) {
+		s := handle(dashi.NewMemoryRecorder(), dashitest.NewClient())
+		s.New = true
+		c := start("a")
+		c.QueuedInputCount = 1
+		if _, err := s.Run(t.Context(), c); err == nil ||
+			!strings.Contains(err.Error(), "QueuedInputCount") {
+			t.Fatalf("err = %v; want the QueuedInputCount error", err)
+		}
+	})
+}
+
 // TestSessionRunningOnThisHandle refuses a second Start on the handle that
 // runs the last turn, whatever Exclusive says.
 func TestSessionRunningOnThisHandle(t *testing.T) {
@@ -424,6 +495,46 @@ func TestSessionRunningOnThisHandle(t *testing.T) {
 	close(g.release)
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A turn this handle is starting, before its turn_started step is
+// recorded, counts as running: Open says so, and a second Start, a
+// Continue, a manual compaction, and RunQueue all wait for it.
+func TestSessionStartingOnThisHandle(t *testing.T) {
+	rec := newHeldStart("s-2", false)
+	s := handle(rec, dashitest.NewClient(dashitest.Reply("one"), dashitest.Reply("two"), dashitest.Reply("three")))
+	s.New = true
+	if _, err := s.Send(t.Context(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	done := sendAsync(t.Context(), s, "second")
+	<-rec.entered
+	st, err := s.Open(t.Context())
+	if err != nil || st.Next != dashi.NextRunning {
+		t.Fatalf("open: %v, next %s", err, st.Next)
+	}
+	_, err = s.Send(t.Context(), "third")
+	requireBusy(t, err, dashi.NextRunning, false)
+	_, err = s.Run(t.Context(), dashi.Continue{})
+	requireBusy(t, err, dashi.NextRunning, false)
+	s.Compactor = keepLast{limit: 0}
+	_, err = s.Compact(t.Context(), nil)
+	requireBusy(t, err, dashi.NextRunning, false)
+	s.Compactor = nil
+	if _, err := s.Enqueue(t.Context(), "later"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ran, err := s.RunQueue(t.Context()); ran || err != nil {
+		t.Fatalf("queue ran=%v err=%v while a turn starts", ran, err)
+	}
+	close(rec.release)
+	// The queued input runs after the started turn, in the same call.
+	if out := awaitSend(t, done); out.Turn.ID != "s-3" {
+		t.Fatalf("turn=%s", out.Turn.ID)
+	}
+	if got := input(t, rec.MemoryRecorder, "s-2"); len(got) != 1 || got[0] != "second" {
+		t.Fatalf("s-2 input=%q", got)
 	}
 }
 

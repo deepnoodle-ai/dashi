@@ -524,8 +524,9 @@ Decided. The delivery rule kept the record as the only proof, and so ignored
 showed. A model that read the result then got the notice too, often in a
 whole extra turn that cost money for nothing. Now a `task_status` call that
 returns a turn's final result says so in its outcome's structured `Data`
-(`{"delivered_turn_id": ...}`), and a recorded call with that field delivers
-the turn it names (`delegate.DeliveredNotices`). The read changes nothing
+(`{"delivered_notice_id": ...}`), and a recorded call with that field
+delivers the notice it names (`delegate.DeliveredNotices`). The field names
+a notice, not a turn, because a turn that stops again gets a new notice. The read changes nothing
 else: notices are produced and queued as before, and the record is checked
 just before one is delivered: on `Recover`, before a queue turn
 (`Session.Delivered`, which `NewTasks` sets), and in a host that holds
@@ -579,3 +580,16 @@ a host that needs a strict guarantee keeps its `WorstCaseCost` hold for any
 call whose `ModelCallCost` is not `Exact`. The cost: a cap can be passed by
 the unreported part of interrupted calls, and by an input estimate that runs
 low, so a cap is a limit on known spend, not a guarantee.
+
+## 2026-10-24
+
+**48. Record formats change freely before 1.0.** Decided. Releases before
+1.0 (0.9.0 to 0.11.0 so far) are tagged for our own applications, not for
+outside hosts, so a release may change a recorded field without reading
+the old one. The first case: the `task_status` outcome field
+`delivered_turn_id` became `delivered_notice_id` (decision 46). A host
+upgrading from 0.10.0 or 0.11.0 does not count an earlier read as delivered,
+so `Recover` may send that notice once more. The CHANGELOG lists each such
+change. Rationale: a shim for every renamed field would pile up code that
+nobody needs before the formats settle. The cost: an upgraded host may see a
+duplicate notice once.

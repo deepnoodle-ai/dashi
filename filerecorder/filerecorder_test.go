@@ -471,6 +471,44 @@ func child(t *testing.T, env map[string]string) string {
 	return fmt.Sprintf("no result:\n%s", out)
 }
 
+// A torn tail replaced by a complete line of the same length leaves the
+// log's size unchanged; Wait still sees the commit.
+func TestWaitSeesACommitThatReplacesAnEqualLengthTornTail(t *testing.T) {
+	// Learn the length of step 2's line from a copy of the same log.
+	model := newRecorder(t, t.TempDir())
+	commit(t, model, step("turn", 1, "first"), "")
+	before, err := os.ReadFile(model.Path("turn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit(t, model, step("turn", 2, "second"), "")
+	after, err := os.ReadFile(model.Path("turn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	length := len(after) - len(before)
+
+	dir := t.TempDir()
+	writer, reader := newRecorder(t, dir), newRecorder(t, dir)
+	commit(t, writer, step("turn", 1, "first"), "")
+	appendBytes(t, writer.Path("turn"), strings.Repeat("x", length))
+	if _, err := reader.StepsAfter(t.Context(), "turn", 0, 100); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	woke := make(chan error, 1)
+	go func() { woke <- reader.Wait(ctx, "turn", 1) }()
+	time.Sleep(100 * time.Millisecond)
+	commit(t, writer, step("turn", 2, "second"), "")
+	if data, _ := os.ReadFile(writer.Path("turn")); len(data) != len(after) {
+		t.Fatalf("log is %d bytes; want %d", len(data), len(after))
+	}
+	if err := <-woke; err != nil {
+		t.Fatalf("Wait did not see the commit over the torn tail: %v", err)
+	}
+}
+
 func newRecorder(t testing.TB, dir string) *filerecorder.Recorder {
 	t.Helper()
 	r, err := filerecorder.New(filerecorder.Config{Dir: dir})

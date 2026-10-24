@@ -42,6 +42,27 @@ func TestLockWaitEndsWithContext(t *testing.T) {
 	requireCount(t, r, 1)
 }
 
+// A context canceled with a cause still reports context.Canceled, like
+// every other cancellation check in the recorder.
+func TestLockWaitReportsCanceledNotCause(t *testing.T) {
+	r := newTestRecorder(t)
+	commitStep(t, r, 1)
+	holder, err := os.Open(r.Path("turn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+	if err := lock(t.Context(), holder, true); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancelCause(t.Context())
+	time.AfterFunc(20*time.Millisecond, func() { cancel(errors.New("custom")) })
+	err = r.Commit(ctx, request(2))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("commit error %v does not report context.Canceled", err)
+	}
+}
+
 func TestFailedWriteIsRejectedAndRolledBack(t *testing.T) {
 	r := newTestRecorder(t)
 	commitStep(t, r, 1)

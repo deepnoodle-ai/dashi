@@ -312,6 +312,17 @@ func (s *Session) moveLeftovers(turn dashi.Turn) {
 	}
 }
 
+// sentTo reports whether this handle sent steers to turnID that have not
+// moved to the queue. The caller holds mu.
+func (s *Session) sentTo(turnID string) bool {
+	for _, sent := range s.sent {
+		if sent.turn == turnID {
+			return true
+		}
+	}
+	return false
+}
+
 func fromUser(item dashi.ContextItem) bool {
 	return item.Origin == dashi.ContextUser
 }
@@ -520,8 +531,9 @@ func (s *Session) planQueue(
 	if err := s.checkExists(last); err != nil {
 		return startPlan{}, false, err
 	}
-	if s.compacting != "" {
-		// The queue waits for the compaction, as for a running turn.
+	if s.startingBusy(last+1) != nil {
+		// The queue waits for the compaction, or for the turn this handle
+		// is starting, as for a running turn.
 		return startPlan{}, false, nil
 	}
 	var p startPlan
@@ -560,9 +572,10 @@ func (s *Session) planQueue(
 	slices.Sort(ids)
 	key, _ := json.Marshal(ids)
 	c := dashi.Start{
-		CommandID: "queue:" + string(key),
-		Origin:    origin,
-		Input:     itemMessages(items),
+		CommandID:        "queue:" + string(key),
+		Origin:           origin,
+		Input:            itemMessages(items),
+		QueuedInputCount: len(items),
 	}
 	used, err := s.usedKey(ctx, c.CommandID, last)
 	if err != nil {

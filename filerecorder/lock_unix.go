@@ -49,7 +49,7 @@ func lock(ctx context.Context, f *os.File, exclusive bool) error {
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return context.Cause(ctx)
+			return ctx.Err()
 		case <-timer.C:
 		}
 		delay = min(2*delay, maxLockDelay)

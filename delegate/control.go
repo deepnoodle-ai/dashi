@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/deepnoodle-ai/dashi"
 )
@@ -56,11 +57,25 @@ func ownedCommand(cmd dashi.Command) (dashi.Command, string, string, error) {
 	if id == "" {
 		return nil, "", "", errors.New("delegate: task command needs a CommandID")
 	}
-	b, err := json.Marshal(owned)
+	hash, err := commandHash(owned)
 	if err != nil {
 		return nil, "", "", err
 	}
-	return owned, id, dashi.ArgsHash(b), nil
+	return owned, id, hash, nil
+}
+
+// commandHash is the hash the runner records for cmd in Step.CommandHash,
+// which leaves Continue.OnHistoryMismatch out.
+func commandHash(cmd dashi.Command) (string, error) {
+	if v, ok := cmd.(dashi.Continue); ok {
+		v.OnHistoryMismatch = ""
+		cmd = v
+	}
+	b, err := json.Marshal(cmd)
+	if err != nil {
+		return "", err
+	}
+	return dashi.ArgsHash(b), nil
 }
 
 func receipt(turn dashi.Turn, id, hash string) (bool, error) {
@@ -81,6 +96,16 @@ func receipt(turn dashi.Turn, id, hash string) (bool, error) {
 // after later child work. Stop and Close own this worker as they own task starts.
 // A recorder implementing Loader is required, so Run can reload the record
 // and check what was actually written.
+//
+// The turn reads the child's inbox as the task's own runs do. Each new stop
+// is reported like any other: OnTask gets TaskEnded, and the parent gets a
+// notice, even when the turn's earlier stop already had one. Mail the turn
+// did not read goes on as it does after any turn: a later turn reads it,
+// or the notice counts it as not read.
+//
+// A Continue without History gets the history of the child's earlier
+// turns, and the warnings of building it are in the result's
+// SessionWarnings.
 func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) (out dashi.RunResult, runErr error) {
 	owned, id, hash, err := ownedCommand(cmd)
 	if err != nil {
@@ -113,14 +138,24 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 	t.controlling = true
 	ts.wg.Add(1)
 	ts.mu.Unlock()
+	// notify is set once the result may be reported; ended is the turn as
+	// the run left it.
+	var notify bool
+	var ended dashi.Turn
 	defer func() {
 		ts.mu.Lock()
 		cancel()
 		t.cancel, t.stopping, t.controlling = nil, false, false
 		close(t.done)
+		// A turn that takes the mail sends the notice once its record
+		// holds that turn (see run).
+		passed := notify && ts.passOnControlledLocked(context.WithoutCancel(ctx), t, ended)
 		ts.changedLocked()
 		ts.mu.Unlock()
 		ts.wg.Done()
+		if notify && !passed {
+			ts.notifyEnded(t, nil)
+		}
 	}()
 	rec, err := loadRecord(workCtx, loader, t.sessionID)
 	if err != nil {
@@ -132,6 +167,20 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 	turn := rec.turns[len(rec.turns)-1]
 	view := rec.views[len(rec.views)-1]
 	out = dashi.RunResult{Turn: turn, TurnView: view}
+	if c, ok := owned.(dashi.Continue); ok && c.History == nil && len(rec.turns) > 1 {
+		// The turn started with the history of the child's earlier turns,
+		// as the child session builds it, so a Continue sends it too.
+		var warnings []dashi.Warning
+		c.History, warnings = dashi.BuildHistory(rec.turns[:len(rec.turns)-1])
+		owned = c
+		if len(warnings) > 0 {
+			// Report them as a Session reports those of BuildHistory.
+			defer func() { out.SessionWarnings = append(out.SessionWarnings, warnings...) }()
+		}
+		if hash, err = commandHash(owned); err != nil {
+			return out, err
+		}
+	}
 	if turn.ID != currentID || target.TurnID != turn.ID ||
 		!equalValue(rec.views[0].Parent, &t.parent) || !equalValue(view.Parent, parent) {
 		return out, dashi.ErrStaleTurn
@@ -167,7 +216,7 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 		ts.changedLocked()
 		ts.mu.Unlock()
 	}
-	for ev, e := range t.session.Runner.Stream(workCtx, turn, owned) {
+	for ev, e := range t.session.Runner.Stream(workCtx, turn, owned, dashi.WithInbox(t.inbox)) {
 		if ev.Step != nil {
 			ts.observe(t, *ev.Step)
 			if ev.Step.Kind == dashi.StepTurnContinued {
@@ -215,10 +264,13 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 	}
 	if len(out.Turn.Steps) > 0 {
 		ts.controlResult(t, out, unknown)
+		notify, ended = !unknown, out.Turn
 	}
 	return out, runErr
 }
 
+// controlResult records the result of an explicit command on the task's
+// last turn. The caller reports it unless the write is unknown.
 func (ts *Tasks) controlResult(t *task, out dashi.RunResult, unknown bool) {
 	deferred := unknown || ts.deferNotice(out.Turn)
 	ts.mu.Lock()
@@ -226,6 +278,7 @@ func (ts *Tasks) controlResult(t *task, out dashi.RunResult, unknown bool) {
 	v := out.TurnView
 	c.final, c.steps = &v, out.Turn.Steps
 	c.state, c.answer, c.reason = endState(ts, out.Stop, v)
+	c.setNotice(out.Turn)
 	c.deferred = deferred
 	if ts.closed && out.Stop.Kind == dashi.StopInterrupted {
 		c.suppressed = !c.reported
@@ -233,7 +286,35 @@ func (ts *Tasks) controlResult(t *task, out dashi.RunResult, unknown bool) {
 	}
 	ts.changedLocked()
 	ts.mu.Unlock()
-	if !unknown {
-		ts.notifyEnded(t, nil)
+}
+
+// passOnControlledLocked hands the mail that an explicit run left unread
+// to the path every turn's mail takes. A stop that cannot read mail drops
+// it, and the turn's notice counts it as not read. Otherwise the steers the
+// turn never recorded leave the inbox for the child session's queue, as
+// the session moves a turn's leftovers, and passOnLocked starts the next
+// turn with the mail, driven by a goroutine as the task's own runs are. It
+// reports whether that turn started. The caller holds ts.mu.
+func (ts *Tasks) passOnControlledLocked(ctx context.Context, t *task, turn dashi.Turn) bool {
+	if ts.closed || len(t.mail) == 0 {
+		return false
 	}
+	if c := t.last(); dropOnStop(c.state) {
+		t.dropMailLocked(c, turn)
+		return false
+	}
+	if left, err := t.inbox.Leftovers(turn); err == nil {
+		for _, steer := range left {
+			if _, err := t.session.EnqueueItem(ctx, steer.Item); err != nil {
+				slog.Warn("delegate: could not queue a message for a task",
+					"task", t.id, "item", steer.Item.ID, "error", err)
+			}
+		}
+	}
+	cmd := ts.passOnLocked(t)
+	if cmd == nil {
+		return false
+	}
+	ts.launchLocked(ctx, t, cmd)
+	return true
 }

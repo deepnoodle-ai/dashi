@@ -74,6 +74,9 @@ func (s *replayState) apply(step Step) error {
 		if len(step.Started.Input) == 0 {
 			return errors.New("missing start input")
 		}
+		if n := step.Started.QueuedInputCount; n < 0 || n > len(step.Started.Input) {
+			return errors.New("start queued input count is out of range")
+		}
 		origin := step.Started.Origin
 		if origin == "" {
 			origin = StartUser

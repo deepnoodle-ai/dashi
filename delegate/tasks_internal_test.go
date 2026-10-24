@@ -41,8 +41,9 @@ func TestMaxTaskTurnsBoundsTheTurnsOfATask(t *testing.T) {
 }
 
 // A notice acknowledged by an older host is immutable. The new readiness
-// policy still reports unresolved attention, then resolves the child without
-// announcing a second result under the same NoticeID.
+// policy still reports unresolved attention. Resolving the child is a new
+// stop, so it is announced once, under its own notice ID, never under the
+// acknowledged NoticeID.
 func TestAcknowledgedHistoricalNoticeStillRequiresAttention(t *testing.T) {
 	ctx := t.Context()
 	recorder := dashi.NewMemoryRecorder()
@@ -81,11 +82,18 @@ func TestAcknowledgedHistoricalNoticeStillRequiresAttention(t *testing.T) {
 	if _, err = ts.Run(ctx, TaskTarget{ID: task.id, TurnID: child, LastSeq: out.LastSeq}, dashi.Cancel{CommandID: "discard", Reason: "operator discarded"}); err != nil {
 		t.Fatal(err)
 	}
-	if idle, err = ts.Wait(ctx); !idle || err != nil {
-		t.Fatalf("resolved idle=%v err=%v", idle, err)
+	// The cancel is a new stop: Wait reports it once, then is idle.
+	if idle, err = ts.Wait(ctx); idle || err != nil {
+		t.Fatalf("resolved idle=%v err=%v; want one report", idle, err)
 	}
-	if notices.Load() != 0 {
-		t.Fatal("rewrote an acknowledged historical notice")
+	if idle, err = ts.Wait(ctx); !idle || err != nil {
+		t.Fatalf("reported idle=%v err=%v", idle, err)
+	}
+	if n := notices.Load(); n != 1 {
+		t.Fatalf("TaskEnded events = %d; want 1 for the cancel", n)
+	}
+	if id := ts.List()[0].NoticeID; id == NoticeID(child) || !strings.HasPrefix(id, NoticeID(child)+"@") {
+		t.Fatalf("notice ID %q reuses the acknowledged notice's ID", id)
 	}
 }
 

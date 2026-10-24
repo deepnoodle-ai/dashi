@@ -61,6 +61,9 @@ func run(ctx context.Context) error {
 		Agent:  dashi.Agent{Model: dashitest.Model},
 		// By default the newest turns are kept word for word. A negative
 		// TailFraction keeps none, so the summary replaces all older turns.
+		// With an empty Model, the session's model writes the summary. A
+		// Session needs no Compactor.Client; that field is for hosts that
+		// call StartIfNeeded themselves.
 		Compactor: &compaction.Compactor{Policy: policy, TailFraction: -1},
 	}
 

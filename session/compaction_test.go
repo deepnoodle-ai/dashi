@@ -411,6 +411,56 @@ func TestSessionCompactionFailed(t *testing.T) {
 	}
 }
 
+// The warning that a Start closed the last turn reaches the caller once,
+// whether compaction runs, finds nothing to compact, or streams.
+func TestSessionCompactionKeepsTurnClosedWarningOnce(t *testing.T) {
+	closedFirst := func(t *testing.T, replies ...llm.Result) (*session.Session, *dashi.MemoryRecorder) {
+		rec := dashi.NewMemoryRecorder()
+		client := held(1, replies...)
+		s := handle(rec, client)
+		s.New = true
+		ctx, cancel := context.WithCancel(t.Context())
+		done := sendAsync(ctx, s, "first")
+		entered(t, client)
+		cancel()
+		<-done
+		return s, rec
+	}
+	count := func(warnings []dashi.Warning) int {
+		n := 0
+		for _, w := range warnings {
+			if w.Code == session.WarningTurnClosed {
+				n++
+			}
+		}
+		return n
+	}
+	t.Run("nothing to compact", func(t *testing.T) {
+		s, _ := closedFirst(t, dashitest.Reply("two"))
+		s.Compactor = keepLast{limit: 0, err: session.ErrNothingToCompact}
+		out := sendAll(t, s, "second")
+		if out.Turn.ID != "s-2" || count(out.SessionWarnings) != 1 {
+			t.Fatalf("turn=%s warnings=%v", out.Turn.ID, out.SessionWarnings)
+		}
+	})
+	t.Run("stream", func(t *testing.T) {
+		s, _ := closedFirst(t, dashitest.Reply("summary"), dashitest.Reply("two"))
+		s.Compactor = keepLast{limit: 0}
+		got := drain(t, s.Stream(t.Context(), dashi.Say("second")))
+		if len(got.errs) != 0 {
+			t.Fatal(got.errs)
+		}
+		total := 0
+		for _, out := range got.byTurn {
+			total += count(out.SessionWarnings)
+		}
+		if total != 1 || count(got.byTurn["s-2"].SessionWarnings) != 1 {
+			t.Fatalf("%d turn_closed warnings; s-3 has %v",
+				total, got.byTurn["s-3"].SessionWarnings)
+		}
+	})
+}
+
 // Compaction follows any ended turn, including one the next Start closed.
 func TestSessionCompactionAfterClosedTurn(t *testing.T) {
 	always := keepLast{limit: 0}
