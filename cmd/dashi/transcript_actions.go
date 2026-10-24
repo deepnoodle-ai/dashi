@@ -223,8 +223,8 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 	}
 	if e.Type == tui.MouseClick && e.Button == tui.MouseButtonLeft {
 		i, line, ok := s.vp.ItemAt(local.X, local.Y)
-		if ok && i < len(s.tr.Blocks) && s.tr.Blocks[i].Kind == KindTool && toolHasMore(s.tr.Blocks[i]) {
-			// A click anywhere on a short line expands it. An expanded line
+		if ok && i < len(s.tr.Blocks) && s.tr.Blocks[i].Kind == KindTool && toolExpandable(s.tr.Blocks[i]) {
+			// A click anywhere on a collapsed row expands it. An expanded row
 			// collapses only from its head, so a click in the output does not.
 			if line != 0 && s.expanded[i] {
 				return
@@ -240,8 +240,10 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 	}
 }
 
+// fullBlock is b with a tool row expanded, for the views that cannot take
+// a click, such as /scrollback and the transcript printed at exit.
 func fullBlock(b Block) Block {
-	if b.Kind == KindTool && b.Detail != "" {
+	if b.Kind == KindTool && toolExpandable(b) {
 		b.Expanded = true
 	}
 	return b

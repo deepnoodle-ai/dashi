@@ -12,7 +12,6 @@ import (
 // The text carries styles as escape codes only when useColor is true.
 func nativeBlockText(b Block, width int, useColor bool) (string, bool) {
 	b = printable(b)
-	width = readingWidthFor(b.Kind, width)
 	view := blockView(b)
 	if b.Kind == KindFooter {
 		view = footerView(b, width)

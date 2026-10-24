@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/deepnoodle-ai/wonton/runewidth"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
@@ -295,23 +294,17 @@ func (s *screen) Item(i int) tui.View {
 	if b.Kind == KindFooter {
 		return footerView(b, s.width)
 	}
-	return readingView(b.Kind, blockView(b))
+	return blockView(b)
 }
 
-// liveBlock is block i as the live screen draws it. A tool line shows its
-// whole output when the user expanded it, offers the expansion when there
-// is more to see and room on its result line, and spins while it runs.
+// liveBlock is block i as the live screen draws it. A tool row shows its
+// input and output when the user expanded it, and spins while it runs.
 func (s *screen) liveBlock(i int) Block {
 	b := s.tr.Blocks[i]
 	if b.Kind != KindTool {
 		return b
 	}
-	more := toolHasMore(b)
-	b.Expanded = more && s.expanded[i]
-	if more && b.Summary != "" {
-		room := min(readingWidth, s.width-2) - 2 - runewidth.StringWidth(toolResultMarker)
-		b.ExpandHint = s.width <= 0 || runewidth.StringWidth(b.Summary+toolExpandHint) <= room
-	}
+	b.Expanded = s.expanded[i] && toolExpandable(b)
 	if toolSpins(b.State) {
 		b.Spinner = s.spinnerFrame()
 	}
@@ -344,11 +337,7 @@ func (s *screen) Source(i int) (string, bool) {
 	b := s.liveBlock(i)
 	switch b.Kind {
 	case KindTool:
-		head := toolHeadSource(b)
-		if body := toolBody(b); body != "" {
-			return head + "\n" + body, true
-		}
-		return head, true
+		return toolSource(b), true
 	case KindDiff:
 		return strings.Join(b.Lines, "\n"), true
 	case KindFooter:

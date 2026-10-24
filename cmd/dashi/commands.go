@@ -349,6 +349,8 @@ func (c *Controller) helpDoc() helpDoc {
 				keys.Rows[i].Text = "interrupt or press twice to exit"
 			case "F2":
 				keys.Rows[i].Text = "native terminal selection is already enabled"
+			case "Click":
+				keys.Rows[i].Text = "fullscreen only; /scrollback shows tool input and output"
 			}
 		}
 		keys.Note = "  Use your terminal's selection and copy controls in inline mode."
@@ -366,6 +368,7 @@ var composerKeys = []helpRow{
 	{Name: "Tab", Text: "complete; Tab and Shift+Tab cycle choices"},
 	{Name: "Esc", Text: "undo completion, stop work, or return to live output"},
 	{Name: "Page Up/Down", Text: "scroll the transcript"},
+	{Name: "Click", Text: "show or hide a tool call's input and output"},
 	{Name: "Ctrl+G", Text: "edit the draft in an external editor"},
 	{Name: "Ctrl+C", Text: "copy selection; otherwise interrupt or press twice to exit"},
 	{Name: "F2", Text: "toggle native selection without changing the draft"},

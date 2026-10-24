@@ -16,13 +16,28 @@ import (
 
 // View implements tui.Application.
 func (s *screen) View() tui.View {
-	view := tui.Stack(
-		tui.PaddingLTRB(1, 0, 1, 0, tui.Viewport(&s.vp, s).Gap(1)), s.footer(),
-	).Gap(0)
+	view := belowTranscript(tui.PaddingLTRB(1, 0, 1, 0, tui.Viewport(&s.vp, s).Gap(1)), s.footer())
 	if s.noColor {
 		return withoutColors(view, s.height)
 	}
 	return view
+}
+
+// belowTranscript stacks the live UI under the transcript with one empty
+// row between them, so transcript text never touches the working line, a
+// hint, a dialog, or the prompt. The live UI itself starts with no empty
+// row; separate adds one between its own parts.
+func belowTranscript(transcript, footer tui.View) tui.View {
+	return tui.Stack(transcript, tui.Text(""), footer).Gap(0)
+}
+
+// separate adds an empty row to the live UI before its next part, unless
+// that part is first: belowTranscript already puts a row there.
+func separate(views []tui.View) []tui.View {
+	if len(views) == 0 {
+		return views
+	}
+	return append(views, tui.Text(""))
 }
 
 func (s *screen) footer() tui.View {
@@ -46,15 +61,17 @@ func (s *screen) footer() tui.View {
 	default:
 		mode := s.ctrl.Mode()
 		if mode == ModeRunning {
-			views = append(views, tui.Text(""), s.workingView())
+			views = append(separate(views), s.workingView())
 		}
 		for _, row := range attachmentPreviewRows(&s.attachments, s.ctrl.attachmentRoot) {
 			views = append(views, tui.Text(" %s", row).Style(mutedStyle))
 		}
+		// A hint such as the steering tip is UI of its own, so it gets an
+		// empty row above it too.
 		if hint := s.inputHint(mode); hint != "" {
-			views = append(views, tui.Text(" %s", hint).Wrap().Style(hintStyle))
+			views = append(separate(views), tui.Text(" %s", hint).Wrap().Style(hintStyle))
 		}
-		views = append(views, tui.Text(""), tui.Panel(tui.PaddingLTRB(1, 1, 1, 1, s.inputView(mode))).Style(promptStyle))
+		views = append(separate(views), tui.Panel(tui.PaddingLTRB(1, 1, 1, 1, s.inputView(mode))).Style(promptStyle))
 		if menu = s.commandMenuMatches(); menu != nil {
 			views = append(views, s.commandMenuView(menu))
 		}
@@ -474,24 +491,17 @@ func footerView(b Block, width int) tui.View {
 	return tui.Group(views...)
 }
 
-// toolView draws a tool line: a glyph and the head, with the name, the
-// argument, and the state at the right edge; then the decide lines; then the
-// result line under a "└" connector. An expanded line shows the whole output
-// in place of the result line.
+// toolView draws a tool row: a glyph, the label, and the state at the right
+// edge; then the decide lines. The row shows no input or output until a
+// click expands it; then the input and the whole output follow.
 func toolView(b Block) tui.View {
 	glyph, state := toolGlyph(b), toolState(b)
-	// The name and argument are the tool line's text, so a selection copies
-	// them. The glyph and the state at the right edge are decoration.
-	name, arg := toolHead(b)
-	views := []tui.View{glyph, tui.Text(" "), tui.Text("%s", name).SourceOffset(0).Bold()}
-	if arg != "" {
-		views = append(views, tui.Text("%s", toolHeadSep),
-			tui.Text("%s", arg).SourceOffset(len(name)+len(toolHeadSep)).Style(mutedStyle).Wrap().Flex(1))
-	} else {
-		views = append(views, tui.Spacer())
-	}
-	views = append(views, tui.Text("  "), state)
-	rows := []tui.View{tui.Height(1, tui.Group(views...))}
+	// The label is the row's text, so a selection copies it. The glyph and
+	// the state at the right edge are decoration. A narrow row cuts the
+	// label to its first line, not the state.
+	label := toolLabelText(b)
+	rows := []tui.View{tui.Height(1, tui.Group(glyph, tui.Text(" "),
+		tui.Text("%s", label).SourceOffset(0).Wrap().Flex(1), tui.Text("  "), state))}
 	// Check badges belong with the check details. Keeping them out of the
 	// header reserves space for the tool state even on narrow terminals.
 	if tick := decideTicks(b); tick != "" {
@@ -507,15 +517,16 @@ func toolView(b Block) tui.View {
 		}
 		rows = append(rows, tui.PaddingLTRB(2, 0, 0, 0, t))
 	}
-	if body := toolBody(b); body != "" {
-		text := tui.Text("%s", body).SourceOffset(len(toolHeadSource(b)) + 1).Wrap().Style(toolBodyStyle(b))
-		result := []tui.View{tui.Text("  %s", toolResultMarker).Style(faintStyle)}
-		if b.ExpandHint && !b.Expanded {
-			result = append(result, text, tui.Text("%s", toolExpandHint).Style(faintStyle))
-		} else {
-			result = append(result, text.Flex(1))
+	if b.Expanded {
+		input, output := toolSections(b)
+		offset := len(label) + 1
+		if input != "" {
+			rows = append(rows, toolSectionView("Input", input, offset))
+			offset += len(input) + 1
 		}
-		rows = append(rows, tui.Group(result...))
+		if output != "" {
+			rows = append(rows, toolSectionView("Output", output, offset))
+		}
 	}
 	if len(rows) == 1 {
 		return rows[0]
@@ -523,11 +534,52 @@ func toolView(b Block) tui.View {
 	return tui.Stack(rows...).Gap(0)
 }
 
-// toolResultMarker starts the result line under a tool line.
-const toolResultMarker = "└ "
+// toolSectionView draws one part of an expanded tool row under a faint
+// heading. Only the text is copyable; offset is where it starts in the row's
+// source.
+func toolSectionView(heading, text string, offset int) tui.View {
+	return tui.PaddingLTRB(2, 0, 0, 0, tui.Stack(
+		tui.Text("%s", heading).Style(faintStyle),
+		tui.Text("%s", text).SourceOffset(offset).Wrap().Style(mutedStyle),
+	).Gap(0))
+}
 
-// toolExpandHint ends a result line that a click can expand.
-const toolExpandHint = " · click to expand"
+// toolSections are the input and the output an expanded tool row shows.
+// The output is the whole output of an ended call, or the last output
+// lines of a running one.
+func toolSections(b Block) (input, output string) {
+	output = strings.TrimRight(b.Detail, "\n")
+	if output == "" {
+		output = strings.Join(b.Lines, "\n")
+	}
+	return strings.TrimRight(b.Input, "\n"), output
+}
+
+// toolExpandable reports whether a click on a tool row has something to
+// show: an input or an output.
+func toolExpandable(b Block) bool {
+	input, output := toolSections(b)
+	return input != "" || output != ""
+}
+
+// toolSource is the copyable text of a tool row: the label, then the input
+// and the output of an expanded row.
+func toolSource(b Block) string {
+	parts := []string{toolLabelText(b)}
+	if b.Expanded {
+		input, output := toolSections(b)
+		for _, p := range []string{input, output} {
+			if p != "" {
+				parts = append(parts, p)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+// toolResultMarker connects a task's status line to the tool row that
+// started the task.
+const toolResultMarker = "└ "
 
 // toolGlyph is the glyph that starts a tool line. It carries the state: a
 // dot in the success color for a call that worked, a cross for one that
@@ -580,75 +632,11 @@ func toolState(b Block) tui.View {
 	case StateCheckingResult:
 		return tui.Text("decide: checking result…").Style(mutedStyle)
 	}
-	return tui.Text("running").Style(mutedStyle)
-}
-
-// toolBody is the text under a tool line's head: the whole output when the
-// line is expanded, else the result line, else the last output lines of a
-// running call.
-func toolBody(b Block) string {
-	switch {
-	case b.Expanded && b.Detail != "":
-		return strings.TrimRight(b.Detail, "\n")
-	case b.Summary != "":
-		return b.Summary
+	// The phrase already says the call is running.
+	if b.Elapsed <= 0 {
+		return tui.Text("")
 	}
-	return strings.Join(b.Lines, "\n")
-}
-
-// toolBodyStyle colors the text under a tool line. The user's answer to a
-// question is the reason for the call, so it keeps the normal color; an
-// error is danger; anything else is muted.
-func toolBodyStyle(b Block) tui.Style {
-	switch {
-	case b.Expanded && b.Detail != "":
-		return mutedStyle
-	case b.State == StateFailed:
-		return dangerStyle
-	case b.State == StateOK && b.Name == workspace.ToolAskUser:
-		return textStyle
-	}
-	return mutedStyle
-}
-
-// readingWidth is the most columns that transcript text and tool lines
-// take, so lines stay easy to read on a wide terminal. The user's prompts
-// and the turn footer still span the whole width.
-const readingWidth = 100
-
-// readingView caps the width of a block's view at readingWidth, except for
-// the blocks that span the whole width.
-func readingView(kind BlockKind, view tui.View) tui.View {
-	if view == nil || kind == KindUser || kind == KindFooter {
-		return view
-	}
-	return tui.MaxWidth(readingWidth, view)
-}
-
-// readingWidthFor is the width a block of kind takes in native scrollback
-// that is width columns wide.
-func readingWidthFor(kind BlockKind, width int) int {
-	if kind == KindUser || kind == KindFooter {
-		return width
-	}
-	return min(width, readingWidth)
-}
-
-// toolHeadSep separates a tool's name from its argument on the tool line.
-const toolHeadSep = "  "
-
-// toolHead returns the tool name and argument as the tool line shows them.
-func toolHead(b Block) (name, arg string) {
-	return workspace.PrintableText(b.Name), fitArg(workspace.PrintableText(b.Arg), 70)
-}
-
-// toolHeadSource is the copyable text of a tool line's head.
-func toolHeadSource(b Block) string {
-	name, arg := toolHead(b)
-	if arg == "" {
-		return name
-	}
-	return name + toolHeadSep + arg
+	return tui.Text("%s", elapsed).Style(mutedStyle)
 }
 
 // sourceLabel draws a label and its source text in one style. Only the

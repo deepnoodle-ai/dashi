@@ -424,10 +424,13 @@ func TestRuntimeRetainsCompleteToolOutputAndExpands(t *testing.T) {
 	h.typeText("read")
 	h.key(tui.KeyEvent{Key: tui.KeyEnter})
 	h.app.ctrl.Wait()
-	shown := h.wait(func(s transcriptState) bool { return s.mode == ModeIdle && strings.Contains(s.text, "click to expand") })
+	shown := h.wait(func(s transcriptState) bool { return s.mode == ModeIdle && strings.Contains(s.text, "Read output.txt") })
+	if strings.Contains(shown.text, "tool output line") {
+		t.Fatalf("collapsed row shows output:\n%s", shown.text)
+	}
 	row := -1
 	for y, line := range strings.Split(shown.text, "\n") {
-		if strings.Contains(line, "read_file") {
+		if strings.Contains(line, "Read output.txt") {
 			row = y
 			break
 		}

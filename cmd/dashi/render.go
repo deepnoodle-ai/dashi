@@ -88,6 +88,12 @@ type Block struct {
 	// Name and Arg describe a tool call: its name and its main argument.
 	Name string
 	Arg  string
+	// Label names a tool call in words, such as "Read render.go". The
+	// screen's tool row shows it in place of Name and Arg.
+	Label toolLabel
+	// Input is a tool call's whole input, which an expanded tool row shows
+	// (see toolInput).
+	Input string
 	// State is the tool or steer state, a message line's direction, or a
 	// stop's dashi.StopKind.
 	State   string
@@ -97,15 +103,12 @@ type Block struct {
 	Lines []string
 	// Summary is the result line of a finished tool call, such as the
 	// user's answer, "214 lines", or the last error line (see toolSummary).
-	// Every UI shows it under the tool line.
+	// Plain output shows it under the tool line; the screen does not.
 	Summary string
 	// Detail retains complete tool output for expansion and native scrollback.
 	Detail string
-	// Expanded is a display-only view; the stored transcript keeps its excerpt.
+	// Expanded shows a tool call's Input and whole output. Display-only.
 	Expanded bool
-	// ExpandHint ends the result line with "click to expand". Only the live
-	// screen sets it, where a click shows Detail. Display-only.
-	ExpandHint bool
 	// Spinner is the spinner frame a running tool line shows in place of its
 	// glyph. Only the live screen sets it. Display-only.
 	Spinner string
@@ -151,6 +154,8 @@ type Renderer struct {
 type callState struct {
 	name    string
 	arg     string
+	label   toolLabel
+	input   string
 	started time.Time
 	denied  string
 	decide  *decideMark
@@ -216,7 +221,7 @@ func messageKey(messageID, modelCallID string) string {
 func (r *Renderer) progress(p *dashi.ToolProgress) []Block {
 	c := r.calls[p.CallID]
 	if c == nil {
-		c = &callState{name: p.Name, started: time.Now()}
+		c = &callState{name: p.Name, started: time.Now(), label: newToolLabel(p.Name, nil, "")}
 		r.calls[p.CallID] = c
 	}
 	b := r.toolBlock(p.CallID, c, StateRunning)
@@ -237,6 +242,8 @@ func (r *Renderer) toolBlock(id string, c *callState, state string) Block {
 		Kind:         KindTool,
 		Name:         c.name,
 		Arg:          c.arg,
+		Label:        c.label,
+		Input:        c.input,
 		State:        state,
 		Decide:       c.decide,
 		DecideResult: c.result,
@@ -409,6 +416,8 @@ func (r *Renderer) toolCall(s dashi.Step) *callState {
 	}
 	c.name = call.Name
 	c.arg = mainArg(call.Args, r.Dir)
+	c.label = newToolLabel(call.Name, call.Args, r.Dir)
+	c.input = toolInput(call.Name, call.Args, r.Dir)
 	switch call.Name {
 	case delegate.ToolName:
 		c.arg = taskToolArg(call.Args, s.TurnID, call.ID)
@@ -452,6 +461,9 @@ func (r *Renderer) toolFinished(s dashi.Step) []Block {
 	// A sent message shows as a message line, not a tool line.
 	if c.name == delegate.SendToolName && state == StateOK {
 		return []Block{taskSendBlock(id, s.Tool.Call.Args)}
+	}
+	if c.name == workspace.ToolWriteFile && state == StateOK && strings.HasPrefix(outputText(s.Tool.Outcome), "Created ") {
+		c.label = c.label.created()
 	}
 	b := r.toolBlock(id, c, state)
 	// A started task's output only instructs the model. The status line
@@ -852,6 +864,19 @@ func formatTool(b Block) string {
 	return line
 }
 
+// toolBody is the text under a tool line in plain output: the whole
+// output when the line is expanded, else the result line, else the last
+// output lines of a running call.
+func toolBody(b Block) string {
+	switch {
+	case b.Expanded && b.Detail != "":
+		return strings.TrimRight(b.Detail, "\n")
+	case b.Summary != "":
+		return b.Summary
+	}
+	return strings.Join(b.Lines, "\n")
+}
+
 // mainArg picks the argument to show next to a tool name: the path, command,
 // pattern, or other first string that names what the call works on. A path
 // inside dir shows relative to dir.
@@ -917,6 +942,9 @@ func printable(b Block) Block {
 	b.Summary = workspace.PrintableText(b.Summary)
 	b.Name = workspace.PrintableText(b.Name)
 	b.Arg = workspace.PrintableText(b.Arg)
+	b.Label.Running = workspace.PrintableText(b.Label.Running)
+	b.Label.Done = workspace.PrintableText(b.Label.Done)
+	b.Input = workspace.PrintableText(b.Input)
 	if b.Footer != nil {
 		f := *b.Footer
 		f.Model, f.Cost = workspace.PrintableText(f.Model), workspace.PrintableText(f.Cost)

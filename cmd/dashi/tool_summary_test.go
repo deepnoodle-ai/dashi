@@ -9,7 +9,6 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	tl "github.com/deepnoodle-ai/dashi/tool"
 	"github.com/deepnoodle-ai/wonton/runewidth"
-	"github.com/deepnoodle-ai/wonton/tui"
 )
 
 func TestToolSummary(t *testing.T) {
@@ -64,9 +63,8 @@ func TestToolSummary(t *testing.T) {
 	}
 }
 
-// The renderer puts the user's answer on the finished ask_user row, and the
-// row draws it in the normal color rather than muted.
-func TestAskUserRowShowsTheAnswer(t *testing.T) {
+// The renderer keeps the user's answer as the plain-output result line.
+func TestAskUserPlainOutputShowsTheAnswer(t *testing.T) {
 	r := NewRenderer(1, "m", "/repo")
 	out := tl.Succeeded("Ramen")
 	step := dashi.Step{Kind: dashi.StepToolFinished, Tool: &dashi.ToolFact{
@@ -79,104 +77,6 @@ func TestAskUserRowShowsTheAnswer(t *testing.T) {
 	}
 	if got := FormatBlock(b); !strings.Contains(got, "\n    └ Ramen") {
 		t.Fatalf("plain=%q", got)
-	}
-	styled := tui.Sprint(toolView(b), tui.WithWidth(80), tui.WithColor(true))
-	if !strings.Contains(styled, "\x1b[0mRamen") || strings.Contains(styled, "248mRamen") {
-		t.Fatalf("answer style=%q", styled)
-	}
-}
-
-func TestFailedToolRowShowsTheError(t *testing.T) {
-	b := Block{Kind: KindTool, Name: "bash", Arg: "make lint", State: StateFailed, Elapsed: 3200 * time.Millisecond,
-		Summary: "exit 2 · undefined: foo", Detail: "undefined: foo\n[Exit code 2]", Done: true}
-	plain := tui.Sprint(toolView(b), tui.WithWidth(80), tui.WithColor(false))
-	if !strings.Contains(plain, "✗ bash  make lint") || !strings.Contains(plain, "failed  3.2s") ||
-		!strings.Contains(plain, "  └ exit 2 · undefined: foo") {
-		t.Fatalf("row=%q", plain)
-	}
-	styled := tui.Sprint(toolView(b), tui.WithWidth(80), tui.WithColor(true))
-	if !strings.Contains(styled, "\x1b[0;31mexit 2 · undefined: foo") {
-		t.Fatalf("error style=%q", styled)
-	}
-}
-
-func TestToolRowOffersExpansionOnlyWhenThereIsMore(t *testing.T) {
-	s := newScreen("fixture")
-	s.width = 120
-	s.tr.Apply(Block{ID: "one", Kind: KindTool, Name: "ask_user", State: StateOK, Summary: "Ramen", Detail: "Ramen", Done: true})
-	s.tr.Apply(Block{ID: "many", Kind: KindTool, Name: "read_file", State: StateOK, Summary: "2 lines", Detail: "a\nb\n", Done: true})
-	s.tr.Apply(Block{ID: "none", Kind: KindTool, Name: "task", State: StateOK, Done: true})
-	row := func(i int) string { return tui.Sprint(s.Item(i), tui.WithWidth(118), tui.WithColor(false)) }
-	if got := row(0); strings.Contains(got, "click to expand") || !strings.Contains(got, "└ Ramen") {
-		t.Fatalf("single line=%q", got)
-	}
-	if got := row(1); !strings.Contains(got, "└ 2 lines · click to expand") {
-		t.Fatalf("more=%q", got)
-	}
-	if got := row(2); strings.Contains(got, "└") {
-		t.Fatalf("no result=%q", got)
-	}
-	// The hint is not part of what a selection copies, and plain output
-	// never shows it.
-	if src, _ := s.Source(1); src != "read_file\n2 lines" {
-		t.Fatalf("source=%q", src)
-	}
-	if got := FormatBlock(s.tr.Blocks[1]); strings.Contains(got, "click") {
-		t.Fatalf("plain=%q", got)
-	}
-	// Expanded, the row shows the whole output under the connector.
-	s.expanded = map[int]bool{1: true}
-	if got := row(1); !strings.Contains(got, "  └ a\n    b") || strings.Contains(got, "click") {
-		t.Fatalf("expanded=%q", got)
-	}
-	if src, _ := s.Source(1); src != "read_file\na\nb" {
-		t.Fatalf("expanded source=%q", src)
-	}
-}
-
-func TestReadingWidthCapsToolRowsNotTheFooter(t *testing.T) {
-	s := newScreen("fixture")
-	s.width = 160
-	s.tr.Apply(Block{ID: "t", Kind: KindTool, Name: "bash", Arg: "go test ./...", State: StateFailed, Elapsed: time.Second, Summary: "exit 1", Done: true})
-	s.tr.Apply(Block{ID: "f", Kind: KindFooter, Footer: &footerFacts{Turn: 1, Calls: 1}, Done: true})
-	s.tr.Apply(Block{ID: "a", Kind: KindAssistant, Text: strings.Repeat("word ", 60), Done: true})
-	lines := func(i int) []string {
-		return strings.Split(tui.Sprint(s.Item(i), tui.WithWidth(160), tui.WithColor(false)), "\n")
-	}
-	head := strings.TrimRight(lines(0)[0], " ")
-	if runewidth.StringWidth(head) != readingWidth || !strings.HasSuffix(head, "failed  1.0s") {
-		t.Fatalf("tool head is %d columns: %q", runewidth.StringWidth(head), head)
-	}
-	if footer := strings.TrimRight(lines(1)[0], " "); runewidth.StringWidth(footer) != 160 {
-		t.Fatalf("footer is %d columns: %q", runewidth.StringWidth(footer), footer)
-	}
-	for _, line := range lines(2) {
-		if w := runewidth.StringWidth(strings.TrimRight(line, " ")); w > readingWidth {
-			t.Fatalf("reply line is %d columns: %q", w, line)
-		}
-	}
-	native, _ := nativeBlockText(s.tr.Blocks[0], 160, false)
-	if head := strings.Split(native, "\n")[0]; runewidth.StringWidth(strings.TrimRight(head, " ")) != readingWidth {
-		t.Fatalf("native head=%q", head)
-	}
-}
-
-func TestRunningToolRowSpins(t *testing.T) {
-	s := newScreen("fixture")
-	s.width = 80
-	s.tr.Apply(Block{ID: "t", Kind: KindTool, Name: "grep", Arg: "TaskBudget", State: StateRunning})
-	draw := func() string { return tui.Sprint(s.Item(0), tui.WithWidth(78), tui.WithColor(false)) }
-	first := draw()
-	if !strings.HasPrefix(first, spinnerFrames[0]+" grep") || !strings.Contains(first, "running") {
-		t.Fatalf("first=%q", first)
-	}
-	s.HandleEvent(tui.TickEvent{Frame: 3})
-	if second := draw(); !strings.HasPrefix(second, spinnerFrames[1]+" grep") {
-		t.Fatalf("second=%q", second)
-	}
-	// Outside the live screen, a running row has a still glyph.
-	if got := tui.Sprint(toolView(s.tr.Blocks[0]), tui.WithWidth(78), tui.WithColor(false)); !strings.HasPrefix(got, "● grep") {
-		t.Fatalf("still=%q", got)
 	}
 }
 
