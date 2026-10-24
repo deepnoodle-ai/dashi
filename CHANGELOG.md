@@ -34,7 +34,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   turn it closes first.**
 - **`/task ID continue` runs the decide command-risk check on a stopped
   task's recorded bash approval**, also with
-  `--dangerously-skip-permissions`, and asks about a flagged command.
+  `--dangerously-skip-permissions`, and asks about a flagged command. The
+  prompt shows the check's result, but the turn record does not keep it as
+  it does for a live call: a recorded approval decision has no field for it.
 - **`--turn-events` with redirected input now fails with a hint to add
   `--plain`**, instead of being ignored.
 
