@@ -118,7 +118,7 @@ func TestTaskResultTurnHasNoEmptyUserLineLiveOrReplayed(t *testing.T) {
 		if b.Kind == KindTool && b.Name == delegate.ToolName {
 			text := FormatBlock(b)
 			if b.Task == nil || !b.Done || !strings.Contains(text, "general · Check the exact effect · t_") ||
-				!strings.Contains(text, "\n    ⎿  completed · 1 model call · /task t_") || b.Detail != "" {
+				!strings.Contains(text, "\n    └ completed · 1 model call · /task t_") || b.Detail != "" {
 				t.Fatalf("task tool=%q %+v", text, b)
 			}
 		}
@@ -131,7 +131,7 @@ func TestTaskStatusLineCountsAndCost(t *testing.T) {
 	if b.Kind != KindTaskStatus || b.State != StateOK || !b.Done || b.Parent != "t:call-1" || b.ID != "task:child-1" {
 		t.Fatalf("block=%+v", b)
 	}
-	if got, want := taskLineUnderText(b), "    ⎿  completed · 1 model call · $0.0069 · /task t_u6d77c to inspect"; got != want {
+	if got, want := taskLineUnderText(b), "    └ completed · 1 model call · $0.0069 · /task t_u6d77c to inspect"; got != want {
 		t.Fatalf("line=%q want %q", got, want)
 	}
 	v.State, v.ModelCalls, v.ToolCalls = delegate.TaskRunning, 3, 1
@@ -187,7 +187,7 @@ func TestTranscriptKeepsTaskStatusUnderItsToolLine(t *testing.T) {
 		t.Fatalf("done=%+v", tr.Blocks)
 	}
 	screen := tui.Sprint(blockView(tr.Blocks[0]), tui.WithWidth(100), tui.WithColor(true))
-	if !strings.Contains(screen, "\x1b[0;32mcompleted") || !strings.Contains(screen, "⎿") {
+	if !strings.Contains(screen, "\x1b[0;32mcompleted") || !strings.Contains(screen, "  └ ") {
 		t.Fatalf("screen=%q", screen)
 	}
 	// Without its tool line, the status line stands alone and names its task.
@@ -283,15 +283,6 @@ func TestTaskMessageLineKeepsToOneRow(t *testing.T) {
 	styled := tui.Sprint(blockView(b), tui.WithWidth(80), tui.WithColor(true))
 	if !strings.Contains(styled, "\x1b[0;38;5;75m  → ") {
 		t.Fatalf("arrow color=%q", styled)
-	}
-}
-
-func TestToolOutputHintPluralizes(t *testing.T) {
-	if got := outputLinesText("one"); got != "1 output line" {
-		t.Fatal(got)
-	}
-	if got := outputLinesText("one\ntwo"); got != "2 output lines" {
-		t.Fatal(got)
 	}
 }
 
@@ -439,17 +430,17 @@ func TestTaskLinesKeepTheirSpacesAtEveryWidth(t *testing.T) {
 	for _, b := range []Block{under.Blocks[0], alone.Blocks[0], result} {
 		for w := 30; w <= 120; w++ {
 			screen := tui.SprintScreen(blockView(b), tui.WithWidth(w), tui.WithHeight(8)).Text()
-			for _, bad := range []string{"⎿c", "⎿ c", "d·", "↳t"} {
+			for _, bad := range []string{"└c", "d·", "↳t"} {
 				if strings.Contains(screen, bad) {
 					t.Fatalf("width %d has %q:\n%s", w, bad, screen)
 				}
 			}
-			if strings.Contains(screen, "⎿") && !strings.Contains(screen, "⎿  completed") {
+			if strings.Contains(screen, "└") && !strings.Contains(screen, "└ completed") {
 				t.Fatalf("width %d:\n%s", w, screen)
 			}
 		}
 		plain := FormatBlock(b)
-		if strings.Contains(plain, "⎿") && !strings.Contains(plain, "⎿  completed") {
+		if strings.Contains(plain, "└") && !strings.Contains(plain, "└ completed") {
 			t.Fatalf("plain=%q", plain)
 		}
 		if strings.Contains(plain, "↳") && !strings.Contains(plain, "↳ task") {

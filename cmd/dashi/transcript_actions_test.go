@@ -424,7 +424,7 @@ func TestDragAutoScrollAcrossTurnsKeepsTheAnchor(t *testing.T) {
 			t.Errorf("copy lacks %q:\n%s", want, got)
 		}
 	}
-	for _, decoration := range []string{"──", "⏺", "❯", "↳", "⎿"} {
+	for _, decoration := range []string{"──", "⏺", "❯", "↳", "└", "●"} {
 		if strings.Contains(got, decoration) {
 			t.Errorf("copy includes %q:\n%s", decoration, got)
 		}
@@ -456,7 +456,7 @@ func TestDragAcrossATurnMatchesTheHighlight(t *testing.T) {
 		"file one":     "file one",
 		"turn 1":       "turn 1 · fixture · 2 model calls · 1,234 tokens · $0.01",
 		"Second quest": "Second ",
-		"⎿":            "",
+		"└ task-1":     "",
 	} {
 		if got := lit[row(text)]; got != band {
 			t.Errorf("row %q highlights %q, want %q", text, got, band)

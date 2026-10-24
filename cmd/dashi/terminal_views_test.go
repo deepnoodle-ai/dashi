@@ -235,7 +235,7 @@ func TestTerminalNarrowToolStatesAndChecks(t *testing.T) {
 	}{
 		{StateChecking, "decide: checking command…"},
 		{StateCheckingResult, "decide: checking result…"},
-		{StateOK, "ok  1.0s"},
+		{StateOK, "1.0s"},
 		{StateFailed, "failed  1.0s"},
 	} {
 		t.Run(test.state, func(t *testing.T) {

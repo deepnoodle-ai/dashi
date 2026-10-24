@@ -17,6 +17,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   gray panels with their language on the first line, quotes have a bar at
   the left, and `~~strikethrough~~` is struck through instead of showing
   its tildes. Dashi now uses Wonton v0.9.0.
+- **Tool rows say what happened.** A glyph carries the state (green `●`
+  done, red `✗` failed, `⊘` denied, a spinner while running), so a
+  successful call shows only its time. A result line under each row gives
+  the outcome: your answer to a question, `214 lines` for a read, `+3 -1`
+  for an edit, a command's last output line, or the error of a failed call.
+  It offers `click to expand` only when the full output has more. Replies
+  and tool rows now stay within 100 columns on wide terminals.
 
 ## [0.12.2] - 2026-10-24
 

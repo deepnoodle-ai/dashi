@@ -324,10 +324,9 @@ func taskLineText(b Block) string {
 	return "  ↳ " + head + " · " + b.Text
 }
 
-// taskUnderMarker starts a status line under its tool line. Two spaces
-// follow the marker: some terminal fonts draw ⎿ wider than its cell, and one
-// space then reads as none.
-const taskUnderMarker = "    ⎿  "
+// taskUnderMarker starts the plain text of a status line under its tool
+// line, where a tool's result line starts too.
+const taskUnderMarker = "    " + toolResultMarker
 
 // taskLineUnderText is the plain text of a status line under its tool line.
 func taskLineUnderText(b Block) string {
@@ -388,7 +387,7 @@ func withTaskLine(v tui.View, b Block) tui.View {
 	// The separator is its own view: a wrapping view drops the spaces at its
 	// edges, which would join the state and the separator where it wraps.
 	return tui.Stack(v, tui.Group(
-		tui.Text(taskUnderMarker).Style(faintStyle),
+		tui.Text("  %s", toolResultMarker).Style(faintStyle),
 		tui.Text("%s", t.Name).Style(taskLineStyle(t.State)),
 		tui.Text(" · ").Style(faintStyle),
 		tui.Text("%s", t.Text).Wrap().Style(mutedStyle).Flex(1),

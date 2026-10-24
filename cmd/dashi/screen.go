@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/deepnoodle-ai/wonton/runewidth"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
@@ -283,19 +284,45 @@ func (s *screen) Item(i int) tui.View {
 	if i < 0 || i >= len(s.tr.Blocks) {
 		return nil
 	}
-	b := s.tr.Blocks[i]
+	b := s.liveBlock(i)
 	if b.Kind == KindFooter {
 		return footerView(b, s.width)
 	}
-	if b.Kind == KindTool && b.Detail != "" {
-		if s.expanded[i] {
-			b.Expanded = true
-		} else {
-			return tui.Stack(blockView(b), tui.PaddingLTRB(6, 0, 0, 0,
-				tui.Text("%s · click to expand", outputLinesText(b.Detail)).Style(hintStyle))).Gap(0)
+	return readingView(b.Kind, blockView(b))
+}
+
+// liveBlock is block i as the live screen draws it. A tool line shows its
+// whole output when the user expanded it, offers the expansion when there
+// is more to see and room on its result line, and spins while it runs.
+func (s *screen) liveBlock(i int) Block {
+	b := s.tr.Blocks[i]
+	if b.Kind != KindTool {
+		return b
+	}
+	more := toolHasMore(b)
+	b.Expanded = more && s.expanded[i]
+	if more && b.Summary != "" {
+		room := min(readingWidth, s.width-2) - 2 - runewidth.StringWidth(toolResultMarker)
+		b.ExpandHint = s.width <= 0 || runewidth.StringWidth(b.Summary+toolExpandHint) <= room
+	}
+	if toolSpins(b.State) {
+		b.Spinner = s.spinnerFrame()
+	}
+	return b
+}
+
+// spinTools redraws the tool lines that show the spinner. Only the lines
+// after the last turn footer can still run.
+func (s *screen) spinTools() {
+	for i := len(s.tr.Blocks) - 1; i >= 0; i-- {
+		b := s.tr.Blocks[i]
+		if b.Kind == KindFooter {
+			return
+		}
+		if b.Kind == KindTool && toolSpins(b.State) {
+			s.vp.Invalidate(i)
 		}
 	}
-	return blockView(b)
 }
 
 // Source implements tui.ViewportSourceItems: it is the text a selection
@@ -307,17 +334,14 @@ func (s *screen) Source(i int) (string, bool) {
 	if i < 0 || i >= len(s.tr.Blocks) {
 		return "", true
 	}
-	b := s.tr.Blocks[i]
+	b := s.liveBlock(i)
 	switch b.Kind {
 	case KindTool:
 		head := toolHeadSource(b)
-		if s.expanded[i] && b.Detail != "" {
-			return head + "\n" + b.Detail, true
+		if body := toolBody(b); body != "" {
+			return head + "\n" + body, true
 		}
-		if len(b.Lines) == 0 {
-			return head, true
-		}
-		return head + "\n" + strings.Join(b.Lines, "\n"), true
+		return head, true
 	case KindDiff:
 		return strings.Join(b.Lines, "\n"), true
 	case KindFooter:
@@ -367,7 +391,11 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 	case tui.ResizeEvent:
 		s.width, s.height = e.Width, e.Height
 	case tui.TickEvent:
+		before := s.spinnerFrame()
 		s.frame = e.Frame
+		if s.spinnerFrame() != before {
+			s.spinTools()
+		}
 		if s.vp.DragAutoScroll() {
 			s.selectionRevision++
 		}
