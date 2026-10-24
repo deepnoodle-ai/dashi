@@ -3,6 +3,7 @@ package dashi
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -887,5 +888,62 @@ func TestAdvanceDoesNotContinueFromAnInboxContinuesStop(t *testing.T) {
 	}
 	if n := len(stepsOf(out.Turn, StepTurnContinued)); n != 2 || client.sends != 0 {
 		t.Fatalf("continues=%d sends=%d", n, client.sends)
+	}
+}
+
+// loseSteerWrite loses the first write of added messages: the write fails
+// with an unknown result.
+type loseSteerWrite struct {
+	*MemoryRecorder
+	fired bool
+}
+
+func (r *loseSteerWrite) Commit(ctx context.Context, req CommitRequest) error {
+	if !r.fired && req.Step.Kind == StepMessagesAdded {
+		r.fired = true
+		return &CommitError{Err: errors.New("write lost")}
+	}
+	return r.MemoryRecorder.Commit(ctx, req)
+}
+
+// releaseLog records what an InboxReleaser hears.
+type releaseLog struct {
+	*MemoryInbox
+	unrecorded, inDoubt []string
+}
+
+func (in *releaseLog) Release(ctx context.Context, turnID string, unrecorded, inDoubt []string) {
+	in.unrecorded = append(in.unrecorded, unrecorded...)
+	in.inDoubt = append(in.inDoubt, inDoubt...)
+	in.MemoryInbox.Release(ctx, turnID, unrecorded, inDoubt)
+}
+
+// A steer whose write has an unknown result is never released as
+// unrecorded when Advance returns, so a host inbox cannot hand it to
+// another turn.
+func TestAdvanceReleasesAnInDoubtSteerAsInDoubt(t *testing.T) {
+	inbox := &releaseLog{MemoryInbox: NewMemoryInbox()}
+	rec := &loseSteerWrite{MemoryRecorder: NewMemoryRecorder()}
+	runner := Runner{
+		Client:   &scriptedClient{results: []llm.Result{final("done")}},
+		Recorder: rec,
+		Inbox:    inbox,
+	}
+	savedTurn(t, runner)
+	id, err := inbox.SendText("wrong file")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Advance(t.Context(), "t1"); err == nil {
+		t.Fatal("the lost write was not reported")
+	}
+	if !rec.fired {
+		t.Fatal("the steer was never written")
+	}
+	if slices.Contains(inbox.unrecorded, id) || !slices.Contains(inbox.inDoubt, id) {
+		t.Fatalf("unrecorded=%v inDoubt=%v", inbox.unrecorded, inbox.inDoubt)
+	}
+	if other, err := inbox.Waiting(t.Context(), "t2"); err != nil || len(other) != 0 {
+		t.Fatalf("another turn received the in-doubt steer: %+v", other)
 	}
 }

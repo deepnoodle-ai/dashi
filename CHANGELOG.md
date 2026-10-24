@@ -12,7 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   arrives as the turn ends is no longer refused and deleted; it stays in the
   inbox for the next turn (`MemoryInbox.Leftovers`). When Advance returns,
   an `InboxReleaser` gets back the steers no run took, so `Withdraw` works
-  on them again.
+  on them again. A steer in a write whose result is unknown comes back as
+  in doubt, never as unrecorded.
 - **A Continue from the inbox counts as Advance's own run.** Advance no
   longer runs a second Continue, or retries a hold, right after it.
 - **Active compaction's size estimate never records a stop.** A content

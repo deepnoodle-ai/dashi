@@ -228,6 +228,7 @@ func (r Runner) newAdvancer(turnID string, o runOptions) (*advancer, error) {
 // the inbox's claim on the steers no run recorded, so Withdraw and other
 // turns can take them again.
 func (a *advancer) advance(ctx context.Context) (RunResult, error) {
+	a.opts.inDoubt = map[string]bool{}
 	out, err := a.passes(ctx)
 	a.releaseSteers(ctx, out.Turn)
 	return out, err
@@ -235,7 +236,9 @@ func (a *advancer) advance(ctx context.Context) (RunResult, error) {
 
 // releaseSteers releases the steers of the last inbox read that turn does
 // not record. Without a loaded turn it keeps the claims: a steer that might
-// be recorded must not go to another turn.
+// be recorded must not go to another turn. A steer a run left in doubt is
+// released as in doubt again, never as unrecorded: turn may be the run's
+// copy, which lacks a write whose result is unknown.
 func (a *advancer) releaseSteers(ctx context.Context, turn Turn) {
 	releaser, ok := a.inbox.(InboxReleaser)
 	if !ok || len(a.steers) == 0 || len(turn.Steps) == 0 {
@@ -245,19 +248,24 @@ func (a *advancer) releaseSteers(ctx context.Context, turn Turn) {
 	if err != nil {
 		return
 	}
-	var unrecorded []string
+	var unrecorded, inDoubt []string
 	for _, id := range a.steers {
-		if _, recorded := state.contextIDs[id]; !recorded {
+		if _, recorded := state.contextIDs[id]; recorded {
+			continue
+		}
+		if a.opts.inDoubt[id] {
+			inDoubt = append(inDoubt, id)
+		} else {
 			unrecorded = append(unrecorded, id)
 		}
 	}
 	a.steers = nil
-	if len(unrecorded) == 0 {
+	if len(unrecorded) == 0 && len(inDoubt) == 0 {
 		return
 	}
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), inboxTimeout)
 	defer cancel()
-	releaser.Release(rctx, a.turnID, unrecorded, nil)
+	releaser.Release(rctx, a.turnID, unrecorded, inDoubt)
 }
 
 // passes runs passes until the turn must wait or has ended.
