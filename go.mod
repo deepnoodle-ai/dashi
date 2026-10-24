@@ -7,6 +7,7 @@ require (
 	github.com/deepnoodle-ai/decide v0.4.0
 	github.com/deepnoodle-ai/wonton v0.7.3
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	golang.org/x/oauth2 v0.37.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
