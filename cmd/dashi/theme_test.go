@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/deepnoodle-ai/dashi"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,8 +43,12 @@ func TestStatusColorsFollowRoles(t *testing.T) {
 		want []string
 		not  []string
 	}{
-		{"interrupt", Block{Kind: KindStop, Text: "Interrupted.", State: "interrupted"}, []string{"38;5;248m■ Interrupted."}, []string{"33m"}},
-		{"limit", Block{Kind: KindStop, Text: "Stopped after 3.", State: "limited"}, []string{"33m■ Stopped after 3."}, nil},
+		{"interrupt", Block{Kind: KindStop, Text: "Interrupted.", State: string(dashi.StopInterrupted)}, []string{"38;5;248m■ Interrupted."}, []string{"33m"}},
+		{"limit", Block{Kind: KindStop, Text: "Stopped after 3.", State: string(dashi.StopLimited)}, []string{"33m■ Stopped after 3."}, nil},
+		{"canceled", Block{Kind: KindStop, Text: "Canceled.", State: string(dashi.StopCanceled)}, []string{"38;5;248m■ Canceled."}, []string{"33m"}},
+		{"failed", Block{Kind: KindStop, Text: "Failed.", State: string(dashi.StopFailed)}, []string{"31m■ Failed."}, []string{"33m"}},
+		{"refused", Block{Kind: KindStop, Text: "Refused.", State: string(dashi.StopRefused)}, []string{"31m■ Refused."}, []string{"33m"}},
+		{"unknown", Block{Kind: KindStop, Text: "Unknown.", State: string(dashi.StopResultUnknown)}, []string{"31m■ Unknown."}, []string{"33m"}},
 		{"denied", Block{Kind: KindTool, Name: "bash", Arg: "rm -rf build", State: StateDenied}, []string{"38;5;248m⊘", "38;5;248mdenied"}, []string{"✗", "33m"}},
 		{"steer", Block{Kind: KindSteer, Text: "also check"}, []string{"38;5;75m↳", "38;5;248m steer queued: \x1b[0malso check"}, []string{"33m"}},
 	} {

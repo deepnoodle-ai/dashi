@@ -536,7 +536,7 @@ func stopStyle(kind string) tui.Style {
 	switch dashi.StopKind(kind) {
 	case dashi.StopInterrupted, dashi.StopCanceled:
 		return mutedStyle
-	case dashi.StopFailed:
+	case dashi.StopFailed, dashi.StopRefused, dashi.StopResultUnknown:
 		return dangerStyle
 	}
 	return warningStyle
