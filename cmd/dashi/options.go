@@ -229,9 +229,9 @@ func agentFlags() []cli.Flag {
 	}
 }
 
-// validateAgent checks the rules that span the agent flags, and the
-// controls that came from DASHI_* variables, which Wonton does not pass to
-// a flag's own validator.
+// validateAgent checks the rules that span the agent flags. Each flag's
+// validator also checks a value from its DASHI_* variable, so the value
+// checks here are a fallback.
 func validateAgent(ctx *cli.Context) error {
 	if ctx.Bool("continue") && ctx.IsSet("resume") {
 		return errors.New("--continue and --resume cannot be combined")
