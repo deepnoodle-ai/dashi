@@ -565,6 +565,37 @@ func TestActiveCompactionHookMessagesReachOrdinaryRequest(t *testing.T) {
 		t.Fatal("summary delivery expired before ordinary work")
 	}
 }
+
+// The ordinary call abandoned for a summary drops its BeforeModel results:
+// they do not ride on the summary call's start step.
+func TestActiveCompactionDropsAbandonedHookResults(t *testing.T) {
+	c, a := activeFixture()
+	calls := 0
+	hooks := Hooks{BeforeModel: []ModelHook{{Name: "ordinary", Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
+		if p.Purpose == ModelPurposeCompaction {
+			return ModelDecision{}, nil
+		}
+		return ModelDecision{Settings: &llm.Settings{MaxTokens: 256}}, nil
+	}}}}
+	out, err := (Runner{Client: c, Tools: activeTools(&calls), Hooks: hooks}).Run(t.Context(), Turn{}, activeStart(a))
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	summaries := 0
+	for _, step := range out.Turn.Steps {
+		if step.Kind != StepModelCallStarted || step.Model.Purpose != ModelPurposeCompaction {
+			continue
+		}
+		summaries++
+		if len(step.HookResults) != 0 {
+			t.Fatalf("summary start carries %+v", step.HookResults)
+		}
+	}
+	if summaries == 0 {
+		t.Fatal("fixture made no summary call")
+	}
+}
+
 func TestActiveCompactionPreparedBodyHardLimit(t *testing.T) {
 	c := &activeClient{window: 8000, prepareExtra: 9000}
 	a := testAgent()

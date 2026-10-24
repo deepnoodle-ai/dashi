@@ -135,7 +135,7 @@ func (r *runtime) contextLimit(s *replayState, req llm.Request, reason string) R
 	r.pendingWarnings = append(r.pendingWarnings, Warning{Code: WarningActiveCompactionBlocked, Message: "Active context cannot fit: " + reason + ". Preserve the work and start a new Turn with a larger window or smaller fixed input."})
 	return r.stopWith(&Stop{Kind: StopLimited, Reason: string(LimitContextWindow), Limit: &LimitDetail{Kind: LimitContextWindow, Limit: int64(s.ActiveCompactionWindow), Used: int64(used)}})
 }
-func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Request) (RunResult, bool, bool) {
+func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Request, mark chainMark) (RunResult, bool, bool) {
 	window := s.ActiveCompactionWindow
 	if window == 0 {
 		return RunResult{}, false, false
@@ -158,6 +158,17 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 			r.compactionCandidate = &copy
 			minimum := &llm.Result{Message: llm.AssistantMessage(llm.Text(".")), Stop: llm.Stop{Kind: llm.StopFinished}}
 			after, probeErr := r.activeEstimateAfter(plan, minimum)
+			if refErr, ok := errors.AsType[*retainedRefError](probeErr); ok {
+				// A reference that will not load is not a size problem.
+				// An ordinary request that fits is sent; it is already
+				// hydrated. One that does not fit stops with the
+				// reference's failure, which names the cause.
+				r.compactionCandidate = nil
+				if estimate > allowance {
+					return *r.refFailure(refErr.ID, refErr.Reason), false, true
+				}
+				return RunResult{}, false, false
+			}
 			if probeErr != nil || after > allowance {
 				r.compactionCandidate = nil
 				if estimate > allowance {
@@ -173,6 +184,12 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 				return RunResult{}, false, false
 			}
 			r.compactionUsed = true
+			// The ordinary call is abandoned for the summary. Drop the
+			// hook decisions of its pass, as an urgent steer does: the
+			// hooks are asked again for the ordinary call after the
+			// summary, and their results must not ride on the summary
+			// call's start.
+			r.dropHooks(mark)
 			// Re-read messages added by ordinary BeforeModel before the
 			// summary.
 			current, err := replay(r.turn)
@@ -305,6 +322,17 @@ func (r *runtime) activeEstimateAfter(plan *ContextCompactionPlan, result *llm.R
 	return after, nil
 }
 
+// retainedRefError reports that a content reference retained in the replaced
+// request could not be loaded for the estimate. Reason is a
+// StopReasonContent... code.
+type retainedRefError struct {
+	ID, Reason string
+}
+
+func (e *retainedRefError) Error() string {
+	return "retained summary context reference " + e.ID + " could not be verified: " + e.Reason
+}
+
 // activeEstimate returns the prepared size of the ordinary request with
 // fact's replacement in place.
 func (r *runtime) activeEstimate(plan *ContextCompactionPlan, fact ContextCompactionFact) (int, error) {
@@ -345,9 +373,11 @@ func (r *runtime) activeEstimate(plan *ContextCompactionPlan, fact ContextCompac
 		input.Messages[i] = m.Message.Clone()
 	}
 	// References in retained content still require exact verification.
-	hydrated, stop := r.hydrate(input)
-	if stop != nil {
-		return 0, errors.New("retained summary context references could not be verified")
+	// An estimate records no stop; the request that sends the content
+	// hydrates it again.
+	hydrated, reason, id := r.hydrateRefs(input)
+	if reason != "" {
+		return 0, &retainedRefError{ID: id, Reason: reason}
 	}
 	if r.runner.Client == nil {
 		return 0, errNoModelClient

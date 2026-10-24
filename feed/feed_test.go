@@ -475,6 +475,33 @@ func TestFollowCleansUpOnExit(t *testing.T) {
 	waitFor(t, func() bool { return runtime.NumGoroutine() <= base })
 }
 
+// slowWaiter is a StepWaiter whose Wait takes a moment to return once its
+// context ends.
+type slowWaiter struct {
+	readerOnly
+	exited atomic.Bool
+}
+
+func (w *slowWaiter) Wait(ctx context.Context, _ string, _ int64) error {
+	<-ctx.Done()
+	time.Sleep(20 * time.Millisecond)
+	w.exited.Store(true)
+	return ctx.Err()
+}
+
+// Follow waits for the record's own Wait to return before it returns.
+func TestFollowWaitsForTheStepWaiter(t *testing.T) {
+	var hub Hub
+	reader := &slowWaiter{readerOnly: readerOnly{dashi.NewMemoryRecorder()}}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	defer cancel()
+	for range Follow(ctx, &hub, reader, "t1", 0) {
+	}
+	if !reader.exited.Load() {
+		t.Fatal("Follow returned while the record's Wait was still running")
+	}
+}
+
 // Readers leaving a resting turn in quick succession leave no hub entry
 // behind, even when the record's reader is mid-wait as they leave.
 func TestManyDisconnectsLeaveNoEntries(t *testing.T) {
