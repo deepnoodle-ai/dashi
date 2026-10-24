@@ -104,7 +104,9 @@ endif
 		git tag "$$mod/$(VERSION)" || exit 1; \
 	done
 	@echo ""
-	@echo "Tags created. Push with: git push origin $(VERSION) $(addsuffix /$(VERSION),$(SUB_MODULES))"
+	@echo "Tags created. Push the sub-module tags, then the root tag alone:"
+	@echo "  git push origin $(addsuffix /$(VERSION),$(SUB_MODULES))"
+	@echo "  git push origin $(VERSION)"
 
 release-notes-test:
 	python3 -B -m unittest -v scripts.test_changelog_section scripts.test_release_notes scripts.test_sync_module_versions

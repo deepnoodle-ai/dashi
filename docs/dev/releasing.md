@@ -54,8 +54,12 @@ After the PR merges, from an updated `main`:
 ```sh
 git tag v0.2.0
 make tag-modules VERSION=v0.2.0
-git push origin v0.2.0 mcp/v0.2.0 providers/google/gemini/v0.2.0 cmd/dashi/v0.2.0
+git push origin mcp/v0.2.0 providers/google/gemini/v0.2.0 cmd/dashi/v0.2.0
+git push origin v0.2.0
 ```
+
+Push the root tag on its own, last. GitHub starts no workflow for tags pushed
+more than three at a time, and the root tag starts the release workflow.
 
 Every tag must point at a commit whose `go.mod` files name the release version.
 `tag-modules` tags the sub-modules only, never the root, and re-runs the
