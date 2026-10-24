@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"slices"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/media"
@@ -54,7 +53,7 @@ func decodeImageResponse(raw []byte, input media.ImageInput,
 		},
 		API:        API,
 		ResponseID: responseID,
-		RawUsage:   slices.Clone(response.Usage),
+		RawUsage:   media.ReportedUsage(response.Usage),
 	}
 	if err := result.Validate(); err != nil {
 		return media.Result{}, err

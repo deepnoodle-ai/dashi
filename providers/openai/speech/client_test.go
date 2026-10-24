@@ -598,3 +598,32 @@ func TestSendSynthesisRejectsWrongBodyAndBoundsResponse(t *testing.T) {
 		})
 	}
 }
+
+// cancelingBody cancels the call while the error body is read.
+type cancelingBody struct{ cancel context.CancelFunc }
+
+func (b cancelingBody) Read([]byte) (int, error) {
+	b.cancel()
+	return 0, context.Canceled
+}
+func (cancelingBody) Close() error { return nil }
+
+func TestSendErrorBodyReadCanceledIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	c := testClient(t, func(*http.Request) (*http.Response, error) {
+		r := response(503, "application/json", nil)
+		r.Body = cancelingBody{cancel}
+		return r, nil
+	})
+	request, err := c.PrepareTranscription(t.Context(),
+		audioInput(fixtureMP3, "audio/mpeg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.SendTranscription(ctx, request)
+	var speechErr *speech.Error
+	if !errors.As(err, &speechErr) || speechErr.Category != speech.ErrorCanceled {
+		t.Fatalf("err=%v, want canceled", err)
+	}
+}

@@ -8,6 +8,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Gemini Live sessions report only real responses.** An interruption or
+  turn end with no response in progress no longer sends `EventInterrupted`
+  or `EventResponseCompleted` for the previous response, and does not drop
+  the next response's audio. Tool calls that arrive after an interruption
+  are discarded with the rest of that turn.
+- **Grok voice `CommandRespond` no longer gets stuck.** A provider error
+  after `response.create` lets the caller ask again, and speech before the
+  new response starts no longer interrupts the finished one.
+  `CommandInterrupt` sent after `CommandRespond` but before the response
+  starts now cancels the requested response.
+- **Realtime sessions survive an expired call context.** A `Send` or
+  `Receive` whose context expires while it waits for another call, or after a
+  frame that produced no event, returns `ErrorCanceled` and keeps the
+  session. After a session fails, `Receive` returns `ErrClosed` instead of
+  events queued before the failure.
+- **Realtime setup timeouts are transport errors.** A provider that never
+  acknowledges setup within 20 seconds is `ErrorTransport`, not
+  `ErrorCanceled`.
+- **Media responses with `"usage": null` are accepted.** Gemini media, Grok
+  Imagine, and OpenAI Images treat it as unreported usage instead of failing
+  with `ErrorProtocol`. Provider packages use the new `media.ReportedUsage`
+  to fill `RawUsage`.
+- **Grok Imagine checks more of what it sends and receives.** `SubmitVideo`
+  reports `SubmissionRejected` for failures before dispatch, such as a
+  missing key or canceled context. `PollVideo` rejects the job IDs `.` and
+  `..`. Image responses with a non-image `mime_type` fail, a zero or
+  pre-1970 output expiry counts as no expiry, and preparing an image with a
+  catalog video model (or the reverse) fails with `ErrorUnsupported`.
+- **OpenAI Images rejects catalog models without image capabilities**, and
+  OpenAI speech reports a call canceled while reading an error response as
+  `ErrorCanceled`.
+- **Resolve refuses a model result the turn would reject before saving it,**
+  at any stop, not only at an open limited stop. A partly streamed call
+  resolved as a failure, or a result that repeats a tool call ID, no longer
+  reaches a recorder that does not check what it stores.
+- **A summary call can be resolved with a result that holds no usable
+  summary.** Resolve records it as a failed summary, as the runner does, so
+  Continue retries it or falls back instead of leaving the turn stuck at
+  `StopResultUnknown`.
+- **A hook or recorder that stops a turn at a cost or token limit the
+  turn's budget does not set no longer wedges it.** The stop is a hold:
+  `Next` gives `NextFix` and `Continue` retries without a raise.
+- **Continue retries a failed model call after an interrupted stop**
+  instead of failing again with the stale error.
+- **A resumed run whose cut-off summary covers a content reference falls
+  back to a summary fallback** instead of failing the turn.
+- **Active compaction keeps a provider pause chain that asked for a
+  provider tool approval,** so the approval response is never orphaned.
+- **BeforeSend hooks see the context items BeforeModel added** for the
+  same call.
+- `Turn.Citations` copies each citation's `Location`, and a summary
+  fallback no longer repeats an assistant reply the user already answered
+  as `[your last reply]`.
+- The replay cache no longer shares a provider tool approval order between
+  copies when a provider reuses a resolved approval ID.
 - **Advance and Drive keep steers the turn did not record.** A steer that
   arrives as the turn ends is no longer refused and deleted; it stays in the
   inbox for the next turn (`MemoryInbox.Leftovers`). When Advance returns,
@@ -38,30 +93,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   returns. A summary call's start no longer carries BeforeModel results
   from the ordinary call it replaced. A long tool argument error is cut at
   a rune boundary.
-- **Resolve refuses a model result the turn would reject before saving it,**
-  at any stop, not only at an open limited stop. A partly streamed call
-  resolved as a failure, or a result that repeats a tool call ID, no longer
-  reaches a recorder that does not check what it stores.
-- **A summary call can be resolved with a result that holds no usable
-  summary.** Resolve records it as a failed summary, as the runner does, so
-  Continue retries it or falls back instead of leaving the turn stuck at
-  `StopResultUnknown`.
-- **A hook or recorder that stops a turn at a cost or token limit the
-  turn's budget does not set no longer wedges it.** The stop is a hold:
-  `Next` gives `NextFix` and `Continue` retries without a raise.
-- **Continue retries a failed model call after an interrupted stop**
-  instead of failing again with the stale error.
-- **A resumed run whose cut-off summary covers a content reference falls
-  back to a summary fallback** instead of failing the turn.
-- **Active compaction keeps a provider pause chain that asked for a
-  provider tool approval,** so the approval response is never orphaned.
-- **BeforeSend hooks see the context items BeforeModel added** for the
-  same call.
-- `Turn.Citations` copies each citation's `Location`, and a summary
-  fallback no longer repeats an assistant reply the user already answered
-  as `[your last reply]`.
-- The replay cache no longer shares a provider tool approval order between
-  copies when a provider reuses a resolved approval ID.
 
 ## [0.11.0] - 2026-10-23
 
