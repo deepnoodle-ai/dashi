@@ -27,11 +27,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `Message.Source`, and `Served` stays empty when Google names no model.
 - **Gemini rejects tool calls left unanswered before the next model turn**
   at `Prepare`, instead of sending a history Google rejects.
-- **Gemini calls can no longer hang forever.** `gemini.Config` has a
-  `Timeouts llm.HTTPTimeouts` field with the other providers' behavior: the
-  zero value bounds each call to five minutes unless you supply `Client`, an
-  explicit zero `Total` removes that bound, and timeouts report
-  `ReasonResponseStartTimeout`, `ReasonStreamIdleTimeout`, or
+- **Gemini calls have HTTP timeouts like the other providers.**
+  `gemini.Config` has a `Timeouts llm.HTTPTimeouts` field. The zero value
+  bounds each call to five minutes. A supplied `Client` with a nil `Total`
+  keeps only its own timeouts, and an explicit zero `Total` removes the bound.
+  Timeouts report `ReasonResponseStartTimeout`, `ReasonStreamIdleTimeout`, or
   `ReasonCallTimeout`.
 - **Vertex AI uses the right host for the `us` and `eu` multi-regions**, and
   sends the credential's quota project as `X-Goog-User-Project`.
