@@ -106,9 +106,14 @@ func (s *screen) inputView(mode Mode) tui.View {
 
 // syncDraft copies composer text into the attachment draft. A slash command
 // leaves the draft and its staged mentions alone, so the draft returns after
-// the command runs.
+// the command runs. Clearing the line does too, and it keeps the staged
+// entries for whatever the user types next: only a submit or /detach drops
+// them.
 func (s *screen) syncDraft(value string) {
-	if !strings.HasPrefix(value, "/") {
+	switch {
+	case value == "" && len(s.attachments.entries) > 0:
+		s.attachments.keepEntries()
+	case !strings.HasPrefix(value, "/"):
 		s.attachments.setText(value)
 	}
 	s.updateAttachmentUnsaved()

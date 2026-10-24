@@ -70,6 +70,17 @@ func (d *attachmentDraft) setText(text string) error {
 	return nil
 }
 
+// keepEntries makes every staged entry command-only, as /attach does, so it
+// stays staged when new text no longer mentions it.
+func (d *attachmentDraft) keepEntries() {
+	for _, e := range d.entries {
+		if !e.commandOnly {
+			e.commandOnly = true
+			d.revision++
+		}
+	}
+}
+
 func (d *attachmentDraft) rescan() {
 	for _, e := range d.entries {
 		e.spans = nil

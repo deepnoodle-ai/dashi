@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   external editor (Ctrl+G) no longer clears the draft's staged `@` mentions.
   `/attach PATH:START-END` on a file already mentioned in the draft keeps its
   line range once the mention text is removed.
+- **Clearing the composer keeps staged `@` mentions.** After Ctrl+U you can
+  run a slash command such as `/attachments` and get the draft back, or type
+  a new prompt that the mentioned files go with. Enter on an empty line sends
+  nothing and shows a hint. A submit or `/detach` drops the mentions.
 
 ## [0.10.0] - 2026-10-23
 

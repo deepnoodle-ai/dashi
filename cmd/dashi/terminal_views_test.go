@@ -263,3 +263,51 @@ func TestTerminalNarrowToolStatesAndChecks(t *testing.T) {
 		}
 	}
 }
+
+// Clearing the composer keeps the staged mentions: a slash command brings
+// the draft back, an empty Enter sends nothing, and new text goes with them.
+func TestClearedComposerKeepsStagedMentions(t *testing.T) {
+	h := newScreenHarness(t, 0, say("summarized"))
+	fixtureSelectedText(t, h.dir, "notes.txt", "snapshot")
+	const raw = "explain @notes.txt"
+	h.submit(raw)
+	h.app.ctrl.Wait()
+	h.waitFor(func() bool {
+		return len(h.scr.attachments.entries) == 1 && h.scr.attachments.entries[0].state == attachmentReady
+	})
+	clearLine := func() {
+		h.mu.Lock()
+		h.scr.input = ""
+		h.scr.syncDraft("")
+		h.mu.Unlock()
+	}
+	clearLine()
+	h.submit("/attachments")
+	h.app.ctrl.Wait()
+	if !h.check(func() bool { return h.scr.input == raw && len(h.scr.attachments.entries) == 1 }) {
+		t.Fatalf("input=%q entries=%d after /attachments", h.scr.input, len(h.scr.attachments.entries))
+	}
+	clearLine()
+	h.submit("")
+	h.app.ctrl.Wait()
+	if h.client.sends != 0 || !h.check(func() bool { return len(h.scr.attachments.entries) == 1 }) {
+		t.Fatalf("empty Enter: sends=%d entries=%d", h.client.sends, len(h.scr.attachments.entries))
+	}
+	mustHave(t, h.render(), "Type a prompt to send with the selected attachments.")
+	const next = "summarize it"
+	h.mu.Lock()
+	h.scr.input = next
+	h.scr.syncDraft(next)
+	h.mu.Unlock()
+	h.submit(next)
+	h.app.ctrl.Wait()
+	if h.client.sends != 1 {
+		t.Fatalf("sends=%d", h.client.sends)
+	}
+	if docs := hydratedDocuments(h.client.inputAt(0)); len(docs) != 1 || docs[0] != "snapshot" {
+		t.Fatalf("documents=%q", docs)
+	}
+	if !h.check(func() bool { return len(h.scr.attachments.entries) == 0 }) {
+		t.Fatal("submit kept the staged entries")
+	}
+}
