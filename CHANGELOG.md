@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-24
+
 ### Changed
 
 - **Tool rows say what a call does and hide its input and output.** Each
