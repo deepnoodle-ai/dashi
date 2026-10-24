@@ -60,7 +60,7 @@ func TestApprovalFitsSmallTerminalAndDenies(t *testing.T) {
 	}
 	screen := strings.Join(rows, "\n")
 	if !strings.Contains(screen, "Allow task?  explore subagent: messaging test wait") ||
-		!strings.Contains(rows[21], "[y] Allow once") || !strings.Contains(rows[21], "[n] Deny") ||
+		!strings.Contains(rows[20], "y Allow once") || !strings.Contains(rows[20], "n Deny") ||
 		!strings.Contains(rows[22], "e shows all") || !strings.Contains(rows[23], "fixture") {
 		t.Fatalf("layout at 80x24:\n%s", screen)
 	}
@@ -72,7 +72,7 @@ func TestApprovalFitsSmallTerminalAndDenies(t *testing.T) {
 	h.key(tui.KeyEvent{Rune: 'e'})
 	h.key(tui.KeyEvent{Key: tui.KeyEnd})
 	rows = h.renderAt(80, 24)
-	if !strings.Contains(rows[21], "[y] Allow once") || !strings.Contains(rows[22], "e collapses") ||
+	if !strings.Contains(rows[20], "y Allow once") || !strings.Contains(rows[22], "e collapses") ||
 		!strings.Contains(strings.Join(rows, "\n"), "covers this tool with these exact arguments") {
 		t.Fatalf("expanded at 80x24:\n%s", strings.Join(rows, "\n"))
 	}
@@ -80,7 +80,8 @@ func TestApprovalFitsSmallTerminalAndDenies(t *testing.T) {
 	// n asks for a reason in place of the choices, and Enter denies.
 	h.key(tui.KeyEvent{Rune: 'n'})
 	rows = h.renderAt(80, 24)
-	if !h.check(func() bool { return h.scr.approval.denying }) || !strings.Contains(rows[22], "Reason:") || strings.Contains(rows[21], "[y]") {
+	if !h.check(func() bool { return h.scr.approval.denying }) || !strings.Contains(rows[20], "Reason:") || strings.Contains(rows[20], "Allow once") ||
+		!strings.Contains(rows[22], "Deny: Enter submits") {
 		t.Fatalf("deny at 80x24:\n%s", strings.Join(rows, "\n"))
 	}
 	h.key(tui.KeyEvent{Rune: 'y'})

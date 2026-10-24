@@ -15,25 +15,15 @@ func sessionPickerView(p *pickerState) tui.View {
 		title = p.title + " · recorded child details"
 		hint = " Page Up/Down inspect · Enter close · Esc close"
 	}
-	views := []tui.View{divider(), tui.Text(" %s", title).Style(accentStyle).Bold()}
+	views := []tui.View{tui.Group(dialogGlyph("◆", accentStyle), tui.Text("%s", title).Bold())}
 	const rows = 4
 	start := max(0, min(p.index-rows/2, len(p.options)-rows))
 	end := min(len(p.options), start+rows)
 	for i := start; i < end; i++ {
-		label := p.options[i]
-		prefix := "   "
-		if i == p.index {
-			prefix = " ❯ "
-		}
-		v := tui.Text("%s%s", prefix, label)
-		if i == p.index {
-			v = v.Style(accentStyle).Bold()
-		}
-		views = append(views, tui.MaxHeight(1, v))
+		views = append(views, tui.MaxHeight(1, choiceRow(p.options[i], i == p.index, false)))
 	}
 	if p.index >= 0 && p.index < len(p.details) {
 		views = append(views, divider(), tui.Height(6, tui.Viewport(&p.sessionVP, detailLines(strings.Split(p.details[p.index], "\n"))).Gap(0)))
 	}
-	views = append(views, tui.Text("%s", hint).Wrap().Style(hintStyle))
-	return tui.Stack(views...).Gap(0)
+	return tui.Stack(band(tui.Stack(views...).Gap(0)), tui.Text("%s", hint).Wrap().Style(hintStyle)).Gap(0)
 }

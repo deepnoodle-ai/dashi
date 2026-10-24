@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Dialogs draw on the prompt's band.** Approvals, questions, pickers, the
+  session picker, the MCP startup review, and the inspector that opens over
+  a pending dialog take the composer's place and its gray background,
+  instead of starting with a rule. Each title starts with a glyph in its
+  role color: a yellow `?` when Dashi needs an answer, a blue `◆` for a
+  choice you opened. The title itself is plain bold. The selected row has
+  a blue `❯` and a bold label, and approval keys read `y Allow once` with
+  the letter in blue and no brackets. Key hints sit below the band.
+
 ## [0.13.0] - 2026-10-24
 
 ### Changed
