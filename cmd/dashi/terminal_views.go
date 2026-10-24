@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -516,7 +515,7 @@ func toolSpins(state string) bool {
 // toolState is the state at the right edge of a tool line. A call that
 // worked shows only its time; the glyph says it worked.
 func toolState(b Block) tui.View {
-	elapsed := fmt.Sprintf("%.1fs", b.Elapsed.Seconds())
+	elapsed := elapsedText(b.Elapsed)
 	switch b.State {
 	case StateOK:
 		return tui.Text("%s", elapsed).Style(mutedStyle)

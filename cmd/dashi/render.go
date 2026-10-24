@@ -822,7 +822,7 @@ func formatTool(b Block) string {
 	if b.Arg != "" {
 		left += "  " + fitArg(b.Arg, toolLineWidth-len(left)-2)
 	}
-	elapsed := fmt.Sprintf("%.1fs", b.Elapsed.Seconds())
+	elapsed := elapsedText(b.Elapsed)
 	right := b.State
 	switch b.State {
 	case StateOK:
@@ -1021,4 +1021,13 @@ func groupDigits(n int) string {
 		s = s[:i] + "," + s[i:]
 	}
 	return s
+}
+
+// elapsedText is a tool call's run time in tenths of a second. A call
+// that took under a tenth shows "<0.1s" rather than "0.0s".
+func elapsedText(d time.Duration) string {
+	if d < 100*time.Millisecond {
+		return "<0.1s"
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
 }

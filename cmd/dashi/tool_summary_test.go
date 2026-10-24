@@ -178,3 +178,16 @@ func TestRunningToolRowSpins(t *testing.T) {
 		t.Fatalf("still=%q", got)
 	}
 }
+
+func TestElapsedText(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		0:                        "<0.1s",
+		99 * time.Millisecond:    "<0.1s",
+		100 * time.Millisecond:   "0.1s",
+		12400 * time.Millisecond: "12.4s",
+	} {
+		if got := elapsedText(d); got != want {
+			t.Errorf("elapsedText(%v) = %q, want %q", d, got, want)
+		}
+	}
+}
