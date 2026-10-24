@@ -277,17 +277,32 @@ func failedSummary(name, output string) string {
 }
 
 // lastOutputLine is the last line of shell output that is not empty and
-// not one of the tool's notes in brackets.
+// not one of the bash tool's notes. A command's own bracketed line, such as
+// "[done]", counts as output.
 func lastOutputLine(output, empty string) string {
 	lines := outputLines(output)
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := lines[i]
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") || line == "(no output)" {
+		if bashNote(line) || line == "(no output)" {
 			continue
 		}
 		return line
 	}
 	return empty
+}
+
+// bashNote reports whether line is a note the bash tool adds to a command's
+// output, such as "[Exit code 2]" or "[The command was canceled.]".
+func bashNote(line string) bool {
+	if !strings.HasSuffix(line, "]") {
+		return false
+	}
+	for _, prefix := range []string{"[The ", "[Exit code ", "[... "} {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func firstOutputLine(output string) string {

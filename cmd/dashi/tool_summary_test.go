@@ -38,6 +38,7 @@ func TestToolSummary(t *testing.T) {
 		{"edit all", "edit_file", `{"old_string":"x","new_string":"y","replace_all":true}`, StateOK, "Edited x: replaced 3 occurrence(s).", "", "+3 -3 · 3 replacements"},
 		{"bash", "bash", `{"command":"go test ./..."}`, StateOK, "?   pkg [no test files]\nok  github.com/deepnoodle-ai/dashi  3.1s\n", "", "ok  github.com/deepnoodle-ai/dashi  3.1s"},
 		{"bash quiet", "bash", `{}`, StateOK, "(no output)", "", "no output"},
+		{"bash bracketed output", "bash", `{}`, StateOK, "building\n[done]", "", "[done]"},
 		{"bash note", "bash", `{}`, StateOK, "done\n[The timeout was reduced to the maximum, 10m0s.]", "", "done"},
 		{"bash exit", "bash", `{}`, StateFailed, "x.go:1: undefined: foo\n[Exit code 2]", "", "exit 2 · x.go:1: undefined: foo"},
 		{"bash timeout", "bash", `{}`, StateFailed, "(no output)\n[The command ran past the timeout of 2s and was stopped. ...]", "", "timed out"},
