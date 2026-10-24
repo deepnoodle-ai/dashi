@@ -12,8 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **The CLI picks up Wonton v0.8.1's terminal fixes.** A width-3 or width-4
   dash (`⸺`, `⸻`) in a reply now clears the columns it covers, so text drawn
-  there before no longer shows through. Wonton's input focus and prompt
-  autocomplete fixes come with it.
+  there before no longer shows through.
 
 ## [0.12.0] - 2026-10-24
 
