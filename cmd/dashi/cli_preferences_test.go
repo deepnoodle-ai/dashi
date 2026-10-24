@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -94,5 +95,94 @@ func TestModelChoicesNameOneMissingKey(t *testing.T) {
 	}
 	if setup := p.modelChoices(false).setup; !slices.Equal(setup, []string{"Set GEMINI_API_KEY to add google models"}) {
 		t.Fatalf("setup=%v", setup)
+	}
+}
+
+// pickerRows names each row as "destination model", or its label.
+func pickerRows(menu modelMenu) []string {
+	var rows []string
+	for _, choice := range menu.choices {
+		if choice.provider == "" {
+			rows = append(rows, choice.label)
+		} else {
+			rows = append(rows, choice.provider+" "+choice.model)
+		}
+	}
+	return rows
+}
+
+func TestFeaturedModelsSettingReplacesBuiltinLists(t *testing.T) {
+	p := builtinPickerPreferences(t)
+	p.routes.lookup = func(name string) (string, bool) {
+		return "fixture", name == "ANTHROPIC_API_KEY" || name == "OPENAI_API_KEY"
+	}
+	p.featuredModels = json.RawMessage(`{"openai":["gpt-6-luna"],"anthropic":["claude-sonnet-5-5","claude-opus-5-5"]}`)
+	menu := p.modelChoices(false)
+	want := []string{"openai gpt-6-luna", "anthropic claude-sonnet-5-5", "anthropic claude-opus-5-5", "anthropic claude-opus-4-8", "All models…"}
+	if got := pickerRows(menu); !slices.Equal(got, want) {
+		t.Fatalf("rows=%v want %v", got, want)
+	}
+	if len(menu.setup) != 0 {
+		t.Fatalf("unlisted destinations have setup lines: %v", menu.setup)
+	}
+	if menu.choices[menu.selected].model != "claude-opus-4-8" {
+		t.Fatalf("selected=%+v", menu.choices[menu.selected])
+	}
+	if all := p.modelChoices(true); len(all.choices) < 90 {
+		t.Fatalf("complete list has %d rows", len(all.choices))
+	}
+}
+
+func TestFeaturedModelsSettingShowsTheSelectedModel(t *testing.T) {
+	p := builtinPickerPreferences(t)
+	p.routes.lookup = func(name string) (string, bool) {
+		return "fixture", name == "ANTHROPIC_API_KEY" || name == "OPENAI_API_KEY"
+	}
+	p.featuredModels = json.RawMessage(`{"openai":["gpt-6-luna"]}`)
+	want := []string{"openai gpt-6-luna", "anthropic claude-opus-4-8", "All models…"}
+	if got := pickerRows(p.modelChoices(false)); !slices.Equal(got, want) {
+		t.Fatalf("rows=%v want %v", got, want)
+	}
+}
+
+func TestFeaturedModelsSettingSetupLinesOnlyForListedDestinations(t *testing.T) {
+	p := builtinPickerPreferences(t)
+	p.featuredModels = json.RawMessage(`{"google":["gemini-3.8-flash"],"anthropic":["claude-opus-5-5"]}`)
+	menu := p.modelChoices(false)
+	if !slices.Equal(menu.setup, []string{"Set GEMINI_API_KEY to add google models"}) {
+		t.Fatalf("setup=%v", menu.setup)
+	}
+	want := []string{"anthropic claude-opus-5-5", "anthropic claude-opus-4-8", "All models…"}
+	if got := pickerRows(menu); !slices.Equal(got, want) {
+		t.Fatalf("rows=%v want %v", got, want)
+	}
+}
+
+func TestFeaturedModelsSettingNotesUnregisteredEntries(t *testing.T) {
+	p := builtinPickerPreferences(t)
+	p.featuredModels = json.RawMessage(`{"anthropic":["claude-opus-9","claude-opus-5-5"],"nowhere":["x"]}`)
+	menu := p.modelChoices(false)
+	want := []string{"featured_models: anthropic claude-opus-9 is not registered", "featured_models: nowhere is not registered"}
+	if !slices.Equal(menu.setup, want) {
+		t.Fatalf("setup=%v want %v", menu.setup, want)
+	}
+	if got := pickerRows(menu); got[0] != "anthropic claude-opus-5-5" {
+		t.Fatalf("rows=%v", got)
+	}
+}
+
+func TestEmptyFeaturedModelsSettingKeepsBuiltinLists(t *testing.T) {
+	p := builtinPickerPreferences(t)
+	builtin := pickerRows(p.modelChoices(false))
+	for _, raw := range []string{`{}`, `null`} {
+		p.featuredModels = json.RawMessage(raw)
+		if got := pickerRows(p.modelChoices(false)); !slices.Equal(got, builtin) {
+			t.Fatalf("%s: rows=%v want %v", raw, got, builtin)
+		}
+	}
+	p.featuredModels = json.RawMessage(`{"anthropic":"claude-opus-5-5"}`)
+	menu := p.modelChoices(false)
+	if got := pickerRows(menu); !slices.Equal(got, builtin) || !strings.Contains(strings.Join(menu.setup, "\n"), "featured_models must map") {
+		t.Fatalf("rows=%v setup=%v", got, menu.setup)
 	}
 }

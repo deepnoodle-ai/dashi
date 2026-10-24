@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -191,5 +192,26 @@ func TestCooperatingPreferenceWritersRereadUnderLock(t *testing.T) {
 		if string(got[field]) != string(value) {
 			t.Fatalf("lost update %s: %s", field, data)
 		}
+	}
+}
+
+func TestUserPreferenceWriteKeepsFeaturedModels(t *testing.T) {
+	w := preferenceWriterForTest(t)
+	writePreferenceFixture(t, w, `{"featured_models":{"openai":["gpt-6-luna"],"anthropic":["claude-sonnet-5-5","claude-opus-5-5"]},"future_key":{"a":1}}`)
+	if err := w.update(map[string]json.RawMessage{"provider": preferenceJSON("anthropic"), "model": preferenceJSON("claude-opus-5-5")}); err != nil {
+		t.Fatal(err)
+	}
+	user, err := readPreferenceFile(w.path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lists, problem := parseFeaturedModels(user.FeaturedModels)
+	want := []featuredList{{"openai", []string{"gpt-6-luna"}}, {"anthropic", []string{"claude-sonnet-5-5", "claude-opus-5-5"}}}
+	if problem != "" || !reflect.DeepEqual(lists, want) || user.Model != "claude-opus-5-5" {
+		t.Fatalf("lists=%v problem=%q model=%q", lists, problem, user.Model)
+	}
+	data, _ := os.ReadFile(w.path)
+	if !strings.Contains(string(data), `"future_key"`) {
+		t.Fatalf("unknown key lost: %s", data)
 	}
 }

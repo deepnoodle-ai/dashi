@@ -16,7 +16,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   model; the panel of tool and evidence details is gone. A last row, *All
   models…*, opens the complete list. Destinations from user settings still
   list every model, `/model <name>` still accepts any registered model, and
-  `dashi models` is unchanged.
+  `dashi models` is unchanged. To choose the picker's models yourself, set
+  `featured_models` in `~/.dashi/settings.json`, such as
+  `{"anthropic": ["claude-opus-5-5"], "openai": ["gpt-6-luna"]}`; it
+  replaces the built-in lists.
 
 ## [0.14.0] - 2026-10-24
 

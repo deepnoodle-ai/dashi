@@ -29,6 +29,8 @@ type cliPreferences struct {
 	environmentOrigins map[string]string
 	environmentFiles   []string
 	resolveSession     func(preferenceFile) (launchPreferences, error)
+	// featuredModels is the user file's raw "featured_models" object.
+	featuredModels json.RawMessage
 }
 
 func (p *cliPreferences) agent() dashi.Agent {
@@ -185,25 +187,76 @@ type modelMenu struct {
 	selected int
 }
 
-// modelChoices lists the models of ready destinations. Unless all is set, a
-// built-in destination offers only its featured models, a destination that
-// is not ready gets a setup line instead of rows, and a last row opens the
-// complete list. The complete list shows every registered model, with the
-// reason a destination is not ready. The selected model is always listed.
+// modelChoices lists the models of ready destinations. Unless all is set,
+// the picker offers the user's featured_models when set, or else each
+// built-in destination's featured models and every model of a destination
+// from user settings. A listed destination that is not ready gets a setup
+// line instead of rows, and a last row opens the complete list. The
+// complete list shows every registered model, with the reason a
+// destination is not ready. The selected model is always listed.
 func (p *cliPreferences) modelChoices(all bool) modelMenu {
 	current := p.agent()
 	var menu modelMenu
+	var problems []string
+	total := 0
+	for _, d := range p.routes.registry {
+		total += len(d.Definition.Models)
+	}
+	// groups are the destinations to show, in order, with their models.
+	var groups []featuredList
+	featured, problem := parseFeaturedModels(p.featuredModels)
+	if problem != "" {
+		problems = append(problems, problem)
+	}
+	switch {
+	case all:
+		featured = nil
+		fallthrough
+	case len(featured) == 0:
+		for _, id := range slices.Sorted(slices.Values(mapKeys(p.routes.registry))) {
+			d := p.routes.registry[id]
+			models := slices.Sorted(slices.Values(d.Definition.Models))
+			if !all && len(d.FeaturedModels) != 0 {
+				models = d.FeaturedModels
+			}
+			groups = append(groups, featuredList{destination: id, models: models})
+		}
+	default:
+		for _, list := range featured {
+			d, ok := p.routes.registry[list.destination]
+			if !ok || len(d.Definition.Models) == 0 {
+				problems = append(problems, fmt.Sprintf("featured_models: %s is not registered", list.destination))
+				continue
+			}
+			var models []string
+			for _, model := range list.models {
+				if !slices.Contains(d.Definition.Models, model) {
+					problems = append(problems, fmt.Sprintf("featured_models: %s %s is not registered", list.destination, model))
+				} else if !slices.Contains(models, model) {
+					models = append(models, model)
+				}
+			}
+			groups = append(groups, featuredList{destination: list.destination, models: models})
+		}
+	}
+	// The selected model's destination joins the list when it is unlisted.
+	if !all && !slices.ContainsFunc(groups, func(g featuredList) bool { return g.destination == current.Provider }) {
+		groups = append(groups, featuredList{destination: current.Provider})
+	}
 	var waiting []modelChoice
 	var keys, keyed []string // credential variables to set, and their destinations
-	total := 0
-	for _, id := range slices.Sorted(slices.Values(mapKeys(p.routes.registry))) {
+	seen := map[string]bool{}
+	for _, group := range groups {
+		id := group.destination
 		d := p.routes.registry[id]
-		if len(d.Definition.Models) == 0 {
+		if len(d.Definition.Models) == 0 || seen[id] {
 			continue // nothing to offer until models are registered
 		}
-		total += len(d.Definition.Models)
+		seen[id] = true
 		status, setup, key := p.destinationReadiness(d)
-		models := slices.Sorted(slices.Values(d.Definition.Models))
+		models := slices.DeleteFunc(slices.Clone(group.models), func(model string) bool {
+			return !slices.Contains(d.Definition.Models, model)
+		})
 		if !all {
 			if key != "" {
 				keys, keyed = append(keys, key), append(keyed, id)
@@ -211,12 +264,8 @@ func (p *cliPreferences) modelChoices(all bool) modelMenu {
 			} else if status != "" {
 				menu.setup = append(menu.setup, setup)
 				models = nil
-			} else if len(d.FeaturedModels) != 0 {
-				models = slices.DeleteFunc(slices.Clone(d.FeaturedModels), func(model string) bool {
-					return !slices.Contains(d.Definition.Models, model)
-				})
 			}
-			if id == current.Provider && !slices.Contains(models, current.Model) && slices.Contains(d.Definition.Models, current.Model) {
+			if id == current.Provider && slices.Contains(d.Definition.Models, current.Model) && !slices.Contains(models, current.Model) {
 				models = append(models, current.Model)
 			}
 		}
@@ -255,6 +304,9 @@ func (p *cliPreferences) modelChoices(all bool) modelMenu {
 			list = keys[0] + " or " + keys[1]
 		}
 		menu.setup = append(menu.setup, "Set "+list+" to add more models")
+	}
+	if !all {
+		menu.setup = append(menu.setup, problems...)
 	}
 	// Model IDs line up in one column after the destination.
 	width := 0

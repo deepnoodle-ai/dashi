@@ -326,7 +326,7 @@ func loadCLIConfig(o Options, home, dir, invocation string, stdin io.Reader, std
 	if launch.SelectionError == "" {
 		registry[launch.Selection.Destination.ID] = launch.Selection.Destination
 	}
-	preferences := &cliPreferences{launch: launch, routes: newRouteClients(registry, trusted, os.LookupEnv), client: newTurnClient(nil), writer: userPreferenceWriter{path: filepath.Join(home, ".dashi", "settings.json")}, interactive: !o.Run && !automationRedirected(stdin), guidance: o.SystemPrompt, guidanceSet: o.SystemPrompt != "", environmentOrigins: origins, environmentFiles: namedEnvironmentPaths(invocation, o.EnvFiles)}
+	preferences := &cliPreferences{launch: launch, routes: newRouteClients(registry, trusted, os.LookupEnv), client: newTurnClient(nil), writer: userPreferenceWriter{path: filepath.Join(home, ".dashi", "settings.json")}, interactive: !o.Run && !automationRedirected(stdin), guidance: o.SystemPrompt, guidanceSet: o.SystemPrompt != "", environmentOrigins: origins, environmentFiles: namedEnvironmentPaths(invocation, o.EnvFiles), featuredModels: user.FeaturedModels}
 	preferences.resolveSession = func(saved preferenceFile) (launchPreferences, error) {
 		return resolveLaunchPreferences(o, registry, trusted, user, project, saved, os.LookupEnv)
 	}
