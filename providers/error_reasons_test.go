@@ -2,6 +2,7 @@ package providers_test
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"testing"
@@ -589,5 +590,68 @@ func TestMalformedStreamEventsAreProtocolErrors(t *testing.T) {
 				t.Fatalf("err = %v, want a protocol error", err)
 			}
 		})
+	}
+}
+
+// TestMalformedNestedOutputIsProtocolError covers a response whose envelope
+// decodes but whose inner content does not. The failure must still be an
+// *llm.Error, so callers can classify it.
+func TestMalformedNestedOutputIsProtocolError(t *testing.T) {
+	tests := map[string]struct {
+		client func(url string) llm.Client
+		body   string
+		stream string
+	}{
+		"anthropic": {
+			client: func(url string) llm.Client {
+				return newMessages(t, messages.Config{
+					Provider:         "anthropic",
+					APIKey:           "k",
+					Endpoint:         url,
+					CapabilityPolicy: llm.CapabilityAdjust,
+				})
+			},
+			body: `{"type":"message","id":"m","model":"m","stop_reason":"end_turn","content":["not-an-object"]}`,
+			stream: events(
+				`{"type":"message_start","message":{"type":"message","id":"m","model":"m","content":[],"usage":"bad"}}`,
+			),
+		},
+		"responses": {
+			client: func(url string) llm.Client {
+				return newResponses(t, responses.Config{
+					Provider:         "openai",
+					APIKey:           "k",
+					Endpoint:         url,
+					CapabilityPolicy: llm.CapabilityAdjust,
+				})
+			},
+			body: `{"object":"response","status":"completed","model":"m","output":[{"type":"message","content":["not-an-object"]}]}`,
+			stream: events(
+				`{"type":"response.completed","response":{"object":"response","status":"completed","model":"m","output":["not-an-object"]}}`,
+			),
+		},
+	}
+	for name, tt := range tests {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%t", name, stream), func(t *testing.T) {
+				server := serve(t, func(w http.ResponseWriter, _ *http.Request) {
+					if stream {
+						w.Header().Set("Content-Type", "text/event-stream")
+						io.WriteString(w, tt.stream)
+						return
+					}
+					io.WriteString(w, tt.body)
+				})
+				client := tt.client(server.URL)
+				_, err := client.Send(
+					t.Context(),
+					llm.Call{Request: preparedRequest(t, client, stream)},
+				)
+				e, ok := errors.AsType[*llm.Error](err)
+				if !ok || e.Category != llm.ErrorProtocol {
+					t.Fatalf("err = %v, want a protocol error", err)
+				}
+			})
+		}
 	}
 }

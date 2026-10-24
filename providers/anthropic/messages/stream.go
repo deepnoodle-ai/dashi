@@ -156,11 +156,11 @@ func (wire codec) readStream(
 			}
 			started = true
 			if err := json.Unmarshal(e.Message, &envelope); err != nil {
-				return result, err
+				return result, providerhttp.Protocol(wire.origin.Provider, err)
 			}
 			if raw := envelope["usage"]; len(raw) > 0 && string(raw) != "null" {
 				if err := json.Unmarshal(raw, &usage); err != nil {
-					return result, err
+					return result, providerhttp.Protocol(wire.origin.Provider, err)
 				}
 			}
 			var err error
@@ -194,7 +194,7 @@ func (wire codec) readStream(
 			blocks[e.Index] = b
 			c, err := wire.decodeContent(e.ContentBlock)
 			if err != nil {
-				return build(), err
+				return build(), providerhttp.Protocol(wire.origin.Provider, err)
 			}
 			providerhttp.Emit(
 				sink,
@@ -255,7 +255,7 @@ func (wire codec) readStream(
 			case "citations_delta":
 				var c any
 				if err := providerhttp.Decode(e.Delta.Citation, &c); err != nil {
-					return build(), err
+					return build(), providerhttp.Protocol(wire.origin.Provider, err)
 				}
 				cs, _ := b["citations"].([]any)
 				b["citations"] = append(cs, c)

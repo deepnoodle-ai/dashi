@@ -936,7 +936,7 @@ func (wire codec) decodeWithPartial(raw []byte, requested llm.ModelRef, partial 
 	for i, item := range v.Output {
 		cs, err := wire.decodeItem(item)
 		if err != nil {
-			return r, err
+			return r, providerhttp.Protocol(wire.origin.Provider, err)
 		}
 		if partial[i] {
 			for _, c := range cs {
@@ -969,6 +969,9 @@ func (wire codec) decodeWithPartial(raw []byte, requested llm.ModelRef, partial 
 				stop = "refusal"
 			}
 		}
+	}
+	if err := providercontent.DuplicateToolID(r.Message.Content); err != nil {
+		return r, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "%w", err)
 	}
 	r.Stop = llm.Stop{Kind: llm.ClassifyStopReason(stop), Raw: rawStop}
 	if v.Status == "failed" || (len(v.Error) > 0 && string(v.Error) != "null") {

@@ -821,9 +821,12 @@ func (wire codec) decode(
 	for _, raw := range v.Content {
 		c, err := wire.decodeContent(raw)
 		if err != nil {
-			return r, err
+			return r, providerhttp.Protocol(wire.origin.Provider, err)
 		}
 		r.Message.Content = append(r.Message.Content, c)
+	}
+	if err := providercontent.DuplicateToolID(r.Message.Content); err != nil {
+		return r, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "%w", err)
 	}
 	// A response without usage gets no counts; the runner accounts for its
 	// provider tool uses.

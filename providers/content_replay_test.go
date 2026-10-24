@@ -422,6 +422,38 @@ func TestResultProvenanceSurvivesDetachedMessageAndPartialOutput(
 	}
 }
 
+// TestDuplicateToolIDsFailDecode covers a response that reuses a tool ID.
+// Accepting it would put history in the record that no later request can
+// replay, so the call fails as a protocol error instead.
+func TestDuplicateToolIDsFailDecode(t *testing.T) {
+	bodies := map[string]string{
+		"anthropic/tool_use":        `{"type":"message","id":"m","model":"m","stop_reason":"tool_use","content":[{"type":"tool_use","id":"call_1","name":"search","input":{}},{"type":"tool_use","id":"call_1","name":"search","input":{}}]}`,
+		"anthropic/server_tool_use": `{"type":"message","id":"m","model":"m","stop_reason":"end_turn","content":[{"type":"server_tool_use","id":"srv_1","name":"web_search","input":{}},{"type":"server_tool_use","id":"srv_1","name":"web_search","input":{}}]}`,
+		"openai/function_call":      `{"object":"response","status":"completed","model":"m","output":[{"type":"function_call","call_id":"call_1","name":"search","arguments":"{}"},{"type":"function_call","call_id":"call_1","name":"search","arguments":"{}"}]}`,
+	}
+	for _, tc := range cases(t) {
+		for name, body := range bodies {
+			if !strings.HasPrefix(name, tc.name+"/") {
+				continue
+			}
+			t.Run(name, func(t *testing.T) {
+				server := serve(t, func(w http.ResponseWriter, _ *http.Request) {
+					io.WriteString(w, body)
+				})
+				client := tc.new(server.URL)
+				_, err := client.Send(
+					t.Context(),
+					llm.Call{Request: preparedRequest(t, client)},
+				)
+				e, ok := errors.AsType[*llm.Error](err)
+				if !ok || e.Category != llm.ErrorProtocol {
+					t.Fatalf("err = %v, want a protocol error", err)
+				}
+			})
+		}
+	}
+}
+
 func TestResultDoesNotInventMessageSourceWithoutOutput(t *testing.T) {
 	for _, tc := range cases(t) {
 		for _, variant := range []string{"cancelled", "http-error", "empty-stream"} {

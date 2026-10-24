@@ -499,6 +499,18 @@ func Decode(raw []byte, value any) error {
 	return nil
 }
 
+// Protocol reports a failure to decode provider output as a protocol error,
+// keeping an error that is already an *llm.Error as it is.
+func Protocol(provider string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := errors.AsType[*llm.Error](err); ok {
+		return err
+	}
+	return Failure(provider, llm.ErrorProtocol, "decode response: %w", err)
+}
+
 // Emit isolates mutable preview data so a sink cannot change the final result.
 func Emit(sink llm.Sink, d llm.Delta) {
 	if sink == nil {

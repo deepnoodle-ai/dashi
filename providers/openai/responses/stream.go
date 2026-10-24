@@ -103,7 +103,7 @@ func (wire codec) readStream(
 		switch e.Type {
 		case "response.created", "response.in_progress":
 			if err := providerhttp.Decode(e.Response, &envelope); err != nil {
-				return build(), err
+				return build(), providerhttp.Protocol(wire.origin.Provider, err)
 			}
 		case "response.output_item.added", "response.output_item.done":
 			var item map[string]any
