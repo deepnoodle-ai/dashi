@@ -580,3 +580,15 @@ a host that needs a strict guarantee keeps its `WorstCaseCost` hold for any
 call whose `ModelCallCost` is not `Exact`. The cost: a cap can be passed by
 the unreported part of interrupted calls, and by an input estimate that runs
 low, so a cap is a limit on known spend, not a guarantee.
+
+## 2026-10-24
+
+**48. Record formats change freely before 1.0.** Decided. Dashi has no
+production users yet, so a release may change a recorded field without
+reading the old one. The first case: the `task_status` outcome field
+`delivered_turn_id` became `delivered_notice_id` (decision 46). A host
+upgrading from 0.10.0 or 0.11.0 does not count an earlier read as delivered,
+so `Recover` may send that notice once more. The CHANGELOG lists each such
+change. Rationale: a shim for every renamed field would pile up code that
+nobody needs before the formats settle. The cost: an upgraded host may see a
+duplicate notice once.
