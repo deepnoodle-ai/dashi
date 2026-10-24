@@ -281,3 +281,17 @@ func TestModelInfoCloneCopiesCapabilityLists(t *testing.T) {
 		t.Fatal("image size constraints were shared")
 	}
 }
+
+func TestReportedUsageTreatsNullAsUnreported(t *testing.T) {
+	for _, raw := range []string{"", "null", " null\n"} {
+		if got := ReportedUsage(json.RawMessage(raw)); got != nil {
+			t.Fatalf("ReportedUsage(%q) = %q, want nil", raw, got)
+		}
+	}
+	raw := json.RawMessage(`{"total_tokens":3}`)
+	got := ReportedUsage(raw)
+	raw[2] = 'X'
+	if string(got) != `{"total_tokens":3}` {
+		t.Fatalf("ReportedUsage did not copy: %q", got)
+	}
+}

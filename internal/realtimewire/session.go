@@ -63,8 +63,14 @@ type Session struct {
 	outputText      string
 	outputFinal     bool
 	active, discard bool
-	stop            func() bool
-	closed          bool
+	// open marks a Gemini response started and not yet completed; an
+	// interrupted response is no longer active but is still open.
+	open bool
+	// requested marks a Grok response.create sent and not yet answered by
+	// response.created or an error.
+	requested bool
+	stop      func() bool
+	closed    bool
 }
 
 func NewSession(ctx context.Context, conn realtime.Connection, info realtime.SessionInfo) *Session {
@@ -81,6 +87,7 @@ func (s *Session) Close() error {
 		return nil
 	}
 	s.closed = true
+	s.events = nil // A closed session yields ErrClosed, not queued events.
 	s.mu.Unlock()
 	if s.stop != nil {
 		s.stop()
@@ -138,7 +145,7 @@ func (s *Session) Setup(ctx context.Context, setup any, ack string) error {
 			return e
 		}
 		if s.info.Provider == "google" {
-			if _, ok := m["setupComplete"]; ok {
+			if _, ok := m[ack]; ok {
 				return nil
 			}
 		} else if str(m, "type") == ack {
@@ -238,6 +245,10 @@ func (s *Session) Send(ctx context.Context, c realtime.Command) error {
 	if s.closed {
 		return realtime.ErrClosed
 	}
+	// The context may have expired while this call waited for another write.
+	if ctx.Err() != nil {
+		return realtime.Fail(realtime.ErrorCanceled)
+	}
 	if e := c.Validate(s.info.InputFormat); e != nil {
 		return e
 	}
@@ -273,12 +284,12 @@ func (s *Session) Send(ctx context.Context, c realtime.Command) error {
 			}
 			wire = map[string]any{"type": "conversation.item.create", "item": map[string]any{"type": "function_call_output", "call_id": c.ToolResult.CallID, "output": string(c.ToolResult.Output)}}
 		case realtime.CommandRespond:
-			if len(s.pending) != 0 || s.active {
+			if len(s.pending) != 0 || s.active || s.requested {
 				return realtime.Fail(realtime.ErrorInvalidRequest)
 			}
 			wire = map[string]any{"type": "response.create"}
 		case realtime.CommandInterrupt:
-			if !s.active {
+			if !s.active && !s.requested {
 				return nil
 			}
 			wire = map[string]any{"type": "response.cancel"}
@@ -286,20 +297,26 @@ func (s *Session) Send(ctx context.Context, c realtime.Command) error {
 			return realtime.Fail(realtime.ErrorUnsupported)
 		}
 	}
+	if c.Kind == realtime.CommandRespond {
+		// Set before the write unlocks s.mu, so a response.created that
+		// Receive handles first clears it rather than being overwritten.
+		s.requested = true
+	}
 	s.mu.Unlock()
 	err := s.Write(ctx, wire)
 	s.mu.Lock()
 	if err != nil {
 		s.closed = true
+		s.events = nil
+		if s.stop != nil {
+			s.stop()
+		}
 		s.conn.Close()
 		return err
 	}
 	if c.Kind == realtime.CommandToolResult {
 		delete(s.pending, c.ToolResult.CallID)
 		delete(s.owners, c.ToolResult.CallID)
-	}
-	if c.Kind == realtime.CommandRespond {
-		s.active = true
 	}
 	return nil
 }
@@ -375,6 +392,11 @@ func (s *Session) Receive(ctx context.Context) (realtime.Event, error) {
 		if closed {
 			return realtime.Event{}, realtime.ErrClosed
 		}
+		// The context may have expired while this call waited for another
+		// reader or after a frame that queued no event; the session stays.
+		if ctx.Err() != nil {
+			return realtime.Event{}, realtime.Fail(realtime.ErrorCanceled)
+		}
 		m, e := s.read(ctx)
 		if e != nil {
 			s.Close()
@@ -427,7 +449,11 @@ func (s *Session) google(m map[string]any) error {
 		return realtime.Fail(realtime.ErrorProvider)
 	}
 	if calls := object(m, "toolCall"); calls != nil {
-		if len(array(calls, "functionCalls")) > 0 && !s.discard {
+		// Calls from an interrupted turn are discarded with its output.
+		if s.discard {
+			calls = nil
+		}
+		if len(array(calls, "functionCalls")) > 0 {
 			if err := s.startGoogleResponse(); err != nil {
 				return err
 			}
@@ -463,10 +489,14 @@ func (s *Session) google(m map[string]any) error {
 		if err := s.finalizeGoogleOutput(); err != nil {
 			return err
 		}
-		s.discard = true
-		s.active = false
-		if e := s.enqueue(realtime.Event{Kind: realtime.EventInterrupted, ResponseID: s.response}); e != nil {
-			return e
+		// Only a response still in progress is interrupted. A standalone
+		// interruption must not discard the next response's output.
+		if s.active {
+			s.discard = true
+			s.active = false
+			if e := s.enqueue(realtime.Event{Kind: realtime.EventInterrupted, ResponseID: s.response}); e != nil {
+				return e
+			}
 		}
 	}
 	if !s.discard {
@@ -531,9 +561,13 @@ func (s *Session) google(m map[string]any) error {
 		}
 	}
 	if done, _ := c["turnComplete"].(bool); done {
-		if e := s.enqueue(realtime.Event{Kind: realtime.EventResponseCompleted, ResponseID: s.response}); e != nil {
-			return e
+		// A turn with no model output started no response to complete.
+		if s.open {
+			if e := s.enqueue(realtime.Event{Kind: realtime.EventResponseCompleted, ResponseID: s.response}); e != nil {
+				return e
+			}
 		}
+		s.open = false
 		s.active = false
 		s.discard = false
 	}
@@ -549,6 +583,7 @@ func (s *Session) grok(m map[string]any) error {
 		response := object(m, "response")
 		s.response = str(response, "id")
 		s.active = true
+		s.requested = false
 		e.Kind = realtime.EventResponseStarted
 		e.ResponseID = s.response
 	case "response.done":
@@ -599,6 +634,9 @@ func (s *Session) grok(m map[string]any) error {
 	case "response.function_call_arguments.done":
 		return s.call(str(m, "call_id"), str(m, "name"), m["arguments"], r, i)
 	case "error":
+		// A rejected response.create gets no response.created. Clearing the
+		// request lets the caller ask again instead of being refused forever.
+		s.requested = false
 		e.Kind = realtime.EventError
 		e.Error = &realtime.Error{Category: realtime.ErrorProvider, Code: providerErrorCode(m), Cause: providerErrorCause(m)}
 	default:
@@ -628,6 +666,7 @@ func (s *Session) startGoogleResponse() error {
 	s.sequence++
 	s.response = fmt.Sprintf("local-%d", s.sequence)
 	s.active = true
+	s.open = true
 	s.outputText = ""
 	s.outputFinal = false
 	return s.enqueue(realtime.Event{Kind: realtime.EventResponseStarted, ResponseID: s.response})
