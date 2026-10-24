@@ -380,7 +380,7 @@ func TestLaterChildTurnsAcrossRecover(t *testing.T) {
 	h.none(t, delegate.TaskEnded)
 	conv := &session.Session{New: true, Runner: h.runner, Agent: h.agent}
 	for _, turn := range []string{childTurnID(), turn2} {
-		v.TurnID = turn
+		v.TurnID, v.NoticeID = turn, delegate.NoticeID(turn)
 		if _, err := conv.EnqueueItem(t.Context(), v.Notice().Item()); err != nil {
 			t.Fatal(err)
 		}

@@ -27,6 +27,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`delegate.Tasks.Run` continues later child turns with their history,**
   and a retried `Continue` that sets `OnHistoryMismatch` is a retry, not a
   reused command ID.
+- **The parent learns when `delegate.Tasks.Run` finishes a child turn,**
+  even when the turn's earlier waiting stop already used its notice. Each
+  later stop gets a `TaskEnded` event and a notice of its own, whose ID is
+  the new `TaskView.NoticeID`; `task_status` records that ID as delivered.
+  The explicit run also reads the child's inbox, and mail it leaves unread
+  starts the next turn, as after any turn.
 - **A reused session command ID must repeat the caller's input exactly.**
   `Start.QueuedInput` records how many queued user messages a
   `session.Session` put ahead of the caller's input, so a Start whose input

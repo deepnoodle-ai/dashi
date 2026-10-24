@@ -60,10 +60,10 @@ func statusDelivered(turns []dashi.Turn) []string {
 				continue
 			}
 			var d struct {
-				TurnID string `json:"delivered_turn_id"`
+				NoticeID string `json:"delivered_notice_id"`
 			}
 			if json.Unmarshal(f.Outcome.Data, &d) == nil {
-				out = append(out, d.TurnID)
+				out = append(out, strings.TrimPrefix(d.NoticeID, delegate.NoticeID("")))
 			}
 		}
 	}
@@ -264,7 +264,7 @@ func TestStatusReadWithoutTheFinalResultDeliversNothing(t *testing.T) {
 	}
 	// The final result names its turn.
 	out, err = h.exec(t.Context(), delegate.StatusToolName, `{"task_id":"`+taskID()+`"}`)
-	if err != nil || string(out.Data) != `{"delivered_turn_id":"`+childTurnID()+`"}` {
+	if err != nil || string(out.Data) != `{"delivered_notice_id":"`+delegate.NoticeID(childTurnID())+`"}` {
 		t.Fatalf("final read data=%s err=%v", out.Data, err)
 	}
 

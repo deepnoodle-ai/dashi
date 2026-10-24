@@ -101,6 +101,11 @@ type TaskView struct {
 	// unknown, or was stopped. Tasks dropped them; the parent may send them
 	// again.
 	UnreadMessages int
+	// NoticeID is the ID of the notice for the stop of the turn TurnID
+	// names: NoticeID(TurnID) for its first stop, and another ID for a later
+	// stop, after Tasks.Run continued the turn. It is empty while the turn
+	// runs.
+	NoticeID string
 }
 
 // Running reports whether a turn of the task is working.
@@ -198,8 +203,10 @@ type childTurn struct {
 	// answer (the turn's reply) and reason are cut and ready for the model.
 	answer, reason string
 	// notified is set when a report starts, reported when it is done. An
-	// ended turn counts as pending until reported.
+	// ended turn counts as pending until reported. notice is the ID of the
+	// notice for the newest stop they report (see setNotice).
 	notified, reported bool
+	notice             string
 	deferred           bool
 	// suppressed distinguishes Close interruption from acknowledged notices.
 	suppressed bool
@@ -248,6 +255,23 @@ func (c *childTurn) markRecorded() {
 	default:
 		close(c.recorded)
 	}
+}
+
+// setNotice records the notice of turn's newest stop. A stop after the one
+// the turn last reported, such as the end of a turn that Tasks.Run
+// continued, is reported again, with its own notice. The caller holds
+// ts.mu.
+func (c *childTurn) setNotice(turn dashi.Turn) {
+	id := noticeIDOf(turn)
+	if c.notice != "" && c.notice != id {
+		c.notified, c.reported, c.suppressed = false, false, false
+	}
+	c.notice = id
+}
+
+// noticeID returns the ID of the notice for the turn's newest stop.
+func (c *childTurn) noticeID() string {
+	return cmp.Or(c.notice, NoticeID(c.id))
 }
 
 // view returns the turn's view: final, or built from the observed steps.
@@ -462,9 +486,9 @@ func (ts *Tasks) Close(ctx context.Context) error {
 // interrupted; it never resumes a canceled one. For each child turn that
 // already ended, it calls OnTask with TaskEnded, and delivers the notice to
 // Config.Session, unless the record holds that turn's notice (see NoticeID)
-// or an earlier call already reported the turn. So each ended turn is
-// reported once. It restores every task and reports the ended turns before
-// it resumes any turn.
+// or an earlier call already reported the turn. So each stop of an ended
+// turn is reported once. It restores every task and reports the ended
+// turns before it resumes any turn.
 //
 // It sends the parent again each message of a finished message_parent call
 // that the parent turns lack, before the notices, so they arrive together. A
@@ -707,7 +731,8 @@ func (ts *Tasks) restoreLocked(
 			c.final = &v
 			c.state, c.answer, c.reason = endState(ts, stop, v)
 		}
-		if delivered[NoticeID(c.id)] {
+		c.setNotice(turn)
+		if delivered[c.noticeID()] {
 			ts.reportedLocked(c, false)
 		}
 		t.turns = append(t.turns, c)
@@ -1058,6 +1083,7 @@ func (ts *Tasks) endTurn(t *task, id string, out dashi.RunResult, err error) {
 		view := out.TurnView
 		c.final = &view
 		c.state, c.answer, c.reason = endState(ts, out.Stop, view)
+		c.setNotice(out.Turn)
 	}
 	t.setStarted()
 	c.markRecorded()
@@ -1159,7 +1185,7 @@ func (ts *Tasks) notifyEnded(t *task, delivered map[string]bool) {
 			return
 		}
 		c := t.turns[i]
-		if delivered[NoticeID(c.id)] {
+		if delivered[c.noticeID()] {
 			ts.reportedLocked(c, false)
 			ts.mu.Unlock()
 			continue
@@ -1227,6 +1253,9 @@ func (ts *Tasks) viewLocked(t *task, c *childTurn) TaskView {
 	if c != nil {
 		v.TurnID, v.State, v.Reply, v.Reason = c.id, c.state, c.answer, c.reason
 		v.UnreadMessages = c.unread
+		if c.state != TaskRunning {
+			v.NoticeID = c.noticeID()
+		}
 	}
 	for _, c := range t.turns {
 		tv := c.view()

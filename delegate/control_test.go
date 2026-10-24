@@ -206,6 +206,51 @@ func TestTaskRunContinuesALaterTurnWithItsHistory(t *testing.T) {
 	}
 }
 
+// Without NoticeReady, a waiting stop uses the turn's first notice. When
+// Tasks.Run then finishes the turn, the parent still learns that it ended:
+// a TaskEnded event and a notice with its own ID.
+func TestTaskRunReportsTheEndAfterAWaitingNotice(t *testing.T) {
+	h := newHarness(t, scripted(childCallsProbe), delegate.Config{}, nil)
+	h.base = tool.List{tool.Tool{
+		Definition: tool.Definition{Name: "write", Description: "External write", Schema: []byte(`{"type":"object"}`)},
+		Executor: executor(func(context.Context, tool.Call) (tool.Outcome, error) {
+			return tool.Waiting("external worker owns this write"), nil
+		}),
+	}}
+	h.runner.Tools = tool.Join(h.base, h.tasks.Tools())
+	h.notify.Store(true)
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	waiting := h.next(t, delegate.TaskEnded)
+	if waiting.Task.State != "waiting" || waiting.Task.NoticeID != delegate.NoticeID(childTurnID()) {
+		t.Fatalf("first event %+v", waiting.Task)
+	}
+	resolved, err := h.tasks.Run(t.Context(), target(h, t), dashi.Resolve{
+		CommandID: "verify-write", CallID: "c1",
+		Outcome: ptrOutcome(tool.Succeeded("Operator verified the write.")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := h.tasks.Run(t.Context(),
+		delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), LastSeq: resolved.LastSeq},
+		dashi.Continue{CommandID: "finish"})
+	if err != nil || out.Reply != "child finished" {
+		t.Fatalf("reply=%q err=%v", out.Reply, err)
+	}
+	ended := h.next(t, delegate.TaskEnded)
+	id := ended.Task.Notice().Item().ID
+	if ended.Task.State != "completed" || id == waiting.Task.NoticeID ||
+		!strings.HasPrefix(id, delegate.NoticeID(childTurnID())+"@") {
+		t.Fatalf("end event %+v, notice %q", ended.Task, id)
+	}
+	if !h.inbox.Has(id) {
+		t.Fatal("the parent did not get the end notice")
+	}
+	h.none(t, delegate.TaskEnded)
+}
+
 type commandAckRecorder struct {
 	*dashi.MemoryRecorder
 	command string

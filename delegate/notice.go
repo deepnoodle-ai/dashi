@@ -1,8 +1,10 @@
 package delegate
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -11,14 +13,19 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
-// A notice tells the agent that a turn of a task ended. Delivery has one
-// rule: the notice is delivered when the record of the conversation shows
-// that the agent received that child turn's result. Either a turn recorded a
-// context item with the ID NoticeID(turn); or a session's queue turn started
-// with it: its command ID is "queue:" and the JSON list of the item IDs it
-// carried (see session.Session.RunQueue); or a recorded task_status call
-// returned the turn's final result, which its outcome's Data names by turn
-// ID (see statusData). A task_status read that shows a running task, or the
+// A notice tells the agent that a turn of a task stopped. A turn usually
+// stops once and has one notice, with the ID NoticeID(turn). A turn that
+// explicit task control (Tasks.Run) continues after a stop stops again, and
+// each later stop has its own notice (see noticeIDOf), so the agent learns
+// that the task finished even when the first notice told of a wait.
+//
+// Delivery has one rule: the notice is delivered when the record of the
+// conversation shows that the agent received that stop's result. Either a
+// turn recorded a context item with the notice's ID; or a session's queue
+// turn started with it: its command ID is "queue:" and the JSON list of the
+// item IDs it carried (see session.Session.RunQueue); or a recorded
+// task_status call returned the stop's result, which its outcome's Data
+// names by notice ID (see statusData). A task_status read that shows a running task, or the
 // list of tasks, delivers nothing. Notices are sent as before; the check
 // runs just before one is delivered: on Recover, before a queue turn (see
 // session.Session.Delivered), and in a host that holds notices until the
@@ -36,9 +43,28 @@ const (
 )
 
 // NoticeID returns the context item ID that records the notice for a child
-// turn.
+// turn's first stop. TaskView.NoticeID gives the ID for a later stop.
 func NoticeID(turnID string) string {
 	return noticePrefix + turnID
+}
+
+// noticeIDOf returns the ID of the notice for the newest stop of turn:
+// NoticeID for its first stop, or for a turn with none yet, and for a later
+// stop NoticeID followed by "@" and the stop step's sequence number. An
+// interruption does not count, since the turn resumes from it.
+func noticeIDOf(turn dashi.Turn) string {
+	stops := 0
+	var seq int64
+	for _, step := range turn.Steps {
+		if step.Stop != nil && step.Stop.Kind != dashi.StopInterrupted {
+			stops++
+			seq = step.Seq
+		}
+	}
+	if stops <= 1 {
+		return NoticeID(turn.ID)
+	}
+	return NoticeID(turn.ID) + "@" + strconv.FormatInt(seq, 10)
 }
 
 // Notice is the message that tells the agent a turn of a task ended.
@@ -81,7 +107,7 @@ func (n Notice) Text() string {
 // Item returns the notice as a context item: a contextual "task-ended"
 // reminder from the task, such as from="task t_k3f2 (explore)", with origin
 // dashi.ContextAgent, so it never carries user or operator authority. Its
-// ID is NoticeID of the child turn, so a turn records it once. Text past the
+// ID is the view's NoticeID, so a turn records it once. Text past the
 // reminder limit of 64 KiB is cut.
 func (n Notice) Item() dashi.ContextItem {
 	text := n.Text()
@@ -90,7 +116,7 @@ func (n Notice) Item() dashi.ContextItem {
 		text = fmt.Sprintf("%s\n[notice cut at %d bytes]", cut, len(cut))
 	}
 	return dashi.ContextItem{
-		ID:     NoticeID(n.Task.TurnID),
+		ID:     cmp.Or(n.Task.NoticeID, NoticeID(n.Task.TurnID)),
 		Origin: dashi.ContextAgent,
 		Message: llm.ReminderMessage(llm.Reminder{
 			Name:    noticeName,
@@ -122,7 +148,7 @@ func taskSender(id, subagent string) string {
 	return cutUTF8(from, maxFrom)
 }
 
-// DeliveredNotices returns the IDs, as NoticeID gives them, of the notices
+// DeliveredNotices returns the IDs, as TaskView.NoticeID gives them, of the notices
 // that turns record as delivered, by the rule above. A host that routes
 // notices from Config.OnTask checks it just before it sends one, so a
 // result the agent already read with task_status starts no other turn. It
@@ -147,8 +173,8 @@ func DeliveredNotices(turns []dashi.Turn) map[string]bool {
 					}
 				}
 			}
-			if child := statusDelivery(step); child != "" {
-				out[NoticeID(child)] = true
+			if id := statusRead(step).DeliveredNoticeID; id != "" {
+				out[id] = true
 			}
 		}
 	}
@@ -160,17 +186,12 @@ func DeliveredNotices(turns []dashi.Turn) map[string]bool {
 // messages from tasks. The record keeps it, so delivery never depends on the
 // text the model saw.
 type statusData struct {
-	// DeliveredTurnID is the child turn whose result the call delivered.
-	DeliveredTurnID string `json:"delivered_turn_id,omitempty"`
+	// DeliveredNoticeID is the ID of the notice whose result the call
+	// delivered: the child turn's stop it showed (see TaskView.NoticeID).
+	DeliveredNoticeID string `json:"delivered_notice_id,omitempty"`
 	// DeliveredMessageIDs are the messages to the parent whose text the
 	// call returned.
 	DeliveredMessageIDs []string `json:"delivered_message_ids,omitempty"`
-}
-
-// statusDelivery returns the child turn whose result a step's finished
-// task_status or task call delivered, or "".
-func statusDelivery(step dashi.Step) string {
-	return statusRead(step).DeliveredTurnID
 }
 
 // statusRead returns what a step's finished task_status or task call

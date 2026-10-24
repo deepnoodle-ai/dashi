@@ -610,10 +610,10 @@ func TestTaskWaitReturnsTheAnswer(t *testing.T) {
 		t.Fatalf("result=%q", result)
 	}
 	var data struct {
-		TurnID string `json:"delivered_turn_id"`
+		NoticeID string `json:"delivered_notice_id"`
 	}
 	if err := json.Unmarshal(out.Tools[callID].Outcome.Data, &data); err != nil ||
-		data.TurnID != sessionChildTurn(s) {
+		data.NoticeID != delegate.NoticeID(sessionChildTurn(s)) {
 		t.Fatalf("data=%s err=%v", out.Tools[callID].Outcome.Data, err)
 	}
 	h.next(t, delegate.TaskEnded)
