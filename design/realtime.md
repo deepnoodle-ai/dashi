@@ -72,7 +72,9 @@ as text output as in the batch Gemini provider. Detail that does not add up
 to the totals stays explicitly incomplete. A disconnect ends the session.
 The app must start a new connection explicitly and reconcile unknown tool effects.
 
-Adapters target `gemini-3.8-live` and `grok-voice-think-fast-2.0`. Gemini manual
+Adapters target `gemini-3.8-live` and `grok-voice-3.0`. xAI serves a different
+model for an id it does not know, so Grok's Info.Model is the model that
+session.updated names. Gemini manual
 interruption and explicit Respond are unsupported. Grok CommandAudioEnd is
 unsupported with server VAD: mute by ceasing capture and input frames.
 

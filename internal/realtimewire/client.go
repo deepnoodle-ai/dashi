@@ -104,7 +104,7 @@ func (c *Client) Connect(ctx context.Context, in realtime.Config) (realtime.Sess
 	if c.vertex == nil && c.config.APIKey == "" && c.config.Endpoint == defaultEndpoint(c.google) {
 		return nil, realtime.Fail(realtime.ErrorAuthentication)
 	}
-	model, provider := "grok-voice-think-fast-2.0", "grok"
+	model, provider := "grok-voice-3.0", "grok"
 	rate := 24000
 	if c.google {
 		model, provider = "gemini-3.8-live", "google"

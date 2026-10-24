@@ -148,6 +148,15 @@ func (s *Session) Setup(ctx context.Context, setup any, ack string) error {
 					s.Close()
 					return realtime.Failf(realtime.ErrorProtocol, "session id is %d bytes", len(s.info.SessionID))
 				}
+				// xAI serves another model for an id it does not know, and
+				// says which; Info reports the model actually serving.
+				if model := str(session, "model"); model != "" {
+					if len(model) > 256 {
+						s.Close()
+						return realtime.Failf(realtime.ErrorProtocol, "model is %d bytes", len(model))
+					}
+					s.info.Model = model
+				}
 				for _, direction := range []string{"input", "output"} {
 					format := object(object(object(session, "audio"), direction), "format")
 					if format != nil {

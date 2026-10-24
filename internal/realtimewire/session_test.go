@@ -546,3 +546,15 @@ func TestSetupRefusalKeepsCloseReason(t *testing.T) {
 		t.Fatalf("error %v", err)
 	}
 }
+
+// xAI remaps an id it does not know and names the model it serves instead.
+func TestGrokInfoReportsServingModel(t *testing.T) {
+	s, _ := connect(t, false, fake(`{"type":"session.updated","session":{"id":"sess","model":"grok-voice-2.0"}}`))
+	if got := s.Info().Model; got != "grok-voice-2.0" {
+		t.Fatalf("model %q", got)
+	}
+	s, _ = connect(t, false, fake(`{"type":"session.updated","session":{"id":"sess"}}`))
+	if got := s.Info().Model; got != "grok-voice-3.0" {
+		t.Fatalf("model %q", got)
+	}
+}

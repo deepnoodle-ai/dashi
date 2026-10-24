@@ -42,6 +42,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   provider: thoughts count as output and as `ReasoningTokens` (attributed to
   text), cached prompt tokens as cache reads. The modality-incomplete flags
   are false only when the detail adds up to the totals.
+- **Grok voice defaults to `grok-voice-3.0`.** `voice.DefaultModel` was
+  `grok-voice-think-fast-2.0`, which xAI no longer lists and silently serves
+  as the deprecated `grok-voice-2.0`. A session's `Info().Model` now reports
+  the model named in Grok's `session.updated`, which is the model actually
+  serving, and keeps the requested id only when the echo omits it. A
+  `Config.Model` naming the old id now fails with `ErrorUnsupported`.
 - **A provider's close reason reaches the caller.** A WebSocket close with a
   status other than normal, such as Vertex refusing a model at a location,
   returns an `ErrorProvider` with `Code` `close_<status>` and the reason as
