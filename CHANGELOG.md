@@ -13,6 +13,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Schemas include fields from embedded structs of unexported type.** For
+  a type such as `type input struct{ base }`, `tool.Func` and
+  `MustOutputSchema` now list `base`'s exported fields, as `encoding/json`
+  decodes them. Before, a strict tool or output schema rejected every input
+  that set them. Wonton v0.8.0 brings the fix, and also stops a recursive map
+  or slice type from crashing schema generation.
 - **Gemini Live sessions report only real responses.** An interruption or
   turn end with no response in progress no longer sends `EventInterrupted`
   or `EventResponseCompleted` for the previous response, and does not drop
