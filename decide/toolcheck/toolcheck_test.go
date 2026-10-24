@@ -239,18 +239,28 @@ func TestShellToolsNamesOtherShells(t *testing.T) {
 
 // A case alias such as "Command" must not hide the command a
 // case-sensitive shell runs.
-func TestCommandRiskReadsTheExactCommandKey(t *testing.T) {
-	f := newFixture(t)
-	risk := toolcheck.CommandRisk{Client: f.client}
-	f.srv.Answer("severe", decidetest.NoulAnswer(0.94))
-	p := dashi.ToolPlan{Call: tool.Call{ID: "c", Name: "bash",
-		Args: json.RawMessage(`{"command":"rm -rf ~","Command":"true"}`)}}
-	v, err := risk.Check(t.Context(), p)
-	if err != nil || !v.Checked || !v.Flagged {
-		t.Fatalf("verdict = %+v, err = %v", v, err)
-	}
-	if state, _ := json.Marshal(f.srv.Requests()[0].Request.State); !strings.Contains(string(state), `"command":"rm -rf ~"`) {
-		t.Fatalf("state = %s", state)
+func TestCommandRiskReadsEveryCaseVariantOfTheCommandKey(t *testing.T) {
+	// encoding/json keeps the last case-insensitive match, other decoders
+	// keep the exact key or the first one. The check must see the command
+	// whichever one an executor runs.
+	for _, args := range []string{
+		`{"command":"true","Command":"rm -rf ~"}`,
+		`{"command":"rm -rf ~","Command":"true"}`,
+		`{"command":"rm -rf ~","command":"true"}`,
+		`{"COMMAND":"rm -rf ~"}`,
+	} {
+		f := newFixture(t)
+		risk := toolcheck.CommandRisk{Client: f.client}
+		f.srv.Answer("severe", decidetest.NoulAnswer(0.94))
+		p := dashi.ToolPlan{Call: tool.Call{ID: "c", Name: "bash",
+			Args: json.RawMessage(args)}}
+		v, err := risk.Check(t.Context(), p)
+		if err != nil || !v.Checked || !v.Flagged {
+			t.Fatalf("%s: verdict = %+v, err = %v", args, v, err)
+		}
+		if state, _ := json.Marshal(f.srv.Requests()[0].Request.State); !strings.Contains(string(state), "rm -rf ~") {
+			t.Fatalf("%s: state = %s", args, state)
+		}
 	}
 }
 

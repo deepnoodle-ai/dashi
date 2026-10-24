@@ -27,6 +27,7 @@
 package toolcheck
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -507,6 +508,12 @@ func flagged(a asked, questions []question, min float64) bool {
 
 // shellCommand returns the command a call to one of shells runs, or false
 // when the call is not to a shell tool or has no command.
+//
+// Decoders disagree on which key names the command: encoding/json matches
+// "Command" too and keeps the last match, other decoders match exactly or
+// keep the first. So every string under a key equal to "command" in any
+// case counts, and when they differ the check reads all of them, one per
+// line. Whatever the executor picks, the check has seen it.
 func shellCommand(call tool.Call, shells []string) (string, bool) {
 	if shells == nil {
 		shells = defaultShellTools
@@ -514,16 +521,52 @@ func shellCommand(call tool.Call, shells []string) (string, bool) {
 	if !slices.Contains(shells, call.Name) {
 		return "", false
 	}
-	// A map matches keys exactly, as a shell executor does; a struct would
-	// also take "Command", and a later case alias would hide the command
-	// that runs. A repeated key keeps its last value, as most decoders do.
-	var args map[string]any
+	var args map[string]json.RawMessage
 	if err := json.Unmarshal(call.Args, &args); err != nil {
 		return "", false
 	}
-	command, ok := args["command"].(string)
-	if !ok || strings.TrimSpace(command) == "" {
+	commands, err := commandValues(call.Args)
+	if err != nil {
 		return "", false
 	}
-	return command, true
+	var parts []string
+	for _, command := range commands {
+		if strings.TrimSpace(command) != "" && !slices.Contains(parts, command) {
+			parts = append(parts, command)
+		}
+	}
+	if len(parts) == 0 {
+		return "", false
+	}
+	return strings.Join(parts, "\n"), true
+}
+
+// commandValues returns, in order, the string value of every top-level key
+// of the JSON object args that equals "command" without regard to case,
+// repeated keys included.
+func commandValues(args json.RawMessage) ([]string, error) {
+	dec := json.NewDecoder(bytes.NewReader(args))
+	if _, err := dec.Token(); err != nil { // the opening brace
+		return nil, err
+	}
+	var commands []string
+	for dec.More() {
+		token, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		key, _ := token.(string)
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return nil, err
+		}
+		if !strings.EqualFold(key, "command") {
+			continue
+		}
+		var command string
+		if json.Unmarshal(value, &command) == nil {
+			commands = append(commands, command)
+		}
+	}
+	return commands, nil
 }

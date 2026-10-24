@@ -15,9 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   last line with no newline, as git does, and drops `\r` from CRLF lines.
 - **`grep` refuses a bad glob without rg too**, and `glob` no longer stalls on
   repeated `**` segments.
-- **`toolcheck` reads the exact `command` key.** A case alias such as
-  `"Command"` no longer hides the command a shell runs from `CommandRisk` and
-  `PromptInjection`.
+- **`toolcheck` reads every case variant of the `command` key.** Decoders
+  differ on which of `"command"`, `"Command"`, or a repeated key they run, so
+  `CommandRisk` and `PromptInjection` now check all of them, and a case alias
+  can no longer hide the command a shell runs.
 - **`judge_items` validates Decide answers** even when the host's client turns
   validation off, so an out-of-range probability fails its item.
 - **`turnwatch` sees its earlier reminders after a summary** replaced the tool
