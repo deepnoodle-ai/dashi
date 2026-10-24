@@ -111,12 +111,6 @@ func knownLimit(value int) string {
 	}
 	return strconv.Itoa(value)
 }
-func knownSupport(value llm.Support) string {
-	if value == "" {
-		return "unknown"
-	}
-	return string(value)
-}
 
 func readStartupPreferences(path string, project bool) (preferenceFile, error) {
 	p, err := readPreferenceFile(path, project)

@@ -32,6 +32,7 @@ func newRouteClients(registry, user map[string]configuredDestination, lookup fun
 		for id, d := range m {
 			d.Definition.Models = slices.Clone(d.Definition.Models)
 			d.BuiltinAliases = slices.Clone(d.BuiltinAliases)
+			d.FeaturedModels = slices.Clone(d.FeaturedModels)
 			out[id] = d
 		}
 		return out

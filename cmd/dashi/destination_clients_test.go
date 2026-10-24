@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -213,5 +214,15 @@ func TestOllamaDispatchBindsPlaceholderOrExplicitCredential(t *testing.T) {
 				t.Fatalf("send=%v requests=%d", err, requests)
 			}
 		})
+	}
+}
+
+func TestFeaturedModelsAreRegistered(t *testing.T) {
+	for id, d := range builtinDestinations() {
+		for _, model := range d.FeaturedModels {
+			if !slices.Contains(d.Definition.Models, model) {
+				t.Errorf("%s: featured model %q is not registered", id, model)
+			}
+		}
 	}
 }

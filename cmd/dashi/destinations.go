@@ -30,6 +30,11 @@ type configuredDestination struct {
 	Project    bool
 	// BuiltinAliases apply only to a built-in binding, never a custom name.
 	BuiltinAliases []string
+	// FeaturedModels is a built-in binding's short list for the /model
+	// picker: the newest model of each family worth picking, without dated
+	// snapshots or duplicate aliases. Empty means the picker lists every
+	// registered model, as it does for a destination from user settings.
+	FeaturedModels []string
 }
 
 func validConfigName(s string) bool {

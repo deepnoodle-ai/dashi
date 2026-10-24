@@ -114,9 +114,13 @@ type pickerState struct {
 	sessionVP     tui.ViewportState
 	title         string
 	options       []string
-	details       []string
-	index         int
-	reply         chan int
+	// details are the session cards; notes are short muted text after
+	// each option; footer is muted text below the options.
+	details []string
+	notes   []string
+	footer  string
+	index   int
+	reply   chan int
 }
 
 // Events posted to the loop.
@@ -249,21 +253,24 @@ func (s *screen) Ask(ctx context.Context, q taskQuestion) (questionAnswer, error
 
 // Choose implements Chooser.
 func (s *screen) Choose(ctx context.Context, title string, options []string) (int, bool) {
-	return s.ChooseDetailed(ctx, title, options, nil, 0)
+	return s.choosePicker(ctx, &pickerState{title: title, options: options})
 }
 
-// ChooseDetailed keeps model facts readable separately from the option list.
-func (s *screen) ChooseDetailed(ctx context.Context, title string, options, details []string, selected int) (int, bool) {
-	return s.choosePicker(ctx, title, options, details, selected, false)
+// ChooseModel shows options with a short muted note after each, such as a
+// context window, and a muted footer below them. The cursor starts at
+// selected.
+func (s *screen) ChooseModel(ctx context.Context, title string, options, notes []string, footer string, selected int) (int, bool) {
+	return s.choosePicker(ctx, &pickerState{title: title, options: options, notes: notes, footer: footer, index: selected})
 }
 
 func (s *screen) ChooseSessions(ctx context.Context, options, details []string) (int, bool) {
-	return s.choosePicker(ctx, "Workspace sessions", options, details, 0, true)
+	return s.choosePicker(ctx, &pickerState{title: "Workspace sessions", options: options, details: details, sessionCards: true})
 }
 
-func (s *screen) choosePicker(ctx context.Context, title string, options, details []string, selected int, sessions bool) (int, bool) {
+func (s *screen) choosePicker(ctx context.Context, p *pickerState) (int, bool) {
 	id := s.promptSeq.Add(1)
-	p := &pickerState{title: title, options: options, details: details, sessionCards: sessions, index: max(0, min(selected, len(options)-1)), reply: make(chan int, 1)}
+	p.index = max(0, min(p.index, len(p.options)-1))
+	p.reply = make(chan int, 1)
 	s.post(promptEvent{at: time.Now(), id: id, picker: p})
 	select {
 	case i := <-p.reply:
@@ -697,5 +704,5 @@ func (s *screen) dumpTranscript(w io.Writer) {
 }
 
 func (s *screen) ChooseTaskDetails(ctx context.Context, id, text string) {
-	s.choosePicker(ctx, "Task "+id, []string{"Close details"}, []string{text}, 0, true)
+	s.choosePicker(ctx, &pickerState{title: "Task " + id, options: []string{"Close details"}, details: []string{text}, sessionCards: true})
 }

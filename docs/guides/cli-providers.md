@@ -31,7 +31,10 @@ destination with no registered models is left out.
 required binding trust are present. It makes no network probe or paid request,
 and does not establish authentication or server health.
 
-`/model` opens the picker; `/model team acme/code-v1` selects a pair. `/model ID`
+`/model` opens the picker; `/model team acme/code-v1` selects a pair. The picker
+lists ready destinations only: each built-in offers its newest models, and a
+destination from user settings lists all of its models. A muted line names the
+keys that would add more, and *All models…* opens the complete list. `/model ID`
 requires exactly one destination registering that ID. Cancelling or rejecting a
 switch preserves the previous selection. A switch prepares the existing controls
 against the candidate before saving it.
