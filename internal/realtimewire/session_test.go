@@ -422,6 +422,17 @@ func TestGeminiInterruptAndCompletionNeedAnOpenResponse(t *testing.T) {
 		t.Fatal("response identity reused")
 	}
 }
+func TestGeminiStandaloneInterruptKeepsNextResponse(t *testing.T) {
+	audio := `{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"data":"AAA=","mimeType":"audio/pcm;rate=24000"}}]}}}`
+	s, _ := connect(t, true, fake(`{"setupComplete":{}}`, audio, `{"serverContent":{"turnComplete":true}}`, `{"serverContent":{"interrupted":true}}`, audio))
+	next(t, s, realtime.EventResponseStarted)
+	next(t, s, realtime.EventAudio)
+	next(t, s, realtime.EventResponseCompleted)
+	// The interruption arrived with no response in progress, so the next
+	// response's audio is delivered.
+	next(t, s, realtime.EventResponseStarted)
+	next(t, s, realtime.EventAudio)
+}
 func TestGeminiToolCallAfterInterruptIsDiscarded(t *testing.T) {
 	audio := `{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"data":"AAA=","mimeType":"audio/pcm;rate=24000"}}]}}}`
 	s, _ := connect(t, true, fake(`{"setupComplete":{}}`, audio, `{"serverContent":{"interrupted":true}}`, `{"toolCall":{"functionCalls":[{"id":"c1","name":"ask_agent","args":{}}]}}`, `{"serverContent":{"turnComplete":true}}`))

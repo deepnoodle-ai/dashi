@@ -103,7 +103,9 @@ func (c *Client) Connect(ctx context.Context, in realtime.Config) (realtime.Sess
 	}
 	tools := []any{}
 	var setup any
+	ack := "session.updated"
 	if c.google {
+		ack = "setupComplete"
 		if in.Voice == "" {
 			in.Voice = "Kore"
 		}
@@ -130,7 +132,7 @@ func (c *Client) Connect(ctx context.Context, in realtime.Config) (realtime.Sess
 	}
 	setupCtx, cancel := context.WithTimeout(ctx, setupTimeout)
 	defer cancel()
-	if e := s.Setup(setupCtx, setup, "session.updated"); e != nil {
+	if e := s.Setup(setupCtx, setup, ack); e != nil {
 		// The setup deadline passing while the caller's context is live is a
 		// provider that never acknowledged, not a cancellation.
 		if ctx.Err() == nil && setupCtx.Err() != nil {

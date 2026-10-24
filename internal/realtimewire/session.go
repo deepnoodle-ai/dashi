@@ -130,7 +130,7 @@ func (s *Session) Setup(ctx context.Context, setup any, ack string) error {
 			return e
 		}
 		if s.info.Provider == "google" {
-			if _, ok := m["setupComplete"]; ok {
+			if _, ok := m[ack]; ok {
 				return nil
 			}
 		} else if str(m, "type") == ack {
@@ -159,9 +159,6 @@ func (s *Session) Setup(ctx context.Context, setup any, ack string) error {
 		}
 	}
 	s.Close()
-	if s.info.Provider == "google" {
-		ack = "setupComplete"
-	}
 	return realtime.Failf(realtime.ErrorProtocol, "no %q among the first 32 messages", ack)
 }
 func (s *Session) read(ctx context.Context) (map[string]any, error) {
@@ -434,9 +431,10 @@ func (s *Session) google(m map[string]any) error {
 		if err := s.finalizeGoogleOutput(); err != nil {
 			return err
 		}
-		s.discard = true
-		// Only a response still in progress is interrupted.
+		// Only a response still in progress is interrupted. A standalone
+		// interruption must not discard the next response's output.
 		if s.active {
+			s.discard = true
 			s.active = false
 			if e := s.enqueue(realtime.Event{Kind: realtime.EventInterrupted, ResponseID: s.response}); e != nil {
 				return e
