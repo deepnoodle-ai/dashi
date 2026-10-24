@@ -448,7 +448,13 @@ func (r *Recorder) Wait(ctx context.Context, turnID string, after int64) error {
 		if err != nil || len(steps) > 0 {
 			return nil
 		}
+		r.mu.Lock()
+		cached = r.index.get(turnID)
+		r.mu.Unlock()
 	}
+	// A commit replaces a torn tail, and a line of the same length leaves
+	// the size unchanged, so while the log has one each check reads it.
+	torn := cached.size != cached.end
 	tick := time.NewTicker(waitCheck)
 	defer tick.Stop()
 	for {
@@ -460,6 +466,12 @@ func (r *Recorder) Wait(ctx context.Context, turnID string, after int64) error {
 		case <-tick.C:
 			if r.logSize(turnID) != size {
 				return nil
+			}
+			if torn {
+				steps, err := r.StepsAfter(ctx, turnID, after, 1)
+				if err != nil || len(steps) > 0 {
+					return nil
+				}
 			}
 		}
 	}

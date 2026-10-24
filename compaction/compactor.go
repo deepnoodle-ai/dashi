@@ -86,7 +86,9 @@ func (c *Compactor) Needed(messages []llm.Message, last llm.Usage) bool {
 //     every turn.
 //
 // The Start's CommandID is "compact:" and the last turn's ID, so a retry, a
-// restarted worker, or a second worker finds the same turn. It makes no
+// restarted worker, or a second worker finds the same turn. When Model is
+// empty, the Start's agent takes the provider, API, and model of the newest
+// user turn, as a Session's compaction turn does. It makes no
 // model call and writes nothing. Its only errors are encoding errors.
 func (c *Compactor) StartIfNeeded(ctx context.Context, turns []dashi.Turn) (
 	start dashi.Start, needed bool, err error) {
@@ -114,8 +116,24 @@ func (c *Compactor) StartIfNeeded(ctx context.Context, turns []dashi.Turn) (
 	if err != nil {
 		return dashi.Start{}, false, err
 	}
+	if start.Agent.Model == "" {
+		start.Agent.Provider, start.Agent.API, start.Agent.Model = lastUserModel(turns)
+	}
 	start.CommandID = "compact:" + last.ID
 	return start, true, nil
+}
+
+// lastUserModel returns the provider, API, and model of the newest user
+// turn in turns, which write the summary when Compactor.Model is empty.
+func lastUserModel(turns []dashi.Turn) (provider, api, model string) {
+	for i := len(turns) - 1; i >= 0; i-- {
+		view, err := turns[i].View()
+		if err == nil && view.Origin == dashi.StartUser {
+			a := view.Agent
+			return a.Provider, a.API, a.Model
+		}
+	}
+	return "", "", ""
 }
 
 // Start builds the compaction turn's Start. It keeps the newest messages

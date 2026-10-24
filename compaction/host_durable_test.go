@@ -162,6 +162,27 @@ func mustJSON(t *testing.T, v any) string {
 	return string(b)
 }
 
+// With no Model, the compaction turn's summary is written by the model of
+// the newest user turn, and the host runs the Start as is.
+func TestStartIfNeededUsesTheTurnsModel(t *testing.T) {
+	h := newDurableHost(t, 10_000)
+	h.compactor.Model = ""
+	h.work(pad("one", 700), usedText("first answer", 750))
+	h.work(pad("two", 700), usedText("second answer", 2_000))
+	start, needed, err := h.compactor.StartIfNeeded(t.Context(), h.turns())
+	if err != nil || !needed {
+		t.Fatalf("needed=%v err=%v", needed, err)
+	}
+	if start.Agent.Model != dashitest.Model {
+		t.Fatalf("model %q; want %q", start.Agent.Model, dashitest.Model)
+	}
+	id := h.admit(h.turns())
+	h.client.Add(dashitest.Reply("<summary>S</summary>"))
+	if out, err := h.runner.Advance(t.Context(), id); err != nil || !out.Stop.Ended {
+		t.Fatalf("advance: %+v %v", out.Stop, err)
+	}
+}
+
 // Failure 4: a crash at any point leaves either no compaction turn, and
 // the next admission builds the same one, or one whose replay is already
 // decided. A second worker meets the same key, and the first record wins.

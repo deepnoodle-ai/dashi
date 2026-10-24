@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Session steers are no longer stranded.** A steer sent to a turn that
+  never started, or to a turn that ended without the handle seeing it end
+  (a lost acknowledgement, or another worker), now moves to the queue.
+- **A turn a `session.Session` handle is starting counts as running.** Until
+  its first step is recorded, `Open` reports `NextRunning`, and a second
+  Start, a `Continue`, `Compact`, and `RunQueue` wait for it instead of
+  planning the same turn.
+- **`WarningTurnClosed` arrives exactly once.** It was lost when the
+  Compactor found nothing to compact, and repeated in `Stream` when a
+  compaction turn ran.
+- **Compaction keeps provider tool approval pairs together.** The kept tail
+  no longer starts at a `ProviderToolApprovalResponse` whose request was
+  summarized, and tail sizes no longer overflow on huge media references.
+- **`compaction.Compactor.StartIfNeeded` sets the summary model.** With an
+  empty `Model`, the Start uses the newest user turn's provider, API, and
+  model, as a Session does.
+- **`delegate.Tasks.Run` continues later child turns with their history,**
+  and a retried `Continue` that sets `OnHistoryMismatch` is a retry, not a
+  reused command ID.
+- **`filerecorder.Recorder.Wait` sees a commit that replaces a torn tail of
+  the same length,** and lock waits report `context.Canceled` rather than
+  the context's cause.
+
 ## [0.10.0] - 2026-10-23
 
 ### Added

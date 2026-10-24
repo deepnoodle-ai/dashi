@@ -56,11 +56,25 @@ func ownedCommand(cmd dashi.Command) (dashi.Command, string, string, error) {
 	if id == "" {
 		return nil, "", "", errors.New("delegate: task command needs a CommandID")
 	}
-	b, err := json.Marshal(owned)
+	hash, err := commandHash(owned)
 	if err != nil {
 		return nil, "", "", err
 	}
-	return owned, id, dashi.ArgsHash(b), nil
+	return owned, id, hash, nil
+}
+
+// commandHash is the hash the runner records for cmd in Step.CommandHash,
+// which leaves Continue.OnHistoryMismatch out.
+func commandHash(cmd dashi.Command) (string, error) {
+	if v, ok := cmd.(dashi.Continue); ok {
+		v.OnHistoryMismatch = ""
+		cmd = v
+	}
+	b, err := json.Marshal(cmd)
+	if err != nil {
+		return "", err
+	}
+	return dashi.ArgsHash(b), nil
 }
 
 func receipt(turn dashi.Turn, id, hash string) (bool, error) {
@@ -132,6 +146,15 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 	turn := rec.turns[len(rec.turns)-1]
 	view := rec.views[len(rec.views)-1]
 	out = dashi.RunResult{Turn: turn, TurnView: view}
+	if c, ok := owned.(dashi.Continue); ok && c.History == nil && len(rec.turns) > 1 {
+		// The turn started with the history of the child's earlier turns,
+		// as the child session builds it, so a Continue sends it too.
+		c.History, _ = dashi.BuildHistory(rec.turns[:len(rec.turns)-1])
+		owned = c
+		if hash, err = commandHash(owned); err != nil {
+			return out, err
+		}
+	}
 	if turn.ID != currentID || target.TurnID != turn.ID ||
 		!equalValue(rec.views[0].Parent, &t.parent) || !equalValue(view.Parent, parent) {
 		return out, dashi.ErrStaleTurn

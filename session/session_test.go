@@ -427,6 +427,46 @@ func TestSessionRunningOnThisHandle(t *testing.T) {
 	}
 }
 
+// A turn this handle is starting, before its turn_started step is
+// recorded, counts as running: Open says so, and a second Start, a
+// Continue, a manual compaction, and RunQueue all wait for it.
+func TestSessionStartingOnThisHandle(t *testing.T) {
+	rec := newHeldStart("s-2", false)
+	s := handle(rec, dashitest.NewClient(dashitest.Reply("one"), dashitest.Reply("two"), dashitest.Reply("three")))
+	s.New = true
+	if _, err := s.Send(t.Context(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	done := sendAsync(t.Context(), s, "second")
+	<-rec.entered
+	st, err := s.Open(t.Context())
+	if err != nil || st.Next != dashi.NextRunning {
+		t.Fatalf("open: %v, next %s", err, st.Next)
+	}
+	_, err = s.Send(t.Context(), "third")
+	requireBusy(t, err, dashi.NextRunning, false)
+	_, err = s.Run(t.Context(), dashi.Continue{})
+	requireBusy(t, err, dashi.NextRunning, false)
+	s.Compactor = keepLast{limit: 0}
+	_, err = s.Compact(t.Context(), nil)
+	requireBusy(t, err, dashi.NextRunning, false)
+	s.Compactor = nil
+	if _, err := s.Enqueue(t.Context(), "later"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ran, err := s.RunQueue(t.Context()); ran || err != nil {
+		t.Fatalf("queue ran=%v err=%v while a turn starts", ran, err)
+	}
+	close(rec.release)
+	// The queued input runs after the started turn, in the same call.
+	if out := awaitSend(t, done); out.Turn.ID != "s-3" {
+		t.Fatalf("turn=%s", out.Turn.ID)
+	}
+	if got := input(t, rec.MemoryRecorder, "s-2"); len(got) != 1 || got[0] != "second" {
+		t.Fatalf("s-2 input=%q", got)
+	}
+}
+
 // TestSessionRunningCallNamesNoCall runs a call that is not idempotent and
 // sends while it runs. A handle that knows a worker runs the turn (its own,
 // or WorkerChecker says live) refuses as running, with no CallID and no

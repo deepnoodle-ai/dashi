@@ -103,7 +103,7 @@ func (s *Session) planManualCompaction(
 	if last == 0 {
 		return nil, ErrNothingToCompact
 	}
-	if busy := s.compactingBusy(); busy != nil {
+	if busy := s.startingBusy(last + 1); busy != nil {
 		return nil, busy
 	}
 	t, err := s.load(ctx, last)
@@ -345,6 +345,9 @@ func (cl *call) compact(ctx context.Context, p startPlan) (lost bool, _ error) {
 			return false, cl.fail(ctx.Err())
 		}
 		if errors.Is(err, ErrNothingToCompact) {
+			// The plan's warnings, such as the last turn's closing, belong
+			// to the turn the caller plans next.
+			cl.warnings = append(cl.warnings, p.warnings...)
 			return false, nil
 		}
 		return false, cl.fail(fmt.Errorf(
@@ -352,14 +355,21 @@ func (cl *call) compact(ctx context.Context, p startPlan) (lost bool, _ error) {
 	}
 	out, lost, err := cl.runCompaction(ctx, p)
 	if lost {
+		cl.warnings = append(cl.warnings, p.warnings...)
 		return true, nil
 	}
+	reported := false
 	if len(out.Turn.Steps) > 0 {
 		cl.report(out, err)
+		reported = cl.yield != nil
 	} else if err != nil {
 		cl.fail(err)
 	}
-	cl.warnings = append(cl.warnings, out.SessionWarnings...)
+	if !reported {
+		// Stream already gave the caller this turn's result, with its
+		// session warnings.
+		cl.warnings = append(cl.warnings, out.SessionWarnings...)
+	}
 	cl.warnings = append(cl.warnings, fallbackWarnings(out.TurnView)...)
 	if cl.stopped {
 		return false, context.Canceled

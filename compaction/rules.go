@@ -111,7 +111,11 @@ func withoutReminders(messages []llm.Message) []llm.Message {
 func tailStart(messages []llm.Message, budget int) int {
 	sizes := make([]int, len(messages)+1)
 	for i := len(messages) - 1; i >= 0; i-- {
-		sizes[i] = sizes[i+1] + estimate(messages[i])
+		n := estimate(messages[i])
+		if n > math.MaxInt-sizes[i+1] {
+			n = math.MaxInt - sizes[i+1]
+		}
+		sizes[i] = sizes[i+1] + n
 	}
 	var starts []int
 	for i := range messages {
@@ -127,22 +131,32 @@ func tailStart(messages []llm.Message, budget int) int {
 	return len(messages)
 }
 
+// isStart reports whether m is a user message other than a tool result or
+// a provider tool approval response, both of which answer the message
+// before them.
 func isStart(m llm.Message) bool {
 	return m.Role == llm.RoleUser && !slices.ContainsFunc(m.Content, func(c llm.Content) bool {
-		return c.ToolResult != nil
+		return c.ToolResult != nil || c.ProviderToolApprovalResponse != nil
 	})
 }
 
 // splitsExchange reports whether tail has a tool result whose call is not in
-// tail. Such a tail is not valid history for a model.
+// tail, or a provider tool approval response whose request is not in tail.
+// Such a tail is not valid history for a model.
 func splitsExchange(tail []llm.Message) bool {
 	calls := map[string]bool{}
+	requests := map[string]bool{}
 	for _, m := range tail {
 		for _, c := range m.Content {
 			switch {
 			case c.ToolCall != nil:
 				calls[c.ToolCall.ID] = true
 			case c.ToolResult != nil && !calls[c.ToolResult.CallID]:
+				return true
+			case c.ProviderToolApprovalRequest != nil:
+				requests[c.ProviderToolApprovalRequest.ID] = true
+			case c.ProviderToolApprovalResponse != nil &&
+				!requests[c.ProviderToolApprovalResponse.RequestID]:
 				return true
 			}
 		}

@@ -131,6 +131,81 @@ func TestTaskRunLimitedChildRaiseAndDiscard(t *testing.T) {
 	h2.next(t, delegate.TaskEnded)
 }
 
+// OnHistoryMismatch says how to handle a mismatch, not what the command
+// asks for, so a retry of an applied Continue that sets it is a retry.
+func TestTaskRunRetryWithHistoryMismatchPolicy(t *testing.T) {
+	sub := scout()
+	sub.Agent.Limits.ModelCalls = 1
+	h := newHarness(t, scripted(childCallsProbe), delegate.Config{Subagents: []delegate.Subagent{sub}, NoticeReady: finalNotice}, nil)
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	attention(h, t)
+	before := target(h, t)
+	raise := dashi.Continue{CommandID: "raise", ModelCalls: 3, OnHistoryMismatch: dashi.HistoryMismatchWarn}
+	if _, err := h.tasks.Run(t.Context(), before, raise); err != nil {
+		t.Fatal(err)
+	}
+	h.next(t, delegate.TaskEnded)
+	if _, err := h.tasks.Run(t.Context(), before, raise); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+}
+
+// A Continue of a later child turn sends the history of the turns before
+// it, as the child session does.
+func TestTaskRunContinuesALaterTurnWithItsHistory(t *testing.T) {
+	sub := scout()
+	sub.Agent.Limits.ModelCalls = 1
+	var resumed atomic.Value
+	child := func(_ context.Context, in llm.Input) (llm.Result, error) {
+		switch txt := inputText(in); {
+		case !strings.Contains(txt, "look again"):
+			return text("first answer"), nil
+		case strings.Contains(lastMessage(in), "look again"):
+			return toolCall("c1", "write", `{}`), nil
+		default:
+			resumed.Store(txt)
+			return text("child finished"), nil
+		}
+	}
+	h := newHarness(t, scripted(child), delegate.Config{Subagents: []delegate.Subagent{sub}, NoticeReady: finalNotice}, nil)
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	h.next(t, delegate.TaskEnded)
+	h.send(t, sendArgs("look again", ""))
+	// Wait reports turn 1's notice first, then turn 2's attention.
+	for {
+		idle, err := h.tasks.Wait(t.Context())
+		var e *delegate.AttentionError
+		if errors.As(err, &e) {
+			break
+		}
+		if idle || err != nil {
+			t.Fatalf("idle=%v err=%v", idle, err)
+		}
+	}
+	v := h.view(t, childTurn(2))
+	if v.Stop.Kind != dashi.StopLimited {
+		t.Fatalf("turn 2 stop=%+v", v.Stop)
+	}
+	out, err := h.tasks.Run(t.Context(),
+		delegate.TaskTarget{ID: taskID(), TurnID: childTurn(2), LastSeq: v.LastSeq},
+		dashi.Continue{CommandID: "raise", ModelCalls: 3})
+	if err != nil || out.Reply != "child finished" {
+		t.Fatalf("reply=%q err=%v", out.Reply, err)
+	}
+	if txt, _ := resumed.Load().(string); !strings.Contains(txt, "first answer") {
+		t.Fatalf("the resumed call lost turn 1:\n%s", txt)
+	}
+	for _, w := range out.Warnings {
+		if w.Code == dashi.WarningHistoryMismatch {
+			t.Fatalf("warning %+v", w)
+		}
+	}
+}
+
 type commandAckRecorder struct {
 	*dashi.MemoryRecorder
 	command string
