@@ -105,7 +105,7 @@ func (i *inlineScreen) flushCompleted() {
 	for _, n := range updates {
 		b := i.tr.Blocks[n]
 		i.protectionPrinted[b.ID] = b.Text
-		i.printCompletedBlock(printable(fullBlock(b)))
+		i.printCompletedBlock(printable(b))
 	}
 	for i.printed < len(i.tr.Blocks) && i.tr.Blocks[i.printed].Done {
 		b := i.tr.Blocks[i.printed]
@@ -113,7 +113,7 @@ func (i *inlineScreen) flushCompleted() {
 		if strings.HasPrefix(b.ID, "active-protection:") {
 			i.protectionPrinted[b.ID] = b.Text
 		}
-		i.printCompletedBlock(printable(fullBlock(b)))
+		i.printCompletedBlock(printable(b))
 	}
 }
 
@@ -140,7 +140,8 @@ func (i *inlineScreen) LiveView() tui.View {
 	if height <= 0 {
 		height = 24
 	}
-	maxLiveHeight := max(1, min(8, height-footerHeight))
+	// One row separates the live blocks from the footer (belowTranscript).
+	maxLiveHeight := max(1, min(8, height-footerHeight-1))
 	liveHeight := 0
 	items := inlineItems{i}
 	for n := 0; n < items.Len() && liveHeight < maxLiveHeight; n++ {
@@ -153,12 +154,16 @@ func (i *inlineScreen) LiveView() tui.View {
 		}
 	}
 	liveHeight = min(liveHeight, maxLiveHeight)
+	// Printed blocks end with an empty row in native scrollback, so the
+	// footer alone needs no row above it.
 	var view tui.View = footer
+	viewHeight := footerHeight
 	if liveHeight > 0 {
-		view = tui.Stack(tui.Height(liveHeight, tui.Viewport(&i.vp, items).Gap(1)), footer).Gap(0)
+		view = belowTranscript(tui.Height(liveHeight, tui.Viewport(&i.vp, items).Gap(1)), footer)
+		viewHeight += liveHeight + 1
 	}
 	if i.noColor {
-		return withoutColors(view, liveHeight+footerHeight)
+		return withoutColors(view, viewHeight)
 	}
 	return view
 }

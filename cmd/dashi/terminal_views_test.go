@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/workspace"
+	"github.com/deepnoodle-ai/wonton/runewidth"
 	"github.com/deepnoodle-ai/wonton/termtest"
 	"github.com/deepnoodle-ai/wonton/tui"
 	"golang.org/x/term"
@@ -54,12 +55,12 @@ func terminalVisualFixture(t *testing.T, state string, width, height int) *scree
 	if state != "empty" {
 		s.Emit(Block{Kind: KindUser, Text: "Check the terminal interface.\nMake copying and large pasted prompts easier to use.", Done: true})
 		s.Emit(Block{Kind: KindAssistant, Text: "I’ll inspect the composer and transcript, then verify the keyboard controls.", Done: true})
-		s.Emit(Block{Kind: KindTool, ID: "tool", Name: "Read", Arg: "cmd/dashi/screen.go", State: StateOK, Elapsed: 120 * time.Millisecond, Lines: []string{"Input, transcript, and approval handling"}, Done: true})
+		s.Emit(Block{Kind: KindTool, ID: "tool", Name: "read_file", Arg: "cmd/dashi/screen.go", Label: newToolLabel("read_file", json.RawMessage(`{"path":"cmd/dashi/screen.go"}`), ""), State: StateOK, Elapsed: 120 * time.Millisecond, Lines: []string{"Input, transcript, and approval handling"}, Done: true})
 	}
 	switch state {
 	case "streaming":
 		s.ctrl.mode = ModeRunning
-		s.Emit(Block{Kind: KindTool, Name: "Bash", Arg: "go test ./cmd/dashi", State: StateRunning, Lines: []string{"Checking terminal interactions…"}})
+		s.Emit(Block{Kind: KindTool, Name: "bash", Arg: "go test ./cmd/dashi", Input: "$ go test ./cmd/dashi", State: StateRunning, Lines: []string{"Checking terminal interactions…"}})
 	case "approval":
 		s.promptActive = true
 		s.approval = &approvalPrompt{req: toolApproval{ApprovalRequest: ApprovalRequest{Tool: "Bash", Command: "go test ./cmd/dashi", Dir: "~/projects/dashi"}}}
@@ -71,7 +72,7 @@ func terminalVisualFixture(t *testing.T, state string, width, height int) *scree
 	case "interrupted":
 		s.Emit(Block{Kind: KindStop, Text: "Interrupted. Press Enter to continue.", Done: true})
 	case "error":
-		s.Emit(Block{Kind: KindTool, Name: "Bash", Arg: "go test ./cmd/dashi", State: StateFailed, Elapsed: time.Second, Lines: []string{"FAIL: expected complete clipboard content"}, Done: true})
+		s.Emit(Block{Kind: KindTool, Name: "bash", Arg: "go test ./cmd/dashi", Input: "$ go test ./cmd/dashi", State: StateFailed, Elapsed: time.Second, Lines: []string{"FAIL: expected complete clipboard content"}, Done: true})
 	}
 	s.drain()
 	return s
@@ -426,5 +427,181 @@ func TestDialogsDrawOnTheBand(t *testing.T) {
 		if title := frame.Row(1); !strings.HasPrefix(title, " ? ") && !strings.HasPrefix(title, " ◆ ") {
 			t.Fatalf("%s: title row %q has no glyph", name, title)
 		}
+	}
+}
+
+// toolRowFixture is a screen whose transcript holds a finished bash row, a
+// failed one, and a running one, each with input and output.
+func toolRowFixture() *screen {
+	s := newScreen("fixture")
+	addToolRows(s)
+	return s
+}
+
+func addToolRows(s *screen) {
+	s.width, s.height = 80, 24
+	bash := newToolLabel("bash", json.RawMessage(`{"command":"go test ./..."}`), "")
+	s.tr.Apply(Block{ID: "ok", Kind: KindTool, Name: "bash", Arg: "go test ./...", Label: bash, Input: "$ go test ./...",
+		State: StateOK, Elapsed: 1200 * time.Millisecond, Summary: "PASS", Detail: "ok  pkg\nPASS\n", Done: true})
+	s.tr.Apply(Block{ID: "failed", Kind: KindTool, Name: "bash", Arg: "make lint", Label: bash, Input: "$ make lint",
+		State: StateFailed, Elapsed: 3200 * time.Millisecond, Summary: "exit 2 · undefined: foo", Detail: "undefined: foo\n[Exit code 2]", Done: true})
+	s.tr.Apply(Block{ID: "running", Kind: KindTool, Name: "bash", Arg: "sleep 9", Label: bash, Input: "$ sleep 9",
+		State: StateRunning, Lines: []string{"tick 1", "tick 2"}})
+}
+
+func TestToolRowHidesInputAndOutputUntilExpanded(t *testing.T) {
+	s := toolRowFixture()
+	row := func(i int) string { return tui.Sprint(s.Item(i), tui.WithWidth(78), tui.WithColor(false)) }
+	for i, want := range []string{"● Ran a command", "✗ Ran a command", spinnerFrames[0] + " Running a command…"} {
+		got := row(i)
+		if !strings.HasPrefix(got, want) || strings.Contains(got, "\n") {
+			t.Fatalf("collapsed row %d=%q, want one line starting %q", i, got, want)
+		}
+		for _, hidden := range []string{"go test", "make lint", "sleep", "PASS", "undefined", "tick", "└", "click"} {
+			if strings.Contains(got, hidden) {
+				t.Fatalf("collapsed row %d=%q shows %q", i, got, hidden)
+			}
+		}
+	}
+	if got := row(1); !strings.HasSuffix(got, "failed  3.2s") {
+		t.Fatalf("failed row=%q", got)
+	}
+	if styled := tui.Sprint(s.Item(1), tui.WithWidth(78), tui.WithColor(true)); !strings.Contains(styled, "\x1b[0;31mfailed") {
+		t.Fatalf("failed state style=%q", styled)
+	}
+	if src, _ := s.Source(0); src != "Ran a command" {
+		t.Fatalf("collapsed source=%q", src)
+	}
+
+	s.expanded = map[int]bool{0: true, 1: true, 2: true}
+	for i, want := range []string{
+		"Input\n  $ go test ./...\n  Output\n  ok  pkg\n  PASS",
+		"Input\n  $ make lint\n  Output\n  undefined: foo\n  [Exit code 2]",
+		"Input\n  $ sleep 9\n  Output\n  tick 1\n  tick 2",
+	} {
+		if got := row(i); !strings.Contains(got, want) {
+			t.Fatalf("expanded row %d=%q, want %q", i, got, want)
+		}
+	}
+	// The headings are decoration; a selection copies the label, the
+	// input, and the output.
+	if src, _ := s.Source(0); src != "Ran a command\n$ go test ./...\nok  pkg\nPASS" {
+		t.Fatalf("expanded source=%q", src)
+	}
+}
+
+func TestClickTogglesAToolRow(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	s := h.scr
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	addToolRows(s)
+	frame := func() string {
+		return tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24)).Text()
+	}
+	click := func(text string) {
+		x, y := cellOf(t, strings.Split(frame(), "\n"), text)
+		s.HandleEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 1, X: x, Y: y})
+	}
+	click("Ran a command")
+	if got := frame(); !strings.Contains(got, "$ go test ./...") || strings.Contains(got, "$ make lint") {
+		t.Fatalf("click did not expand only the first row:\n%s", got)
+	}
+	// A click in the output keeps the row open; a click on its head closes it.
+	click("ok  pkg")
+	if !strings.Contains(frame(), "ok  pkg") {
+		t.Fatal("a click in the output collapsed the row")
+	}
+	click("Ran a command")
+	if got := frame(); strings.Contains(got, "go test") {
+		t.Fatalf("second click did not collapse the row:\n%s", got)
+	}
+	// A row with no input and no output has nothing to expand.
+	if toolExpandable(Block{Kind: KindTool, Name: "task", State: StateOK}) {
+		t.Fatal("empty row is expandable")
+	}
+}
+
+// Transcript text and tool rows take the whole terminal width.
+func TestRowsSpanTheWholeWidth(t *testing.T) {
+	s := toolRowFixture()
+	s.width = 160
+	s.tr.Apply(Block{ID: "a", Kind: KindAssistant, Text: strings.Repeat("word ", 60), Done: true})
+	head := tui.Sprint(s.Item(1), tui.WithWidth(158), tui.WithColor(false))
+	if runewidth.StringWidth(head) != 158 || !strings.HasSuffix(head, "failed  3.2s") {
+		t.Fatalf("tool row is %d columns: %q", runewidth.StringWidth(head), head)
+	}
+	first := strings.Split(tui.Sprint(s.Item(3), tui.WithWidth(158), tui.WithColor(false)), "\n")[0]
+	if w := runewidth.StringWidth(strings.TrimRight(first, " ")); w <= 100 {
+		t.Fatalf("reply line is %d columns: %q", w, first)
+	}
+	native, _ := nativeBlockText(s.tr.Blocks[1], 160, false)
+	if w := runewidth.StringWidth(strings.Split(native, "\n")[0]); w != 160 {
+		t.Fatalf("native row is %d columns: %q", w, native)
+	}
+}
+
+// One empty row always separates the transcript from the live UI under
+// it, whatever that UI is, and only one.
+func TestBlankRowAboveTheLiveUI(t *testing.T) {
+	long := strings.Repeat("Line of assistant text.\n\n", 15) + "LAST LINE"
+	for _, state := range []string{"streaming", "success", "approval", "question", "picker", "compacting", "scrolled"} {
+		t.Run(state, func(t *testing.T) {
+			fixture := state
+			switch state {
+			case "picker", "compacting", "scrolled":
+				fixture = "success"
+			}
+			s := terminalVisualFixture(t, fixture, 80, 24)
+			s.Emit(Block{Kind: KindAssistant, ID: "last", Text: long, Done: true})
+			switch state {
+			case "picker":
+				s.promptActive = true
+				s.picker = &pickerState{title: "Model", options: []string{"a", "b"}, reply: make(chan int, 1)}
+			case "compacting":
+				s.ctrl.mode = ModeRunning
+				s.Emit(Block{ID: "c", Kind: KindCompaction, State: StateRunning, Text: "Compacting history..."})
+				s.Emit(Block{Kind: KindAssistant, ID: "after", Text: long, Done: true})
+			}
+			s.drain()
+			screen := tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24))
+			if state == "scrolled" {
+				s.vp.ScrollBy(-5)
+				screen = tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24))
+			}
+			rows := strings.Split(screen.Text(), "\n")
+			blank := func(y int) bool {
+				if strings.TrimSpace(rows[y]) != "" {
+					return false
+				}
+				// A dialog's or the prompt's band paints its padding rows.
+				bg := screen.Cell(0, y).Style.Background
+				return bg.Type == termtest.ColorDefault
+			}
+			if state == "scrolled" {
+				// The rows above the indicator may be blank lines of the
+				// reply itself, so only the row right above it is checked.
+				y := transcriptRow(t, screen.Text(), "lines below")
+				if !blank(y - 1) {
+					t.Fatalf("no empty row above the indicator:\n%s", screen.Text())
+				}
+				return
+			}
+			last := -1
+			for y, row := range rows {
+				if strings.Contains(row, "LAST LINE") || strings.Contains(row, "Line of assistant text.") {
+					last = y
+				}
+			}
+			if last < 0 || last+2 >= len(rows) {
+				t.Fatalf("no transcript text:\n%s", screen.Text())
+			}
+			if !blank(last + 1) {
+				t.Fatalf("no empty row under the transcript:\n%s", screen.Text())
+			}
+			if blank(last + 2) {
+				t.Fatalf("two empty rows under the transcript:\n%s", screen.Text())
+			}
+		})
 	}
 }

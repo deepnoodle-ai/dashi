@@ -40,8 +40,11 @@ directory.
 ## What you can do
 
 Type a request, such as "why does TestParse fail?". The screen shows the
-reply as it streams. Each tool call shows one line with its name, its main
-argument, and its state. Paths show relative to the repository. After a shell
+reply as it streams. Each tool call shows one line that says what it does,
+such as "Reading render.go…" and then "Read render.go", with its time or
+state. Paths show relative to the repository. The line hides the call's input
+and output; in fullscreen, click it to show both, and click its first line
+again to hide them. `/scrollback` shows every call expanded. After a shell
 command, the screen shows the `git diff`. At the end of a turn, a footer shows
 the model, the number of model calls, the tokens, and the cost.
 
@@ -211,7 +214,7 @@ the draft. A confirmed local clipboard write clears the selection; failed or
 unconfirmed writes keep it for retry. Without selection, Ctrl+C interrupts work
 or uses the idle exit confirmation. Dialogs keep their cancellation controls.
 Escape interrupts running work, or clears a selection when idle.
-Ctrl+L repaints. Click a tool header to expand its full retained output.
+Ctrl+L repaints. Click a tool line to show its input and full retained output.
 
 `/copy` copies selected text or lists fenced blocks in the latest reply.
 `/copy N` copies one code block; `/copy all` copies all, without fences or

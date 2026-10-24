@@ -115,8 +115,7 @@ func TestScreenShowsTurnAsItStreams(t *testing.T) {
 	got := h.render()
 	for _, want := range []string{
 		"fix the test",
-		"list_directory",
-		"ok",
+		"Listed the workspace",
 		"The fix is done.",
 		"turn 1 · fixture · 2 model calls",
 		"fixture ·",

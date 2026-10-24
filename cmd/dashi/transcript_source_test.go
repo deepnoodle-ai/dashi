@@ -40,8 +40,8 @@ func TestRuntimeCopySelectionUsesExactSource(t *testing.T) {
 	h.wait(func(s transcriptState) bool { return s.selected == "" })
 	toolSource := "tool row\t  世界  " + strings.Repeat(" x", 50) + " END  \r\nnext\n"
 	h.scr.Emit(Block{Kind: KindTool, Name: "read_file", State: StateOK, Summary: "preview", Detail: toolSource, Done: true})
-	frame = h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "click to expand") })
-	h.scr.rt.SendEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 1, X: 8, Y: transcriptRow(t, frame.text, "click to expand")})
+	frame = h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "Read a file") })
+	h.scr.rt.SendEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 1, X: 8, Y: transcriptRow(t, frame.text, "Read a file")})
 	frame = h.wait(func(s transcriptState) bool {
 		return strings.Contains(s.text, "tool row") && strings.Contains(s.text, "END")
 	})

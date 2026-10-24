@@ -108,16 +108,13 @@ func TestRuntimeToolExpansionInstructionAndLongOutput(t *testing.T) {
 	h := newTranscriptRuntime(t)
 	source := strings.Repeat("x", 150) + "TAIL_MARKER"
 	h.scr.Emit(Block{Kind: KindTool, Name: "read_file", State: StateOK, Summary: "preview", Detail: source, Done: true})
-	shown := h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "click to expand") })
-	row := -1
-	for y, line := range strings.Split(shown.text, "\n") {
-		if strings.Contains(line, "click to expand") {
-			row = y
-			break
-		}
+	shown := h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "Read a file") })
+	if strings.Contains(shown.text, "TAIL_MARKER") || strings.Contains(shown.text, "preview") {
+		t.Fatalf("collapsed row shows output:\n%s", shown.text)
 	}
+	row := transcriptRow(t, shown.text, "Read a file")
 	h.scr.rt.SendEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 1, X: 12, Y: row})
 	h.wait(func(s transcriptState) bool {
-		return strings.Contains(strings.Join(strings.Fields(s.text), ""), "TAIL_MARKER") && !strings.Contains(s.text, "click to expand")
+		return strings.Contains(strings.Join(strings.Fields(s.text), ""), "TAIL_MARKER")
 	})
 }

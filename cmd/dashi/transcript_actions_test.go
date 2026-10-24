@@ -263,8 +263,8 @@ func drag(s *screen, x0, y0, x1, y1 int) {
 	s.HandleEvent(tui.MouseEvent{Type: tui.MouseRelease, Button: tui.MouseButtonLeft, X: x1, Y: y1})
 }
 
-// A drag across a turn boundary copies the text it crosses, the tool's name
-// and argument included, and leaves out the glyphs, the tool's state, and the
+// A drag across a turn boundary copies the text it crosses, the tool row's
+// label included, and leaves out the glyphs, the tool's state, and the
 // footer's rule. Forward and backward drags copy the same text.
 func TestDragAcrossATurnCopiesTextWithoutDecorations(t *testing.T) {
 	h := selectionTranscript(t)
@@ -282,7 +282,7 @@ func TestDragAcrossATurnCopiesTextWithoutDecorations(t *testing.T) {
 	if backward := s.vp.SelectedText(); backward != forward {
 		t.Fatalf("backward copy %q, forward %q", backward, forward)
 	}
-	for _, want := range []string{"Done with **bold** words.", "bash  ls -la", "file one", "file two", "turn 1 · fixture · 2 model calls", "Second "} {
+	for _, want := range []string{"Done with **bold** words.", "Ran a command", "turn 1 · fixture · 2 model calls", "Second "} {
 		if !strings.Contains(forward, want) {
 			t.Errorf("copy %q lacks %q", forward, want)
 		}
@@ -292,10 +292,13 @@ func TestDragAcrossATurnCopiesTextWithoutDecorations(t *testing.T) {
 			t.Errorf("copy %q includes %q", forward, decoration)
 		}
 	}
-	_, toolRow := cellOf(t, rows, "bash")
+	if strings.Contains(forward, "ls -la") || strings.Contains(forward, "file one") {
+		t.Errorf("copy %q includes the collapsed tool row's input or output", forward)
+	}
+	_, toolRow := cellOf(t, rows, "Ran a command")
 	_, footerRow := cellOf(t, rows, "turn 1")
-	if !strings.Contains(lit[toolRow], "bash") || strings.Contains(lit[toolRow], "ok") {
-		t.Errorf("tool row highlight %q, want the name and not the state", lit[toolRow])
+	if !strings.Contains(lit[toolRow], "Ran a command") || strings.Contains(lit[toolRow], "1.2s") {
+		t.Errorf("tool row highlight %q, want the label and not the state", lit[toolRow])
 	}
 	if !strings.Contains(lit[footerRow], "turn") || strings.Contains(lit[footerRow], "─") {
 		t.Errorf("footer highlight %q, want the values and not the rule", lit[footerRow])
@@ -419,7 +422,7 @@ func TestDragAutoScrollAcrossTurnsKeepsTheAnchor(t *testing.T) {
 	if !strings.HasSuffix(got, "result 4") {
 		t.Fatalf("the pressed end moved: copy ends %q", got[max(0, len(got)-40):])
 	}
-	for _, want := range []string{"Answer 1:", "bash  make test", "result 1", "turn 1 · fixture", "question 2", "turn 3 · fixture"} {
+	for _, want := range []string{"Answer 1:", "Ran a command", "result 1", "turn 1 · fixture", "question 2", "turn 3 · fixture"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("copy lacks %q:\n%s", want, got)
 		}
@@ -445,18 +448,17 @@ func TestDragAcrossATurnMatchesTheHighlight(t *testing.T) {
 	fx, fy := cellOf(t, rows, "Done with")
 	tx, ty := cellOf(t, rows, "question")
 	drag(s, fx, fy, tx, ty)
-	want := "Done with **bold** words.\n\nbash  ls -la\nfile one\nfile two\n\nturn 1 · fixture · 2 model calls · 1,234 tokens · $0.01\n\nSecond "
+	want := "Done with **bold** words.\n\nRan a command\n\nturn 1 · fixture · 2 model calls · 1,234 tokens · $0.01\n\nSecond "
 	if got := s.vp.SelectedText(); got != want {
 		t.Fatalf("copy %q\nwant %q", got, want)
 	}
 	_, lit := selectionFrame(s)
 	for text, band := range map[string]string{
-		"Done with":    "Done with bold words.",
-		"bash":         "bash  ls -la",
-		"file one":     "file one",
-		"turn 1":       "turn 1 · fixture · 2 model calls · 1,234 tokens · $0.01",
-		"Second quest": "Second ",
-		"└ task-1":     "",
+		"Done with":     "Done with bold words.",
+		"Ran a command": "Ran a command",
+		"turn 1":        "turn 1 · fixture · 2 model calls · 1,234 tokens · $0.01",
+		"Second quest":  "Second ",
+		"└ task-1":      "",
 	} {
 		if got := lit[row(text)]; got != band {
 			t.Errorf("row %q highlights %q, want %q", text, got, band)

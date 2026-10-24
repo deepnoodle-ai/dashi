@@ -12,17 +12,12 @@ import (
 	"github.com/deepnoodle-ai/wonton/runewidth"
 )
 
-// summaryWidth is the most columns a tool line's result line takes. It
-// leaves room for the "└ " connector in the reading width.
-const summaryWidth = readingWidth - 4
+// summaryWidth is the most columns a tool line's result line takes in
+// plain output.
+const summaryWidth = 96
 
-// Tool names the CLI itself defines.
-const (
-	toolLoadSkill     = "load_skill"
-	toolReadSkillFile = "read_skill_file"
-)
-
-// toolSummary is the result line of a finished tool call: what happened, in
+// toolSummary is the plain-output result line of a finished tool call
+// (see formatTool): what happened, in
 // a few words, such as the user's answer to a question or "214 lines". A
 // failed call shows its last error line, and a denied call the reason. A
 // tool without its own summary shows its first output line. The result is
@@ -350,17 +345,4 @@ func countText(n int, one, many string) string {
 		return "1 " + one
 	}
 	return fmt.Sprintf("%d %s", n, many)
-}
-
-// toolHasMore reports whether a tool's whole output shows more than its
-// result line: more than one line, or a line too long for the result line.
-func toolHasMore(b Block) bool {
-	lines := outputLines(b.Detail)
-	switch len(lines) {
-	case 0:
-		return false
-	case 1:
-		return b.Summary == "" || runewidth.StringWidth(lines[0]) > summaryWidth
-	}
-	return true
 }

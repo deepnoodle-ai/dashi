@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Tool rows say what a call does and hide its input and output.** Each
+  row reads as a short phrase, such as `Reading render.go…` while the call
+  runs and `Read render.go` when it is done, `Searched for “foo”`, or
+  `Ran a command`. MCP tools read as `Create issue · github`. The row no
+  longer shows the raw argument, the `└` result line, live command output,
+  or `click to expand`; a failed call shows only `failed`. Click a row in
+  fullscreen to show the call's input and whole output, and click its first
+  line again to hide them. Inline mode prints rows collapsed, and
+  `/scrollback` shows every call expanded. Decide checks and approvals stay
+  visible. `--plain` output is unchanged.
+- **Replies and tool rows use the whole terminal width again.** The
+  100-column reading width is gone.
+- **One empty row always separates the transcript from what is under it**:
+  the working line, hints, the prompt, and dialogs such as approvals,
+  questions, and pickers.
+
 ## [0.14.0] - 2026-10-24
 
 ### Added
