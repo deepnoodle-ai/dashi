@@ -565,6 +565,37 @@ func TestActiveCompactionHookMessagesReachOrdinaryRequest(t *testing.T) {
 		t.Fatal("summary delivery expired before ordinary work")
 	}
 }
+
+// The ordinary call abandoned for a summary drops its BeforeModel results:
+// they do not ride on the summary call's start step.
+func TestActiveCompactionDropsAbandonedHookResults(t *testing.T) {
+	c, a := activeFixture()
+	calls := 0
+	hooks := Hooks{BeforeModel: []ModelHook{{Name: "ordinary", Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
+		if p.Purpose == ModelPurposeCompaction {
+			return ModelDecision{}, nil
+		}
+		return ModelDecision{Settings: &llm.Settings{MaxTokens: 256}}, nil
+	}}}}
+	out, err := (Runner{Client: c, Tools: activeTools(&calls), Hooks: hooks}).Run(t.Context(), Turn{}, activeStart(a))
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	summaries := 0
+	for _, step := range out.Turn.Steps {
+		if step.Kind != StepModelCallStarted || step.Model.Purpose != ModelPurposeCompaction {
+			continue
+		}
+		summaries++
+		if len(step.HookResults) != 0 {
+			t.Fatalf("summary start carries %+v", step.HookResults)
+		}
+	}
+	if summaries == 0 {
+		t.Fatal("fixture made no summary call")
+	}
+}
+
 func TestActiveCompactionPreparedBodyHardLimit(t *testing.T) {
 	c := &activeClient{window: 8000, prepareExtra: 9000}
 	a := testAgent()
@@ -960,5 +991,66 @@ func TestActiveCompactionKeepsStartItems(t *testing.T) {
 		if n != 1 {
 			t.Fatalf("send %d carries the start item %d times", i, n)
 		}
+	}
+}
+
+// A cut-off summary whose covered messages hold a content reference falls
+// back on a resumed run, which has no verified bytes to show the summary.
+func TestActiveCompactionOutputLimitRetryReloadWithReference(t *testing.T) {
+	c, a := activeFixture()
+	c.results = append(c.results[:2], append([]llm.Result{outputLimitedSummary()}, c.results[2:]...)...)
+	data := []byte("referenced evidence")
+	ref := refFor("evidence", data)
+	calls := 0
+	tools := tool.List{tool.MustFunc("read", "Read test evidence", func(_ context.Context, _ tool.Call, _ struct {
+		Value int `json:"value"`
+	}) (tool.Outcome, error) {
+		calls++
+		out := tool.TextOutput(fmt.Sprintf("Evidence %d: %s", calls, strings.Repeat("x", 9000)))
+		if calls == 1 {
+			out.Content = append(out.Content, content.DocumentBlock(content.Source{Ref: &ref, MIMEType: "text/plain"}, "evidence.txt"))
+		}
+		return tool.Outcome{State: tool.StateSucceeded, Output: &out}, nil
+	})}
+	rec := NewMemoryRecorder()
+	fault := &retryAcknowledgementFault{Recorder: rec, kind: StepModelCallFinished, id: "retry:model:3"}
+	resolver := &countingResolver{files: map[string][]byte{"evidence": data}}
+	r := Runner{Client: c, Tools: tools, Recorder: fault, ContentLoader: resolver}
+	if _, err := r.Run(t.Context(), Turn{ID: "retry"}, activeStart(a)); err == nil {
+		t.Fatal("lost acknowledgement passed")
+	}
+	loaded, err := rec.Load(t.Context(), "retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := r.Run(t.Context(), loaded, Continue{CommandID: "reload"})
+	if err != nil || out.Stop.Kind == StopFailed {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	requireFallback(t, out)
+}
+
+// A summary call that streamed text and then lost its connection can be
+// resolved with the provider's cut-off result. Resolve records it as a
+// failed summary, and Continue retries it instead of failing the turn.
+func TestActiveCompactionResolveCutOffSummary(t *testing.T) {
+	c, a := activeFixture()
+	c.results = append(c.results[:2], append([]llm.Result{{Message: llm.AssistantMessage(llm.Text("<summary>Obj"))}}, c.results[2:]...)...)
+	c.errors = []error{nil, nil, errors.New("connection lost")}
+	calls := 0
+	rec := NewMemoryRecorder()
+	r := Runner{Client: c, Tools: activeTools(&calls), Recorder: rec}
+	out, err := r.Run(t.Context(), Turn{ID: "cut"}, activeStart(a))
+	if err != nil || out.Stop.Kind != StopResultUnknown {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	cut := outputLimitedSummary()
+	out, err = r.Run(t.Context(), out.Turn, Resolve{CommandID: "resolve", CallID: "cut:model:3", ModelResult: &cut})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err = r.Run(t.Context(), out.Turn, Continue{CommandID: "go"})
+	if err != nil || out.Stop.Kind != StopCompleted || len(out.ContextCompactions) != 2 {
+		t.Fatalf("stop=%+v summaries=%d err=%v", out.Stop, len(out.ContextCompactions), err)
 	}
 }

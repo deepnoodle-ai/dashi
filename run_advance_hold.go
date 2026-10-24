@@ -62,7 +62,7 @@ func (a *advancer) askSend(ctx context.Context, turn Turn, view TurnView) (bool,
 	if !ask.allowed {
 		return !sameHold(lastStep(out.Turn), view.Stop), nil
 	}
-	if !madeByHook(lastStopStep(turn)) {
+	if !holdMadeByHook(turn) {
 		if !a.recorderRetry {
 			return false, nil
 		}
@@ -81,29 +81,27 @@ func sameHold(step *Step, held Stop) bool {
 	return heldStop(TurnView{Stop: stop}) && stop.Limit.Code == held.Limit.Code
 }
 
-// madeByHook reports whether a BeforeModel or BeforeSend hook recorded the
-// stop step, rather than the recorder refusing the call with a LimitError.
-func madeByHook(step *Step) bool {
-	if step == nil {
-		return false
-	}
-	for _, h := range step.HookResults {
-		if h.Point == HookBeforeSend && h.Verdict == VerdictLimit ||
-			h.Point == HookBeforeModel && h.Verdict == VerdictStop {
-			return true
+// holdMadeByHook reports whether a BeforeModel or BeforeSend hook recorded
+// the turn's hold, rather than the recorder refusing the call with a
+// LimitError. Advance may repeat the hold's stop step, without its hook
+// results, to record inbox input or warnings, so it reads every stop step
+// since the last Start or Continue.
+func holdMadeByHook(t Turn) bool {
+	for i := len(t.Steps) - 1; i >= 0; i-- {
+		step := t.Steps[i]
+		switch step.Kind {
+		case StepTurnStarted, StepTurnContinued:
+			return false
+		case StepTurnStopped:
+			for _, h := range step.HookResults {
+				if h.Point == HookBeforeSend && h.Verdict == VerdictLimit ||
+					h.Point == HookBeforeModel && h.Verdict == VerdictStop {
+					return true
+				}
+			}
 		}
 	}
 	return false
-}
-
-// lastStopStep returns the turn's last stop step, or nil.
-func lastStopStep(t Turn) *Step {
-	for i := len(t.Steps) - 1; i >= 0; i-- {
-		if t.Steps[i].Kind == StepTurnStopped {
-			return &t.Steps[i]
-		}
-	}
-	return nil
 }
 
 // derivedContinue is the Continue Advance derives from the record, with

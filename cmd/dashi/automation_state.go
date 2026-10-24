@@ -212,10 +212,22 @@ func openAutomationSaved(ctx context.Context, store *sessionstore.Store, dir str
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		if len(result.Matches) == 0 {
+		// Like Store.Latest, skip a session whose first turn never
+		// recorded, such as one a failed first attachment request left.
+		// A session with turn logs that cannot be read is still chosen,
+		// so the run fails instead of falling back to an older session.
+		for _, match := range result.Matches {
+			card := match.Card
+			turns, err := os.ReadDir(filepath.Join(store.Root(), card.Metadata.ID, "turns"))
+			noTurns := len(turns) == 0 && (err == nil || errors.Is(err, os.ErrNotExist))
+			if card.IndexedTurns > 0 || card.RecordUnavailable && !noTurns {
+				id = card.Metadata.ID
+				break
+			}
+		}
+		if id == "" {
 			return nil, nil, nil, sessionstore.ErrNotFound
 		}
-		id = result.Matches[0].Card.Metadata.ID
 	}
 	s, err := store.LoadScoped(ctx, dir, id)
 	if err != nil {

@@ -438,13 +438,22 @@ func (r Runner) apply(
 				fact.SendStatus = c.ModelFailure.SendStatus
 				fact.Evidence = c.ModelFailure.Evidence
 			}
+			// A summary call's result that holds no usable summary is
+			// recorded as a failed summary, as the runner records it, so
+			// Continue retries or falls back.
+			if call := state.startedModelCalls[c.CallID]; c.ModelResult != nil &&
+				call != nil && call.Purpose == ModelPurposeCompaction {
+				if _, err := validActiveSummary(c.ModelResult); err != nil {
+					fact.Error = err.Error()
+				}
+			}
 			step := Step{
 				Kind:        kind,
 				CommandID:   c.CommandID,
 				CommandHash: d,
 				Model:       fact,
 			}
-			if err := checkLateResultStep(turn, state, step); err != nil {
+			if err := checkLateResultStep(turn, step); err != nil {
 				return refused(err)
 			}
 			if o := rt.commit(step); o != nil {
@@ -513,7 +522,7 @@ func (r Runner) apply(
 				Tool:        fact,
 				Warnings:    warnings,
 			}
-			if err := checkLateResultStep(turn, state, step); err != nil {
+			if err := checkLateResultStep(turn, step); err != nil {
 				return refused(err)
 			}
 			if o := rt.commit(step); o != nil {

@@ -434,6 +434,34 @@ func TestSecondRunIsLocked(t *testing.T) {
 	}
 }
 
+// A supersede that stops before the new copy takes the old name leaves the
+// log and the disk consistent: the old copy is tracked under its superseded
+// name and the next run writes a fresh copy.
+func TestInterruptedSupersedeRecovers(t *testing.T) {
+	e := newEnv(t)
+	const cp = "claude-code/paste-cache/p1.txt"
+	e.claude("paste-cache/p1.txt", "pasted", baseTime)
+	e.copy()
+	e.claude("paste-cache/p1.txt", "pasteX", baseTime.Add(time.Minute))
+	renameIntoPlace = func(string, string) error { return os.ErrPermission }
+	t.Cleanup(func() { renameIntoPlace = os.Rename })
+	sum := e.copy()
+	renameIntoPlace = os.Rename
+	if len(sum.Warnings) != 1 {
+		t.Fatalf("warnings: %v", sum.Warnings)
+	}
+	if sum := e.copy(); sum.OriginalsCopied != 1 {
+		t.Fatalf("copied %d; want 1", sum.OriginalsCopied)
+	}
+	if e.readCopy(cp) != "pasteX" {
+		t.Fatal("new copy is not the new content")
+	}
+	res := e.verify("")
+	if res.problems() != 0 || res.Current != 1 || res.Superseded != 1 {
+		t.Fatalf("result %+v", res)
+	}
+}
+
 func TestMissingNewestCopyIsCopiedAgain(t *testing.T) {
 	cases := map[string]struct {
 		next  string

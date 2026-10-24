@@ -440,8 +440,10 @@ var uncachedLimits = func() llm.Capabilities {
 
 // Send dispatches at most one Responses request. Stream mode is pinned by
 // Prepare; a nil sink discards previews while still accumulating the result.
-// Whenever an error is returned, the result's stop kind is incomplete and the
-// result may still carry the content received before the failure.
+// When a call fails after its request may have reached the provider, the
+// result's stop kind is incomplete and the result may still carry the content
+// received before the failure. A call that was definitely not sent, such as
+// one cancelled before dispatch, has no stop kind.
 func (p *Client) Send(
 	ctx context.Context,
 	call llm.Call,
@@ -456,11 +458,14 @@ func (p *Client) Send(
 		// grants other destinations that classification.
 		publicReasoningText: p.client.Endpoint == "https://api.x.ai/v1/responses" && prepared.Input().Model == "grok-4.7",
 	}
+	maybeSent := false
 	defer func() {
 		// Warnings ride on every result, including partial ones, so a failed
 		// call still explains how its request differed from the input.
 		result.Warnings = prepared.Warnings()
-		if callErr != nil {
+		// A stop kind marks a call that may have run, so a call that was
+		// definitely not sent carries none.
+		if callErr != nil && maybeSent {
 			result.Stop.Kind = llm.StopIncomplete
 		}
 	}()
@@ -473,8 +478,13 @@ func (p *Client) Send(
 	}
 	resp, err := p.client.Post(ctx, prepared)
 	if err != nil {
+		// Only a failure marked not sent rules out a provider effect; an
+		// HTTP status or a connection dropped after the request was
+		// written keeps a stop kind.
+		maybeSent = providerhttp.MaybeSent(err)
 		return r, err
 	}
+	maybeSent = true
 	defer resp.Body.Close()
 	if prepared.Input().Stream {
 		result, callErr = wire.readStream(resp.Body, r, sink)
@@ -931,7 +941,7 @@ func (wire codec) decodeWithPartial(raw []byte, requested llm.ModelRef, partial 
 	for i, item := range v.Output {
 		cs, err := wire.decodeItem(item)
 		if err != nil {
-			return r, err
+			return r, providerhttp.Protocol(wire.origin.Provider, err)
 		}
 		if partial[i] {
 			for _, c := range cs {
@@ -964,6 +974,9 @@ func (wire codec) decodeWithPartial(raw []byte, requested llm.ModelRef, partial 
 				stop = "refusal"
 			}
 		}
+	}
+	if err := providercontent.DuplicateToolID(r.Message.Content); err != nil {
+		return r, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "%w", err)
 	}
 	r.Stop = llm.Stop{Kind: llm.ClassifyStopReason(stop), Raw: rawStop}
 	if v.Status == "failed" || (len(v.Error) > 0 && string(v.Error) != "null") {

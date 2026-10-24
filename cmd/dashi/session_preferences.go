@@ -35,9 +35,11 @@ func (p *cliPreferences) selectedSessionPreferences(saved preferenceFile) (launc
 	if err != nil {
 		return candidate, err
 	}
+	// A session change overrides the selected session's tiers. The tiers it
+	// overrode in the previous session no longer apply.
 	if current.Selection.Source == "session change" {
 		selected := current.Selection
-		selected.Overridden = append(append([]selectionTier{selectionSourceTier(candidate.Selection)}, candidate.Selection.Overridden...), selected.Overridden...)
+		selected.Overridden = append([]selectionTier{selectionSourceTier(candidate.Selection)}, candidate.Selection.Overridden...)
 		candidate.Selection = selected
 		candidate.SelectionError = ""
 	}
@@ -47,8 +49,9 @@ func (p *cliPreferences) selectedSessionPreferences(saved preferenceFile) (launc
 			continue
 		}
 		prior := candidate.Controls.Sources[field]
+		source.Overridden = nil
 		if prior.Winning != "" {
-			source.Overridden = append(append([]string{prior.Winning}, prior.Overridden...), source.Overridden...)
+			source.Overridden = append([]string{prior.Winning}, prior.Overridden...)
 		}
 		candidate.Controls.Sources[field] = source
 		switch field {

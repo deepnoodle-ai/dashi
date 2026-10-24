@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -18,6 +19,11 @@ const MaxEventBytes = 64 << 20
 
 // ErrEventTooLarge reports a line or event over MaxEventBytes.
 var ErrEventTooLarge = errors.New("sse: event exceeds size limit")
+
+// ErrMalformedEvent reports event data that does not decode as JSON. Like
+// ErrEventTooLarge, it means the provider broke the protocol, not that the
+// connection failed.
+var ErrMalformedEvent = errors.New("sse: malformed event")
 
 // ServerSentEventsCallback observes raw lines before framing. An error stops
 // the reader and is returned by Err.
@@ -130,7 +136,7 @@ func (s *ServerSentEventsReader[T]) Next() (T, bool) {
 		}
 		var event T
 		if err := json.Unmarshal(data, &event); err != nil {
-			s.err = err
+			s.err = fmt.Errorf("%w: %w", ErrMalformedEvent, err)
 			return zero, false
 		}
 		return event, true

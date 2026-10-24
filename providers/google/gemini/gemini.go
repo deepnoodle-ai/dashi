@@ -61,14 +61,22 @@ type Config struct {
 	// Vertex selects Google's Vertex AI backend. Project and Location are
 	// resolved at construction; CredentialScope identifies the credential
 	// principal for private replay without storing the credential itself.
-	Vertex           bool
-	Project          string
-	Location         string
-	CredentialScope  string
-	Endpoint         string
+	Vertex          bool
+	Project         string
+	Location        string
+	CredentialScope string
+	Endpoint        string
+	// Client supplies transport and timeout behavior. Redirects are
+	// disabled; its transport must not retry requests internally. Its own
+	// Timeout still applies. With a supplied Client and a nil Timeouts.Total,
+	// Dashi adds no total bound, as for the other providers.
 	Client           *http.Client
 	Models           map[string]llm.ModelInfo
 	CapabilityPolicy llm.CapabilityPolicy
+	// Timeouts bounds this client's HTTP model calls. The zero value bounds
+	// each call to five minutes unless Client is set; an explicit zero Total
+	// removes that bound.
+	Timeouts llm.HTTPTimeouts
 }
 
 // Client owns model evidence and configuration, not per-call state.
@@ -102,8 +110,14 @@ func New(config Config) (*Client, error) {
 			config.APIKey != "" {
 			return nil, errors.New("gemini: Vertex requires project and credential scope, without API key")
 		}
+		// The hosts follow the Google GenAI SDK: global has no regional
+		// prefix, and the multi-regions us and eu use regional endpoints.
 		host := "aiplatform.googleapis.com"
-		if config.Location != "global" {
+		switch config.Location {
+		case "global":
+		case "us", "eu":
+			host = "aiplatform." + config.Location + ".rep.googleapis.com"
+		default:
 			host = config.Location + "-aiplatform.googleapis.com"
 		}
 		defaultEndpoint = fmt.Sprintf(
@@ -151,6 +165,13 @@ func New(config Config) (*Client, error) {
 	}
 	if !config.CapabilityPolicy.Valid() {
 		return nil, errors.New("gemini: invalid capability policy")
+	}
+	if !providerhttp.ValidTimeouts(config.Timeouts) {
+		return nil, errors.New("gemini: timeouts must be nonnegative")
+	}
+	if total := config.Timeouts.Total; total != nil {
+		owned := *total
+		config.Timeouts.Total = &owned
 	}
 	p := &Client{
 		config: config,
@@ -221,7 +242,7 @@ func (p *Client) httpClient(model string) (providerhttp.Client, error) {
 		headers,
 		models,
 		p.config.CapabilityPolicy,
-		llm.HTTPTimeouts{},
+		p.config.Timeouts,
 	)
 }
 
@@ -495,15 +516,16 @@ func hasClientFunctionCalls(input llm.Input) bool {
 }
 
 // Send uses the Google SDK and guards its final HTTP request against the
-// frozen
-// body. A sink observes provisional stream deltas; the final Result is
-// authoritative.
+// frozen body. A sink observes provisional stream deltas; the final Result is
+// authoritative. When a call fails after its request may have reached the
+// provider, the result's stop kind is incomplete. A call that was definitely
+// not sent, such as one cancelled before dispatch, has no stop kind.
 func (p *Client) Send(
 	ctx context.Context,
 	call llm.Call,
 ) (result llm.Result, callErr error) {
 	if p.noKey != nil {
-		return llm.Result{}, p.noKey
+		return providerhttp.NotSentResult(call.Request), p.noKey
 	}
 	prepared, sink := call.Request, call.Sink
 	model := prepared.Input().Model
@@ -528,7 +550,11 @@ func (p *Client) Send(
 		// Warnings ride on every result, including partial ones, so a failed
 		// call still explains how its request differed from the input.
 		result.Warnings = prepared.Warnings()
-		if callErr != nil {
+		// A stop kind marks a call that may have run, so only a call that was
+		// definitely not sent carries none. sdkError marks a failure not sent
+		// only when the guard never dispatched; an HTTP status, a connection
+		// dropped after dispatch, or a response-start timeout keep a stop kind.
+		if callErr != nil && sendStatusOf(callErr) != llm.SendStatusNotSent {
 			result.Stop.Kind = llm.StopIncomplete
 		}
 	}()
@@ -572,7 +598,7 @@ func (p *Client) Send(
 			config,
 		) {
 			if err != nil {
-				streamErr = sdkError(p.Provider(), err, guard.responseBytes(), wire.media)
+				streamErr = sdkError(p.Provider(), err, guard.response(), wire.media)
 				break
 			}
 			live.emit(chunk)
@@ -586,11 +612,17 @@ func (p *Client) Send(
 		if streamErr != nil {
 			return partial, streamErr
 		}
+		if err := providerhttp.Expired(p.Provider(), guard.rawBody()); err != nil {
+			return partial, err
+		}
 		return partial, parseErr
 	}
 	_, err = client.Models.GenerateContent(ctx, sdkModel(model), contents, config)
 	if err != nil {
-		return result, sdkError(p.Provider(), err, guard.responseBytes(), wire.media)
+		return result, sdkError(p.Provider(), err, guard.response(), wire.media)
+	}
+	if err := providerhttp.Expired(p.Provider(), guard.rawBody()); err != nil {
+		return result, err
 	}
 	return wire.decode(guard.responseBytes(), result.Requested)
 }
@@ -624,6 +656,12 @@ func (wire codec) encodeMessages(messages []llm.Message) ([]any, error) {
 		role := "user"
 		if message.Role == llm.RoleAssistant {
 			role = "model"
+			// Gemini requires every function call to be answered before
+			// the next model turn. The answers may span several user
+			// messages: Dashi records one per tool result.
+			if len(callNames) != 0 {
+				return nil, wire.unsupported("history has unanswered function calls")
+			}
 		}
 		parts := make([]any, 0, len(message.Content))
 		for _, c := range message.Content {
@@ -829,23 +867,41 @@ func unsignedFunctionCallReplay(
 		return nil, false
 	}
 	call, ok := fields["functionCall"].(map[string]any)
-	if !ok || len(call) < 2 || len(call) > 3 {
+	if !ok {
 		return nil, false
+	}
+	for key := range call {
+		if key != "id" && key != "name" && key != "args" {
+			return nil, false
+		}
 	}
 	if id, exists := call["id"]; exists {
 		if _, ok := id.(string); !ok {
 			return nil, false
 		}
-	} else if requireID || len(call) != 2 {
+	} else if requireID {
 		return nil, false
 	}
 	if _, ok := call["name"].(string); !ok {
 		return nil, false
 	}
-	if _, ok := call["args"].(map[string]any); !ok {
-		return nil, false
+	// Gemini omits args, or sends null, for a call with no arguments.
+	if args := call["args"]; args != nil {
+		if _, ok := args.(map[string]any); !ok {
+			return nil, false
+		}
 	}
 	return fields, true
+}
+
+// savedArgs reads a saved functionCall's args. Gemini omits them, or sends
+// null, for a call with no arguments, which decodes as an empty object.
+func savedArgs(raw json.RawMessage) json.RawMessage {
+	if trimmed := bytes.TrimSpace(raw); len(trimmed) == 0 ||
+		string(trimmed) == "null" {
+		return json.RawMessage(`{}`)
+	}
+	return raw
 }
 
 func sameGeminiReplayArgs(raw, args json.RawMessage) bool {
@@ -854,7 +910,16 @@ func sameGeminiReplayArgs(raw, args json.RawMessage) bool {
 	var original, current any
 	return json.Unmarshal(raw, &outer) == nil &&
 		json.Unmarshal(outer["functionCall"], &call) == nil &&
-		providerhttp.Decode(call["args"], &original) == nil &&
+		providerhttp.Decode(savedArgs(call["args"]), &original) == nil &&
 		providerhttp.Decode(args, &current) == nil &&
 		reflect.DeepEqual(original, current)
+}
+
+// sendStatusOf returns the send status err records. An error that is not an
+// *llm.Error records none, so the request may have been sent.
+func sendStatusOf(err error) llm.SendStatus {
+	if failure, ok := errors.AsType[*llm.Error](err); ok {
+		return failure.SendStatus
+	}
+	return llm.SendStatusUnknown
 }

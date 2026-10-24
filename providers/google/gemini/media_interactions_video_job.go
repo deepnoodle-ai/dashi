@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 	"time"
 
@@ -110,7 +109,7 @@ func (p *InteractionsVideoJobClient) SubmitVideo(
 	submission := media.Submission{
 		State:      media.SubmissionUnknown,
 		ResponseID: response.ID,
-		RawUsage:   slices.Clone(response.Usage),
+		RawUsage:   media.ReportedUsage(response.Usage),
 	}
 	if response.Model != "" {
 		submission.Served = model.ModelRef{

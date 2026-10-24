@@ -216,11 +216,15 @@ recorded hook decisions and holds when another process resumes the turn.
 `BeforeModel` may run more than once for one reply, and `BeforeSend` may be
 asked again for the same reply, when an [urgent steer](steering.md) sends the
 run back before the request is sent, or when `Advance` asks whether a turn
-held by a host limit may send again. Add a value that must reflect each call
-as a named `Snapshot` item: the model sees it after the earlier copies, which
-stay in place so the [prompt cache](prompt-caching.md) still matches. Every
-replaced copy also stays in the session history, so keep snapshot items small
-and change them rarely. Reserve spending in the recorder, with the call's
+held by a host limit may send again. An item a `BeforeModel` hook adds without
+an ID gets one from the runner: the same for every pass of one model call, so
+a pass that runs again does not add the item twice. If the item differs on the
+rerun, the first value stays and the runner warns with
+`WarningMessagesDropped`. Add a value that must reflect each call as a named
+`Snapshot` item: the model sees it after the earlier copies, which stay in
+place so the [prompt cache](prompt-caching.md) still matches. Every replaced
+copy also stays in the session history, so keep snapshot items small and
+change them rarely. Reserve spending in the recorder, with the call's
 `model_call_started` step, not in the hook.
 
 `BeforeFinish` vetoes a reply with a `Reason`, which the model sees as "Not

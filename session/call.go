@@ -87,6 +87,39 @@ func (s *Session) RunQueueUnlessUserQueued(
 	return s.runQueue(ctx, &call{s: s, opts: opts, holdUser: true})
 }
 
+// StreamQueueUnlessUserQueued is RunQueueUnlessUserQueued with events, as
+// Stream is Run with events. It yields the events of every turn the call
+// runs, compaction turns included, each ending with its own RunResult event;
+// the last RunResult event is the call's result. It yields nothing when it
+// runs nothing. An error the session returns before a turn runs, such as a
+// last turn that cannot be read or queued items that stay reserved, is
+// yielded alone. Breaking the range ends the context, as with Stream, and
+// no further queue turn starts. A second range yields
+// dashi.ErrStreamConsumed.
+func (s *Session) StreamQueueUnlessUserQueued(
+	ctx context.Context,
+	opts ...dashi.RunOption,
+) iter.Seq2[dashi.Event, error] {
+	var started atomic.Bool
+	return func(yield func(dashi.Event, error) bool) {
+		if !started.CompareAndSwap(false, true) {
+			yield(dashi.Event{}, dashi.ErrStreamConsumed)
+			return
+		}
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		cl := &call{s: s, opts: opts, yield: yield, holdUser: true}
+		out, ran, err := cl.queueTurn(ctx)
+		if errors.Is(err, errReserved) {
+			cl.fail(err)
+			return
+		}
+		if ran {
+			cl.dispatch(ctx, out, err)
+		}
+	}
+}
+
 func (s *Session) runQueue(ctx context.Context, cl *call) (dashi.RunResult, bool, error) {
 	out, ran, err := cl.queueTurn(ctx)
 	if err != nil {
@@ -116,8 +149,9 @@ type call struct {
 	// warnings holds session warnings of a compaction turn for the result
 	// of the turn it ran before.
 	warnings []dashi.Warning
-	// holdUser is set for RunQueueUnlessUserQueued: no queue turn starts
-	// while a user item is queued.
+	// holdUser is set for RunQueueUnlessUserQueued and
+	// StreamQueueUnlessUserQueued: no queue turn starts while a user item
+	// is queued.
 	holdUser bool
 }
 

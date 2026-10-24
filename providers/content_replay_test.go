@@ -422,15 +422,58 @@ func TestResultProvenanceSurvivesDetachedMessageAndPartialOutput(
 	}
 }
 
+// TestDuplicateToolIDsFailDecode covers a response that reuses a tool ID.
+// Accepting it would put history in the record that no later request can
+// replay, so the call fails as a protocol error instead.
+func TestDuplicateToolIDsFailDecode(t *testing.T) {
+	bodies := map[string]string{
+		"anthropic/tool_use":        `{"type":"message","id":"m","model":"m","stop_reason":"tool_use","content":[{"type":"tool_use","id":"call_1","name":"search","input":{}},{"type":"tool_use","id":"call_1","name":"search","input":{}}]}`,
+		"anthropic/server_tool_use": `{"type":"message","id":"m","model":"m","stop_reason":"end_turn","content":[{"type":"server_tool_use","id":"srv_1","name":"web_search","input":{}},{"type":"server_tool_use","id":"srv_1","name":"web_search","input":{}}]}`,
+		"openai/function_call":      `{"object":"response","status":"completed","model":"m","output":[{"type":"function_call","call_id":"call_1","name":"search","arguments":"{}"},{"type":"function_call","call_id":"call_1","name":"search","arguments":"{}"}]}`,
+	}
+	for _, tc := range cases(t) {
+		for name, body := range bodies {
+			if !strings.HasPrefix(name, tc.name+"/") {
+				continue
+			}
+			t.Run(name, func(t *testing.T) {
+				server := serve(t, func(w http.ResponseWriter, _ *http.Request) {
+					io.WriteString(w, body)
+				})
+				client := tc.new(server.URL)
+				_, err := client.Send(
+					t.Context(),
+					llm.Call{Request: preparedRequest(t, client)},
+				)
+				e, ok := errors.AsType[*llm.Error](err)
+				if !ok || e.Category != llm.ErrorProtocol {
+					t.Fatalf("err = %v, want a protocol error", err)
+				}
+			})
+		}
+	}
+}
+
 func TestResultDoesNotInventMessageSourceWithoutOutput(t *testing.T) {
 	for _, tc := range cases(t) {
-		for _, variant := range []string{"cancelled", "http-error", "empty-stream"} {
+		for _, variant := range []string{"cancelled", "dropped", "rejected", "http-error", "empty-stream"} {
 			t.Run(tc.name+"/"+variant, func(t *testing.T) {
 				server := serve(
 					t,
 					func(w http.ResponseWriter, r *http.Request) {
-						if variant == "http-error" {
+						switch variant {
+						case "rejected":
+							w.WriteHeader(http.StatusBadRequest)
+						case "http-error":
 							w.WriteHeader(http.StatusBadGateway)
+						case "dropped":
+							// The request arrived; the connection closes
+							// before any response.
+							_, _ = io.ReadAll(r.Body)
+							conn, _, err := http.NewResponseController(w).Hijack()
+							if err == nil {
+								conn.Close()
+							}
 						}
 					},
 				)
@@ -456,6 +499,21 @@ func TestResultDoesNotInventMessageSourceWithoutOutput(t *testing.T) {
 				}
 				if variant == "cancelled" && !errors.Is(err, context.Canceled) {
 					t.Fatal(err)
+				}
+				// A stop kind marks a call that may have run. Any HTTP
+				// status, or a connection dropped after the request was
+				// written, leaves that possible, so the call keeps one. A
+				// call cancelled before dispatch was definitely not sent and
+				// must not carry one.
+				switch variant {
+				case "cancelled":
+					if result.Stop.Kind != "" {
+						t.Fatalf("stop kind = %q before any response", result.Stop.Kind)
+					}
+				case "dropped", "rejected", "http-error":
+					if result.Stop.Kind != llm.StopIncomplete {
+						t.Fatalf("stop kind = %q after a possible send, want incomplete", result.Stop.Kind)
+					}
 				}
 			})
 		}

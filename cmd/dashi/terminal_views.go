@@ -97,14 +97,26 @@ func (s *screen) inputView(mode Mode) tui.View {
 				s.input = s.attachments.text
 				return
 			}
-			if !strings.HasPrefix(value, "/") {
-				s.attachments.setText(value)
-			}
-			s.updateAttachmentUnsaved()
+			s.syncDraft(value)
 		}).
 		OnComplete(s.completeDraft).
 		Highlight(s.highlightCommand).
 		OnSubmit(s.inputSubmit(s.promptID))
+}
+
+// syncDraft copies composer text into the attachment draft. A slash command
+// leaves the draft and its staged mentions alone, so the draft returns after
+// the command runs. Clearing the line does too, and it keeps the staged
+// entries for whatever the user types next: only a submit or /detach drops
+// them.
+func (s *screen) syncDraft(value string) {
+	switch {
+	case value == "" && len(s.attachments.entries) > 0:
+		s.attachments.keepEntries()
+	case !strings.HasPrefix(value, "/"):
+		s.attachments.setText(value)
+	}
+	s.updateAttachmentUnsaved()
 }
 
 var commandHighlightStyle = tui.NewStyle().WithForeground(tui.ColorCyan).WithBold()

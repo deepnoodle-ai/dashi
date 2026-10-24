@@ -315,6 +315,13 @@ func (s *screen) AttachmentInput(raw string) bool {
 	if len(s.attachments.entries) == 0 && len(mention.Scan(raw)) == 0 {
 		return false
 	}
+	// An empty line that the user cleared does not send the kept draft or
+	// its staged entries. An empty line after /attach still sends the
+	// selections alone.
+	if strings.TrimSpace(raw) == "" && s.attachments.cleared && s.attachments.frozenBy == "" {
+		s.Emit(Block{Kind: KindNotice, Text: "Type a prompt to send with the selected attachments.", Done: true})
+		return true
+	}
 	if raw == "" && s.attachments.text != "" {
 		raw = s.attachments.text
 	}

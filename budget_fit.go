@@ -166,15 +166,24 @@ func estimatedNextRequest(s *replayState, extraInputTokens int) (llm.Request, bo
 		return llm.Request{}, false
 	}
 	tokens = cappedCount(tokens, max(extraInputTokens, 0))
+	// The next call's max_tokens is bounded by the output tokens left in the
+	// budget, as the runner bounds it before sending.
+	effective := callStart.Effective
+	if s.Budget != nil && s.Budget.MaxOutputTokens > 0 {
+		if remaining := s.Budget.MaxOutputTokens - s.Spend.Usage.OutputTokens; remaining > 0 &&
+			(effective.MaxTokens == 0 || effective.MaxTokens > remaining) {
+			effective.MaxTokens = remaining
+		}
+	}
 	req, err := llm.NewRequest(llm.RequestSnapshot{
 		Origin: callStart.Endpoint,
 		Input: llm.Input{
 			Model:    callStart.Model,
 			Messages: []llm.Message{llm.UserMessage(llm.Text("estimate"))},
 			Tools:    callStart.Tools,
-			Settings: callStart.Effective,
+			Settings: effective,
 		},
-		Effective:            callStart.Effective,
+		Effective:            effective,
 		Body:                 []byte("{}"),
 		ModelInfo:            callStart.ModelInfo,
 		EstimatedInputTokens: max(tokens, 1),

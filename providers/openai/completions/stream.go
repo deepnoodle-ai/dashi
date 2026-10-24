@@ -38,7 +38,11 @@ func (wire codec) readStream(
 	callRaw := map[int][]byte{}
 	var reason string
 	seen := false
-	build := func(complete, unsafeCalls bool) llm.Result {
+	// build assembles the result. Only a stream that reached its finish
+	// reason is complete; on any other exit every tool call becomes partial
+	// opaque content, even one whose arguments happen to be valid JSON, so a
+	// call the provider never confirmed cannot be executed or replayed.
+	build := func(complete bool) llm.Result {
 		result.Message = llm.Message{Role: llm.RoleAssistant}
 		if reasoning.Len() > 0 {
 			result.Message.Content = append(
@@ -73,7 +77,7 @@ func (wire codec) readStream(
 				Name: call.Function.Name,
 				Args: json.RawMessage(call.Function.Arguments),
 			}
-			if unsafeCalls || v.Validate() != nil {
+			if !complete || v.Validate() != nil {
 				result.Message.Content = append(
 					result.Message.Content,
 					wire.partialToolCall(*call),
@@ -97,7 +101,7 @@ func (wire codec) readStream(
 		return result
 	}
 	protocolError := func(raw []byte, format string, args ...any) (llm.Result, error) {
-		return build(false, true), &llm.Error{
+		return build(false), &llm.Error{
 			Provider: wire.provider,
 			Category: llm.ErrorProtocol,
 			Body:     slices.Clone(raw),
@@ -119,7 +123,7 @@ func (wire codec) readStream(
 		if (len(chunk.Error) > 0 &&
 			string(chunk.Error) != "null") ||
 			chunk.Object == "error" {
-			partial := build(false, false)
+			partial := build(false)
 			cause := errors.New("provider stream error")
 			if message := streamErrorMessage(chunk.Error, raw); message != "" {
 				cause = fmt.Errorf("provider stream error: %s", message)
@@ -160,7 +164,7 @@ func (wire codec) readStream(
 			continue
 		}
 		if len(chunk.Choices) != 1 || chunk.Choices[0].Index != 0 {
-			partial := build(false, false)
+			partial := build(false)
 			return partial, providerhttp.Failure(
 				wire.provider,
 				llm.ErrorProtocol,
@@ -224,13 +228,13 @@ func (wire codec) readStream(
 					},
 				)
 			default:
-				partial := build(false, false)
+				partial := build(false)
 				return partial, wire.unsupported("stream content part %q", part.Type)
 			}
 		}
 		for _, delta := range choice.Delta.ToolCalls {
 			if delta.Type != "" && delta.Type != "function" {
-				partial := build(false, false)
+				partial := build(false)
 				return partial, wire.unsupported("stream tool call type %q", delta.Type)
 			}
 			index := delta.Index
@@ -306,12 +310,12 @@ func (wire codec) readStream(
 			reason = choice.FinishReason
 		}
 	}
-	partial := build(false, false)
+	partial := build(false)
 	if ctx.Err() != nil {
 		return partial, ctx.Err()
 	}
 	if err := reader.Err(); err != nil {
-		return partial, providerhttp.ReadFailure(wire.provider, err)
+		return partial, providerhttp.StreamFailure(wire.provider, err)
 	}
 	if !seen || reason == "" {
 		return partial, providerhttp.Failure(
@@ -345,7 +349,7 @@ func (wire codec) readStream(
 		}
 		seenIDs[call.ID] = true
 	}
-	return build(true, false), nil
+	return build(true), nil
 }
 
 // streamErrorMessage returns the provider's message from an in-stream error:

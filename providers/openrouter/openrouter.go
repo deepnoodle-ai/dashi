@@ -87,7 +87,7 @@ func New(config Config) (*Client, error) {
 // New found no API key for the public endpoint.
 func (c *Client) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
 	if c.noKey != nil {
-		return llm.Result{}, c.noKey
+		return providerhttp.NotSentResult(call.Request), c.noKey
 	}
 	return c.Client.Send(ctx, call)
 }

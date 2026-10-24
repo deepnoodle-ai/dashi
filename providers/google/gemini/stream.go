@@ -32,10 +32,15 @@ func (wire codec) readStream(
 	var usage, grounding, urlContext json.RawMessage
 	var meters streamMeters
 	var lastUsage *llm.Usage
+	var indexes partIndexes
 	seen := false
+	// buildErr keeps a decode failure of the assembled response, so a stream
+	// that otherwise ended cleanly still reports it.
+	var buildErr error
 	build := func() llm.Result {
-		candidate := map[string]any{
-			"content": map[string]any{"role": "model", "parts": parts},
+		candidate := map[string]any{}
+		if len(parts) > 0 {
+			candidate["content"] = map[string]any{"role": "model", "parts": parts}
 		}
 		if reason != "" {
 			candidate["finishReason"] = reason
@@ -57,6 +62,7 @@ func (wire codec) readStream(
 		raw, _ := json.Marshal(response)
 		result, err := wire.decode(raw, initial.Requested)
 		if err != nil {
+			buildErr = err
 			return initial
 		}
 		recordMeters(result.Usage, meters.counts())
@@ -152,7 +158,7 @@ func (wire codec) readStream(
 		}
 		for _, rawPart := range candidate.Content.Parts {
 			var decoded partWire
-			if err := json.Unmarshal(rawPart, &decoded); err != nil {
+			if err := providerhttp.Decode(rawPart, &decoded); err != nil {
 				return build(), providerhttp.Failure(
 					wire.origin.Provider,
 					llm.ErrorProtocol,
@@ -168,6 +174,7 @@ func (wire codec) readStream(
 					"invalid stream part",
 				)
 			}
+			index, merge := indexes.next(part)
 			if decoded.Text != "" {
 				kind := llm.DeltaText
 				if decoded.Thought {
@@ -177,37 +184,29 @@ func (wire codec) readStream(
 					sink,
 					llm.Delta{
 						Kind:  kind,
-						Index: len(parts),
+						Index: index,
 						Text:  decoded.Text,
 					},
 				)
 			}
 			if decoded.FunctionCall != nil {
-				args, _ := json.Marshal(decoded.FunctionCall.Args)
+				args, _ := callArgs(decoded.FunctionCall.Args)
 				providerhttp.Emit(
 					sink,
 					llm.Delta{
 						Kind:  llm.DeltaToolArguments,
-						Index: len(parts),
+						Index: index,
 						Text:  string(args),
 					},
 				)
 			}
-			if len(parts) > 0 && decoded.FunctionCall == nil {
+			if merge {
 				last := parts[len(parts)-1]
-				_, lastText := last["text"].(string)
-				_, hasSignature := last["thoughtSignature"]
-				if lastText &&
-					!hasSignature &&
-					decoded.Thought == (last["thought"] == true) &&
-					len(decoded.InlineData) == 0 && len(decoded.FileData) == 0 &&
-					(decoded.Text != "" || decoded.ThoughtSignature != "") {
-					last["text"] = last["text"].(string) + decoded.Text
-					if decoded.ThoughtSignature != "" {
-						last["thoughtSignature"] = decoded.ThoughtSignature
-					}
-					continue
+				last["text"] = last["text"].(string) + decoded.Text
+				if decoded.ThoughtSignature != "" {
+					last["thoughtSignature"] = decoded.ThoughtSignature
 				}
+				continue
 			}
 			parts = append(parts, part)
 		}
@@ -224,6 +223,9 @@ func (wire codec) readStream(
 			err,
 		)
 	}
+	if buildErr != nil {
+		return partial, buildErr
+	}
 	if !seen || strings.TrimSpace(reason) == "" {
 		return partial, providerhttp.Failure(
 			wire.origin.Provider,
@@ -233,6 +235,55 @@ func (wire codec) readStream(
 		)
 	}
 	return partial, nil
+}
+
+// partIndexes numbers stream parts as the assembled message numbers them.
+// Google splits one text or thought part across chunks, so a fragment that
+// holds only text extends the text part before it; any other part starts a
+// new one. Both stream paths use it, so their delta indexes agree with each
+// other and with the final Message.Content.
+type partIndexes struct {
+	count int
+	// open reports whether the latest part is text that a fragment may
+	// extend; thought is its thought flag.
+	open    bool
+	thought bool
+}
+
+// next returns the part's index and whether it extends the previous part.
+func (x *partIndexes) next(part map[string]any) (index int, merge bool) {
+	text, hasText, thought, signed, ok := textFragment(part)
+	if x.open && ok && thought == x.thought && (text != "" || signed) {
+		// A signature closes the part it lands on.
+		x.open = !signed
+		return x.count - 1, true
+	}
+	x.count++
+	x.open, x.thought = ok && hasText && !signed, thought
+	return x.count - 1, false
+}
+
+// textFragment reports whether part holds only text fields: text, thought,
+// and thoughtSignature. A signature may arrive in a part of its own.
+func textFragment(
+	part map[string]any,
+) (text string, hasText, thought, signed, ok bool) {
+	for key, value := range part {
+		switch key {
+		case "text":
+			text, hasText = value.(string)
+			if !hasText {
+				return "", false, false, false, false
+			}
+		case "thought":
+			thought = value == true
+		case "thoughtSignature":
+			signed = true
+		default:
+			return "", false, false, false, false
+		}
+	}
+	return text, hasText, thought, signed, hasText || signed
 }
 
 // codeRuns counts the executableCode parts in one chunk's content. Each is one

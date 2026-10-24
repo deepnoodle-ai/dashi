@@ -1,6 +1,7 @@
 package imagine
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -406,4 +407,66 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
+}
+
+func TestVideoPollAcceptsNullUsageAndRejectsDotSegments(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/videos/request-123" {
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+		_, _ = io.WriteString(w, `{"status":"pending","usage":null}`)
+	}))
+	defer server.Close()
+	client := testClient(t, server.URL+"/v1", server.Client(), model.CapabilityStrict)
+	job := media.Job{ID: "request-123", Kind: media.KindVideo, Origin: client.origin(VideoAPI, "grok-imagine-video-1.5")}
+	poll, err := client.PollVideo(t.Context(), job)
+	if err != nil || poll.State != media.JobPending || poll.RawUsage != nil {
+		t.Fatalf("poll %+v, err %v", poll, err)
+	}
+	for _, id := range []string{".", ".."} {
+		job.ID = id
+		if _, err := client.PollVideo(t.Context(), job); err == nil {
+			t.Fatalf("job ID %q accepted", id)
+		}
+	}
+}
+
+func TestVideoSubmitBeforeDispatchIsRejected(t *testing.T) {
+	client := testClient(t, "https://api.x.ai/v1", nil, model.CapabilityStrict)
+	request, err := client.PrepareVideo(t.Context(), media.VideoInput{
+		Model:  "grok-imagine-video-1.5",
+		Prompt: []content.Block{content.TextBlock("A quiet lake at sunrise")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if sub, err := client.SubmitVideo(canceled, request); err == nil || sub.State != media.SubmissionRejected || sub.Validate() != nil {
+		t.Fatalf("canceled submission %+v, err %v", sub, err)
+	}
+	client.noKey = errors.New("no key")
+	if sub, err := client.SubmitVideo(t.Context(), request); err == nil || sub.State != media.SubmissionRejected {
+		t.Fatalf("keyless submission %+v, err %v", sub, err)
+	}
+}
+
+func TestPrepareRejectsModelOfTheOtherKind(t *testing.T) {
+	client := testClient(t, "https://api.x.ai/v1", nil, model.CapabilityAdjust)
+	_, err := client.PrepareImage(t.Context(), media.ImageInput{
+		Operation: media.ImageGenerate,
+		Model:     "grok-imagine-video-1.5",
+		Prompt:    []content.Block{content.TextBlock("A lake")},
+	})
+	if e, ok := errors.AsType[*media.Error](err); !ok || e.Category != media.ErrorUnsupported {
+		t.Fatalf("video model prepared as image: %v", err)
+	}
+	_, err = client.PrepareVideo(t.Context(), media.VideoInput{
+		Operation: media.VideoGenerate,
+		Model:     "grok-imagine-image-2.0",
+		Prompt:    []content.Block{content.TextBlock("A lake")},
+	})
+	if e, ok := errors.AsType[*media.Error](err); !ok || e.Category != media.ErrorUnsupported {
+		t.Fatalf("image model prepared as video: %v", err)
+	}
 }

@@ -284,6 +284,25 @@ func TestReportWarnsOfOlderParser(t *testing.T) {
 	}
 }
 
+// Each session file without a session id is a session of its own.
+func TestReportKeepsNamelessSessionsApart(t *testing.T) {
+	r := newReportDB(t)
+	first := r.session(appCodex, "", "", "/a", "2026-10-01T12:00:00Z", "", -1)
+	r.exec(`UPDATE copies SET copy_path = 'c/first' WHERE copy_id = ?`, first)
+	r.session(appCodex, "", "", "/b", "2026-10-02T12:00:00Z", "", -1)
+	d, err := loadReport(r.db, reportOptions{By: bySession, Per: perWeek, Location: newYork})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirs := map[string]bool{}
+	for _, s := range d.Sessions {
+		dirs[s.WorkingDir] = true
+	}
+	if len(d.Sessions) != 2 || !dirs["/a"] || !dirs["/b"] {
+		t.Fatalf("sessions: %v", dirs)
+	}
+}
+
 func TestReportNeedsCalledAt(t *testing.T) {
 	r := newReportDB(t)
 	r.exec(`ALTER TABLE usage DROP COLUMN called_at`)

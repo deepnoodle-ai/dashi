@@ -85,6 +85,23 @@ func TestAttachmentCanonicalReuseAndEditsDoNotRead(t *testing.T) {
 	}
 }
 
+// A /attach with a line range that reuses an inline mention's snapshot
+// keeps its range once the mention text is gone.
+func TestAttachmentCanonicalReuseKeepsCommandSuffix(t *testing.T) {
+	d := &attachmentDraft{}
+	d.setText("explain @foo.txt")
+	inline, _, _ := d.reserve("foo.txt", false)
+	d.complete(inline, mention.File{CanonicalPath: "/resolved/foo.txt", Attachment: mention.Attachment{Size: 3, MIMEType: "text/plain"}, Block: content.DocumentBlock(content.Source{Data: []byte("foo"), MIMEType: "text/plain"}, "foo.txt")}, nil)
+	command, _, _ := d.reserve("foo.txt:10-20", true)
+	if !d.reuseCanonical(command, "/resolved/foo.txt", ":10-20") || len(d.entries) != 1 {
+		t.Fatal("duplicate not reused")
+	}
+	d.setText("explain")
+	if out := d.outboundText(); !strings.HasSuffix(out, "bytes]:10-20") {
+		t.Fatalf("command range dropped: %q", out)
+	}
+}
+
 func TestAttachmentGenerationAndAggregateProtection(t *testing.T) {
 	d := &attachmentDraft{}
 	old, _, _ := d.reserve("first", true)

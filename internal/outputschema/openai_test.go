@@ -47,6 +47,30 @@ func TestOpenAIStrictSubset(t *testing.T) {
 			schema: `{"type":"object","properties":{"x":{"type":"string","format":"date"}},"required":["x"],"additionalProperties":false}`,
 			want:   `properties["x"].format`,
 		},
+		{
+			name:   "null enum value on non-nullable type",
+			schema: `{"type":"object","properties":{"x":{"type":"string","enum":["a",null]}},"required":["x"],"additionalProperties":false}`,
+			want:   `properties["x"].enum[1]`,
+		},
+		{
+			name:   "string enum value on integer type",
+			schema: `{"type":"object","properties":{"x":{"type":"integer","enum":[1,"x"]}},"required":["x"],"additionalProperties":false}`,
+			want:   `properties["x"].enum[1]`,
+		},
+		{
+			name:   "fractional enum value on integer type",
+			schema: `{"type":"object","properties":{"x":{"type":"integer","enum":[1.5]}},"required":["x"],"additionalProperties":false}`,
+			want:   `properties["x"].enum[0]`,
+		},
+		{
+			name:   "enum on array type",
+			schema: `{"type":"object","properties":{"x":{"type":"array","items":{"type":"string"},"enum":["a"]}},"required":["x"],"additionalProperties":false}`,
+			want:   `properties["x"].enum`,
+		},
+		{
+			name:   "number enum accepts integers",
+			schema: `{"type":"object","properties":{"x":{"type":["number","null"],"enum":[1,2.5,null]}},"required":["x"],"additionalProperties":false}`,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -84,6 +84,10 @@ func (a *archive) copyOriginal(o original, prev *copyRow) (copyOutcome, error) {
 	case o.Size > prev.OriginalBytes && wc.PrefixHash == prev.Hash:
 		outcome = copyOutcomeRewritten
 	default:
+		// Log the superseded name before the new copy takes the old name.
+		// A crash after the log append leaves no current copy, so the next
+		// run copies the original afresh; the log never binds new bytes
+		// to the old copy's hash.
 		outcome = copyOutcomeSuperseded
 		now := time.Now()
 		old, err := a.supersede(o.CopyPath, now)
@@ -91,24 +95,25 @@ func (a *archive) copyOriginal(o original, prev *copyRow) (copyOutcome, error) {
 			os.Remove(wc.TempPath)
 			return 0, err
 		}
-		if err := os.Rename(wc.TempPath, dst); err != nil {
-			return 0, err
-		}
 		syncDir(dst)
 		if err := a.record(logEvent{
 			Event: eventCopySuperseded, Time: now, CopyPath: o.CopyPath, SupersededPath: old,
 		}); err != nil {
+			os.Remove(wc.TempPath)
 			return 0, fatal(err)
 		}
-		return outcome, fatal(a.recordWritten(o, wc.Hash))
 	}
-	if err := os.Rename(wc.TempPath, dst); err != nil {
+	if err := renameIntoPlace(wc.TempPath, dst); err != nil {
 		os.Remove(wc.TempPath)
 		return 0, err
 	}
 	syncDir(dst)
 	return outcome, fatal(a.recordWritten(o, wc.Hash))
 }
+
+// renameIntoPlace moves a finished temporary copy to its copy path. Tests
+// replace it to simulate a failure.
+var renameIntoPlace = os.Rename
 
 func (a *archive) recordWritten(o original, hash string) error {
 	size, t := o.Size, o.ModifiedAt

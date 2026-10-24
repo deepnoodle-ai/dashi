@@ -224,3 +224,17 @@ func TestOutputExpiryAcceptsUnixSecondsAndRFC3339(t *testing.T) {
 		}
 	}
 }
+
+func TestOutputExpiryTreatsZeroAndNullAsUnknown(t *testing.T) {
+	for _, raw := range []json.RawMessage{
+		json.RawMessage(`0`),
+		json.RawMessage(`-5`),
+		json.RawMessage(`"0"`),
+		json.RawMessage(` null `),
+		json.RawMessage(`"0001-01-01T00:00:00Z"`),
+	} {
+		if got := parseOutputExpiry(raw); got != nil {
+			t.Fatalf("expiry %s parsed as %v", raw, got)
+		}
+	}
+}
