@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-24
+
 ### Changed
 
 - **The CLI has one color theme with a blue accent.** Headings, links,

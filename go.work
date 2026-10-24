@@ -7,8 +7,8 @@ use (
 	./providers/google/gemini
 )
 
-replace github.com/deepnoodle-ai/dashi v0.12.2 => .
+replace github.com/deepnoodle-ai/dashi v0.13.0 => .
 
-replace github.com/deepnoodle-ai/dashi/mcp v0.12.2 => ./mcp
+replace github.com/deepnoodle-ai/dashi/mcp v0.13.0 => ./mcp
 
-replace github.com/deepnoodle-ai/dashi/providers/google/gemini v0.12.2 => ./providers/google/gemini
+replace github.com/deepnoodle-ai/dashi/providers/google/gemini v0.13.0 => ./providers/google/gemini
