@@ -42,10 +42,47 @@ type preferenceFile struct {
 	Providers map[string]destinationDefinition `json:"providers"`
 	// Decide is the raw "decide" list; resolveDecide reads it from the
 	// user file only.
-	Decide    json.RawMessage `json:"decide"`
-	Source    string          `json:"-"`
-	Project   bool            `json:"-"`
-	LoadError string          `json:"-"`
+	Decide json.RawMessage `json:"decide"`
+	// FeaturedModels is the raw "featured_models" object, which replaces
+	// the built-in /model picker lists. Dashi reads it from the user file
+	// only, with parseFeaturedModels, and never fails startup over it.
+	FeaturedModels json.RawMessage `json:"featured_models"`
+	Source         string          `json:"-"`
+	Project        bool            `json:"-"`
+	LoadError      string          `json:"-"`
+}
+
+// featuredList is one destination's entry in "featured_models".
+type featuredList struct {
+	destination string
+	models      []string
+}
+
+// parseFeaturedModels reads "featured_models", keeping the destinations in
+// the order written. A value of the wrong shape is ignored with a problem,
+// so the picker falls back to the built-in lists.
+func parseFeaturedModels(raw json.RawMessage) ([]featuredList, string) {
+	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, ""
+	}
+	const problem = "featured_models must map destinations to lists of model IDs; it is ignored"
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
+		return nil, problem
+	}
+	var lists []featuredList
+	for decoder.More() {
+		token, err := decoder.Token()
+		if err != nil {
+			return nil, problem
+		}
+		var models []string
+		if err := decoder.Decode(&models); err != nil {
+			return nil, problem
+		}
+		lists = append(lists, featuredList{destination: token.(string), models: models})
+	}
+	return lists, ""
 }
 
 // preferenceSourceError identifies a source whose bytes cannot be read or

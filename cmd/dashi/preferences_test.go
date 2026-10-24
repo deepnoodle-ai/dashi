@@ -53,3 +53,26 @@ func TestSettingsRetainSelectionAndExplicitControlPresence(t *testing.T) {
 		t.Fatalf("prefs=%+v err=%v", prefs, err)
 	}
 }
+
+func TestParseFeaturedModelsIgnoresTheWrongShape(t *testing.T) {
+	for _, raw := range []string{`[]`, `{"anthropic":"claude-opus-5-5"}`, `{"anthropic":[1]}`, `"x"`} {
+		if lists, problem := parseFeaturedModels(json.RawMessage(raw)); lists != nil || problem == "" {
+			t.Fatalf("%s: lists=%v problem=%q", raw, lists, problem)
+		}
+	}
+	for _, raw := range []string{``, `null`} {
+		if lists, problem := parseFeaturedModels(json.RawMessage(raw)); lists != nil || problem != "" {
+			t.Fatalf("%s: lists=%v problem=%q", raw, lists, problem)
+		}
+	}
+}
+
+func TestMalformedFeaturedModelsNeverFailStartup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"featured_models":{"anthropic":"claude-opus-5-5"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readPreferenceFile(path, false); err != nil {
+		t.Fatal(err)
+	}
+}

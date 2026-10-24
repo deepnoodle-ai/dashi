@@ -377,9 +377,9 @@ func dialogFixtures(t *testing.T, width int) map[string]func() tui.View {
 		"picker": func() tui.View {
 			return pickerView(&pickerState{title: "Choose a model", options: []string{"gpt-6-luna", "claude-opus-5-5", "gemini-3-pro"}})
 		},
-		"picker-details": func() tui.View {
-			return pickerView(&pickerState{title: "Choose a model", options: []string{"gpt-6-luna", "claude-opus-5-5"},
-				details: []string{"OpenAI · 400k context · $1.25 / $10 per million tokens", "Anthropic · 1M context"}})
+		"picker-notes": func() tui.View {
+			return pickerView(&pickerState{title: "Choose a model", options: []string{"openai  gpt-6-luna", "anthropic  claude-opus-5-5", "All models…"},
+				notes: []string{"1.1M · current", "1M", "90 more"}, footer: "Set GEMINI_API_KEY to add google models"})
 		},
 		"session-picker": func() tui.View {
 			return pickerView(&pickerState{title: "Workspace sessions", sessionCards: true, options: []string{"Fix the composer · 2h ago", "Review the theme · yesterday"},

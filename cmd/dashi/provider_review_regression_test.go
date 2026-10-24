@@ -45,10 +45,10 @@ func TestNativeGeminiFactsAgreeAcrossCLISurfaces(t *testing.T) {
 		t.Fatalf("inspection=%+v", view)
 	}
 	found := false
-	for _, choice := range p.modelChoices() {
+	for _, choice := range p.modelChoices(true).choices {
 		if choice.model == d.Definition.DefaultModel {
 			found = true
-			if !strings.Contains(choice.detail, expected.Evidence.Source) {
+			if !strings.Contains(choice.note, tokenCount(expected.Capabilities.ContextWindow)) {
 				t.Fatalf("picker=%+v", choice)
 			}
 		}
@@ -85,9 +85,9 @@ func TestPickerPrioritizesUsableBindingsAndConfirmsControlValues(t *testing.T) {
 	unavailable := p.routes.registry["one"]
 	unavailable.Definition.CredentialEnv = "MISSING_KEY"
 	p.routes.registry["one"] = unavailable
-	choices := p.modelChoices()
-	if len(choices) != 2 || choices[0].provider != "two" || !choices[0].available || choices[1].available {
-		t.Fatalf("choices=%+v", choices)
+	all := p.modelChoices(true).choices
+	if len(all) != 2 || all[0].provider != "two" || all[1].provider != "one" || !strings.Contains(all[1].note, "needs MISSING_KEY") {
+		t.Fatalf("all choices=%+v", all)
 	}
 	ui := newRecorderUI()
 	ctrl := NewController(t.Context(), e, ui, e.cfg.Store, e.cfg.Dir)
