@@ -83,7 +83,11 @@ func markdownTheme() tui.MarkdownTheme {
 	t.LinkStyle = accentStyle.WithUnderline()
 	t.CodeStyle = codeStyle
 	t.CodeBlockStyle = codeStyle
+	t.CodeBlockShowLanguage = true
+	t.CodeBlockLanguageStyle = mutedStyle
 	t.BlockQuoteStyle = mutedStyle.WithItalic()
+	t.BlockQuotePrefix = "│ "
+	t.BlockQuotePrefixStyle = faintStyle
 	t.HorizontalRuleStyle = faintStyle
 	t.TableBorderStyle = faintStyle
 	t.TableHeaderStyle = textStyle.WithBold()
