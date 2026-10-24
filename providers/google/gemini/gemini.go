@@ -102,8 +102,14 @@ func New(config Config) (*Client, error) {
 			config.APIKey != "" {
 			return nil, errors.New("gemini: Vertex requires project and credential scope, without API key")
 		}
+		// The hosts follow the Google GenAI SDK: global has no regional
+		// prefix, and the multi-regions us and eu use regional endpoints.
 		host := "aiplatform.googleapis.com"
-		if config.Location != "global" {
+		switch config.Location {
+		case "global":
+		case "us", "eu":
+			host = "aiplatform." + config.Location + ".rep.googleapis.com"
+		default:
 			host = config.Location + "-aiplatform.googleapis.com"
 		}
 		defaultEndpoint = fmt.Sprintf(
@@ -503,7 +509,7 @@ func (p *Client) Send(
 	call llm.Call,
 ) (result llm.Result, callErr error) {
 	if p.noKey != nil {
-		return llm.Result{}, p.noKey
+		return providerhttp.NotSentResult(call.Request), p.noKey
 	}
 	prepared, sink := call.Request, call.Sink
 	model := prepared.Input().Model
@@ -572,7 +578,7 @@ func (p *Client) Send(
 			config,
 		) {
 			if err != nil {
-				streamErr = sdkError(p.Provider(), err, guard.responseBytes(), wire.media)
+				streamErr = sdkError(p.Provider(), err, guard.response(), wire.media)
 				break
 			}
 			live.emit(chunk)
@@ -590,7 +596,7 @@ func (p *Client) Send(
 	}
 	_, err = client.Models.GenerateContent(ctx, sdkModel(model), contents, config)
 	if err != nil {
-		return result, sdkError(p.Provider(), err, guard.responseBytes(), wire.media)
+		return result, sdkError(p.Provider(), err, guard.response(), wire.media)
 	}
 	return wire.decode(guard.responseBytes(), result.Requested)
 }
@@ -624,6 +630,11 @@ func (wire codec) encodeMessages(messages []llm.Message) ([]any, error) {
 		role := "user"
 		if message.Role == llm.RoleAssistant {
 			role = "model"
+			// Gemini requires every function call to be answered by the
+			// user turn that directly follows it.
+			if len(callNames) != 0 {
+				return nil, wire.unsupported("history has unanswered function calls")
+			}
 		}
 		parts := make([]any, 0, len(message.Content))
 		for _, c := range message.Content {
@@ -634,6 +645,9 @@ func (wire codec) encodeMessages(messages []llm.Message) ([]any, error) {
 			parts = append(parts, part)
 		}
 		contents = append(contents, map[string]any{"role": role, "parts": parts})
+		if message.Role == llm.RoleUser && len(callNames) != 0 {
+			return nil, wire.unsupported("history has unanswered function calls")
+		}
 	}
 	if len(callNames) != 0 {
 		return nil, wire.unsupported("history has unanswered function calls")
@@ -829,23 +843,41 @@ func unsignedFunctionCallReplay(
 		return nil, false
 	}
 	call, ok := fields["functionCall"].(map[string]any)
-	if !ok || len(call) < 2 || len(call) > 3 {
+	if !ok {
 		return nil, false
+	}
+	for key := range call {
+		if key != "id" && key != "name" && key != "args" {
+			return nil, false
+		}
 	}
 	if id, exists := call["id"]; exists {
 		if _, ok := id.(string); !ok {
 			return nil, false
 		}
-	} else if requireID || len(call) != 2 {
+	} else if requireID {
 		return nil, false
 	}
 	if _, ok := call["name"].(string); !ok {
 		return nil, false
 	}
-	if _, ok := call["args"].(map[string]any); !ok {
-		return nil, false
+	// Gemini omits args, or sends null, for a call with no arguments.
+	if args := call["args"]; args != nil {
+		if _, ok := args.(map[string]any); !ok {
+			return nil, false
+		}
 	}
 	return fields, true
+}
+
+// savedArgs reads a saved functionCall's args. Gemini omits them, or sends
+// null, for a call with no arguments, which decodes as an empty object.
+func savedArgs(raw json.RawMessage) json.RawMessage {
+	if trimmed := bytes.TrimSpace(raw); len(trimmed) == 0 ||
+		string(trimmed) == "null" {
+		return json.RawMessage(`{}`)
+	}
+	return raw
 }
 
 func sameGeminiReplayArgs(raw, args json.RawMessage) bool {
@@ -854,7 +886,7 @@ func sameGeminiReplayArgs(raw, args json.RawMessage) bool {
 	var original, current any
 	return json.Unmarshal(raw, &outer) == nil &&
 		json.Unmarshal(outer["functionCall"], &call) == nil &&
-		providerhttp.Decode(call["args"], &original) == nil &&
+		providerhttp.Decode(savedArgs(call["args"]), &original) == nil &&
 		providerhttp.Decode(args, &current) == nil &&
 		reflect.DeepEqual(original, current)
 }

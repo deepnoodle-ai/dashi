@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -127,9 +128,38 @@ func (p *Client) newSDKClient(
 			if err := config.UseDefaultCredentials(); err != nil {
 				return nil, err
 			}
+			// The SDK sends the credential's quota project only on a client
+			// it builds itself; user credentials need it for Vertex.
+			quota, err := config.Credentials.QuotaProjectID(ctx)
+			if err != nil {
+				return nil, err
+			}
+			httpClient.Transport = withQuotaProject(httpClient.Transport, quota)
 		}
 	}
 	return genai.NewClient(ctx, config)
+}
+
+// withQuotaProject sends project as X-Goog-User-Project, which bills and
+// meters the call to that project. An empty project leaves next unchanged.
+func withQuotaProject(next http.RoundTripper, project string) http.RoundTripper {
+	if project == "" {
+		return next
+	}
+	return quotaTransport{next: next, project: project}
+}
+
+type quotaTransport struct {
+	next    http.RoundTripper
+	project string
+}
+
+func (t quotaTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.Header.Get("X-Goog-User-Project") == "" {
+		r = r.Clone(r.Context())
+		r.Header.Set("X-Goog-User-Project", t.project)
+	}
+	return t.next.RoundTrip(r)
 }
 
 func (p *Client) sdkURL(model string, stream bool) string {
@@ -224,6 +254,11 @@ type sdkGuard struct {
 	seen      bool
 	mu        sync.Mutex
 	resp      bytes.Buffer
+	// dispatched reports that the request reached the real transport;
+	// status and header describe the response it returned, if any.
+	dispatched bool
+	status     int
+	header     http.Header
 }
 
 // RoundTrip dispatches only when the SDK request matches the prepared request.
@@ -264,10 +299,20 @@ func (g *sdkGuard) RoundTrip(r *http.Request) (*http.Response, error) {
 			r.Header.Set("X-Goog-Api-Key", g.apiKey)
 		}
 	}
+	// A canceled call never reaches the transport, so it is known unsent.
+	if err := r.Context().Err(); err != nil {
+		return nil, err
+	}
+	g.mu.Lock()
+	g.dispatched = true
+	g.mu.Unlock()
 	response, err := g.base.RoundTrip(r)
 	if err != nil {
 		return nil, err
 	}
+	g.mu.Lock()
+	g.status, g.header = response.StatusCode, response.Header.Clone()
+	g.mu.Unlock()
 	response.Body = &captureBody{
 		ReadCloser: response.Body,
 		output:     &g.resp,
@@ -309,43 +354,83 @@ func (r *captureBody) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// sdkResponse is what the guard saw of the real HTTP exchange.
+type sdkResponse struct {
+	dispatched bool
+	status     int
+	header     http.Header
+	body       []byte
+}
+
+func (g *sdkGuard) response() sdkResponse {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return sdkResponse{
+		dispatched: g.dispatched,
+		status:     g.status,
+		header:     g.header,
+		body:       bytes.Clone(g.resp.Bytes()),
+	}
+}
+
 // sdkError converts an SDK failure. hasMedia reports whether the request
 // carried media, which media classification requires; the provider-independent
 // rules apply after Gemini's own, as they do for other HTTP providers.
-func sdkError(provider string, err error, body []byte, hasMedia bool) error {
+//
+// An HTTP error is classified from the status and body the guard saw, as other
+// providers classify theirs: the SDK's APIError loses the status when the
+// body's error has no code, and the error fields when the body is an array or
+// plain text. An APIError after a successful status is an error reported
+// inside the stream: the provider accepted the request, so it is not a known
+// rejection.
+func sdkError(provider string, err error, seen sdkResponse, hasMedia bool) error {
 	var api genai.APIError
 	var apiPointer *genai.APIError
 	if errors.As(err, &api) || errors.As(err, &apiPointer) {
 		if apiPointer != nil {
 			api = *apiPointer
 		}
+		inStream := seen.status >= 200 && seen.status < 300
+		status := api.Code
+		rejection := providerhttp.Rejection{Type: api.Status, Message: api.Message}
+		var retryAfter time.Duration
+		if seen.status >= 300 {
+			status = seen.status
+			rejection = providerhttp.ParseRejection(status, seen.body)
+			if rejection.Message == "" {
+				rejection.Message = api.Message
+			}
+			retryAfter, _ = providerhttp.NewError(
+				status,
+				string(seen.body),
+				providerhttp.WithErrorHeader(seen.header),
+			).RetryAfter()
+		} else if !inStream {
+			rejection.Status = status
+		}
+		rejection.HasMedia = hasMedia
 		category := llm.ErrorInvalidRequest
 		switch {
-		case api.Code == 401 || api.Code == 403:
+		case status == 401 || status == 403:
 			category = llm.ErrorAuthentication
-		case api.Code == 429:
+		case status == 429:
 			category = llm.ErrorRateLimited
-		case api.Code >= 500:
+		case status >= 500:
 			category = llm.ErrorOverloaded
 		}
 		sendStatus := llm.SendStatusUnknown
-		if providerhttp.KnownRejection(api.Code) {
+		if !inStream && providerhttp.KnownRejection(status) {
 			sendStatus = llm.SendStatusProviderRejected
-		}
-		rejection := providerhttp.Rejection{
-			Status:   api.Code,
-			Type:     api.Status,
-			Message:  api.Message,
-			HasMedia: hasMedia,
 		}
 		return &llm.Error{
 			Provider:   provider,
 			Category:   category,
 			Reason:     providerhttp.Reason(errorReason, rejection),
 			SendStatus: sendStatus,
-			Status:     api.Code,
-			Body:       bytes.Clone(body),
-			Retryable:  api.Code == 408 || api.Code == 429 || api.Code >= 500,
+			Status:     rejection.Status,
+			Body:       seen.body,
+			RetryAfter: retryAfter,
+			Retryable:  status == 408 || status == 429 || status >= 500,
 			Cause:      err,
 		}
 	}
@@ -353,20 +438,25 @@ func sdkError(provider string, err error, body []byte, hasMedia bool) error {
 		// Classified as other providers classify an oversized body.
 		return providerhttp.Failure(provider, llm.ErrorProtocol, "SDK call: %w", err)
 	}
+	if !seen.dispatched {
+		return providerhttp.NotDispatched(provider, llm.ErrorTransport, "SDK call: %w", err)
+	}
 	return providerhttp.Failure(provider, llm.ErrorTransport, "SDK call: %w", err)
 }
 
 // sdkStream forwards SDK stream chunks to a sink as provisional deltas. It
 // keeps state across chunks so usage deltas carry cumulative provider-tool
 // counts, including counts from metadata that arrives after the last
-// usageMetadata.
+// usageMetadata, and so content deltas carry the index of their part in the
+// assembled message.
 type sdkStream struct {
-	sink   llm.Sink
-	meters streamMeters
-	usage  *llm.Usage
+	sink    llm.Sink
+	meters  streamMeters
+	usage   *llm.Usage
+	indexes partIndexes
 }
 
-// emit forwards one chunk. Content deltas are indexed within the chunk.
+// emit forwards one chunk.
 func (s *sdkStream) emit(response *genai.GenerateContentResponse) {
 	if response == nil {
 		return
@@ -403,10 +493,17 @@ func (s *sdkStream) emitContent(content *genai.Content) {
 	if content == nil {
 		return
 	}
-	for index, part := range content.Parts {
+	for _, part := range content.Parts {
 		if part == nil {
 			continue
 		}
+		// The part's wire fields decide how it joins the assembled message.
+		var fields map[string]any
+		raw, err := json.Marshal(part)
+		if err != nil || providerhttp.Decode(raw, &fields) != nil {
+			fields = nil
+		}
+		index, _ := s.indexes.next(fields)
 		if part.Text != "" {
 			kind := llm.DeltaText
 			if part.Thought {
@@ -422,7 +519,7 @@ func (s *sdkStream) emitContent(content *genai.Content) {
 			)
 		}
 		if part.FunctionCall != nil {
-			args, _ := json.Marshal(part.FunctionCall.Args)
+			args, _ := callArgs(part.FunctionCall.Args)
 			providerhttp.Emit(
 				s.sink,
 				llm.Delta{

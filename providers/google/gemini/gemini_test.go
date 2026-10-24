@@ -374,3 +374,64 @@ func TestPrepareFitsCatalogModel(t *testing.T) {
 		t.Fatalf("warnings = %+v, want one per fitted setting", request.Warnings())
 	}
 }
+
+// The default Vertex host follows the Google GenAI SDK for each location.
+func TestVertexDefaultEndpointForLocation(t *testing.T) {
+	for location, host := range map[string]string{
+		"global":      "https://aiplatform.googleapis.com/",
+		"us":          "https://aiplatform.us.rep.googleapis.com/",
+		"eu":          "https://aiplatform.eu.rep.googleapis.com/",
+		"us-central1": "https://us-central1-aiplatform.googleapis.com/",
+	} {
+		p, err := New(Config{
+			Vertex:          true,
+			Project:         "project",
+			Location:        location,
+			CredentialScope: "principal",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := host + "v1/projects/project/locations/" + location + "/"
+		if !strings.HasPrefix(p.config.Endpoint, want) {
+			t.Fatalf("%s: endpoint = %s", location, p.config.Endpoint)
+		}
+	}
+}
+
+// Gemini needs each function call answered by the user turn that directly
+// follows it.
+func TestPrepareRejectsCallsNotAnsweredByNextTurn(t *testing.T) {
+	call := llm.Content{
+		Kind:     llm.ContentToolCall,
+		ToolCall: &tool.Call{ID: "c1", Name: "search", Args: json.RawMessage(`{}`)},
+	}
+	result := llm.Content{
+		Kind:       llm.ContentToolResult,
+		ToolResult: &llm.ToolResult{CallID: "c1"},
+	}
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+	p := newTestClient(t, server)
+	for name, messages := range map[string][]llm.Message{
+		"assistant turn between": {
+			llm.UserMessage(llm.Text("hi")),
+			llm.AssistantMessage(call),
+			llm.AssistantMessage(llm.Text("wait")),
+			llm.UserMessage(result),
+		},
+		"user turn between": {
+			llm.UserMessage(llm.Text("hi")),
+			llm.AssistantMessage(call),
+			llm.UserMessage(llm.Text("more")),
+			llm.UserMessage(result),
+		},
+	} {
+		input := sampleInput(false)
+		input.Messages = messages
+		_, err := p.Prepare(t.Context(), input)
+		if err == nil || !strings.Contains(err.Error(), "unanswered function calls") {
+			t.Fatalf("%s: err = %v", name, err)
+		}
+	}
+}
