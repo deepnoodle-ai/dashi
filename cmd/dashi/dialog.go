@@ -44,11 +44,13 @@ func (s *screen) focusID() string {
 
 type detailLines []string
 
-func (d detailLines) Len() int            { return len(d) }
-func (d detailLines) Item(i int) tui.View { return tui.Text(" %s", d[i]).Wrap() }
+func (d detailLines) Len() int { return len(d) }
+func (d detailLines) Item(i int) tui.View {
+	return tui.PaddingLTRB(2, 0, 0, 0, tui.Text("%s", d[i]).Wrap())
+}
 
 // approvalRows are the approval details. Each row is wrapped already and
-// starts three columns in, under the title text.
+// starts two columns into the band, under the title text.
 type approvalRows []approvalRow
 
 func (d approvalRows) Len() int { return len(d) }
@@ -65,7 +67,7 @@ func (d approvalRows) Item(i int) tui.View {
 	default:
 		text = tui.Text("%s", r.text)
 	}
-	return tui.Group(tui.Text("   %s%s", strings.Repeat(" ", r.indent), r.label).Style(mutedStyle), text)
+	return tui.Group(tui.Text("  %s%s", strings.Repeat(" ", r.indent), r.label).Style(mutedStyle), text)
 }
 
 // layout returns the details for a screen width columns wide. It is built
@@ -94,16 +96,16 @@ func (p *approvalPrompt) headline() string {
 	return approvalTitle(p.req.Tool)
 }
 
-// approvalView shows the title, the details, and the choices. The details
-// scroll in a bounded area, so the choices stay on screen.
+// approvalView shows the title, the details, and the choices on the band.
+// The details scroll in a bounded area, so the choices stay on screen.
 func (s *screen) approvalView() tui.View {
 	p := s.approval
 	l := p.layout(s.width)
-	title := []tui.View{tui.Text(" %s", approvalTitle(p.req.Tool)).Style(warningStyle).Bold()}
+	title := []tui.View{dialogGlyph("?", warningStyle), tui.Text("%s", approvalTitle(p.req.Tool)).Bold()}
 	if l.summary != "" {
 		title = append(title, tui.Text("  %s", l.summary))
 	}
-	views := []tui.View{divider(), tui.Group(title...)}
+	views := []tui.View{tui.Group(title...)}
 	detailHeight := s.dialogHeight()
 	if s.width > 0 && s.width < 72 {
 		detailHeight = max(1, detailHeight-3)
@@ -117,9 +119,10 @@ func (s *screen) approvalView() tui.View {
 	}
 	views = append(views, tui.Text(""))
 	if p.denying {
-		return tui.Stack(append(views,
-			tui.Text(" Deny: Enter submits · Ctrl-S inspects").Wrap().Style(hintStyle),
-			tui.InputField(&p.reason).ID(denialInputID).Prompt("Reason:").OnKey(s.dialogTextKey(s.promptID)).OnPaste(s.dialogTextPaste(s.promptID)).OnSubmit(s.denialSubmit(s.promptID)))...).Gap(0)
+		return tui.Stack(
+			band(tui.Stack(append(views,
+				tui.InputField(&p.reason).ID(denialInputID).Prompt("Reason:").PromptStyle(mutedStyle).OnKey(s.dialogTextKey(s.promptID)).OnPaste(s.dialogTextPaste(s.promptID)).OnSubmit(s.denialSubmit(s.promptID)))...).Gap(0)),
+			tui.Text(" Deny: Enter submits · Ctrl-S inspects").Wrap().Style(hintStyle)).Gap(0)
 	}
 	var hints []string
 	if len(l.rows) > height {
@@ -131,15 +134,15 @@ func (s *screen) approvalView() tui.View {
 		hints = append(hints, "e shows all")
 	}
 	hints = append(hints, "/ commands", "Esc interrupts")
-	return tui.Stack(append(views,
-		approvalChoices(p.req.offersRemember(), s.width),
-		tui.Text(" %s", strings.Join(hints, " · ")).Wrap().Style(hintStyle))...).Gap(0)
+	return tui.Stack(
+		band(tui.Stack(append(views, approvalChoices(p.req.offersRemember(), s.width))...).Gap(0)),
+		tui.Text(" %s", strings.Join(hints, " · ")).Wrap().Style(hintStyle)).Gap(0)
 }
 
 // checkLineView is the decide line of a prompt. A flagged or held command
 // stands out; any other answer is quiet.
 func checkLineView(line string, warn bool) tui.View {
-	t := tui.Text("   %s", line)
+	t := tui.Text("  %s", line)
 	if warn {
 		return t.Style(warningStyle).Bold()
 	}
@@ -148,21 +151,35 @@ func checkLineView(line string, warn bool) tui.View {
 
 // approvalChoices are the keys of a prompt. remember offers "allow for this
 // run"; a command decide flagged or held offers allow once and deny only.
+// Each key letter is in the accent, so the choices need no brackets.
 func approvalChoices(remember bool, width int) tui.View {
+	keys := []string{"y"}
+	labels := []string{"Allow once"}
+	if remember {
+		keys, labels = append(keys, "a"), append(labels, "Allow for this Dashi run")
+	}
+	keys, labels = append(keys, "n"), append(labels, "Deny")
+	key := func(k string) tui.View { return tui.Text("%s ", k).Style(accentStyle).Bold() }
 	if width > 0 && width < 72 {
-		rows := []tui.View{tui.Text(" [y] Allow once").Wrap()}
-		if remember {
-			rows = append(rows, tui.Text(" [a] Allow for this Dashi run").Wrap())
+		// One choice a row; the label wraps on a very narrow terminal.
+		rows := make([]tui.View, 0, len(keys))
+		for i, k := range keys {
+			rows = append(rows, tui.Group(tui.Text("  "), key(k), tui.Text("%s", labels[i]).Wrap().Flex(1)))
 		}
-		rows = append(rows, tui.Text(" [n] Deny").Wrap())
 		return tui.Stack(rows...).Gap(0)
 	}
-	key := func(k string) tui.View { return tui.Text("[%s]", k).Style(accentStyle).Bold() }
-	views := []tui.View{tui.Text(" "), key("y"), tui.Text(" Allow once    ")}
-	if remember {
-		views = append(views, key("a"), tui.Text(" Allow for this Dashi run    "))
+	choices := make([][]tui.View, len(keys))
+	for i, k := range keys {
+		choices[i] = []tui.View{key(k), tui.Text("%s", labels[i])}
 	}
-	return tui.Group(append(views, key("n"), tui.Text(" Deny"))...)
+	views := []tui.View{tui.Text("  ")}
+	for i, c := range choices {
+		if i > 0 {
+			views = append(views, tui.Text("   "))
+		}
+		views = append(views, c...)
+	}
+	return tui.Group(views...)
 }
 
 func scrollDialog(vp *tui.ViewportState, e tui.KeyEvent) bool {
@@ -243,11 +260,11 @@ func (p *askPrompt) Len() int {
 }
 func (p *askPrompt) Item(i int) tui.View {
 	if i == 0 {
-		prompt := tui.Text("   %s", p.q.Prompt).Wrap()
+		prompt := tui.Text("  %s", p.q.Prompt).Wrap()
 		if p.task == "" {
 			return prompt
 		}
-		return tui.Stack(tui.Text("   %s", taskOrigin(p.task)).Wrap().Style(mutedStyle), prompt).Gap(0)
+		return tui.Stack(tui.Text("  %s", taskOrigin(p.task)).Wrap().Style(mutedStyle), prompt).Gap(0)
 	}
 	index := i - 1
 	text := ""
@@ -269,27 +286,25 @@ func (p *askPrompt) Item(i int) tui.View {
 	} else {
 		text = "Answer in my own words"
 	}
-	if p.index == index {
-		return tui.Text(" ❯ %s", text).Wrap().Style(accentStyle)
-	}
-	return tui.Text("   %s", text).Wrap()
+	return choiceRow(text, p.index == index, true)
 }
 
 func (s *screen) questionView() tui.View {
 	p := s.asking
-	views := []tui.View{divider(), tui.Text(" Question pending").Style(warningStyle).Bold(),
+	views := []tui.View{tui.Group(dialogGlyph("?", warningStyle), tui.Text("Question pending").Bold()),
 		tui.Height(s.dialogHeight(), tui.Viewport(&p.vp, p).Gap(0))}
+	var hints []tui.View
 	if p.own {
-		views = append(views, tui.Text(" Enter submits your words · Ctrl-S inspects · Esc interrupts").Wrap().Style(hintStyle),
-			tui.InputField(&p.text).ID(questionInputID).Prompt("Answer:").Multiline(true).MaxHeight(3).OnKey(s.dialogTextKey(s.promptID)).OnPaste(s.dialogTextPaste(s.promptID)).OnSubmit(s.questionSubmit(s.promptID)))
+		views = append(views, tui.InputField(&p.text).ID(questionInputID).Prompt("Answer:").PromptStyle(mutedStyle).Multiline(true).MaxHeight(3).OnKey(s.dialogTextKey(s.promptID)).OnPaste(s.dialogTextPaste(s.promptID)).OnSubmit(s.questionSubmit(s.promptID)))
+		hints = append(hints, tui.Text(" Enter submits your words · Ctrl-S inspects · Esc interrupts").Wrap().Style(hintStyle))
 	} else {
-		views = append(views, tui.Text(" ↑/↓ move · Space selects · Enter chooses action").Wrap().Style(hintStyle),
+		hints = append(hints, tui.Text(" ↑/↓ move · Space selects · Enter chooses action").Wrap().Style(hintStyle),
 			tui.Text(" Tab submit · o own words · / commands · Esc interrupts").Wrap().Style(hintStyle))
 	}
 	if p.err != "" {
-		views = append(views, tui.Text(" %s", p.err).Wrap().Style(warningStyle))
+		views = append(views, tui.Text("  %s", p.err).Wrap().Style(warningStyle))
 	}
-	return tui.Stack(views...).Gap(0)
+	return tui.Stack(append([]tui.View{band(tui.Stack(views...).Gap(0))}, hints...)...).Gap(0)
 }
 
 func (s *screen) questionKey(e tui.KeyEvent) []tui.Cmd {

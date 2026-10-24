@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/workspace"
+	"github.com/deepnoodle-ai/wonton/termtest"
 	"github.com/deepnoodle-ai/wonton/tui"
 	"golang.org/x/term"
 )
@@ -133,7 +134,7 @@ func TestTerminalBandsStayWithinTheirRows(t *testing.T) {
 func TestTerminalNarrowApprovalKeepsEveryChoice(t *testing.T) {
 	s := terminalVisualFixture(t, "approval", 40, 16)
 	got := tui.SprintScreen(s.View(), tui.WithWidth(40), tui.WithHeight(16)).Text()
-	for _, want := range []string{"go test ./cmd/dashi", "in ~/projects/dashi", "[y] Allow once", "[a] Allow for this Dashi run", "[n] Deny", "Esc interrupts", "/help"} {
+	for _, want := range []string{"go test ./cmd/dashi", "in ~/projects/dashi", "y Allow once", "a Allow for this Dashi run", "n Deny", "Esc interrupts", "/help"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in narrow approval:\n%s", want, got)
 		}
@@ -149,7 +150,7 @@ func TestTerminalNoColorPreservesLabels(t *testing.T) {
 			view = newInlineScreen(s, io.Discard).LiveView()
 		}
 		frame := tui.SprintScreen(view, tui.WithWidth(40), tui.WithHeight(16))
-		if !strings.Contains(frame.Text(), "[n] Deny") {
+		if !strings.Contains(frame.Text(), "n Deny") {
 			t.Fatal("no-color lost approval")
 		}
 		for y := range 16 {
@@ -338,4 +339,92 @@ func TestClearedComposerKeepsStagedMentions(t *testing.T) {
 	}
 	// The receipt that clears the draft arrives on another goroutine.
 	h.waitFor(func() bool { return len(h.scr.attachments.entries) == 0 })
+}
+
+// dialogFixtures builds each dialog that replaces the composer, at width.
+func dialogFixtures(t *testing.T, width int) map[string]func() tui.View {
+	t.Helper()
+	s := terminalVisualFixture(t, "empty", width, 40)
+	done := make(chan struct{})
+	close(done)
+	flagged := &pendingCheck{done: done, result: decideResult{Checked: true, Flagged: true, Severe: 0.91}}
+	bash := toolApproval{ApprovalRequest: ApprovalRequest{Tool: "bash", Command: "rm -rf build"}, Check: flagged}
+	write := toolApproval{ApprovalRequest: ApprovalRequest{Tool: "write_file", Summary: "write notes.md", RememberScope: "This tool",
+		Arguments: `{"path":"notes.md","content":"` + strings.Repeat("A long line of notes that wraps across the band. ", 6) + `"}`}}
+	question := Question{Prompt: "Which interaction should I check first?", Choices: []workspace.Choice{
+		{Label: "Copying output", Description: "Selected text keeps its formatting."}, {Label: "Pasting long prompts"}}}
+	return map[string]func() tui.View{
+		"approval-flagged": func() tui.View {
+			s.approval = &approvalPrompt{req: bash}
+			return s.approvalView()
+		},
+		"approval-remember": func() tui.View {
+			s.approval = &approvalPrompt{req: write}
+			return s.approvalView()
+		},
+		"approval-deny": func() tui.View {
+			s.approval = &approvalPrompt{req: bash, denying: true, reason: "use make clean"}
+			return s.approvalView()
+		},
+		"question": func() tui.View {
+			s.asking = &askPrompt{q: question, selected: map[int]bool{}}
+			return s.questionView()
+		},
+		"question-own": func() tui.View {
+			s.asking = &askPrompt{q: question, selected: map[int]bool{}, own: true, err: "Enter an answer before submitting."}
+			return s.questionView()
+		},
+		"picker": func() tui.View {
+			return pickerView(&pickerState{title: "Choose a model", options: []string{"gpt-6-luna", "claude-opus-5-5", "gemini-3-pro"}})
+		},
+		"picker-details": func() tui.View {
+			return pickerView(&pickerState{title: "Choose a model", options: []string{"gpt-6-luna", "claude-opus-5-5"},
+				details: []string{"OpenAI · 400k context · $1.25 / $10 per million tokens", "Anthropic · 1M context"}})
+		},
+		"session-picker": func() tui.View {
+			return pickerView(&pickerState{title: "Workspace sessions", sessionCards: true, options: []string{"Fix the composer · 2h ago", "Review the theme · yesterday"},
+				details: []string{"Session s_abc123\nFirst request: fix the composer so pasted prompts stay editable", "Session s_def456"}})
+		},
+		"mcp-startup": func() tui.View {
+			return pickerView(&pickerState{title: "Start MCP server docs?", options: []string{"Start for this Dashi run", "Do not start"}, index: 1,
+				startupReview: detailLines{"Command: npx docs-mcp", "Source: .dashi/mcp.json", "Environment: DOCS_TOKEN"}})
+		},
+		"dialog-status": func() tui.View {
+			s.asking = nil
+			s.approval = &approvalPrompt{req: bash}
+			s.dialogStatus = &dialogStatusInput{text: "/tasks"}
+			defer func() { s.dialogStatus = nil }()
+			return s.dialogStatusView()
+		},
+	}
+}
+
+// TestDialogsDrawOnTheBand checks that every cell of a dialog's band carries
+// the band background, including wrapped text, viewports, and input fields,
+// and that the hints below the band do not.
+func TestDialogsDrawOnTheBand(t *testing.T) {
+	const width = 100
+	for name, build := range dialogFixtures(t, width) {
+		frame := tui.SprintScreen(build(), tui.WithWidth(width))
+		_, height := frame.Size()
+		onBand := func(x, y int) bool {
+			bg := frame.Cell(x, y).Style.Background
+			return bg.Type == termtest.Color256 && bg.Value == 236
+		}
+		rows := 0
+		for rows < height && onBand(0, rows) {
+			for x := range width {
+				if !onBand(x, rows) {
+					t.Fatalf("%s: cell %d,%d is off the band:\n%s", name, x, rows, frame.Text())
+				}
+			}
+			rows++
+		}
+		if rows < 3 || rows == height || onBand(0, rows) {
+			t.Fatalf("%s: band covers %d of %d rows:\n%s", name, rows, height, frame.Text())
+		}
+		if title := frame.Row(1); !strings.HasPrefix(title, " ? ") && !strings.HasPrefix(title, " ◆ ") {
+			t.Fatalf("%s: title row %q has no glyph", name, title)
+		}
+	}
 }

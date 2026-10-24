@@ -66,6 +66,55 @@ func (s *screen) footer() tui.View {
 	return tui.Stack(views...).Gap(0)
 }
 
+// band draws a dialog in the composer's place, on the prompt's band: the
+// same background and padding as the input panel. Views inside keep their
+// own colors. After they draw, every cell that has no background of its
+// own gets the band's, and text that has no color gets the band's text
+// color, so wrapped lines, viewports, and input fields all sit on the band.
+//
+// The painter takes the band's full size only at render time. A Stack
+// measures a fixed child without a height limit, and then the painter
+// reports no height, so the band is exactly as tall as its content.
+func band(content tui.View) tui.View {
+	return tui.ZStack(tui.PaddingLTRB(1, 1, 1, 1, content), tui.CanvasContext(paintBand)).Align(tui.AlignLeft)
+}
+
+func paintBand(ctx *tui.RenderContext) {
+	width, height := ctx.Size()
+	for y := range height {
+		for x := range width {
+			style := ctx.Cell(x, y).Style
+			if style.Background == tui.ColorDefault && style.BgRGB == nil {
+				style.Background, style.BgRGB = promptStyle.Background, promptStyle.BgRGB
+			}
+			if style.Foreground == tui.ColorDefault && style.FgRGB == nil {
+				style.Foreground, style.FgRGB = promptStyle.Foreground, promptStyle.FgRGB
+			}
+			ctx.RestyleCell(x, y, style)
+		}
+	}
+}
+
+// dialogGlyph starts a dialog title. ? in the warning color marks a dialog
+// that needs an answer; ◆ in the accent marks a choice the user opened.
+func dialogGlyph(glyph string, style tui.Style) tui.View {
+	return tui.Text("%s ", glyph).Style(style).Bold()
+}
+
+// choiceRow is one row of a list of choices. The selected row has an accent
+// ❯ and a bold label; the others are indented to line up with it. A wrapped
+// label continues under its first line.
+func choiceRow(label string, selected, wrap bool) tui.View {
+	mark, text := tui.Text("  "), tui.Text("%s", label)
+	if selected {
+		mark, text = tui.Text("❯ ").Style(accentStyle), text.Bold()
+	}
+	if wrap {
+		text = text.Wrap().Flex(1)
+	}
+	return tui.Group(mark, text)
+}
+
 func (s *screen) inputView(mode Mode) tui.View {
 	height := s.height
 	if height <= 0 {
@@ -240,7 +289,7 @@ func pickerView(p *pickerState) tui.View {
 	if p.sessionCards {
 		return sessionPickerView(p)
 	}
-	views := []tui.View{divider(), tui.Text(" %s", p.title).Style(accentStyle).Bold()}
+	views := []tui.View{tui.Group(dialogGlyph("◆", accentStyle), tui.Text("%s", p.title).Bold())}
 	// Keep room for the selected model's facts on an 80×24 terminal.
 	window := 10
 	if len(p.details) > 0 {
@@ -249,18 +298,14 @@ func pickerView(p *pickerState) tui.View {
 	start := max(0, min(p.index-window/2, len(p.options)-window))
 	end := min(len(p.options), start+window)
 	for i := start; i < end; i++ {
-		if i == p.index {
-			views = append(views, tui.Text(" ❯ %s", p.options[i]).Style(accentStyle).Bold())
-		} else {
-			views = append(views, tui.Text("   %s", p.options[i]))
-		}
+		views = append(views, choiceRow(p.options[i], i == p.index, false))
 	}
 	if p.index >= 0 && p.index < len(p.details) {
-		views = append(views, divider(), tui.Text(" %s", p.options[p.index]).Bold(),
-			tui.PaddingLTRB(1, 0, 0, 0, tui.Text("%s", p.details[p.index]).Wrap()))
+		views = append(views, divider(), tui.Text("  %s", p.options[p.index]).Bold(),
+			tui.PaddingLTRB(2, 0, 0, 0, tui.Text("%s", p.details[p.index]).Wrap()))
 	}
-	views = append(views, tui.Text(" ↑/↓ choose · Enter picks · Esc cancels").Wrap().Style(hintStyle))
-	return tui.Stack(views...).Gap(0)
+	return tui.Stack(band(tui.Stack(views...).Gap(0)),
+		tui.Text(" ↑/↓ choose · Enter picks · Esc cancels").Wrap().Style(hintStyle)).Gap(0)
 }
 
 // blockView draws one transcript block.

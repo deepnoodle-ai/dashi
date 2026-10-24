@@ -177,12 +177,13 @@ func (s *screen) dialogStatusView() tui.View {
 		heading = "Approval still pending · " + s.approval.headline()
 	}
 	return tui.Stack(
-		divider(),
-		tui.MaxHeight(2, tui.Text(" %s", heading).Wrap().Bold()),
+		band(tui.Stack(
+			tui.MaxHeight(2, tui.Group(dialogGlyph("?", warningStyle), tui.Text("%s", heading).Wrap().Bold().Flex(1))),
+			tui.InputField(&p.text).ID(dialogStatusInputID).Prompt("Inspect:").
+				PromptStyle(mutedStyle).
+				OnKey(s.dialogStatusKeyHook(p)).OnSubmit(s.dialogStatusSubmit(p)),
+		).Gap(0)),
 		tui.Text(" /status [ID] · /tasks · /task ID · /task-stop ID · Esc returns").Wrap().Style(hintStyle),
-		tui.InputField(&p.text).ID(dialogStatusInputID).Prompt("Inspect:").
-			PromptStyle(mutedStyle).
-			OnKey(s.dialogStatusKeyHook(p)).OnSubmit(s.dialogStatusSubmit(p)),
 	).Gap(0)
 }
 
