@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-24
+
 ### Added
 
 - **The CLI detects light terminals and uses a light palette.** At startup
