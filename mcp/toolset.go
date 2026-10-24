@@ -341,7 +341,9 @@ func (t *Toolset) dial(parent context.Context, c *conn) {
 	changes := c.changes
 	t.mu.Unlock()
 	cs, tools, warnings, errTail, err := t.connect(ctx, c)
-	// When the caller gave up, the failure says nothing about the server.
+	// When the caller gave up, the failure says little about the server, so
+	// an earlier error and its stderr win. With no earlier error, the
+	// cancel error is recorded so that Status still says why it failed.
 	gaveUp := err != nil && parent.Err() != nil
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		err = fmt.Errorf("timed out after %s", timeout)
