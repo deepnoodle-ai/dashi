@@ -97,14 +97,21 @@ func (s *screen) inputView(mode Mode) tui.View {
 				s.input = s.attachments.text
 				return
 			}
-			if !strings.HasPrefix(value, "/") {
-				s.attachments.setText(value)
-			}
-			s.updateAttachmentUnsaved()
+			s.syncDraft(value)
 		}).
 		OnComplete(s.completeDraft).
 		Highlight(s.highlightCommand).
 		OnSubmit(s.inputSubmit(s.promptID))
+}
+
+// syncDraft copies composer text into the attachment draft. A slash command
+// leaves the draft and its staged mentions alone, so the draft returns after
+// the command runs.
+func (s *screen) syncDraft(value string) {
+	if !strings.HasPrefix(value, "/") {
+		s.attachments.setText(value)
+	}
+	s.updateAttachmentUnsaved()
 }
 
 var commandHighlightStyle = tui.NewStyle().WithForeground(tui.ColorCyan).WithBold()

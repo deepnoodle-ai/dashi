@@ -139,6 +139,11 @@ func (d *attachmentDraft) reuseCanonical(t attachmentTicket, canonical, suffix s
 				old.paths[path] = true
 				old.suffixes[path] = suffix
 			}
+			// The command-only label uses suffix; a /attach that first
+			// makes old command-only brings its own line range.
+			if e.commandOnly && !old.commandOnly {
+				old.suffix = suffix
+			}
 			old.commandOnly = old.commandOnly || e.commandOnly
 			d.removeEntry(e.number)
 			d.revision++

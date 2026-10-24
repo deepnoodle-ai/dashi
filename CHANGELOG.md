@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **CLI attachment drafts survive more edits.** A slash command written in the
+  external editor (Ctrl+G) no longer clears the draft's staged `@` mentions.
+  `/attach PATH:START-END` on a file already mentioned in the draft keeps its
+  line range once the mention text is removed.
+
 ## [0.10.0] - 2026-10-23
 
 ### Added

@@ -106,6 +106,45 @@ func TestParseFillsSessionsAndUsage(t *testing.T) {
 	}
 }
 
+// A subagent nested two levels deep links to the root even when it sorts
+// before its parent, which names itself as its session.
+func TestNestedSubagentLinksInAnyOrder(t *testing.T) {
+	e := newEnv(t)
+	writeSessions(t, e)
+	deep := strings.NewReplacer(`"r-nested"`, `"r-deep"`, `"r-fork"`, `"r-nested"`, "06:00:03", "06:00:01", "resp_n1", "resp_d1").
+		Replace(fixture(t, "codex/testdata/fork/nested.jsonl"))
+	e.codex("sessions/2026/07/10/rollout-2026-07-10T06-00-01-r-deep.jsonl", deep, baseTime)
+	e.copy()
+	found := false
+	for _, r := range e.sessionRows() {
+		if r.Agent == "r-deep" {
+			found = true
+			if r.Session != "r-root" || r.Parent != "r-nested" {
+				t.Fatalf("deep subagent: %+v", r)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("deep subagent not parsed")
+	}
+}
+
+// A subagent's .meta.json copied after its session file still sets the
+// subagent's facts.
+func TestLateSubagentMetaIsApplied(t *testing.T) {
+	e := newEnv(t)
+	e.claude("projects/-work-demo/s-fork.jsonl", fixture(t, "claudecode/testdata/fork/root.jsonl"), baseTime)
+	e.claude("projects/-work-demo/s-fork/subagents/agent-af.jsonl", fixture(t, "claudecode/testdata/fork/agent-af.jsonl"), baseTime)
+	e.copy()
+	e.claude("projects/-work-demo/s-fork/subagents/agent-af.meta.json", fixture(t, "claudecode/testdata/fork/agent-af.meta.json"), baseTime)
+	e.copy()
+	for _, r := range e.sessionRows() {
+		if r.Agent == "af" && (r.Kind != "fork" || r.Title != "Placeholder fork") {
+			t.Fatalf("subagent: %+v", r)
+		}
+	}
+}
+
 // TestForkedRootAndAppUsage checks that a Codex root forked from another
 // session is parsed and converted with that session's root as its fork
 // parent, and that Claude Code's own per-model totals are stored.

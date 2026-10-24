@@ -262,6 +262,9 @@ func loadSessions(db *sql.DB, sessions map[string]*sessionInfo, o reportOptions)
 			return nil, err
 		}
 		key := sessionKey(app, sid)
+		if sid == "" {
+			key = sessionKey(app, fmt.Sprintf("copy-%d", id)) // no session id: a session of one, as in parse
+		}
 		s := sessions[key]
 		if s == nil {
 			s = &sessionInfo{App: app, SessionID: sid, WorkingDir: dir, Remotes: map[string]bool{},
