@@ -113,3 +113,51 @@ func TestCancelSettingsDialogEndsCommand(t *testing.T) {
 		t.Fatal("dialog left controller busy")
 	}
 }
+
+// modelPickerUI picks rows by label, one answer per picker it is shown.
+type modelPickerUI struct {
+	*recorderUI
+	answers []string
+	shown   [][]string
+	footers []string
+}
+
+func (u *modelPickerUI) ChooseModel(_ context.Context, _ string, options, _ []string, footer string, _ int) (int, bool) {
+	u.shown, u.footers = append(u.shown, options), append(u.footers, footer)
+	want := u.answers[0]
+	u.answers = u.answers[1:]
+	for i, option := range options {
+		if strings.HasSuffix(option, want) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func TestModelPickerOpensTheCompleteList(t *testing.T) {
+	p := builtinPickerPreferences(t)
+	e, _ := routedTestEngine(t, func(string) (int, string) { t.Fatal("picker dispatched"); return 0, "" })
+	ui := &modelPickerUI{recorderUI: newRecorderUI(), answers: []string{"All models…", "claude-haiku-4-5-20251001"}}
+	ctrl := NewController(t.Context(), e, ui, e.cfg.Store, e.cfg.Dir)
+	choice, ok := ctrl.pickModel(t.Context(), p, false)
+	if !ok || choice.provider != "anthropic" || choice.model != "claude-haiku-4-5-20251001" {
+		t.Fatalf("choice=%+v ok=%t", choice, ok)
+	}
+	if len(ui.shown) != 2 || len(ui.shown[1]) <= len(ui.shown[0]) || !strings.Contains(ui.footers[0], "Set GEMINI_API_KEY") || ui.footers[1] != "" {
+		t.Fatalf("shown=%v footers=%q", ui.shown, ui.footers)
+	}
+}
+
+func TestModelPickerWithoutTerminalPrintsNotes(t *testing.T) {
+	p := builtinPickerPreferences(t)
+	e, _ := routedTestEngine(t, func(string) (int, string) { t.Fatal("picker dispatched"); return 0, "" })
+	ui := newRecorderUI()
+	ctrl := NewController(t.Context(), e, ui, e.cfg.Store, e.cfg.Dir)
+	if _, ok := ctrl.pickModel(t.Context(), p, false); ok {
+		t.Fatal("a UI without a picker chose a model")
+	}
+	text := ui.text()
+	if !strings.Contains(text, "claude-opus-4-8 — 1M · current") || !strings.Contains(text, "Set GEMINI_API_KEY (google), ") || strings.Contains(text, "claude-opus-4-5-20251101") {
+		t.Fatalf("text=%s", text)
+	}
+}

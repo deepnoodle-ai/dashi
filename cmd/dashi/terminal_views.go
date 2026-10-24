@@ -307,19 +307,24 @@ func pickerView(p *pickerState) tui.View {
 		return sessionPickerView(p)
 	}
 	views := []tui.View{tui.Group(dialogGlyph("◆", accentStyle), tui.Text("%s", p.title).Bold())}
-	// Keep room for the selected model's facts on an 80×24 terminal.
-	window := 10
-	if len(p.details) > 0 {
-		window = 5
-	}
+	const window = 12
 	start := max(0, min(p.index-window/2, len(p.options)-window))
 	end := min(len(p.options), start+window)
+	// Notes line up in one column after the widest visible option.
+	width := 0
 	for i := start; i < end; i++ {
-		views = append(views, choiceRow(p.options[i], i == p.index, false))
+		width = max(width, runewidth.StringWidth(p.options[i]))
 	}
-	if p.index >= 0 && p.index < len(p.details) {
-		views = append(views, divider(), tui.Text("  %s", p.options[p.index]).Bold(),
-			tui.PaddingLTRB(2, 0, 0, 0, tui.Text("%s", p.details[p.index]).Wrap()))
+	for i := start; i < end; i++ {
+		row := choiceRow(p.options[i], i == p.index, false)
+		if i < len(p.notes) && p.notes[i] != "" {
+			pad := strings.Repeat(" ", width-runewidth.StringWidth(p.options[i])+2)
+			row = tui.Group(row, tui.Text("%s%s", pad, p.notes[i]).Style(mutedStyle))
+		}
+		views = append(views, row)
+	}
+	if p.footer != "" {
+		views = append(views, tui.PaddingLTRB(2, 0, 0, 0, tui.Text("%s", p.footer).Wrap().Style(mutedStyle)))
 	}
 	return tui.Stack(band(tui.Stack(views...).Gap(0)),
 		tui.Text(" ↑/↓ choose · Enter picks · Esc cancels").Wrap().Style(hintStyle)).Gap(0)

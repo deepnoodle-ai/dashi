@@ -13,47 +13,11 @@ import (
 func (c *Controller) destinationModel(ctx context.Context, name string, p *cliPreferences) {
 	provider, model := "", name
 	if name == "" {
-		choices := p.modelChoices()
-		labels := make([]string, len(choices))
-		for i, choice := range choices {
-			labels[i] = choice.label
-		}
-		if len(labels) == 0 {
-			c.notice("No models are registered. Configure a destination in user settings.")
-			return
-		}
-		var index int
-		var ok bool
-		if chooser, detailed := c.ui.(interface {
-			ChooseDetailed(context.Context, string, []string, []string, int) (int, bool)
-		}); detailed {
-			details := make([]string, len(choices))
-			for i, choice := range choices {
-				details[i] = choice.detail
-			}
-			current := p.agent()
-			selected := 0
-			for i, choice := range choices {
-				if choice.provider == current.Provider && choice.model == current.Model {
-					selected = i
-					break
-				}
-			}
-			index, ok = chooser.ChooseDetailed(ctx, "Destination and model", labels, details, selected)
-		} else {
-			for i, choice := range choices {
-				labels[i] += " — " + strings.ReplaceAll(choice.detail, "\n", "; ")
-			}
-			index, ok = c.choose(ctx, "Destination and model", labels)
-		}
+		choice, ok := c.pickModel(ctx, p, false)
 		if !ok {
 			return
 		}
-		if index < 0 || index >= len(choices) {
-			c.notice("Model choice is no longer available.")
-			return
-		}
-		provider, model = choices[index].provider, choices[index].model
+		provider, model = choice.provider, choice.model
 	} else if first, rest, pair := strings.Cut(name, " "); pair {
 		provider, model = first, strings.TrimSpace(rest)
 	}
@@ -82,6 +46,52 @@ func (c *Controller) destinationModel(ctx context.Context, name string, p *cliPr
 	if err := p.writer.update(map[string]json.RawMessage{"provider": preferenceJSON(selection.Destination.ID), "model": preferenceJSON(selection.Model)}); err != nil {
 		c.emit(warnBlock("Selection is active, but user preferences were not saved: %v.", err))
 	}
+}
+
+// pickModel shows the /model picker. Its last row opens the complete list.
+func (c *Controller) pickModel(ctx context.Context, p *cliPreferences, all bool) (modelChoice, bool) {
+	menu := p.modelChoices(all)
+	if len(menu.choices) == 0 && len(menu.setup) == 0 {
+		c.notice("No models are registered. Configure a destination in user settings.")
+		return modelChoice{}, false
+	}
+	if len(menu.choices) == 0 {
+		c.notice("%s.", strings.Join(menu.setup, ".\n"))
+		return modelChoice{}, false
+	}
+	const title = "Destination and model"
+	labels, notes := make([]string, len(menu.choices)), make([]string, len(menu.choices))
+	for i, choice := range menu.choices {
+		labels[i], notes[i] = choice.label, choice.note
+	}
+	var index int
+	var ok bool
+	if chooser, picker := c.ui.(interface {
+		ChooseModel(ctx context.Context, title string, options, notes []string, footer string, selected int) (int, bool)
+	}); picker {
+		index, ok = chooser.ChooseModel(ctx, title, labels, notes, strings.Join(menu.setup, "\n"), menu.selected)
+	} else {
+		for i, note := range notes {
+			if note != "" {
+				labels[i] += " — " + note
+			}
+		}
+		if len(menu.setup) != 0 {
+			c.notice("%s.", strings.Join(menu.setup, ".\n"))
+		}
+		index, ok = c.choose(ctx, title, labels)
+	}
+	if !ok {
+		return modelChoice{}, false
+	}
+	if index < 0 || index >= len(menu.choices) {
+		c.notice("Model choice is no longer available.")
+		return modelChoice{}, false
+	}
+	if choice := menu.choices[index]; choice.provider != "" {
+		return choice, true
+	}
+	return c.pickModel(ctx, p, true)
 }
 
 func (c *Controller) generationControl(ctx context.Context, command, value string) {

@@ -23,6 +23,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **One empty row always separates the transcript from what is under it**:
   the working line, hints, the prompt, and dialogs such as approvals,
   questions, and pickers.
+- **The `/model` picker lists current models you can use.** Each built-in
+  destination offers a short list of its newest models, without dated
+  snapshots, duplicate aliases, or older generations, and only destinations
+  with a credential appear. One muted line names the keys that would add
+  the others. Each row shows the context window and marks the current
+  model; the panel of tool and evidence details is gone. A last row, *All
+  models…*, opens the complete list. Destinations from user settings still
+  list every model, `/model <name>` still accepts any registered model, and
+  `dashi models` is unchanged. To choose the picker's models yourself, set
+  `featured_models` in `~/.dashi/settings.json`, such as
+  `{"anthropic": ["claude-opus-5-5"], "openai": ["gpt-6-luna"]}`; it
+  replaces the built-in lists.
 
 ## [0.14.0] - 2026-10-24
 

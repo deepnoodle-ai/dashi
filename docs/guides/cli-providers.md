@@ -31,8 +31,28 @@ destination with no registered models is left out.
 required binding trust are present. It makes no network probe or paid request,
 and does not establish authentication or server health.
 
-`/model` opens the picker; `/model team acme/code-v1` selects a pair. `/model ID`
-requires exactly one destination registering that ID. Cancelling or rejecting a
+`/model` opens the picker; `/model team acme/code-v1` selects a pair. The picker
+lists ready destinations only: each built-in offers its newest models, and a
+destination from user settings lists all of its models. A muted line names the
+keys that would add more, and *All models…* opens the complete list. `/model ID`
+requires exactly one destination registering that ID.
+
+To choose the picker's models yourself, set `featured_models` in
+`~/.dashi/settings.json`. It replaces the built-in lists: the picker shows only
+these models, grouped by destination in the order written, plus the selected
+model. Unlisted destinations are hidden, and a listed model that is not
+registered is named in the picker's footer. Dashi reads this field only from the
+user file.
+
+```json
+{
+  "featured_models": {
+    "anthropic": ["claude-opus-5-5", "claude-sonnet-5-5"],
+    "openai": ["gpt-6-luna"]
+  }
+}
+```
+ Cancelling or rejecting a
 switch preserves the previous selection. A switch prepares the existing controls
 against the candidate before saving it.
 

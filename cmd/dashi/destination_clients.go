@@ -25,18 +25,25 @@ func builtinDestinations() map[string]configuredDestination {
 	for _, binding := range []struct {
 		id, api, endpoint string
 		aliases           []string
+		featured          []string
 	}{
-		{"anthropic", messages.API, "https://api.anthropic.com/v1/messages", []string{"ANTHROPIC_API_KEY"}},
-		{"google", "google.generate_content", "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent", []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"}},
-		{"openai", responses.API, "https://api.openai.com/v1/responses", []string{"OPENAI_API_KEY"}},
-		{"grok", responses.API, grok.DefaultEndpoint, []string{"XAI_API_KEY", "GROK_API_KEY"}},
-		{"mistral", completions.API, mistral.DefaultEndpoint, []string{"MISTRAL_API_KEY"}},
-		{"deepinfra", completions.API, deepinfra.DefaultEndpoint, []string{"DEEP_INFRA_API_KEY", "DEEPINFRA_API_KEY", "DEEPINFRA_TOKEN"}},
-		{"meta", responses.API, meta.DefaultEndpoint, []string{"MODEL_API_KEY", "META_API_KEY"}},
-		{"openrouter", completions.API, openrouter.DefaultEndpoint, []string{"OPENROUTER_API_KEY"}},
-		{"ollama", messages.API, "http://127.0.0.1:11434/v1/messages", []string{"OLLAMA_API_KEY"}},
+		{"anthropic", messages.API, "https://api.anthropic.com/v1/messages", []string{"ANTHROPIC_API_KEY"},
+			[]string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1", "claude-mythos-5-1"}},
+		{"google", "google.generate_content", "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent", []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
+			[]string{"gemini-4-argon", "gemini-3.8-flash", "gemini-3.5-flash-lite"}},
+		{"openai", responses.API, "https://api.openai.com/v1/responses", []string{"OPENAI_API_KEY"},
+			[]string{"gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna", "gpt-5.5-pro"}},
+		{"grok", responses.API, grok.DefaultEndpoint, []string{"XAI_API_KEY", "GROK_API_KEY"},
+			[]string{"grok-4.7", "grok-build-0.1"}},
+		{"mistral", completions.API, mistral.DefaultEndpoint, []string{"MISTRAL_API_KEY"},
+			[]string{"mistral-medium-latest", "mistral-large-4", "mistral-small-latest", "codestral-latest", "ministral-14b-latest", "glm-5-2"}},
+		{"deepinfra", completions.API, deepinfra.DefaultEndpoint, []string{"DEEP_INFRA_API_KEY", "DEEPINFRA_API_KEY", "DEEPINFRA_TOKEN"}, nil},
+		{"meta", responses.API, meta.DefaultEndpoint, []string{"MODEL_API_KEY", "META_API_KEY"},
+			[]string{"muse-spark-1.3", "muse-wonder-1.0"}},
+		{"openrouter", completions.API, openrouter.DefaultEndpoint, []string{"OPENROUTER_API_KEY"}, nil},
+		{"ollama", messages.API, "http://127.0.0.1:11434/v1/messages", []string{"OLLAMA_API_KEY"}, nil},
 	} {
-		d := configuredDestination{ID: binding.id, Source: "built-in", BuiltinAliases: binding.aliases, Definition: destinationDefinition{API: binding.api, Endpoint: binding.endpoint}}
+		d := configuredDestination{ID: binding.id, Source: "built-in", BuiltinAliases: binding.aliases, FeaturedModels: binding.featured, Definition: destinationDefinition{API: binding.api, Endpoint: binding.endpoint}}
 		for _, entry := range catalog.Entries(binding.id) {
 			if slices.Contains(entry.APIs, binding.api) {
 				d.Definition.Models = append(d.Definition.Models, entry.Model)
