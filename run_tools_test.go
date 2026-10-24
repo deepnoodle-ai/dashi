@@ -827,10 +827,10 @@ func startedLocalToolTurn(
 	return turn
 }
 
-// boundedOutputError cuts a long message at a rune boundary.
+// boundedOutputError keeps valid UTF-8 and marks a cut rune with U+FFFD.
 func TestBoundedOutputErrorKeepsValidUTF8(t *testing.T) {
 	got := boundedOutputError(errors.New(strings.Repeat("a", 399) + "\u00e9 and more"))
-	if !utf8.ValidString(got) || got != strings.Repeat("a", 399) {
+	if !utf8.ValidString(got) || got != strings.Repeat("a", 399)+"\ufffd" {
 		t.Fatalf("got %q", got)
 	}
 }
