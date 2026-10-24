@@ -107,13 +107,18 @@ func buildState(p dashi.ModelPlan) watchState {
 			break
 		}
 	}
-	var recent []entry
-	for _, m := range messages[start:] {
+	// A reminder can come before the first tool call left in the messages,
+	// such as after a summary replaced the calls. The turn's reminders are
+	// the latest ones, as many as it sent.
+	for _, m := range messages {
 		if isReminder(m) {
 			s.Reminders = append(s.Reminders, reminderContent(m))
-			continue
 		}
-		if m.Role != llm.RoleAssistant {
+	}
+	s.Reminders = s.Reminders[max(0, len(s.Reminders)-remindersSent(p.Turn)):]
+	var recent []entry
+	for _, m := range messages[start:] {
+		if isReminder(m) || m.Role != llm.RoleAssistant {
 			continue
 		}
 		if text := strings.TrimSpace(m.Text()); text != "" {

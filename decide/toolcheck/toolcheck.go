@@ -514,13 +514,14 @@ func shellCommand(call tool.Call, shells []string) (string, bool) {
 	if !slices.Contains(shells, call.Name) {
 		return "", false
 	}
-	var args struct {
-		Command any `json:"command"`
-	}
+	// A map matches keys exactly, as a shell executor does; a struct would
+	// also take "Command", and a later case alias would hide the command
+	// that runs. A repeated key keeps its last value, as most decoders do.
+	var args map[string]any
 	if err := json.Unmarshal(call.Args, &args); err != nil {
 		return "", false
 	}
-	command, ok := args.Command.(string)
+	command, ok := args["command"].(string)
 	if !ok || strings.TrimSpace(command) == "" {
 		return "", false
 	}

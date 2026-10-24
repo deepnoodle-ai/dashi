@@ -661,6 +661,7 @@ func TestInvalidCandidates(t *testing.T) {
 				note("a", 50),
 				contextrank.Candidate{ID: "empty"},
 				note("a", 60), // a repeated ID
+				contextrank.Candidate{ID: "bad", Content: "not UTF-8: \xff"},
 			),
 			OnSelection: rec.add,
 		}
@@ -677,6 +678,7 @@ func TestInvalidCandidates(t *testing.T) {
 		want := []contextrank.Cause{
 			contextrank.CauseInvalid, contextrank.CauseChosen,
 			contextrank.CauseInvalid, contextrank.CauseInvalid,
+			contextrank.CauseInvalid,
 		}
 		if !slices.Equal(got, want) {
 			t.Fatalf("causes = %v; want %v", got, want)

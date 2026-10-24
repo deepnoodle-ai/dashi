@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`edit_file` edits CRLF files.** A multi-line `old_string` copied from
+  `read_file` uses `\n`; the edit now matches the file's `\r\n` lines and keeps
+  them.
+- **Edit previews show final-newline changes and hide `\r`.** The diff marks a
+  last line with no newline, as git does, and drops `\r` from CRLF lines.
+- **`grep` refuses a bad glob without rg too**, and `glob` no longer stalls on
+  repeated `**` segments.
+- **`toolcheck` reads the exact `command` key.** A case alias such as
+  `"Command"` no longer hides the command a shell runs from `CommandRisk` and
+  `PromptInjection`.
+- **`judge_items` validates Decide answers** even when the host's client turns
+  validation off, so an out-of-range probability fails its item.
+- **`turnwatch` sees its earlier reminders after a summary** replaced the tool
+  calls before them.
+- **`contextrank` marks a candidate whose content is not valid UTF-8 as
+  invalid**, instead of the runner refusing every chosen item.
+- **MCP keeps the transport the user approved.** An entry with a command and a
+  url stays stdio when the command is an unset variable; it fails instead.
+- **MCP `Refresh` with an ended context keeps a failed server's error and
+  stderr**, and a tool-list change that arrives during a listing stays marked.
+- **Mentions keep the line reference of a quoted path.** `@"main.go:42"`
+  becomes `[file: main.go]:42` instead of garbled text.
+- **`mention.ReadFile` reports a size limit below the file signature as too
+  large**, not as a signature mismatch.
+
 ## [0.10.0] - 2026-10-23
 
 ### Added

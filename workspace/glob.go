@@ -61,9 +61,9 @@ func glob(ctx context.Context, s *scope, in globArgs) (tool.Outcome, error) {
 		if !strings.Contains(p, "/") {
 			patterns[i] = "**/" + p
 		}
-		if _, err := path.Match(strings.ReplaceAll(patterns[i], "**", "*"), ""); err != nil {
-			return fail(fmt.Sprintf("pattern %q is not valid: %v", in.Pattern, err))
-		}
+	}
+	if err := checkGlobs(in.Pattern, patterns); err != nil {
+		return fail(err.Error())
 	}
 	type match struct {
 		name string
@@ -122,10 +122,30 @@ func glob(ctx context.Context, s *scope, in globArgs) (tool.Outcome, error) {
 	return tool.Succeeded(strings.Join(names, "\n") + note), nil
 }
 
+// checkGlobs returns an error, written for the model, when one of patterns,
+// expanded from typed, has bad syntax such as an unclosed [.
+func checkGlobs(typed string, patterns []string) error {
+	for _, p := range patterns {
+		if _, err := path.Match(strings.ReplaceAll(p, "**", "*"), ""); err != nil {
+			return fmt.Errorf("pattern %q is not valid: %v", typed, err)
+		}
+	}
+	return nil
+}
+
 // matchGlob matches a slash-separated name against a pattern in which a **
 // segment matches zero or more directories.
 func matchGlob(pattern, name string) bool {
-	return matchSegments(strings.Split(pattern, "/"), strings.Split(name, "/"))
+	// Repeated ** segments match what one does. Collapsing them keeps a
+	// pattern such as **/**/**/x from backtracking for a long time.
+	var pat []string
+	for _, seg := range strings.Split(pattern, "/") {
+		if seg == "**" && len(pat) > 0 && pat[len(pat)-1] == "**" {
+			continue
+		}
+		pat = append(pat, seg)
+	}
+	return matchSegments(pat, strings.Split(name, "/"))
 }
 
 func matchSegments(pat, name []string) bool {

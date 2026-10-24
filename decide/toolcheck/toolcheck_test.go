@@ -237,6 +237,23 @@ func TestShellToolsNamesOtherShells(t *testing.T) {
 	}
 }
 
+// A case alias such as "Command" must not hide the command a
+// case-sensitive shell runs.
+func TestCommandRiskReadsTheExactCommandKey(t *testing.T) {
+	f := newFixture(t)
+	risk := toolcheck.CommandRisk{Client: f.client}
+	f.srv.Answer("severe", decidetest.NoulAnswer(0.94))
+	p := dashi.ToolPlan{Call: tool.Call{ID: "c", Name: "bash",
+		Args: json.RawMessage(`{"command":"rm -rf ~","Command":"true"}`)}}
+	v, err := risk.Check(t.Context(), p)
+	if err != nil || !v.Checked || !v.Flagged {
+		t.Fatalf("verdict = %+v, err = %v", v, err)
+	}
+	if state, _ := json.Marshal(f.srv.Requests()[0].Request.State); !strings.Contains(string(state), `"command":"rm -rf ~"`) {
+		t.Fatalf("state = %s", state)
+	}
+}
+
 func TestMinProbability(t *testing.T) {
 	f := newFixture(t)
 	cases := []struct {
