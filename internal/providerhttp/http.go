@@ -385,6 +385,15 @@ func NoAPIKey(provider, key string, public bool, env string) error {
 	}
 }
 
+// MaybeSent reports whether the request behind err may have reached the
+// provider. Only an error marked SendStatusNotSent rules that out, such as a
+// missing key or a context cancelled before dispatch. An HTTP status, a
+// dropped connection, or a response-start timeout all leave it possible.
+func MaybeSent(err error) bool {
+	failure, ok := errors.AsType[*llm.Error](err)
+	return !ok || failure.SendStatus != llm.SendStatusNotSent
+}
+
 // KnownRejection is limited to HTTP statuses that affirmatively reject a
 // request. Timeout, conflict, and too-early responses remain ambiguous.
 func KnownRejection(status int) bool {
@@ -497,6 +506,18 @@ func Decode(raw []byte, value any) error {
 		return errors.New("providerhttp: trailing provider JSON")
 	}
 	return nil
+}
+
+// Protocol reports a failure to decode provider output as a protocol error,
+// keeping an error that is already an *llm.Error as it is.
+func Protocol(provider string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := errors.AsType[*llm.Error](err); ok {
+		return err
+	}
+	return Failure(provider, llm.ErrorProtocol, "decode response: %w", err)
 }
 
 // Emit isolates mutable preview data so a sink cannot change the final result.

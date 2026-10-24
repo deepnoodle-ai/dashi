@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi/internal/sse"
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
@@ -42,6 +43,16 @@ func ReadFailure(provider string, err error) error {
 	failure := Failure(provider, llm.ErrorTransport, "response read: %w", err)
 	failure.(*llm.Error).Reason = timeoutReason(err)
 	return failure
+}
+
+// StreamFailure classifies the error that ended an event stream. An oversized
+// or malformed event is a protocol error, as it is in a complete response;
+// anything else is a read failure.
+func StreamFailure(provider string, err error) error {
+	if errors.Is(err, sse.ErrEventTooLarge) || errors.Is(err, sse.ErrMalformedEvent) {
+		return Failure(provider, llm.ErrorProtocol, "stream read: %w", err)
+	}
+	return ReadFailure(provider, err)
 }
 
 // Complete closes the successful decoding window. A timer that won before

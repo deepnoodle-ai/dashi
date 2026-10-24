@@ -129,6 +129,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   becomes `[file: main.go]:42` instead of garbled text.
 - **`mention.ReadFile` reports a size limit below the file signature as too
   large**, not as a signature mismatch.
+- **A cut-off OpenAI Chat Completions stream no longer returns runnable tool
+  calls.** Every tool call in a stream that ended before its finish reason is
+  partial opaque content, even when its arguments happen to be valid JSON.
+- **A call that was definitely not sent has no stop kind.** Anthropic
+  Messages, OpenAI Responses, and OpenAI Chat Completions omit `StopIncomplete`
+  only when the error's send status is `llm.SendStatusNotSent`, such as a
+  missing key or a context cancelled before dispatch, so such a call is not
+  mistaken for a dispatched one. Any HTTP status, a connection dropped after
+  the request was written, or a response-start timeout may have reached the
+  provider, so those calls keep `StopIncomplete`.
+- **Malformed provider output is a protocol error.** A stream event that is
+  not JSON or exceeds the size limit, and inner content that does not decode,
+  now fail with `llm.ErrorProtocol` instead of `llm.ErrorTransport` or a bare
+  error.
+- **Stream error events carry the provider's message.** Anthropic and OpenAI
+  Responses `error` events keep the provider's message in `err.Error()`, and
+  Responses also keeps its error `Code`.
+- **Anthropic and OpenAI Responses reject duplicate tool IDs.** A response
+  that reuses a tool call, provider tool use, or approval request ID fails as
+  a protocol error, as Chat Completions already did, instead of recording
+  history that no later request can send.
+- **Interrupted OpenAI Responses streams keep message parts and report
+  incomplete usage.** Parts that arrive with `response.output_item.added` are
+  kept, a text delta cannot overwrite an unknown part, and usage seen before a
+  terminal event has `RequestsComplete` false.
+- **Anthropic streams keep block types and usage fields.** An interrupted
+  `server_tool_use` or `mcp_tool_use` block keeps its own type in its partial
+  data, tool arguments for a non-tool block fail the call, and a null usage
+  field in `message_delta` no longer erases the value from `message_start`.
+- **OpenAI strict output schemas check enum values against their type.** An
+  enum value the node's type cannot hold, or an enum on an object or array,
+  fails `Prepare` instead of the request.
 
 ## [0.11.0] - 2026-10-23
 
