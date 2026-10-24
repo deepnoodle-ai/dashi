@@ -39,7 +39,7 @@ func TestRuntimeCopySelectionUsesExactSource(t *testing.T) {
 	h.key(tui.KeyEvent{Key: tui.KeyEscape})
 	h.wait(func(s transcriptState) bool { return s.selected == "" })
 	toolSource := "tool row\t  世界  " + strings.Repeat(" x", 50) + " END  \r\nnext\n"
-	h.scr.Emit(Block{Kind: KindTool, Name: "read_file", State: StateOK, Lines: []string{"preview"}, Detail: toolSource, Done: true})
+	h.scr.Emit(Block{Kind: KindTool, Name: "read_file", State: StateOK, Summary: "preview", Detail: toolSource, Done: true})
 	frame = h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "click to expand") })
 	h.scr.rt.SendEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 1, X: 8, Y: transcriptRow(t, frame.text, "click to expand")})
 	frame = h.wait(func(s transcriptState) bool {

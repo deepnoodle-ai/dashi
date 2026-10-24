@@ -107,7 +107,7 @@ func TestRuntimeNavigationAfterPromptEnds(t *testing.T) {
 func TestRuntimeToolExpansionInstructionAndLongOutput(t *testing.T) {
 	h := newTranscriptRuntime(t)
 	source := strings.Repeat("x", 150) + "TAIL_MARKER"
-	h.scr.Emit(Block{Kind: KindTool, Name: "read_file", State: StateOK, Lines: []string{"preview"}, Detail: source, Done: true})
+	h.scr.Emit(Block{Kind: KindTool, Name: "read_file", State: StateOK, Summary: "preview", Detail: source, Done: true})
 	shown := h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "click to expand") })
 	row := -1
 	for y, line := range strings.Split(shown.text, "\n") {

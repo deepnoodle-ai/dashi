@@ -223,10 +223,10 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 	}
 	if e.Type == tui.MouseClick && e.Button == tui.MouseButtonLeft {
 		i, line, ok := s.vp.ItemAt(local.X, local.Y)
-		if ok && i < len(s.tr.Blocks) && s.tr.Blocks[i].Kind == KindTool && s.tr.Blocks[i].Detail != "" {
-			b := s.tr.Blocks[i]
-			_, previewHeight := tui.Measure(toolView(b), s.vp.Width, 0)
-			if line != 0 && (s.expanded[i] || line < previewHeight) {
+		if ok && i < len(s.tr.Blocks) && s.tr.Blocks[i].Kind == KindTool && toolHasMore(s.tr.Blocks[i]) {
+			// A click anywhere on a short line expands it. An expanded line
+			// collapses only from its head, so a click in the output does not.
+			if line != 0 && s.expanded[i] {
 				return
 			}
 			if s.expanded == nil {
@@ -243,7 +243,6 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 func fullBlock(b Block) Block {
 	if b.Kind == KindTool && b.Detail != "" {
 		b.Expanded = true
-		b.Lines = strings.Split(b.Detail, "\n")
 	}
 	return b
 }

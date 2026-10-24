@@ -92,13 +92,23 @@ type Block struct {
 	// stop's dashi.StopKind.
 	State   string
 	Elapsed time.Duration
-	// Lines holds detail lines: the last output of a running tool, the
-	// first error line of a failed tool, or the lines of a diff.
+	// Lines holds detail lines: the last output of a running tool, or the
+	// lines of a diff.
 	Lines []string
+	// Summary is the result line of a finished tool call, such as the
+	// user's answer, "214 lines", or the last error line (see toolSummary).
+	// Every UI shows it under the tool line.
+	Summary string
 	// Detail retains complete tool output for expansion and native scrollback.
 	Detail string
 	// Expanded is a display-only view; the stored transcript keeps its excerpt.
 	Expanded bool
+	// ExpandHint ends the result line with "click to expand". Only the live
+	// screen sets it, where a click shows Detail. Display-only.
+	ExpandHint bool
+	// Spinner is the spinner frame a running tool line shows in place of its
+	// glyph. Only the live screen sets it. Display-only.
+	Spinner string
 	// Done marks a block that will not change again.
 	Done bool
 	// Footer holds the facts of a footer block, and Help the structure of a
@@ -429,17 +439,12 @@ func (r *Renderer) toolFinished(s dashi.Step) []Block {
 	c := r.toolCall(s)
 	c.result = resultMark(s.HookResults)
 	state := StateOK
-	var lines []string
 	if o := s.Tool.Outcome; o != nil {
 		switch o.State {
 		case tool.StateFailed:
 			state = StateFailed
-			lines = tailLines(outputText(o), 1)
 		case tool.StateNotExecuted:
 			state = StateDenied
-			if c.denied != "" {
-				lines = []string{c.denied}
-			}
 		case tool.StateWaiting, tool.StateDetached:
 			state = StateWaiting
 		}
@@ -454,7 +459,7 @@ func (r *Renderer) toolFinished(s dashi.Step) []Block {
 	if s.Tool.Outcome != nil && (c.name != delegate.ToolName || state != StateOK) {
 		b.Detail = outputText(s.Tool.Outcome)
 	}
-	b.Lines = lines
+	b.Summary = toolSummary(c.name, s.Tool.Call.Args, state, outputText(s.Tool.Outcome), c.denied)
 	b.Done = state != StateWaiting
 	if !c.started.IsZero() && !s.At.IsZero() {
 		b.Elapsed = s.At.Sub(c.started)
@@ -807,16 +812,23 @@ func FormatBlock(b Block) string {
 
 const toolLineWidth = 58
 
+// formatTool is the plain form of a tool line: the name, argument, and
+// state, then the decide lines and the result line, such as
+//
+//	bash  go test ./...                                        12.4s
+//	  └ ok  github.com/deepnoodle-ai/dashi  3.1s
 func formatTool(b Block) string {
 	left := "  " + b.Name
 	if b.Arg != "" {
 		left += "  " + fitArg(b.Arg, toolLineWidth-len(left)-2)
 	}
+	elapsed := fmt.Sprintf("%.1fs", b.Elapsed.Seconds())
 	right := b.State
-	if b.State == StateOK || b.State == StateFailed {
-		right += fmt.Sprintf("  %.1fs", b.Elapsed.Seconds())
-	}
 	switch b.State {
+	case StateOK:
+		right = elapsed
+	case StateFailed:
+		right += "  " + elapsed
 	case StateRunning:
 		right = "..."
 	case StateChecking:
@@ -831,8 +843,8 @@ func formatTool(b Block) string {
 	for _, m := range decideLines(b) {
 		line += "\n    " + m.Text
 	}
-	for _, l := range b.Lines {
-		line += "\n    " + l
+	if body := toolBody(b); body != "" {
+		line += "\n    " + toolResultMarker + strings.ReplaceAll(body, "\n", "\n      ")
 	}
 	if b.Task != nil {
 		line += "\n" + taskLineUnderText(*b.Task)
@@ -902,6 +914,7 @@ func fitArg(arg string, width int) string {
 func printable(b Block) Block {
 	b.Detail = workspace.PrintableText(b.Detail)
 	b.Text = workspace.PrintableText(b.Text)
+	b.Summary = workspace.PrintableText(b.Summary)
 	b.Name = workspace.PrintableText(b.Name)
 	b.Arg = workspace.PrintableText(b.Arg)
 	if b.Footer != nil {
@@ -1000,12 +1013,6 @@ func plural(n int, word string) string {
 		return word
 	}
 	return word + "s"
-}
-
-// outputLinesText counts the lines of tool output, such as "1 output line".
-func outputLinesText(detail string) string {
-	n := strings.Count(detail, "\n") + 1
-	return fmt.Sprintf("%d output %s", n, plural(n, "line"))
 }
 
 func groupDigits(n int) string {

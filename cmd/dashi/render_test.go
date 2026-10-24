@@ -112,12 +112,12 @@ func TestRenderToolLifecycle(t *testing.T) {
 	if done.State != StateOK || done.Elapsed != 1500*time.Millisecond || !done.Done {
 		t.Fatalf("done=%+v", done)
 	}
-	if got := FormatBlock(done); !strings.Contains(got, "ok  1.5s") {
+	if got := FormatBlock(done); !strings.HasSuffix(got, " 1.5s\n    └ PASS") || strings.Contains(got, "ok") {
 		t.Fatalf("line=%q", got)
 	}
 	failed := tl.Failed("exit status 1\nmore")
 	bad := onlyBlock(t, r.Event(stepEvent(toolStep(dashi.StepToolFinished, t0, &failed))))
-	if bad.State != StateFailed || strings.Join(bad.Lines, "|") != "more" {
+	if bad.State != StateFailed || bad.Summary != "more" || len(bad.Lines) != 0 {
 		t.Fatalf("bad=%+v", bad)
 	}
 }
@@ -134,8 +134,7 @@ func TestRenderDeniedTool(t *testing.T) {
 	}
 	out := tl.Outcome{State: tl.StateNotExecuted}
 	b := onlyBlock(t, r.Event(stepEvent(toolStep(dashi.StepToolFinished, time.Time{}, &out))))
-	if b.State != StateDenied || len(b.Lines) != 1 ||
-		b.Lines[0] != "The user declined this call." {
+	if b.State != StateDenied || b.Summary != "The user declined this call." {
 		t.Fatalf("denied=%+v", b)
 	}
 }

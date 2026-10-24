@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -166,10 +167,15 @@ func (s *screen) inputHint(mode Mode) string {
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
+// spinnerFrame is the spinner frame to draw now. The working line and
+// running tool lines share it, so they turn together.
+func (s *screen) spinnerFrame() string {
+	return spinnerFrames[int(s.frame/3)%len(spinnerFrames)]
+}
+
 func (s *screen) workingView() tui.View {
-	frame := spinnerFrames[int(s.frame/3)%len(spinnerFrames)]
 	return tui.Group(
-		tui.Text(" %s", frame).Style(accentStyle),
+		tui.Text(" %s", s.spinnerFrame()).Style(accentStyle),
 		tui.Text(" Working · Esc interrupts").Style(mutedStyle),
 	)
 }
@@ -419,55 +425,28 @@ func footerView(b Block, width int) tui.View {
 	return tui.Group(views...)
 }
 
+// toolView draws a tool line: a glyph and the head, with the name, the
+// argument, and the state at the right edge; then the decide lines; then the
+// result line under a "└" connector. An expanded line shows the whole output
+// in place of the result line.
 func toolView(b Block) tui.View {
-	var icon *tui.TextView
-	var state *tui.TextView
-	switch b.State {
-	case StateOK:
-		icon = tui.Text("•").Style(successStyle)
-		state = tui.Text("ok  %.1fs", b.Elapsed.Seconds()).Style(mutedStyle)
-	case StateFailed:
-		icon = tui.Text("✗").Style(dangerStyle)
-		state = tui.Text("failed  %.1fs", b.Elapsed.Seconds()).Style(dangerStyle)
-	case StateDenied:
-		// A denial is settled; nothing waits on the user.
-		icon = tui.Text("⊘").Style(mutedStyle)
-		state = tui.Text("denied").Style(mutedStyle)
-	case StateWaiting:
-		icon = tui.Text("•").Style(warningStyle)
-		state = tui.Text("waiting").Style(warningStyle)
-	case StateChecking:
-		icon = tui.Text("•").Style(accentStyle)
-		state = tui.Text("decide: checking command…").Style(mutedStyle)
-	case StateCheckingResult:
-		icon = tui.Text("•").Style(accentStyle)
-		state = tui.Text("decide: checking result…").Style(mutedStyle)
-	case StateWaitingForYou:
-		icon = tui.Text("?").Style(warningStyle)
-		state = tui.Text("waiting for you").Style(warningStyle)
-	default:
-		icon = tui.Text("•").Style(accentStyle)
-		state = tui.Text("running").Style(mutedStyle)
-	}
+	glyph, state := toolGlyph(b), toolState(b)
 	// The name and argument are the tool line's text, so a selection copies
-	// them. The icon and the state at the right edge are decoration.
+	// them. The glyph and the state at the right edge are decoration.
 	name, arg := toolHead(b)
-	views := []tui.View{icon, tui.Text(" "), tui.Text("%s", name).SourceOffset(0).Bold()}
+	views := []tui.View{glyph, tui.Text(" "), tui.Text("%s", name).SourceOffset(0).Bold()}
 	if arg != "" {
 		views = append(views, tui.Text("%s", toolHeadSep),
 			tui.Text("%s", arg).SourceOffset(len(name)+len(toolHeadSep)).Style(mutedStyle).Wrap().Flex(1))
-	}
-	if arg == "" {
+	} else {
 		views = append(views, tui.Spacer())
 	}
-	views = append(views, tui.Text("  "))
-	head := tui.Height(1, tui.Group(append(views, state)...))
-	offset := len(toolHeadSource(b)) + 1
-	var checks []tui.View
+	views = append(views, tui.Text("  "), state)
+	rows := []tui.View{tui.Height(1, tui.Group(views...))}
 	// Check badges belong with the check details. Keeping them out of the
 	// header reserves space for the tool state even on narrow terminals.
 	if tick := decideTicks(b); tick != "" {
-		checks = append(checks, tui.PaddingLTRB(2, 0, 0, 0,
+		rows = append(rows, tui.PaddingLTRB(2, 0, 0, 0,
 			tui.Text("%s", tick).Wrap().Style(mutedStyle)))
 	}
 	for _, mark := range decideLines(b) {
@@ -477,23 +456,133 @@ func toolView(b Block) tui.View {
 		} else {
 			t = t.Style(mutedStyle)
 		}
-		checks = append(checks, tui.PaddingLTRB(2, 0, 0, 0, t))
+		rows = append(rows, tui.PaddingLTRB(2, 0, 0, 0, t))
 	}
-	if b.Expanded && b.Detail != "" {
-		views = append([]tui.View{head}, checks...)
-		return tui.Stack(append(views, tui.PaddingLTRB(2, 0, 0, 0,
-			tui.Text("%s", b.Detail).SourceOffset(offset).Wrap().Style(mutedStyle)))...).Gap(0)
+	if body := toolBody(b); body != "" {
+		text := tui.Text("%s", body).SourceOffset(len(toolHeadSource(b)) + 1).Wrap().Style(toolBodyStyle(b))
+		result := []tui.View{tui.Text("  %s", toolResultMarker).Style(faintStyle)}
+		if b.ExpandHint && !b.Expanded {
+			result = append(result, text, tui.Text("%s", toolExpandHint).Style(faintStyle))
+		} else {
+			result = append(result, text.Flex(1))
+		}
+		rows = append(rows, tui.Group(result...))
 	}
-	if len(b.Lines) == 0 && len(checks) == 0 {
-		return head
+	if len(rows) == 1 {
+		return rows[0]
 	}
-	views = append([]tui.View{head}, checks...)
-	for _, l := range b.Lines {
-		views = append(views, tui.PaddingLTRB(2, 0, 0, 0,
-			tui.Text("%s", l).SourceOffset(offset).Wrap().Style(mutedStyle)))
-		offset += len(l) + 1
+	return tui.Stack(rows...).Gap(0)
+}
+
+// toolResultMarker starts the result line under a tool line.
+const toolResultMarker = "└ "
+
+// toolExpandHint ends a result line that a click can expand.
+const toolExpandHint = " · click to expand"
+
+// toolGlyph is the glyph that starts a tool line. It carries the state: a
+// dot in the success color for a call that worked, a cross for one that
+// failed, and a spinner while it runs.
+func toolGlyph(b Block) *tui.TextView {
+	switch b.State {
+	case StateOK:
+		return tui.Text("●").Style(successStyle)
+	case StateFailed:
+		return tui.Text("✗").Style(dangerStyle)
+	case StateDenied:
+		// A denial is settled; nothing waits on the user.
+		return tui.Text("⊘").Style(mutedStyle)
+	case StateWaiting:
+		return tui.Text("●").Style(warningStyle)
+	case StateWaitingForYou:
+		return tui.Text("?").Style(warningStyle)
 	}
-	return tui.Stack(views...).Gap(0)
+	if b.Spinner != "" {
+		return tui.Text("%s", b.Spinner).Style(accentStyle)
+	}
+	return tui.Text("●").Style(accentStyle)
+}
+
+// toolSpins reports whether a tool line in state shows the spinner: while
+// the call runs or decide checks it.
+func toolSpins(state string) bool {
+	switch state {
+	case StateOK, StateFailed, StateDenied, StateWaiting, StateWaitingForYou, StateStopped:
+		return false
+	}
+	return true
+}
+
+// toolState is the state at the right edge of a tool line. A call that
+// worked shows only its time; the glyph says it worked.
+func toolState(b Block) tui.View {
+	elapsed := fmt.Sprintf("%.1fs", b.Elapsed.Seconds())
+	switch b.State {
+	case StateOK:
+		return tui.Text("%s", elapsed).Style(mutedStyle)
+	case StateFailed:
+		return tui.Group(tui.Text("failed").Style(dangerStyle), tui.Text("  %s", elapsed).Style(mutedStyle))
+	case StateDenied:
+		return tui.Text("denied").Style(mutedStyle)
+	case StateWaiting, StateWaitingForYou:
+		return tui.Text("%s", b.State).Style(warningStyle)
+	case StateChecking:
+		return tui.Text("decide: checking command…").Style(mutedStyle)
+	case StateCheckingResult:
+		return tui.Text("decide: checking result…").Style(mutedStyle)
+	}
+	return tui.Text("running").Style(mutedStyle)
+}
+
+// toolBody is the text under a tool line's head: the whole output when the
+// line is expanded, else the result line, else the last output lines of a
+// running call.
+func toolBody(b Block) string {
+	switch {
+	case b.Expanded && b.Detail != "":
+		return strings.TrimRight(b.Detail, "\n")
+	case b.Summary != "":
+		return b.Summary
+	}
+	return strings.Join(b.Lines, "\n")
+}
+
+// toolBodyStyle colors the text under a tool line. The user's answer to a
+// question is the reason for the call, so it keeps the normal color; an
+// error is danger; anything else is muted.
+func toolBodyStyle(b Block) tui.Style {
+	switch {
+	case b.Expanded && b.Detail != "":
+		return mutedStyle
+	case b.State == StateFailed:
+		return dangerStyle
+	case b.State == StateOK && b.Name == workspace.ToolAskUser:
+		return textStyle
+	}
+	return mutedStyle
+}
+
+// readingWidth is the most columns that transcript text and tool lines
+// take, so lines stay easy to read on a wide terminal. The user's prompts
+// and the turn footer still span the whole width.
+const readingWidth = 100
+
+// readingView caps the width of a block's view at readingWidth, except for
+// the blocks that span the whole width.
+func readingView(kind BlockKind, view tui.View) tui.View {
+	if view == nil || kind == KindUser || kind == KindFooter {
+		return view
+	}
+	return tui.MaxWidth(readingWidth, view)
+}
+
+// readingWidthFor is the width a block of kind takes in native scrollback
+// that is width columns wide.
+func readingWidthFor(kind BlockKind, width int) int {
+	if kind == KindUser || kind == KindFooter {
+		return width
+	}
+	return min(width, readingWidth)
 }
 
 // toolHeadSep separates a tool's name from its argument on the tool line.
