@@ -266,6 +266,35 @@ func TestTerminalNarrowToolStatesAndChecks(t *testing.T) {
 
 // Clearing the composer keeps the staged mentions: a slash command brings
 // the draft back, an empty Enter sends nothing, and new text goes with them.
+// Enter on an empty composer after /attach sends the selection alone, as
+// the attachment list's hint says. Only a cleared line holds it back.
+func TestAttachThenEmptyEnterSends(t *testing.T) {
+	h := newScreenHarness(t, 0, say("read it"))
+	fixtureSelectedText(t, h.dir, "notes.txt", "snapshot")
+	h.submit("/attach notes.txt")
+	h.waitFor(func() bool {
+		return len(h.scr.attachments.entries) == 1 && h.scr.attachments.entries[0].state == attachmentReady
+	})
+	h.submit("")
+	h.app.ctrl.Wait()
+	if h.client.sends != 1 {
+		t.Fatalf("sends=%d", h.client.sends)
+	}
+	if docs := hydratedDocuments(h.client.inputAt(0)); len(docs) != 1 || docs[0] != "snapshot" {
+		t.Fatalf("documents=%q", docs)
+	}
+}
+
+// Clearing the composer while a submission is pending leaves the frozen
+// entries alone.
+func TestKeepEntriesSkipsAFrozenDraft(t *testing.T) {
+	d := attachmentDraft{frozenBy: "submit", entries: []*attachmentEntry{{number: 1}}}
+	d.keepEntries()
+	if d.entries[0].commandOnly || d.cleared {
+		t.Fatalf("commandOnly=%v cleared=%v", d.entries[0].commandOnly, d.cleared)
+	}
+}
+
 func TestClearedComposerKeepsStagedMentions(t *testing.T) {
 	h := newScreenHarness(t, 0, say("summarized"))
 	fixtureSelectedText(t, h.dir, "notes.txt", "snapshot")
@@ -307,7 +336,6 @@ func TestClearedComposerKeepsStagedMentions(t *testing.T) {
 	if docs := hydratedDocuments(h.client.inputAt(0)); len(docs) != 1 || docs[0] != "snapshot" {
 		t.Fatalf("documents=%q", docs)
 	}
-	if !h.check(func() bool { return len(h.scr.attachments.entries) == 0 }) {
-		t.Fatal("submit kept the staged entries")
-	}
+	// The receipt that clears the draft arrives on another goroutine.
+	h.waitFor(func() bool { return len(h.scr.attachments.entries) == 0 })
 }

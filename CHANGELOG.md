@@ -14,8 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   line range once the mention text is removed.
 - **Clearing the composer keeps staged `@` mentions.** After Ctrl+U you can
   run a slash command such as `/attachments` and get the draft back, or type
-  a new prompt that the mentioned files go with. Enter on an empty line sends
-  nothing and shows a hint. A submit or `/detach` drops the mentions.
+  a new prompt that the mentioned files go with. Enter on the cleared line
+  sends nothing and shows a hint. A submit or `/detach` drops the mentions.
+  Enter on an empty composer after `/attach` still sends the selections
+  alone.
 
 ## [0.10.0] - 2026-10-23
 

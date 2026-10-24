@@ -51,6 +51,10 @@ type attachmentDraft struct {
 	nextNumber int
 	entries    []*attachmentEntry
 	frozenBy   string
+	// cleared is true while the composer is empty because the user cleared
+	// it, and the draft and its staged entries were kept. Enter on that
+	// empty line sends nothing.
+	cleared bool
 }
 
 func (d *attachmentDraft) setText(text string) error {
@@ -61,6 +65,7 @@ func (d *attachmentDraft) setText(text string) error {
 		d.text = text
 		d.revision++
 	}
+	d.cleared = false
 	d.rescan()
 	for _, e := range append([]*attachmentEntry(nil), d.entries...) {
 		if !e.commandOnly && len(e.spans) == 0 {
@@ -71,8 +76,13 @@ func (d *attachmentDraft) setText(text string) error {
 }
 
 // keepEntries makes every staged entry command-only, as /attach does, so it
-// stays staged when new text no longer mentions it.
+// stays staged when new text no longer mentions it, and marks the draft
+// cleared. It changes nothing while a submission is pending.
 func (d *attachmentDraft) keepEntries() {
+	if d.frozenBy != "" {
+		return
+	}
+	d.cleared = true
 	for _, e := range d.entries {
 		if !e.commandOnly {
 			e.commandOnly = true
@@ -257,6 +267,7 @@ func (d *attachmentDraft) clear() {
 	d.text = ""
 	d.entries = nil
 	d.frozenBy = ""
+	d.cleared = false
 	d.revision++
 	d.generation++
 	d.nextNumber = 0
