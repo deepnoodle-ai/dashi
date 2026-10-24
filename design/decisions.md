@@ -524,8 +524,9 @@ Decided. The delivery rule kept the record as the only proof, and so ignored
 showed. A model that read the result then got the notice too, often in a
 whole extra turn that cost money for nothing. Now a `task_status` call that
 returns a turn's final result says so in its outcome's structured `Data`
-(`{"delivered_turn_id": ...}`), and a recorded call with that field delivers
-the turn it names (`delegate.DeliveredNotices`). The read changes nothing
+(`{"delivered_notice_id": ...}`), and a recorded call with that field
+delivers the notice it names (`delegate.DeliveredNotices`). The field names
+a notice, not a turn, because a turn that stops again gets a new notice. The read changes nothing
 else: notices are produced and queued as before, and the record is checked
 just before one is delivered: on `Recover`, before a queue turn
 (`Session.Delivered`, which `NewTasks` sets), and in a host that holds

@@ -199,7 +199,7 @@ and says "A message from t_k3f2 follows" only when `Tasks` steered it into
 model call then holds it once. Otherwise (no `Config.Session`, a failed
 steer) the result holds the text, and its `Data` (`delivered_message_ids`)
 marks the message delivered, so a queue turn drops it. A `task` wait that
-returns the final result records `delivered_turn_id`, as `task_status`
+returns the final result records `delivered_notice_id`, as `task_status`
 does. A plain read still returns the reply.
 
 ## Sender tags and authority (track 1)
