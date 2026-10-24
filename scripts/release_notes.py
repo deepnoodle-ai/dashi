@@ -48,7 +48,7 @@ PREP_RE = re.compile(r"^chore\(release\): prepare v\d+\.\d+\.\d+\b")
 HIGHLIGHTS_PLACEHOLDER = """<!-- Replace this comment with the release story: what changed, who it
 affects, and what they need to do. Two to four short paragraphs. The
 mechanical detail lives in the sections below - do not restate it here.
-`make release-publish` refuses to publish while this comment remains. -->"""
+The release workflow refuses to publish while this comment remains. -->"""
 
 
 def git(*args: str) -> str:

@@ -1,4 +1,4 @@
-.PHONY: help test test-race cover cover-html fmt fmt-check vet build tidy tidy-all release-prep release-notes tag-modules release-publish release-notes-test check
+.PHONY: help test test-race cover cover-html fmt fmt-check vet build tidy tidy-all release-prep release-notes tag-modules release-notes-test check
 
 COVER_PROFILE := cover.out
 
@@ -30,7 +30,6 @@ help:
 	@echo "  make release-prep VERSION=v0.2.0 - Point sub-module requirements at VERSION"
 	@echo "  make release-notes VERSION=v0.2.0 - Draft docs/releases/v0.2.0.md"
 	@echo "  make tag-modules VERSION=v0.2.0 - Tag all sub-modules (not the root)"
-	@echo "  make release-publish VERSION=v0.2.0 - Create the GitHub release from the notes"
 	@echo "  make check       - Run script tests, fmt-check, vet, and test"
 
 test:
@@ -106,18 +105,6 @@ endif
 	done
 	@echo ""
 	@echo "Tags created. Push with: git push origin $(VERSION) $(addsuffix /$(VERSION),$(SUB_MODULES))"
-
-# --verify-tag so a mistyped version fails here rather than silently creating a
-# release against a tag gh invents from the default branch.
-release-publish:
-ifndef VERSION
-	$(error VERSION is required. Usage: make release-publish VERSION=v0.2.0)
-endif
-	@python3 scripts/release_notes.py $(VERSION) --check
-	gh release create $(VERSION) \
-		--title $(VERSION) \
-		--verify-tag \
-		--notes-file docs/releases/$(VERSION).md
 
 release-notes-test:
 	python3 -B -m unittest -v scripts.test_changelog_section scripts.test_release_notes scripts.test_sync_module_versions

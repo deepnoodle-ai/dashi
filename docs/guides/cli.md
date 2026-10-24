@@ -8,15 +8,15 @@ terminal dependencies. The design is in [design/cli.md](../../design/cli.md).
 ## Install and run
 
 ```sh
-go install github.com/deepnoodle-ai/dashi/cmd/dashi@latest
+brew install deepnoodle-ai/tap/dashi
 export OPENAI_API_KEY=...
 cd ~/your/repo
 dashi
 ```
 
-While the repository is private, `go install` needs
-`GOPRIVATE=github.com/deepnoodle-ai/*` and git access to it. From a checkout,
-`go install ./cmd/dashi` builds the working tree instead;
+Each release also attaches binaries for macOS, Linux, and Windows, and
+`go install github.com/deepnoodle-ai/dashi/cmd/dashi@latest` builds it with
+Go. From a checkout, `go install ./cmd/dashi` builds the working tree instead;
 the repository's `go.work` points it at the local library modules.
 
 The command line has three commands; `dashi --help` and `dashi COMMAND --help`

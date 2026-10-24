@@ -280,3 +280,14 @@ func TestSetControl(t *testing.T) {
 		}
 	}
 }
+
+// A release build sets version at link time, and --version prints it
+// without the tag's "v".
+func TestBuildVersionFromLinkTime(t *testing.T) {
+	saved := version
+	t.Cleanup(func() { version = saved })
+	version = "v1.2.3"
+	if got := buildVersion(); got != "1.2.3" {
+		t.Fatalf("buildVersion() = %q, want 1.2.3", got)
+	}
+}

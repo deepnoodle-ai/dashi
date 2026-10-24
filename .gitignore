@@ -42,3 +42,5 @@ profile.cov
 __pycache__/
 /dashi
 
+# GoReleaser output
+/dist/
