@@ -21,11 +21,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   body has, so a context overflow in an array or plain-text body now reports
   `ReasonContextWindowExceeded`. A call canceled before dispatch reports
   `SendStatusNotSent`. An error inside a stream Google accepted is no longer
-  `SendStatusProviderRejected`.
+  `SendStatusProviderRejected`. A call that fails before any response
+  arrives has no `Stop.Kind`.
 - **Gemini results invent no provenance.** An empty response has no
   `Message.Source`, and `Served` stays empty when Google names no model.
-- **Gemini rejects tool calls left unanswered by the next turn** at
-  `Prepare`, instead of sending a history Google rejects.
+- **Gemini rejects tool calls left unanswered before the next model turn**
+  at `Prepare`, instead of sending a history Google rejects.
 - **Vertex AI uses the right host for the `us` and `eu` multi-regions**, and
   sends the credential's quota project as `X-Goog-User-Project`.
 - **A missing API key keeps the result's facts.** Gemini, Grok, Meta,

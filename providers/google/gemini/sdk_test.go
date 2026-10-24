@@ -135,10 +135,12 @@ func TestSendCanceledBeforeDispatchIsNotSent(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err = p.Send(ctx, llm.Call{Request: prepared})
+	result, err := p.Send(ctx, llm.Call{Request: prepared})
 	failure, ok := errors.AsType[*llm.Error](err)
+	// No response arrived, so the result has no stop kind.
 	if !ok || failure.SendStatus != llm.SendStatusNotSent ||
-		!errors.Is(err, context.Canceled) || dispatched {
+		!errors.Is(err, context.Canceled) || dispatched ||
+		result.Stop.Kind != "" {
 		t.Fatalf("err = %#v", err)
 	}
 }

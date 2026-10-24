@@ -530,11 +530,15 @@ func (p *Client) Send(
 		Requested: llm.ModelRef{Provider: p.Provider(), Model: model},
 		Message:   llm.Message{Role: llm.RoleAssistant},
 	}
+	// guard is set once the SDK client exists; it records the response.
+	var guard *sdkGuard
 	defer func() {
 		// Warnings ride on every result, including partial ones, so a failed
 		// call still explains how its request differed from the input.
 		result.Warnings = prepared.Warnings()
-		if callErr != nil {
+		// A stop kind is evidence that a response arrived, so a call that
+		// failed before one did has none.
+		if callErr != nil && guard != nil && guard.response().status != 0 {
 			result.Stop.Kind = llm.StopIncomplete
 		}
 	}()
@@ -630,8 +634,9 @@ func (wire codec) encodeMessages(messages []llm.Message) ([]any, error) {
 		role := "user"
 		if message.Role == llm.RoleAssistant {
 			role = "model"
-			// Gemini requires every function call to be answered by the
-			// user turn that directly follows it.
+			// Gemini requires every function call to be answered before
+			// the next model turn. The answers may span several user
+			// messages: Dashi records one per tool result.
 			if len(callNames) != 0 {
 				return nil, wire.unsupported("history has unanswered function calls")
 			}
@@ -645,9 +650,6 @@ func (wire codec) encodeMessages(messages []llm.Message) ([]any, error) {
 			parts = append(parts, part)
 		}
 		contents = append(contents, map[string]any{"role": role, "parts": parts})
-		if message.Role == llm.RoleUser && len(callNames) != 0 {
-			return nil, wire.unsupported("history has unanswered function calls")
-		}
 	}
 	if len(callNames) != 0 {
 		return nil, wire.unsupported("history has unanswered function calls")

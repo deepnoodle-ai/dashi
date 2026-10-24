@@ -399,9 +399,9 @@ func TestVertexDefaultEndpointForLocation(t *testing.T) {
 	}
 }
 
-// Gemini needs each function call answered by the user turn that directly
-// follows it.
-func TestPrepareRejectsCallsNotAnsweredByNextTurn(t *testing.T) {
+// Gemini needs each function call answered before the next model turn. The
+// answers may span several user messages, as Dashi records one per result.
+func TestPrepareRejectsCallsUnansweredBeforeNextModelTurn(t *testing.T) {
 	call := llm.Content{
 		Kind:     llm.ContentToolCall,
 		ToolCall: &tool.Call{ID: "c1", Name: "search", Args: json.RawMessage(`{}`)},
@@ -413,25 +413,28 @@ func TestPrepareRejectsCallsNotAnsweredByNextTurn(t *testing.T) {
 	server := httptest.NewServer(http.NotFoundHandler())
 	defer server.Close()
 	p := newTestClient(t, server)
-	for name, messages := range map[string][]llm.Message{
-		"assistant turn between": {
-			llm.UserMessage(llm.Text("hi")),
-			llm.AssistantMessage(call),
-			llm.AssistantMessage(llm.Text("wait")),
-			llm.UserMessage(result),
-		},
-		"user turn between": {
-			llm.UserMessage(llm.Text("hi")),
-			llm.AssistantMessage(call),
-			llm.UserMessage(llm.Text("more")),
-			llm.UserMessage(result),
-		},
-	} {
-		input := sampleInput(false)
-		input.Messages = messages
-		_, err := p.Prepare(t.Context(), input)
-		if err == nil || !strings.Contains(err.Error(), "unanswered function calls") {
-			t.Fatalf("%s: err = %v", name, err)
-		}
+	input := sampleInput(false)
+	input.Messages = []llm.Message{
+		llm.UserMessage(llm.Text("hi")),
+		llm.AssistantMessage(call),
+		llm.AssistantMessage(llm.Text("wait")),
+		llm.UserMessage(result),
+	}
+	_, err := p.Prepare(t.Context(), input)
+	if err == nil || !strings.Contains(err.Error(), "unanswered function calls") {
+		t.Fatalf("model turn before the answer: err = %v", err)
+	}
+	second := call
+	second.ToolCall = &tool.Call{ID: "c2", Name: "search", Args: json.RawMessage(`{}`)}
+	secondResult := result
+	secondResult.ToolResult = &llm.ToolResult{CallID: "c2"}
+	input.Messages = []llm.Message{
+		llm.UserMessage(llm.Text("hi")),
+		llm.AssistantMessage(call, second),
+		llm.UserMessage(result),
+		llm.UserMessage(secondResult),
+	}
+	if _, err := p.Prepare(t.Context(), input); err != nil {
+		t.Fatalf("answers in separate user messages: %v", err)
 	}
 }
