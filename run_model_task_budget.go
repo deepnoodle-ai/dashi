@@ -24,8 +24,8 @@ func callTaskBudget(t Turn, budget *llm.TaskBudget, memo map[int64]int) (*llm.Ta
 }
 
 // turnTaskBudget returns the task budget for an ordinary model call of t:
-// a copy of the agent's budget, with Remaining set once active compaction has
-// replaced messages of t.
+// a copy of the agent's budget, with Remaining set once t records any
+// context_compacted step, even one whose replaced messages counted no tokens.
 //
 // While every call sends the Turn's full history, the provider derives the
 // Turn's spend from that history, so the budget goes as the agent set it.
