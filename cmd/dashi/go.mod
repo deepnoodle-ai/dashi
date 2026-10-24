@@ -4,9 +4,9 @@ go 1.27
 
 require (
 	github.com/alecthomas/chroma/v2 v2.27.0
-	github.com/deepnoodle-ai/dashi v0.12.2
-	github.com/deepnoodle-ai/dashi/mcp v0.12.2
-	github.com/deepnoodle-ai/dashi/providers/google/gemini v0.12.2
+	github.com/deepnoodle-ai/dashi v0.13.0
+	github.com/deepnoodle-ai/dashi/mcp v0.13.0
+	github.com/deepnoodle-ai/dashi/providers/google/gemini v0.13.0
 	github.com/deepnoodle-ai/decide v0.4.0
 	github.com/deepnoodle-ai/wonton v0.9.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
