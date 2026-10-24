@@ -59,7 +59,8 @@ func Convert(copies []sessionfile.Copy, agentID string) (sessionfile.Transcript,
 
 // forkContext adds the parent's conversation that a fork by reference
 // starts with. The parent is looked up in every other copy, so a parent
-// without a start time is found too.
+// without a start time is found too. When several copies of the agent
+// fork, a parent line is added only the first time.
 func (cv *converter) forkContext(cls []*copyLines, idx int) {
 	for _, l := range cls[idx].Lines {
 		if l.Type == "fork-context-ref" && l.ParentLastUUID != "" {
@@ -71,9 +72,15 @@ func (cv *converter) forkContext(cls []*copyLines, idx int) {
 					// Lines written after the fork point were not in its context.
 					path := finalPath(p, last)
 					for x := range path {
-						if x.N > last.N {
+						if x.N > last.N || cv.forked[x] {
 							delete(path, x)
 						}
+					}
+					if cv.forked == nil {
+						cv.forked = map[*line]bool{}
+					}
+					for x := range path {
+						cv.forked[x] = true
 					}
 					cv.convert(p, path, nil, true)
 					break
@@ -89,6 +96,8 @@ type converter struct {
 	changed sessionfile.Counts
 	// counted holds model calls whose usage an earlier copy has.
 	counted map[string]bool
+	// forked holds the parent lines already added as fork context.
+	forked map[*line]bool
 }
 
 func (cv *converter) add(m llm.Message, ref sessionfile.LineRef) {

@@ -444,6 +444,7 @@ func TestInterruptedSupersedeRecovers(t *testing.T) {
 	e.copy()
 	e.claude("paste-cache/p1.txt", "pasteX", baseTime.Add(time.Minute))
 	renameIntoPlace = func(string, string) error { return os.ErrPermission }
+	t.Cleanup(func() { renameIntoPlace = os.Rename })
 	sum := e.copy()
 	renameIntoPlace = os.Rename
 	if len(sum.Warnings) != 1 {
