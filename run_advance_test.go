@@ -154,13 +154,12 @@ func TestAdvanceRefusesCommandsAfterTheTurnEnded(t *testing.T) {
 	if err != nil || out.LastSeq != done.LastSeq {
 		t.Fatalf("seq %d -> %d err=%v", done.LastSeq, out.LastSeq, err)
 	}
-	for _, id := range []string{"result:x", "s1"} {
-		if !errors.Is(inbox.reason(id), ErrTurnEnded) {
-			t.Fatalf("%s refused with %v", id, inbox.reason(id))
-		}
-		if inbox.Has(id) {
-			t.Fatalf("%s was not acknowledged", id)
-		}
+	if !errors.Is(inbox.reason("result:x"), ErrTurnEnded) || inbox.Has("result:x") {
+		t.Fatalf("result:x refused with %v", inbox.reason("result:x"))
+	}
+	// A steer is not refused: it stays for the next turn.
+	if inbox.reason("s1") != nil || !inbox.Has("s1") || !inbox.Withdraw("s1") {
+		t.Fatalf("s1 refused with %v", inbox.reason("s1"))
 	}
 }
 
@@ -831,5 +830,62 @@ func TestInboxCancelAfterTheOutputIsRefused(t *testing.T) {
 	}
 	if n := len(warningsOf(out.Turn, WarningInbox)); n != 1 {
 		t.Fatalf("inbox warnings = %d", n)
+	}
+}
+
+// steeringClient sends a steer to its inbox during each model call.
+type steeringClient struct {
+	scriptedClient
+	inbox *MemoryInbox
+}
+
+func (c *steeringClient) Send(ctx context.Context, call llm.Call) (llm.Result, error) {
+	if _, err := c.inbox.SendText("one more thing"); err != nil {
+		return llm.Result{}, err
+	}
+	return c.scriptedClient.Send(ctx, call)
+}
+
+// A steer sent during the turn's last model call is not refused when the
+// turn ends: it stays for the next turn.
+func TestAdvanceKeepsALateSteerForTheNextTurn(t *testing.T) {
+	inbox := NewMemoryInbox()
+	client := &steeringClient{scriptedClient: scriptedClient{results: []llm.Result{final("done")}}, inbox: inbox}
+	agent := testAgent()
+	agent.Limits.ModelCalls = 1
+	agent.Limits.NoReservedFinalReply = true
+	runner := Runner{Client: client, Recorder: NewMemoryRecorder(), Inbox: inbox}
+	if _, err := runner.Record(t.Context(), Turn{ID: "t1"}, startAgent(agent)); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runner.Advance(t.Context(), "t1")
+	if err != nil || !out.Stop.Ended {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	left, err := inbox.Leftovers(out.Turn)
+	if err != nil || len(left) != 1 || left[0].Item.Message.Text() != "one more thing" {
+		t.Fatalf("leftovers=%+v err=%v", left, err)
+	}
+}
+
+// A Continue from the inbox records this call's own stop: Advance does not
+// run a second Continue from it.
+func TestAdvanceDoesNotContinueFromAnInboxContinuesStop(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("unneeded")}}
+	inbox := NewMemoryInbox()
+	runner := Runner{Client: client, Recorder: NewMemoryRecorder(), Inbox: inbox}
+	id := savedTurn(t, runner)
+	pause := make(chan struct{})
+	close(pause)
+	if _, err := runner.Advance(t.Context(), id, WithPause(pause)); err != nil {
+		t.Fatal(err)
+	}
+	mustPut(t, inbox, id, Continue{CommandID: "go"})
+	out, err := runner.Advance(t.Context(), id, WithPause(pause))
+	if err != nil || out.Next() != NextContinue {
+		t.Fatalf("stop=%+v next=%s err=%v", out.Stop, out.Next(), err)
+	}
+	if n := len(stepsOf(out.Turn, StepTurnContinued)); n != 2 || client.sends != 0 {
+		t.Fatalf("continues=%d sends=%d", n, client.sends)
 	}
 }

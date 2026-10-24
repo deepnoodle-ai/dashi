@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -127,6 +128,45 @@ func TestHideWarnsOnceAboutNamesItCannotApply(t *testing.T) {
 	}
 	if got := toolNames(client.inputs[0].Tools); !slices.Contains(got, SubmitOutputTool) {
 		t.Fatalf("offered %v", got)
+	}
+}
+
+// A BeforeModel hook whose tool choice takes away the submission tool on a
+// structured-output turn is skipped with a warning, not fatal to the turn.
+func TestBeforeModelToolChoiceAgainstOutputSchemaSkipsTheHook(t *testing.T) {
+	none := ModelHook{Name: "none", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		return ModelDecision{Settings: &llm.Settings{ToolChoice: &llm.ToolChoice{Mode: llm.ToolChoiceNone}}}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{submitResult("out-1", `{"answer":1}`)}}
+	_, out, err := runStructured(t, structuredAgent(), client, none.Hooks())
+	if err != nil || out.Stop.Kind != StopCompleted || countWarnings(out, WarningHookFailed) != 1 {
+		t.Fatalf("stop=%+v warnings=%+v err=%v", out.Stop, out.Warnings, err)
+	}
+	if client.inputs[0].Settings.ToolChoice != nil {
+		t.Fatalf("tool choice = %+v", client.inputs[0].Settings.ToolChoice)
+	}
+}
+
+// On the reserved final-reply call, which offers no application tools, a
+// hook's named tool choice is cleared, not a reason to skip the hook.
+func TestBeforeModelToolChoiceOnFinalReplyKeepsTheHook(t *testing.T) {
+	hook := ModelHook{Name: "pick", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		return ModelDecision{
+			Settings:    &llm.Settings{ToolChoice: &llm.ToolChoice{Mode: llm.ToolChoiceTool, Name: "read"}},
+			AddMessages: []ContextItem{{Origin: ContextRuntime, Message: llm.UserMessage(llm.Text("note"))}},
+		}, nil
+	}}
+	agent := testAgent()
+	agent.Limits.ModelCalls = 2
+	client := &scriptedClient{results: []llm.Result{callResult("c1", "read"), final("done")}}
+	out := runAgent(t, agent, client, tool.List{namedTool("read", nil)}, hook.Hooks())
+	// The reserved final reply stops the turn at the model-call limit.
+	if out.Reply != "done" || countWarnings(out, WarningHookFailed) != 0 {
+		t.Fatalf("stop=%+v reply=%q warnings=%+v", out.Stop, out.Reply, out.Warnings)
+	}
+	last := client.inputs[len(client.inputs)-1]
+	if last.Settings.ToolChoice != nil || last.Messages[len(last.Messages)-1].Text() != "note" {
+		t.Fatalf("final reply input = %+v", last)
 	}
 }
 
@@ -526,6 +566,29 @@ func TestModelStopRecordsItsReasonUnlessTheDecisionHasOne(t *testing.T) {
 			got[0].Reason != tc.want || got[0].RulesVersion != "rules-2" {
 			t.Fatalf("reason %q: hook results = %+v", tc.reason, got)
 		}
+	}
+}
+
+// A BeforeModel hook that adds an item with a fixed ID on every call
+// records it once. A different item with that ID is dropped with a warning.
+func TestBeforeModelRepeatedItemIDRecordsOnce(t *testing.T) {
+	calls := 0
+	hook := ModelHook{Name: "note", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		calls++
+		return ModelDecision{AddMessages: []ContextItem{
+			{ID: "fixed-id", Origin: ContextRuntime, Message: llm.UserMessage(llm.Text("note " + strconv.Itoa(min(calls, 2))))},
+			{ID: "same-call", Origin: ContextRuntime, Message: llm.UserMessage(llm.Text("a"))},
+			{ID: "same-call", Origin: ContextRuntime, Message: llm.UserMessage(llm.Text("b"))},
+		}}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{callResult("c1", "read"), final("done")}}
+	tools := tool.List{namedTool("read", nil)}
+	out := runAgent(t, testAgent(), client, tools, hook.Hooks())
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v", out.Stop)
+	}
+	if _, err := out.Turn.View(); err != nil {
+		t.Fatal(err)
 	}
 }
 

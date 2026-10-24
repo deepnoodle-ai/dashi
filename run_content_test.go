@@ -961,3 +961,45 @@ func TestRefAggregateSizeOverflowStopsBeforeResolve(t *testing.T) {
 		t.Fatalf("stop = %+v, calls = %d", out.Stop, resolver.count())
 	}
 }
+
+// failOnceLoader fails its fail-th Load and serves files otherwise.
+type failOnceLoader struct {
+	files map[string][]byte
+	calls int
+	fail  int
+}
+
+func (l *failOnceLoader) Load(_ context.Context, _ string, ref content.Ref) ([]byte, error) {
+	l.calls++
+	if l.calls == l.fail {
+		return nil, errors.New("storage blip")
+	}
+	return l.files[ref.ID], nil
+}
+
+// A failed load while active compaction estimates a request records no
+// stop. Only a load for a request the runner sends stops the turn, and that
+// stop is the turn's last step.
+func TestActiveCompactionEstimateLoadFailureRecordsNoStop(t *testing.T) {
+	data := []byte(strings.Repeat("r", 100))
+	ref := refFor("evidence", data)
+	for fail := 1; fail <= 12; fail++ {
+		c, a := activeFixture()
+		start := activeStart(a)
+		start.Input[0].Content = append(start.Input[0].Content, llm.Document(content.Source{Ref: &ref, MIMEType: "text/plain"}, "evidence.txt"))
+		calls := 0
+		loader := &failOnceLoader{files: map[string][]byte{"evidence": data}, fail: fail}
+		out, err := (Runner{Client: c, Tools: activeTools(&calls), ContentLoader: loader}).Run(t.Context(), Turn{ID: "t"}, start)
+		if err != nil {
+			t.Fatalf("fail=%d: %v", fail, err)
+		}
+		for i, step := range out.Turn.Steps {
+			if step.Kind == StepTurnStopped && i != len(out.Turn.Steps)-1 {
+				t.Fatalf("fail=%d: stop at step %d of %d: %+v", fail, i+1, len(out.Turn.Steps), step.Stop)
+			}
+		}
+		if _, err := out.Turn.View(); err != nil {
+			t.Fatalf("fail=%d: %v", fail, err)
+		}
+	}
+}

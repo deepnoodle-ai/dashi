@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -824,4 +825,12 @@ func startedLocalToolTurn(
 		Tool: &ToolFact{Call: call, Definition: toolDef},
 	})
 	return turn
+}
+
+// boundedOutputError cuts a long message at a rune boundary.
+func TestBoundedOutputErrorKeepsValidUTF8(t *testing.T) {
+	got := boundedOutputError(errors.New(strings.Repeat("a", 399) + "\u00e9 and more"))
+	if !utf8.ValidString(got) || got != strings.Repeat("a", 399) {
+		t.Fatalf("got %q", got)
+	}
 }

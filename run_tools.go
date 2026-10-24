@@ -668,7 +668,7 @@ func addedSinceCandidate(t Turn, modelCallID string) []ContextItem {
 func boundedOutputError(err error) string {
 	message := strings.ReplaceAll(err.Error(), "\n", " ")
 	if len(message) > 400 {
-		message = message[:400]
+		message = strings.ToValidUTF8(message[:400], "") // drop a cut rune
 	}
 	return message
 }

@@ -243,7 +243,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		// The budget check before sending still uses the unchanged,
 		// cautious worst-case estimate.
 	} else if purpose == "" {
-		if o, again, handled := r.guardActiveContext(s, input, req); handled {
+		if o, again, handled := r.guardActiveContext(s, input, req, mark); handled {
 			return o, again
 		}
 	} else if llm.InputTokenUpperBound(req) > max(0, s.ActiveCompactionWindow-req.Snapshot().Effective.MaxTokens) {

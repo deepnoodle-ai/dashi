@@ -59,8 +59,23 @@ type ContentLimits struct {
 // unchanged. A non-nil stop ends the turn as failed: the runner never drops a
 // reference or sends the request without it.
 func (r *runtime) hydrate(input llm.Input) (llm.Input, *RunResult) {
+	out, reason, id := r.hydrateRefs(input)
+	if reason == "" {
+		return out, nil
+	}
+	if r.ctx.Err() != nil {
+		o := r.contextStop()
+		return input, &o
+	}
+	return input, r.refStop(id, reason)
+}
+
+// hydrateRefs is hydrate without the stop. It records nothing, so a size
+// estimate can use it. On failure it returns the StopReasonContent... code
+// and the reference's ID.
+func (r *runtime) hydrateRefs(input llm.Input) (llm.Input, string, string) {
 	if !input.HasRef() {
-		return input, nil
+		return input, "", ""
 	}
 	messages := llmclone.Messages(input.Messages)
 	var sources []*content.Source
@@ -74,22 +89,18 @@ func (r *runtime) hydrate(input llm.Input) (llm.Input, *RunResult) {
 		}
 	}
 	if reason, id := r.checkRefSizes(sources); reason != "" {
-		return input, r.refStop(id, reason)
+		return input, reason, id
 	}
 	for _, s := range sources {
 		data, reason := r.resolveRef(*s.Ref)
 		if reason != "" {
-			if r.ctx.Err() != nil {
-				o := r.contextStop()
-				return input, &o
-			}
-			return input, r.refStop(s.Ref.ID, reason)
+			return input, reason, s.Ref.ID
 		}
 		s.Data = data
 		s.Ref = nil
 	}
 	input.Messages = messages
-	return input, nil
+	return input, "", ""
 }
 
 // checkRefSizes compares declared sizes with the limits. It needs no I/O and

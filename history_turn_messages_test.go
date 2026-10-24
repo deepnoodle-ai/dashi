@@ -488,6 +488,40 @@ func TestCanceledTurnDropsPendingModelCall(t *testing.T) {
 	}
 }
 
+// A worker that stopped right after a provider pause with an unfinished
+// provider tool call gets no restart reminder on resume: the request must
+// end with the paused result so the provider can finish the call.
+func TestCrashResumeAfterProviderPauseHasNoReminder(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{pausedMidSearch(), searchFinished("done")}}
+	agent := testAgent()
+	agent.Limits.ProviderPauses = 3
+	first, err := (Runner{Client: client}).Run(t.Context(), Turn{ID: "t1"}, startAgent(agent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep the record up to the paused result, as a crash right after it
+	// would leave it.
+	crashed := first.Turn
+	for i, step := range crashed.Steps {
+		if step.Kind == StepModelCallFinished {
+			crashed.Steps = crashed.Steps[:i+1]
+			break
+		}
+	}
+	client = &scriptedClient{results: []llm.Result{searchFinished("done")}}
+	out, err := (Runner{Client: client}).Run(t.Context(), crashed, Continue{CommandID: "resume"})
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("resume=%+v err=%v", out.Stop, err)
+	}
+	sent := client.inputs[0].Messages
+	if n := countReminders(sent); n != 0 {
+		t.Fatalf("resume saw %d restart reminders", n)
+	}
+	if last := sent[len(sent)-1]; last.Role != llm.RoleAssistant {
+		t.Fatalf("request ends with %s, not the paused result", last.Role)
+	}
+}
+
 // Continue on a turn with no recorded stop tells the next model call that
 // the worker stopped mid-turn; the call after it no longer sees that.
 func TestCrashResumeCarriesReminder(t *testing.T) {

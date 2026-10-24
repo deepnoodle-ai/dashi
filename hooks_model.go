@@ -50,6 +50,12 @@ func (r *runtime) beforeModel(
 			if d.Settings != nil {
 				candidate.Settings = *d.Settings
 				warnings = keepTaskBudgetRemaining(input.Settings.TaskBudget, &candidate.Settings, h.Name)
+				if purpose == ModelPurposeCompaction || finalReplyOnly {
+					// The call offers no application tools and clears the
+					// tool choice anyway, so a hook's choice cannot fail it.
+					candidate.Settings.ToolChoice = nil
+					candidate.Settings.ParallelTools = nil
+				}
 			}
 			if !finalReplyOnly {
 				candidateHidden = hideTools(
@@ -62,6 +68,11 @@ func (r *runtime) beforeModel(
 				warnings = append(warnings, keepToolChoiceOffered(&candidate, h.Name, candidateHidden)...)
 			}
 			err = validModelDecision(d, candidate)
+			if err == nil && d.Settings != nil && purpose == "" && len(s.OutputSchema) > 0 {
+				// A choice that takes away the submission tool would fail
+				// the turn; it skips the hook instead.
+				err = validateOutputToolChoice(candidate.Settings)
+			}
 		}
 		if err != nil {
 			if r.ctx.Err() != nil {

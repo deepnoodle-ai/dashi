@@ -86,8 +86,11 @@ var errReservedID = errors.New(
 // a raise on a turn not stopped at a limit, never fails the turn: it is
 // recorded as a WarningInbox, reported to an InboxRefuser, and
 // acknowledged. Once the turn has ended, every waiting command except a
-// late model result is refused with ErrTurnEnded, records nothing, and is
-// acknowledged. A failing inbox is warned about once per call.
+// late model result or a steer is refused with ErrTurnEnded, records
+// nothing, and is acknowledged. A steer the turn did not record stays in
+// the inbox for the next turn (see MemoryInbox.Leftovers). When Advance
+// returns, an InboxReleaser gets back the steers no run recorded. A
+// failing inbox is warned about once per call.
 //
 // Advance leaves the turn at a stop step whenever it returns nil. The
 // errors are those of Run, plus the Loader's; ErrStaleTurn means another
@@ -166,8 +169,11 @@ type advancer struct {
 	// or acknowledged, so an inbox that fails to acknowledge cannot loop it.
 	handled map[string]bool
 	// steers lists the IDs of the waiting steers the record does not hold,
-	// as of the last inbox read; the next run takes them.
+	// as of the last inbox read; the next run takes them. The inbox's
+	// claim on those no run took is released when the call returns.
 	steers []string
+	// inboxContinued records that the last inbox read ran a Continue.
+	inboxContinued bool
 	// tried lists the steers a Continue already ran for, so a steer the
 	// turn cannot take does not run it again.
 	tried map[string]bool
@@ -218,8 +224,44 @@ func (r Runner) newAdvancer(turnID string, o runOptions) (*advancer, error) {
 	}, nil
 }
 
-// advance runs passes until the turn must wait or has ended.
+// advance runs passes until the turn must wait or has ended, then releases
+// the inbox's claim on the steers no run recorded, so Withdraw and other
+// turns can take them again.
 func (a *advancer) advance(ctx context.Context) (RunResult, error) {
+	out, err := a.passes(ctx)
+	a.releaseSteers(ctx, out.Turn)
+	return out, err
+}
+
+// releaseSteers releases the steers of the last inbox read that turn does
+// not record. Without a loaded turn it keeps the claims: a steer that might
+// be recorded must not go to another turn.
+func (a *advancer) releaseSteers(ctx context.Context, turn Turn) {
+	releaser, ok := a.inbox.(InboxReleaser)
+	if !ok || len(a.steers) == 0 || len(turn.Steps) == 0 {
+		return
+	}
+	state, err := replay(turn)
+	if err != nil {
+		return
+	}
+	var unrecorded []string
+	for _, id := range a.steers {
+		if _, recorded := state.contextIDs[id]; !recorded {
+			unrecorded = append(unrecorded, id)
+		}
+	}
+	a.steers = nil
+	if len(unrecorded) == 0 {
+		return
+	}
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), inboxTimeout)
+	defer cancel()
+	releaser.Release(rctx, a.turnID, unrecorded, nil)
+}
+
+// passes runs passes until the turn must wait or has ended.
+func (a *advancer) passes(ctx context.Context) (RunResult, error) {
 	// ownStop is the Seq of the last stop this call recorded. A hold it
 	// recorded itself is not asked about again without new input.
 	var ownStop int64
@@ -239,6 +281,15 @@ func (a *advancer) advance(ctx context.Context) (RunResult, error) {
 		if err != nil {
 			return unchangedResult(turn), err
 		}
+		// fresh is input no Continue has run for. An inbox Continue ran
+		// for everything before it, and its stop is this call's own.
+		fresh := applied
+		if a.inboxContinued {
+			fresh = false
+			if last := lastStep(turn); last.Kind == StepTurnStopped {
+				a.selfStop, ownStop = last.Seq, last.Seq
+			}
+		}
 		if view.Stop.Ended {
 			if applied {
 				continue // refuse what arrived meanwhile
@@ -248,8 +299,8 @@ func (a *advancer) advance(ctx context.Context) (RunResult, error) {
 		if d := view.Agent.Limits.Deadline; !d.IsZero() && !time.Now().Before(d) {
 			return a.recordStop(ctx, turn, nil)
 		}
-		run := a.shouldContinue(view, turn, applied)
-		if !run && heldStop(view) && (view.LastSeq != ownStop || applied) {
+		run := a.shouldContinue(view, turn, fresh)
+		if !run && heldStop(view) && (view.LastSeq != ownStop || fresh) {
 			// A hold lifts when BeforeSend allows the call again: ask.
 			if run, err = a.askSend(ctx, turn, view); err != nil {
 				return unchangedResult(turn), err
@@ -362,6 +413,7 @@ func (a *advancer) run(
 // cause, such as a failed write or another worker's lease, stops it.
 func (a *advancer) applyInbox(ctx context.Context, turn Turn) (Turn, bool, error) {
 	a.steers = nil
+	a.inboxContinued = false
 	if a.inbox == nil {
 		return turn, false, nil
 	}
@@ -401,13 +453,12 @@ func (a *advancer) applyInbox(ctx context.Context, turn Turn) (Turn, bool, error
 		}
 		if _, ok := c.(Steer); ok {
 			_, recorded := state.contextIDs[id]
-			switch {
-			case recorded:
+			if recorded {
 				a.acknowledge(ctx, id, state)
-			case state.Stop.Ended:
-				a.refuse(ctx, id, state, state.acceptsAfterEnd(c))
-				applied = true
-			default:
+			} else {
+				// A steer the turn has not recorded stays in the inbox,
+				// even once the turn has ended: it may be meant for the
+				// next turn, which takes it from the inbox's leftovers.
 				a.steers = append(a.steers, id)
 			}
 			continue
@@ -435,6 +486,10 @@ func (a *advancer) applyInbox(ctx context.Context, turn Turn) (Turn, bool, error
 		if _, ran := c.(Continue); ran {
 			// The run took steers and may have seen newer commands:
 			// fetch again.
+			for _, id := range a.steers {
+				a.tried[id] = true
+			}
+			a.inboxContinued = true
 			return turn, true, nil
 		}
 	}

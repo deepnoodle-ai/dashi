@@ -8,6 +8,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Advance and Drive keep steers the turn did not record.** A steer that
+  arrives as the turn ends is no longer refused and deleted; it stays in the
+  inbox for the next turn (`MemoryInbox.Leftovers`). When Advance returns,
+  an `InboxReleaser` gets back the steers no run took, so `Withdraw` works
+  on them again.
+- **A Continue from the inbox counts as Advance's own run.** Advance no
+  longer runs a second Continue, or retries a hold, right after it.
+- **Active compaction's size estimate never records a stop.** A content
+  reference that fails to load during the estimate no longer writes
+  `StepTurnStopped` mid-turn or breaks the turn record.
+- **A crash right after a provider pause resumes cleanly.** The restart
+  reminder is left out while a provider tool call is unfinished, so the
+  request still ends with the paused result.
+- **BeforeModel hook settings are checked against the call they apply
+  to.** A tool choice that takes away the structured-output submission
+  tool skips the hook with `WarningHookFailed` instead of failing the turn.
+  A named tool choice on a summary or reserved final-reply call is cleared,
+  as the runner clears it, instead of failing the hook.
+- `feed.Follow` waits for the record's own `StepWaiter.Wait` before it
+  returns. A summary call's start no longer carries BeforeModel results
+  from the ordinary call it replaced. A long tool argument error is cut at
+  a rune boundary.
 - **Resolve refuses a model result the turn would reject before saving it,**
   at any stop, not only at an open limited stop. A partly streamed call
   resolved as a failure, or a result that repeats a tool call ID, no longer
