@@ -153,20 +153,24 @@ func checkLineView(line string, warn bool) tui.View {
 // run"; a command decide flagged or held offers allow once and deny only.
 // Each key letter is in the accent, so the choices need no brackets.
 func approvalChoices(remember bool, width int) tui.View {
-	key := func(k, label string) []tui.View {
-		return []tui.View{tui.Text("%s", k).Style(accentStyle).Bold(), tui.Text(" %s", label)}
-	}
-	choices := [][]tui.View{key("y", "Allow once")}
+	keys := []string{"y"}
+	labels := []string{"Allow once"}
 	if remember {
-		choices = append(choices, key("a", "Allow for this Dashi run"))
+		keys, labels = append(keys, "a"), append(labels, "Allow for this Dashi run")
 	}
-	choices = append(choices, key("n", "Deny"))
+	keys, labels = append(keys, "n"), append(labels, "Deny")
+	key := func(k string) tui.View { return tui.Text("%s ", k).Style(accentStyle).Bold() }
 	if width > 0 && width < 72 {
-		rows := make([]tui.View, 0, len(choices))
-		for _, c := range choices {
-			rows = append(rows, tui.Group(append([]tui.View{tui.Text("  ")}, c...)...))
+		// One choice a row; the label wraps on a very narrow terminal.
+		rows := make([]tui.View, 0, len(keys))
+		for i, k := range keys {
+			rows = append(rows, tui.Group(tui.Text("  "), key(k), tui.Text("%s", labels[i]).Wrap().Flex(1)))
 		}
 		return tui.Stack(rows...).Gap(0)
+	}
+	choices := make([][]tui.View, len(keys))
+	for i, k := range keys {
+		choices[i] = []tui.View{key(k), tui.Text("%s", labels[i])}
 	}
 	views := []tui.View{tui.Text("  ")}
 	for i, c := range choices {
