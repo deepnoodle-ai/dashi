@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-10-24
+
 ### Added
 
 - **Install the CLI with Homebrew:** `brew install deepnoodle-ai/tap/dashi`.
