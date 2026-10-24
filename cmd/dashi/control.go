@@ -883,16 +883,28 @@ func (c *Controller) notice(format string, args ...any) {
 }
 
 func (c *Controller) newSession(ctx context.Context) {
-	s, err := c.store.Create(c.dir, c.eng.Model())
+	model := c.eng.Model()
+	var restored *launchPreferences
+	if p := c.eng.cfg.Preferences; p != nil {
+		// A new session has no saved preferences, so a reopened session's
+		// preferences do not carry over.
+		candidate, err := p.selectedSessionPreferences(preferenceFile{})
+		if err != nil {
+			c.emit(warnBlock("Session preferences cannot be selected: %v.", err))
+			return
+		}
+		restored, model = &candidate, candidate.Selection.Model
+	}
+	s, err := c.store.Create(c.dir, model)
 	if err != nil {
 		c.emit(warnBlock("A new session was not created: %v.", err))
 		return
 	}
-	if err := c.eng.Open(s); err != nil {
+	if err := c.switchSession(s, restored); err != nil {
 		c.emit(warnBlock("%v.", err))
 		return
 	}
-	c.ui.Reset()
+	c.setLive()
 	c.notice("New session %s.", s.ID)
 }
 
@@ -940,14 +952,29 @@ func (c *Controller) openSession(id string) {
 		}
 		restored = &candidate
 	}
-	if err := c.eng.Open(s); err != nil {
+	if err := c.switchSession(s, restored); err != nil {
 		c.emit(warnBlock("%v.", err))
 		return
 	}
+	if s.Model != "" && c.eng.cfg.Preferences == nil {
+		c.eng.SetModel(s.Model)
+	}
+	c.Open()
+	c.setLive()
+}
+
+// switchSession opens s with the next-turn preferences it selects, or keeps
+// the current ones when restored is nil. The preferences apply before the
+// engine configures s, and the transcript resets first, so warnings from
+// opening s stay on screen. When s cannot open, the previous preferences
+// and the open session's transcript come back.
+func (c *Controller) switchSession(s *sessionstore.Session, restored *launchPreferences) error {
+	p := c.eng.cfg.Preferences
+	var previous launchPreferences
+	previousModel := c.eng.Model()
 	if restored != nil {
-		p := c.eng.cfg.Preferences
 		p.mu.Lock()
-		p.launch = *restored
+		previous, p.launch = p.launch, *restored
 		p.mu.Unlock()
 		// Opening a session changes the displayed next-turn model without writing
 		// user settings or rewriting the selected session's saved defaults.
@@ -955,11 +982,29 @@ func (c *Controller) openSession(id string) {
 		c.eng.model = restored.Selection.Model
 		c.eng.mu.Unlock()
 	}
-	if s.Model != "" && c.eng.cfg.Preferences == nil {
-		c.eng.SetModel(s.Model)
-	}
 	c.ui.Reset()
-	c.Open()
+	if err := c.eng.Open(s); err != nil {
+		if restored != nil {
+			p.mu.Lock()
+			p.launch = previous
+			p.mu.Unlock()
+			c.eng.mu.Lock()
+			c.eng.model = previousModel
+			c.eng.mu.Unlock()
+		}
+		c.Open()
+		c.setLive()
+		return err
+	}
+	return nil
+}
+
+// setLive tells a line UI that the scrollback has ended, so it does not
+// print the person's own prompts a second time.
+func (c *Controller) setLive() {
+	if u, ok := c.ui.(interface{ SetLive() }); ok {
+		u.SetLive()
+	}
 }
 
 // choose asks the UI to pick from options. A UI without a picker gets a

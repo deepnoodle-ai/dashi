@@ -179,8 +179,10 @@ full screen, `--inline`, and `--plain`. `dashi run` takes neither.
   `-c` or `-r`.
 - `--turn-events PATH` appends one JSON line to `PATH` (mode 0600) for each
   event. dashi sets an existing file to mode 0600 and refuses a symlink or a
-  file that is not a regular file. The lines use the field names of Claude
-  Code hook inputs, so a reader of those hooks reads dashi too:
+  file that is not a regular file. Redirected input without `--plain` makes
+  one request, so dashi refuses the flag there; add `--plain`. The lines
+  use the field names of Claude Code hook inputs, so a reader of those hooks
+  reads dashi too:
 
 | `hook_event_name` | When | Other fields |
 |---|---|---|

@@ -161,3 +161,39 @@ func TestInteractiveModelRetainsAllOverriddenSelectionSources(t *testing.T) {
 		}
 	}
 }
+
+// Each session switch lists the tiers of the selected session under a
+// session change, not those of every session opened before it.
+func TestSessionChangeOverriddenSourcesDoNotGrow(t *testing.T) {
+	e, p := routedTestEngine(t, func(string) (int, string) { t.Fatal("session switch dispatched"); return 0, "" })
+	var ids []string
+	for range 2 {
+		s, err := e.cfg.Store.Create(e.cfg.Dir, "same/model")
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.NextTurn = json.RawMessage(`{"provider":"two","model":"same/model","temperature":0.25}`)
+		if err = e.cfg.Store.Save(s); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, s.ID)
+	}
+	ctrl := NewController(t.Context(), e, newRecorderUI(), e.cfg.Store, e.cfg.Dir)
+	ctrl.destinationModel(t.Context(), "one same/model", p)
+	ctrl.generationControl(t.Context(), "/temperature", "0.75")
+	ctrl.openSession(ids[0])
+	selection := len(p.launch.Selection.Overridden)
+	temperature := len(p.launch.Controls.Sources["temperature"].Overridden)
+	for _, id := range []string{ids[1], ids[0], ids[1]} {
+		ctrl.openSession(id)
+	}
+	if e.Session().ID != ids[1] || p.launch.Selection.Source != "session change" {
+		t.Fatalf("session=%s selection=%+v", e.Session().ID, p.launch.Selection)
+	}
+	if got := len(p.launch.Selection.Overridden); got != selection {
+		t.Fatalf("selection overridden grew from %d to %d", selection, got)
+	}
+	if got := len(p.launch.Controls.Sources["temperature"].Overridden); got != temperature {
+		t.Fatalf("temperature overridden grew from %d to %d", temperature, got)
+	}
+}

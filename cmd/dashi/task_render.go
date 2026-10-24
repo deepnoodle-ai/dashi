@@ -405,8 +405,11 @@ func (c *Controller) endDialog() {
 	}
 	c.scheduleTaskNotices()
 }
-func (c *Controller) presentTaskPrompt(p brokerPrompt) {
+func (c *Controller) presentTaskPrompt(p brokerPrompt) <-chan struct{} {
+	done := make(chan struct{})
 	c.goWork(func() {
+		// The broker holds the next prompt until this one's dialog has ended.
+		defer close(done)
 		// Cancelled line answers must not enter the next original call's prompt.
 		for {
 			select {
@@ -445,6 +448,7 @@ func (c *Controller) presentTaskPrompt(p brokerPrompt) {
 			c.broker.cancelRequest(p.ID, p.Owner)
 		}
 	})
+	return done
 }
 func (c *Controller) Approve(ctx context.Context, r ApprovalRequest) (Approval, error) {
 	if c.approveAll {

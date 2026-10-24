@@ -79,6 +79,11 @@ func runOptions(
 		return 1
 	}
 	if automationOneShot(o, stdin) {
+		if o.TurnEvents != "" {
+			// Redirected input makes one request, which takes no next
+			// prompt, so the file would get no events.
+			return automationPreflightFailure(o, stdout, stderr, errors.New("--turn-events needs an interactive session; with redirected input, add --plain"))
+		}
 		return runAutomation(ctx, o, stdin, stdout, stderr, dir, home, sessionstore.NewStore(filepath.Join(home, ".dashi", "sessions")), func() (appConfig, error) {
 			return loadCLIConfig(o, home, dir, invocation, stdin, stderr)
 		})
