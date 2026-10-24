@@ -30,8 +30,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `realtime.MaxPendingTools` (32) now bounds only tool calls awaiting results.
 - **Gemini text commands no longer interrupt the model.** `CommandText` is sent
   as `realtimeInput.text` instead of `clientContent`.
-- Gemini usage reads `candidatesTokenCount` when `responseTokenCount` is
-  absent.
+- **Realtime usage carries modality detail, so audio and text can be priced
+  apart.** Grok usage is read from beside `response` in `response.done`,
+  where xAI sends it (it was never reported before), falling back to
+  `response.usage`; its text, audio and grok token details become
+  `llm.Usage.ModalityTokens` under `text`, `audio` and `grok`. Gemini usage
+  reads `promptTokensDetails`, `cacheTokensDetails`,
+  `toolUsePromptTokensDetails`, and `responseTokensDetails` or Vertex's
+  `candidatesTokensDetails`, and `candidatesTokenCount` when
+  `responseTokenCount` is absent. Gemini buckets match the batch Gemini
+  provider: thoughts count as output and as `ReasoningTokens` (attributed to
+  text), cached prompt tokens as cache reads. The modality-incomplete flags
+  are false only when the detail adds up to the totals.
 - **A provider's close reason reaches the caller.** A WebSocket close with a
   status other than normal, such as Vertex refusing a model at a location,
   returns an `ErrorProvider` with `Code` `close_<status>` and the reason as

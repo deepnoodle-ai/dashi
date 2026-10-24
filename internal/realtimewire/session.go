@@ -16,7 +16,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/coder/websocket"
-	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/realtime"
 )
 
@@ -554,7 +553,13 @@ func (s *Session) grok(m map[string]any) error {
 		if id == s.response {
 			s.active = false
 		}
-		if usage := object(object(m, "response"), "usage"); usage != nil {
+		// xAI reports usage beside the response and leaves response.usage
+		// empty; OpenAI-style servers put it inside the response.
+		usage := object(m, "usage")
+		if _, ok := usage["input_tokens"]; !ok {
+			usage = object(object(m, "response"), "usage")
+		}
+		if usage != nil {
 			if err := s.usage(usage, false); err != nil {
 				return err
 			}
@@ -594,23 +599,14 @@ func (s *Session) grok(m map[string]any) error {
 }
 
 func (s *Session) usage(m map[string]any, google bool) error {
-	input, output := "input_tokens", "output_tokens"
+	parse := grokUsage
 	if google {
-		input, output = "promptTokenCount", "responseTokenCount"
+		parse = googleUsage
 	}
-	a, aok := m[input].(float64)
-	b, bok := m[output].(float64)
-	if google && !bok {
-		// Vertex may name output tokens as generateContent does.
-		b, bok = m["candidatesTokenCount"].(float64)
+	u, e := parse(m)
+	if e != nil || u == nil {
+		return e
 	}
-	if !aok || !bok {
-		return nil
-	}
-	if a < 0 || b < 0 || a > 1e9 || b > 1e9 {
-		return realtime.Failf(realtime.ErrorProtocol, "usage of %v input and %v output tokens", a, b)
-	}
-	u := &llm.Usage{InputTokens: int(a), OutputTokens: int(b), InputModalityTokenDetailsIncomplete: true, OutputModalityTokenDetailsIncomplete: true}
 	return s.enqueue(realtime.Event{Kind: realtime.EventUsage, ResponseID: s.response, Usage: u})
 }
 

@@ -65,8 +65,11 @@ does not cancel tools from an already completed response awaiting results. Playb
 generated output must not be interpreted as proof of what someone heard.
 
 Errors omit provider payloads and authentication URLs. A provider close
-keeps its status and reason as an ErrorProvider. Usage is unpriced evidence;
-missing modality detail stays explicitly incomplete. A disconnect ends the session.
+keeps its status and reason as an ErrorProvider. Usage is unpriced evidence
+with per-modality tokens: Grok's text, audio and grok details (grok kept as
+its own modality), Gemini's prompt, cache and response details, with thoughts
+as text output as in the batch Gemini provider. Detail that does not add up
+to the totals stays explicitly incomplete. A disconnect ends the session.
 The app must start a new connection explicitly and reconcile unknown tool effects.
 
 Adapters target `gemini-3.8-live` and `grok-voice-think-fast-2.0`. Gemini manual
