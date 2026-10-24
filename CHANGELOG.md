@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **CLI approval prompts keep their mode when an earlier prompt is
+  canceled.** The next prompt opens only after the canceled one's dialog has
+  closed, so Ctrl-C and `--plain` answers reach the open prompt.
+- **`/new` starts from your launch defaults.** It no longer keeps the model
+  and generation controls of a session opened with `--continue`, `--resume`,
+  or `/sessions`. A session switch also applies the selected session's
+  preferences before it opens, and `/settings` no longer repeats overridden
+  sources after each switch.
+- **`--plain` no longer prints your prompts twice after `/new` or
+  `/sessions`.**
+- **`dashi run -c` skips a session whose first turn never recorded**, such
+  as one a failed first attachment request left, and reopens the latest
+  session with turns.
+- **`dashi run -c` with a new request no longer outputs the reply of the
+  turn it closes first.**
+- **`/task ID continue` runs the decide command-risk check on a stopped
+  task's recorded bash approval**, also with
+  `--dangerously-skip-permissions`, and asks about a flagged command.
+- **`--turn-events` with redirected input now fails with a hint to add
+  `--plain`**, instead of being ignored.
+
 ## [0.10.0] - 2026-10-23
 
 ### Added
