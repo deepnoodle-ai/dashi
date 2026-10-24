@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/runewidth"
 	"github.com/deepnoodle-ai/wonton/tui"
@@ -59,7 +60,7 @@ func (s *screen) footer() tui.View {
 		}
 	}
 	if line := s.decideStatus(); line != "" {
-		views = append(views, tui.Text(" %s", line).Fg(tui.ColorYellow))
+		views = append(views, tui.Text(" %s", line).Style(warningStyle))
 	}
 	views = append(views, s.statusView(menu != nil))
 	return tui.Stack(views...).Gap(0)
@@ -119,8 +120,6 @@ func (s *screen) syncDraft(value string) {
 	s.updateAttachmentUnsaved()
 }
 
-var commandHighlightStyle = tui.NewStyle().WithForeground(tui.ColorCyan).WithBold()
-
 // highlightCommand styles the draft's first word when it names a known
 // command, so a typo or an unfinished name stays plain. An answer to a
 // question is never a command.
@@ -170,7 +169,7 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 func (s *screen) workingView() tui.View {
 	frame := spinnerFrames[int(s.frame/3)%len(spinnerFrames)]
 	return tui.Group(
-		tui.Text(" %s", frame).Style(mutedStyle),
+		tui.Text(" %s", frame).Style(accentStyle),
 		tui.Text(" Working · Esc interrupts").Style(mutedStyle),
 	)
 }
@@ -218,7 +217,7 @@ func startupBlock(dir string) Block {
 func headerView(b Block) tui.View {
 	title, dir, _ := strings.Cut(b.Text, "\n")
 	return tui.Stack(
-		tui.Group(tui.Text(">_ ").Fg(tui.ColorCyan), tui.Text("%s", title).SourceOffset(0).Bold()),
+		tui.Group(tui.Text(">_ ").Style(accentStyle), tui.Text("%s", title).SourceOffset(0).Bold()),
 		tui.PaddingLTRB(3, 0, 0, 0, tui.Text("%s", dir).SourceOffset(len(title)+1).Wrap().Style(mutedStyle)),
 	).Gap(0)
 }
@@ -236,7 +235,7 @@ func pickerView(p *pickerState) tui.View {
 	if p.sessionCards {
 		return sessionPickerView(p)
 	}
-	views := []tui.View{tui.Divider(), tui.Text(" %s", p.title).Fg(tui.ColorCyan).Bold()}
+	views := []tui.View{divider(), tui.Text(" %s", p.title).Style(accentStyle).Bold()}
 	// Keep room for the selected model's facts on an 80×24 terminal.
 	window := 10
 	if len(p.details) > 0 {
@@ -246,13 +245,13 @@ func pickerView(p *pickerState) tui.View {
 	end := min(len(p.options), start+window)
 	for i := start; i < end; i++ {
 		if i == p.index {
-			views = append(views, tui.Text(" ❯ %s", p.options[i]).Fg(tui.ColorCyan).Bold())
+			views = append(views, tui.Text(" ❯ %s", p.options[i]).Style(accentStyle).Bold())
 		} else {
 			views = append(views, tui.Text("   %s", p.options[i]))
 		}
 	}
 	if p.index >= 0 && p.index < len(p.details) {
-		views = append(views, tui.Divider(), tui.Text(" %s", p.options[p.index]).Bold(),
+		views = append(views, divider(), tui.Text(" %s", p.options[p.index]).Bold(),
 			tui.PaddingLTRB(1, 0, 0, 0, tui.Text("%s", p.details[p.index]).Wrap()))
 	}
 	views = append(views, tui.Text(" ↑/↓ choose · Enter picks · Esc cancels").Wrap().Style(hintStyle))
@@ -276,14 +275,14 @@ func blockView(b Block) tui.View {
 			return nil
 		}
 		return tui.ZStack(
-			tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(text, nil).SourceOffset(0)),
+			tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(text, nil).Theme(markdownTheme()).SourceOffset(0)),
 			tui.Text("•").Style(mutedStyle),
 		).Align(tui.AlignLeft)
 	case KindReasoning:
 		if strings.TrimSpace(b.Text) == "" {
 			return nil
 		}
-		return tui.Stack(tui.Text("  Reasoning").Style(mutedStyle), tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(b.Text, nil).SourceOffset(0))).Gap(0)
+		return tui.Stack(tui.Text("  Reasoning").Style(mutedStyle), tui.PaddingLTRB(2, 0, 0, 0, tui.Markdown(b.Text, nil).Theme(markdownTheme()).SourceOffset(0))).Gap(0)
 	case KindTool:
 		return withTaskLine(toolView(b), b)
 	case KindTaskStatus, KindTaskResult:
@@ -306,22 +305,22 @@ func blockView(b Block) tui.View {
 		case SteerNext:
 			label = "queued for the next turn"
 		}
-		return sourceLabel("  ↳ "+label+": ", b.Text, tui.ColorYellow)
+		return arrowLabel(label, b.Text)
 	case KindCompaction:
-		color := tui.ColorCyan
+		style := mutedStyle
 		if b.State == StateFailed {
-			color = tui.ColorRed
+			style = dangerStyle
 		} else if b.State == "interrupted" {
-			color = tui.ColorYellow
+			style = warningStyle
 		}
-		return sourceLabel("  ", b.Text, color)
+		return sourceLabel("  ", b.Text, style)
 	case KindPending:
 		if b.Done {
 			return nil
 		}
-		return sourceLabel("  ↳ pending prompt: ", b.Text, tui.ColorYellow)
+		return arrowLabel("pending prompt", b.Text)
 	case KindStop:
-		return sourceLabel("■ ", b.Text, tui.ColorYellow)
+		return sourceLabel("■ ", b.Text, stopStyle(b.State))
 	case KindFooter:
 		return footerView(b, 0)
 	case KindHelp:
@@ -329,7 +328,7 @@ func blockView(b Block) tui.View {
 			return helpView(*b.Help)
 		}
 	case KindWarning:
-		return sourceLabel("! ", b.Text, tui.ColorYellow)
+		return sourceLabel("! ", b.Text, warningStyle)
 	case KindHint:
 		return tui.PaddingLTRB(2, 0, 0, 0, tui.Text("%s", b.Text).SourceOffset(0).Wrap().Style(mutedStyle))
 	}
@@ -398,11 +397,11 @@ func footerView(b Block, width int) tui.View {
 	}
 	// The rule is decoration: selection copies the values and separators,
 	// which are footerSource.
-	views := []tui.View{tui.Text("%s ", footerRule).Style(mutedStyle)}
+	views := []tui.View{tui.Text("%s ", footerRule).Style(faintStyle)}
 	offset := 0
 	for i, p := range b.Footer.fit(width) {
 		if i > 0 {
-			views = append(views, tui.Text("%s", footerSep).SourceOffset(offset).Style(mutedStyle))
+			views = append(views, tui.Text("%s", footerSep).SourceOffset(offset).Style(faintStyle))
 			offset += len(footerSep)
 		}
 		t := tui.Text("%s", p.text).SourceOffset(offset)
@@ -410,15 +409,13 @@ func footerView(b Block, width int) tui.View {
 		switch p.kind {
 		case footerMeta:
 			t = t.Style(mutedStyle)
-		case footerCost:
-			t = t.Fg(costColor)
 		case footerWarn:
-			t = t.Fg(tui.ColorYellow)
+			t = t.Style(warningStyle)
 		}
 		views = append(views, t)
 	}
 	// A flexible stack gives the divider the rest of the row.
-	views = append(views, tui.Text(" "), tui.Stack(tui.Divider().Style(mutedStyle)).Flex(1))
+	views = append(views, tui.Text(" "), tui.Stack(divider()).Flex(1))
 	return tui.Group(views...)
 }
 
@@ -427,28 +424,29 @@ func toolView(b Block) tui.View {
 	var state *tui.TextView
 	switch b.State {
 	case StateOK:
-		icon = tui.Text("•").Fg(tui.ColorGreen)
+		icon = tui.Text("•").Style(successStyle)
 		state = tui.Text("ok  %.1fs", b.Elapsed.Seconds()).Style(mutedStyle)
 	case StateFailed:
-		icon = tui.Text("✗").Fg(tui.ColorRed)
-		state = tui.Text("failed  %.1fs", b.Elapsed.Seconds()).Fg(tui.ColorRed)
+		icon = tui.Text("✗").Style(dangerStyle)
+		state = tui.Text("failed  %.1fs", b.Elapsed.Seconds()).Style(dangerStyle)
 	case StateDenied:
-		icon = tui.Text("✗").Fg(tui.ColorYellow)
-		state = tui.Text("denied").Fg(tui.ColorYellow)
+		// A denial is settled; nothing waits on the user.
+		icon = tui.Text("⊘").Style(mutedStyle)
+		state = tui.Text("denied").Style(mutedStyle)
 	case StateWaiting:
-		icon = tui.Text("•").Fg(tui.ColorYellow)
-		state = tui.Text("waiting").Fg(tui.ColorYellow)
+		icon = tui.Text("•").Style(warningStyle)
+		state = tui.Text("waiting").Style(warningStyle)
 	case StateChecking:
-		icon = tui.Text("•").Fg(tui.ColorCyan)
+		icon = tui.Text("•").Style(accentStyle)
 		state = tui.Text("decide: checking command…").Style(mutedStyle)
 	case StateCheckingResult:
-		icon = tui.Text("•").Fg(tui.ColorCyan)
+		icon = tui.Text("•").Style(accentStyle)
 		state = tui.Text("decide: checking result…").Style(mutedStyle)
 	case StateWaitingForYou:
-		icon = tui.Text("?").Fg(tui.ColorYellow)
-		state = tui.Text("waiting for you").Fg(tui.ColorYellow)
+		icon = tui.Text("?").Style(warningStyle)
+		state = tui.Text("waiting for you").Style(warningStyle)
 	default:
-		icon = tui.Text("•").Fg(tui.ColorCyan)
+		icon = tui.Text("•").Style(accentStyle)
 		state = tui.Text("running").Style(mutedStyle)
 	}
 	// The name and argument are the tool line's text, so a selection copies
@@ -475,7 +473,7 @@ func toolView(b Block) tui.View {
 	for _, mark := range decideLines(b) {
 		t := tui.Text("%s", mark.Text).Wrap()
 		if mark.Flagged {
-			t = t.Fg(tui.ColorYellow)
+			t = t.Style(warningStyle)
 		} else {
 			t = t.Style(mutedStyle)
 		}
@@ -515,21 +513,33 @@ func toolHeadSource(b Block) string {
 	return name + toolHeadSep + arg
 }
 
-// Secondary text uses 256-color gray 248 (#a8a8a8) without dim. Wonton's
-// Hint and Muted add dim to bright black, which nearly disappears on dark
-// themes, and darker grays read poorly there too. Footer costs use a soft
-// green (#87af87); input bands retain readable contrast across themes.
-var (
-	mutedStyle       = tui.NewStyle().WithForeground(tui.Color(248))
-	hintStyle        = mutedStyle
-	costColor        = tui.Color(108)
-	promptBackground = tui.Color(236)
-	promptStyle      = tui.NewStyle().WithForeground(tui.Color(252)).WithBackground(promptBackground)
-)
+// sourceLabel draws a label and its source text in one style. Only the
+// source text is copyable.
+func sourceLabel(label, source string, style tui.Style) tui.View {
+	return tui.Group(tui.Text("%s", label).Style(style),
+		tui.Text("%s", source).SourceOffset(0).Wrap().Style(style).Flex(1))
+}
 
-func sourceLabel(label, source string, color tui.Color) tui.View {
-	return tui.Group(tui.Text("%s", label).Fg(color),
-		tui.Text("%s", source).SourceOffset(0).Wrap().Fg(color).Flex(1))
+// arrowLabel draws a line such as "  ↳ steer queued: text": an accent
+// arrow, a muted label, and the user's own words in the normal color. Only
+// the words are copyable.
+func arrowLabel(label, source string) tui.View {
+	return tui.Group(tui.Text("  "), tui.Text("↳").Style(accentStyle),
+		tui.Text(" %s: ", label).Style(mutedStyle),
+		tui.Text("%s", source).SourceOffset(0).Wrap().Flex(1))
+}
+
+// stopStyle colors a stop marker by the dashi.StopKind in its State. A
+// stop the user asked for is muted, a failure is danger, and any other
+// stop, such as a limit, needs the user and is a warning.
+func stopStyle(kind string) tui.Style {
+	switch dashi.StopKind(kind) {
+	case dashi.StopInterrupted, dashi.StopCanceled:
+		return mutedStyle
+	case dashi.StopFailed, dashi.StopRefused, dashi.StopResultUnknown:
+		return dangerStyle
+	}
+	return warningStyle
 }
 
 func diffLineView(indent, line string) tui.View {
@@ -542,11 +552,11 @@ func diffSourceLineView(line string, offset int) tui.View {
 	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
 		return t.Bold()
 	case strings.HasPrefix(line, "+"):
-		return t.Fg(tui.ColorGreen)
+		return t.Style(successStyle)
 	case strings.HasPrefix(line, "-"):
-		return t.Fg(tui.ColorRed)
+		return t.Style(dangerStyle)
 	case strings.HasPrefix(line, "@@"):
-		return t.Fg(tui.ColorCyan)
+		return t.Style(mutedStyle)
 	}
 	return t.Style(mutedStyle)
 }

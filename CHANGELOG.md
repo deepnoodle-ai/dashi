@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The CLI has one color theme with a blue accent.** Headings, links,
+  selections, and running work use one blue; yellow now marks only what
+  needs you, such as approvals, questions, and limit stops. Denied calls,
+  interrupts, queued steering, and footer costs are quieter. Inline code
+  shows on a gray background, and code blocks use matching syntax colors.
+- **Markdown replies render more of their formatting.** Code blocks are
+  gray panels with their language on the first line, quotes have a bar at
+  the left, and `~~strikethrough~~` is struck through instead of showing
+  its tildes. Dashi now uses Wonton v0.9.0.
+
 ## [0.12.2] - 2026-10-24
 
 ### Added

@@ -120,7 +120,10 @@ func taskLineState(state delegate.TaskState) string {
 	case delegate.TaskState(dashi.StopFailed), delegate.TaskState(dashi.StopRefused),
 		delegate.TaskState(dashi.StopResultUnknown), taskRecordUnavailable:
 		return StateFailed
+	case delegate.TaskState(dashi.StopInterrupted), delegate.TaskState(dashi.StopCanceled):
+		return StateStopped
 	}
+	// Approval pending, waiting, and a limit stop all wait on the user.
 	return StateWaiting
 }
 
@@ -286,7 +289,7 @@ func taskMessageText(b Block) string {
 // terminal edge cuts it, and /tasks ID shows it whole.
 func taskMessageView(b Block) tui.View {
 	views := []tui.View{
-		tui.Text("  %s ", taskMessageArrow(b.State)).Fg(tui.ColorCyan),
+		tui.Text("  %s ", taskMessageArrow(b.State)).Style(accentStyle),
 		tui.Text("%s", b.Arg),
 	}
 	if b.Name != "" {
@@ -341,32 +344,37 @@ func joinNonEmpty(sep string, parts ...string) string {
 	return strings.Join(out, sep)
 }
 
-func taskLineColor(state string) tui.Color {
+// taskLineStyle colors a task state. Running work is accent, and finished
+// work is success or danger. Warning is only for states that wait on the
+// user; every other state is muted.
+func taskLineStyle(state string) tui.Style {
 	switch state {
 	case StateOK:
-		return tui.ColorGreen
+		return successStyle
 	case StateFailed:
-		return tui.ColorRed
+		return dangerStyle
 	case StateRunning, "":
-		return tui.ColorCyan
+		return accentStyle
+	case StateWaiting:
+		return warningStyle
 	}
-	return tui.ColorYellow
+	return mutedStyle
 }
 
 // taskLineView draws a result marker, or a status line that is not under
 // its tool line. The arrow and the state take the state color.
 func taskLineView(b Block) tui.View {
-	color := taskLineColor(b.State)
+	style := taskLineStyle(b.State)
 	indent := "  ↳ "
 	if b.Kind == KindTaskResult {
 		indent = "↳ "
 	}
-	views := []tui.View{tui.Text("%s", indent).Fg(color), tui.Text("%s", b.Arg)}
+	views := []tui.View{tui.Text("%s", indent).Style(style), tui.Text("%s", b.Arg)}
 	if b.Name != "" {
-		views = append(views, tui.Text(" %s", b.Name).Fg(color))
+		views = append(views, tui.Text(" %s", b.Name).Style(style))
 	}
 	// The text is the line's source for selection; the rest is a label.
-	views = append(views, tui.Text(" · ").Style(mutedStyle),
+	views = append(views, tui.Text(" · ").Style(faintStyle),
 		tui.Text("%s", b.Text).SourceOffset(0).Wrap().Style(mutedStyle).Flex(1))
 	return tui.Group(views...)
 }
@@ -380,9 +388,9 @@ func withTaskLine(v tui.View, b Block) tui.View {
 	// The separator is its own view: a wrapping view drops the spaces at its
 	// edges, which would join the state and the separator where it wraps.
 	return tui.Stack(v, tui.Group(
-		tui.Text(taskUnderMarker).Style(mutedStyle),
-		tui.Text("%s", t.Name).Fg(taskLineColor(t.State)),
-		tui.Text(" · ").Style(mutedStyle),
+		tui.Text(taskUnderMarker).Style(faintStyle),
+		tui.Text("%s", t.Name).Style(taskLineStyle(t.State)),
+		tui.Text(" · ").Style(faintStyle),
 		tui.Text("%s", t.Text).Wrap().Style(mutedStyle).Flex(1),
 	)).Gap(0)
 }

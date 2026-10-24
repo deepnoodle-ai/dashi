@@ -340,7 +340,7 @@ func TestFooterBlockRendersAsRule(t *testing.T) {
 		t.Fatalf("screen = %q", got)
 	}
 	styled := tui.Sprint(blockView(b), tui.WithWidth(70), tui.WithColor(true))
-	for _, want := range []string{"\x1b[0;38;5;248m── turn 3 · ", "\x1b[0mclaude-x", "\x1b[0;38;5;108m$0.0421", "\x1b[0;38;5;248m───"} {
+	for _, want := range []string{"\x1b[0;38;5;240m── \x1b[0m\x1b[0;38;5;248mturn 3", "\x1b[0;38;5;240m · \x1b[0mclaude-x", "\x1b[0;38;5;240m · \x1b[0m$0.0421", "\x1b[0;38;5;240m───"} {
 		if !strings.Contains(styled, want) {
 			t.Fatalf("missing %q in %q", want, styled)
 		}

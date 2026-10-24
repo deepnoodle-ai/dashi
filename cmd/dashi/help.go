@@ -152,7 +152,7 @@ func helpView(h helpDoc) tui.View {
 			offset += len(span.text)
 			switch span.role {
 			case roleHeading:
-				t = t.Fg(tui.ColorCyan).Bold()
+				t = t.Style(accentStyle).Bold()
 			case roleMarker, roleUsage:
 				t = t.Style(mutedStyle)
 			case roleName:

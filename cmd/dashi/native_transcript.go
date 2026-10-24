@@ -22,7 +22,7 @@ func nativeBlockText(b Block, width int, useColor bool) (string, bool) {
 	if b.Kind != KindAssistant && b.Kind != KindReasoning {
 		return tui.Sprint(view, tui.WithWidth(max(1, width)), tui.WithColor(useColor)), true
 	}
-	md, err := tui.NewMarkdownRenderer().WithMaxWidth(max(1, width-2)).Render(b.Text)
+	md, err := tui.NewMarkdownRenderer().WithTheme(markdownTheme()).WithMaxWidth(max(1, width-2)).Render(b.Text)
 	if err != nil {
 		return tui.Sprint(view, tui.WithWidth(max(1, width)), tui.WithColor(useColor)), true
 	}

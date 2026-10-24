@@ -63,6 +63,9 @@ const (
 	// StateCheckingResult is a call that finished while decide checks its
 	// result, before the model reads it.
 	StateCheckingResult = "checking result"
+	// StateStopped is a task that was interrupted or canceled. It is
+	// settled and waits on nobody.
+	StateStopped = "stopped"
 )
 
 // Steer line states.
@@ -85,7 +88,8 @@ type Block struct {
 	// Name and Arg describe a tool call: its name and its main argument.
 	Name string
 	Arg  string
-	// State is the tool or steer state, or a message line's direction.
+	// State is the tool or steer state, a message line's direction, or a
+	// stop's dashi.StopKind.
 	State   string
 	Elapsed time.Duration
 	// Lines holds detail lines: the last output of a running tool, the
@@ -483,10 +487,11 @@ func (r *Renderer) stopped(s dashi.Step) []Block {
 		text = "The turn stopped: " + string(st.Kind) + "."
 	}
 	return []Block{{
-		ID:   fmt.Sprintf("stop:%s:%d", s.TurnID, s.Seq),
-		Kind: KindStop,
-		Text: text,
-		Done: true,
+		ID:    fmt.Sprintf("stop:%s:%d", s.TurnID, s.Seq),
+		Kind:  KindStop,
+		Text:  text,
+		State: string(st.Kind),
+		Done:  true,
 	}}
 }
 

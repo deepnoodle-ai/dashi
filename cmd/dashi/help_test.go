@@ -80,7 +80,7 @@ func TestHelpBlockRendersStyledWithPlainSource(t *testing.T) {
 	if !ok {
 		t.Fatal("no native text")
 	}
-	for _, want := range []string{"\x1b[0;1;36mSession", "\x1b[0;1m/status", "\x1b[0;38;5;248m [ID]", "\n \n\x1b[0m\x1b[0;38;5;248m  • legend"} {
+	for _, want := range []string{"\x1b[0;1;38;5;75mSession", "\x1b[0;1m/status", "\x1b[0;38;5;248m [ID]", "\n \n\x1b[0m\x1b[0;38;5;248m  • legend"} {
 		if !strings.Contains(styled, want) {
 			t.Fatalf("missing %q in %q", want, styled)
 		}
