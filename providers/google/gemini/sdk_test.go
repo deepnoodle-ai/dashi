@@ -121,6 +121,21 @@ func TestSDKErrorInsideAcceptedStreamIsNotRejection(t *testing.T) {
 	}
 }
 
+// An error inside a stream is classified by its own code: a 500 whose message
+// reads like a context overflow is not a context-window rejection.
+func TestSDKStreamErrorCodeDecidesReason(t *testing.T) {
+	failure := sendError(t, true, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, `data: {"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}`+"\n\n")
+		io.WriteString(w, `{"error":{"code":500,"message":"The input token count (9) exceeds the maximum number of tokens allowed (8)."}}`+"\n\n")
+	})
+	if failure.Reason == llm.ReasonContextWindowExceeded ||
+		failure.SendStatus != llm.SendStatusUnknown ||
+		failure.Category != llm.ErrorOverloaded || failure.Status != 0 {
+		t.Fatalf("stream error misclassified: %#v", failure)
+	}
+}
+
 // A call canceled before dispatch is known unsent.
 func TestSendCanceledBeforeDispatchIsNotSent(t *testing.T) {
 	var dispatched bool

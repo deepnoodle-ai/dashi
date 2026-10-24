@@ -424,7 +424,9 @@ func sdkError(provider string, err error, seen sdkResponse, hasMedia bool) error
 				string(seen.body),
 				providerhttp.WithErrorHeader(seen.header),
 			).RetryAfter()
-		} else if !inStream {
+		} else {
+			// The classifier reads the error's own code, so an error inside a
+			// stream with code 500 is not a context-window rejection.
 			rejection.Status = status
 		}
 		rejection.HasMedia = hasMedia
@@ -438,7 +440,12 @@ func sdkError(provider string, err error, seen sdkResponse, hasMedia bool) error
 			category = llm.ErrorOverloaded
 		}
 		sendStatus := llm.SendStatusUnknown
-		if !inStream && providerhttp.KnownRejection(status) {
+		httpStatus := status
+		if inStream {
+			// The HTTP status was a success; report none, as other providers
+			// do for an error inside a stream.
+			httpStatus = 0
+		} else if providerhttp.KnownRejection(status) {
 			sendStatus = llm.SendStatusProviderRejected
 		}
 		return &llm.Error{
@@ -446,7 +453,7 @@ func sdkError(provider string, err error, seen sdkResponse, hasMedia bool) error
 			Category:   category,
 			Reason:     providerhttp.Reason(errorReason, rejection),
 			SendStatus: sendStatus,
-			Status:     rejection.Status,
+			Status:     httpStatus,
 			Body:       seen.body,
 			RetryAfter: retryAfter,
 			Retryable:  status == 408 || status == 429 || status >= 500,
