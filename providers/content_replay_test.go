@@ -456,7 +456,7 @@ func TestDuplicateToolIDsFailDecode(t *testing.T) {
 
 func TestResultDoesNotInventMessageSourceWithoutOutput(t *testing.T) {
 	for _, tc := range cases(t) {
-		for _, variant := range []string{"cancelled", "rejected", "http-error", "empty-stream"} {
+		for _, variant := range []string{"cancelled", "dropped", "rejected", "http-error", "empty-stream"} {
 			t.Run(tc.name+"/"+variant, func(t *testing.T) {
 				server := serve(
 					t,
@@ -466,6 +466,14 @@ func TestResultDoesNotInventMessageSourceWithoutOutput(t *testing.T) {
 							w.WriteHeader(http.StatusBadRequest)
 						case "http-error":
 							w.WriteHeader(http.StatusBadGateway)
+						case "dropped":
+							// The request arrived; the connection closes
+							// before any response.
+							_, _ = io.ReadAll(r.Body)
+							conn, _, err := http.NewResponseController(w).Hijack()
+							if err == nil {
+								conn.Close()
+							}
 						}
 					},
 				)
@@ -492,18 +500,19 @@ func TestResultDoesNotInventMessageSourceWithoutOutput(t *testing.T) {
 				if variant == "cancelled" && !errors.Is(err, context.Canceled) {
 					t.Fatal(err)
 				}
-				// A stop kind is evidence that a response arrived. Any HTTP
-				// status, a rejection or a 5xx, means the provider received
-				// the request and may have run it, so the call keeps one. A
-				// call cancelled before dispatch must not carry one.
+				// A stop kind marks a call that may have run. Any HTTP
+				// status, or a connection dropped after the request was
+				// written, leaves that possible, so the call keeps one. A
+				// call cancelled before dispatch was definitely not sent and
+				// must not carry one.
 				switch variant {
 				case "cancelled":
 					if result.Stop.Kind != "" {
 						t.Fatalf("stop kind = %q before any response", result.Stop.Kind)
 					}
-				case "rejected", "http-error":
+				case "dropped", "rejected", "http-error":
 					if result.Stop.Kind != llm.StopIncomplete {
-						t.Fatalf("stop kind = %q after an HTTP response, want incomplete", result.Stop.Kind)
+						t.Fatalf("stop kind = %q after a possible send, want incomplete", result.Stop.Kind)
 					}
 				}
 			})

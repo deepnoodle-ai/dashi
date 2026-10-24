@@ -385,12 +385,13 @@ func NoAPIKey(provider, key string, public bool, env string) error {
 	}
 }
 
-// Responded reports whether err carries an HTTP response status. Any status,
-// a rejection or a 5xx, means the provider received the request, so the call
-// counts as possibly run.
-func Responded(err error) bool {
+// MaybeSent reports whether the request behind err may have reached the
+// provider. Only an error marked SendStatusNotSent rules that out, such as a
+// missing key or a context cancelled before dispatch. An HTTP status, a
+// dropped connection, or a response-start timeout all leave it possible.
+func MaybeSent(err error) bool {
 	failure, ok := errors.AsType[*llm.Error](err)
-	return ok && failure.Status != 0
+	return !ok || failure.SendStatus != llm.SendStatusNotSent
 }
 
 // KnownRejection is limited to HTTP statuses that affirmatively reject a

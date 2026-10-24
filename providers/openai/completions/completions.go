@@ -334,7 +334,7 @@ func (p *Client) Send(
 		},
 		Message: llm.Message{Role: llm.RoleAssistant},
 	}
-	responded := false
+	maybeSent := false
 	defer func() {
 		// Provenance belongs to provider output, including a partial message
 		// returned with an error. An empty response is not a generated message.
@@ -349,20 +349,21 @@ func (p *Client) Send(
 		// Warnings ride on every result, including partial ones, so a failed
 		// call still explains how its request differed from the input.
 		result.Warnings = prepared.Warnings()
-		// A stop kind is evidence that the provider answered, so a call
-		// that failed with no HTTP status carries none.
-		if callErr != nil && responded {
+		// A stop kind marks a call that may have run, so a call that was
+		// definitely not sent carries none.
+		if callErr != nil && maybeSent {
 			result.Stop.Kind = llm.StopIncomplete
 		}
 	}()
 	resp, err := p.client.Post(ctx, prepared)
 	if err != nil {
-		// An HTTP status, even an error one, means the provider received
-		// the request, so the call keeps a stop kind.
-		responded = providerhttp.Responded(err)
+		// Only a failure marked not sent rules out a provider effect; an
+		// HTTP status or a connection dropped after the request was
+		// written keeps a stop kind.
+		maybeSent = providerhttp.MaybeSent(err)
 		return result, err
 	}
-	responded = true
+	maybeSent = true
 	defer resp.Body.Close()
 	if prepared.Input().Stream {
 		result, callErr = wire.readStream(ctx, resp.Body, result, sink)

@@ -72,6 +72,10 @@ func TestResponseStartTimeoutKeepsDispatchResultUnknown(t *testing.T) {
 	})
 	_, err := client.Post(t.Context(), prepared)
 	requireTimeoutReason(t, err, llm.ReasonResponseStartTimeout)
+	// The request was written, so the provider may have run it.
+	if !MaybeSent(err) {
+		t.Fatal("response-start timeout counted as not sent")
+	}
 }
 
 func TestStreamIdleMeasuresBlockedReadsAndHeartbeatBytes(t *testing.T) {

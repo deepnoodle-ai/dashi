@@ -440,10 +440,10 @@ var uncachedLimits = func() llm.Capabilities {
 
 // Send dispatches at most one Responses request. Stream mode is pinned by
 // Prepare; a nil sink discards previews while still accumulating the result.
-// When an error follows a provider response, including an HTTP error
-// status, the result's stop kind is incomplete and the result may still carry
-// the content received before the failure. A call that fails with no HTTP
-// status has no stop kind.
+// When a call fails after its request may have reached the provider, the
+// result's stop kind is incomplete and the result may still carry the content
+// received before the failure. A call that was definitely not sent, such as
+// one cancelled before dispatch, has no stop kind.
 func (p *Client) Send(
 	ctx context.Context,
 	call llm.Call,
@@ -458,14 +458,14 @@ func (p *Client) Send(
 		// grants other destinations that classification.
 		publicReasoningText: p.client.Endpoint == "https://api.x.ai/v1/responses" && prepared.Input().Model == "grok-4.7",
 	}
-	responded := false
+	maybeSent := false
 	defer func() {
 		// Warnings ride on every result, including partial ones, so a failed
 		// call still explains how its request differed from the input.
 		result.Warnings = prepared.Warnings()
-		// A stop kind is evidence that the provider answered, so a call
-		// that failed with no HTTP status carries none.
-		if callErr != nil && responded {
+		// A stop kind marks a call that may have run, so a call that was
+		// definitely not sent carries none.
+		if callErr != nil && maybeSent {
 			result.Stop.Kind = llm.StopIncomplete
 		}
 	}()
@@ -478,12 +478,13 @@ func (p *Client) Send(
 	}
 	resp, err := p.client.Post(ctx, prepared)
 	if err != nil {
-		// An HTTP status, even an error one, means the provider received
-		// the request, so the call keeps a stop kind.
-		responded = providerhttp.Responded(err)
+		// Only a failure marked not sent rules out a provider effect; an
+		// HTTP status or a connection dropped after the request was
+		// written keeps a stop kind.
+		maybeSent = providerhttp.MaybeSent(err)
 		return r, err
 	}
-	responded = true
+	maybeSent = true
 	defer resp.Body.Close()
 	if prepared.Input().Stream {
 		result, callErr = wire.readStream(resp.Body, r, sink)

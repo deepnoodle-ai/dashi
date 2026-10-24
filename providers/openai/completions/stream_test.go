@@ -47,9 +47,9 @@ func TestStreamCutOffKeepsToolCallsPartial(t *testing.T) {
 	}
 }
 
-// TestSendFailureBeforeResponseHasNoStop covers a call that fails before the
-// provider answers. A stop kind is evidence that a response arrived, so the
-// result must not carry one.
+// TestSendFailureBeforeResponseHasNoStop covers a call cancelled before
+// dispatch. A stop kind marks a call that may have run, so a call that was
+// definitely not sent must not carry one.
 func TestSendFailureBeforeResponseHasNoStop(t *testing.T) {
 	p := testClient(t, "http://127.0.0.1:1")
 	prepared, err := p.Prepare(t.Context(), testInput(true))
@@ -83,5 +83,27 @@ func TestSendHTTPErrorKeepsStop(t *testing.T) {
 			t.Fatalf("status %d: stop = %q, err = %v; want incomplete and an error",
 				status, result.Stop.Kind, err)
 		}
+	}
+}
+
+// TestSendDroppedConnectionKeepsStop covers a connection that closes after the
+// request was written but before any response. The provider may have run the
+// call, so it keeps a stop kind.
+func TestSendDroppedConnectionKeepsStop(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body)
+		if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
+			conn.Close()
+		}
+	}))
+	defer server.Close()
+	p := testClient(t, server.URL)
+	prepared, err := p.Prepare(t.Context(), testInput(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := p.Send(t.Context(), llm.Call{Request: prepared})
+	if err == nil || result.Stop.Kind != llm.StopIncomplete {
+		t.Fatalf("stop = %q, err = %v; want incomplete and an error", result.Stop.Kind, err)
 	}
 }

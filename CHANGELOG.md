@@ -11,12 +11,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **A cut-off OpenAI Chat Completions stream no longer returns runnable tool
   calls.** Every tool call in a stream that ended before its finish reason is
   partial opaque content, even when its arguments happen to be valid JSON.
-- **A call that fails before the provider answers has no stop kind.**
-  Anthropic Messages, OpenAI Responses, and OpenAI Chat Completions set
-  `StopIncomplete` only after the provider responded, so a missing key, a
-  refused connection, or a response-start timeout is not mistaken for a
-  dispatched call. Any HTTP status, including a 4xx rejection or a 5xx, counts
-  as a response, so such a call keeps `StopIncomplete`.
+- **A call that was definitely not sent has no stop kind.** Anthropic
+  Messages, OpenAI Responses, and OpenAI Chat Completions omit `StopIncomplete`
+  only when the error's send status is `llm.SendStatusNotSent`, such as a
+  missing key or a context cancelled before dispatch, so such a call is not
+  mistaken for a dispatched one. Any HTTP status, a connection dropped after
+  the request was written, or a response-start timeout may have reached the
+  provider, so those calls keep `StopIncomplete`.
 - **Malformed provider output is a protocol error.** A stream event that is
   not JSON or exceeds the size limit, and inner content that does not decode,
   now fail with `llm.ErrorProtocol` instead of `llm.ErrorTransport` or a bare
