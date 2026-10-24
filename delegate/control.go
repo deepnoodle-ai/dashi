@@ -102,6 +102,10 @@ func receipt(turn dashi.Turn, id, hash string) (bool, error) {
 // notice, even when the turn's earlier stop already had one. Mail the turn
 // did not read goes on as it does after any turn: a later turn reads it,
 // or the notice counts it as not read.
+//
+// A Continue without History gets the history of the child's earlier
+// turns, and the warnings of building it are in the result's
+// SessionWarnings.
 func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) (out dashi.RunResult, runErr error) {
 	owned, id, hash, err := ownedCommand(cmd)
 	if err != nil {
@@ -166,8 +170,13 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 	if c, ok := owned.(dashi.Continue); ok && c.History == nil && len(rec.turns) > 1 {
 		// The turn started with the history of the child's earlier turns,
 		// as the child session builds it, so a Continue sends it too.
-		c.History, _ = dashi.BuildHistory(rec.turns[:len(rec.turns)-1])
+		var warnings []dashi.Warning
+		c.History, warnings = dashi.BuildHistory(rec.turns[:len(rec.turns)-1])
 		owned = c
+		if len(warnings) > 0 {
+			// Report them as a Session reports those of BuildHistory.
+			defer func() { out.SessionWarnings = append(out.SessionWarnings, warnings...) }()
+		}
 		if hash, err = commandHash(owned); err != nil {
 			return out, err
 		}

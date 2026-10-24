@@ -428,8 +428,10 @@ var waitCheck = 250 * time.Millisecond
 // Wait returns when the turn may have a step after the cursor: at once when
 // one exists, on this process's next commit to the turn, or within
 // waitCheck of another process's commit, which it notices by the log's size.
-// It returns ctx's error when ctx ends first. It reads the log only when
-// this process's index is behind it; a false wake costs one read.
+// It returns ctx's error when ctx ends first. It reads the log when this
+// process's index is behind it, and on every check while the log ends in a
+// torn write, since a commit can replace it with one of equal length; a
+// false wake costs one read.
 func (r *Recorder) Wait(ctx context.Context, turnID string, after int64) error {
 	woken, done := r.wakes.Watch(turnID)
 	defer done()
