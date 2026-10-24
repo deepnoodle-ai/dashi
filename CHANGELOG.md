@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **The CLI detects light terminals and uses a light palette.** At startup
+  the screen asks the terminal for its background color; on a light
+  background, text, the prompt band, code, and syntax colors switch to light
+  values. `--theme dark|light` or `DASHI_THEME` overrides the detection.
+
 ## [0.13.0] - 2026-10-24
 
 ### Changed

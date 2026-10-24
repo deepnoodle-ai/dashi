@@ -59,6 +59,9 @@ type Options struct {
 	Plain bool
 	// Inline uses Wonton in the terminal's native scrollback.
 	Inline bool
+	// Theme is the --theme value, or DASHI_THEME's: auto, dark, or light.
+	// Empty means auto.
+	Theme string
 
 	// Models is true for the models command.
 	Models    bool
@@ -68,7 +71,7 @@ type Options struct {
 // settingsHelp is the long help of the app: where settings come from.
 const settingsHelp = `Settings: a flag wins over its DASHI_* variable (DASHI_PROVIDER, DASHI_MODEL,
 DASHI_THINKING_EFFORT, DASHI_SHOW_THINKING, DASHI_TEMPERATURE, DASHI_MAX_TOKENS,
-DASHI_COMPACTION_THRESHOLD, DASHI_DECIDE).
+DASHI_COMPACTION_THRESHOLD, DASHI_DECIDE, DASHI_THEME).
 Then come a reopened session's own choices, the workspace .dashi/settings.json,
 ~/.dashi/settings.json, and the defaults. --env-file is read after the command
 line, so it supplies credentials but not DASHI_* settings.`
@@ -85,7 +88,7 @@ var controlFlags = []struct{ flag, env string }{
 var settingsVariables = []string{
 	"DASHI_PROVIDER", "DASHI_MODEL", "DASHI_THINKING_EFFORT",
 	"DASHI_SHOW_THINKING", "DASHI_TEMPERATURE", "DASHI_MAX_TOKENS",
-	"DASHI_COMPACTION_THRESHOLD", "DASHI_DECIDE",
+	"DASHI_COMPACTION_THRESHOLD", "DASHI_DECIDE", "DASHI_THEME",
 }
 
 // clearEmptySettings unsets each empty settings variable, so it sets
@@ -134,6 +137,8 @@ func newApp(stdout, stderr io.Writer, start func(Options) error) *cli.App {
 				Help("start a new session with this UUID as its ID"),
 			cli.String("turn-events").ValidateWith(needsValue).
 				Help("append a JSON line to this file when a turn starts, ends, or waits for you"),
+			cli.String("theme").Env("DASHI_THEME").ValidateWith(themeSyntax).
+				Help("colors for a dark or light terminal: auto, dark, or light (default: auto)"),
 		)...).
 		Validate(func(ctx *cli.Context) error {
 			if ctx.Bool("plain") && ctx.Bool("inline") {
@@ -150,6 +155,7 @@ func newApp(stdout, stderr io.Writer, start func(Options) error) *cli.App {
 			o.Inline = ctx.Bool("inline")
 			o.SessionID = strings.ToLower(ctx.String("session-id"))
 			o.TurnEvents = ctx.String("turn-events")
+			o.Theme = ctx.String("theme")
 			return start(o)
 		})
 
@@ -328,6 +334,15 @@ func sessionIDSyntax(value string) error {
 		return errors.New("use a UUID, such as 0f8fad5b-d9cb-469f-a165-70867728950e")
 	}
 	return nil
+}
+
+// themeSyntax validates --theme.
+func themeSyntax(value string) error {
+	switch value {
+	case themeAuto, themeDark, themeLight:
+		return nil
+	}
+	return errors.New("use auto, dark, or light")
 }
 
 // needsValue rejects a blank flag value.

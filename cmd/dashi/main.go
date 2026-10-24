@@ -105,6 +105,9 @@ func runOptions(
 	if o.Plain || !isTerminal(os.Stdin) || !isTerminal(os.Stdout) {
 		return runLines(ctx, cfg, o, stdin, stdout, stderr)
 	}
+	// The screen starts nothing that reads standard input before this, so
+	// the terminal's answer about its background is not taken for keys.
+	useTheme(lightTheme(o.Theme, colorFor(stdout)))
 	return runScreen(ctx, cfg, o, stdout, stderr)
 }
 

@@ -230,6 +230,12 @@ Start `dashi --inline` to keep completed output in native scrollback and
 interactive streaming, prompts, and dialogs below it. `--plain` and `--inline`
 cannot be combined. Nonterminal input/output still uses line mode.
 
+The screen and inline mode pick a dark or light palette for your terminal.
+With `--theme auto`, the default, dashi asks the terminal for its background
+color at startup and uses the dark palette when the terminal does not say.
+`--theme dark` or `--theme light` (or `DASHI_THEME`) picks one without asking.
+Line mode, `dashi run`, and `NO_COLOR` never ask.
+
 ## Approvals
 
 The tools that read files run at once. A tool that changes files or runs a
