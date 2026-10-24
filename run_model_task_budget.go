@@ -3,6 +3,7 @@ package dashi
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/deepnoodle-ai/dashi/llm"
 )
@@ -48,8 +49,13 @@ func turnTaskBudget(t Turn, budget *llm.TaskBudget, memo map[int64]int) (*llm.Ta
 	}
 	out := cloneTaskBudget(budget)
 	replaced, err := replacedTurnTokens(t, memo)
-	if err != nil || replaced == 0 {
+	if err != nil {
 		return out, err
+	}
+	// Remaining goes once any compaction has replaced messages, even when
+	// they counted no tokens: the provider no longer sees them.
+	if !slices.ContainsFunc(t.Steps, func(s Step) bool { return s.Kind == StepContextCompacted }) {
+		return out, nil
 	}
 	remaining := out.Total
 	if out.Remaining != nil {

@@ -1170,6 +1170,37 @@ func TestRunCancelKeepsReturnedProviderToolContent(t *testing.T) {
 	}
 }
 
+// unpricedProviderToolCancelClient is providerToolCollectedCancelClient
+// for a model with no prices.
+type unpricedProviderToolCancelClient struct {
+	scriptedClient
+	cancel context.CancelFunc
+}
+
+func (c *unpricedProviderToolCancelClient) Send(ctx context.Context, _ llm.Call) (llm.Result, error) {
+	c.cancel()
+	return llm.Result{Message: llm.AssistantMessage(providerToolUse("search-1"))}, ctx.Err()
+}
+
+// An unpriced call without usage that ran provider tools has an unknown
+// cost, so a cost cap cannot treat it as free.
+func TestUnpricedProviderToolWorkWithoutUsageIsCostUnknown(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	client := &unpricedProviderToolCancelClient{cancel: cancel}
+	out, err := (Runner{Client: client}).Run(ctx, Turn{ID: "cut"}, startInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := out.Turn.View()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Spend.Usage.Requests[llm.MeterUnreported] != 1 || view.Spend.CostUnknown != 1 {
+		t.Fatalf("spend=%+v", view.Spend)
+	}
+}
+
 func TestUncheckableCostReasonNamesEachCause(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

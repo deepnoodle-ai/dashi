@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **An unpriced model call that ran provider tools counts as unknown
+  cost,** even when the provider reported no usage, so a cost cap no longer
+  treats that work as free.
+- **The next call's cost estimate bounds `max_tokens` by the output tokens
+  left in the budget,** as the runner does before sending, so steers and
+  hook messages are not refused for a call that would fit.
+- **The task budget sends `Remaining` after any active compaction,** even
+  one whose replaced messages counted no tokens.
+- **`Agent.Validate` checks `Agent.Settings`.** A NaN or infinite
+  temperature, a negative `MaxTokens`, or an invalid task budget now fails
+  at Start instead of at every model call.
+
 ## [0.10.0] - 2026-10-23
 
 ### Added
