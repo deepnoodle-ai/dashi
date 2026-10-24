@@ -3,7 +3,7 @@ module github.com/deepnoodle-ai/dashi/mcp
 go 1.27
 
 require (
-	github.com/deepnoodle-ai/dashi v0.11.0
+	github.com/deepnoodle-ai/dashi v0.12.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 )
 

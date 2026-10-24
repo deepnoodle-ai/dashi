@@ -3,9 +3,9 @@ module github.com/deepnoodle-ai/dashi/cmd/dashi
 go 1.27
 
 require (
-	github.com/deepnoodle-ai/dashi v0.11.0
-	github.com/deepnoodle-ai/dashi/mcp v0.11.0
-	github.com/deepnoodle-ai/dashi/providers/google/gemini v0.11.0
+	github.com/deepnoodle-ai/dashi v0.12.0
+	github.com/deepnoodle-ai/dashi/mcp v0.12.0
+	github.com/deepnoodle-ai/dashi/providers/google/gemini v0.12.0
 	github.com/deepnoodle-ai/decide v0.4.0
 	github.com/deepnoodle-ai/wonton v0.8.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
