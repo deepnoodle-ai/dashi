@@ -176,13 +176,14 @@ func TestParseArgsSettingsVariables(t *testing.T) {
 	if got, err = parseArgs([]string{"--show-thinking=false"}, io.Discard); err != nil || got.Controls.ShowThinking != (preferenceField[bool]{Set: true}) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
+	// A variable goes through its flag's validator, and the error names both.
 	t.Setenv("DASHI_TEMPERATURE", "hot")
-	if _, err = parseArgs(nil, io.Discard); err == nil || !strings.HasPrefix(err.Error(), "invalid DASHI_TEMPERATURE: use a number") {
+	if _, err = parseArgs(nil, io.Discard); err == nil || !strings.Contains(err.Error(), "--temperature from environment variable DASHI_TEMPERATURE: use a number") {
 		t.Fatalf("invalid variable: %v", err)
 	}
 	t.Setenv("DASHI_TEMPERATURE", "")
 	t.Setenv("DASHI_COMPACTION_THRESHOLD", "-1")
-	if _, err = parseArgs(nil, io.Discard); err == nil || !strings.HasPrefix(err.Error(), "invalid DASHI_COMPACTION_THRESHOLD") {
+	if _, err = parseArgs(nil, io.Discard); err == nil || !strings.Contains(err.Error(), "environment variable DASHI_COMPACTION_THRESHOLD: use a whole number") {
 		t.Fatalf("invalid variable: %v", err)
 	}
 	t.Setenv("DASHI_COMPACTION_THRESHOLD", "")

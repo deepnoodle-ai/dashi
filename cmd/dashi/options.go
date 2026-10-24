@@ -229,9 +229,9 @@ func agentFlags() []cli.Flag {
 	}
 }
 
-// validateAgent checks the rules that span the agent flags, and the
-// controls that came from DASHI_* variables, which Wonton does not pass to
-// a flag's own validator.
+// validateAgent checks the rules that span the agent flags. Each flag's
+// validator also checks a value from its DASHI_* variable, so the value
+// checks here are a fallback.
 func validateAgent(ctx *cli.Context) error {
 	if ctx.Bool("continue") && ctx.IsSet("resume") {
 		return errors.New("--continue and --resume cannot be combined")
@@ -271,9 +271,9 @@ func agentOptions(ctx *cli.Context) Options {
 	return o
 }
 
-// compactionThreshold reads --compaction-threshold. A flag's value has
-// passed its validator, so an invalid value here came from
-// DASHI_COMPACTION_THRESHOLD. An empty variable sets nothing.
+// compactionThreshold reads --compaction-threshold. The flag's validator
+// has checked its value, including one from DASHI_COMPACTION_THRESHOLD, so
+// the error here is a fallback. An empty variable sets nothing.
 func compactionThreshold(ctx *cli.Context) (int, error) {
 	value := ctx.String("compaction-threshold")
 	if !ctx.IsSet("compaction-threshold") || value == "" {
@@ -294,9 +294,9 @@ func compactionThresholdSyntax(value string) error {
 	return nil
 }
 
-// controls reads the generation control flags. A flag's value has passed
-// its validator, so an invalid value here came from its variable. An empty
-// variable sets nothing.
+// controls reads the generation control flags. Each flag's validator has
+// checked its value, including one from its variable, so the error here is
+// a fallback. An empty variable sets nothing.
 func controls(ctx *cli.Context) (generationPreferences, error) {
 	var p generationPreferences
 	for _, c := range controlFlags {
