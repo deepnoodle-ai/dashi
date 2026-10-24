@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -400,6 +401,76 @@ func TestSessionCommandConflict(t *testing.T) {
 			requireTurns(t, rec, 1)
 		})
 	}
+}
+
+// TestSessionCommandMatchesCallerInputExactly reuses a command ID with
+// input that is only part of the recorded input. The session recorded how
+// many queued items it put ahead of the caller's input, so it compares the
+// caller's input exactly: the same input is a retry, while a suffix, no
+// input, or the queued items plus the input are ErrCommandIDReused.
+func TestSessionCommandMatchesCallerInputExactly(t *testing.T) {
+	start := func(texts ...string) dashi.Start {
+		c := dashi.Start{CommandID: "k"}
+		for _, text := range texts {
+			c.Input = append(c.Input, llm.UserMessage(llm.Text(text)))
+		}
+		return c
+	}
+	t.Run("suffix or no input", func(t *testing.T) {
+		rec := dashi.NewMemoryRecorder()
+		client := dashitest.NewClient(dashitest.Reply("first"))
+		s := handle(rec, client)
+		s.New = true
+		if _, err := s.Run(t.Context(), start("a", "b")); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []dashi.Start{start("b"), start()} {
+			if _, err := s.Run(t.Context(), c); !errors.Is(err, dashi.ErrCommandIDReused) {
+				t.Fatalf("input %d messages: err = %v; want ErrCommandIDReused", len(c.Input), err)
+			}
+		}
+		if out, err := s.Run(t.Context(), start("a", "b")); err != nil || out.Reply != "first" {
+			t.Fatalf("retry: %v, reply %q", err, out.Reply)
+		}
+		requireTurns(t, rec, 1)
+	})
+	t.Run("after queued input", func(t *testing.T) {
+		rec := dashi.NewMemoryRecorder()
+		client := dashitest.NewClient(dashitest.Reply("first"))
+		s := handle(rec, client)
+		s.New = true
+		if _, err := s.Enqueue(t.Context(), "queued"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Run(t.Context(), start("hello")); err != nil {
+			t.Fatal(err)
+		}
+		if got := input(t, rec, "s-1"); !slices.Equal(got, []string{"queued", "hello"}) {
+			t.Fatalf("s-1 input=%q", got)
+		}
+		if out, err := s.Run(t.Context(), start("hello")); err != nil || out.Reply != "first" {
+			t.Fatalf("retry: %v, reply %q", err, out.Reply)
+		}
+		for _, c := range []dashi.Start{start("queued", "hello"), start()} {
+			if _, err := s.Run(t.Context(), c); !errors.Is(err, dashi.ErrCommandIDReused) {
+				t.Fatalf("input %d messages: err = %v; want ErrCommandIDReused", len(c.Input), err)
+			}
+		}
+		if n := len(client.Inputs()); n != 1 {
+			t.Fatalf("model calls = %d; want 1", n)
+		}
+		requireTurns(t, rec, 1)
+	})
+	t.Run("caller sets QueuedInput", func(t *testing.T) {
+		s := handle(dashi.NewMemoryRecorder(), dashitest.NewClient())
+		s.New = true
+		c := start("a")
+		c.QueuedInput = 1
+		if _, err := s.Run(t.Context(), c); err == nil ||
+			!strings.Contains(err.Error(), "QueuedInput") {
+			t.Fatalf("err = %v; want the QueuedInput error", err)
+		}
+	})
 }
 
 // TestSessionRunningOnThisHandle refuses a second Start on the handle that

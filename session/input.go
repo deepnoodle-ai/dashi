@@ -572,9 +572,10 @@ func (s *Session) planQueue(
 	slices.Sort(ids)
 	key, _ := json.Marshal(ids)
 	c := dashi.Start{
-		CommandID: "queue:" + string(key),
-		Origin:    origin,
-		Input:     itemMessages(items),
+		CommandID:   "queue:" + string(key),
+		Origin:      origin,
+		Input:       itemMessages(items),
+		QueuedInput: len(items),
 	}
 	used, err := s.usedKey(ctx, c.CommandID, last)
 	if err != nil {

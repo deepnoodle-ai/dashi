@@ -40,6 +40,12 @@ type Start struct {
 	// History is caller-owned prior conversation and is not stored in the turn.
 	History []llm.Message `json:"history,omitempty"`
 	Input   []llm.Message `json:"input,omitempty"`
+	// QueuedInput counts the leading Input messages a host took from its
+	// own queue and put ahead of the caller's input, as session.Session
+	// does with queued user input. Dashi records it so the host can tell
+	// the caller's input apart later; it does not change the turn. It must
+	// not exceed len(Input).
+	QueuedInput int `json:"queued_input,omitempty"`
 	// Items are context items, such as reminders, that the Start step
 	// records with Input. The first model request sends them after Input,
 	// and later requests keep them like items an AddMessages adds. They are

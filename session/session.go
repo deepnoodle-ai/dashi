@@ -357,6 +357,11 @@ func checkCommand(c dashi.Command) error {
 				"session: compaction turns are started by the session's Compactor",
 			)
 		}
+		if c.QueuedInput != 0 {
+			return errors.New(
+				"session: QueuedInput is set by the session for the queued input it adds",
+			)
+		}
 	}
 	return nil
 }
@@ -596,6 +601,7 @@ func (s *Session) planStart(
 	// items run as a queue turn afterwards.
 	if items := s.free(fromUser); len(items) > 0 {
 		c.Input = append(itemMessages(items), c.Input...)
+		c.QueuedInput = len(items)
 		p.reserved = s.reserve(items, c.CommandID, last+1)
 	}
 	p.n, p.id, p.command, p.runner = last+1, TurnID(s.ID, last+1), c, s.runner()
@@ -661,7 +667,7 @@ func (s *Session) duplicate(
 		}
 		start := t.turn.Steps[0]
 		if start.CommandID == c.CommandID {
-			if !sameInputTail(start.Started.Input, c.Input) {
+			if !sameCallerInput(*start.Started, c.Input) {
 				return nil, fmt.Errorf(
 					"%w: command %s started turn %s with other input",
 					dashi.ErrCommandIDReused,
@@ -886,13 +892,16 @@ func (s *Session) withMemoryWarningLocked(out dashi.RunResult) dashi.RunResult {
 	return out
 }
 
-// sameInputTail reports whether recorded ends with input by JSON meaning.
-// Queued user items the session put ahead of a caller's input come first.
-func sameInputTail(recorded, input []llm.Message) bool {
-	if len(input) > len(recorded) {
+// sameCallerInput reports whether a recorded start's input, without the
+// queued user items the session put ahead of it (QueuedInput), is input
+// by JSON meaning.
+func sameCallerInput(started dashi.StartFact, input []llm.Message) bool {
+	n := min(max(started.QueuedInput, 0), len(started.Input))
+	recorded := started.Input[n:]
+	if len(recorded) != len(input) {
 		return false
 	}
-	return canonjson.SameValue(recorded[len(recorded)-len(input):], input)
+	return len(input) == 0 || canonjson.SameValue(recorded, input)
 }
 
 // internalKey reports whether a Start's command ID marks one of the

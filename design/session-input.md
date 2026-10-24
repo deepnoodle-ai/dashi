@@ -97,7 +97,9 @@ today. The compaction check runs before a queue turn as before any turn.
 A caller's **`Start` on an idle session** with items queued reserves the
 user-origin items and puts their messages ahead of its `Input`, since the user
 typed them first. This is the CLI's behavior: leftovers join the next prompt
-(`cmd/dashi/control.go`). Items of other origins, such as delegate notices, stay
+(`cmd/dashi/control.go`). `Start.QueuedInput` records how many messages it put
+ahead, so a retry with the same command ID compares the caller's input exactly.
+Items of other origins, such as delegate notices, stay
 queued and run as a queue turn afterwards, so the `queue:` key keeps their IDs
 in the record for the notice-delivery rule below.
 

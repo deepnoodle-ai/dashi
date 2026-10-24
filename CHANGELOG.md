@@ -27,6 +27,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`delegate.Tasks.Run` continues later child turns with their history,**
   and a retried `Continue` that sets `OnHistoryMismatch` is a retry, not a
   reused command ID.
+- **A reused session command ID must repeat the caller's input exactly.**
+  `Start.QueuedInput` records how many queued user messages a
+  `session.Session` put ahead of the caller's input, so a Start whose input
+  is only a suffix of the recorded input, or empty, is `ErrCommandIDReused`
+  rather than a retry.
 - **`filerecorder.Recorder.Wait` sees a commit that replaces a torn tail of
   the same length,** and lock waits report `context.Canceled` rather than
   the context's cause.
