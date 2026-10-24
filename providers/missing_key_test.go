@@ -75,9 +75,16 @@ func TestMissingAPIKeyFailsAtSendBeforeDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Prepare without a key: %v", err)
 			}
-			_, err = client.Send(t.Context(), llm.Call{Request: request})
+			result, err := client.Send(t.Context(), llm.Call{Request: request})
 			if !errors.Is(err, llm.ErrNoAPIKey) {
 				t.Fatalf("Send error = %v, want ErrNoAPIKey", err)
+			}
+			// The result still names what was requested, as any failed
+			// call's does.
+			if result.Requested.Model != request.Input().Model ||
+				result.Requested.Provider == "" ||
+				result.Message.Role != llm.RoleAssistant {
+				t.Fatalf("Send result = %+v", result)
 			}
 			e, ok := errors.AsType[*llm.Error](err)
 			if !ok || e.Category != llm.ErrorAuthentication ||

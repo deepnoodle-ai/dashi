@@ -161,6 +161,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **OpenAI strict output schemas check enum values against their type.** An
   enum value the node's type cannot hold, or an enum on an object or array,
   fails `Prepare` instead of the request.
+- **Gemini tools with no arguments work.** Gemini omits `args`, or sends
+  null, when it calls such a tool. The call now carries `{}`, so the tool runs
+  and the next request replays the call.
+- **Gemini streams keep every part.** A code-execution part that carries a
+  thought signature after text is no longer merged into the text and lost. A
+  stream whose response fails to decode reports a protocol error instead of
+  an empty result. Delta indexes on both stream paths now match the parts of
+  the final message.
+- **Gemini errors are classified like other providers' errors.** The status,
+  `Reason`, and `RetryAfter` come from the HTTP response, whatever shape its
+  body has, so a context overflow in an array or plain-text body now reports
+  `ReasonContextWindowExceeded`. A call canceled before dispatch reports
+  `SendStatusNotSent`. An error inside a stream Google accepted is no longer
+  `SendStatusProviderRejected`. Only a call that was definitely not sent has
+  no `Stop.Kind`; a connection dropped after dispatch keeps
+  `StopIncomplete`.
+- **Gemini results invent no provenance.** An empty response has no
+  `Message.Source`, and `Served` stays empty when Google names no model.
+- **Gemini rejects tool calls left unanswered before the next model turn**
+  at `Prepare`, instead of sending a history Google rejects.
+- **Gemini calls have HTTP timeouts like the other providers.**
+  `gemini.Config` has a `Timeouts llm.HTTPTimeouts` field. The zero value
+  bounds each call to five minutes. A supplied `Client` with a nil `Total`
+  keeps only its own timeouts, and an explicit zero `Total` removes the bound.
+  Timeouts report `ReasonResponseStartTimeout`, `ReasonStreamIdleTimeout`, or
+  `ReasonCallTimeout`.
+- **Vertex AI uses the right host for the `us` and `eu` multi-regions**, and
+  sends the credential's quota project as `X-Goog-User-Project`.
+- **A missing API key keeps the result's facts.** Gemini, Grok, Meta,
+  DeepInfra, Mistral, and OpenRouter return a result that names the requested
+  model and repeats the request's warnings. Gemini media errors name the
+  configured provider. DeepInfra's `Prepare` reports cancellation and invalid
+  input before its document check.
 
 ## [0.11.0] - 2026-10-23
 

@@ -17,11 +17,20 @@ func TestMissingAPIKeyFailsAtSend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New without a key: %v", err)
 	}
-	_, err = client.Send(t.Context(), llm.Call{})
+	request, err := client.Prepare(t.Context(), sampleInput(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Send(t.Context(), llm.Call{Request: request})
 	e, ok := errors.AsType[*llm.Error](err)
 	if !errors.Is(err, llm.ErrNoAPIKey) || !ok ||
 		e.SendStatus != llm.SendStatusNotSent {
 		t.Fatalf("Send error = %v, want a not-dispatched ErrNoAPIKey", err)
+	}
+	// The result still names what was requested, as any failed call's does.
+	if result.Requested.Model != "gemini-test" ||
+		result.Message.Role != llm.RoleAssistant {
+		t.Fatalf("result = %+v", result)
 	}
 	custom, err := New(Config{Client: &http.Client{}})
 	if err != nil {
@@ -42,6 +51,15 @@ func TestMediaMissingAPIKeyFailsAtSend(t *testing.T) {
 	_, err = mediaClient.do(t.Context(), http.MethodPost, DefaultImageEndpoint, nil, "", 1, false)
 	if !errors.Is(err, llm.ErrNoAPIKey) {
 		t.Fatalf("media send error = %v, want ErrNoAPIKey", err)
+	}
+	// The error names the configured destination.
+	named, err := NewMedia(MediaConfig{Provider: "google-media"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = named.do(t.Context(), http.MethodPost, DefaultImageEndpoint, nil, "", 1, false)
+	if e, ok := errors.AsType[*media.Error](err); !ok || e.Provider != "google-media" {
+		t.Fatalf("media send error = %#v, want provider google-media", err)
 	}
 	interactions, err := NewInteractionsMedia(InteractionsMediaConfig{})
 	if err != nil {

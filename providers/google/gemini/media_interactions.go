@@ -97,6 +97,7 @@ func NewInteractionsMedia(
 	p := &InteractionsMediaClient{
 		config: config,
 		noKey: mediaNoKey(
+			config.Provider,
 			config.APIKey,
 			config.Endpoint == DefaultInteractionsEndpoint &&
 				config.Client == nil,

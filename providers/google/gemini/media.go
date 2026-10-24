@@ -262,6 +262,7 @@ func (p *MediaClient) do(
 	// Image and video endpoints are configured separately, so the key check
 	// follows the endpoint this operation actually calls.
 	if err := mediaNoKey(
+		p.Provider(),
 		p.config.APIKey,
 		p.config.Client == nil && publicGeminiHost(endpoint),
 	); err != nil {
@@ -403,12 +404,12 @@ func publicGeminiHost(endpoint string) bool {
 
 // mediaNoKey returns the error a media send reports when the public
 // endpoint has no key, or nil. Construction and preparation still succeed.
-func mediaNoKey(key string, public bool) error {
+func mediaNoKey(provider, key string, public bool) error {
 	if key != "" || !public {
 		return nil
 	}
 	return &media.Error{
-		Provider: "google",
+		Provider: provider,
 		Category: media.ErrorAuthentication,
 		Cause: fmt.Errorf(
 			"%w: set GEMINI_API_KEY or GOOGLE_API_KEY or Config.APIKey",
