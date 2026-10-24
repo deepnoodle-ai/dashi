@@ -182,7 +182,10 @@ func (s *replayState) apply(step Step) error {
 		if s.resumeCounts() {
 			s.Resumes++
 		}
-		if s.Stop.Kind == StopFailed {
+		// Continue after a recorded stop retries a failed model call, even
+		// when the run was interrupted before it recorded the failure. A
+		// crashed run recorded no stop, so Continue records the failure.
+		if s.Stop.Kind != "" {
 			s.failedModel = ""
 		}
 		s.Stop = Stop{}
@@ -384,6 +387,9 @@ func (s *replayState) apply(step Step) error {
 				step.Model.Error == "") {
 			return errors.New("host-supplied model result without an unknown-result call")
 		}
+		if step.Model.Interrupted != InterruptNone || step.Model.ResultUnknown {
+			return errors.New("host-supplied model result cannot be interrupted or unknown")
+		}
 		if err := validateModelAccounting(step.Model); err != nil {
 			return err
 		}
@@ -392,9 +398,16 @@ func (s *replayState) apply(step Step) error {
 		}
 		s.unresolvedModel = ""
 		s.modelFinishes[step.Model.ModelCallID] = step.Model
+		summary := s.startedModelCalls[step.Model.ModelCallID].Purpose == ModelPurposeCompaction
+		// A summary call's result without a usable summary is a failed
+		// summary, which needs no proof of nonexecution.
+		failedSummary := summary && step.Model.Error != "" && step.Model.Result != nil
+		if failedSummary && s.unresolvedInterrupted {
+			s.ModelCalls++
+		}
 		// Proof that the call was never sent clears the unknown result;
 		// Continue may retry.
-		if step.Model.Error != "" &&
+		if step.Model.Error != "" && !failedSummary &&
 			(step.Model.Result != nil || s.unresolvedPartial ||
 				(step.Model.SendStatus != llm.SendStatusProviderRejected &&
 					step.Model.SendStatus != llm.SendStatusNotSent) ||

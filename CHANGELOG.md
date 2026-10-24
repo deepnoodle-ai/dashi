@@ -8,6 +8,127 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Gemini Live sessions report only real responses.** An interruption or
+  turn end with no response in progress no longer sends `EventInterrupted`
+  or `EventResponseCompleted` for the previous response, and does not drop
+  the next response's audio. Tool calls that arrive after an interruption
+  are discarded with the rest of that turn.
+- **Grok voice `CommandRespond` no longer gets stuck.** A provider error
+  after `response.create` lets the caller ask again, and speech before the
+  new response starts no longer interrupts the finished one.
+  `CommandInterrupt` sent after `CommandRespond` but before the response
+  starts now cancels the requested response.
+- **Realtime sessions survive an expired call context.** A `Send` or
+  `Receive` whose context expires while it waits for another call, or after a
+  frame that produced no event, returns `ErrorCanceled` and keeps the
+  session. After a session fails, `Receive` returns `ErrClosed` instead of
+  events queued before the failure.
+- **Realtime setup timeouts are transport errors.** A provider that never
+  acknowledges setup within 20 seconds is `ErrorTransport`, not
+  `ErrorCanceled`.
+- **Media responses with `"usage": null` are accepted.** Gemini media, Grok
+  Imagine, and OpenAI Images treat it as unreported usage instead of failing
+  with `ErrorProtocol`. Provider packages use the new `media.ReportedUsage`
+  to fill `RawUsage`.
+- **Grok Imagine checks more of what it sends and receives.** `SubmitVideo`
+  reports `SubmissionRejected` for failures before dispatch, such as a
+  missing key or canceled context. `PollVideo` rejects the job IDs `.` and
+  `..`. Image responses with a non-image `mime_type` fail, a zero or
+  pre-1970 output expiry counts as no expiry, and preparing an image with a
+  catalog video model (or the reverse) fails with `ErrorUnsupported`.
+- **OpenAI Images rejects catalog models without image capabilities**, and
+  OpenAI speech reports a call canceled while reading an error response as
+  `ErrorCanceled`.
+- **Resolve refuses a model result the turn would reject before saving it,**
+  at any stop, not only at an open limited stop. A partly streamed call
+  resolved as a failure, or a result that repeats a tool call ID, no longer
+  reaches a recorder that does not check what it stores.
+- **A summary call can be resolved with a result that holds no usable
+  summary.** Resolve records it as a failed summary, as the runner does, so
+  Continue retries it or falls back instead of leaving the turn stuck at
+  `StopResultUnknown`.
+- **A hook or recorder that stops a turn at a cost or token limit the
+  turn's budget does not set no longer wedges it.** The stop is a hold:
+  `Next` gives `NextFix` and `Continue` retries without a raise.
+- **Continue retries a failed model call after an interrupted stop**
+  instead of failing again with the stale error.
+- **A resumed run whose cut-off summary covers a content reference falls
+  back to a summary fallback** instead of failing the turn.
+- **Active compaction keeps a provider pause chain that asked for a
+  provider tool approval,** so the approval response is never orphaned.
+- **BeforeSend hooks see the context items BeforeModel added** for the
+  same call.
+- `Turn.Citations` copies each citation's `Location`, and a summary
+  fallback no longer repeats an assistant reply the user already answered
+  as `[your last reply]`.
+- The replay cache no longer shares a provider tool approval order between
+  copies when a provider reuses a resolved approval ID.
+- **Advance and Drive keep steers the turn did not record.** A steer that
+  arrives as the turn ends is no longer refused and deleted; it stays in the
+  inbox for the next turn (`MemoryInbox.Leftovers`). When Advance returns,
+  an `InboxReleaser` gets back the steers no run took, so `Withdraw` works
+  on them again. A steer in a write whose result is unknown comes back as
+  in doubt, never as unrecorded.
+- **A Continue from the inbox counts as Advance's own run.** Advance no
+  longer runs a second Continue, or retries a hold, right after it.
+- **Active compaction's size estimate never records a stop.** A content
+  reference that fails to load during the estimate no longer writes
+  `StepTurnStopped` mid-turn or breaks the turn record. If the request is
+  too large to send without compaction, the turn stops with that
+  reference's failure, not with a context-window limit.
+- **A crash right after a provider pause resumes cleanly.** The restart
+  reminder is left out while a provider tool call is unfinished, so the
+  request still ends with the paused result.
+- **BeforeModel hook settings are checked against the call they apply
+  to.** A tool choice that takes away the structured-output submission
+  tool skips the hook with `WarningHookFailed` instead of failing the turn.
+  A named tool choice on a summary or reserved final-reply call is cleared,
+  as the runner clears it, instead of failing the hook.
+- **BeforeModel items without an ID are recorded once per model call.**
+  The runner names each one from the turn, the ordinary model call, the
+  hook, and the item's position. When an urgent steer or active compaction
+  sends a pass back, or a held turn continues, the hooks' next pass no
+  longer adds the item a second time.
+- `feed.Follow` waits for the record's own `StepWaiter.Wait` before it
+  returns. A summary call's start no longer carries BeforeModel results
+  from the ordinary call it replaced. A long tool argument error is cut at
+  a rune boundary.
+- **An unpriced model call that ran provider tools counts as unknown
+  cost,** even when the provider reported no usage, so a cost cap no longer
+  treats that work as free.
+- **The next call's cost estimate bounds `max_tokens` by the output tokens
+  left in the budget,** as the runner does before sending, so steers and
+  hook messages are not refused for a call that would fit.
+- **The task budget sends `Remaining` after any active compaction,** even
+  one whose replaced messages counted no tokens.
+- **`Agent.Validate` checks `Agent.Settings`.** A NaN or infinite
+  temperature, a negative `MaxTokens`, or an invalid task budget now fails
+  at Start instead of at every model call.
+- **`edit_file` edits CRLF files.** A multi-line `old_string` copied from
+  `read_file` uses `\n`; the edit now matches the file's `\r\n` lines and keeps
+  them.
+- **Edit previews show final-newline changes and hide `\r`.** The diff marks a
+  last line with no newline, as git does, and drops `\r` from CRLF lines.
+- **`grep` refuses a bad glob without rg too**, and `glob` no longer stalls on
+  repeated `**` segments.
+- **`toolcheck` reads every case variant of the `command` key.** Decoders
+  differ on which of `"command"`, `"Command"`, or a repeated key they run, so
+  `CommandRisk` and `PromptInjection` now check all of them, and a case alias
+  can no longer hide the command a shell runs.
+- **`judge_items` validates Decide answers** even when the host's client turns
+  validation off, so an out-of-range probability fails its item.
+- **`turnwatch` sees its earlier reminders after a summary** replaced the tool
+  calls before them.
+- **`contextrank` marks a candidate whose content is not valid UTF-8 as
+  invalid**, instead of the runner refusing every chosen item.
+- **MCP keeps the transport the user approved.** An entry with a command and a
+  url stays stdio when the command is an unset variable; it fails instead.
+- **MCP `Refresh` with an ended context keeps a failed server's error and
+  stderr**, and a tool-list change that arrives during a listing stays marked.
+- **Mentions keep the line reference of a quoted path.** `@"main.go:42"`
+  becomes `[file: main.go]:42` instead of garbled text.
+- **`mention.ReadFile` reports a size limit below the file signature as too
+  large**, not as a signature mismatch.
 - **A cut-off OpenAI Chat Completions stream no longer returns runnable tool
   calls.** Every tool call in a stream that ended before its finish reason is
   partial opaque content, even when its arguments happen to be valid JSON.

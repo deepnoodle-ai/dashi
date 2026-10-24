@@ -386,6 +386,18 @@ func TestExpandLineReferenceAttachesFile(t *testing.T) {
 	}
 }
 
+// In a quoted mention the line reference sits inside the quotes. The whole
+// token becomes the label, with the reference after it.
+func TestExpandQuotedLineReference(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "main.go"), []byte("package main"))
+
+	res := Expand(`see @"main.go:42" now`, Options{Root: root})
+	if len(res.Blocks) != 1 || res.Text != "see [file: main.go]:42 now" {
+		t.Fatalf("blocks = %d, text = %q", len(res.Blocks), res.Text)
+	}
+}
+
 func TestExpandMentionInBackticksOrQuotesAttaches(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, "a.go"), []byte("package a"))

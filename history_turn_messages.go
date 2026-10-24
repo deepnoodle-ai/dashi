@@ -142,8 +142,10 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 		case StepTurnContinued:
 			// The reminder is for the next dispatched model call only, and
 			// one is enough however many crashes came before that call. An
-			// ended turn makes none.
-			if step.Seq == resumed && !ended && lastDispatched <= step.Seq {
+			// ended turn makes none. A provider pause that left a provider
+			// tool call unfinished makes none either: the next request must
+			// end with that paused result.
+			if step.Seq == resumed && !ended && lastDispatched <= step.Seq && !state.pausedProviderTool {
 				emit(crashResumeReminder())
 			}
 		case StepTurnStarted, StepMessagesAdded, StepLoopContinued, StepToolFinished:
