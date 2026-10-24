@@ -270,8 +270,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   later stop gets a `TaskEnded` event and a notice of its own, whose ID is
   the new `TaskView.NoticeID`; `task_status` records that ID as delivered.
   Format change: the `task_status` outcome field `delivered_turn_id` is now
-  `delivered_notice_id`, and a read recorded by 0.10.0 no longer counts as
-  delivered, so `Recover` may send that notice again.
+  `delivered_notice_id`, and a read recorded by 0.10.0 or 0.11.0 no longer
+  counts as delivered, so `Recover` may send that notice again.
   The explicit run also reads the child's inbox, and mail it leaves unread
   starts the next turn, as after any turn.
 - **A reused session command ID must repeat the caller's input exactly.**
