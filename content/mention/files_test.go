@@ -100,6 +100,13 @@ func TestSelectedContentAndLimits(t *testing.T) {
 	if _, err := ReadFile(t.TempDir(), Options{}); err == nil {
 		t.Fatal("directory accepted")
 	}
+	// A limit shorter than the file signature still reports the size, not
+	// a signature mismatch.
+	path := filepath.Join(t.TempDir(), "small.png")
+	os.WriteFile(path, []byte("\x89PNG\r\n\x1a\n"+strings.Repeat("\x00", 32)), 0o600)
+	if _, err := ReadFile(path, Options{MaxImageBytes: 4}); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("err=%v", err)
+	}
 }
 
 type cancelRead struct {

@@ -549,6 +549,26 @@ func TestJudgeItemsKeepsTheOtherItemsWhenSomeFail(t *testing.T) {
 	}
 }
 
+// An answer out of [0, 1] fails its item even when the host's client does
+// not validate answers, so it cannot skew the scores and order.
+func TestJudgeItemsValidatesAnswersWhenTheClientDoesNot(t *testing.T) {
+	srv, _ := newFakeDecide(t)
+	client := srv.Client(t, decide.WithMaxRetries(0), decide.WithValidation(false))
+	list := &fakeList{name: "tickets", entries: []entry{
+		{"T-001", "billing=0.98 urgent=0.95"},
+		{"T-002", "billing=1.5 urgent=0.9"},
+	}}
+	judge := newJudge(t, listtool.Config{Client: client, Lists: []listtool.AnyList{list.list()}})
+	o, err := call(t, context.Background(), judge, billingUrgent)
+	if err != nil || o.State != tool.StateSucceeded {
+		t.Fatalf("outcome %+v, error %v", o, err)
+	}
+	if !strings.Contains(text(o), "Matching billing=yes, urgent=yes: 1 item") ||
+		!strings.Contains(text(o), "Failed: 1. T-002: ") {
+		t.Errorf("result:\n%s", text(o))
+	}
+}
+
 func TestJudgeItemsFailsWhenDecideIsDown(t *testing.T) {
 	srv, client := newFakeDecide(t)
 	srv.FailNext(503)

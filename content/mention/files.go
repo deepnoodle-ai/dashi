@@ -105,23 +105,10 @@ func ReadFileContext(ctx context.Context, path string, opt Options) (File, error
 		return File{}, fmt.Errorf("mention: select a regular file")
 	}
 	o := opt.withDefaults()
-	// Sniff once from this descriptor. Limit the sniff even for small custom
-	// limits; all subsequent reads continue from this same descriptor.
-	headerLimit := int64(sniffBytes)
-	sniffLimits := []int64{o.MaxImageBytes, o.MaxFileBytes, o.MaxTextBytes}
-	if ext, known := knownExtension(canonical); known {
-		if ext == ".pdf" {
-			sniffLimits = []int64{o.MaxFileBytes}
-		} else {
-			sniffLimits = []int64{o.MaxImageBytes}
-		}
-	}
-	for _, limit := range sniffLimits {
-		if limit >= 0 && limit < headerLimit {
-			headerLimit = limit + 1
-		}
-	}
-	data, err := readSelected(ctx, f, headerLimit)
+	// Sniff once from this descriptor; all later reads continue from it.
+	// The sniff reads its full length even under a smaller custom limit, so
+	// a file signature is not cut short; the size checks below still apply.
+	data, err := readSelected(ctx, f, sniffBytes)
 	if err != nil {
 		return File{}, err
 	}

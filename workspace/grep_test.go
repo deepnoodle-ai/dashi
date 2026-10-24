@@ -22,6 +22,12 @@ func TestGoSearchRefusesHugeBraceGlobAndStopsWhenCanceled(t *testing.T) {
 	wantState(t, out, text, tool.StateFailed)
 	wantContains(t, text, "fewer {a,b} groups")
 
+	// rg refuses a glob with bad syntax, so the Go search must too.
+	out, _ = grep(context.Background(), s, "", grepArgs{Pattern: "hit", Glob: "[unclosed"})
+	text = out.Output.Content[0].Text.Text
+	wantState(t, out, text, tool.StateFailed)
+	wantContains(t, text, "is not valid")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	out, _ = grep(ctx, s, "", grepArgs{Pattern: "hit"})

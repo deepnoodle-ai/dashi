@@ -21,6 +21,24 @@ func TestUnifiedDiffSplitsDistantChanges(t *testing.T) {
 	}
 }
 
+func TestUnifiedDiffShowsTheFinalNewline(t *testing.T) {
+	want := "--- x\n+++ x\n@@ -1,1 +1,1 @@\n-hello\n\\ No newline at end of file\n+hello"
+	if got := unifiedDiff("x", "hello", "hello\n"); got != want {
+		t.Fatalf("diff:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestUnifiedDiffDropsCarriageReturns(t *testing.T) {
+	want := "--- x\n+++ x\n@@ -1,2 +1,2 @@\n a\n-b\n+B"
+	if got := unifiedDiff("x", "a\r\nb\r\n", "a\r\nB\r\n"); got != want {
+		t.Fatalf("diff:\n%q\nwant:\n%q", got, want)
+	}
+	want = "--- x\n+++ x\n(only line endings differ)"
+	if got := unifiedDiff("x", "a\r\nb\r\n", "a\nb\n"); got != want {
+		t.Fatalf("diff:\n%q\nwant:\n%q", got, want)
+	}
+}
+
 func TestUnifiedDiffForNewFileAndNoChange(t *testing.T) {
 	if got := unifiedDiff("x", "same", "same"); got != "" {
 		t.Fatalf("diff = %q", got)

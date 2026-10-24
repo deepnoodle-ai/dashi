@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -50,6 +51,44 @@ func TestGlobRefusesHugeBraceExpansion(t *testing.T) {
 	out, text := call(t, list, ToolGlob, map[string]any{"pattern": strings.Repeat("{a,b}", 30)})
 	wantState(t, out, text, tool.StateFailed)
 	wantContains(t, text, "fewer {a,b} groups")
+}
+
+// Repeated ** segments match like one, without backtracking through every
+// way to split the path among them.
+func TestMatchGlobCollapsesRepeatedDoubleStars(t *testing.T) {
+	pattern := strings.Repeat("**/", 40) + "x"
+	name := strings.Repeat("d/", 40) + "y"
+	done := make(chan bool)
+	go func() { done <- matchGlob(pattern, name) }()
+	select {
+	case got := <-done:
+		if got {
+			t.Fatal("matched a name that does not end in x")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("matchGlob did not finish")
+	}
+	if !matchGlob(pattern, "d/e/x") || !matchGlob("a/**/**/b", "a/b") {
+		t.Fatal("collapsed pattern lost a match")
+	}
+}
+
+func TestMatchGlobDoesNotBacktrackOnSeparateDoubleStars(t *testing.T) {
+	pattern := strings.Repeat("**/a/", 7) + "x"
+	name := strings.TrimSuffix(strings.Repeat("a/", 60), "/")
+	done := make(chan bool)
+	go func() { done <- matchGlob(pattern, name) }()
+	select {
+	case got := <-done:
+		if got {
+			t.Fatal("matched a name that does not end in x")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("matchGlob did not finish")
+	}
+	if !matchGlob(pattern, name+"/x") || !matchGlob("**/a/**/b", "a/c/b") || matchGlob("**/a/**/b", "c/b") {
+		t.Fatal("memoized matching changed a result")
+	}
 }
 
 func TestGlobStopsWhenCanceled(t *testing.T) {
