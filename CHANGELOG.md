@@ -224,6 +224,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   it does for a live call: a recorded approval decision has no field for it.
 - **`--turn-events` with redirected input now fails with a hint to add
   `--plain`**, instead of being ignored.
+- **CLI attachment drafts survive more edits.** A slash command written in the
+  external editor (Ctrl+G) no longer clears the draft's staged `@` mentions.
+  `/attach PATH:START-END` on a file already mentioned in the draft keeps its
+  line range once the mention text is removed.
+- **Clearing the composer keeps staged `@` mentions.** After Ctrl+U you can
+  run a slash command such as `/attachments` and get the draft back, or type
+  a new prompt that the mentioned files go with. Enter on the cleared line
+  sends nothing and shows a hint. A submit or `/detach` drops the mentions.
+  Enter on an empty composer after `/attach` still sends the selections
+  alone.
 
 ## [0.11.0] - 2026-10-23
 

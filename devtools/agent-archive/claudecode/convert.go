@@ -23,41 +23,67 @@ const (
 const metaReminderName = "claude-code-meta"
 
 // Convert returns one agent's lines of a session as Dashi messages; agentID
-// is empty for the root. copies are every current copy of the session. The
-// error is only for a copy that cannot be read or an agent with no copy.
+// is empty for the root. copies are every current copy of the session; an
+// agent with several copies is converted in start order. The error is only
+// for a copy that cannot be read or an agent with no copy.
 func Convert(copies []sessionfile.Copy, agentID string) (sessionfile.Transcript, error) {
 	t := sessionfile.Transcript{SkippedLines: map[string]int{}, ChangedBlocks: map[string]int{}}
 	cls, err := readSession(copies)
 	if err != nil {
 		return t, err
 	}
-	idx := slices.IndexFunc(cls, func(cl *copyLines) bool { return cl.AgentID == agentID })
-	if idx < 0 {
+	if !slices.ContainsFunc(cls, func(cl *copyLines) bool { return cl.AgentID == agentID }) {
 		return t, fmt.Errorf("no copy of agent %q in this session", agentID)
 	}
-	cl := cls[idx]
-	inherited := inheritedUUIDs(cls)[idx]
-	// Usage of a model call goes to the earliest-started agent that has it,
+	inherited := inheritedUUIDs(cls)
+	// Usage of a model call goes to the earliest-started copy that has it,
 	// as in Parse.
 	counted := map[string]bool{}
-	for _, p := range cls[:idx] {
-		for _, mc := range p.calls {
-			claimUsage(mc, counted)
-		}
-	}
 	cv := &converter{t: &t, changed: sessionfile.Counts(t.ChangedBlocks), counted: counted}
+	claimed := 0
+	for idx, cl := range cls {
+		if cl.AgentID != agentID {
+			continue
+		}
+		for ; claimed < idx; claimed++ {
+			for _, mc := range cls[claimed].calls {
+				claimUsage(mc, counted)
+			}
+		}
+		cv.forkContext(cls, idx)
+		cv.convert(cl, cl.final, inherited[idx], false)
+		sessionfile.Counts(t.SkippedLines).Merge(cl.skipped)
+	}
+	return t, nil
+}
 
-	// A fork by reference starts with its parent's conversation.
-	for _, l := range cl.Lines {
+// forkContext adds the parent's conversation that a fork by reference
+// starts with. The parent is looked up in every other copy, so a parent
+// without a start time is found too. When several copies of the agent
+// fork, a parent line is added only the first time. A copy that forks at a
+// later parent line gets the parent lines it adds just before its own
+// messages, after the earlier copies: the transcript goes copy by copy in
+// start order, and each copy follows the context it started with.
+func (cv *converter) forkContext(cls []*copyLines, idx int) {
+	for _, l := range cls[idx].Lines {
 		if l.Type == "fork-context-ref" && l.ParentLastUUID != "" {
-			for _, p := range cls[:idx] {
+			for i, p := range cls {
+				if i == idx {
+					continue
+				}
 				if last := p.byUUID[l.ParentLastUUID]; last != nil {
 					// Lines written after the fork point were not in its context.
 					path := finalPath(p, last)
 					for x := range path {
-						if x.N > last.N {
+						if x.N > last.N || cv.forked[x] {
 							delete(path, x)
 						}
+					}
+					if cv.forked == nil {
+						cv.forked = map[*line]bool{}
+					}
+					for x := range path {
+						cv.forked[x] = true
 					}
 					cv.convert(p, path, nil, true)
 					break
@@ -66,16 +92,15 @@ func Convert(copies []sessionfile.Copy, agentID string) (sessionfile.Transcript,
 			break
 		}
 	}
-	cv.convert(cl, cl.final, inherited, false)
-	sessionfile.Counts(t.SkippedLines).Merge(cl.skipped)
-	return t, nil
 }
 
 type converter struct {
 	t       *sessionfile.Transcript
 	changed sessionfile.Counts
-	// counted holds model calls whose usage an earlier agent has.
+	// counted holds model calls whose usage an earlier copy has.
 	counted map[string]bool
+	// forked holds the parent lines already added as fork context.
+	forked map[*line]bool
 }
 
 func (cv *converter) add(m llm.Message, ref sessionfile.LineRef) {

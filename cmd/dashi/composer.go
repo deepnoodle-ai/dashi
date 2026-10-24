@@ -95,8 +95,7 @@ func (s *screen) editDraft() []tui.Cmd {
 			s.Emit(warnBlock("The attachment request is pending; editor return cannot change it."))
 		} else {
 			s.input = edited
-			s.attachments.setText(edited)
-			s.updateAttachmentUnsaved()
+			s.syncDraft(edited)
 		}
 	}
 	return []tui.Cmd{tui.Focus(inputID)}

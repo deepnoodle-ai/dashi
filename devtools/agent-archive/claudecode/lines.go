@@ -363,11 +363,16 @@ func readSession(copies []sessionfile.Copy) ([]*copyLines, error) {
 	return out, nil
 }
 
-// compareStart orders copies by start time, the root first on a tie, then
-// by copy id.
+// compareStart orders copies by start time, copies without one last, the
+// root first on a tie, then by copy id.
 func compareStart(a, b sessionfile.Copy) int {
 	switch {
-	case a.StartedAt != b.StartedAt && a.StartedAt != "" && b.StartedAt != "":
+	case (a.StartedAt == "") != (b.StartedAt == ""):
+		if b.StartedAt == "" {
+			return -1
+		}
+		return 1
+	case a.StartedAt != b.StartedAt:
 		if a.StartedAt < b.StartedAt {
 			return -1
 		}

@@ -43,6 +43,14 @@ func parsePending(db *sql.DB, archiveDir string) (parseSummary, error) {
 			return sum, err
 		}
 		titlesChanged = titlesChanged || p.kind == kindSessionTitles
+		if p.kind == kindSubagentMeta && !p.superseded {
+			// A new or changed .meta.json changes its subagent's facts, so
+			// pass 2 parses that subagent's session again.
+			if _, err := db.Exec(`UPDATE copies SET parser_version = NULL WHERE copy_path = ? AND superseded_at IS NULL`,
+				strings.TrimSuffix(p.copyPath, ".meta.json")+".jsonl.gz"); err != nil {
+				return sum, err
+			}
+		}
 	}
 	sum.Copies = len(pending)
 	if err := linkCodexSessions(db); err != nil {
@@ -139,9 +147,8 @@ func nullIfEmpty(s string) any {
 
 // linkCodexSessions sets each Codex subagent's session_id to its root's
 // id. A nested subagent's file names only its parent, which pass 1 stores
-// in parent_agent_id; agents are linked in start order, so a parent is
-// linked before its children. A subagent whose session changes is parsed
-// again.
+// in parent_agent_id; linking walks those parents up to the root. A
+// subagent whose session changes is parsed again.
 func linkCodexSessions(db *sql.DB) error {
 	rows, err := db.Query(`SELECT s.copy_id, COALESCE(s.session_id, ''), s.agent_id, COALESCE(s.parent_agent_id, '')
 		FROM sessions s JOIN copies c USING (copy_id)
@@ -174,16 +181,28 @@ func linkCodexSessions(db *sql.DB) error {
 			byThread[a.agentID] = a
 		}
 	}
+	// rootSession walks up the parents, so the result does not depend on
+	// start order; seen stops a cycle.
+	rootSession := func(a *agent) string {
+		seen := map[*agent]bool{}
+		for a.agentID != "" && a.parent != "" && !seen[a] {
+			seen[a] = true
+			p := byThread[a.parent]
+			if p == nil {
+				if a.session == a.agentID {
+					return a.parent // an older file names itself as its session
+				}
+				return a.session
+			}
+			a = p
+		}
+		return a.session
+	}
 	for _, a := range agents {
 		if a.agentID == "" || a.parent == "" {
 			continue
 		}
-		session := a.session
-		if p := byThread[a.parent]; p != nil {
-			session = p.session
-		} else if session == a.agentID {
-			session = a.parent // an older file names itself as its session
-		}
+		session := rootSession(a)
 		if session == a.session {
 			continue
 		}

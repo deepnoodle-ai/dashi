@@ -189,6 +189,26 @@ func TestEditorArgumentsAndDraftReturnPaths(t *testing.T) {
 		})
 	}
 }
+
+// A slash command written in the editor leaves the attachment draft alone,
+// as typing one in the composer does.
+func TestEditorSlashCommandKeepsAttachmentDraft(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	editor := filepath.Join(t.TempDir(), "editor")
+	os.WriteFile(editor, []byte("#!/bin/sh\nprintf '%s' '/attachments' > \"$1\"\n"), 0700)
+	t.Setenv("VISUAL", editor)
+	const draft = "check @notes.txt"
+	h.scr.input = draft
+	h.scr.attachments.setText(draft)
+	if _, _, err := h.scr.attachments.reserve("notes.txt", false); err != nil {
+		t.Fatal(err)
+	}
+	h.scr.handoff = func(fn func() error) (error, error) { return fn(), nil }
+	h.scr.editDraft()
+	if h.scr.input != "/attachments" || h.scr.attachments.text != draft || len(h.scr.attachments.entries) != 1 {
+		t.Fatalf("input=%q draft=%q entries=%d", h.scr.input, h.scr.attachments.text, len(h.scr.attachments.entries))
+	}
+}
 func shellTestQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
 func TestExitGuardExpiryDraftAndQueueRevision(t *testing.T) {
 	var guard idleExitGuard
