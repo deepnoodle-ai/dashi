@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/content"
@@ -263,7 +262,7 @@ func (p *InteractionsMediaClient) decode(
 		Requested:  model.ModelRef{Provider: p.Provider(), Model: requested},
 		API:        InteractionsAPI,
 		ResponseID: response.ID,
-		RawUsage:   slices.Clone(response.Usage),
+		RawUsage:   media.ReportedUsage(response.Usage),
 	}
 	if response.Model != "" {
 		result.Served = model.ModelRef{Provider: p.Provider(), Model: response.Model}

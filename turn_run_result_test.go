@@ -569,7 +569,7 @@ func TestTurnCitationsAndProviderToolUsesSpanCalls(t *testing.T) {
 		finishedStep(llm.Result{
 			Message: llm.AssistantMessage(
 				providerToolUsePart("u2"),
-				textPart("B", content.Citation{URL: "https://b"}),
+				textPart("B", content.Citation{URL: "https://b", Location: &content.CitationLocation{Start: 1}}),
 			),
 			Stop: llm.Stop{Kind: llm.StopFinished},
 		}),
@@ -579,6 +579,10 @@ func TestTurnCitationsAndProviderToolUsesSpanCalls(t *testing.T) {
 		citations[0].URL != "https://a" ||
 		citations[1].URL != "https://b" {
 		t.Fatalf("citations=%+v", citations)
+	}
+	citations[1].Location.Start = 999
+	if turn.Citations()[1].Location.Start != 1 {
+		t.Fatal("changing a returned citation's location changed the turn")
 	}
 	uses := turn.ProviderToolUses()
 	if len(uses) != 2 || uses[0].ID != "u1" || uses[1].ID != "u2" {

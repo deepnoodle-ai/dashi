@@ -90,6 +90,9 @@ type runOptions struct {
 	delivered []DeliveredCommand
 	// warnings ride on the run's first committed step.
 	warnings []Warning
+	// inDoubt, when set, collects the steers the run releases as in doubt,
+	// so Advance does not release them again as unrecorded.
+	inDoubt map[string]bool
 	// asking runs the command in memory to ask whether a held turn may
 	// send again (see askSend).
 	asking *sendAsk

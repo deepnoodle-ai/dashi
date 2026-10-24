@@ -56,6 +56,26 @@ func (h *balanceHook) hooks() Hooks {
 	}}}
 }
 
+// A hook's hold stays a hook's hold when Advance repeats its stop step,
+// without hook results, to record inbox input.
+func TestHoldMadeByHookSurvivesARepeatedStop(t *testing.T) {
+	held := &Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: LimitHost, Code: "balance"}}
+	turn := Turn{Steps: []Step{
+		{Kind: StepTurnStarted},
+		{Kind: StepTurnStopped, Stop: held, HookResults: []HookResult{{Point: HookBeforeSend, Name: "balance", Verdict: VerdictLimit}}},
+		{Kind: StepMessagesAdded},
+		{Kind: StepTurnStopped, Stop: held},
+	}}
+	if !holdMadeByHook(turn) {
+		t.Fatal("repeated hook hold read as a recorder hold")
+	}
+	// A Continue starts new work: an earlier hook's stop no longer counts.
+	turn.Steps = append(turn.Steps, Step{Kind: StepTurnContinued}, Step{Kind: StepTurnStopped, Stop: held})
+	if holdMadeByHook(turn) {
+		t.Fatal("recorder hold after a Continue read as a hook hold")
+	}
+}
+
 func TestAdvanceRetriesAHeldSendOnceBeforeSendAllowsIt(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	hook := &balanceHook{}

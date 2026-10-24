@@ -151,6 +151,10 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			return *o, false
 		}
 		mark = r.hookMark()
+		// Later checks and BeforeSend read the turn with the added items.
+		if s, err = r.replay(); err != nil {
+			return r.stop(StopFailed, err.Error()), false
+		}
 		if purpose == ModelPurposeCompaction {
 			input.Messages, err = r.activeSummaryMessages(plan)
 		} else {
@@ -239,7 +243,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		// The budget check before sending still uses the unchanged,
 		// cautious worst-case estimate.
 	} else if purpose == "" {
-		if o, again, handled := r.guardActiveContext(s, input, req); handled {
+		if o, again, handled := r.guardActiveContext(s, input, req, mark); handled {
 			return o, again
 		}
 	} else if llm.InputTokenUpperBound(req) > max(0, s.ActiveCompactionWindow-req.Snapshot().Effective.MaxTokens) {
