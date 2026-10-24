@@ -3,7 +3,7 @@ module github.com/deepnoodle-ai/dashi/providers/google/gemini
 go 1.27
 
 require (
-	github.com/deepnoodle-ai/dashi v0.12.0
+	github.com/deepnoodle-ai/dashi v0.12.1
 	google.golang.org/genai v1.71.0
 )
 
@@ -12,7 +12,7 @@ require (
 	cloud.google.com/go/auth v0.24.0 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/deepnoodle-ai/wonton v0.8.0 // indirect
+	github.com/deepnoodle-ai/wonton v0.8.1 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
