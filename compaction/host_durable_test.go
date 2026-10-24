@@ -167,6 +167,7 @@ func mustJSON(t *testing.T, v any) string {
 func TestStartIfNeededUsesTheTurnsModel(t *testing.T) {
 	h := newDurableHost(t, 10_000)
 	h.compactor.Model = ""
+	h.compactor.Client = h.client
 	h.work(pad("one", 700), usedText("first answer", 750))
 	h.work(pad("two", 700), usedText("second answer", 2_000))
 	start, needed, err := h.compactor.StartIfNeeded(t.Context(), h.turns())
@@ -180,6 +181,31 @@ func TestStartIfNeededUsesTheTurnsModel(t *testing.T) {
 	h.client.Add(dashitest.Reply("<summary>S</summary>"))
 	if out, err := h.runner.Advance(t.Context(), id); err != nil || !out.Stop.Ended {
 		t.Fatalf("advance: %+v %v", out.Stop, err)
+	}
+}
+
+// otherProvider is a client for a provider the recorded turns did not use.
+type otherProvider struct{ *dashitest.Client }
+
+func (otherProvider) Provider() string { return "other" }
+
+// With no Model, the newest user turn's provider, API, and model carry only
+// while they match Client; otherwise, or without a Client, they stay empty
+// for the runner to fill.
+func TestStartIfNeededDropsTheTurnsModelForAnotherClient(t *testing.T) {
+	for _, client := range []llm.Client{nil, otherProvider{dashitest.NewClient()}} {
+		h := newDurableHost(t, 10_000)
+		h.compactor.Model = ""
+		h.compactor.Client = client
+		h.work(pad("one", 700), usedText("first answer", 750))
+		h.work(pad("two", 700), usedText("second answer", 2_000))
+		start, needed, err := h.compactor.StartIfNeeded(t.Context(), h.turns())
+		if err != nil || !needed {
+			t.Fatalf("needed=%v err=%v", needed, err)
+		}
+		if a := start.Agent; a.Provider != "" || a.API != "" || a.Model != "" {
+			t.Fatalf("client %v: agent carries %q %q %q", client, a.Provider, a.API, a.Model)
+		}
 	}
 }
 
