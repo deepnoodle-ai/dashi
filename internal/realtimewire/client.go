@@ -2,14 +2,17 @@ package realtimewire
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/realtime"
+	"golang.org/x/oauth2"
 )
 
 type Config struct {
@@ -20,6 +23,45 @@ type Config struct {
 type Client struct {
 	config Config
 	google bool
+	vertex *Vertex
+}
+
+// Vertex selects Gemini Live on Vertex AI: a regional endpoint, an OAuth
+// bearer token in place of an API key, and a project-scoped model name.
+type Vertex struct {
+	Project, Location string
+	TokenSource       oauth2.TokenSource
+}
+
+// vertexName limits project and location to the characters Google allows,
+// since the location becomes part of a host name.
+var vertexName = regexp.MustCompile(`^[a-z0-9][a-z0-9.:-]{0,127}$`)
+
+// NewVertex is New for Gemini on Vertex AI. config.Endpoint overrides the
+// regional endpoint, for tests; config.APIKey must be empty.
+func NewVertex(config Config, vertex Vertex) (*Client, error) {
+	if vertex.TokenSource == nil || config.APIKey != "" || !vertexName.MatchString(vertex.Project) || !vertexName.MatchString(vertex.Location) || strings.ContainsAny(vertex.Location, ".:") {
+		return nil, realtime.Failf(realtime.ErrorInvalidRequest, "vertex needs a project, a location and a token source, and no API key")
+	}
+	if config.Endpoint == "" {
+		host := vertex.Location + "-aiplatform.googleapis.com"
+		if vertex.Location == "global" {
+			host = "aiplatform.googleapis.com"
+		}
+		config.Endpoint = "wss://" + host + "/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent"
+	}
+	if !validEndpoint(config.Endpoint) {
+		return nil, realtime.Fail(realtime.ErrorInvalidRequest)
+	}
+	if config.Dial == nil {
+		config.Dial = Dial
+	}
+	return &Client{config: config, google: true, vertex: &vertex}, nil
+}
+
+func validEndpoint(endpoint string) bool {
+	u, e := url.Parse(endpoint)
+	return e == nil && u.Host != "" && u.Scheme == "wss" && u.User == nil && u.Fragment == "" && u.RawQuery == ""
 }
 
 func (c *Client) String() string { return "realtime.Client{credentials redacted}" }
@@ -31,8 +73,7 @@ func New(config Config, google bool) (*Client, error) {
 			config.Endpoint = "wss://api.x.ai/v1/realtime"
 		}
 	}
-	u, e := url.Parse(config.Endpoint)
-	if e != nil || u.Host == "" || u.Scheme != "wss" || u.User != nil || u.Fragment != "" || u.RawQuery != "" {
+	if !validEndpoint(config.Endpoint) {
 		return nil, realtime.Fail(realtime.ErrorInvalidRequest)
 	}
 	if config.APIKey == "" && config.Endpoint == defaultEndpoint(google) {
@@ -60,7 +101,7 @@ func (c *Client) Connect(ctx context.Context, in realtime.Config) (realtime.Sess
 	if e := in.Validate(); e != nil {
 		return nil, e
 	}
-	if c.config.APIKey == "" && c.config.Endpoint == defaultEndpoint(c.google) {
+	if c.vertex == nil && c.config.APIKey == "" && c.config.Endpoint == defaultEndpoint(c.google) {
 		return nil, realtime.Fail(realtime.ErrorAuthentication)
 	}
 	model, provider := "grok-voice-think-fast-2.0", "grok"
@@ -82,7 +123,20 @@ func (c *Client) Connect(ctx context.Context, in realtime.Config) (realtime.Sess
 	}
 	headers := http.Header{}
 	endpoint := c.config.Endpoint
-	if c.google {
+	if c.vertex != nil {
+		// A fresh token per Connect; the token source caches and refreshes.
+		// Only an OAuth error code passes through, never the error's text.
+		token, e := c.vertex.TokenSource.Token()
+		if e != nil || !token.Valid() || token.AccessToken != strings.TrimSpace(token.AccessToken) {
+			fail := &realtime.Error{Category: realtime.ErrorAuthentication, Cause: errors.New("vertex token source gave no usable token")}
+			var retrieve *oauth2.RetrieveError
+			if errors.As(e, &retrieve) {
+				fail.Code = truncate(retrieve.ErrorCode, 128)
+			}
+			return nil, fail
+		}
+		headers.Set("Authorization", "Bearer "+token.AccessToken)
+	} else if c.google {
 		headers.Set("x-goog-api-key", c.config.APIKey)
 	} else {
 		if c.config.APIKey != "" {
@@ -110,12 +164,20 @@ func (c *Client) Connect(ctx context.Context, in realtime.Config) (realtime.Sess
 		for _, t := range in.Tools {
 			tools = append(tools, map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Schema, "behavior": "NON_BLOCKING"})
 		}
-		body := map[string]any{"model": "models/" + model, "generationConfig": map[string]any{"responseModalities": []string{"AUDIO"}, "speechConfig": map[string]any{"voiceConfig": map[string]any{"prebuiltVoiceConfig": map[string]any{"voiceName": in.Voice}}}}, "inputAudioTranscription": map[string]any{}, "outputAudioTranscription": map[string]any{}}
+		name := "models/" + model
+		if c.vertex != nil {
+			name = "projects/" + c.vertex.Project + "/locations/" + c.vertex.Location + "/publishers/google/models/" + model
+		}
+		body := map[string]any{"model": name, "generationConfig": map[string]any{"responseModalities": []string{"AUDIO"}, "speechConfig": map[string]any{"voiceConfig": map[string]any{"prebuiltVoiceConfig": map[string]any{"voiceName": in.Voice}}}}, "inputAudioTranscription": map[string]any{}, "outputAudioTranscription": map[string]any{}}
 		if in.Instructions != "" {
 			body["systemInstruction"] = map[string]any{"parts": []any{map[string]any{"text": in.Instructions}}}
 		}
 		if len(tools) > 0 {
 			body["tools"] = []any{map[string]any{"functionDeclarations": tools}}
+		}
+		if len(in.History) > 0 {
+			// Without this, Gemini treats clientContent as a turn to answer.
+			body["historyConfig"] = map[string]any{"initialHistoryInClientContent": true}
 		}
 		setup = map[string]any{"setup": body}
 	} else {
@@ -131,6 +193,10 @@ func (c *Client) Connect(ctx context.Context, in realtime.Config) (realtime.Sess
 	setupCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	if e := s.Setup(setupCtx, setup, "session.updated"); e != nil {
+		return nil, e
+	}
+	if e := s.seedHistory(setupCtx, in.History); e != nil {
+		s.Close()
 		return nil, e
 	}
 	return s, nil

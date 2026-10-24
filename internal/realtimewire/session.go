@@ -3,6 +3,7 @@
 package realtimewire
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -88,14 +89,19 @@ func (s *Session) Close() error {
 	return s.conn.Close()
 }
 func (s *Session) Write(ctx context.Context, value any) error {
-	b, e := json.Marshal(value)
-	if e != nil {
+	// HTML escaping would write each < > & in instructions or history as six
+	// bytes, so a prompt full of markup could overflow MaxMessageBytes.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if e := enc.Encode(value); e != nil {
 		return realtime.Fail(realtime.ErrorInvalidRequest)
 	}
+	b := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
 	if len(b) > realtime.MaxMessageBytes {
-		return realtime.Fail(realtime.ErrorInvalidRequest)
+		return realtime.Failf(realtime.ErrorInvalidRequest, "message is %d bytes, over the limit of %d", len(b), realtime.MaxMessageBytes)
 	}
-	if e = s.conn.Write(ctx, b); e != nil {
+	if e := s.conn.Write(ctx, b); e != nil {
 		return classify(ctx, e)
 	}
 	return nil
@@ -106,6 +112,16 @@ func classify(ctx context.Context, e error) error {
 	}
 	if e == io.EOF || websocket.CloseStatus(e) == websocket.StatusNormalClosure {
 		return io.EOF
+	}
+	// Gemini refuses a setup, such as a model missing at a Vertex location,
+	// by closing with a status and reason; keep them for the caller's log.
+	var closed websocket.CloseError
+	if errors.As(e, &closed) {
+		var cause error
+		if closed.Reason != "" {
+			cause = errors.New(truncate(closed.Reason, 1024))
+		}
+		return &realtime.Error{Category: realtime.ErrorProvider, Code: fmt.Sprintf("close_%d", closed.Code), Cause: cause}
 	}
 	return realtime.Fail(realtime.ErrorTransport)
 }
@@ -154,6 +170,39 @@ func (s *Session) Setup(ctx context.Context, setup any, ack string) error {
 	s.Close()
 	return realtime.Failf(realtime.ErrorProtocol, "no %q among the first 32 messages", ack)
 }
+
+// seedHistory sends earlier conversation text after setup: for Gemini one
+// clientContent, which setup's historyConfig marks as context rather than a
+// turn to answer; for Grok one item per line and no response.create.
+func (s *Session) seedHistory(ctx context.Context, history []realtime.HistoryItem) error {
+	if len(history) == 0 {
+		return nil
+	}
+	if s.info.Provider == "google" {
+		turns := make([]any, 0, len(history))
+		for _, h := range history {
+			role := "user"
+			if h.Speaker == realtime.SpeakerAssistant {
+				role = "model"
+			}
+			turns = append(turns, map[string]any{"role": role, "parts": []any{map[string]any{"text": h.Text}}})
+		}
+		return s.Write(ctx, map[string]any{"clientContent": map[string]any{"turns": turns, "turnComplete": true}})
+	}
+	for _, h := range history {
+		// xAI documents input_text for user text and text for assistant
+		// history; output_text belongs to force_message, which speaks.
+		role, kind := "user", "input_text"
+		if h.Speaker == realtime.SpeakerAssistant {
+			role, kind = "assistant", "text"
+		}
+		item := map[string]any{"type": "message", "role": role, "content": []any{map[string]any{"type": kind, "text": h.Text}}}
+		if e := s.Write(ctx, map[string]any{"type": "conversation.item.create", "item": item}); e != nil {
+			return e
+		}
+	}
+	return nil
+}
 func (s *Session) read(ctx context.Context) (map[string]any, error) {
 	b, e := s.conn.Read(ctx)
 	if e != nil {
@@ -192,7 +241,8 @@ func (s *Session) Send(ctx context.Context, c realtime.Command) error {
 		case realtime.CommandAudioEnd:
 			wire = map[string]any{"realtimeInput": map[string]any{"audioStreamEnd": true}}
 		case realtime.CommandText:
-			wire = map[string]any{"clientContent": map[string]any{"turns": []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": c.Text}}}}, "turnComplete": true}}
+			// clientContent would interrupt generation; it is for seeding.
+			wire = map[string]any{"realtimeInput": map[string]any{"text": c.Text}}
 		case realtime.CommandToolResult:
 			name, ok := s.pending[c.ToolResult.CallID]
 			if !ok || name != c.ToolResult.Name {
@@ -550,6 +600,10 @@ func (s *Session) usage(m map[string]any, google bool) error {
 	}
 	a, aok := m[input].(float64)
 	b, bok := m[output].(float64)
+	if google && !bok {
+		// Vertex may name output tokens as generateContent does.
+		b, bok = m["candidatesTokenCount"].(float64)
+	}
 	if !aok || !bok {
 		return nil
 	}
