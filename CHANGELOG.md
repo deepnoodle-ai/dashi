@@ -26,6 +26,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   tool skips the hook with `WarningHookFailed` instead of failing the turn.
   A named tool choice on a summary or reserved final-reply call is cleared,
   as the runner clears it, instead of failing the hook.
+- **BeforeModel items without an ID are recorded once per model call.**
+  The runner names each one from the turn, the ordinary model call, the
+  hook, and the item's position. When an urgent steer or active compaction
+  sends a pass back, or a held turn continues, the hooks' next pass no
+  longer adds the item a second time.
 - `feed.Follow` waits for the record's own `StepWaiter.Wait` before it
   returns. A summary call's start no longer carries BeforeModel results
   from the ordinary call it replaced. A long tool argument error is cut at

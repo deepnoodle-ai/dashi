@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -641,5 +642,130 @@ func TestBeforeModelLimitWithoutBudgetCapIsAHold(t *testing.T) {
 				t.Fatalf("stop=%+v err=%v", out.Stop, err)
 			}
 		})
+	}
+}
+
+// hookNote is the text of a BeforeModel item without an ID.
+const hookNote = "hook note"
+
+func hookNoteHook(asked *int, during func(int)) ModelHook {
+	return ModelHook{Name: "note", Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
+		if p.Purpose == ModelPurposeCompaction {
+			return ModelDecision{}, nil
+		}
+		*asked++
+		if during != nil {
+			during(*asked)
+		}
+		return ModelDecision{AddMessages: []ContextItem{{
+			Origin:  ContextRuntime,
+			Message: llm.UserMessage(llm.Text(hookNote)),
+		}}}, nil
+	}}
+}
+
+// countNotes counts the hook notes in messages.
+func countNotes(messages []llm.Message) int {
+	n := 0
+	for _, m := range messages {
+		if strings.Contains(m.Text(), hookNote) {
+			n++
+		}
+	}
+	return n
+}
+
+func recordedNotes(turn Turn) int {
+	var messages []llm.Message
+	for _, step := range stepsOf(turn, StepMessagesAdded) {
+		for _, item := range step.Items() {
+			messages = append(messages, item.Message)
+		}
+	}
+	return countNotes(messages)
+}
+
+// A pass sent back for an urgent steer runs BeforeModel again. An item
+// without an ID gets the same runner-made ID on both passes, so it is
+// recorded and sent once.
+func TestBeforeModelItemRecordsOnceAfterAnUrgentSteer(t *testing.T) {
+	inbox := newWatchedInbox()
+	client := newUrgentClient(urgentCall{result: final("ok")})
+	asked := 0
+	hook := hookNoteHook(&asked, func(n int) {
+		if n == 1 {
+			inbox.sendUrgent(t, "use staging")
+		}
+	})
+	out := runUrgent(t, client, inbox, func(r *Runner) {
+		r.Hooks = hook.Hooks()
+	})
+	if out.Stop.Kind != StopCompleted || asked != 2 {
+		t.Fatalf("stop=%+v asked=%d", out.Stop, asked)
+	}
+	if n := recordedNotes(out.Turn); n != 1 {
+		t.Fatalf("the turn records the hook's item %d times", n)
+	}
+	if n := countNotes(client.lastMessages()); n != 1 {
+		t.Fatalf("the call sent the hook's item %d times", n)
+	}
+	if _, err := out.Turn.View(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An ordinary call replaced by an active compaction summary runs
+// BeforeModel again after the summary. Each ordinary call records the
+// hook's item once.
+func TestBeforeModelItemRecordsOnceAfterActiveCompaction(t *testing.T) {
+	c, a := activeFixture()
+	calls, asked := 0, 0
+	hooks := hookNoteHook(&asked, nil).Hooks()
+	out, err := (Runner{Client: c, Tools: activeTools(&calls), Hooks: hooks}).Run(t.Context(), Turn{}, activeStart(a))
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	ordinary, summaries := 0, 0
+	for _, step := range stepsOf(out.Turn, StepModelCallStarted) {
+		if step.Model.Purpose == ModelPurposeCompaction {
+			summaries++
+		} else {
+			ordinary++
+		}
+	}
+	if summaries == 0 || asked != ordinary+summaries {
+		t.Fatalf("asked=%d ordinary=%d summaries=%d: each summary should replace one asked pass", asked, ordinary, summaries)
+	}
+	if n := recordedNotes(out.Turn); n != ordinary {
+		t.Fatalf("the turn records the hook's item %d times for %d ordinary calls", n, ordinary)
+	}
+	if _, err := out.Turn.View(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A pass held by BeforeSend records the hook's item. Continue runs
+// BeforeModel again for the same call, which does not add it again.
+func TestBeforeModelItemRecordsOnceAfterAHoldAndContinue(t *testing.T) {
+	asked := 0
+	note := hookNoteHook(&asked, nil)
+	hooks := note.Hooks()
+	hooks.BeforeSend = []SendHook{{Name: "pause", Func: func(context.Context, SendPlan) (SendDecision, error) {
+		return SendDecision{Limit: &LimitDetail{Kind: LimitHost, Code: "pause"}}, nil
+	}}}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	out := runAgent(t, testAgent(), client, nil, hooks)
+	if out.Stop.Kind != StopLimited {
+		t.Fatalf("stop=%+v", out.Stop)
+	}
+	out, err := (Runner{Client: client, Hooks: note.Hooks()}).Run(t.Context(), out.Turn, Continue{})
+	if err != nil || out.Stop.Kind != StopCompleted || asked != 2 {
+		t.Fatalf("stop=%+v asked=%d err=%v", out.Stop, asked, err)
+	}
+	if n := recordedNotes(out.Turn); n != 1 {
+		t.Fatalf("the turn records the hook's item %d times", n)
+	}
+	if n := countNotes(client.inputs[0].Messages); n != 1 {
+		t.Fatalf("the call sent the hook's item %d times", n)
 	}
 }
