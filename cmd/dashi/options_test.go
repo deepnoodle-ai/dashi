@@ -42,6 +42,9 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"--resume=abc", "--model", "m"}, Options{Resume: true, ResumeID: "abc", Model: "m"}},
 		{[]string{"--model=gpt-6-luna"}, Options{Model: "gpt-6-luna"}},
 		{[]string{"--inline"}, Options{Inline: true}},
+		{[]string{"--theme", "auto"}, Options{Theme: "auto"}},
+		{[]string{"--theme=dark"}, Options{Theme: "dark"}},
+		{[]string{"--inline", "--theme", "light"}, Options{Inline: true, Theme: "light"}},
 		{[]string{"--plain", "--workspace", "w"}, Options{Plain: true, Workspace: "w"}},
 		{[]string{"run", "hi there", "--yes"}, Options{Run: true, Prompt: "hi there", OutputFormat: "text", Yes: true}},
 		{[]string{"run"}, Options{Run: true, OutputFormat: "text"}},
@@ -73,6 +76,7 @@ func TestParseArgs(t *testing.T) {
 		{"--session-id", "0f8fad5b-d9cb-469f-a165-70867728950e", "-r", "abc"},
 		{"--turn-events="}, {"run", "--session-id", "0f8fad5b-d9cb-469f-a165-70867728950e"},
 		{"run", "--turn-events", "t.jsonl"},
+		{"--theme", "blue"}, {"--theme="}, {"--theme", "Light"}, {"run", "--theme", "light"},
 	} {
 		if _, err := parseArgs(bad, io.Discard); err == nil {
 			t.Errorf("parseArgs(%v) succeeded", bad)
@@ -187,6 +191,22 @@ func TestParseArgsSettingsVariables(t *testing.T) {
 		t.Fatalf("invalid variable: %v", err)
 	}
 	t.Setenv("DASHI_COMPACTION_THRESHOLD", "")
+	t.Setenv("DASHI_THEME", "blue")
+	if _, err = parseArgs(nil, io.Discard); err == nil || !strings.Contains(err.Error(), "--theme from environment variable DASHI_THEME: use auto, dark, or light") {
+		t.Fatalf("invalid variable: %v", err)
+	}
+	t.Setenv("DASHI_THEME", "light")
+	if got, err = parseArgs(nil, io.Discard); err != nil || got.Theme != "light" {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	// The flag wins over the variable, and run ignores it.
+	if got, err = parseArgs([]string{"--theme", "dark"}, io.Discard); err != nil || got.Theme != "dark" {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	if _, err = parseArgs([]string{"run", "go"}, io.Discard); err != nil {
+		t.Fatalf("run read DASHI_THEME: %v", err)
+	}
+	t.Setenv("DASHI_THEME", "")
 	if _, err = parseArgs([]string{"models"}, io.Discard); err != nil {
 		t.Fatalf("models read an agent variable: %v", err)
 	}
