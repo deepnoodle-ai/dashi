@@ -73,6 +73,24 @@ func TestMatchGlobCollapsesRepeatedDoubleStars(t *testing.T) {
 	}
 }
 
+func TestMatchGlobDoesNotBacktrackOnSeparateDoubleStars(t *testing.T) {
+	pattern := strings.Repeat("**/a/", 7) + "x"
+	name := strings.TrimSuffix(strings.Repeat("a/", 60), "/")
+	done := make(chan bool)
+	go func() { done <- matchGlob(pattern, name) }()
+	select {
+	case got := <-done:
+		if got {
+			t.Fatal("matched a name that does not end in x")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("matchGlob did not finish")
+	}
+	if !matchGlob(pattern, name+"/x") || !matchGlob("**/a/**/b", "a/c/b") || matchGlob("**/a/**/b", "c/b") {
+		t.Fatal("memoized matching changed a result")
+	}
+}
+
 func TestGlobStopsWhenCanceled(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "a.go", "")

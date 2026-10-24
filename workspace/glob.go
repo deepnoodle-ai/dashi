@@ -136,8 +136,7 @@ func checkGlobs(typed string, patterns []string) error {
 // matchGlob matches a slash-separated name against a pattern in which a **
 // segment matches zero or more directories.
 func matchGlob(pattern, name string) bool {
-	// Repeated ** segments match what one does. Collapsing them keeps a
-	// pattern such as **/**/**/x from backtracking for a long time.
+	// Repeated ** segments match what one does, so collapse them.
 	var pat []string
 	for _, seg := range strings.Split(pattern, "/") {
 		if seg == "**" && len(pat) > 0 && pat[len(pat)-1] == "**" {
@@ -148,25 +147,37 @@ func matchGlob(pattern, name string) bool {
 	return matchSegments(pat, strings.Split(name, "/"))
 }
 
+// matchSegments reports whether pat matches name, segment by segment. It
+// remembers each (pattern position, name position) pair that failed, so a
+// pattern with many ** segments, such as **/a/**/a/**/x, takes at most
+// len(pat)*len(name) steps instead of backtracking exponentially.
 func matchSegments(pat, name []string) bool {
-	for len(pat) > 0 {
-		if pat[0] == "**" {
-			for i := 0; i <= len(name); i++ {
-				if matchSegments(pat[1:], name[i:]) {
-					return true
-				}
+	width := len(name) + 1
+	failed := make([]bool, (len(pat)+1)*width)
+	var match func(i, j int) bool
+	match = func(i, j int) bool {
+		if failed[i*width+j] {
+			return false
+		}
+		ok := false
+		switch {
+		case i == len(pat):
+			ok = j == len(name)
+		case pat[i] == "**":
+			for k := j; k <= len(name) && !ok; k++ {
+				ok = match(i+1, k)
 			}
-			return false
+		case j < len(name):
+			if m, _ := path.Match(pat[i], name[j]); m {
+				ok = match(i+1, j+1)
+			}
 		}
-		if len(name) == 0 {
-			return false
+		if !ok {
+			failed[i*width+j] = true
 		}
-		if ok, _ := path.Match(pat[0], name[0]); !ok {
-			return false
-		}
-		pat, name = pat[1:], name[1:]
+		return ok
 	}
-	return len(name) == 0
+	return match(0, 0)
 }
 
 // expandBraces expands each {a,b} group of p, including nested groups.
