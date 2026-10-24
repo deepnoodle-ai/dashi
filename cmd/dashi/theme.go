@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/deepnoodle-ai/wonton/tui"
@@ -124,6 +126,11 @@ const (
 // light. A variable so tests do not touch a real terminal.
 var detectBackground = tui.DetectTerminalBackground
 
+// backgroundTimeout is how long auto waits for the terminal's answer. Most
+// terminals answer at once and end the wait; the longer limit gives a slow
+// link, such as SSH, time to answer before the screen reads keys.
+const backgroundTimeout = 300 * time.Millisecond
+
 // lightTheme reports whether the screen should use the light palette for a
 // theme setting; empty means auto. Auto asks the terminal only when the
 // screen draws in color, and a terminal that does not say gets the dark
@@ -139,7 +146,7 @@ func lightTheme(setting string, color bool) bool {
 		return false
 	}
 	// An error still comes with the best answer available.
-	background, _ := detectBackground(0)
+	background, _ := detectBackground(backgroundTimeout)
 	return background == tui.TerminalBackgroundLight
 }
 

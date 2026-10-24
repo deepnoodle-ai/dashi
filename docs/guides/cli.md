@@ -235,6 +235,9 @@ With `--theme auto`, the default, dashi asks the terminal for its background
 color at startup and uses the dark palette when the terminal does not say.
 `--theme dark` or `--theme light` (or `DASHI_THEME`) picks one without asking.
 Line mode, `dashi run`, and `NO_COLOR` never ask.
+Dashi waits up to 300ms for the answer. Over a slow connection the answer
+can come later: dashi then uses the dark palette, and the late answer may
+appear as typed text in the prompt. Set `DASHI_THEME` to skip the question.
 
 ## Approvals
 
