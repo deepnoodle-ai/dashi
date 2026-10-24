@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"slices"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/media"
@@ -54,21 +53,12 @@ func decodeImageResponse(raw []byte, input media.ImageInput,
 		},
 		API:        API,
 		ResponseID: responseID,
-		RawUsage:   reportedUsage(response.Usage),
+		RawUsage:   media.ReportedUsage(response.Usage),
 	}
 	if err := result.Validate(); err != nil {
 		return media.Result{}, err
 	}
 	return result, nil
-}
-
-// reportedUsage treats an explicit JSON null as usage the provider did not
-// report.
-func reportedUsage(raw json.RawMessage) json.RawMessage {
-	if string(raw) == "null" {
-		return nil
-	}
-	return slices.Clone(raw)
 }
 
 func decodeImageSource(encoded, imageURL, outputFormat,

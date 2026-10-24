@@ -330,6 +330,17 @@ func (r Result) Clone() Result {
 	return r
 }
 
+// ReportedUsage returns a copy of a provider's raw usage value for RawUsage.
+// An absent value or an explicit JSON null means the provider reported no
+// usage, so it returns nil.
+func ReportedUsage(raw json.RawMessage) json.RawMessage {
+	if trimmed := bytes.TrimSpace(raw); len(trimmed) == 0 ||
+		string(trimmed) == "null" {
+		return nil
+	}
+	return slices.Clone(raw)
+}
+
 func validateRawUsage(raw json.RawMessage) error {
 	if len(raw) == 0 {
 		return nil

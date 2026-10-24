@@ -164,7 +164,7 @@ func (c *Client) PrepareVideoWithOptions(
 	if known, ok := c.models[input.Model]; ok && known.Evidence.API != VideoAPI {
 		return media.VideoRequest{}, c.failure(
 			media.ErrorUnsupported,
-			fmt.Errorf("model %q is a image model", input.Model),
+			fmt.Errorf("model %q is an image model", input.Model),
 		)
 	}
 	if known, ok := c.models[input.Model]; ok &&
@@ -313,7 +313,7 @@ func (c *Client) PollVideo(
 	if err != nil {
 		return media.JobPoll{}, c.failure(media.ErrorProtocol, err)
 	}
-	poll := media.JobPoll{Job: job, RawUsage: reportedUsage(wire.Usage)}
+	poll := media.JobPoll{Job: job, RawUsage: media.ReportedUsage(wire.Usage)}
 	if wire.Model != "" {
 		poll.Served = c.modelRef(wire.Model)
 	}

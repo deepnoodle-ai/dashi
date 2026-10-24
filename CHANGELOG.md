@@ -10,11 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **Gemini Live sessions report only real responses.** An interruption or
   turn end with no response in progress no longer sends `EventInterrupted`
-  or `EventResponseCompleted` for the previous response. Tool calls that
-  arrive after an interruption are discarded with the rest of that turn.
+  or `EventResponseCompleted` for the previous response, and does not drop
+  the next response's audio. Tool calls that arrive after an interruption
+  are discarded with the rest of that turn.
 - **Grok voice `CommandRespond` no longer gets stuck.** A provider error
   after `response.create` lets the caller ask again, and speech before the
   new response starts no longer interrupts the finished one.
+  `CommandInterrupt` sent after `CommandRespond` but before the response
+  starts now cancels the requested response.
 - **Realtime sessions survive an expired call context.** A `Send` or
   `Receive` whose context expires while it waits for another call, or after a
   frame that produced no event, returns `ErrorCanceled` and keeps the
@@ -23,9 +26,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Realtime setup timeouts are transport errors.** A provider that never
   acknowledges setup within 20 seconds is `ErrorTransport`, not
   `ErrorCanceled`.
-- **Media responses with `"usage": null` are accepted.** Grok Imagine and
-  OpenAI Images treat it as unreported usage instead of failing with
-  `ErrorProtocol`.
+- **Media responses with `"usage": null` are accepted.** Gemini media, Grok
+  Imagine, and OpenAI Images treat it as unreported usage instead of failing
+  with `ErrorProtocol`. Provider packages use the new `media.ReportedUsage`
+  to fill `RawUsage`.
 - **Grok Imagine checks more of what it sends and receives.** `SubmitVideo`
   reports `SubmissionRejected` for failures before dispatch, such as a
   missing key or canceled context. `PollVideo` rejects the job IDs `.` and

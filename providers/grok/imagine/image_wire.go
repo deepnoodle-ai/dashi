@@ -233,7 +233,7 @@ func decodeImageWireWithFiles(
 		Kind:      media.KindImage,
 		Requested: model.ModelRef{Provider: provider, Model: requested},
 		API:       ImageAPI,
-		RawUsage:  reportedUsage(wire.Usage),
+		RawUsage:  media.ReportedUsage(wire.Usage),
 	}
 	if wire.Model != "" {
 		result.Served = model.ModelRef{Provider: provider, Model: wire.Model}
@@ -279,15 +279,6 @@ func decodeImageWireWithFiles(
 		}
 	}
 	return result, result.Validate()
-}
-
-// reportedUsage treats an explicit JSON null as usage the provider did not
-// report.
-func reportedUsage(raw json.RawMessage) json.RawMessage {
-	if string(raw) == "null" {
-		return nil
-	}
-	return raw
 }
 
 func validHTTPURL(raw string) bool {
