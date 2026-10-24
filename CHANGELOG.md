@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The CLI has one color theme with a blue accent.** Headings, links,
+  selections, and running work use one blue; yellow now marks only what
+  needs you, such as approvals, questions, and limit stops. Denied calls,
+  interrupts, queued steering, and footer costs are quieter, and code shows
+  on a gray background with matching syntax colors.
+
 ## [0.12.2] - 2026-10-24
 
 ### Added

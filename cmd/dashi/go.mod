@@ -3,6 +3,7 @@ module github.com/deepnoodle-ai/dashi/cmd/dashi
 go 1.27
 
 require (
+	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/deepnoodle-ai/dashi v0.12.2
 	github.com/deepnoodle-ai/dashi/mcp v0.12.2
 	github.com/deepnoodle-ai/dashi/providers/google/gemini v0.12.2
@@ -17,7 +18,6 @@ require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.24.0 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
-	github.com/alecthomas/chroma/v2 v2.27.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dlclark/regexp2/v2 v2.7.1 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect

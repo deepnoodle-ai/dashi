@@ -99,11 +99,11 @@ func (p *approvalPrompt) headline() string {
 func (s *screen) approvalView() tui.View {
 	p := s.approval
 	l := p.layout(s.width)
-	title := []tui.View{tui.Text(" %s", approvalTitle(p.req.Tool)).Fg(tui.ColorYellow).Bold()}
+	title := []tui.View{tui.Text(" %s", approvalTitle(p.req.Tool)).Style(warningStyle).Bold()}
 	if l.summary != "" {
 		title = append(title, tui.Text("  %s", l.summary))
 	}
-	views := []tui.View{tui.Divider(), tui.Group(title...)}
+	views := []tui.View{divider(), tui.Group(title...)}
 	detailHeight := s.dialogHeight()
 	if s.width > 0 && s.width < 72 {
 		detailHeight = max(1, detailHeight-3)
@@ -141,7 +141,7 @@ func (s *screen) approvalView() tui.View {
 func checkLineView(line string, warn bool) tui.View {
 	t := tui.Text("   %s", line)
 	if warn {
-		return t.Fg(tui.ColorYellow).Bold()
+		return t.Style(warningStyle).Bold()
 	}
 	return t.Style(mutedStyle)
 }
@@ -157,7 +157,7 @@ func approvalChoices(remember bool, width int) tui.View {
 		rows = append(rows, tui.Text(" [n] Deny").Wrap())
 		return tui.Stack(rows...).Gap(0)
 	}
-	key := func(k string) tui.View { return tui.Text("[%s]", k).Fg(tui.ColorCyan).Bold() }
+	key := func(k string) tui.View { return tui.Text("[%s]", k).Style(accentStyle).Bold() }
 	views := []tui.View{tui.Text(" "), key("y"), tui.Text(" Allow once    ")}
 	if remember {
 		views = append(views, key("a"), tui.Text(" Allow for this Dashi run    "))
@@ -270,14 +270,14 @@ func (p *askPrompt) Item(i int) tui.View {
 		text = "Answer in my own words"
 	}
 	if p.index == index {
-		return tui.Text(" ❯ %s", text).Wrap().Fg(tui.ColorCyan)
+		return tui.Text(" ❯ %s", text).Wrap().Style(accentStyle)
 	}
 	return tui.Text("   %s", text).Wrap()
 }
 
 func (s *screen) questionView() tui.View {
 	p := s.asking
-	views := []tui.View{tui.Divider(), tui.Text(" Question pending").Fg(tui.ColorYellow).Bold(),
+	views := []tui.View{divider(), tui.Text(" Question pending").Style(warningStyle).Bold(),
 		tui.Height(s.dialogHeight(), tui.Viewport(&p.vp, p).Gap(0))}
 	if p.own {
 		views = append(views, tui.Text(" Enter submits your words · Ctrl-S inspects · Esc interrupts").Wrap().Style(hintStyle),
@@ -287,7 +287,7 @@ func (s *screen) questionView() tui.View {
 			tui.Text(" Tab submit · o own words · / commands · Esc interrupts").Wrap().Style(hintStyle))
 	}
 	if p.err != "" {
-		views = append(views, tui.Text(" %s", p.err).Wrap().Fg(tui.ColorYellow))
+		views = append(views, tui.Text(" %s", p.err).Wrap().Style(warningStyle))
 	}
 	return tui.Stack(views...).Gap(0)
 }

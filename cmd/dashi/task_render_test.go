@@ -281,7 +281,7 @@ func TestTaskMessageLineKeepsToOneRow(t *testing.T) {
 		}
 	}
 	styled := tui.Sprint(blockView(b), tui.WithWidth(80), tui.WithColor(true))
-	if !strings.Contains(styled, "\x1b[0;36m  → ") {
+	if !strings.Contains(styled, "\x1b[0;38;5;75m  → ") {
 		t.Fatalf("arrow color=%q", styled)
 	}
 }
