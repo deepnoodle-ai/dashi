@@ -60,7 +60,10 @@ func Convert(copies []sessionfile.Copy, agentID string) (sessionfile.Transcript,
 // forkContext adds the parent's conversation that a fork by reference
 // starts with. The parent is looked up in every other copy, so a parent
 // without a start time is found too. When several copies of the agent
-// fork, a parent line is added only the first time.
+// fork, a parent line is added only the first time. A copy that forks at a
+// later parent line gets the parent lines it adds just before its own
+// messages, after the earlier copies: the transcript goes copy by copy in
+// start order, and each copy follows the context it started with.
 func (cv *converter) forkContext(cls []*copyLines, idx int) {
 	for _, l := range cls[idx].Lines {
 		if l.Type == "fork-context-ref" && l.ParentLastUUID != "" {

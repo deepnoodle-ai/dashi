@@ -264,8 +264,6 @@ func TestTerminalNarrowToolStatesAndChecks(t *testing.T) {
 	}
 }
 
-// Clearing the composer keeps the staged mentions: a slash command brings
-// the draft back, an empty Enter sends nothing, and new text goes with them.
 // Enter on an empty composer after /attach sends the selection alone, as
 // the attachment list's hint says. Only a cleared line holds it back.
 func TestAttachThenEmptyEnterSends(t *testing.T) {
@@ -295,6 +293,8 @@ func TestKeepEntriesSkipsAFrozenDraft(t *testing.T) {
 	}
 }
 
+// Clearing the composer keeps the staged mentions: a slash command brings
+// the draft back, an empty Enter sends nothing, and new text goes with them.
 func TestClearedComposerKeepsStagedMentions(t *testing.T) {
 	h := newScreenHarness(t, 0, say("summarized"))
 	fixtureSelectedText(t, h.dir, "notes.txt", "snapshot")
