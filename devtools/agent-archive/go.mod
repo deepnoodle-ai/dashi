@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	github.com/deepnoodle-ai/dashi v0.2.0
-	github.com/deepnoodle-ai/wonton v0.8.1
+	github.com/deepnoodle-ai/wonton v0.9.0
 	modernc.org/sqlite v1.60.1
 )
 
