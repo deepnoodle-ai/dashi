@@ -528,3 +528,55 @@ func TestModelStopRecordsItsReasonUnlessTheDecisionHasOne(t *testing.T) {
 		}
 	}
 }
+
+// BeforeSend sees the items a BeforeModel hook added for the same call.
+func TestBeforeSendSeesBeforeModelItems(t *testing.T) {
+	add := ModelHook{Name: "plan", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		return ModelDecision{AddMessages: []ContextItem{{
+			Origin:  ContextRuntime,
+			Name:    "x",
+			Message: llm.UserMessage(llm.Text("plan mode is on")),
+		}}}, nil
+	}}
+	var sawItem, sawHook bool
+	send := SendHook{Name: "check", Func: func(_ context.Context, p SendPlan) (SendDecision, error) {
+		_, sawItem = p.Turn.Context(ContextRuntime, "x")
+		sawHook = p.Turn.HookActed(HookBeforeModel, "plan")
+		return SendDecision{}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	hooks := add.Hooks()
+	hooks.BeforeSend = []SendHook{send}
+	out := runAgent(t, testAgent(), client, nil, hooks)
+	if out.Stop.Kind != StopCompleted || !sawItem || !sawHook {
+		t.Fatalf("stop=%+v item=%v hook=%v", out.Stop, sawItem, sawHook)
+	}
+}
+
+// A BeforeModel hook can stop a turn at a cost or token limit its budget
+// does not set. Continue cannot add that cap, so the stop is a hold that
+// Continue retries once the hook allows the call.
+func TestBeforeModelLimitWithoutBudgetCapIsAHold(t *testing.T) {
+	for _, kind := range []LimitKind{LimitCost, LimitOutputTokens, LimitTotalTokens} {
+		t.Run(string(kind), func(t *testing.T) {
+			hold := true
+			hook := ModelHook{Name: "cap", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+				if !hold {
+					return ModelDecision{}, nil
+				}
+				return ModelDecision{Stop: &Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: kind}}}, nil
+			}}
+			client := &scriptedClient{results: []llm.Result{final("done")}}
+			r := Runner{Client: client, Hooks: hook.Hooks()}
+			out, err := r.Run(t.Context(), Turn{ID: "t1"}, startInput())
+			if err != nil || out.Stop.Kind != StopLimited || out.Stop.Ended || !out.ReadyToContinue || out.Next() != NextFix {
+				t.Fatalf("stop=%+v ready=%v next=%s err=%v", out.Stop, out.ReadyToContinue, out.Next(), err)
+			}
+			hold = false
+			out, err = r.Run(t.Context(), out.Turn, Continue{CommandID: "go"})
+			if err != nil || out.Stop.Kind != StopCompleted {
+				t.Fatalf("stop=%+v err=%v", out.Stop, err)
+			}
+		})
+	}
+}

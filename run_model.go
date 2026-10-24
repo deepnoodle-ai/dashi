@@ -151,6 +151,10 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 			return *o, false
 		}
 		mark = r.hookMark()
+		// Later checks and BeforeSend read the turn with the added items.
+		if s, err = r.replay(); err != nil {
+			return r.stop(StopFailed, err.Error()), false
+		}
 		if purpose == ModelPurposeCompaction {
 			input.Messages, err = r.activeSummaryMessages(plan)
 		} else {

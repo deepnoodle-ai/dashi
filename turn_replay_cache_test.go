@@ -5,6 +5,9 @@ import (
 	"os"
 	"slices"
 	"testing"
+
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/llm"
 )
 
 // TestMain checks every cached rebuild against a full replay, so each test
@@ -94,5 +97,39 @@ func TestReplayCacheCatchesRewrittenStep(t *testing.T) {
 	turn.Steps[len(turn.Steps)-1].Seq = 99
 	if _, err := c.replay(turn); err == nil {
 		t.Fatal("rewritten step passed")
+	}
+}
+
+// TestReplayStateCloneKeepsProviderToolOrder reuses a resolved provider
+// tool approval ID on a clone and shows the original's order is unchanged.
+func TestReplayStateCloneKeepsProviderToolOrder(t *testing.T) {
+	base := &replayState{
+		TurnView:               TurnView{Tools: map[string]ToolView{}},
+		providerTool:           map[string]llm.ProviderToolApprovalRequest{},
+		providerToolModelCalls: map[string]string{},
+		modelCallOfTool:        map[string]string{},
+		providerToolOrder:      []string{"req-1", "req-2"},
+	}
+	cp := base.clone()
+	request := llm.ProviderToolApprovalRequest{
+		ID:     "req-1",
+		Name:   "remote",
+		Origin: content.Origin{Provider: "test", API: "test.chat", Model: "fixture", Scope: "fixture"},
+	}
+	result := llm.Result{
+		Message: llm.AssistantMessage(llm.Content{
+			Kind:                        llm.ContentProviderToolApprovalRequest,
+			ProviderToolApprovalRequest: &request,
+		}),
+		Stop: llm.Stop{Kind: llm.StopFinished},
+	}
+	if err := cp.recordResult("call-2", &result, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := base.providerToolOrder; !slices.Equal(got, []string{"req-1", "req-2"}) {
+		t.Fatalf("base order = %v", got)
+	}
+	if got := cp.providerToolOrder; !slices.Equal(got, []string{"req-2", "req-1"}) {
+		t.Fatalf("clone order = %v", got)
 	}
 }

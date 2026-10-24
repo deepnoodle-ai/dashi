@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Resolve refuses a model result the turn would reject before saving it,**
+  at any stop, not only at an open limited stop. A partly streamed call
+  resolved as a failure, or a result that repeats a tool call ID, no longer
+  reaches a recorder that does not check what it stores.
+- **A summary call can be resolved with a result that holds no usable
+  summary.** Resolve records it as a failed summary, as the runner does, so
+  Continue retries it or falls back instead of leaving the turn stuck at
+  `StopResultUnknown`.
+- **A hook or recorder that stops a turn at a cost or token limit the
+  turn's budget does not set no longer wedges it.** The stop is a hold:
+  `Next` gives `NextFix` and `Continue` retries without a raise.
+- **Continue retries a failed model call after an interrupted stop**
+  instead of failing again with the stale error.
+- **A resumed run whose cut-off summary covers a content reference falls
+  back to a summary fallback** instead of failing the turn.
+- **Active compaction keeps a provider pause chain that asked for a
+  provider tool approval,** so the approval response is never orphaned.
+- **BeforeSend hooks see the context items BeforeModel added** for the
+  same call.
+- `Turn.Citations` copies each citation's `Location`, and a summary
+  fallback no longer repeats an assistant reply the user already answered
+  as `[your last reply]`.
+- The replay cache no longer shares a provider tool approval order between
+  copies when a provider reuses a resolved approval ID.
+
 ## [0.10.0] - 2026-10-23
 
 ### Added

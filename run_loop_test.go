@@ -634,3 +634,41 @@ type toolsetFunc func(context.Context) ([]tool.Tool, error)
 func (f toolsetFunc) Tools(ctx context.Context) ([]tool.Tool, error) {
 	return f(ctx)
 }
+
+// cancelAfterRecorder cancels a run's context once it commits a step of
+// kind, so the run stops as interrupted right after that step.
+type cancelAfterRecorder struct {
+	*MemoryRecorder
+	kind   StepKind
+	cancel context.CancelFunc
+}
+
+func (r *cancelAfterRecorder) Commit(ctx context.Context, req CommitRequest) error {
+	err := r.MemoryRecorder.Commit(ctx, req)
+	if req.Step.Kind == r.kind {
+		r.cancel()
+	}
+	return err
+}
+
+// A run interrupted right after a model call failed records an interrupted
+// stop. Continue then retries the call instead of failing with the stale
+// error.
+func TestContinueAfterInterruptedFailedCallRetries(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{{}, final("done")}}
+	ctx, cancel := context.WithCancel(t.Context())
+	rec := &cancelAfterRecorder{MemoryRecorder: NewMemoryRecorder(), kind: StepModelCallFinished, cancel: cancel}
+	r := Runner{Client: client, Recorder: rec}
+	out, err := r.Run(ctx, Turn{ID: "t1"}, startInput())
+	if err != nil || out.Stop.Kind != StopInterrupted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	finish := out.Turn.Steps[len(out.Turn.Steps)-2]
+	if finish.Kind != StepModelCallFinished || finish.Model.Error == "" {
+		t.Fatalf("fixture did not record a failed call: %+v", finish.Model)
+	}
+	out, err = r.Run(t.Context(), out.Turn, Continue{CommandID: "go"})
+	if err != nil || out.Stop.Kind != StopCompleted || client.sends != 2 {
+		t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
+	}
+}
