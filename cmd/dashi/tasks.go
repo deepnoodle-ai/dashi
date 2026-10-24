@@ -297,37 +297,10 @@ func (e *Engine) DriveTaskNotices(ctx context.Context) (result Result, err error
 			return Result{}, err
 		}
 	}
-	before := state.Turns
 	// A queued user prompt waits for the user's next prompt, which takes
-	// the task items too; a task wake must not run it early.
-	out, ran, err := chat.RunQueueUnlessUserQueued(ctx)
-	if ran {
-		n := 0
-		for turn, loadErr := range chat.Turns(ctx) {
-			n++
-			if n <= before {
-				continue
-			}
-			if loadErr != nil {
-				return Result{Outcome: out}, loadErr
-			}
-			for _, step := range turn.Steps {
-				if step.Kind == dashi.StepTurnStarted {
-					if saveErr := e.record(&step); saveErr != nil {
-						e.warn("Task queue header was not saved: %v", saveErr)
-					}
-				}
-			}
-			blocks, renderErr := RenderTurn(n, e.Model(), e.cfg.Dir, turn, nil)
-			if renderErr != nil {
-				return Result{Outcome: out}, renderErr
-			}
-			for _, block := range blocks {
-				e.cfg.Emit(block)
-			}
-		}
-	}
-	return Result{Outcome: out}, err
+	// the task items too; a task wake must not run it early. The queue
+	// turns stream like the user's own turns.
+	return e.stream(ctx, chat.StreamQueueUnlessUserQueued(ctx), false)
 }
 
 // QuietTasks drains permitted task notices. It leaves a queued user prompt,

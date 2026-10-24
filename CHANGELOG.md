@@ -6,7 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`session.Session.StreamQueueUnlessUserQueued`** is
+  `RunQueueUnlessUserQueued` with events, as `Stream` is `Run` with events.
+
 ### Fixed
+
+- **CLI turns started by a finished background task stream live.** They now
+  show output as it arrives and write `--turn-events` lines, bash git diffs,
+  and session warnings, like the turns you start.
 
 - **CLI approval prompts keep their mode when an earlier prompt is
   canceled.** The next prompt opens only after the canceled one's dialog has
