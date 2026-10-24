@@ -76,16 +76,20 @@ type brokerResponse struct {
 // approvalBroker serializes questions and approvals without restoring a
 // guessed controller mode. Its UI adapter derives mode from actual owners.
 // Cancellation dismisses this exact ID; an answer cannot spill to the next ID.
+//
+// present returns a channel that closes once the prompt's UI has finished,
+// or nil when there is nothing to wait for. The next prompt waits for it,
+// so a canceled prompt's UI cannot end the dialog of the prompt after it.
 type approvalBroker struct {
 	gate    chan struct{}
 	mu      sync.Mutex
 	next    uint64
 	active  *brokerPrompt
-	present func(brokerPrompt)
+	present func(brokerPrompt) <-chan struct{}
 	dismiss func(uint64)
 }
 
-func newApprovalBroker(present func(brokerPrompt), dismiss func(uint64)) *approvalBroker {
+func newApprovalBroker(present func(brokerPrompt) <-chan struct{}, dismiss func(uint64)) *approvalBroker {
 	b := &approvalBroker{gate: make(chan struct{}, 1), present: present, dismiss: dismiss}
 	b.gate <- struct{}{}
 	return b
@@ -100,6 +104,13 @@ func (b *approvalBroker) run(ctx context.Context, prompt brokerPrompt) (brokerRe
 	if err := ctx.Err(); err != nil {
 		return brokerResponse{}, err
 	}
+	// Runs after cancel below: the canceled UI returns, then the gate opens.
+	var shown <-chan struct{}
+	defer func() {
+		if shown != nil {
+			<-shown
+		}
+	}()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	b.mu.Lock()
@@ -120,7 +131,7 @@ func (b *approvalBroker) run(ctx context.Context, prompt brokerPrompt) (brokerRe
 			b.dismiss(prompt.ID)
 		}
 	}()
-	b.present(prompt)
+	shown = b.present(prompt)
 	select {
 	case <-ctx.Done():
 		return brokerResponse{}, ctx.Err()

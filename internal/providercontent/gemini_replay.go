@@ -90,6 +90,13 @@ func checkGeminiReplay(c, original llm.Content, foreign bool) error {
 				"providercontent: Gemini tool replay requires functionCall",
 			)
 		}
+		// Gemini omits args, or sends null, for a call with no arguments; the
+		// decoded call has an empty object.
+		args := saved["args"]
+		if trimmed := bytes.TrimSpace(args); len(trimmed) == 0 ||
+			string(trimmed) == "null" {
+			args = json.RawMessage(`{}`)
+		}
 		var name, id string
 		if !validString(saved["name"]) ||
 			json.Unmarshal(
@@ -97,9 +104,9 @@ func checkGeminiReplay(c, original llm.Content, foreign bool) error {
 				&name,
 			) != nil || name == "" ||
 			!utf8.ValidString(name) ||
-			!geminiJSONObject(saved["args"]) ||
-			!equalJSON(saved["args"], c.ToolCall.Args) ||
-			!equalJSON(saved["args"], original.ToolCall.Args) ||
+			!geminiJSONObject(args) ||
+			!equalJSON(args, c.ToolCall.Args) ||
+			!equalJSON(args, original.ToolCall.Args) ||
 			name != c.ToolCall.Name ||
 			name != original.ToolCall.Name {
 			return errors.New(

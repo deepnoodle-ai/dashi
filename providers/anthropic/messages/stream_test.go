@@ -70,3 +70,67 @@ func TestStreamToolCallWithNoArguments(t *testing.T) {
 		})
 	}
 }
+
+func readEvents(t *testing.T, events ...string) (llm.Result, error) {
+	t.Helper()
+	stream := "data: " + strings.Join(events, "\n\ndata: ") + "\n\n"
+	wire := codec{origin: content.Origin{Provider: "anthropic", API: API, Model: "fixture", Scope: "fixture"}}
+	return wire.readStream(io.NopCloser(strings.NewReader(stream)), llm.Result{}, nil)
+}
+
+// TestStreamPartialProviderToolKeepsItsType covers an interrupted server or
+// MCP tool block. Its partial replay data must keep the block's own type.
+func TestStreamPartialProviderToolKeepsItsType(t *testing.T) {
+	for _, kind := range []string{"tool_use", "server_tool_use", "mcp_tool_use"} {
+		t.Run(kind, func(t *testing.T) {
+			result, err := readEvents(t,
+				`{"type":"message_start","message":{"id":"m","type":"message","model":"fixture","content":[]}}`,
+				`{"type":"content_block_start","index":0,"content_block":{"type":"`+kind+`","id":"call","name":"act","server_name":"s","input":{}}}`,
+				`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"q\":"}}`,
+			)
+			if err == nil || len(result.Message.Content) != 1 {
+				t.Fatalf("err = %v, content = %+v", err, result.Message.Content)
+			}
+			o := result.Message.Content[0].Opaque
+			if o == nil || !o.Partial || o.Type != kind {
+				t.Fatalf("opaque = %+v, want partial %q", o, kind)
+			}
+		})
+	}
+}
+
+// TestStreamRejectsArgumentsForNonToolBlock covers an input_json_delta aimed
+// at a text block. The stream broke the block lifecycle, so the call fails
+// instead of turning the text into a tool block.
+func TestStreamRejectsArgumentsForNonToolBlock(t *testing.T) {
+	result, err := readEvents(t,
+		`{"type":"message_start","message":{"id":"m","type":"message","model":"fixture","content":[]}}`,
+		`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"Hi"}}`,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{"}}`,
+	)
+	e, ok := errors.AsType[*llm.Error](err)
+	if !ok || e.Category != llm.ErrorProtocol {
+		t.Fatalf("err = %v, want a protocol error", err)
+	}
+	if result.Message.Text() != "Hi" {
+		t.Fatalf("content = %+v, want the text block", result.Message.Content)
+	}
+}
+
+// TestStreamUsageDeltaKeepsStartFields covers a message_delta usage object
+// with null fields. A null must not erase what message_start reported.
+func TestStreamUsageDeltaKeepsStartFields(t *testing.T) {
+	result, err := readEvents(t,
+		`{"type":"message_start","message":{"id":"m","type":"message","model":"fixture","content":[],"usage":{"input_tokens":5,"output_tokens":1,"service_tier":"priority"}}}`,
+		`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"Hi"}}`,
+		`{"type":"content_block_stop","index":0}`,
+		`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2,"service_tier":null}}`,
+		`{"type":"message_stop"}`,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ServiceTier != "priority" {
+		t.Fatalf("service tier = %q, want priority", result.ServiceTier)
+	}
+}

@@ -15,7 +15,7 @@ import (
 func TestBrokerCancellationNeverAnswersAnotherOriginalCall(t *testing.T) {
 	shown := make(chan brokerPrompt, 4)
 	dismissed := make(chan uint64, 4)
-	broker := newApprovalBroker(func(p brokerPrompt) { shown <- p }, func(id uint64) { dismissed <- id })
+	broker := newApprovalBroker(func(p brokerPrompt) <-chan struct{} { shown <- p; return nil }, func(id uint64) { dismissed <- id })
 	owner1 := brokerOwner{TaskID: "child-A", Call: dashi.CallRef{TurnID: "A-1", CallID: "write-A"}}
 	owner2 := brokerOwner{TaskID: "child-B", Call: dashi.CallRef{TurnID: "B-1", CallID: "question-B"}}
 	ctx1, cancel := context.WithCancel(context.WithValue(t.Context(), brokerOwnerKey{}, owner1))
@@ -64,7 +64,7 @@ func TestBrokerCancellationNeverAnswersAnotherOriginalCall(t *testing.T) {
 }
 
 func TestBrokerRejectsUnattributedToolPrompt(t *testing.T) {
-	b := newApprovalBroker(func(brokerPrompt) { t.Fatal("unattributed prompt shown") }, nil)
+	b := newApprovalBroker(func(brokerPrompt) <-chan struct{} { t.Fatal("unattributed prompt shown"); return nil }, nil)
 	if _, err := b.approve(t.Context(), ApprovalRequest{}); err == nil {
 		t.Fatal("original call missing")
 	}
@@ -84,5 +84,51 @@ func TestBrokerToolHookPreservesExactChildCall(t *testing.T) {
 	}
 	if seen.Call.TurnID != plan.Turn.ID || seen.Call.CallID != plan.Call.ID || seen.TaskID != delegate.ChildID(parent.TurnID, parent.CallID) {
 		t.Fatalf("hook attribution changed call: %+v", seen)
+	}
+}
+
+// A canceled prompt's dialog must end before the next prompt opens, or its
+// late endDialog clears the approval mode of the prompt after it.
+func TestBrokerNextPromptWaitsForCanceledDialog(t *testing.T) {
+	h := newHarness(t)
+	c := h.app.ctrl
+	entered := make(chan struct{})
+	modes := make(chan Mode, 1)
+	h.ui.answer = func(ctx context.Context, r ApprovalRequest) (Approval, error) {
+		if r.Tool == "first" {
+			close(entered)
+			<-ctx.Done()
+			// The UI goroutine returns after the broker saw the cancel.
+			time.Sleep(50 * time.Millisecond)
+			return Approval{}, ctx.Err()
+		}
+		time.Sleep(100 * time.Millisecond)
+		modes <- c.Mode()
+		return Approval{Allow: true}, nil
+	}
+	owner := func(call string) context.Context {
+		return context.WithValue(t.Context(), brokerOwnerKey{}, brokerOwner{Call: dashi.CallRef{TurnID: "t", CallID: call}})
+	}
+	ctx1, cancel := context.WithCancel(owner("1"))
+	first := make(chan error, 1)
+	go func() {
+		_, err := c.Approve(ctx1, ApprovalRequest{Tool: "first"})
+		first <- err
+	}()
+	<-entered
+	second := make(chan error, 1)
+	go func() {
+		_, err := c.Approve(owner("2"), ApprovalRequest{Tool: "second"})
+		second <- err
+	}()
+	cancel()
+	if err := <-first; !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if err := <-second; err != nil {
+		t.Fatal(err)
+	}
+	if mode := <-modes; mode != ModeApproval {
+		t.Fatalf("second prompt mode=%v, want approval", mode)
 	}
 }

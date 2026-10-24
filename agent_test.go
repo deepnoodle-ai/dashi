@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"regexp"
 	"strings"
 	"testing"
@@ -795,5 +796,24 @@ func TestNoRaiseRejectsARaise(t *testing.T) {
 	}
 	if _, err := runner.Run(t.Context(), saved.Turn, Continue{ModelCalls: 20}); err == nil {
 		t.Fatal("a raise was accepted with NoRaise")
+	}
+}
+
+// Agent.Validate checks settings as a request would, so a NaN temperature
+// or an invalid task budget fails at Start.
+func TestAgentValidateChecksSettings(t *testing.T) {
+	for name, s := range map[string]llm.Settings{
+		"nan temperature": {Temperature: new(math.NaN())},
+		"inf temperature": {Temperature: new(math.Inf(1))},
+		"task budget":     {TaskBudget: &llm.TaskBudget{Total: -1}},
+		"max tokens":      {MaxTokens: -1},
+	} {
+		if err := (Agent{Settings: s}).Validate(); err == nil {
+			t.Errorf("%s passed", name)
+		}
+	}
+	choice := Agent{Settings: llm.Settings{ToolChoice: &llm.ToolChoice{Mode: llm.ToolChoiceTool, Name: "read"}}}
+	if err := choice.Validate(); err != nil {
+		t.Fatalf("named tool choice: %v", err)
 	}
 }

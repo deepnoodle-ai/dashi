@@ -321,3 +321,67 @@ func TestSessionStreamBreakWhileClosing(t *testing.T) {
 		t.Fatalf("input=%q", got)
 	}
 }
+
+// StreamQueueUnlessUserQueued yields nothing while a user item is queued,
+// and otherwise streams each queue turn it runs, including one for an item
+// that arrived during the turn before it.
+func TestSessionStreamQueueUnlessUserQueued(t *testing.T) {
+	t.Run("user item queued", func(t *testing.T) {
+		s := handle(dashi.NewMemoryRecorder(), dashitest.NewClient(dashitest.Reply("no")))
+		s.New = true
+		if _, err := s.EnqueueItem(t.Context(), runtimeItem("notice")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Enqueue(t.Context(), "later"); err != nil {
+			t.Fatal(err)
+		}
+		got := drain(t, s.StreamQueueUnlessUserQueued(t.Context()))
+		if len(got.errs) != 0 || len(got.order) != 0 {
+			t.Fatalf("order=%v errs=%v", got.order, got.errs)
+		}
+		if st, err := s.Open(t.Context()); err != nil || st.Turns != 0 || st.Queued != 2 {
+			t.Fatalf("state=%+v err=%v", st, err)
+		}
+	})
+	t.Run("queue turns", func(t *testing.T) {
+		client := held(1, dashitest.Reply("one"), dashitest.Reply("two"))
+		s := handle(dashi.NewMemoryRecorder(), client)
+		s.New = true
+		if _, err := s.EnqueueItem(t.Context(), runtimeItem("notice")); err != nil {
+			t.Fatal(err)
+		}
+		enqueued := make(chan error, 1)
+		go func() {
+			<-client.gate.entered
+			_, err := s.EnqueueItem(t.Context(), runtimeItem("second notice"))
+			close(client.gate.release)
+			enqueued <- err
+		}()
+		seq := s.StreamQueueUnlessUserQueued(t.Context())
+		got := drain(t, seq)
+		if err := <-enqueued; err != nil {
+			t.Fatal(err)
+		}
+		if len(got.errs) != 0 {
+			t.Fatal(got.errs)
+		}
+		if !slices.Equal(got.order, []string{"s-1", "s-2"}) ||
+			!slices.Equal(got.outcomes, []string{"s-1", "s-2"}) {
+			t.Fatalf("order=%v outcomes=%v", got.order, got.outcomes)
+		}
+		for _, id := range got.order {
+			steps := got.steps[id]
+			if steps[0] != dashi.StepTurnStarted || steps[len(steps)-1] != dashi.StepTurnStopped {
+				t.Fatalf("%s steps=%v", id, steps)
+			}
+		}
+		if got.last.Reply != "two" {
+			t.Fatalf("last reply=%q", got.last.Reply)
+		}
+		for _, err := range seq {
+			if !errors.Is(err, dashi.ErrStreamConsumed) {
+				t.Fatalf("second range err=%v", err)
+			}
+		}
+	})
+}

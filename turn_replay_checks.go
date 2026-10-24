@@ -156,14 +156,18 @@ func (s *replayState) recordResult(
 				}
 				// A provider may reuse an ID once its earlier request was
 				// resolved. The model call ID tells the two requests apart,
-				// so each gets its own Resolve command.
+				// so each gets its own Resolve command. clone shares the
+				// order's backing array, so rebuild it rather than delete in
+				// place.
 				s.providerTool[a.ID] = a
 				s.providerToolModelCalls[a.ID] = modelCall
-				s.providerToolOrder = slices.DeleteFunc(
-					s.providerToolOrder,
-					func(id string) bool { return id == a.ID },
-				)
-				s.providerToolOrder = append(s.providerToolOrder, a.ID)
+				order := make([]string, 0, len(s.providerToolOrder)+1)
+				for _, id := range s.providerToolOrder {
+					if id != a.ID {
+						order = append(order, id)
+					}
+				}
+				s.providerToolOrder = append(order, a.ID)
 			}
 		}
 	}
@@ -218,6 +222,10 @@ func (s *replayState) canContinueWith(raise *Budget, raisedCap int) bool {
 				return false
 			}
 		}
+		// A hook or recorder may stop the turn at a cost or token limit the
+		// turn's budget does not set. Continue cannot add that cap, so the
+		// stop is a hold, like a host limit: the hook or recorder decides
+		// again before the next call.
 		switch limit.Kind {
 		case LimitModelCalls:
 			if s.ModelCalls >= max(s.modelCallCap, raisedCap) {
@@ -227,11 +235,8 @@ func (s *replayState) canContinueWith(raise *Budget, raisedCap int) bool {
 			if s.Spend.CostUnknown > 0 {
 				return false
 			}
-			if limit.UnpricedModel != "" {
+			if limit.UnpricedModel != "" || budget == nil || budget.MaxCost == nil {
 				break
-			}
-			if budget == nil || budget.MaxCost == nil {
-				return false
 			}
 			used, known := s.Spend.costIn(budget.MaxCost.Currency)
 			after, ok := used.Add(limit.WorstCaseCost)
@@ -241,14 +246,15 @@ func (s *replayState) canContinueWith(raise *Budget, raisedCap int) bool {
 				return false
 			}
 		case LimitOutputTokens:
-			if budget == nil || budget.MaxOutputTokens <=
-				s.Spend.Usage.OutputTokens {
+			if budget != nil && budget.MaxOutputTokens > 0 &&
+				budget.MaxOutputTokens <= s.Spend.Usage.OutputTokens {
 				return false
 			}
 		case LimitTotalTokens:
 			total := s.Spend.Usage.TotalInputTokens() +
 				s.Spend.Usage.OutputTokens
-			if budget == nil || budget.MaxTotalTokens <= total {
+			if budget != nil && budget.MaxTotalTokens > 0 &&
+				budget.MaxTotalTokens <= total {
 				return false
 			}
 		}
@@ -352,15 +358,12 @@ func (s *replayState) acceptsAfterEnd(command Command) error {
 }
 
 // checkLateResultStep refuses, before anything is saved, a late result
-// that View would reject because it makes an open limited stop end the
-// turn (checkStillOpen). A host recorder need not rebuild the view of what
+// that View would reject: one that makes an open limited stop end the turn
+// (checkStillOpen), or that replay rejects for any other reason, such as a
+// repeated tool call ID. A host recorder need not rebuild the view of what
 // it commits, so without this the step would be stored and the turn would
-// fail View from then on. It rebuilds the view only when the turn rests at
-// an open limited stop.
-func checkLateResultStep(turn Turn, s *replayState, step Step) error {
-	if s.Stop.Kind != StopLimited || s.Stop.Ended {
-		return nil
-	}
+// fail View from then on.
+func checkLateResultStep(turn Turn, step Step) error {
 	step.Version = 1
 	step.TurnID = turn.ID
 	step.Seq = int64(len(turn.Steps) + 1)

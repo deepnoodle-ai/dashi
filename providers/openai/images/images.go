@@ -118,6 +118,9 @@ func New(config Config) (*Client, error) {
 		if err := info.Validate(); err != nil {
 			return nil, fmt.Errorf("images: model %q: %w", name, err)
 		}
+		if info.Image == nil {
+			return nil, fmt.Errorf("images: model %q has no image capabilities", name)
+		}
 		if info.Evidence.Model != name || info.Evidence.API != API ||
 			info.Evidence.Endpoint != config.Endpoint {
 			return nil, fmt.Errorf(

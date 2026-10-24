@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -416,5 +417,56 @@ func TestTaskWakeLeavesQueuedUserPromptForTheNextPrompt(t *testing.T) {
 	}
 	if st, err := a.eng.handle().Open(t.Context()); err != nil || st.Queued != 0 {
 		t.Fatalf("state=%+v err=%v, want an empty queue", st, err)
+	}
+}
+
+// A turn that a finished task starts streams like the user's own turns: it
+// writes --turn-events lines and returns its result.
+func TestDriveTaskNoticesStreamsTheQueueTurn(t *testing.T) {
+	hold := make(chan struct{})
+	client := &taskFixtureClient{childHold: hold}
+	cfg := testConfig(t)
+	cfg.Client = client
+	path := filepath.Join(t.TempDir(), "turn-events.jsonl")
+	log, err := openTurnEvents(path, cfg.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { log.Close() })
+	cfg.TurnEvents = log
+	a, err := buildApp(t.Context(), cfg, newRecorderUI())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = a.openSession(cfg.Store, cfg.Dir, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	a.ctrl.mu.Lock()
+	a.ctrl.autoTaskDelivery = false
+	a.ctrl.mu.Unlock()
+	t.Cleanup(func() { a.ctrl.CancelWork(); a.eng.closeTasks(); a.ctrl.Wait(); a.eng.Close() })
+	if _, err := a.eng.Prompt(t.Context(), "Delegate this job"); err != nil {
+		t.Fatal(err)
+	}
+	close(hold)
+	waitTask(t, a, func(v delegate.TaskView) bool { return v.State == delegate.TaskState(dashi.StopCompleted) })
+	if _, err := a.eng.taskHost().tasks.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	result, err := a.eng.DriveTaskNotices(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := a.eng.Session().ID
+	if result.Outcome.Turn.ID != id+"-2" || result.Outcome.Reply != "Task result received." {
+		t.Fatalf("result turn=%s reply=%q", result.Outcome.Turn.ID, result.Outcome.Reply)
+	}
+	if err := log.idle(nil); err != nil {
+		t.Fatal(err)
+	}
+	got := readTurnEvents(t, path)
+	if n := len(got); n < 2 || names(got[n-2:]) != "UserPromptSubmit Stop" ||
+		got[n-2]["prompt_id"] != id+"-2" || got[n-1]["last_assistant_message"] != "Task result received." {
+		t.Fatalf("records: %v", got)
 	}
 }

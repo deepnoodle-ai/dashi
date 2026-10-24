@@ -123,6 +123,14 @@ func (a Agent) Validate() error {
 			"dashi: model calls and tool concurrency cannot be negative",
 		)
 	}
+	// Check the settings as a request would, so an invalid one, such as a
+	// NaN temperature, fails at Start rather than at every model call. A
+	// named tool choice is checked against each call's tools instead.
+	settings := a.Settings
+	settings.ToolChoice = nil
+	if err := (llm.Input{Model: "agent", Settings: settings}).Validate(); err != nil {
+		return fmt.Errorf("dashi: agent settings: %w", err)
+	}
 	if schema := absentNull(a.OutputSchema); len(schema) > 0 {
 		if _, err := compileOutputSchema(schema); err != nil {
 			return err

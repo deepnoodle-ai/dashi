@@ -811,4 +811,10 @@ func TestActiveCompaction(t *testing.T) {
 	if r := watcherResults(out.Turn); len(r) != 2 {
 		t.Fatalf("hook results = %+v", r)
 	}
+	// The summary replaced the calls before the first reminder, but the
+	// second check still sees that reminder.
+	second, _ := json.Marshal(srv.Requests()[1].Request.State)
+	if !strings.Contains(string(second), `"watcher_reminders":[`) {
+		t.Fatalf("second check state = %s", second)
+	}
 }

@@ -225,6 +225,16 @@ func runAutomation(ctx context.Context, o Options, stdin io.Reader, stdout, stde
 		return 1
 	}
 	cfg.parentStopped = output.selectTurn
+	if newRequest && snap.latest.ID != "" {
+		// A new request may first close the saved latest turn. That
+		// turn's reply belongs to an earlier run, so it is not output.
+		floor := turnNumber(snap.latest.ID)
+		cfg.parentStopped = func(n int) {
+			if n > floor {
+				output.selectTurn(n)
+			}
+		}
+	}
 
 	ui := &printUI{err: &automationDiagnosticWriter{stderr}, yes: o.Yes}
 	a, err := buildApp(execCtx, cfg, ui)

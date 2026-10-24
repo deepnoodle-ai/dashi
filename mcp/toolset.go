@@ -126,6 +126,9 @@ type conn struct {
 	// listed holds the remote tools of the current session.
 	listed  []*mcp.Tool
 	changed bool
+	// changes counts list-changed notifications, so a listing can tell
+	// whether one arrived while it ran.
+	changes int
 	stderr  *tail
 	// notes are runtime warnings; dropped are the last rebuild's collisions.
 	notes   []string
@@ -327,14 +330,21 @@ func (t *Toolset) each(conns []*conn, f func(*conn)) {
 
 // dial starts a fresh session for c and lists its tools. It replaces any old
 // session, and records the failure on c instead of returning it.
-func (t *Toolset) dial(ctx context.Context, c *conn) {
+func (t *Toolset) dial(parent context.Context, c *conn) {
 	timeout := t.opts.ConnectTimeout
 	if timeout <= 0 {
 		timeout = defaultConnectTimeout
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
+	t.mu.Lock()
+	changes := c.changes
+	t.mu.Unlock()
 	cs, tools, warnings, errTail, err := t.connect(ctx, c)
+	// When the caller gave up, the failure says little about the server, so
+	// an earlier error and its stderr win. With no earlier error, the
+	// cancel error is recorded so that Status still says why it failed.
+	gaveUp := err != nil && parent.Err() != nil
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		err = fmt.Errorf("timed out after %s", timeout)
 	}
@@ -353,11 +363,20 @@ func (t *Toolset) dial(ctx context.Context, c *conn) {
 		return
 	}
 	old := c.session
-	c.session, c.listed, c.changed, c.stderr = cs, tools, false, errTail
-	c.notes = warnings
-	if err != nil {
+	c.session, c.listed = cs, tools
+	c.changed = c.changes != changes
+	switch {
+	case gaveUp:
+		// Keep the earlier failure and its stderr; the server stays failed.
+		c.state = StateFailed
+		if c.err == nil {
+			c.err = err
+		}
+	case err != nil:
+		c.stderr, c.notes = errTail, warnings
 		c.state, c.err = StateFailed, err
-	} else {
+	default:
+		c.stderr, c.notes = errTail, warnings
 		c.state, c.err = StateConnected, nil
 	}
 	t.mu.Unlock()
@@ -377,9 +396,15 @@ func (t *Toolset) connect(
 	ctx context.Context,
 	c *conn,
 ) (*mcp.ClientSession, []*mcp.Tool, []string, *tail, error) {
-	s, warnings := c.server.expanded()
-	typ, err := s.transport()
+	// The transport comes from the entry as written, the one Open checked
+	// and the user approved. An unset variable must not switch it.
+	typ, err := c.server.transport()
 	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	s, warnings := c.server.expanded()
+	s.Type = typ
+	if _, err := s.transport(); err != nil {
 		return nil, nil, warnings, nil, err
 	}
 	var errTail *tail
@@ -415,6 +440,7 @@ func (t *Toolset) connect(
 			) {
 				t.mu.Lock()
 				c.changed = true
+				c.changes++
 				t.mu.Unlock()
 			},
 		},
@@ -478,6 +504,9 @@ func listAll(ctx context.Context, cs *mcp.ClientSession) ([]*mcp.Tool, error) {
 
 // relist reads the tool list of a live session again.
 func (t *Toolset) relist(ctx context.Context, c *conn, cs *mcp.ClientSession) {
+	t.mu.Lock()
+	changes := c.changes
+	t.mu.Unlock()
 	tools, err := listAll(ctx, cs)
 	if ctx.Err() != nil {
 		return
@@ -489,7 +518,7 @@ func (t *Toolset) relist(ctx context.Context, c *conn, cs *mcp.ClientSession) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if c.session == cs {
-		c.listed, c.changed = tools, false
+		c.listed, c.changed = tools, c.changes != changes
 	}
 }
 

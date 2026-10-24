@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -255,6 +256,21 @@ func TestPipedEOFDuringApprovalCancelsRun(t *testing.T) {
 	}
 	if runs.Load() != 0 {
 		t.Fatalf("the tool ran without approval; output:\n%s", out.String())
+	}
+}
+
+// Redirected input without --plain makes one request, which writes no turn
+// events. dashi refuses --turn-events there instead of ignoring it.
+func TestRedirectedInputRefusesTurnEvents(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	var stdout, stderr bytes.Buffer
+	code := run(t.Context(), []string{"--turn-events", path}, strings.NewReader("hi\n"), &stdout, &stderr)
+	if code == 0 || !strings.Contains(stderr.String(), "--turn-events needs an interactive session") {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("turn-event file: %v", err)
 	}
 }
 

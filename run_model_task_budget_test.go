@@ -339,6 +339,30 @@ func TestHookLowersTaskBudgetTotal(t *testing.T) {
 
 // A Remaining that cannot be derived sends the agent's budget with a
 // warning instead of failing the call.
+// A compaction whose replaced messages counted no tokens still sends
+// Remaining: the provider no longer sees those messages.
+func TestTurnTaskBudgetSendsRemainingAfterZeroTokenCompaction(t *testing.T) {
+	c, a := activeFixture()
+	calls := 0
+	out, err := (Runner{Client: c, Tools: activeTools(&calls)}).Run(t.Context(), Turn{ID: "budget"}, activeStart(a))
+	if err != nil {
+		t.Fatal(err)
+	}
+	memo := map[int64]int{}
+	for _, step := range out.Turn.Steps {
+		if step.Kind == StepContextCompacted {
+			memo[step.Seq] = 0
+		}
+	}
+	if len(memo) == 0 {
+		t.Fatal("fixture made no compaction")
+	}
+	got, err := turnTaskBudget(out.Turn, &llm.TaskBudget{Total: 30_000}, memo)
+	if err != nil || got.Remaining == nil || *got.Remaining != 30_000 {
+		t.Fatalf("budget = %+v, err = %v", got, err)
+	}
+}
+
 func TestCallTaskBudgetWarnsWhenRemainingUnknown(t *testing.T) {
 	broken := Turn{ID: "broken", Steps: []Step{{
 		Seq:       1,

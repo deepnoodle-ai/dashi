@@ -80,6 +80,7 @@ func contextGroups(t Turn, messages []contextMessage) []contextGroup {
 	groupSeq := map[int64]int64{}
 	eligible := map[int64]bool{}
 	var chain int64
+	var approval bool // the chain asked for a provider tool approval
 	for _, step := range t.Steps {
 		switch step.Kind {
 		case StepContextCompacted:
@@ -92,16 +93,17 @@ func contextGroups(t Turn, messages []contextMessage) []contextGroup {
 			}
 			if chain == 0 {
 				chain = step.Seq
+				approval = false
 			}
 			groupSeq[step.Seq] = chain
-			safe := f.Result.Stop.Kind == llm.StopFinished || f.Result.Stop.Kind == llm.StopToolUse
 			for _, c := range f.Result.Message.Content {
 				if c.Kind == llm.ContentProviderToolApprovalRequest {
-					safe = false
+					approval = true
 				}
 			}
 			if f.Result.Stop.Kind != llm.StopPause {
-				eligible[chain] = safe
+				eligible[chain] = !approval &&
+					(f.Result.Stop.Kind == llm.StopFinished || f.Result.Stop.Kind == llm.StopToolUse)
 				chain = 0
 			}
 		}

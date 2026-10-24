@@ -87,9 +87,20 @@ func TestAdaptGeminiSignedReplayRequiresUnchangedID(t *testing.T) {
 			fail: true,
 		},
 		{
-			name: "missing arguments",
+			// Gemini omits args for a call with no arguments.
+			name: "missing arguments are an empty object",
 			id:   "call-1",
 			raw:  `{"functionCall":{"id":"call-1","name":"lookup"}}`,
+		},
+		{
+			name: "null arguments are an empty object",
+			id:   "call-1",
+			raw:  `{"functionCall":{"id":"call-1","name":"lookup","args":null}}`,
+		},
+		{
+			name: "non-object arguments",
+			id:   "call-1",
+			raw:  `{"functionCall":{"id":"call-1","name":"lookup","args":[]}}`,
 			fail: true,
 		},
 		{

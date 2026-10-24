@@ -197,6 +197,31 @@ func (c *Controller) confirmTask(ctx context.Context, snapshot taskSnapshot, cal
 	}
 	return nil
 }
+
+// recordedApproval is the approval request for a recorded pending call of a
+// stopped task. A workspace bash call gets its command and a decide slot, so
+// the command-risk check reads it as it reads a live call, in bypass mode
+// too.
+func (c *Controller) recordedApproval(ctx context.Context, turnID string, p dashi.Pending) (context.Context, ApprovalRequest) {
+	r := ApprovalRequest{Tool: p.Name, Summary: p.Name, Args: p.Args, RememberScope: "This exact recorded task call only"}
+	if p.Name != workspace.ToolBash || p.ProviderTool != nil {
+		return ctx, r
+	}
+	var in struct {
+		Command string `json:"command"`
+	}
+	if json.Unmarshal(p.Args, &in) != nil || in.Command == "" {
+		return ctx, r
+	}
+	first, _, multi := strings.Cut(in.Command, "\n")
+	if multi {
+		first += " ..."
+	}
+	r.Command, r.Dir, r.Summary = in.Command, c.dir, "run: "+first
+	plan := dashi.ToolPlan{Turn: dashi.TurnView{ID: turnID}, Call: tool.Call{ID: p.ID, Name: p.Name, Args: p.Args}}
+	return context.WithValue(ctx, decideSlotKey{}, &decideSlot{plan: plan}), r
+}
+
 func (c *Controller) taskAction(ctx context.Context, id, action, callID string) error {
 	host := c.eng.taskHost()
 	if host == nil {
@@ -261,7 +286,8 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 				return fmt.Errorf("pending %s %s must be resolved explicitly before continuation", p.Kind, p.ID)
 			}
 			owner := brokerOwner{TaskID: snapshot.Task.SessionID, Call: dashi.CallRef{TurnID: snapshot.View.ID, CallID: p.ID}}
-			answer, err := c.Approve(context.WithValue(ctx, brokerOwnerKey{}, owner), ApprovalRequest{Tool: p.Name, Summary: p.Name, Args: p.Args, RememberScope: "This exact recorded task call only"})
+			askCtx, request := c.recordedApproval(context.WithValue(ctx, brokerOwnerKey{}, owner), snapshot.View.ID, p)
+			answer, err := c.Approve(askCtx, request)
 			if err != nil {
 				return err
 			}

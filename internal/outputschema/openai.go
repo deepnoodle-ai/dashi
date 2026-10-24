@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 )
 
@@ -55,7 +56,7 @@ func checkOpenAINode(
 			return fmt.Errorf("output_schema %s.description: must be a string", path)
 		}
 	}
-	typeName, err := openAIType(node["type"], root)
+	typeName, nullable, err := openAIType(node["type"], root)
 	if err != nil {
 		return fmt.Errorf("output_schema %s.type: %w", path, err)
 	}
@@ -68,11 +69,12 @@ func checkOpenAINode(
 		if *enumValues > openAIMaxEnumValues {
 			return fmt.Errorf("output_schema %s.enum: total exceeds %d", path, openAIMaxEnumValues)
 		}
+		if typeName == "object" || typeName == "array" {
+			return fmt.Errorf("output_schema %s.enum: only scalar types may have enum", path)
+		}
 		for i, value := range enum {
-			switch value.(type) {
-			case nil, string, float64, bool:
-			default:
-				return fmt.Errorf("output_schema %s.enum[%d]: only scalar values are supported", path, i)
+			if !enumValueFits(value, typeName, nullable) {
+				return fmt.Errorf("output_schema %s.enum[%d]: value does not match type %s", path, i, typeName)
 			}
 		}
 	}
@@ -145,17 +147,37 @@ func checkOpenAINode(
 	return nil
 }
 
-func openAIType(value any, root bool) (string, error) {
+// enumValueFits reports whether an enum value is one the node's type, or its
+// null alternative, accepts. A value that does not fit can never be
+// produced, so OpenAI rejects the schema.
+func enumValueFits(value any, typeName string, nullable bool) bool {
+	switch v := value.(type) {
+	case nil:
+		return nullable || typeName == "null"
+	case string:
+		return typeName == "string"
+	case bool:
+		return typeName == "boolean"
+	case float64:
+		return typeName == "number" || (typeName == "integer" && v == math.Trunc(v))
+	}
+	return false
+}
+
+// openAIType returns the node's type and whether a nullable pair also
+// allows null.
+func openAIType(value any, root bool) (string, bool, error) {
+	nullable := false
 	name, ok := value.(string)
 	if !ok {
 		values, isArray := value.([]any)
 		if root || !isArray || len(values) != 2 {
-			return "", fmt.Errorf("expected one type%s", rootSuffix(root))
+			return "", false, fmt.Errorf("expected one type%s", rootSuffix(root))
 		}
 		first, firstOK := values[0].(string)
 		second, secondOK := values[1].(string)
 		if !firstOK || !secondOK || first == second {
-			return "", fmt.Errorf("nullable type must contain one type and null")
+			return "", false, fmt.Errorf("nullable type must contain one type and null")
 		}
 		switch {
 		case first == "null":
@@ -163,18 +185,19 @@ func openAIType(value any, root bool) (string, error) {
 		case second == "null":
 			name = first
 		default:
-			return "", fmt.Errorf("nullable type must contain null")
+			return "", false, fmt.Errorf("nullable type must contain null")
 		}
+		nullable = true
 	}
 	if root && name != "object" {
-		return "", fmt.Errorf("root must have type object")
+		return "", false, fmt.Errorf("root must have type object")
 	}
 	if !slices.Contains([]string{
 		"object", "array", "string", "integer", "number", "boolean", "null",
 	}, name) {
-		return "", fmt.Errorf("unsupported type %q", name)
+		return "", false, fmt.Errorf("unsupported type %q", name)
 	}
-	return name, nil
+	return name, nullable, nil
 }
 
 func rootSuffix(root bool) string {
