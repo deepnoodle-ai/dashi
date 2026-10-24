@@ -350,13 +350,16 @@ func (p *Client) Send(
 		// call still explains how its request differed from the input.
 		result.Warnings = prepared.Warnings()
 		// A stop kind is evidence that the provider answered, so a call
-		// that failed before any response carries none.
+		// that failed with no HTTP status carries none.
 		if callErr != nil && responded {
 			result.Stop.Kind = llm.StopIncomplete
 		}
 	}()
 	resp, err := p.client.Post(ctx, prepared)
 	if err != nil {
+		// An HTTP status, even an error one, means the provider received
+		// the request, so the call keeps a stop kind.
+		responded = providerhttp.Responded(err)
 		return result, err
 	}
 	responded = true

@@ -553,9 +553,10 @@ func (p *Client) limits(r llm.Input) llm.Capabilities {
 
 // Send dispatches at most one Messages request. Stream mode is pinned by
 // Prepare; a nil sink discards previews while still accumulating the result.
-// When an error follows a provider response, the result's stop kind is
-// incomplete and the result may still carry the content received before the
-// failure. A call that fails before any response has no stop kind.
+// When an error follows a provider response, including an HTTP error
+// status, the result's stop kind is incomplete and the result may still carry
+// the content received before the failure. A call that fails with no HTTP
+// status has no stop kind.
 func (p *Client) Send(
 	ctx context.Context,
 	call llm.Call,
@@ -571,7 +572,7 @@ func (p *Client) Send(
 		// call still explains how its request differed from the input.
 		result.Warnings = prepared.Warnings()
 		// A stop kind is evidence that the provider answered, so a call
-		// that failed before any response carries none.
+		// that failed with no HTTP status carries none.
 		if callErr != nil && responded {
 			result.Stop.Kind = llm.StopIncomplete
 		}
@@ -590,6 +591,9 @@ func (p *Client) Send(
 	}
 	resp, err := client.Post(ctx, prepared)
 	if err != nil {
+		// An HTTP status, even an error one, means the provider received
+		// the request, so the call keeps a stop kind.
+		responded = providerhttp.Responded(err)
 		return r, err
 	}
 	responded = true

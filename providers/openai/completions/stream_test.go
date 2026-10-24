@@ -63,3 +63,25 @@ func TestSendFailureBeforeResponseHasNoStop(t *testing.T) {
 		t.Fatalf("stop = %q, err = %v; want no stop and an error", result.Stop.Kind, err)
 	}
 }
+
+// TestSendHTTPErrorKeepsStop covers an HTTP error status. Any status means the
+// provider received the request and may have run it, so the call keeps a stop
+// kind and is never taken for one that was not sent.
+func TestSendHTTPErrorKeepsStop(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusBadGateway} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(status)
+		}))
+		p := testClient(t, server.URL)
+		prepared, err := p.Prepare(t.Context(), testInput(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := p.Send(t.Context(), llm.Call{Request: prepared})
+		server.Close()
+		if err == nil || result.Stop.Kind != llm.StopIncomplete {
+			t.Fatalf("status %d: stop = %q, err = %v; want incomplete and an error",
+				status, result.Stop.Kind, err)
+		}
+	}
+}

@@ -385,6 +385,14 @@ func NoAPIKey(provider, key string, public bool, env string) error {
 	}
 }
 
+// Responded reports whether err carries an HTTP response status. Any status,
+// a rejection or a 5xx, means the provider received the request, so the call
+// counts as possibly run.
+func Responded(err error) bool {
+	failure, ok := errors.AsType[*llm.Error](err)
+	return ok && failure.Status != 0
+}
+
 // KnownRejection is limited to HTTP statuses that affirmatively reject a
 // request. Timeout, conflict, and too-early responses remain ambiguous.
 func KnownRejection(status int) bool {

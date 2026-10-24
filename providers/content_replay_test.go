@@ -456,12 +456,15 @@ func TestDuplicateToolIDsFailDecode(t *testing.T) {
 
 func TestResultDoesNotInventMessageSourceWithoutOutput(t *testing.T) {
 	for _, tc := range cases(t) {
-		for _, variant := range []string{"cancelled", "http-error", "empty-stream"} {
+		for _, variant := range []string{"cancelled", "rejected", "http-error", "empty-stream"} {
 			t.Run(tc.name+"/"+variant, func(t *testing.T) {
 				server := serve(
 					t,
 					func(w http.ResponseWriter, r *http.Request) {
-						if variant == "http-error" {
+						switch variant {
+						case "rejected":
+							w.WriteHeader(http.StatusBadRequest)
+						case "http-error":
 							w.WriteHeader(http.StatusBadGateway)
 						}
 					},
@@ -489,10 +492,19 @@ func TestResultDoesNotInventMessageSourceWithoutOutput(t *testing.T) {
 				if variant == "cancelled" && !errors.Is(err, context.Canceled) {
 					t.Fatal(err)
 				}
-				// A stop kind is evidence that a response arrived, so a call
-				// that failed before any response must not carry one.
-				if variant != "empty-stream" && result.Stop.Kind != "" {
-					t.Fatalf("stop kind = %q before any response", result.Stop.Kind)
+				// A stop kind is evidence that a response arrived. Any HTTP
+				// status, a rejection or a 5xx, means the provider received
+				// the request and may have run it, so the call keeps one. A
+				// call cancelled before dispatch must not carry one.
+				switch variant {
+				case "cancelled":
+					if result.Stop.Kind != "" {
+						t.Fatalf("stop kind = %q before any response", result.Stop.Kind)
+					}
+				case "rejected", "http-error":
+					if result.Stop.Kind != llm.StopIncomplete {
+						t.Fatalf("stop kind = %q after an HTTP response, want incomplete", result.Stop.Kind)
+					}
 				}
 			})
 		}

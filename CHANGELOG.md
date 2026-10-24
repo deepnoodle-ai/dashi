@@ -13,9 +13,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   partial opaque content, even when its arguments happen to be valid JSON.
 - **A call that fails before the provider answers has no stop kind.**
   Anthropic Messages, OpenAI Responses, and OpenAI Chat Completions set
-  `StopIncomplete` only after a response arrived, so a missing key, a refused
-  connection, or a response-start timeout is not mistaken for a dispatched
-  call.
+  `StopIncomplete` only after the provider responded, so a missing key, a
+  refused connection, or a response-start timeout is not mistaken for a
+  dispatched call. Any HTTP status, including a 4xx rejection or a 5xx, counts
+  as a response, so such a call keeps `StopIncomplete`.
 - **Malformed provider output is a protocol error.** A stream event that is
   not JSON or exceeds the size limit, and inner content that does not decode,
   now fail with `llm.ErrorProtocol` instead of `llm.ErrorTransport` or a bare
