@@ -27,6 +27,21 @@ type Config struct {
 	Model, Instructions, Voice string
 	Tools                      []tool.Definition
 	InputFormat, OutputFormat  content.AudioFormat
+	// History seeds the conversation with earlier text before the caller
+	// speaks. Connect sends it after setup and before returning, and it
+	// asks for no model response. Connect does not wait for Grok to accept
+	// each item: a rejected item arrives later as an EventError.
+	History []HistoryItem
+	// MaxTools and MaxInstructionBytes bound Tools and Instructions. Zero
+	// means DefaultMaxTools and DefaultMaxInstructionBytes.
+	MaxTools, MaxInstructionBytes int
+}
+
+// HistoryItem is one earlier line of the conversation, said by the user or
+// the assistant. It is text only.
+type HistoryItem struct {
+	Speaker Speaker
+	Text    string
 }
 type SessionInfo struct {
 	Provider, Model, SessionID                  string
@@ -170,13 +185,58 @@ type DialFunc func(context.Context, string, http.Header, *http.Client) (Connecti
 // PCM16 mono. Providers' own chunks fit (Grok's run about 69 KB), and a
 // larger one is split rather than refused.
 const MaxAudioBytes = 256 * 1024
+
+// MaxMessageBytes bounds one wire message either way. A setup message with
+// DefaultMaxTools ordinary tools and DefaultMaxInstructionBytes of
+// instructions fits; History goes in messages of its own.
 const MaxMessageBytes = 2 * 1024 * 1024
 const MaxToolBytes = 64 * 1024
+
+// MaxPendingTools bounds tool calls awaiting results at once, not the tools a
+// session declares; Config.MaxTools bounds those.
 const MaxPendingTools = 32
 
+// DefaultMaxTools and DefaultMaxInstructionBytes apply when the matching
+// Config field is zero. They fit an assistant with many tools and a long
+// prompt.
+const DefaultMaxTools = 128
+const DefaultMaxInstructionBytes = 256 * 1024
+
+// MaxHistoryBytes bounds the total text of Config.History.
+const MaxHistoryBytes = 256 * 1024
+
 func (c Config) Validate() error {
-	if len(c.Instructions) > MaxToolBytes || len(c.Voice) > 256 || len(c.Tools) > MaxPendingTools {
+	maxTools, maxInstructions := c.MaxTools, c.MaxInstructionBytes
+	if maxTools == 0 {
+		maxTools = DefaultMaxTools
+	}
+	if maxInstructions == 0 {
+		maxInstructions = DefaultMaxInstructionBytes
+	}
+	if maxTools < 0 || maxInstructions < 0 {
+		return Failf(ErrorInvalidRequest, "negative limit")
+	}
+	if len(c.Tools) > maxTools {
+		return Failf(ErrorInvalidRequest, "%d tools, over the limit of %d", len(c.Tools), maxTools)
+	}
+	if len(c.Instructions) > maxInstructions {
+		return Failf(ErrorInvalidRequest, "instructions are %d bytes, over the limit of %d", len(c.Instructions), maxInstructions)
+	}
+	if len(c.Voice) > 256 {
 		return Fail(ErrorInvalidRequest)
+	}
+	total := 0
+	for i, h := range c.History {
+		if h.Speaker != SpeakerUser && h.Speaker != SpeakerAssistant {
+			return Failf(ErrorInvalidRequest, "history item %d has speaker %q", i, h.Speaker)
+		}
+		if h.Text == "" {
+			return Failf(ErrorInvalidRequest, "history item %d has no text", i)
+		}
+		total += len(h.Text)
+	}
+	if total > MaxHistoryBytes {
+		return Failf(ErrorInvalidRequest, "history is %d bytes, over the limit of %d", total, MaxHistoryBytes)
 	}
 	names := map[string]bool{}
 	for _, t := range c.Tools {

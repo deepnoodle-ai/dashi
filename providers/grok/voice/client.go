@@ -3,7 +3,7 @@ package voice
 
 import "github.com/deepnoodle-ai/dashi/internal/realtimewire"
 
-const DefaultModel = "grok-voice-think-fast-2.0"
+const DefaultModel = "grok-voice-3.0"
 const DefaultEndpoint = "wss://api.x.ai/v1/realtime"
 
 type Config = realtimewire.Config
