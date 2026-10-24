@@ -1,6 +1,7 @@
 package imagine
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -56,6 +57,7 @@ func (wire fileOutputWire) storedOutput(
 // The REST docs describe Unix seconds; protobuf JSON surfaces RFC3339. An
 // unknown or malformed optional expiry stays unknown without hiding the file.
 func parseOutputExpiry(raw json.RawMessage) *time.Time {
+	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
 	}
@@ -91,6 +93,8 @@ func parseOutputExpiry(raw json.RawMessage) *time.Time {
 	return nil
 }
 
+// validOutputExpiry treats a time at or before the Unix epoch, such as a zero
+// value, as no expiry rather than one long past.
 func validOutputExpiry(value time.Time) bool {
-	return value.Year() >= 1 && value.Year() <= 9999
+	return value.Unix() > 0 && value.Year() <= 9999
 }

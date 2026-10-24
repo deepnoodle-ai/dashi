@@ -269,7 +269,10 @@ type ModelPlan struct {
 type ModelDecision struct {
 	// Settings replaces the input settings when non-nil.
 	Settings *llm.Settings `json:"settings,omitempty"`
-	// AddMessages records additional context before preparing the model request.
+	// AddMessages records additional context before preparing the model
+	// request. An item without an ID gets one made from the turn, the
+	// ordinary model call, the hook's name, and the item's position, so a
+	// pass that runs again for the same call does not add it twice.
 	AddMessages []ContextItem `json:"add_messages,omitempty"`
 	// Hide removes the named tools from this call; every hook's list
 	// applies, and names must match exactly. Names no tool of this call has,

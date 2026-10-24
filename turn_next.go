@@ -96,7 +96,8 @@ func (v TurnView) limitNext() Next {
 	case LimitCost, LimitOutputTokens, LimitTotalTokens:
 		// A cap stop that Continue could run past without a raise was not
 		// caused by the cap: the cost of the next call could not be
-		// bounded, and a raise would stop it again.
+		// bounded, and a raise would stop it again; or a hook or recorder
+		// held it at a cap the budget does not set.
 		if v.ReadyToContinue {
 			return NextFix
 		}

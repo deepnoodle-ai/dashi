@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -127,6 +129,45 @@ func TestHideWarnsOnceAboutNamesItCannotApply(t *testing.T) {
 	}
 	if got := toolNames(client.inputs[0].Tools); !slices.Contains(got, SubmitOutputTool) {
 		t.Fatalf("offered %v", got)
+	}
+}
+
+// A BeforeModel hook whose tool choice takes away the submission tool on a
+// structured-output turn is skipped with a warning, not fatal to the turn.
+func TestBeforeModelToolChoiceAgainstOutputSchemaSkipsTheHook(t *testing.T) {
+	none := ModelHook{Name: "none", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		return ModelDecision{Settings: &llm.Settings{ToolChoice: &llm.ToolChoice{Mode: llm.ToolChoiceNone}}}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{submitResult("out-1", `{"answer":1}`)}}
+	_, out, err := runStructured(t, structuredAgent(), client, none.Hooks())
+	if err != nil || out.Stop.Kind != StopCompleted || countWarnings(out, WarningHookFailed) != 1 {
+		t.Fatalf("stop=%+v warnings=%+v err=%v", out.Stop, out.Warnings, err)
+	}
+	if client.inputs[0].Settings.ToolChoice != nil {
+		t.Fatalf("tool choice = %+v", client.inputs[0].Settings.ToolChoice)
+	}
+}
+
+// On the reserved final-reply call, which offers no application tools, a
+// hook's named tool choice is cleared, not a reason to skip the hook.
+func TestBeforeModelToolChoiceOnFinalReplyKeepsTheHook(t *testing.T) {
+	hook := ModelHook{Name: "pick", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		return ModelDecision{
+			Settings:    &llm.Settings{ToolChoice: &llm.ToolChoice{Mode: llm.ToolChoiceTool, Name: "read"}},
+			AddMessages: []ContextItem{{Origin: ContextRuntime, Message: llm.UserMessage(llm.Text("note"))}},
+		}, nil
+	}}
+	agent := testAgent()
+	agent.Limits.ModelCalls = 2
+	client := &scriptedClient{results: []llm.Result{callResult("c1", "read"), final("done")}}
+	out := runAgent(t, agent, client, tool.List{namedTool("read", nil)}, hook.Hooks())
+	// The reserved final reply stops the turn at the model-call limit.
+	if out.Reply != "done" || countWarnings(out, WarningHookFailed) != 0 {
+		t.Fatalf("stop=%+v reply=%q warnings=%+v", out.Stop, out.Reply, out.Warnings)
+	}
+	last := client.inputs[len(client.inputs)-1]
+	if last.Settings.ToolChoice != nil || last.Messages[len(last.Messages)-1].Text() != "note" {
+		t.Fatalf("final reply input = %+v", last)
 	}
 }
 
@@ -526,5 +567,205 @@ func TestModelStopRecordsItsReasonUnlessTheDecisionHasOne(t *testing.T) {
 			got[0].Reason != tc.want || got[0].RulesVersion != "rules-2" {
 			t.Fatalf("reason %q: hook results = %+v", tc.reason, got)
 		}
+	}
+}
+
+// A BeforeModel hook that adds an item with a fixed ID on every call
+// records it once. A different item with that ID is dropped with a warning.
+func TestBeforeModelRepeatedItemIDRecordsOnce(t *testing.T) {
+	calls := 0
+	hook := ModelHook{Name: "note", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		calls++
+		return ModelDecision{AddMessages: []ContextItem{
+			{ID: "fixed-id", Origin: ContextRuntime, Message: llm.UserMessage(llm.Text("note " + strconv.Itoa(min(calls, 2))))},
+			{ID: "same-call", Origin: ContextRuntime, Message: llm.UserMessage(llm.Text("a"))},
+			{ID: "same-call", Origin: ContextRuntime, Message: llm.UserMessage(llm.Text("b"))},
+		}}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{callResult("c1", "read"), final("done")}}
+	tools := tool.List{namedTool("read", nil)}
+	out := runAgent(t, testAgent(), client, tools, hook.Hooks())
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v", out.Stop)
+	}
+	if _, err := out.Turn.View(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// BeforeSend sees the items a BeforeModel hook added for the same call.
+func TestBeforeSendSeesBeforeModelItems(t *testing.T) {
+	add := ModelHook{Name: "plan", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		return ModelDecision{AddMessages: []ContextItem{{
+			Origin:  ContextRuntime,
+			Name:    "x",
+			Message: llm.UserMessage(llm.Text("plan mode is on")),
+		}}}, nil
+	}}
+	var sawItem, sawHook bool
+	send := SendHook{Name: "check", Func: func(_ context.Context, p SendPlan) (SendDecision, error) {
+		_, sawItem = p.Turn.Context(ContextRuntime, "x")
+		sawHook = p.Turn.HookActed(HookBeforeModel, "plan")
+		return SendDecision{}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	hooks := add.Hooks()
+	hooks.BeforeSend = []SendHook{send}
+	out := runAgent(t, testAgent(), client, nil, hooks)
+	if out.Stop.Kind != StopCompleted || !sawItem || !sawHook {
+		t.Fatalf("stop=%+v item=%v hook=%v", out.Stop, sawItem, sawHook)
+	}
+}
+
+// A BeforeModel hook can stop a turn at a cost or token limit its budget
+// does not set. Continue cannot add that cap, so the stop is a hold that
+// Continue retries once the hook allows the call.
+func TestBeforeModelLimitWithoutBudgetCapIsAHold(t *testing.T) {
+	for _, kind := range []LimitKind{LimitCost, LimitOutputTokens, LimitTotalTokens} {
+		t.Run(string(kind), func(t *testing.T) {
+			hold := true
+			hook := ModelHook{Name: "cap", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+				if !hold {
+					return ModelDecision{}, nil
+				}
+				return ModelDecision{Stop: &Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: kind}}}, nil
+			}}
+			client := &scriptedClient{results: []llm.Result{final("done")}}
+			r := Runner{Client: client, Hooks: hook.Hooks()}
+			out, err := r.Run(t.Context(), Turn{ID: "t1"}, startInput())
+			if err != nil || out.Stop.Kind != StopLimited || out.Stop.Ended || !out.ReadyToContinue || out.Next() != NextFix {
+				t.Fatalf("stop=%+v ready=%v next=%s err=%v", out.Stop, out.ReadyToContinue, out.Next(), err)
+			}
+			hold = false
+			out, err = r.Run(t.Context(), out.Turn, Continue{CommandID: "go"})
+			if err != nil || out.Stop.Kind != StopCompleted {
+				t.Fatalf("stop=%+v err=%v", out.Stop, err)
+			}
+		})
+	}
+}
+
+// hookNote is the text of a BeforeModel item without an ID.
+const hookNote = "hook note"
+
+func hookNoteHook(asked *int, during func(int)) ModelHook {
+	return ModelHook{Name: "note", Func: func(_ context.Context, p ModelPlan) (ModelDecision, error) {
+		if p.Purpose == ModelPurposeCompaction {
+			return ModelDecision{}, nil
+		}
+		*asked++
+		if during != nil {
+			during(*asked)
+		}
+		return ModelDecision{AddMessages: []ContextItem{{
+			Origin:  ContextRuntime,
+			Message: llm.UserMessage(llm.Text(hookNote)),
+		}}}, nil
+	}}
+}
+
+// countNotes counts the hook notes in messages.
+func countNotes(messages []llm.Message) int {
+	n := 0
+	for _, m := range messages {
+		if strings.Contains(m.Text(), hookNote) {
+			n++
+		}
+	}
+	return n
+}
+
+func recordedNotes(turn Turn) int {
+	var messages []llm.Message
+	for _, step := range stepsOf(turn, StepMessagesAdded) {
+		for _, item := range step.Items() {
+			messages = append(messages, item.Message)
+		}
+	}
+	return countNotes(messages)
+}
+
+// A pass sent back for an urgent steer runs BeforeModel again. An item
+// without an ID gets the same runner-made ID on both passes, so it is
+// recorded and sent once.
+func TestBeforeModelItemRecordsOnceAfterAnUrgentSteer(t *testing.T) {
+	inbox := newWatchedInbox()
+	client := newUrgentClient(urgentCall{result: final("ok")})
+	asked := 0
+	hook := hookNoteHook(&asked, func(n int) {
+		if n == 1 {
+			inbox.sendUrgent(t, "use staging")
+		}
+	})
+	out := runUrgent(t, client, inbox, func(r *Runner) {
+		r.Hooks = hook.Hooks()
+	})
+	if out.Stop.Kind != StopCompleted || asked != 2 {
+		t.Fatalf("stop=%+v asked=%d", out.Stop, asked)
+	}
+	if n := recordedNotes(out.Turn); n != 1 {
+		t.Fatalf("the turn records the hook's item %d times", n)
+	}
+	if n := countNotes(client.lastMessages()); n != 1 {
+		t.Fatalf("the call sent the hook's item %d times", n)
+	}
+	if _, err := out.Turn.View(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An ordinary call replaced by an active compaction summary runs
+// BeforeModel again after the summary. Each ordinary call records the
+// hook's item once.
+func TestBeforeModelItemRecordsOnceAfterActiveCompaction(t *testing.T) {
+	c, a := activeFixture()
+	calls, asked := 0, 0
+	hooks := hookNoteHook(&asked, nil).Hooks()
+	out, err := (Runner{Client: c, Tools: activeTools(&calls), Hooks: hooks}).Run(t.Context(), Turn{}, activeStart(a))
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	ordinary, summaries := 0, 0
+	for _, step := range stepsOf(out.Turn, StepModelCallStarted) {
+		if step.Model.Purpose == ModelPurposeCompaction {
+			summaries++
+		} else {
+			ordinary++
+		}
+	}
+	if summaries == 0 || asked != ordinary+summaries {
+		t.Fatalf("asked=%d ordinary=%d summaries=%d: each summary should replace one asked pass", asked, ordinary, summaries)
+	}
+	if n := recordedNotes(out.Turn); n != ordinary {
+		t.Fatalf("the turn records the hook's item %d times for %d ordinary calls", n, ordinary)
+	}
+	if _, err := out.Turn.View(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A pass held by BeforeSend records the hook's item. Continue runs
+// BeforeModel again for the same call, which does not add it again.
+func TestBeforeModelItemRecordsOnceAfterAHoldAndContinue(t *testing.T) {
+	asked := 0
+	note := hookNoteHook(&asked, nil)
+	hooks := note.Hooks()
+	hooks.BeforeSend = []SendHook{{Name: "pause", Func: func(context.Context, SendPlan) (SendDecision, error) {
+		return SendDecision{Limit: &LimitDetail{Kind: LimitHost, Code: "pause"}}, nil
+	}}}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	out := runAgent(t, testAgent(), client, nil, hooks)
+	if out.Stop.Kind != StopLimited {
+		t.Fatalf("stop=%+v", out.Stop)
+	}
+	out, err := (Runner{Client: client, Hooks: note.Hooks()}).Run(t.Context(), out.Turn, Continue{})
+	if err != nil || out.Stop.Kind != StopCompleted || asked != 2 {
+		t.Fatalf("stop=%+v asked=%d err=%v", out.Stop, asked, err)
+	}
+	if n := recordedNotes(out.Turn); n != 1 {
+		t.Fatalf("the turn records the hook's item %d times", n)
+	}
+	if n := countNotes(client.inputs[0].Messages); n != 1 {
+		t.Fatalf("the call sent the hook's item %d times", n)
 	}
 }

@@ -378,8 +378,12 @@ func (c *Client) do(ctx context.Context, path, ctype string,
 		defer response.Body.Close()
 		body, readErr := io.ReadAll(io.LimitReader(response.Body, maxErrorBytes+1))
 		if readErr != nil {
+			category := speech.ErrorTransport
+			if ctx.Err() != nil {
+				category = speech.ErrorCanceled
+			}
 			return nil, &speech.Error{
-				Category:             speech.ErrorTransport,
+				Category:             category,
 				Status:               response.StatusCode,
 				RemoteOutcomeUnknown: response.StatusCode >= 500,
 				Cause:                readErr,

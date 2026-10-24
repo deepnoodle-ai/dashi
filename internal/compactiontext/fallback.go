@@ -99,6 +99,7 @@ func fallbackItems(covered []llm.Message) []string {
 		case llm.RoleUser:
 			flush()
 			items = append(items, rendered...)
+			reply = "" // a reply the user answered is not the last one
 		case llm.RoleAssistant:
 			reply = strings.Join(rendered, "\n")
 		}

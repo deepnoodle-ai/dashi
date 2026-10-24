@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -57,6 +58,12 @@ func (c *Client) PrepareImageWithOptions(
 	}
 	var info *media.ModelInfo
 	capabilities := media.ImageCapabilities{}
+	if known, ok := c.models[input.Model]; ok && known.Evidence.API != ImageAPI {
+		return media.ImageRequest{}, c.failure(
+			media.ErrorUnsupported,
+			fmt.Errorf("model %q is a video model", input.Model),
+		)
+	}
 	if known, ok := c.models[input.Model]; ok &&
 		known.Image != nil &&
 		known.Evidence.API == ImageAPI {
@@ -154,6 +161,12 @@ func (c *Client) PrepareVideoWithOptions(
 	}
 	var info *media.ModelInfo
 	capabilities := media.VideoCapabilities{}
+	if known, ok := c.models[input.Model]; ok && known.Evidence.API != VideoAPI {
+		return media.VideoRequest{}, c.failure(
+			media.ErrorUnsupported,
+			fmt.Errorf("model %q is an image model", input.Model),
+		)
+	}
 	if known, ok := c.models[input.Model]; ok &&
 		known.Video != nil &&
 		known.Evidence.API == VideoAPI {
@@ -189,14 +202,19 @@ func (c *Client) SubmitVideo(
 	request media.VideoRequest,
 ) (media.Submission, error) {
 	input := request.Input()
+	// Failures before dispatch are known not to have reached xAI.
+	rejected := media.Submission{State: media.SubmissionRejected}
 	if request.Origin() != c.origin(VideoAPI, input.Model) {
-		return media.Submission{}, c.failure(
+		return rejected, c.failure(
 			media.ErrorInvalidRequest,
 			errors.New("prepared video request belongs to another destination"),
 		)
 	}
+	if c.noKey != nil {
+		return rejected, c.failure(media.ErrorAuthentication, c.noKey)
+	}
 	if err := ctx.Err(); err != nil {
-		return media.Submission{}, err
+		return rejected, err
 	}
 	path := "/videos/generations"
 	switch input.Operation {
@@ -265,6 +283,13 @@ func (c *Client) PollVideo(
 	if err := job.Validate(); err != nil {
 		return media.JobPoll{}, c.failure(media.ErrorInvalidRequest, err)
 	}
+	// PathEscape leaves dot segments alone, and they would leave /videos/.
+	if job.ID == "." || job.ID == ".." {
+		return media.JobPoll{}, c.failure(
+			media.ErrorInvalidRequest,
+			fmt.Errorf("video job ID %q is a path dot segment", job.ID),
+		)
+	}
 	if job.Kind != media.KindVideo || job.Origin != c.origin(
 		VideoAPI,
 		job.Origin.Model,
@@ -288,7 +313,7 @@ func (c *Client) PollVideo(
 	if err != nil {
 		return media.JobPoll{}, c.failure(media.ErrorProtocol, err)
 	}
-	poll := media.JobPoll{Job: job, RawUsage: wire.Usage}
+	poll := media.JobPoll{Job: job, RawUsage: media.ReportedUsage(wire.Usage)}
 	if wire.Model != "" {
 		poll.Served = c.modelRef(wire.Model)
 	}
