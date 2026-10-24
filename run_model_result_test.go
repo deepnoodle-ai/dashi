@@ -130,7 +130,7 @@ func TestPartialProviderFailureStaysResultUnknownDespiteRejectionLabel(
 			},
 		},
 	)
-	if !nothingWritten(err) {
+	if !isRefusal(err) {
 		t.Fatalf(
 			"partial response accepted as non-dispatch: out=%+v err=%v",
 			falseProof,

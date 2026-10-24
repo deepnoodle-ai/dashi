@@ -432,8 +432,8 @@ func TestLateResultCannotEndTurnSilently(t *testing.T) {
 	}
 }
 
-// Resolve checks a late model result by rebuilding the view before saving it
-// when the turn rests at an open limited stop, and skips that otherwise.
+// Resolve checks a late model result by rebuilding the view before saving
+// it, whether or not the turn rests at an open limited stop.
 func TestCheckLateResultStep(t *testing.T) {
 	client := &scriptedClient{
 		results: []llm.Result{{}},
@@ -446,12 +446,24 @@ func TestCheckLateResultStep(t *testing.T) {
 		t.Fatalf("start: stop=%+v err=%v", first.Stop, err)
 	}
 	bogus := Step{Kind: StepModelCallFinishedByHost, Model: &ModelFact{ModelCallID: "nope"}}
-	state, err := replay(first.Turn)
-	if err != nil {
-		t.Fatal(err)
+	if err := checkLateResultStep(first.Turn, bogus); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("bogus step at a result_unknown stop: err=%v", err)
 	}
-	if err := checkLateResultStep(first.Turn, state, bogus); err != nil {
-		t.Fatalf("checked a turn that is not at a limited stop: %v", err)
+	// A host-supplied result reports a finished call, never an interrupted
+	// one, which history would leave out though the view acts on it.
+	answer := final("late")
+	interrupted := Step{Kind: StepModelCallFinishedByHost, Model: &ModelFact{
+		ModelCallID: "t1:model:1",
+		MessageID:   "t1:model:1:message",
+		Result:      &answer,
+		Interrupted: InterruptRun,
+	}}
+	if err := checkLateResultStep(first.Turn, interrupted); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("interrupted host result: err=%v", err)
+	}
+	interrupted.Model.Interrupted = InterruptNone
+	if err := checkLateResultStep(first.Turn, interrupted); err != nil {
+		t.Fatalf("host result: err=%v", err)
 	}
 
 	turn := cloneTurn(first.Turn)
@@ -466,11 +478,7 @@ func TestCheckLateResultStep(t *testing.T) {
 			Limit:  &LimitDetail{Kind: LimitHost, Code: "plan"},
 		},
 	})
-	state, err = replay(turn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := checkLateResultStep(turn, state, bogus); !errors.Is(err, ErrInvalidTurn) {
+	if err := checkLateResultStep(turn, bogus); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("bogus step at an open limited stop: err=%v", err)
 	}
 	late := final("late")

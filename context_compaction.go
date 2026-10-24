@@ -77,6 +77,11 @@ func (r *runtime) recoverSummary(s *replayState) (RunResult, bool) {
 		validateModelResult(*res, r.agent) != nil || budgetSpentStop(s) != nil || s.modelCallCap-s.ModelCalls < 2 {
 		return r.compactWithoutSummary(s, s.failedSummary, failed.Error)
 	}
+	// A resumed run has no verified candidate, so it cannot render covered
+	// content references as evidence. Fall back rather than fail.
+	if _, err := r.activeSummaryMessages(start.Compaction); err != nil {
+		return r.compactWithoutSummary(s, s.failedSummary, err.Error())
+	}
 	return r.modelPurpose(s, ModelPurposeCompaction, start.Compaction)
 }
 
