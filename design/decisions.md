@@ -583,9 +583,10 @@ low, so a cap is a limit on known spend, not a guarantee.
 
 ## 2026-10-24
 
-**48. Record formats change freely before 1.0.** Decided. Dashi has no
-production users yet, so a release may change a recorded field without
-reading the old one. The first case: the `task_status` outcome field
+**48. Record formats change freely before 1.0.** Decided. Releases before
+1.0 (0.9.0 to 0.11.0 so far) are tagged for our own applications, not for
+outside hosts, so a release may change a recorded field without reading
+the old one. The first case: the `task_status` outcome field
 `delivered_turn_id` became `delivered_notice_id` (decision 46). A host
 upgrading from 0.10.0 or 0.11.0 does not count an earlier read as delivered,
 so `Recover` may send that notice once more. The CHANGELOG lists each such
