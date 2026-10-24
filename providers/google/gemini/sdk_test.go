@@ -160,6 +160,32 @@ func TestSendCanceledBeforeDispatchIsNotSent(t *testing.T) {
 	}
 }
 
+// A connection dropped after the request reached the server may have run the
+// call, so the result keeps a stop kind and the send status stays unknown.
+func TestSendDroppedAfterDispatchKeepsStopKind(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		conn.Close()
+	}))
+	defer server.Close()
+	p := newTestClient(t, server)
+	prepared, err := p.Prepare(t.Context(), sampleInput(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := p.Send(t.Context(), llm.Call{Request: prepared})
+	failure, ok := errors.AsType[*llm.Error](err)
+	if !ok || failure.SendStatus == llm.SendStatusNotSent ||
+		failure.Status != 0 || result.Stop.Kind != llm.StopIncomplete {
+		t.Fatalf("result = %+v, err = %#v", result, err)
+	}
+}
+
 // The SDK stream path gives text fragments of one part one index, as the
 // assembled message does.
 func TestSDKStreamDeltaIndexesMatchMessageParts(t *testing.T) {

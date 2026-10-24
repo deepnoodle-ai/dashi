@@ -21,8 +21,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   body has, so a context overflow in an array or plain-text body now reports
   `ReasonContextWindowExceeded`. A call canceled before dispatch reports
   `SendStatusNotSent`. An error inside a stream Google accepted is no longer
-  `SendStatusProviderRejected`. A call that fails before any response
-  arrives has no `Stop.Kind`.
+  `SendStatusProviderRejected`. Only a call that was definitely not sent has
+  no `Stop.Kind`; a connection dropped after dispatch keeps
+  `StopIncomplete`.
 - **Gemini results invent no provenance.** An empty response has no
   `Message.Source`, and `Served` stays empty when Google names no model.
 - **Gemini rejects tool calls left unanswered before the next model turn**

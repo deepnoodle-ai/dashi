@@ -516,9 +516,10 @@ func hasClientFunctionCalls(input llm.Input) bool {
 }
 
 // Send uses the Google SDK and guards its final HTTP request against the
-// frozen
-// body. A sink observes provisional stream deltas; the final Result is
-// authoritative.
+// frozen body. A sink observes provisional stream deltas; the final Result is
+// authoritative. When a call fails after its request may have reached the
+// provider, the result's stop kind is incomplete. A call that was definitely
+// not sent, such as one cancelled before dispatch, has no stop kind.
 func (p *Client) Send(
 	ctx context.Context,
 	call llm.Call,
@@ -545,15 +546,15 @@ func (p *Client) Send(
 		Requested: llm.ModelRef{Provider: p.Provider(), Model: model},
 		Message:   llm.Message{Role: llm.RoleAssistant},
 	}
-	// guard is set once the SDK client exists; it records the response.
-	var guard *sdkGuard
 	defer func() {
 		// Warnings ride on every result, including partial ones, so a failed
 		// call still explains how its request differed from the input.
 		result.Warnings = prepared.Warnings()
-		// A stop kind is evidence that a response arrived, so a call that
-		// failed before one did has none.
-		if callErr != nil && guard != nil && guard.response().status != 0 {
+		// A stop kind marks a call that may have run, so only a call that was
+		// definitely not sent carries none. sdkError marks a failure not sent
+		// only when the guard never dispatched; an HTTP status, a connection
+		// dropped after dispatch, or a response-start timeout keep a stop kind.
+		if callErr != nil && sendStatusOf(callErr) != llm.SendStatusNotSent {
 			result.Stop.Kind = llm.StopIncomplete
 		}
 	}()
@@ -912,4 +913,13 @@ func sameGeminiReplayArgs(raw, args json.RawMessage) bool {
 		providerhttp.Decode(savedArgs(call["args"]), &original) == nil &&
 		providerhttp.Decode(args, &current) == nil &&
 		reflect.DeepEqual(original, current)
+}
+
+// sendStatusOf returns the send status err records. An error that is not an
+// *llm.Error records none, so the request may have been sent.
+func sendStatusOf(err error) llm.SendStatus {
+	if failure, ok := errors.AsType[*llm.Error](err); ok {
+		return failure.SendStatus
+	}
+	return llm.SendStatusUnknown
 }
