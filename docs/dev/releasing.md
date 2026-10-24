@@ -65,14 +65,17 @@ For `v0.1.0` the root tag predates this tooling and sits on an earlier commit.
 The sub-module tags go on the commit that set their requirements to `v0.1.0`,
 which is fine: they require root `v0.1.0`, which resolves to the existing tag.
 
-## 6. Publish the GitHub release
+## 6. The release workflow publishes
 
-```sh
-make release-publish VERSION=v0.2.0
-```
+Pushing the root tag runs `.github/workflows/release.yml`. It refuses while the
+Highlights in `docs/releases/v0.2.0.md` are a placeholder, runs the tests, and
+then GoReleaser (`.goreleaser.yaml`) builds `cmd/dashi` for macOS, Linux, and
+Windows, creates the GitHub release with those notes and the binaries, and
+updates the `dashi` formula in `deepnoodle-ai/homebrew-tap`, so
+`brew install deepnoodle-ai/tap/dashi` gets the new version. The workflow needs
+the `TAP_GITHUB_TOKEN` secret, a token that can push to the tap.
 
-This creates the release from `docs/releases/v0.2.0.md`. It refuses while the
-Highlights are a placeholder, and `--verify-tag` stops a mistyped version.
+Watch the run with `gh run watch`, and rerun a failed run with `gh run rerun`.
 
 `make release-notes-test` covers the tooling; `make check` runs it with gofmt,
 vet and tests in every module.

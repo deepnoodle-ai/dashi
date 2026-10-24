@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **Install the CLI with Homebrew:** `brew install deepnoodle-ai/tap/dashi`.
+  Each release now attaches `dashi` binaries for macOS, Linux, and Windows,
+  and `dashi --version` reports the release in those builds.
+
 ## [0.12.1] - 2026-10-24
 
 ### Fixed

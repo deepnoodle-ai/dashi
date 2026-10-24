@@ -3,8 +3,8 @@
 
 The changelog is the only place release notes are written, so publishing a
 release reads from it rather than restating it. ``make release-notes`` copies a
-section into ``docs/releases/<version>.md``, which ``make release-publish``
-posts with ``gh release create``.
+section into ``docs/releases/<version>.md``, which the release workflow
+publishes as the GitHub release body.
 
 A missing or empty section is an error: an empty release body is worse than a
 failed publish, because the tag is already pushed by the time this runs.

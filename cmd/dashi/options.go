@@ -415,9 +415,17 @@ func colorFor(w io.Writer) bool {
 	return ok && color.ShouldColorize(f)
 }
 
-// buildVersion is the module version Go recorded in the binary, without
-// its leading "v", or empty for a build without one.
+// version is the release tag, set with -ldflags "-X main.version=..." by
+// release builds, which Go records as a (devel) module version.
+var version string
+
+// buildVersion is the release version without its leading "v": the version
+// set at link time, else the module version Go recorded in the binary, or
+// empty for a build with neither.
 func buildVersion() string {
+	if version != "" {
+		return strings.TrimPrefix(version, "v")
+	}
 	info, ok := debug.ReadBuildInfo()
 	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
 		return ""

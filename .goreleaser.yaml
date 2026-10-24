@@ -1,0 +1,56 @@
+version: 2
+
+project_name: dashi
+
+builds:
+  # cmd/dashi is its own module. The build uses the repository's go.work,
+  # which points it at the library modules of the same tag.
+  - dir: cmd/dashi
+    main: .
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Tag }}
+
+archives:
+  # No version in the names, so CI can always download
+  # releases/latest/download/dashi_linux_amd64.tar.gz.
+  - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+
+# The release workflow passes docs/releases/<tag>.md with --release-notes,
+# which replaces this. Do not set disable: true; that drops those notes too.
+changelog:
+  use: github-native
+
+release:
+  prerelease: auto
+
+brews:
+  - repository:
+      owner: deepnoodle-ai
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/deepnoodle-ai/dashi
+    description: A terminal coding agent
+    license: Apache-2.0
+    commit_author:
+      name: github-actions[bot]
+      email: github-actions[bot]@users.noreply.github.com
+    commit_msg_template: Update dashi to {{ .Tag }}
+    skip_upload: auto
+    install: |
+      bin.install "dashi"
+    test: |
+      assert_match version.to_s, shell_output("#{bin}/dashi --version")
