@@ -368,6 +368,9 @@ func (r *runtime) releaseSteers() {
 		case r.steers.recorded[id]:
 		case r.steers.inDoubt[id]:
 			inDoubt = append(inDoubt, id)
+			if r.opts.inDoubt != nil {
+				r.opts.inDoubt[id] = true
+			}
 		default:
 			unrecorded = append(unrecorded, id)
 		}

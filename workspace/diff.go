@@ -29,6 +29,10 @@ func unifiedDiff(name, old, new string) string {
 	for _, h := range hunks(ops) {
 		out = append(out, h...)
 	}
+	if len(out) == 2 {
+		// splitLines drops \r, so only the line ends changed.
+		out = append(out, "(only line endings differ)")
+	}
 	if len(out) > maxDiffLines {
 		more := len(out) - maxDiffLines
 		out = append(out[:maxDiffLines], fmt.Sprintf("... (%d more lines)", more))
@@ -36,11 +40,24 @@ func unifiedDiff(name, old, new string) string {
 	return strings.Join(out, "\n")
 }
 
+// noNewline follows a last line that has no line end, as in git, so adding
+// or removing the final newline shows as a change.
+const noNewline = "\n\\ No newline at end of file"
+
+// splitLines splits s into lines without their line ends. A \r before \n is
+// dropped too, so a CRLF file does not show a control mark on every line.
 func splitLines(s string) []string {
 	if s == "" {
 		return nil
 	}
-	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimSuffix(l, "\r")
+	}
+	if !strings.HasSuffix(s, "\n") {
+		lines[len(lines)-1] += noNewline
+	}
+	return lines
 }
 
 // diffLines trims the common head and tail, then finds a longest common

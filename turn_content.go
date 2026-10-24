@@ -22,6 +22,10 @@ func (t Turn) Citations() []content.Citation {
 			}
 			for _, citation := range part.Block.Text.Citations {
 				citation.Raw = append([]byte(nil), citation.Raw...)
+				if l := citation.Location; l != nil {
+					location := *l
+					citation.Location = &location
+				}
 				out = append(out, citation)
 			}
 		}

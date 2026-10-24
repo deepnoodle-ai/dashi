@@ -553,8 +553,10 @@ func (p *Client) limits(r llm.Input) llm.Capabilities {
 
 // Send dispatches at most one Messages request. Stream mode is pinned by
 // Prepare; a nil sink discards previews while still accumulating the result.
-// Whenever an error is returned, the result's stop kind is incomplete and the
-// result may still carry the content received before the failure.
+// When a call fails after its request may have reached the provider, the
+// result's stop kind is incomplete and the result may still carry the content
+// received before the failure. A call that was definitely not sent, such as
+// one cancelled before dispatch, has no stop kind.
 func (p *Client) Send(
 	ctx context.Context,
 	call llm.Call,
@@ -564,11 +566,14 @@ func (p *Client) Send(
 		origin: p.client.Origin(prepared.Input().Model),
 		media:  providerhttp.HasMedia(prepared.Input()),
 	}
+	maybeSent := false
 	defer func() {
 		// Warnings ride on every result, including partial ones, so a failed
 		// call still explains how its request differed from the input.
 		result.Warnings = prepared.Warnings()
-		if callErr != nil {
+		// A stop kind marks a call that may have run, so a call that was
+		// definitely not sent carries none.
+		if callErr != nil && maybeSent {
 			result.Stop.Kind = llm.StopIncomplete
 		}
 	}()
@@ -586,8 +591,13 @@ func (p *Client) Send(
 	}
 	resp, err := client.Post(ctx, prepared)
 	if err != nil {
+		// Only a failure marked not sent rules out a provider effect; an
+		// HTTP status or a connection dropped after the request was
+		// written keeps a stop kind.
+		maybeSent = providerhttp.MaybeSent(err)
 		return r, err
 	}
+	maybeSent = true
 	defer resp.Body.Close()
 	if prepared.Input().Stream {
 		result, callErr = wire.readStream(resp.Body, r, sink)
@@ -816,9 +826,12 @@ func (wire codec) decode(
 	for _, raw := range v.Content {
 		c, err := wire.decodeContent(raw)
 		if err != nil {
-			return r, err
+			return r, providerhttp.Protocol(wire.origin.Provider, err)
 		}
 		r.Message.Content = append(r.Message.Content, c)
+	}
+	if err := providercontent.DuplicateToolID(r.Message.Content); err != nil {
+		return r, providerhttp.Failure(wire.origin.Provider, llm.ErrorProtocol, "%w", err)
 	}
 	// A response without usage gets no counts; the runner accounts for its
 	// provider tool uses.

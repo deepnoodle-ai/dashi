@@ -286,8 +286,9 @@ func (s *replayState) calculateSpend() error {
 		charge := modelCall.Cost
 		if charge == nil {
 			// A call with no reported usage counts zero, not unknown, so
-			// an unpriced one does not block a cap (decision 47).
-			if !missing {
+			// an unpriced one does not block a cap (decision 47). Provider
+			// tool work found in its content is spend all the same.
+			if !missing || modelCall.Usage != nil && len(modelCall.Usage.Requests) > 0 {
 				s.Spend.CostUnknown = cappedCount(s.Spend.CostUnknown, 1)
 			}
 			continue

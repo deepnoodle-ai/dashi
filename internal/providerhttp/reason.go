@@ -3,6 +3,7 @@ package providerhttp
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -240,4 +241,13 @@ func OpenAIReason(r Rejection) llm.ErrorReason {
 		return llm.ReasonMediaRejected
 	}
 	return ""
+}
+
+// StreamErrorCause describes an error event reported inside a successful
+// stream, with the provider's message when it gave one.
+func StreamErrorCause(message string) error {
+	if message == "" {
+		return errors.New("provider stream error")
+	}
+	return fmt.Errorf("provider stream error: %s", message)
 }

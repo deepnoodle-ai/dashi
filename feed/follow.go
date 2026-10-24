@@ -261,12 +261,21 @@ func (w *wakingReader) StepsAfter(
 
 func (w *wakingReader) Wait(ctx context.Context, turnID string, after int64) error {
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	woken := w.hub.wakeAfter(turnID, after)
 	inner := make(chan error, 1)
 	var poll <-chan time.Time
 	if waiter, ok := w.StepReader.(dashi.StepWaiter); ok {
-		go func() { inner <- waiter.Wait(ctx, turnID, after) }()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			inner <- waiter.Wait(ctx, turnID, after)
+		}()
+		// Follow promises to wait for its reader on exit, so stop the
+		// inner Wait and wait for it.
+		defer func() {
+			cancel()
+			<-done
+		}()
 	} else {
 		// A commit from another process reaches no hub, so poll too.
 		interval := followPoll
@@ -277,6 +286,7 @@ func (w *wakingReader) Wait(ctx context.Context, turnID string, after int64) err
 		defer timer.Stop()
 		poll = timer.C
 	}
+	defer cancel()
 	select {
 	case <-woken:
 		return nil

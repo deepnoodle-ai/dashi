@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi/content"
@@ -213,7 +212,7 @@ func (p *MediaClient) SendImage(
 		Requested:  model.ModelRef{Provider: p.Provider(), Model: in.Model},
 		API:        ImageAPI,
 		ResponseID: response.ResponseID,
-		RawUsage:   slices.Clone(response.UsageMetadata),
+		RawUsage:   media.ReportedUsage(response.UsageMetadata),
 	}
 	if response.ModelVersion != "" {
 		result.Served = model.ModelRef{
