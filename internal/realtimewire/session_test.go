@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/realtime"
 	"github.com/deepnoodle-ai/dashi/tool"
@@ -406,5 +407,128 @@ func TestLargeAudioChunkSplitsIntoFrames(t *testing.T) {
 	b := next(t, s, realtime.EventAudio)
 	if len(a.Audio.Data) != realtime.MaxAudioBytes || len(b.Audio.Data) != 4000 || b.ResponseID != "r" {
 		t.Fatal(len(a.Audio.Data), len(b.Audio.Data), b.ResponseID)
+	}
+}
+func TestGeminiInterruptAndCompletionNeedAnOpenResponse(t *testing.T) {
+	audio := `{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"data":"AAA=","mimeType":"audio/pcm;rate=24000"}}]}}}`
+	s, _ := connect(t, true, fake(`{"setupComplete":{}}`, audio, `{"serverContent":{"turnComplete":true}}`, `{"serverContent":{"interrupted":true,"turnComplete":true}}`, `{"serverContent":{"inputTranscription":{"text":"hi","finished":true},"turnComplete":true}}`, audio))
+	a := next(t, s, realtime.EventResponseStarted)
+	next(t, s, realtime.EventAudio)
+	next(t, s, realtime.EventResponseCompleted)
+	// Neither the bare interruption nor the transcript-only turn belongs to a
+	// response, so the next events are the transcript and a new response.
+	next(t, s, realtime.EventTranscript)
+	if b := next(t, s, realtime.EventResponseStarted); b.ResponseID == a.ResponseID {
+		t.Fatal("response identity reused")
+	}
+}
+func TestGeminiToolCallAfterInterruptIsDiscarded(t *testing.T) {
+	audio := `{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"data":"AAA=","mimeType":"audio/pcm;rate=24000"}}]}}}`
+	s, _ := connect(t, true, fake(`{"setupComplete":{}}`, audio, `{"serverContent":{"interrupted":true}}`, `{"toolCall":{"functionCalls":[{"id":"c1","name":"ask_agent","args":{}}]}}`, `{"serverContent":{"turnComplete":true}}`))
+	next(t, s, realtime.EventResponseStarted)
+	next(t, s, realtime.EventAudio)
+	next(t, s, realtime.EventInterrupted)
+	next(t, s, realtime.EventResponseCompleted)
+	if err := s.Send(context.Background(), realtime.Command{Kind: realtime.CommandToolResult, ToolResult: &realtime.ToolResult{CallID: "c1", Name: "ask_agent", Output: json.RawMessage(`{}`)}}); err == nil {
+		t.Fatal("discarded tool call answered")
+	}
+}
+func TestGrokRespondSurvivesErrorAndEarlySpeech(t *testing.T) {
+	f := fake(`{"type":"session.updated"}`, `{"type":"response.created","response":{"id":"r1"}}`, `{"type":"response.done","response":{"id":"r1","status":"completed"}}`)
+	s, _ := connect(t, false, f)
+	next(t, s, realtime.EventResponseStarted)
+	next(t, s, realtime.EventResponseCompleted)
+	if err := s.Send(context.Background(), realtime.Command{Kind: realtime.CommandRespond}); err != nil {
+		t.Fatal(err)
+	}
+	f.reads <- []byte(`{"type":"input_audio_buffer.speech_started"}`)
+	f.reads <- []byte(`{"type":"error","error":{"message":"bad"}}`)
+	next(t, s, realtime.EventSpeechStarted) // r1 finished: no interruption.
+	next(t, s, realtime.EventError)
+	if err := s.Send(context.Background(), realtime.Command{Kind: realtime.CommandRespond}); err != nil {
+		t.Fatalf("respond refused after a rejected request: %v", err)
+	}
+	if err := s.Send(context.Background(), realtime.Command{Kind: realtime.CommandRespond}); err == nil {
+		t.Fatal("second respond accepted while one is requested")
+	}
+}
+
+// heldWrite blocks the first write until release closes.
+type heldWrite struct {
+	*fakeConn
+	started, release chan struct{}
+	hold             sync.Once
+}
+
+func (f *heldWrite) Write(ctx context.Context, b []byte) error {
+	f.hold.Do(func() { close(f.started); <-f.release })
+	return f.fakeConn.Write(ctx, b)
+}
+func TestSendContextExpiredWaitingForWriterKeepsSession(t *testing.T) {
+	f := &heldWrite{fakeConn: fake(), started: make(chan struct{}), release: make(chan struct{})}
+	s := NewSession(context.Background(), f, realtime.SessionInfo{Provider: "grok"})
+	text := realtime.Command{Kind: realtime.CommandText, Text: "hi"}
+	first := make(chan error, 1)
+	go func() { first <- s.Send(context.Background(), text) }()
+	<-f.started
+	ctx, cancel := context.WithCancel(context.Background())
+	second := make(chan error, 1)
+	go func() { second <- s.Send(ctx, text) }()
+	time.Sleep(10 * time.Millisecond) // Let the second Send wait for the writer.
+	cancel()
+	close(f.release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	var re *realtime.Error
+	if err := <-second; !errors.As(err, &re) || re.Category != realtime.ErrorCanceled {
+		t.Fatalf("send error %v, want canceled", err)
+	}
+	if err := s.Send(context.Background(), text); err != nil {
+		t.Fatalf("session closed by a waiting writer's context: %v", err)
+	}
+}
+
+// cancelOnRead cancels a context once a read returns.
+type cancelOnRead struct {
+	*fakeConn
+	cancel context.CancelFunc
+}
+
+func (f *cancelOnRead) Read(ctx context.Context) ([]byte, error) {
+	b, err := f.fakeConn.Read(ctx)
+	f.cancel()
+	return b, err
+}
+func TestReceiveContextExpiredAfterIgnoredFrameKeepsSession(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	f := &cancelOnRead{fakeConn: fake(`{"type":"ping"}`, `{"type":"response.created","response":{"id":"r1"}}`), cancel: cancel}
+	s := NewSession(context.Background(), f, realtime.SessionInfo{Provider: "grok"})
+	var re *realtime.Error
+	if _, err := s.Receive(ctx); !errors.As(err, &re) || re.Category != realtime.ErrorCanceled {
+		t.Fatalf("receive error %v, want canceled", err)
+	}
+	next(t, s, realtime.EventResponseStarted)
+}
+func TestReceiveAfterFailureReportsClosed(t *testing.T) {
+	s, _ := connect(t, true, fake(`{"setupComplete":{}}`, `{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"data":"AAA=","mimeType":"image/png"}}]}}}`))
+	if _, err := s.Receive(context.Background()); err == nil {
+		t.Fatal("image treated as audio")
+	}
+	if e, err := s.Receive(context.Background()); !errors.Is(err, realtime.ErrClosed) {
+		t.Fatalf("event %v error %v after failure, want ErrClosed", e.Kind, err)
+	}
+}
+func TestSetupTimeoutIsTransportFailure(t *testing.T) {
+	old := setupTimeout
+	setupTimeout = 10 * time.Millisecond
+	t.Cleanup(func() { setupTimeout = old })
+	c, _ := New(Config{APIKey: "fake", Dial: func(context.Context, string, http.Header, *http.Client) (realtime.Connection, error) {
+		return fake(), nil
+	}}, true)
+	_, err := c.Connect(context.Background(), realtime.Config{})
+	var re *realtime.Error
+	if !errors.As(err, &re) || re.Category != realtime.ErrorTransport {
+		t.Fatalf("setup timeout error %v, want transport", err)
 	}
 }

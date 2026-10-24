@@ -698,3 +698,38 @@ func TestDecodeImageSourceRequiresBase64ForKnownGPTModels(t *testing.T) {
 		t.Fatalf("unknown model URL received invented expiry: %#v", source)
 	}
 }
+
+func TestDecodeImageResponseTreatsNullUsageAsUnreported(t *testing.T) {
+	raw := []byte(`{"output_format":"png","usage":null,"data":[{"b64_json":"` +
+		base64.StdEncoding.EncodeToString(tinyPNG) + `"}]}`)
+	client := testClient(t, defaultEndpoint, media.ImageCapabilities{})
+	result, err := decodeImageResponse(raw, imageInput(media.ImageGenerate),
+		client.origin("gpt-image-1.5"), "req_1")
+	if err != nil || result.RawUsage != nil {
+		t.Fatalf("raw usage %q, err %v", result.RawUsage, err)
+	}
+}
+
+func TestNewRejectsModelWithoutImageCapabilities(t *testing.T) {
+	name := "sora-2"
+	_, err := New(Config{
+		APIKey: "test-key",
+		Models: map[string]media.ModelInfo{
+			name: {
+				Video: &media.VideoCapabilities{},
+				Evidence: model.ModelEvidence{
+					Model:       name,
+					API:         API,
+					Endpoint:    defaultEndpoint,
+					Owner:       "test",
+					Source:      "fixture",
+					Method:      model.EvidenceFixture,
+					QualifiedAt: time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC),
+				},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("model without image capabilities accepted")
+	}
+}

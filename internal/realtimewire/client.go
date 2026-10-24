@@ -128,13 +128,21 @@ func (c *Client) Connect(ctx context.Context, in realtime.Config) (realtime.Sess
 		format := map[string]any{"type": "audio/pcm", "rate": 24000}
 		setup = map[string]any{"type": "session.update", "session": map[string]any{"instructions": in.Instructions, "voice": in.Voice, "tools": tools, "turn_detection": map[string]any{"type": "server_vad"}, "audio": map[string]any{"input": map[string]any{"format": format, "transcription": map[string]any{"model": "grok-transcribe"}}, "output": map[string]any{"format": format}}}}
 	}
-	setupCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	setupCtx, cancel := context.WithTimeout(ctx, setupTimeout)
 	defer cancel()
 	if e := s.Setup(setupCtx, setup, "session.updated"); e != nil {
+		// The setup deadline passing while the caller's context is live is a
+		// provider that never acknowledged, not a cancellation.
+		if ctx.Err() == nil && setupCtx.Err() != nil {
+			return nil, realtime.Failf(realtime.ErrorTransport, "no setup acknowledgment within %v", setupTimeout)
+		}
 		return nil, e
 	}
 	return s, nil
 }
+
+// setupTimeout bounds the wait for the provider to acknowledge setup.
+var setupTimeout = 20 * time.Second
 
 func defaultEndpoint(google bool) string {
 	if google {

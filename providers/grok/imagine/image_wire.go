@@ -233,7 +233,7 @@ func decodeImageWireWithFiles(
 		Kind:      media.KindImage,
 		Requested: model.ModelRef{Provider: provider, Model: requested},
 		API:       ImageAPI,
-		RawUsage:  wire.Usage,
+		RawUsage:  reportedUsage(wire.Usage),
 	}
 	if wire.Model != "" {
 		result.Served = model.ModelRef{Provider: provider, Model: wire.Model}
@@ -256,6 +256,9 @@ func decodeImageWireWithFiles(
 			source.Data = decoded
 		}
 		source.MIMEType = item.MIMEType
+		if source.MIMEType != "" && !strings.HasPrefix(source.MIMEType, "image/") {
+			return media.Result{}, fmt.Errorf("imagine: image response has MIME type %q", source.MIMEType)
+		}
 		if source.Data != nil && source.MIMEType == "" {
 			source.MIMEType = http.DetectContentType(source.Data)
 			if !strings.HasPrefix(source.MIMEType, "image/") {
@@ -276,6 +279,15 @@ func decodeImageWireWithFiles(
 		}
 	}
 	return result, result.Validate()
+}
+
+// reportedUsage treats an explicit JSON null as usage the provider did not
+// report.
+func reportedUsage(raw json.RawMessage) json.RawMessage {
+	if string(raw) == "null" {
+		return nil
+	}
+	return raw
 }
 
 func validHTTPURL(raw string) bool {

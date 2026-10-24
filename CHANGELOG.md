@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Gemini Live sessions report only real responses.** An interruption or
+  turn end with no response in progress no longer sends `EventInterrupted`
+  or `EventResponseCompleted` for the previous response. Tool calls that
+  arrive after an interruption are discarded with the rest of that turn.
+- **Grok voice `CommandRespond` no longer gets stuck.** A provider error
+  after `response.create` lets the caller ask again, and speech before the
+  new response starts no longer interrupts the finished one.
+- **Realtime sessions survive an expired call context.** A `Send` or
+  `Receive` whose context expires while it waits for another call, or after a
+  frame that produced no event, returns `ErrorCanceled` and keeps the
+  session. After a session fails, `Receive` returns `ErrClosed` instead of
+  events queued before the failure.
+- **Realtime setup timeouts are transport errors.** A provider that never
+  acknowledges setup within 20 seconds is `ErrorTransport`, not
+  `ErrorCanceled`.
+- **Media responses with `"usage": null` are accepted.** Grok Imagine and
+  OpenAI Images treat it as unreported usage instead of failing with
+  `ErrorProtocol`.
+- **Grok Imagine checks more of what it sends and receives.** `SubmitVideo`
+  reports `SubmissionRejected` for failures before dispatch, such as a
+  missing key or canceled context. `PollVideo` rejects the job IDs `.` and
+  `..`. Image responses with a non-image `mime_type` fail, a zero or
+  pre-1970 output expiry counts as no expiry, and preparing an image with a
+  catalog video model (or the reverse) fails with `ErrorUnsupported`.
+- **OpenAI Images rejects catalog models without image capabilities**, and
+  OpenAI speech reports a call canceled while reading an error response as
+  `ErrorCanceled`.
+
 ## [0.10.0] - 2026-10-23
 
 ### Added

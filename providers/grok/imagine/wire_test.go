@@ -154,3 +154,22 @@ func TestDecodeVideoStatusRejectsInvalidReportedDuration(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeImageResponseChecksReportedMIMEAndNullUsage(t *testing.T) {
+	_, err := decodeImageWire(
+		[]byte(`{"data":[{"url":"https://imgen.x.ai/a.bin","mime_type":"text/html"}]}`),
+		"test-grok",
+		"grok-imagine-image-2.0",
+	)
+	if err == nil {
+		t.Fatal("non-image MIME type accepted")
+	}
+	result, err := decodeImageWire(
+		[]byte(`{"usage":null,"data":[{"url":"https://imgen.x.ai/a.jpeg","mime_type":"image/jpeg"}]}`),
+		"test-grok",
+		"grok-imagine-image-2.0",
+	)
+	if err != nil || result.RawUsage != nil {
+		t.Fatalf("null usage: raw %q, err %v", result.RawUsage, err)
+	}
+}
