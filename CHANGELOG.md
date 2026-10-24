@@ -40,6 +40,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   OpenAI speech reports a call canceled while reading an error response as
   `ErrorCanceled`.
 
+## [0.11.0] - 2026-10-23
+
+### Added
+
+- **Realtime sessions can start with earlier conversation.**
+  `realtime.Config.History` takes `realtime.HistoryItem{Speaker, Text}` lines,
+  sent after setup without asking for a response: one Gemini `clientContent`
+  under `historyConfig.initialHistoryInClientContent`, or one Grok
+  `conversation.item.create` per line. `realtime.MaxHistoryBytes` (256 KiB)
+  bounds the total text.
+- **Gemini Live on Vertex AI.** `geminilive.Config.Vertex` takes a
+  `geminilive.VertexConfig{Project, Location, TokenSource}`; Connect dials the
+  regional Vertex endpoint with a bearer token from the `oauth2.TokenSource`
+  and names the project-scoped model. The API key path is unchanged.
+  `geminilive.Config` is now a struct of its own rather than an alias, with the
+  same fields plus `Vertex`.
+
+### Changed
+
+- **Larger realtime tool and instruction limits.** `realtime.Config.MaxTools`
+  and `MaxInstructionBytes` set the bounds; zero means
+  `realtime.DefaultMaxTools` (128, was 32) and
+  `realtime.DefaultMaxInstructionBytes` (256 KiB, was 64 KiB).
+  `realtime.MaxPendingTools` (32) now bounds only tool calls awaiting results.
+- **Gemini text commands no longer interrupt the model.** `CommandText` is sent
+  as `realtimeInput.text` instead of `clientContent`.
+- **Realtime usage carries modality detail, so audio and text can be priced
+  apart.** Grok usage is read from beside `response` in `response.done`,
+  where xAI sends it (it was never reported before), falling back to
+  `response.usage`; its text, audio and grok token details become
+  `llm.Usage.ModalityTokens` under `text`, `audio` and `grok`. Gemini usage
+  reads `promptTokensDetails`, `cacheTokensDetails`,
+  `toolUsePromptTokensDetails`, and `responseTokensDetails` or Vertex's
+  `candidatesTokensDetails`, and `candidatesTokenCount` when
+  `responseTokenCount` is absent. Gemini buckets match the batch Gemini
+  provider: thoughts count as output and as `ReasoningTokens` (attributed to
+  text), cached prompt tokens as cache reads. The modality-incomplete flags
+  are false only when the detail adds up to the totals.
+- **Grok voice defaults to `grok-voice-3.0`.** `voice.DefaultModel` was
+  `grok-voice-think-fast-2.0`, which xAI no longer lists and silently serves
+  as the deprecated `grok-voice-2.0`. A session's `Info().Model` now reports
+  the model named in Grok's `session.updated`, which is the model actually
+  serving, and keeps the requested id only when the echo omits it. A
+  `Config.Model` naming the old id now fails with `ErrorUnsupported`.
+- **A provider's close reason reaches the caller.** A WebSocket close with a
+  status other than normal, such as Vertex refusing a model at a location,
+  returns an `ErrorProvider` with `Code` `close_<status>` and the reason as
+  `Cause`, instead of a bare `ErrorTransport`. A Vertex token failure carries
+  the OAuth error code, never the error text.
+
 ## [0.10.0] - 2026-10-23
 
 ### Added

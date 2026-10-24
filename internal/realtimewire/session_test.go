@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/deepnoodle-ai/dashi/realtime"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -541,5 +543,153 @@ func TestSetupTimeoutIsTransportFailure(t *testing.T) {
 	var re *realtime.Error
 	if !errors.As(err, &re) || re.Category != realtime.ErrorTransport {
 		t.Fatalf("setup timeout error %v, want transport", err)
+	}
+}
+
+// connectConfig is connect with the caller's session Config.
+func connectConfig(t *testing.T, google bool, f *fakeConn, in realtime.Config) realtime.Session {
+	t.Helper()
+	c, e := New(Config{APIKey: "fake", Dial: func(context.Context, string, http.Header, *http.Client) (realtime.Connection, error) { return f, nil }}, google)
+	if e != nil {
+		t.Fatal(e)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s, e := c.Connect(ctx, in)
+	if e != nil {
+		t.Fatal(e)
+	}
+	return s
+}
+func wrote(t *testing.T, f *fakeConn, i int) map[string]any {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if i >= len(f.writes) {
+		t.Fatalf("write %d of %d", i, len(f.writes))
+	}
+	var m map[string]any
+	if err := json.Unmarshal(f.writes[i], &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+var history = []realtime.HistoryItem{{Speaker: realtime.SpeakerUser, Text: "My color is teal."}, {Speaker: realtime.SpeakerAssistant, Text: "Got it <teal>."}}
+
+func TestGeminiHistorySeedsOneClientContent(t *testing.T) {
+	f := fake(`{"setupComplete":{}}`)
+	connectConfig(t, true, f, realtime.Config{History: history})
+	setup := object(wrote(t, f, 0), "setup")
+	if got, _ := json.Marshal(setup["historyConfig"]); string(got) != `{"initialHistoryInClientContent":true}` {
+		t.Fatalf("historyConfig %s", got)
+	}
+	want := `{"clientContent":{"turnComplete":true,"turns":[{"parts":[{"text":"My color is teal."}],"role":"user"},{"parts":[{"text":"Got it <teal>."}],"role":"model"}]}}`
+	if got := string(f.writes[1]); got != want || len(f.writes) != 2 {
+		t.Fatalf("seed %s (%d writes)", got, len(f.writes))
+	}
+}
+func TestGeminiSetupWithoutHistoryOmitsHistoryConfig(t *testing.T) {
+	f := fake(`{"setupComplete":{}}`)
+	connectConfig(t, true, f, realtime.Config{})
+	if _, ok := object(wrote(t, f, 0), "setup")["historyConfig"]; ok || len(f.writes) != 1 {
+		t.Fatalf("history sent without history (%d writes)", len(f.writes))
+	}
+}
+func TestGrokHistorySeedsOneItemPerLineWithoutResponse(t *testing.T) {
+	f := fake(`{"type":"session.updated"}`)
+	connectConfig(t, false, f, realtime.Config{History: history})
+	want := []string{
+		`{"item":{"content":[{"text":"My color is teal.","type":"input_text"}],"role":"user","type":"message"},"type":"conversation.item.create"}`,
+		`{"item":{"content":[{"text":"Got it <teal>.","type":"text"}],"role":"assistant","type":"message"},"type":"conversation.item.create"}`,
+	}
+	if len(f.writes) != 3 {
+		t.Fatalf("%d writes", len(f.writes))
+	}
+	for i, w := range want {
+		if got := string(f.writes[i+1]); got != w {
+			t.Fatalf("item %d %s", i, got)
+		}
+	}
+}
+func TestGeminiTextIsRealtimeInput(t *testing.T) {
+	f := fake(`{"setupComplete":{}}`)
+	s, _ := connect(t, true, f)
+	if err := s.Send(context.Background(), realtime.Command{Kind: realtime.CommandText, Text: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(f.writes[1]); got != `{"realtimeInput":{"text":"hello"}}` {
+		t.Fatalf("text %s", got)
+	}
+}
+
+// A setup at the default limits, with ordinary tools, fits one message.
+func TestSetupAtDefaultLimitsFits(t *testing.T) {
+	tools := make([]tool.Definition, realtime.DefaultMaxTools)
+	for i := range tools {
+		tools[i] = tool.Definition{Name: fmt.Sprintf("tool_%d", i), Description: strings.Repeat("d", 4096), Schema: json.RawMessage(`{"type":"object","properties":{"q":{"type":"string","description":"` + strings.Repeat("s", 2048) + `"}}}`)}
+	}
+	in := realtime.Config{Tools: tools, Instructions: strings.Repeat("<", realtime.DefaultMaxInstructionBytes), History: []realtime.HistoryItem{{Speaker: realtime.SpeakerUser, Text: strings.Repeat("&", realtime.MaxHistoryBytes)}}}
+	for _, google := range []bool{true, false} {
+		ack := `{"type":"session.updated"}`
+		if google {
+			ack = `{"setupComplete":{}}`
+		}
+		connectConfig(t, google, fake(ack), in)
+	}
+}
+
+// Gemini ends the turn right after a tool call and answers the result in a
+// new turn; the pending call survives the first turn's completion.
+func TestGeminiToolCallSpansTurns(t *testing.T) {
+	f := fake(`{"setupComplete":{}}`, `{"toolCall":{"functionCalls":[{"id":"c","name":"ask_agent","args":{}}]}}`, `{"serverContent":{"turnComplete":true}}`)
+	s, _ := connect(t, true, f)
+	first := next(t, s, realtime.EventResponseStarted).ResponseID
+	next(t, s, realtime.EventToolCall)
+	if got := next(t, s, realtime.EventResponseCompleted).ResponseID; got != first {
+		t.Fatalf("completed %q, started %q", got, first)
+	}
+	if err := s.Send(context.Background(), realtime.Command{Kind: realtime.CommandToolResult, ToolResult: &realtime.ToolResult{CallID: "c", Name: "ask_agent", Output: json.RawMessage(`{"ok":true}`)}}); err != nil {
+		t.Fatal(err)
+	}
+	f.reads <- []byte(`{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"mimeType":"audio/pcm;rate=24000","data":"AQI="}}]}}}`)
+	f.reads <- []byte(`{"serverContent":{"turnComplete":true},"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":4}}`)
+	second := next(t, s, realtime.EventResponseStarted).ResponseID
+	if second == first {
+		t.Fatal("tool answer reused the first response")
+	}
+	next(t, s, realtime.EventAudio)
+	if u := next(t, s, realtime.EventUsage).Usage; u.InputTokens != 10 || u.OutputTokens != 4 {
+		t.Fatalf("usage %+v", u)
+	}
+	next(t, s, realtime.EventResponseCompleted)
+}
+
+type closingConn struct{ *fakeConn }
+
+func (closingConn) Read(context.Context) ([]byte, error) {
+	return nil, websocket.CloseError{Code: websocket.StatusPolicyViolation, Reason: "Publisher model was not found"}
+}
+
+func TestSetupRefusalKeepsCloseReason(t *testing.T) {
+	c, _ := New(Config{APIKey: "fake", Dial: func(context.Context, string, http.Header, *http.Client) (realtime.Connection, error) {
+		return closingConn{fake()}, nil
+	}}, true)
+	_, err := c.Connect(context.Background(), realtime.Config{})
+	var e *realtime.Error
+	if !errors.As(err, &e) || e.Category != realtime.ErrorProvider || e.Code != "close_1008" || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("error %v", err)
+	}
+}
+
+// xAI remaps an id it does not know and names the model it serves instead.
+func TestGrokInfoReportsServingModel(t *testing.T) {
+	s, _ := connect(t, false, fake(`{"type":"session.updated","session":{"id":"sess","model":"grok-voice-2.0"}}`))
+	if got := s.Info().Model; got != "grok-voice-2.0" {
+		t.Fatalf("model %q", got)
+	}
+	s, _ = connect(t, false, fake(`{"type":"session.updated","session":{"id":"sess"}}`))
+	if got := s.Info().Model; got != "grok-voice-3.0" {
+		t.Fatalf("model %q", got)
 	}
 }
