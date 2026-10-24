@@ -1003,3 +1003,43 @@ func TestActiveCompactionEstimateLoadFailureRecordsNoStop(t *testing.T) {
 		}
 	}
 }
+
+// failFromLoader fails every load from call number from onward.
+type failFromLoader struct {
+	data  []byte
+	calls int
+	from  int
+}
+
+func (l *failFromLoader) Load(context.Context, string, content.Ref) ([]byte, error) {
+	l.calls++
+	if l.calls >= l.from {
+		return nil, errors.New("storage down")
+	}
+	return l.data, nil
+}
+
+// A reference that stops loading while active compaction estimates an
+// over-allowance request ends the turn with the reference's failure, not
+// with a context-window limit.
+func TestActiveCompactionEstimateLoadFailureReportsRefStop(t *testing.T) {
+	data := []byte(strings.Repeat("r", 100))
+	ref := refFor("evidence", data)
+	for from := 1; from <= 12; from++ {
+		c, a := activeFixture()
+		start := activeStart(a)
+		start.Input[0].Content = append(start.Input[0].Content, llm.Document(content.Source{Ref: &ref, MIMEType: "text/plain"}, "evidence.txt"))
+		calls := 0
+		loader := &failFromLoader{data: data, from: from}
+		out, err := (Runner{Client: c, Tools: activeTools(&calls), ContentLoader: loader}).Run(t.Context(), Turn{ID: "t"}, start)
+		if err != nil {
+			t.Fatalf("from=%d: %v", from, err)
+		}
+		if loader.calls < from {
+			continue
+		}
+		if out.Stop.Kind != StopFailed || out.Stop.RefID != "evidence" || out.Stop.Limit != nil {
+			t.Fatalf("from=%d: stop=%+v, want the reference's failure", from, out.Stop)
+		}
+	}
+}

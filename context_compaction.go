@@ -158,6 +158,17 @@ func (r *runtime) guardActiveContext(s *replayState, input llm.Input, req llm.Re
 			r.compactionCandidate = &copy
 			minimum := &llm.Result{Message: llm.AssistantMessage(llm.Text(".")), Stop: llm.Stop{Kind: llm.StopFinished}}
 			after, probeErr := r.activeEstimateAfter(plan, minimum)
+			if refErr, ok := errors.AsType[*retainedRefError](probeErr); ok {
+				// A reference that will not load is not a size problem.
+				// An ordinary request that fits is sent; it is already
+				// hydrated. One that does not fit stops with the
+				// reference's failure, which names the cause.
+				r.compactionCandidate = nil
+				if estimate > allowance {
+					return *r.refFailure(refErr.ID, refErr.Reason), false, true
+				}
+				return RunResult{}, false, false
+			}
 			if probeErr != nil || after > allowance {
 				r.compactionCandidate = nil
 				if estimate > allowance {
@@ -311,6 +322,17 @@ func (r *runtime) activeEstimateAfter(plan *ContextCompactionPlan, result *llm.R
 	return after, nil
 }
 
+// retainedRefError reports that a content reference retained in the replaced
+// request could not be loaded for the estimate. Reason is a
+// StopReasonContent... code.
+type retainedRefError struct {
+	ID, Reason string
+}
+
+func (e *retainedRefError) Error() string {
+	return "retained summary context reference " + e.ID + " could not be verified: " + e.Reason
+}
+
 // activeEstimate returns the prepared size of the ordinary request with
 // fact's replacement in place.
 func (r *runtime) activeEstimate(plan *ContextCompactionPlan, fact ContextCompactionFact) (int, error) {
@@ -353,9 +375,9 @@ func (r *runtime) activeEstimate(plan *ContextCompactionPlan, fact ContextCompac
 	// References in retained content still require exact verification.
 	// An estimate records no stop; the request that sends the content
 	// hydrates it again.
-	hydrated, reason, _ := r.hydrateRefs(input)
+	hydrated, reason, id := r.hydrateRefs(input)
 	if reason != "" {
-		return 0, errors.New("retained summary context references could not be verified")
+		return 0, &retainedRefError{ID: id, Reason: reason}
 	}
 	if r.runner.Client == nil {
 		return 0, errNoModelClient

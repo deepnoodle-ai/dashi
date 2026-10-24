@@ -63,11 +63,17 @@ func (r *runtime) hydrate(input llm.Input) (llm.Input, *RunResult) {
 	if reason == "" {
 		return out, nil
 	}
+	return input, r.refFailure(id, reason)
+}
+
+// refFailure stops the turn for a reference that did not load: a cancelled
+// run stops as cancelled, and any other failure names the reference.
+func (r *runtime) refFailure(id, reason string) *RunResult {
 	if r.ctx.Err() != nil {
 		o := r.contextStop()
-		return input, &o
+		return &o
 	}
-	return input, r.refStop(id, reason)
+	return r.refStop(id, reason)
 }
 
 // hydrateRefs is hydrate without the stop. It records nothing, so a size

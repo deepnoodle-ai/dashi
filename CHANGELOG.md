@@ -17,7 +17,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   longer runs a second Continue, or retries a hold, right after it.
 - **Active compaction's size estimate never records a stop.** A content
   reference that fails to load during the estimate no longer writes
-  `StepTurnStopped` mid-turn or breaks the turn record.
+  `StepTurnStopped` mid-turn or breaks the turn record. If the request is
+  too large to send without compaction, the turn stops with that
+  reference's failure, not with a context-window limit.
 - **A crash right after a provider pause resumes cleanly.** The restart
   reminder is left out while a provider tool call is unfinished, so the
   request still ends with the paused result.
