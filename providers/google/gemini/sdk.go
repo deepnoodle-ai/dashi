@@ -232,9 +232,14 @@ func (p *Client) sdkClient(
 		base = p.config.Client.Transport
 	}
 	guard := &sdkGuard{
-		url:       p.sdkURL(model, stream),
-		body:      bytes.Clone(body),
-		base:      base,
+		url:  p.sdkURL(model, stream),
+		body: bytes.Clone(body),
+		base: providerhttp.TimeoutTransport(
+			base,
+			p.config.Timeouts,
+			p.config.Client != nil,
+			stream,
+		),
 		pinAPIKey: !p.config.Vertex,
 		apiKey:    p.config.APIKey,
 	}
@@ -259,6 +264,8 @@ type sdkGuard struct {
 	dispatched bool
 	status     int
 	header     http.Header
+	// raw is the real transport's response body, before the copy.
+	raw io.ReadCloser
 }
 
 // RoundTrip dispatches only when the SDK request matches the prepared request.
@@ -312,6 +319,7 @@ func (g *sdkGuard) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 	g.mu.Lock()
 	g.status, g.header = response.StatusCode, response.Header.Clone()
+	g.raw = response.Body
 	g.mu.Unlock()
 	response.Body = &captureBody{
 		ReadCloser: response.Body,
@@ -320,6 +328,13 @@ func (g *sdkGuard) RoundTrip(r *http.Request) (*http.Response, error) {
 		limit:      maxCaptureBytes,
 	}
 	return response, nil
+}
+
+// rawBody returns the real transport's response body, or nil before one.
+func (g *sdkGuard) rawBody() io.ReadCloser {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.raw
 }
 
 func (g *sdkGuard) responseBytes() []byte {
@@ -384,6 +399,10 @@ func (g *sdkGuard) response() sdkResponse {
 // inside the stream: the provider accepted the request, so it is not a known
 // rejection.
 func sdkError(provider string, err error, seen sdkResponse, hasMedia bool) error {
+	// A Dashi timeout is reported as the other HTTP providers report it.
+	if providerhttp.TimeoutReason(err) != "" {
+		return providerhttp.ReadFailure(provider, err)
+	}
 	var api genai.APIError
 	var apiPointer *genai.APIError
 	if errors.As(err, &api) || errors.As(err, &apiPointer) {

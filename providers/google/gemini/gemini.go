@@ -61,14 +61,22 @@ type Config struct {
 	// Vertex selects Google's Vertex AI backend. Project and Location are
 	// resolved at construction; CredentialScope identifies the credential
 	// principal for private replay without storing the credential itself.
-	Vertex           bool
-	Project          string
-	Location         string
-	CredentialScope  string
-	Endpoint         string
+	Vertex          bool
+	Project         string
+	Location        string
+	CredentialScope string
+	Endpoint        string
+	// Client supplies transport and timeout behavior. Redirects are
+	// disabled; its transport must not retry requests internally. Its own
+	// Timeout still applies. With a supplied Client and a nil Timeouts.Total,
+	// Dashi adds no total bound, as for the other providers.
 	Client           *http.Client
 	Models           map[string]llm.ModelInfo
 	CapabilityPolicy llm.CapabilityPolicy
+	// Timeouts bounds this client's HTTP model calls. The zero value bounds
+	// each call to five minutes unless Client is set; an explicit zero Total
+	// removes that bound.
+	Timeouts llm.HTTPTimeouts
 }
 
 // Client owns model evidence and configuration, not per-call state.
@@ -158,6 +166,13 @@ func New(config Config) (*Client, error) {
 	if !config.CapabilityPolicy.Valid() {
 		return nil, errors.New("gemini: invalid capability policy")
 	}
+	if !providerhttp.ValidTimeouts(config.Timeouts) {
+		return nil, errors.New("gemini: timeouts must be nonnegative")
+	}
+	if total := config.Timeouts.Total; total != nil {
+		owned := *total
+		config.Timeouts.Total = &owned
+	}
 	p := &Client{
 		config: config,
 		models: make(map[string]llm.ModelInfo, len(config.Models)),
@@ -227,7 +242,7 @@ func (p *Client) httpClient(model string) (providerhttp.Client, error) {
 		headers,
 		models,
 		p.config.CapabilityPolicy,
-		llm.HTTPTimeouts{},
+		p.config.Timeouts,
 	)
 }
 
@@ -596,11 +611,17 @@ func (p *Client) Send(
 		if streamErr != nil {
 			return partial, streamErr
 		}
+		if err := providerhttp.Expired(p.Provider(), guard.rawBody()); err != nil {
+			return partial, err
+		}
 		return partial, parseErr
 	}
 	_, err = client.Models.GenerateContent(ctx, sdkModel(model), contents, config)
 	if err != nil {
 		return result, sdkError(p.Provider(), err, guard.response(), wire.media)
+	}
+	if err := providerhttp.Expired(p.Provider(), guard.rawBody()); err != nil {
+		return result, err
 	}
 	return wire.decode(guard.responseBytes(), result.Requested)
 }

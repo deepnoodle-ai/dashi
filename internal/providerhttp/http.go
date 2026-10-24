@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/content"
@@ -80,8 +79,7 @@ func NewClient(
 	if !policy.Valid() {
 		return Client{}, errors.New("providerhttp: invalid capability policy")
 	}
-	if timeouts.ResponseStart < 0 || timeouts.StreamIdle < 0 ||
-		(timeouts.Total != nil && *timeouts.Total < 0) {
+	if !ValidTimeouts(timeouts) {
 		return Client{}, errors.New("providerhttp: timeouts must be nonnegative")
 	}
 	if timeouts.Total != nil {
@@ -268,56 +266,15 @@ func (c Client) Post(
 	if request.Stream {
 		r.Header.Set("Accept", "text/event-stream")
 	}
-	total := time.Duration(0)
-	if c.timeouts.Total != nil {
-		total = *c.timeouts.Total
-	} else if c.HTTP == nil {
-		total = 5 * time.Minute
-	}
-	callCtx, cancel := context.WithCancelCause(ctx)
-	r = r.WithContext(callCtx)
-	stopTotal := func() {}
-	if total > 0 {
-		timer := startTimeout(total, cancel, callTotalCause)
-		stopTotal = timer.stop
-	}
-	var startTimer *timeoutTimer
-	if c.timeouts.ResponseStart > 0 {
-		startTimer = startTimeout(
-			c.timeouts.ResponseStart,
-			cancel,
-			responseStartCause,
-		)
-	}
-	resp, err := client.Do(r)
-	if startTimer != nil {
-		startTimer.stop()
-	}
+	resp, err := bound(
+		r,
+		c.timeouts,
+		callTotal(c.timeouts, c.HTTP != nil),
+		request.Stream,
+		client.Do,
+	)
 	if err != nil {
-		stopTotal()
-		cause := context.Cause(callCtx)
-		cancel(nil)
-		if timeoutReason(cause) != "" {
-			err = fmt.Errorf("%w: %w", cause, err)
-		}
 		return nil, ReadFailure(c.Provider, err)
-	}
-	if cause := context.Cause(callCtx); timeoutReason(cause) != "" {
-		resp.Body.Close()
-		stopTotal()
-		cancel(nil)
-		return nil, ReadFailure(c.Provider, cause)
-	}
-	idle := time.Duration(0)
-	if request.Stream {
-		idle = c.timeouts.StreamIdle
-	}
-	resp.Body = &timeoutBody{
-		ReadCloser: resp.Body,
-		ctx:        callCtx,
-		cancel:     cancel,
-		stopTotal:  stopTotal,
-		idle:       idle,
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return resp, nil

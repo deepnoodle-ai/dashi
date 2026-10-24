@@ -232,3 +232,95 @@ func TestNegativeTimeoutsRejectedAndTotalIsSnapshotted(t *testing.T) {
 		t.Fatalf("timeout pointer remained caller-owned: %v", *client.timeouts.Total)
 	}
 }
+
+func TestTimeoutTransportTotalMatchesPost(t *testing.T) {
+	zero, one := time.Duration(0), time.Second
+	for _, tc := range []struct {
+		name     string
+		total    *time.Duration
+		supplied bool
+		want     time.Duration
+	}{
+		{"zero value, built client", nil, false, 5 * time.Minute},
+		{"zero value, supplied client", nil, true, 0},
+		{"explicit zero", &zero, false, 0},
+		{"explicit total, supplied client", &one, true, time.Second},
+	} {
+		transport := TimeoutTransport(
+			http.DefaultTransport,
+			llm.HTTPTimeouts{Total: tc.total},
+			tc.supplied,
+			true,
+		).(timeoutTransport)
+		if transport.total != tc.want {
+			t.Fatalf("%s: total=%v, want %v", tc.name, transport.total, tc.want)
+		}
+	}
+}
+
+func TestTimeoutTransportReportsResponseStartTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(500 * time.Millisecond):
+		}
+	}))
+	defer server.Close()
+	client := &http.Client{Transport: TimeoutTransport(
+		http.DefaultTransport,
+		llm.HTTPTimeouts{ResponseStart: 50 * time.Millisecond},
+		false,
+		false,
+	)}
+	_, err := client.Get(server.URL)
+	if TimeoutReason(err) != llm.ReasonResponseStartTimeout {
+		t.Fatalf("err=%v", err)
+	}
+	requireTimeoutReason(t, ReadFailure("test", err), llm.ReasonResponseStartTimeout)
+}
+
+func TestExpiredReportsOnlyDashiTimeoutsAfterClose(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "done")
+	}))
+	defer server.Close()
+	get := func(ctx context.Context, total time.Duration) io.ReadCloser {
+		t.Helper()
+		client := &http.Client{Transport: TimeoutTransport(
+			http.DefaultTransport,
+			llm.HTTPTimeouts{Total: &total},
+			false,
+			false,
+		)}
+		r, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+		resp, err := client.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.ReadAll(resp.Body)
+		return resp.Body
+	}
+
+	// The total timer fired after the body was read but before it closed.
+	late := get(t.Context(), 50*time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+	late.Close()
+	requireTimeoutReason(t, Expired("test", late), llm.ReasonCallTimeout)
+
+	// Closing in time, or a parent's cancellation, is not a timeout.
+	inTime := get(t.Context(), time.Minute)
+	inTime.Close()
+	if err := Expired("test", inTime); err != nil {
+		t.Fatalf("in-time close: %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	canceled := get(ctx, time.Minute)
+	cancel()
+	canceled.Close()
+	if err := Expired("test", canceled); err != nil {
+		t.Fatalf("parent cancel: %v", err)
+	}
+	if err := Expired("test", io.NopCloser(nil)); err != nil {
+		t.Fatalf("foreign body: %v", err)
+	}
+}

@@ -196,3 +196,112 @@ func TestQuotaProjectHeader(t *testing.T) {
 		t.Fatal("empty quota project dropped the transport")
 	}
 }
+
+// Timeouts bound SDK calls as they bound other providers' HTTP calls, with
+// the same error reasons, and a timed-out stream keeps its partial result.
+func TestSendReportsTimeoutReasons(t *testing.T) {
+	const chunk = `data: {"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}` + "\n\n"
+	total := 150 * time.Millisecond
+	for _, tc := range []struct {
+		name     string
+		stream   bool
+		timeouts llm.HTTPTimeouts
+		handler  http.HandlerFunc
+		want     llm.ErrorReason
+	}{
+		{
+			name:     "response start",
+			timeouts: llm.HTTPTimeouts{ResponseStart: 50 * time.Millisecond},
+			handler: func(_ http.ResponseWriter, r *http.Request) {
+				// The server may not see the client give up before headers.
+				select {
+				case <-r.Context().Done():
+				case <-time.After(500 * time.Millisecond):
+				}
+			},
+			want: llm.ReasonResponseStartTimeout,
+		},
+		{
+			name:     "stream idle",
+			stream:   true,
+			timeouts: llm.HTTPTimeouts{StreamIdle: 80 * time.Millisecond},
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				io.WriteString(w, chunk)
+				w.(http.Flusher).Flush()
+				<-r.Context().Done()
+			},
+			want: llm.ReasonStreamIdleTimeout,
+		},
+		{
+			// Total bounds the whole call, so it ends an active stream.
+			name:     "total",
+			stream:   true,
+			timeouts: llm.HTTPTimeouts{StreamIdle: 80 * time.Millisecond, Total: &total},
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				for {
+					io.WriteString(w, chunk)
+					w.(http.Flusher).Flush()
+					select {
+					case <-r.Context().Done():
+						return
+					case <-time.After(20 * time.Millisecond):
+					}
+				}
+			},
+			want: llm.ReasonCallTimeout,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(tc.handler)
+			defer server.Close()
+			p, err := New(Config{
+				Provider:         "google",
+				APIKey:           "test",
+				Endpoint:         server.URL + "/v1beta/models/{model}:generateContent",
+				CapabilityPolicy: llm.CapabilityAdjust,
+				Timeouts:         tc.timeouts,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			prepared, err := p.Prepare(t.Context(), sampleInput(tc.stream))
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+			defer cancel()
+			result, err := p.Send(ctx, llm.Call{Request: prepared})
+			failure, ok := errors.AsType[*llm.Error](err)
+			if !ok || failure.Category != llm.ErrorTransport ||
+				failure.Reason != tc.want ||
+				!errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("err = %v, want reason %s", err, tc.want)
+			}
+			if tc.stream && result.Message.Text() == "" {
+				t.Fatalf("stream lost its partial result: %+v", result)
+			}
+		})
+	}
+}
+
+func TestNewRejectsNegativeTimeoutsAndOwnsTotal(t *testing.T) {
+	negative := -time.Second
+	for _, timeouts := range []llm.HTTPTimeouts{
+		{ResponseStart: -1}, {StreamIdle: -1}, {Total: &negative},
+	} {
+		if _, err := New(Config{APIKey: "test", Timeouts: timeouts}); err == nil {
+			t.Fatalf("accepted negative timeouts: %+v", timeouts)
+		}
+	}
+	total := time.Second
+	p, err := New(Config{APIKey: "test", Timeouts: llm.HTTPTimeouts{Total: &total}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	total = time.Minute
+	if *p.config.Timeouts.Total != time.Second {
+		t.Fatalf("total stayed caller-owned: %v", *p.config.Timeouts.Total)
+	}
+}
