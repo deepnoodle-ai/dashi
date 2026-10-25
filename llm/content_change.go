@@ -20,7 +20,8 @@ const (
 	// be replayed to the selected destination under an explicit input policy.
 	ContentChangeOmitReasoning ContentChangeAction = "omit_reasoning"
 	// ContentChangeOmitProviderToolActivity records one omitted foreign
-	// provider tool item.
+	// provider tool item: a use, a result, an approval request, or an
+	// approval response.
 	ContentChangeOmitProviderToolActivity ContentChangeAction = "omit_provider_tool_activity"
 	// ContentChangeConvertRole records an API's representation of developer
 	// authority.
@@ -149,12 +150,19 @@ func validateContentChanges(p RequestSnapshot) error {
 				return errors.New("llm: reasoning omission requires explicit policy and an unreplayable original block")
 			}
 		case ContentChangeOmitProviderToolActivity:
+			// An approval response carries no replay; its own origin
+			// names the destination that asked for the decision.
+			foreignResponse := c.ProviderToolApprovalResponse != nil &&
+				c.ProviderToolApprovalResponse.Origin != p.Origin &&
+				m.Role == RoleUser
+			foreignOutput := (c.ProviderToolUse != nil ||
+				c.ProviderToolResult != nil ||
+				c.ProviderToolApprovalRequest != nil) &&
+				c.Replay != nil &&
+				c.Replay.Origin != p.Origin &&
+				m.Role == RoleAssistant
 			if p.Input.ContentPolicy.ForeignProviderToolActivity != ProviderToolOmit ||
-				(c.ProviderToolUse == nil &&
-					c.ProviderToolResult == nil) ||
-				c.Replay == nil ||
-				c.Replay.Origin == p.Origin ||
-				m.Role != RoleAssistant {
+				(!foreignResponse && !foreignOutput) {
 				return errors.New(
 					"llm: provider tool omission requires explicit policy and foreign replay",
 				)

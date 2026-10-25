@@ -10,7 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **Switching model or provider mid-conversation works after a reasoning
   model.** A Turn now omits reasoning and completed provider tool work (such
-  as OpenAI web searches) that the new destination cannot replay, and records
+  as OpenAI web searches, and answered MCP approval requests with their
+  responses) that the new destination cannot replay, and records
   each omission in the model call's `ContentChanges`. Before, the next call
   failed, for example `opaque content requires its original destination`
   after switching from GPT-6 to Meta. A `BeforeModel` hook can still make the

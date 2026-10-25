@@ -103,7 +103,10 @@ input.ContentPolicy = llm.ContentPolicy{
 The zero value, `ReasoningReject`, preserves strict rejection for direct calls.
 The Turn engine sets `ReasoningOmit` and `ProviderToolOmit` on every model
 input it builds, so a conversation can switch provider or model; hooks see the
-policy and may tighten it. `ReasoningOmit`
+policy and may tighten it. `ProviderToolOmit` omits only complete foreign
+exchanges: a use with its result (or a finished use), and an approval request
+with its response. An unanswered foreign approval request is still rejected.
+`ReasoningOmit`
 omits only reasoning the target cannot replay; compatible reasoning stays intact.
 It never turns reasoning into ordinary text. The original input retains the
 policy and omitted payloads, with each decision using the original indices.

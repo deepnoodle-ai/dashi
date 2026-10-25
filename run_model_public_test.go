@@ -364,6 +364,8 @@ func TestOneHourCacheBudgetUsesTheOneHourRate(t *testing.T) {
 // and provider tool work from the first model cannot be replayed to the
 // second, so the second call omits them and records each omission.
 func TestNextTurnSwitchesProviderAfterReasoningModel(t *testing.T) {
+	// The first conversation reasons, calls a local tool, and searches the
+	// web.
 	openAI := &wire{replies: []string{
 		`{"id":"resp_1","object":"response","status":"completed","model":"gpt-5.5","output":[` +
 			`{"id":"rs_1","type":"reasoning","content":[],"encrypted_content":"gAAA","summary":[]},` +
@@ -385,54 +387,112 @@ func TestNextTurnSwitchesProviderAfterReasoningModel(t *testing.T) {
 	if err != nil || one.Reply != "A desk." {
 		t.Fatalf("first turn: %q, %v, stop %+v", one.Reply, err, one.Stop)
 	}
-	history, warnings := dashi.BuildHistory([]dashi.Turn{one.Turn})
+	reasoned, warnings := dashi.BuildHistory([]dashi.Turn{one.Turn})
 	if len(warnings) > 0 {
 		t.Fatalf("history warnings: %v", warnings)
 	}
 
-	for _, tc := range []struct {
-		name, model, reply string
-		client             func(*http.Client) (llm.Client, error)
+	// The second conversation asks to approve a remote MCP call, the
+	// caller approves it, and the model makes the call and answers.
+	mcp, err := responses.NewMCPTool(responses.MCPToolOptions{
+		ServerLabel: "docs",
+		ServerURL:   "https://example.com/mcp",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	openAI = &wire{replies: []string{
+		`{"id":"resp_3","object":"response","status":"completed","model":"gpt-5.5","output":[` +
+			`{"type":"mcp_approval_request","id":"mcpr_1","server_label":"docs","name":"read","arguments":"{}"}` +
+			`],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`,
+		`{"id":"resp_4","object":"response","status":"completed","model":"gpt-5.5","output":[` +
+			`{"type":"mcp_call","id":"mcp_1","server_label":"docs","name":"read","arguments":"{}","output":"A desk.","status":"completed"},` +
+			`{"type":"message","id":"msg_2","status":"completed","role":"assistant","content":[{"type":"output_text","text":"A desk.","annotations":[]}]}` +
+			`],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`,
+	}}
+	first, err = responses.New(responses.Config{APIKey: "test", Client: &http.Client{Transport: openAI}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := dashi.Runner{Client: first, Tools: tool.List{mcp}}
+	asked, err := runner.Run(t.Context(), dashi.NewTurn("t-mcp"), start)
+	if err != nil || len(asked.Pending) != 1 {
+		t.Fatalf("approval turn: %v, pending %+v, stop %+v", err, asked.Pending, asked.Stop)
+	}
+	answered, err := runner.Run(t.Context(), asked.Turn, asked.Pending[0].Approve())
+	if err != nil || !answered.ReadyToContinue {
+		t.Fatalf("approve: %v, stop %+v", err, answered.Stop)
+	}
+	approved, err := runner.Run(t.Context(), answered.Turn, dashi.Continue{CommandID: "continue"})
+	if err != nil || approved.Reply != "A desk." {
+		t.Fatalf("approved turn: %q, %v, stop %+v", approved.Reply, err, approved.Stop)
+	}
+	approvals, warnings := dashi.BuildHistory([]dashi.Turn{approved.Turn})
+	if len(warnings) > 0 {
+		t.Fatalf("history warnings: %v", warnings)
+	}
+
+	for _, history := range []struct {
+		name     string
+		messages []llm.Message
+		private  []string
+		omitted  map[llm.ContentChangeAction]int
 	}{
-		{"anthropic", "claude-sonnet-5", claudeText("Still a desk."), func(h *http.Client) (llm.Client, error) {
-			return messages.New(messages.Config{APIKey: "test", Client: h})
+		{"reasoning", reasoned, []string{"gAAA", "gBBB", "ws_1"}, map[llm.ContentChangeAction]int{
+			llm.ContentChangeOmitReasoning:            2,
+			llm.ContentChangeOmitProviderToolActivity: 1,
 		}},
-		// The same Responses API at another provider is still another
-		// destination for replay.
-		{"meta", "muse-spark-1.3", openAIText("Still a desk."), func(h *http.Client) (llm.Client, error) {
-			return meta.New(meta.Config{APIKey: "test", Client: h})
+		// The approval request, its response, and the approved call.
+		{"mcp approval", approvals, []string{"mcpr_1", "mcp_1", "mcp_approval"}, map[llm.ContentChangeAction]int{
+			llm.ContentChangeOmitProviderToolActivity: 3,
 		}},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			w := &wire{replies: []string{tc.reply}}
-			second, err := tc.client(&http.Client{Transport: w})
-			if err != nil {
-				t.Fatal(err)
-			}
-			next := dashi.Say("And now?")
-			next.History = history
-			next.Agent = dashi.Agent{Model: tc.model}
-			two, err := dashi.Runner{Client: second, Tools: tool.List{lookTool(t)}}.Run(t.Context(), dashi.NewTurn("t-2"), next)
-			if err != nil || two.Reply != "Still a desk." {
-				t.Fatalf("second turn after switching model: %q, %v, stop %+v", two.Reply, err, two.Stop)
-			}
-			body := string(w.bodies[0])
-			for _, private := range []string{"gAAA", "gBBB", "ws_1"} {
-				if strings.Contains(body, private) {
-					t.Fatalf("foreign replay %q reached the new provider: %s", private, body)
+		for _, tc := range []struct {
+			name, model, reply string
+			client             func(*http.Client) (llm.Client, error)
+		}{
+			{"anthropic", "claude-sonnet-5", claudeText("Still a desk."), func(h *http.Client) (llm.Client, error) {
+				return messages.New(messages.Config{APIKey: "test", Client: h})
+			}},
+			// The same Responses API at another provider is still another
+			// destination for replay.
+			{"meta", "muse-spark-1.3", openAIText("Still a desk."), func(h *http.Client) (llm.Client, error) {
+				return meta.New(meta.Config{APIKey: "test", Client: h})
+			}},
+		} {
+			t.Run(history.name+"/"+tc.name, func(t *testing.T) {
+				w := &wire{replies: []string{tc.reply}}
+				second, err := tc.client(&http.Client{Transport: w})
+				if err != nil {
+					t.Fatal(err)
 				}
-			}
-			omitted := map[llm.ContentChangeAction]int{}
-			for _, step := range two.Turn.Steps {
-				if step.Kind == dashi.StepModelCallStarted {
-					for _, change := range step.Model.ContentChanges {
-						omitted[change.Action]++
+				next := dashi.Say("And now?")
+				next.History = history.messages
+				next.Agent = dashi.Agent{Model: tc.model}
+				two, err := dashi.Runner{Client: second, Tools: tool.List{lookTool(t)}}.Run(t.Context(), dashi.NewTurn("t-2"), next)
+				if err != nil || two.Reply != "Still a desk." {
+					t.Fatalf("second turn after switching model: %q, %v, stop %+v", two.Reply, err, two.Stop)
+				}
+				body := string(w.bodies[0])
+				for _, private := range history.private {
+					if strings.Contains(body, private) {
+						t.Fatalf("foreign replay %q reached the new provider: %s", private, body)
 					}
 				}
-			}
-			if omitted[llm.ContentChangeOmitReasoning] != 2 || omitted[llm.ContentChangeOmitProviderToolActivity] != 1 {
-				t.Fatalf("omissions not recorded: %v", omitted)
-			}
-		})
+				omitted := map[llm.ContentChangeAction]int{}
+				for _, step := range two.Turn.Steps {
+					if step.Kind == dashi.StepModelCallStarted {
+						for _, change := range step.Model.ContentChanges {
+							omitted[change.Action]++
+						}
+					}
+				}
+				for action, want := range history.omitted {
+					if omitted[action] != want {
+						t.Fatalf("omissions not recorded: %v", omitted)
+					}
+				}
+			})
+		}
 	}
 }
