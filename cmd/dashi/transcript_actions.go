@@ -98,7 +98,9 @@ func (s *screen) mainComposerActive() bool {
 }
 
 func (s *screen) selectionHint() string {
-	if !s.mainComposerActive() || !s.vp.HasSelection() {
+	// A selection over only a running tool row has no text, so Ctrl+C
+	// would interrupt; offer copy only when there is text to copy.
+	if !s.mainComposerActive() || s.vp.SelectedText() == "" {
 		return ""
 	}
 	if s.ctrl.Mode() == ModeRunning || s.ctrl.Mode() == ModeApproval {

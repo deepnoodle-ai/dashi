@@ -355,11 +355,14 @@ func TestASelectionAcrossARunningToolSurvivesItsEnd(t *testing.T) {
 	call.State, call.Done, call.Detail = StateOK, true, "package a"
 	s.Emit(call)
 	s.drain()
-	selectionFrame(s)
+	rows, lit := selectionFrame(s)
 	// The row had no copyable text when the drag crossed it, so the copy and
 	// the highlight skip it, as they skip a glyph.
 	if got, want := s.vp.SelectedText(), "BEFORE\n\nAFTER"; got != want {
 		t.Fatalf("after the call ended the selection copies %q, want %q", got, want)
+	}
+	if _, ry := cellOf(t, rows, "Read a.go"); strings.Contains(lit[ry], "Read") {
+		t.Fatalf("the ended tool row is highlighted %q, but the copy skips it", lit[ry])
 	}
 }
 

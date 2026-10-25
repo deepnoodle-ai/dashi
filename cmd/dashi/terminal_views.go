@@ -497,13 +497,13 @@ func footerView(b Block, width int) tui.View {
 func toolView(b Block) tui.View {
 	glyph, state := toolGlyph(b), toolState(b)
 	// The label is the row's text, so a selection copies it once the call
-	// settles (see toolSettled). The glyph and the state at the right edge
-	// are decoration. A narrow row cuts the label to its first line, not the
+	// ends (see toolEnded). The glyph and the state at the right edge are
+	// decoration. A narrow row cuts the label to its first line, not the
 	// state.
 	label := toolLabelText(b)
-	settled := toolSettled(b.State)
+	ended := toolEnded(b.State)
 	text := tui.Text("%s", label)
-	if settled {
+	if ended {
 		text = text.SourceOffset(0)
 	}
 	rows := []tui.View{tui.Height(1, tui.Group(glyph, tui.Text(" "),
@@ -527,11 +527,11 @@ func toolView(b Block) tui.View {
 		input, output := toolSections(b)
 		offset := len(label) + 1
 		if input != "" {
-			rows = append(rows, toolSectionView("Input", input, offset, settled))
+			rows = append(rows, toolSectionView("Input", input, offset, ended))
 			offset += len(input) + 1
 		}
 		if output != "" {
-			rows = append(rows, toolSectionView("Output", output, offset, settled))
+			rows = append(rows, toolSectionView("Output", output, offset, ended))
 		}
 	}
 	if len(rows) == 1 {
@@ -573,9 +573,9 @@ func toolExpandable(b Block) bool {
 }
 
 // toolSource is the copyable text of a tool row: the label, then the input
-// and the output of an expanded row. A row that has not settled has none.
+// and the output of an expanded row. A row whose call has not ended has none.
 func toolSource(b Block) string {
-	if !toolSettled(b.State) {
+	if !toolEnded(b.State) {
 		return ""
 	}
 	parts := []string{toolLabelText(b)}
@@ -617,13 +617,13 @@ func toolGlyph(b Block) *tui.TextView {
 	return tui.Text("●").Style(accentStyle)
 }
 
-// toolSettled reports whether a tool row's text is final: the call worked,
-// failed, was denied, or stopped. Until then the label changes, as from
+// toolEnded reports whether a tool row's call has ended, so its text is
+// final: the call worked, failed, was denied, or stopped. Until then the label changes, as from
 // "Reading a.go…" to "Read a.go", and so does live output. Wonton drops a
-// selection whose text changes, so a row that has not settled has no
+// selection whose text changes, so a row whose call has not ended has no
 // copyable text; otherwise a selection across it would vanish when the
 // call ends, and Ctrl+C would then interrupt instead of copying.
-func toolSettled(state string) bool {
+func toolEnded(state string) bool {
 	switch state {
 	case StateOK, StateFailed, StateDenied, StateStopped:
 		return true
