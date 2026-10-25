@@ -22,6 +22,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   failed, for example `opaque content requires its original destination`
   after switching from GPT-6 to Meta. A `BeforeModel` hook can still make the
   policy strict. Direct `Client.Prepare` calls stay strict by default.
+- **Omission no longer leaves two user or two assistant messages in a row.**
+  When omission empties a message, for example one that held only an OpenAI
+  web search, its neighbors now join into one message so roles still
+  alternate. Messages that were already adjacent, and messages with tool
+  results, stay as they were.
 - **GPT-6 reasoning is recognized.** Responses reasoning items with an empty
   `content` array, as GPT-6 sends, decode as reasoning instead of opaque
   content.

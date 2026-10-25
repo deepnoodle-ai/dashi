@@ -114,6 +114,9 @@ omits only reasoning the target cannot replay; compatible reasoning stays intact
 It never turns reasoning into ordinary text. The original input retains the
 policy and omitted payloads, with each decision using the original indices.
 Messages emptied by omission leave the wire history; unusable history is rejected.
+If that leaves two user or two assistant messages in a row, they join so roles
+alternate. Messages adjacent in the input, and messages with tool results, stay
+separate. A join keeps the content positions, so it records no decision.
 
 Omission requires deliberate classification of known reasoning. Anthropic
 `thinking` and `redacted_thinking`, and Responses `reasoning`, carry private replay

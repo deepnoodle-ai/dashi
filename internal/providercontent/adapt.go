@@ -52,6 +52,9 @@ func Adapt(
 	var changes []llm.ContentChange
 	omittedReasoning := false
 	omittedProviderTool := false
+	// omittedMessage is set while messages emptied by omission separate the
+	// last kept message from the next one.
+	omittedMessage := false
 	usableHistory := false
 	calls := map[string]bool{}
 	pending := map[string]bool{}
@@ -270,9 +273,22 @@ func Adapt(
 			}
 			kept = append(kept, *c)
 		}
-		if len(kept) > 0 || len(original.Content) == 0 {
+		switch {
+		case len(kept) == 0 && len(original.Content) > 0:
+			// Omission emptied this message, so it leaves the wire history.
+			omittedMessage = true
+		case omittedMessage && joinable(out.Messages, m.Role, kept):
+			// Dropping the messages between them left two user or two
+			// assistant messages in a row. Join them so the roles still
+			// alternate, as Messages and Gemini expect. The earlier
+			// message's Source and Context stay; encoders send neither.
+			last := &out.Messages[len(out.Messages)-1]
+			last.Content = append(last.Content, kept...)
+			omittedMessage = false
+		default:
 			m.Content = kept
 			out.Messages = append(out.Messages, m)
+			omittedMessage = false
 		}
 		// Messages moves system and developer content into top-level system;
 		// those blocks cannot make an otherwise empty messages array usable.
@@ -314,6 +330,27 @@ func Adapt(
 		}
 	}
 	return out, changes, nil
+}
+
+// joinable reports whether content for role may join the last kept message.
+// Only user and assistant messages join. A message with tool results stays
+// separate: Chat Completions sends results as their own tool messages and
+// rejects a user message that mixes them with other content.
+func joinable(messages []llm.Message, role llm.Role, next []llm.Content) bool {
+	if len(messages) == 0 || len(next) == 0 {
+		return false
+	}
+	last := messages[len(messages)-1]
+	if last.Role != role || len(last.Content) == 0 ||
+		(role != llm.RoleUser && role != llm.RoleAssistant) {
+		return false
+	}
+	return !slices.ContainsFunc(last.Content, isToolResult) &&
+		!slices.ContainsFunc(next, isToolResult)
+}
+
+func isToolResult(c llm.Content) bool {
+	return c.ToolResult != nil
 }
 
 type providerToolHistory struct {
