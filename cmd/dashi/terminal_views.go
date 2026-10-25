@@ -618,8 +618,9 @@ func toolGlyph(b Block) *tui.TextView {
 }
 
 // toolEnded reports whether a tool row's call has ended, so its text is
-// final: the call worked, failed, was denied, or stopped. Until then the label changes, as from
-// "Reading a.go…" to "Read a.go", and so does live output. Wonton drops a
+// final: the call worked, failed, was denied, or stopped. Until then the
+// label changes, as from "Reading a.go…" to "Read a.go", and so does live
+// output. Wonton drops a
 // selection whose text changes, so a row whose call has not ended has no
 // copyable text; otherwise a selection across it would vanish when the
 // call ends, and Ctrl+C would then interrupt instead of copying.

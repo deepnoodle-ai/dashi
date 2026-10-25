@@ -210,7 +210,8 @@ indicator shows lines below. Drag selects; double/triple clicks select a word
 or original logical line, including its whitespace and Markdown syntax. Copying
 selection excludes role labels, display indentation, and wrapped row breaks.
 A tool row's text is copyable once its call ends, so a selection across a
-running call survives when the call ends. With the main composer focused,
+running call survives when the call ends; it copies the text around that row,
+not the row itself. With the main composer focused,
 Ctrl+C copies selected source without changing the draft. A confirmed local
 clipboard write clears the selection; failed or unconfirmed writes keep it for
 retry. Without selection, Ctrl+C interrupts work
