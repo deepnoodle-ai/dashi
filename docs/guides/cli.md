@@ -205,16 +205,19 @@ means a name writes `\@word`.
 ## Read and copy output
 
 In fullscreen, Page Up/Down and the wheel scroll without following new output.
-End returns an empty draft to live output; Ctrl+Home/End navigate with a draft. The
-indicator shows lines below. Drag selects; double/triple clicks select a word
-or original logical line, including its whitespace and Markdown syntax. Copying
-selection excludes role labels, display indentation, and wrapped row breaks.
-With the main composer focused, Ctrl+C copies selected source without changing
-the draft. A confirmed local clipboard write clears the selection; failed or
-unconfirmed writes keep it for retry. Without selection, Ctrl+C interrupts work
-or uses the idle exit confirmation. Dialogs keep their cancellation controls.
-Escape interrupts running work, or clears a selection when idle.
-Ctrl+L repaints. Click a tool line to show its input and full retained output.
+End returns an empty draft to live output; Ctrl+Home/End navigate with a draft.
+The indicator shows lines below. Drag selects; double/triple clicks select a
+word or original logical line, including its whitespace and Markdown syntax.
+Copying selection excludes role labels, display indentation, and wrapped row
+breaks. A tool row's text is copyable once its call ends, so a selection across
+a running call survives when the call ends; it copies the text around that row,
+not the row itself. With the main composer focused, Ctrl+C copies selected
+source without changing the draft. A confirmed local clipboard write clears the
+selection; failed or unconfirmed writes keep it for retry. Without selection,
+Ctrl+C interrupts work or uses the idle exit confirmation. Dialogs keep their
+cancellation controls. Escape interrupts running work, or clears a selection
+when idle. Ctrl+L repaints. Click a tool line to show its input and full
+retained output.
 
 `/copy` copies selected text or lists fenced blocks in the latest reply.
 `/copy N` copies one code block; `/copy all` copies all, without fences or

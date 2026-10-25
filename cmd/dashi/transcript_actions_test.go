@@ -329,6 +329,43 @@ func TestDragThroughATaskResultKeepsTheSelection(t *testing.T) {
 	}
 }
 
+// A running tool row's label changes as the call goes on, from "Reading a
+// file…" to "Reading a.go…" to "Read a.go". Wonton drops a selection whose
+// text changes, so a selection across a running row used to vanish when the
+// call ended, and Ctrl+C then interrupted the turn instead of copying.
+func TestASelectionAcrossARunningToolSurvivesItsEnd(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	s := h.scr
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	args := []byte(`{"path":"a.go"}`)
+	call := Block{Kind: KindTool, ID: "call-1", Name: "read_file", Label: newToolLabel("read_file", nil, ""), State: StateRunning}
+	for _, b := range []Block{{Kind: KindNotice, Text: "BEFORE", Done: true}, call, {Kind: KindNotice, Text: "AFTER", Done: true}} {
+		s.Emit(b)
+	}
+	s.drain()
+	s.vp.ScrollToTop()
+	rows, _ := selectionFrame(s)
+	bx, by := cellOf(t, rows, "BEFORE")
+	ax, ay := cellOf(t, rows, "AFTER")
+	drag(s, bx, by, ax+5, ay)
+
+	call.Label, call.Arg, call.Input = newToolLabel("read_file", args, ""), "a.go", "path: a.go"
+	s.Emit(call)
+	call.State, call.Done, call.Detail = StateOK, true, "package a"
+	s.Emit(call)
+	s.drain()
+	rows, lit := selectionFrame(s)
+	// The row had no copyable text when the drag crossed it, so the copy and
+	// the highlight skip it, as they skip a glyph.
+	if got, want := s.vp.SelectedText(), "BEFORE\n\nAFTER"; got != want {
+		t.Fatalf("after the call ended the selection copies %q, want %q", got, want)
+	}
+	if _, ry := cellOf(t, rows, "Read a.go"); strings.Contains(lit[ry], "Read") {
+		t.Fatalf("the ended tool row is highlighted %q, but the copy skips it", lit[ry])
+	}
+}
+
 // Every kind of block can sit in the middle of a selection, including a
 // blank reply, which draws nothing and copies nothing.
 func TestADragSurvivesEveryKindOfBlock(t *testing.T) {

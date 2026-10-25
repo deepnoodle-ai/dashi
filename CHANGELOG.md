@@ -19,6 +19,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **GPT-6 reasoning is recognized.** Responses reasoning items with an empty
   `content` array, as GPT-6 sends, decode as reasoning instead of opaque
   content.
+- **A mouse selection in the CLI no longer vanishes when a tool call in it
+  ends.** Since tool rows read as phrases, a row's text changed from
+  `Reading a.go…` to `Read a.go` as the call ended, which cleared any
+  selection across it; Ctrl+C then interrupted the turn instead of copying.
+  A tool row's text is now copyable only once its call ends.
 
 ## [0.15.0] - 2026-10-24
 
