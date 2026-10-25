@@ -113,6 +113,122 @@ func TestAdaptRejectsPendingForeignProviderToolUseDespiteOmitPolicy(t *testing.T
 	}
 }
 
+// A hosted MCP approval is answered in a user message, and the approved call
+// follows in a later assistant message. Switching destination drops the
+// whole exchange, including the messages it empties.
+func TestAdaptOmitsAnsweredForeignProviderToolApproval(t *testing.T) {
+	foreign := content.Origin{
+		Provider: "openai",
+		API:      "openai.responses",
+		Model:    "source",
+		Scope:    "source-scope",
+	}
+	target := content.Origin{
+		Provider: "anthropic",
+		API:      "anthropic.messages",
+		Model:    "target",
+		Scope:    "target-scope",
+	}
+	request := llm.Content{
+		Kind: llm.ContentProviderToolApprovalRequest,
+		ProviderToolApprovalRequest: &llm.ProviderToolApprovalRequest{
+			ID:     "approval_1",
+			Name:   "read",
+			Origin: foreign,
+		},
+		Replay: providerToolReplay(foreign, "mcp_approval_request"),
+	}
+	response := llm.Content{
+		Kind: llm.ContentProviderToolApprovalResponse,
+		ProviderToolApprovalResponse: &llm.ProviderToolApprovalResponse{
+			RequestID: "approval_1",
+			Approve:   true,
+			Origin:    foreign,
+		},
+	}
+	call := llm.Content{
+		Kind: llm.ContentProviderToolUse,
+		ProviderToolUse: &llm.ProviderToolUse{
+			ID:     "mcp_1",
+			Name:   "read",
+			Type:   "mcp_call",
+			Status: "completed",
+			Origin: foreign,
+		},
+		Replay: providerToolReplay(foreign, "mcp_call"),
+	}
+	input := llm.Input{
+		Model: "target",
+		ContentPolicy: llm.ContentPolicy{
+			ForeignProviderToolActivity: llm.ProviderToolOmit,
+		},
+		Messages: []llm.Message{
+			llm.UserMessage(llm.Text("Read the docs")),
+			llm.AssistantMessage(request),
+			llm.UserMessage(response),
+			llm.AssistantMessage(call, llm.Text("Done")),
+			llm.UserMessage(llm.Text("Thanks")),
+		},
+	}
+	adapted, changes, err := Adapt(input, target)
+	if err != nil {
+		t.Fatalf("omit answered provider tool approval: %v", err)
+	}
+	want := []providerToolPosition{{1, 0}, {2, 0}, {3, 0}}
+	if len(changes) != len(want) {
+		t.Fatalf("changes = %+v", changes)
+	}
+	for i, change := range changes {
+		if change.Action != llm.ContentChangeOmitProviderToolActivity ||
+			(providerToolPosition{change.MessageIndex, change.ContentIndex}) != want[i] {
+			t.Fatalf("change %d = %+v", i, change)
+		}
+	}
+	if len(adapted.Messages) != 3 ||
+		adapted.Messages[1].Role != llm.RoleAssistant ||
+		adapted.Messages[1].Text() != "Done" {
+		t.Fatalf("emptied messages were not dropped: %+v", adapted.Messages)
+	}
+}
+
+func TestAdaptRejectsUnansweredForeignProviderToolApproval(t *testing.T) {
+	foreign := content.Origin{
+		Provider: "openai",
+		API:      "openai.responses",
+		Model:    "source",
+		Scope:    "source-scope",
+	}
+	target := content.Origin{
+		Provider: "anthropic",
+		API:      "anthropic.messages",
+		Model:    "target",
+		Scope:    "target-scope",
+	}
+	request := llm.Content{
+		Kind: llm.ContentProviderToolApprovalRequest,
+		ProviderToolApprovalRequest: &llm.ProviderToolApprovalRequest{
+			ID:     "approval_1",
+			Name:   "read",
+			Origin: foreign,
+		},
+		Replay: providerToolReplay(foreign, "mcp_approval_request"),
+	}
+	input := llm.Input{
+		Model: "target",
+		ContentPolicy: llm.ContentPolicy{
+			ForeignProviderToolActivity: llm.ProviderToolOmit,
+		},
+		Messages: []llm.Message{
+			llm.UserMessage(llm.Text("Read the docs")),
+			llm.AssistantMessage(request),
+			llm.UserMessage(llm.Text("Go on")),
+		},
+	}
+	if _, _, err := Adapt(input, target); err == nil {
+		t.Fatal("unanswered foreign approval request was silently omitted")
+	}
+}
+
 func TestAdaptRejectsReusedProviderToolApprovalID(t *testing.T) {
 	origin := content.Origin{
 		Provider: "openai",

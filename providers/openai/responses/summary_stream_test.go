@@ -11,6 +11,37 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 )
 
+// GPT-6 sends reasoning items with "content":[] beside the encrypted payload.
+// Streamed and final views must both decode them as replayable reasoning.
+func TestStreamRecognizesReasoningWithEmptyContent(t *testing.T) {
+	const item = `{"id":"rs_1","type":"reasoning","content":[],"encrypted_content":"gAAA","summary":[]}`
+	wire := codec{origin: content.Origin{Provider: "openai", API: API, Model: "gpt-6-luna", Scope: "fixture"}}
+	stream := "data: " + `{"type":"response.output_item.added","output_index":0,"item":` + item + "}\n\n" +
+		"data: " + `{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"delta":"public"}` + "\n\n"
+	for _, terminal := range []bool{false, true} {
+		body := stream
+		if terminal {
+			body += "data: " + `{"type":"response.output_item.done","output_index":0,"item":` + item + "}\n\n" +
+				"data: " + `{"type":"response.completed","response":{"object":"response","status":"completed","output":[` + item + "]}}\n\n"
+		}
+		var deltas []llm.Delta
+		result, err := wire.readStream(io.NopCloser(strings.NewReader(body)), llm.Result{}, func(d llm.Delta) { deltas = append(deltas, d) })
+		if terminal && err != nil || !terminal && !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Fatalf("terminal=%v error=%v", terminal, err)
+		}
+		if len(deltas) != 1 || deltas[0].Kind != llm.DeltaReasoning || deltas[0].Text != "public" {
+			t.Fatalf("terminal=%v deltas=%+v", terminal, deltas)
+		}
+		if len(result.Message.Content) != 1 {
+			t.Fatalf("terminal=%v content=%+v", terminal, result.Message.Content)
+		}
+		got := result.Message.Content[0]
+		if got.Kind != llm.ContentReasoning || got.Replay == nil {
+			t.Fatalf("terminal=%v decoded %q, want replayable reasoning", terminal, got.Kind)
+		}
+	}
+}
+
 func TestSummaryStreamsPreservePublicPrivateBoundary(t *testing.T) {
 	for _, allowReasoningText := range []bool{false, true} {
 		wire := codec{origin: content.Origin{Provider: "fixture", API: API, Model: "fixture", Scope: "fixture"}, publicReasoningText: allowReasoningText}

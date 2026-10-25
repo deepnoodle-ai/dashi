@@ -267,8 +267,13 @@ Private replay also requires matching API, endpoint, and credential scope;
 changing credentials conservatively invalidates old private artifacts.
 Recognized portable history can be re-encoded for another model with each
 replay strip recorded. Message source remains intact and file IDs require
-origin. `Input.ContentPolicy.UnreplayableReasoning` can explicitly permit
-recorded reasoning omission; other unsupported content losses are rejected.
+origin. On a direct call, `Input.ContentPolicy` is strict by default: set
+`UnreplayableReasoning` or `ForeignProviderToolActivity` to permit recorded
+omission of reasoning or completed provider tool work the destination cannot
+replay. A Turn sets both, so a conversation can switch provider or model
+between calls; a `BeforeModel` hook can tighten the policy. Each omission is
+recorded in the model call's `ContentChanges`. Other unsupported content
+losses, including unknown opaque content, are rejected.
 See [content replay](../../design/provider-content-replay.md) for supported
 conversions and stored-record changes.
 

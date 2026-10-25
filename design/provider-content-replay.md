@@ -100,7 +100,13 @@ input.ContentPolicy = llm.ContentPolicy{
 }
 ```
 
-The zero value, `ReasoningReject`, preserves strict rejection. `ReasoningOmit`
+The zero value, `ReasoningReject`, preserves strict rejection for direct calls.
+The Turn engine sets `ReasoningOmit` and `ProviderToolOmit` on every model
+input it builds, so a conversation can switch provider or model; hooks see the
+policy and may tighten it. `ProviderToolOmit` omits only complete foreign
+exchanges: a use with its result (or a finished use), and an approval request
+with its response. An unanswered foreign approval request is still rejected.
+`ReasoningOmit`
 omits only reasoning the target cannot replay; compatible reasoning stays intact.
 It never turns reasoning into ordinary text. The original input retains the
 policy and omitted payloads, with each decision using the original indices.
@@ -109,7 +115,8 @@ Messages emptied by omission leave the wire history; unusable history is rejecte
 Omission requires deliberate classification of known reasoning. Anthropic
 `thinking` and `redacted_thinking`, and Responses `reasoning`, carry private replay
 as `ContentReasoning`. Before omission, source shape, unit, and wrapper version
-must be recognized. Unfamiliar fields, malformed data, partial payloads, and
+must be recognized; a Responses `content` array is recognized only when empty.
+Unfamiliar fields, malformed data, partial payloads, and
 unsupported versions remain rejected. Replayless canonical reasoning may be
 omitted when the target cannot encode it. Unknown opaque blocks stay opaque.
 

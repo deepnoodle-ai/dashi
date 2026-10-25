@@ -20,7 +20,8 @@ type ProviderToolActivityPolicy string
 const (
 	// ProviderToolReject preserves the strict default for provider-owned work.
 	ProviderToolReject ProviderToolActivityPolicy = ""
-	// ProviderToolOmit permits recorded omission of complete, paired foreign work.
+	// ProviderToolOmit permits recorded omission of complete, paired foreign
+	// work: a use with its result, or an approval request with its response.
 	ProviderToolOmit ProviderToolActivityPolicy = "omit"
 )
 

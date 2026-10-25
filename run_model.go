@@ -12,6 +12,15 @@ import (
 	"github.com/deepnoodle-ai/dashi/tool"
 )
 
+// turnContentPolicy lets a Turn switch model or provider mid-conversation.
+// Reasoning and completed provider tool work that the new destination cannot
+// replay are omitted, and each omission is recorded in the request's
+// ContentChanges. Unknown opaque content is never dropped.
+var turnContentPolicy = llm.ContentPolicy{
+	UnreplayableReasoning:       llm.ReasoningOmit,
+	ForeignProviderToolActivity: llm.ProviderToolOmit,
+}
+
 func (r *runtime) model(s *replayState) (RunResult, bool) { return r.modelPurpose(s, "", nil) }
 
 func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *ContextCompactionPlan) (RunResult, bool) {
@@ -99,6 +108,8 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		Tools:    defs,
 		Settings: r.agent.Settings,
 		Stream:   r.opts.stream,
+		// Hooks see this policy and may tighten it before preparation.
+		ContentPolicy: turnContentPolicy,
 	}
 	if purpose == ModelPurposeCompaction {
 		input.System = activeSummaryPrompt

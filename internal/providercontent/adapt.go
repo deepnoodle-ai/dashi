@@ -460,16 +460,52 @@ type providerToolPair struct {
 }
 
 // Omission is decided for complete exchanges before adapting any message.
-// This keeps a foreign use from being dropped ahead of a later pending result.
+// This keeps a foreign use from being dropped ahead of a later pending result,
+// and a foreign approval request from being dropped while still unanswered.
 func completedForeignProviderTool(
 	input llm.Input,
 	origin content.Origin,
 ) map[providerToolPosition]bool {
 	pairs := map[providerToolKey]providerToolPair{}
+	// An approval request pairs with its response the way a use pairs with
+	// its result. Only an answered request is complete.
+	approvals := map[providerToolKey]providerToolPair{}
 	for mi, message := range input.Messages {
 		for ci, part := range message.Content {
 			position := providerToolPosition{mi, ci}
 			switch {
+			case part.ProviderToolApprovalRequest != nil:
+				request := part.ProviderToolApprovalRequest
+				if request.Origin == origin {
+					continue
+				}
+				key := providerToolKey{request.Origin, request.ID}
+				_, duplicate := approvals[key]
+				approvals[key] = providerToolPair{
+					use: position,
+					valid: !duplicate &&
+						message.Role == llm.RoleAssistant &&
+						validForeignReplay(
+							part.Replay,
+							request.Origin,
+						),
+				}
+			case part.ProviderToolApprovalResponse != nil:
+				response := part.ProviderToolApprovalResponse
+				if response.Origin == origin {
+					continue
+				}
+				key := providerToolKey{response.Origin, response.RequestID}
+				pair, found := approvals[key]
+				if !found {
+					continue
+				}
+				pair.valid = pair.valid && !pair.paired &&
+					message.Role == llm.RoleUser &&
+					part.Replay == nil
+				pair.paired = true
+				pair.result = position
+				approvals[key] = pair
 			case part.ProviderToolUse != nil:
 				use := part.ProviderToolUse
 				if use.Origin == origin {
@@ -520,6 +556,13 @@ func completedForeignProviderTool(
 		if pair.paired {
 			omittable[pair.result] = true
 		}
+	}
+	for _, pair := range approvals {
+		if !pair.valid || !pair.paired {
+			continue
+		}
+		omittable[pair.use] = true
+		omittable[pair.result] = true
 	}
 	return omittable
 }

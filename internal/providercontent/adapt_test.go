@@ -421,6 +421,32 @@ func TestAdaptRecognizesOnlyCompleteReasoningSourceUnits(t *testing.T) {
 			true,
 		},
 		{
+			"responses empty content",
+			content.Origin{
+				Provider: "openai",
+				API:      "openai.responses",
+				Model:    "source",
+				Scope:    "scope",
+			},
+			"reasoning",
+			llm.OpaqueUnitItem,
+			`{"id":"rs_1","type":"reasoning","content":[],"encrypted_content":"encrypted","summary":[]}`,
+			true,
+		},
+		{
+			"responses unmodeled content",
+			content.Origin{
+				Provider: "openai",
+				API:      "openai.responses",
+				Model:    "source",
+				Scope:    "scope",
+			},
+			"reasoning",
+			llm.OpaqueUnitItem,
+			`{"id":"rs_1","type":"reasoning","content":[{"type":"reasoning_text","text":"private"}],"encrypted_content":"encrypted","summary":[]}`,
+			false,
+		},
+		{
 			"responses wrong unit",
 			content.Origin{
 				Provider: "openai",

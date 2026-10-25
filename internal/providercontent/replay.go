@@ -238,7 +238,9 @@ func checkReasoningReplay(c llm.Content) error {
 			"status",
 			"summary",
 			"encrypted_content",
+			"content",
 		) ||
+			!emptyArray(fields["content"]) ||
 			stringField(
 				fields,
 				"id",
@@ -264,6 +266,16 @@ func validString(raw json.RawMessage) bool {
 		raw,
 		&value,
 	) == nil && value != nil
+}
+
+// emptyArray reports whether raw is absent, null, or an empty JSON array.
+// GPT-6 reasoning items carry "content":[] beside the encrypted payload.
+func emptyArray(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return true
+	}
+	var parts []json.RawMessage
+	return json.Unmarshal(raw, &parts) == nil && len(parts) == 0
 }
 
 func completeReasoningStatus(raw json.RawMessage) bool {
