@@ -158,9 +158,10 @@ func checkReplay(c, original llm.Content, role llm.Role, foreign bool) error {
 			"phase",
 		) && completed(metadata["status"])
 		// Phase marks a message as an interim note or the final answer. Keep
-		// it for same-origin replay. Another model reads the same text as an
-		// ordinary assistant message, so a known phase may be dropped; an
-		// unfamiliar one may carry meaning we cannot drop.
+		// it for same-origin replay. Another model, even another OpenAI one,
+		// reads the same text as an ordinary assistant message, so a known
+		// phase may be dropped; an unfamiliar one may carry meaning we cannot
+		// drop.
 		portable = portable && knownPhase(metadata["phase"])
 	}
 	if foreign && (!known || !portable) {

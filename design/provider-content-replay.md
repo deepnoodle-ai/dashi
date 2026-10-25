@@ -79,11 +79,13 @@ container, so it cannot move.
 
 A known content kind alone does not establish portability. Unrecognized fields,
 an unfamiliar Responses message phase, and unmodeled semantics prevent automatic
-stripping. The documented phases, `commentary` and `final_answer`, are dropped:
-another model reads the same text as an ordinary assistant message. Edits overlay canonical fields only when their dependencies are
-understood. Editing cited text while retaining dependent citation data fails.
-Unchanged replay preserves provider data semantically; it does not promise the
-original JSON formatting on a subsequent request.
+stripping. The documented phases, `commentary` and `final_answer`, are dropped
+when the text moves to another model, including another OpenAI model: that model
+reads the same text as an ordinary assistant message. Edits overlay canonical
+fields only when their dependencies are understood. Editing cited text while
+retaining dependent citation data fails. Unchanged replay preserves provider
+data semantically; it does not promise the original JSON formatting on a
+subsequent request.
 
 `RequestSnapshot.ContentChanges` records typed actions, reasons, and original
 message/content indices. `Adjustment` remains the settings vocabulary. Existing
