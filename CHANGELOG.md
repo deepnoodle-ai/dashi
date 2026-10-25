@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-10-25
+
 ### Fixed
 
 - **Switching model after a GPT-6 answer works.** GPT-6 marks each answer with
