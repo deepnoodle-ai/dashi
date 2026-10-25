@@ -496,12 +496,18 @@ func footerView(b Block, width int) tui.View {
 // click expands it; then the input and the whole output follow.
 func toolView(b Block) tui.View {
 	glyph, state := toolGlyph(b), toolState(b)
-	// The label is the row's text, so a selection copies it. The glyph and
-	// the state at the right edge are decoration. A narrow row cuts the
-	// label to its first line, not the state.
+	// The label is the row's text, so a selection copies it once the call
+	// settles (see toolSettled). The glyph and the state at the right edge
+	// are decoration. A narrow row cuts the label to its first line, not the
+	// state.
 	label := toolLabelText(b)
+	settled := toolSettled(b.State)
+	text := tui.Text("%s", label)
+	if settled {
+		text = text.SourceOffset(0)
+	}
 	rows := []tui.View{tui.Height(1, tui.Group(glyph, tui.Text(" "),
-		tui.Text("%s", label).SourceOffset(0).Wrap().Flex(1), tui.Text("  "), state))}
+		text.Wrap().Flex(1), tui.Text("  "), state))}
 	// Check badges belong with the check details. Keeping them out of the
 	// header reserves space for the tool state even on narrow terminals.
 	if tick := decideTicks(b); tick != "" {
@@ -521,11 +527,11 @@ func toolView(b Block) tui.View {
 		input, output := toolSections(b)
 		offset := len(label) + 1
 		if input != "" {
-			rows = append(rows, toolSectionView("Input", input, offset))
+			rows = append(rows, toolSectionView("Input", input, offset, settled))
 			offset += len(input) + 1
 		}
 		if output != "" {
-			rows = append(rows, toolSectionView("Output", output, offset))
+			rows = append(rows, toolSectionView("Output", output, offset, settled))
 		}
 	}
 	if len(rows) == 1 {
@@ -535,12 +541,16 @@ func toolView(b Block) tui.View {
 }
 
 // toolSectionView draws one part of an expanded tool row under a faint
-// heading. Only the text is copyable; offset is where it starts in the row's
-// source.
-func toolSectionView(heading, text string, offset int) tui.View {
+// heading. Only the text is copyable, and only when copyable is set; offset
+// is where it starts in the row's source.
+func toolSectionView(heading, text string, offset int, copyable bool) tui.View {
+	body := tui.Text("%s", text)
+	if copyable {
+		body = body.SourceOffset(offset)
+	}
 	return tui.PaddingLTRB(2, 0, 0, 0, tui.Stack(
 		tui.Text("%s", heading).Style(faintStyle),
-		tui.Text("%s", text).SourceOffset(offset).Wrap().Style(mutedStyle),
+		body.Wrap().Style(mutedStyle),
 	).Gap(0))
 }
 
@@ -563,8 +573,11 @@ func toolExpandable(b Block) bool {
 }
 
 // toolSource is the copyable text of a tool row: the label, then the input
-// and the output of an expanded row.
+// and the output of an expanded row. A row that has not settled has none.
 func toolSource(b Block) string {
+	if !toolSettled(b.State) {
+		return ""
+	}
 	parts := []string{toolLabelText(b)}
 	if b.Expanded {
 		input, output := toolSections(b)
@@ -602,6 +615,20 @@ func toolGlyph(b Block) *tui.TextView {
 		return tui.Text("%s", b.Spinner).Style(accentStyle)
 	}
 	return tui.Text("●").Style(accentStyle)
+}
+
+// toolSettled reports whether a tool row's text is final: the call worked,
+// failed, was denied, or stopped. Until then the label changes, as from
+// "Reading a.go…" to "Read a.go", and so does live output. Wonton drops a
+// selection whose text changes, so a row that has not settled has no
+// copyable text; otherwise a selection across it would vanish when the
+// call ends, and Ctrl+C would then interrupt instead of copying.
+func toolSettled(state string) bool {
+	switch state {
+	case StateOK, StateFailed, StateDenied, StateStopped:
+		return true
+	}
+	return false
 }
 
 // toolSpins reports whether a tool line in state shows the spinner: while
