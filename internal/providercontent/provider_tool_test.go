@@ -347,11 +347,48 @@ func TestAdaptJoinsMessagesLeftAdjacentByOmission(t *testing.T) {
 		role  llm.Role
 		texts []string
 	}
+	// Chat Completions keeps a system message in place in the history.
+	completions := content.Origin{
+		Provider: "meta",
+		API:      "openai.completions",
+		Model:    "target",
+		Scope:    "target-scope",
+	}
+	operator := llm.Message{Role: llm.RoleSystem, Content: []llm.Content{llm.Text("Be brief")}}
 	for _, tc := range []struct {
 		name     string
+		to       content.Origin
 		messages []llm.Message
 		want     []message
 	}{
+		{
+			name: "system message between, moved out by Messages",
+			messages: []llm.Message{
+				llm.UserMessage(llm.Text("Search")),
+				llm.AssistantMessage(search),
+				operator,
+				llm.UserMessage(llm.Text("Thanks")),
+			},
+			want: []message{
+				{llm.RoleUser, []string{"Search", "Thanks"}},
+				{llm.RoleSystem, []string{"Be brief"}},
+			},
+		},
+		{
+			name: "system message between, kept in place by Chat Completions",
+			to:   completions,
+			messages: []llm.Message{
+				llm.UserMessage(llm.Text("Search")),
+				llm.AssistantMessage(search),
+				operator,
+				llm.UserMessage(llm.Text("Thanks")),
+			},
+			want: []message{
+				{llm.RoleUser, []string{"Search"}},
+				{llm.RoleSystem, []string{"Be brief"}},
+				{llm.RoleUser, []string{"Thanks"}},
+			},
+		},
 		{
 			name: "lone web search",
 			messages: []llm.Message{
@@ -454,7 +491,11 @@ func TestAdaptJoinsMessagesLeftAdjacentByOmission(t *testing.T) {
 				},
 				Messages: tc.messages,
 			}
-			adapted, changes, err := Adapt(input, target)
+			to := target
+			if tc.to != (content.Origin{}) {
+				to = tc.to
+			}
+			adapted, changes, err := Adapt(input, to)
 			if err != nil {
 				t.Fatalf("adapt: %v", err)
 			}

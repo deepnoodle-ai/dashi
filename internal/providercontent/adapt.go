@@ -277,18 +277,21 @@ func Adapt(
 		case len(kept) == 0 && len(original.Content) > 0:
 			// Omission emptied this message, so it leaves the wire history.
 			omittedMessage = true
-		case omittedMessage && joinable(out.Messages, m.Role, kept):
+		case omittedMessage && joinable(out.Messages, m.Role, kept, origin):
 			// Dropping the messages between them left two user or two
 			// assistant messages in a row. Join them so the roles still
 			// alternate, as Messages and Gemini expect. The earlier
 			// message's Source and Context stay; encoders send neither.
-			last := &out.Messages[len(out.Messages)-1]
+			last := &out.Messages[lastTurn(out.Messages, origin)]
 			last.Content = append(last.Content, kept...)
 			omittedMessage = false
 		default:
 			m.Content = kept
 			out.Messages = append(out.Messages, m)
-			omittedMessage = false
+			// Messages moves system and developer content out of the
+			// history, so it does not separate the messages around it.
+			omittedMessage = omittedMessage && hoistsSystem(origin) &&
+				(m.Role == llm.RoleSystem || m.Role == llm.RoleDeveloper)
 		}
 		// Messages moves system and developer content into top-level system;
 		// those blocks cannot make an otherwise empty messages array usable.
@@ -332,21 +335,48 @@ func Adapt(
 	return out, changes, nil
 }
 
-// joinable reports whether content for role may join the last kept message.
-// Only user and assistant messages join. A message with tool results stays
-// separate: Chat Completions sends results as their own tool messages and
-// rejects a user message that mixes them with other content.
-func joinable(messages []llm.Message, role llm.Role, next []llm.Content) bool {
-	if len(messages) == 0 || len(next) == 0 {
+// joinable reports whether content for role may join the last kept user or
+// assistant message. Only user and assistant messages join. A message with
+// tool results stays separate: Chat Completions sends results as their own
+// tool messages and rejects a user message that mixes them with other
+// content.
+func joinable(
+	messages []llm.Message,
+	role llm.Role,
+	next []llm.Content,
+	origin content.Origin,
+) bool {
+	i := lastTurn(messages, origin)
+	if i < 0 || len(next) == 0 {
 		return false
 	}
-	last := messages[len(messages)-1]
+	last := messages[i]
 	if last.Role != role || len(last.Content) == 0 ||
 		(role != llm.RoleUser && role != llm.RoleAssistant) {
 		return false
 	}
 	return !slices.ContainsFunc(last.Content, isToolResult) &&
 		!slices.ContainsFunc(next, isToolResult)
+}
+
+// lastTurn is the index of the last kept message, skipping system and
+// developer messages where the destination moves them out of the history.
+// Elsewhere they keep their position, and joining across them would reorder
+// what the model reads.
+func lastTurn(messages []llm.Message, origin content.Origin) int {
+	i := len(messages) - 1
+	for hoistsSystem(origin) && i >= 0 &&
+		(messages[i].Role == llm.RoleSystem ||
+			messages[i].Role == llm.RoleDeveloper) {
+		i--
+	}
+	return i
+}
+
+// hoistsSystem reports whether the destination sends system and developer
+// history as top-level system content.
+func hoistsSystem(origin content.Origin) bool {
+	return origin.API == "anthropic.messages"
 }
 
 func isToolResult(c llm.Content) bool {

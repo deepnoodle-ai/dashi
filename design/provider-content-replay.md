@@ -116,7 +116,10 @@ policy and omitted payloads, with each decision using the original indices.
 Messages emptied by omission leave the wire history; unusable history is rejected.
 If that leaves two user or two assistant messages in a row, they join so roles
 alternate. Messages adjacent in the input, and messages with tool results, stay
-separate. A join keeps the content positions, so it records no decision.
+separate. On Messages, which moves system and developer messages out of the
+history, a join looks past them. Elsewhere they keep their position, so a join
+would reorder the history and does not happen. A join keeps the content
+positions, so it records no decision.
 
 Omission requires deliberate classification of known reasoning. Anthropic
 `thinking` and `redacted_thinking`, and Responses `reasoning`, carry private replay
