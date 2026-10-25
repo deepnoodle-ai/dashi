@@ -1143,14 +1143,19 @@ func (wire codec) decodeItem(raw json.RawMessage) ([]llm.Content, error) {
 
 // reasoningSummary recognizes only the summary and encrypted payload shapes
 // this adapter understands. An unfamiliar reasoning item stays opaque so an
-// omission policy cannot discard unknown semantics by assumption.
+// omission policy cannot discard unknown semantics by assumption. An absent,
+// null, or empty content array carries nothing to discard (GPT-6 sends
+// "content":[] beside its encrypted payload); a nonempty one stays unknown.
 func reasoningSummary(raw json.RawMessage) (string, bool) {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil {
 		return "", false
 	}
 	if content, exists := fields["content"]; exists && string(content) != "null" {
-		return "", false
+		var parts []json.RawMessage
+		if json.Unmarshal(content, &parts) != nil || len(parts) > 0 {
+			return "", false
+		}
 	}
 	recognized := false
 	if encrypted, exists := fields["encrypted_content"]; exists &&

@@ -366,7 +366,7 @@ func (r *runtime) activeEstimate(plan *ContextCompactionPlan, fact ContextCompac
 		if err != nil {
 			return 0, err
 		}
-		input = llm.Input{Model: r.agent.Model, System: modelSystem(r.agent.Instructions, len(s.OutputSchema) > 0, false), Tools: defs, Settings: r.agent.Settings, Stream: r.opts.stream}
+		input = llm.Input{Model: r.agent.Model, System: modelSystem(r.agent.Instructions, len(s.OutputSchema) > 0, false), Tools: defs, Settings: r.agent.Settings, Stream: r.opts.stream, ContentPolicy: turnContentPolicy}
 	}
 	input.Messages = make([]llm.Message, len(replaced))
 	for i, m := range replaced {

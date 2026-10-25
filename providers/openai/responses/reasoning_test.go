@@ -30,6 +30,11 @@ func TestDecodeItemClassifiesOnlyRecognizedReasoning(t *testing.T) {
 			kind: llm.ContentReasoning,
 		},
 		{
+			name: "encrypted with empty content",
+			raw:  `{"id":"rs_1","type":"reasoning","content":[],"encrypted_content":"gAAA","summary":[]}`,
+			kind: llm.ContentReasoning,
+		},
+		{
 			name: "summary",
 			raw:  `{"type":"reasoning","summary":[{"type":"summary_text","text":"first"},{"type":"summary_text","text":"second"}]}`,
 			kind: llm.ContentReasoning,

@@ -54,7 +54,9 @@ func (wire codec) readStream(
 			if summary, ok := mergedReasoningSummary(item, summaryParts[i], summaries[i]); ok {
 				item["summary"] = summary
 			}
-			if ps := parts[i]; len(ps) > 0 && !(item["type"] == "reasoning" && item["content"] != nil) {
+			// Parts never replace a reasoning item's original content, but
+			// may fill an empty one, which then decodes as unmodeled.
+			if ps := parts[i]; len(ps) > 0 && !(item["type"] == "reasoning" && hasContent(item)) {
 				cs := make([]any, 0, len(ps))
 				for _, j := range slices.Sorted(maps.Keys(ps)) {
 					cs = append(cs, ps[j])
@@ -306,6 +308,19 @@ func (wire codec) readStream(
 		err = io.ErrUnexpectedEOF
 	}
 	return build(), providerhttp.StreamFailure(wire.origin.Provider, err)
+}
+
+// hasContent reports whether an item carries content other than null or an
+// empty array.
+func hasContent(item map[string]any) bool {
+	switch c := item["content"].(type) {
+	case nil:
+		return false
+	case []any:
+		return len(c) > 0
+	default:
+		return true
+	}
 }
 
 // appendString appends s to the string stored under key in m, treating a

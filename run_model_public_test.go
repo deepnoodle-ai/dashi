@@ -16,6 +16,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/providers/meta"
 	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 	"github.com/deepnoodle-ai/dashi/tool"
 )
@@ -356,5 +357,82 @@ func TestOneHourCacheBudgetUsesTheOneHourRate(t *testing.T) {
 	if out.Stop.Kind != dashi.StopLimited || out.Stop.Limit == nil ||
 		out.Stop.Limit.Kind != dashi.LimitCost {
 		t.Fatalf("sheet without a one-hour rate: %+v", out.Stop)
+	}
+}
+
+// A conversation can switch provider and model between turns. Reasoning
+// and provider tool work from the first model cannot be replayed to the
+// second, so the second call omits them and records each omission.
+func TestNextTurnSwitchesProviderAfterReasoningModel(t *testing.T) {
+	openAI := &wire{replies: []string{
+		`{"id":"resp_1","object":"response","status":"completed","model":"gpt-5.5","output":[` +
+			`{"id":"rs_1","type":"reasoning","content":[],"encrypted_content":"gAAA","summary":[]},` +
+			`{"type":"function_call","id":"fc_1","call_id":"call_1","name":"look","arguments":"{}","status":"completed"}` +
+			`],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`,
+		`{"id":"resp_2","object":"response","status":"completed","model":"gpt-5.5","output":[` +
+			`{"id":"rs_2","type":"reasoning","content":[],"encrypted_content":"gBBB","summary":[]},` +
+			`{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"desk"}},` +
+			`{"type":"message","id":"msg_1","status":"completed","role":"assistant","content":[{"type":"output_text","text":"A desk.","annotations":[]}]}` +
+			`],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`,
+	}}
+	first, err := responses.New(responses.Config{APIKey: "test", Client: &http.Client{Transport: openAI}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := dashi.Say("What is here?")
+	start.Agent = dashi.Agent{Model: "gpt-5.5"}
+	one, err := dashi.Runner{Client: first, Tools: tool.List{lookTool(t)}}.Run(t.Context(), dashi.NewTurn("t-1"), start)
+	if err != nil || one.Reply != "A desk." {
+		t.Fatalf("first turn: %q, %v, stop %+v", one.Reply, err, one.Stop)
+	}
+	history, warnings := dashi.BuildHistory([]dashi.Turn{one.Turn})
+	if len(warnings) > 0 {
+		t.Fatalf("history warnings: %v", warnings)
+	}
+
+	for _, tc := range []struct {
+		name, model, reply string
+		client             func(*http.Client) (llm.Client, error)
+	}{
+		{"anthropic", "claude-sonnet-5", claudeText("Still a desk."), func(h *http.Client) (llm.Client, error) {
+			return messages.New(messages.Config{APIKey: "test", Client: h})
+		}},
+		// The same Responses API at another provider is still another
+		// destination for replay.
+		{"meta", "muse-spark-1.3", openAIText("Still a desk."), func(h *http.Client) (llm.Client, error) {
+			return meta.New(meta.Config{APIKey: "test", Client: h})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &wire{replies: []string{tc.reply}}
+			second, err := tc.client(&http.Client{Transport: w})
+			if err != nil {
+				t.Fatal(err)
+			}
+			next := dashi.Say("And now?")
+			next.History = history
+			next.Agent = dashi.Agent{Model: tc.model}
+			two, err := dashi.Runner{Client: second, Tools: tool.List{lookTool(t)}}.Run(t.Context(), dashi.NewTurn("t-2"), next)
+			if err != nil || two.Reply != "Still a desk." {
+				t.Fatalf("second turn after switching model: %q, %v, stop %+v", two.Reply, err, two.Stop)
+			}
+			body := string(w.bodies[0])
+			for _, private := range []string{"gAAA", "gBBB", "ws_1"} {
+				if strings.Contains(body, private) {
+					t.Fatalf("foreign replay %q reached the new provider: %s", private, body)
+				}
+			}
+			omitted := map[llm.ContentChangeAction]int{}
+			for _, step := range two.Turn.Steps {
+				if step.Kind == dashi.StepModelCallStarted {
+					for _, change := range step.Model.ContentChanges {
+						omitted[change.Action]++
+					}
+				}
+			}
+			if omitted[llm.ContentChangeOmitReasoning] != 2 || omitted[llm.ContentChangeOmitProviderToolActivity] != 1 {
+				t.Fatalf("omissions not recorded: %v", omitted)
+			}
+		})
 	}
 }

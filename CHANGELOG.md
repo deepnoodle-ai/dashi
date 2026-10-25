@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Switching model or provider mid-conversation works after a reasoning
+  model.** A Turn now omits reasoning and completed provider tool work (such
+  as OpenAI web searches) that the new destination cannot replay, and records
+  each omission in the model call's `ContentChanges`. Before, the next call
+  failed, for example `opaque content requires its original destination`
+  after switching from GPT-6 to Meta. A `BeforeModel` hook can still make the
+  policy strict. Direct `Client.Prepare` calls stay strict by default.
+- **GPT-6 reasoning is recognized.** Responses reasoning items with an empty
+  `content` array, as GPT-6 sends, decode as reasoning instead of opaque
+  content.
+
 ## [0.15.0] - 2026-10-24
 
 ### Changed
