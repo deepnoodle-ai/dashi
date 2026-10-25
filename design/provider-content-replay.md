@@ -78,8 +78,9 @@ A call made by Anthropic's code execution tool depends on that tool's
 container, so it cannot move.
 
 A known content kind alone does not establish portability. Unrecognized fields,
-nonempty output-phase metadata, and unmodeled semantics prevent automatic
-stripping. Edits overlay canonical fields only when their dependencies are
+an unfamiliar Responses message phase, and unmodeled semantics prevent automatic
+stripping. The documented phases, `commentary` and `final_answer`, are dropped:
+another model reads the same text as an ordinary assistant message. Edits overlay canonical fields only when their dependencies are
 understood. Editing cited text while retaining dependent citation data fails.
 Unchanged replay preserves provider data semantically; it does not promise the
 original JSON formatting on a subsequent request.

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Switching model after a GPT-6 answer works.** GPT-6 marks each answer with
+  `"phase": "final_answer"`. Preparation refused to drop that marker for
+  another provider, so the next Turn failed with `private replay data has no
+  lossless canonical conversion`. The documented phases, `commentary` and
+  `final_answer`, are now dropped and recorded as `strip_replay`. An
+  unfamiliar phase still stays on OpenAI.
 - **Switching model or provider mid-conversation works after a reasoning
   model.** A Turn now omits reasoning and completed provider tool work (such
   as OpenAI web searches, and answered MCP approval requests with their

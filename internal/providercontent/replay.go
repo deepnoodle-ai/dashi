@@ -157,9 +157,11 @@ func checkReplay(c, original llm.Content, role llm.Role, foreign bool) error {
 			"status",
 			"phase",
 		) && completed(metadata["status"])
-		// Phase carries output semantics. Preserve it for same-origin edits, but
-		// do not discard it while moving to a model that cannot represent it.
-		portable = portable && empty(metadata["phase"])
+		// Phase marks a message as an interim note or the final answer. Keep
+		// it for same-origin replay. Another model reads the same text as an
+		// ordinary assistant message, so a known phase may be dropped; an
+		// unfamiliar one may carry meaning we cannot drop.
+		portable = portable && knownPhase(metadata["phase"])
 	}
 	if foreign && (!known || !portable) {
 		return errors.New("providercontent: private replay data has no lossless canonical conversion")
@@ -358,6 +360,17 @@ func stringField(fields map[string]json.RawMessage, key string) string {
 func empty(raw json.RawMessage) bool {
 	v := string(bytes.TrimSpace(raw))
 	return v == "" || v == "null" || v == "[]" || v == `""`
+}
+
+// knownPhase reports whether a Responses message phase is absent or one
+// that OpenAI documents: "commentary" for an interim note and
+// "final_answer" for the answer.
+func knownPhase(raw json.RawMessage) bool {
+	switch string(bytes.TrimSpace(raw)) {
+	case "", "null", `""`, `"commentary"`, `"final_answer"`:
+		return true
+	}
+	return false
 }
 
 func completed(raw json.RawMessage) bool {
