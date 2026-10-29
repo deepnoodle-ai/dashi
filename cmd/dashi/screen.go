@@ -75,6 +75,8 @@ type screen struct {
 	selectionRevision uint64
 	// hits records where clickable footer lines were drawn.
 	hits tui.HitMap
+	// transcriptMenu is the right-click menu on a transcript item.
+	transcriptMenu tui.MenuState
 }
 
 // queued is one item of pending work: a block to show, or a reset.
@@ -361,6 +363,8 @@ func (s *screen) drain() {
 	for _, q := range items {
 		if q.reset {
 			s.endDialogStatus()
+			// The menu's entries name items of the old transcript.
+			s.transcriptMenu.Close()
 			s.tr = Transcript{}
 			s.attachments.clear()
 			s.attachmentInput = nil
@@ -437,6 +441,8 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 			s.savedDraft = s.input
 		}
 		s.promptActive, s.promptID, s.input = true, e.id, ""
+		// A dialog takes the keys from an open menu.
+		s.transcriptMenu.Close()
 		s.endDialogStatus()
 		s.approval, s.asking, s.picker = e.approval, e.asking, e.picker
 		return []tui.Cmd{tui.Focus(s.focusID())}
@@ -463,6 +469,9 @@ func (s *screen) clearPrompts() {
 func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 	if !isCtrlC(e) {
 		s.exitGuard.reset()
+	}
+	if s.transcriptMenuKey(e) {
+		return nil
 	}
 	if isCtrlC(e) {
 		if s.mainComposerActive() && s.copySelection() {

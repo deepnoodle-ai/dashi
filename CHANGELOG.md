@@ -18,6 +18,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   again is a duplicate.
 - **`/task ID continue` keeps the decide line in the child's record**,
   and `/task ID` shows each recorded approval with it.
+- **Right-click menu on transcript items in the fullscreen CLI.** A tool
+  line offers Expand or Collapse, Copy input, and Copy output; a message,
+  reasoning, or diff offers to copy its text; and a selection adds Copy
+  selection. Copies match what selecting the same text copies. Arrow keys
+  and Enter choose, and Escape or a click outside closes the menu.
 
 ### Changed
 
