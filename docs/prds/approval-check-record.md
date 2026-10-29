@@ -69,8 +69,8 @@ Acceptance:
       call ID, tool, `approved` or `denied`, and the decide line in the
       tool row's words, such as `decide command: severe 91% — flagged`. A
       decision with no rules finding shows no decide text.
-- [ ] A reopened session shows the same tool-row marks and footer counts
-      for live calls as before this change.
+- [ ] For records made after this change, a reopened session shows the
+      same tool-row marks and footer counts for live calls as before.
 
 ### UC-4: A host records its own check
 
