@@ -1,7 +1,7 @@
 # Keep the check that informed an approval, out of the model's view
 
 Status: Draft\
-PRD PR: TBD · Implementation PR: TBD · Updated: 2026-10-29\
+PRD PR: [#340](https://github.com/deepnoodle-ai/dashi/pull/340) · Implementation PR: stacked on #340 · Updated: 2026-10-29\
 Issue: [#309](https://github.com/deepnoodle-ai/dashi/issues/309) · Design: [approval-check-record](../design/approval-check-record.md)
 
 ## Problem
@@ -77,8 +77,8 @@ Acceptance:
       tool row's words, such as `decide command: severe 91% — flagged`. A
       decision with no check shows no decide text.
 - [ ] A reopened session shows the same tool-row marks and footer counts
-      for live calls as before this change.
-- [ ] The footer's decide counts include checks on recorded approvals.
+      for live calls as before this change. The footer covers only the
+      session's own turns, which never hold a recorded approval.
 
 ### UC-4: A host records its own check
 
@@ -109,7 +109,7 @@ Acceptance:
   request.
 - R-3: The CLI writes the decide line to `RulesFinding` on both paths,
   never to `Reason`.
-- R-4: `/task ID` and the footer counts read recorded approvals (UC-3).
+- R-4: `/task ID` shows recorded approvals with their checks (UC-3).
 - R-5: The approvals and hooks guides show the fields. The CLI tasks and
   decide guides say where each path keeps the check.
 

@@ -61,7 +61,8 @@ neither rules field reaches a model request, on either path.
 **Command identity.** `commandHash` blanks `RulesVersion` and
 `RulesFinding` of a `Resolve`'s approval before hashing, as it blanks
 `Continue.OnHistoryMismatch`. A retry with a rerun check is a duplicate;
-the first recorded values stay.
+the first recorded values stay. `delegate.commandHash`, which must match
+the runner's for `Tasks.Run` retries, blanks them the same way.
 
 ## CLI change
 
@@ -78,11 +79,9 @@ Both paths call the same helpers in `decide_check.go`:
 
 `withDecide`, `splitDecide`, and `decideReasonSep` go away.
 `markFromRecord(rulesVersion, finding string)` builds the mark when the
-version starts with `decide/`. A reader `toolMark(v dashi.ToolView)` takes
-the recorded approval's rules when they name decide, else the verdict's.
-`decideCounts` uses it. The tool row reads the step's verdict as before;
-the CLI never draws rows for child turns, the only turns with recorded
-approvals.
+version starts with `decide/`. The tool row and the footer counts read
+the verdict as before: the CLI draws neither for child turns, the only
+turns with recorded approvals.
 
 `/task ID` (`taskDetails`) adds one line per recorded approval decision:
 
@@ -110,8 +109,9 @@ command-risk check flagged this command, and no one can approve it…".
   the model's denial result; a retry with other rules values is a
   duplicate; `WithRules` skips a provider approval and copies.
 - CLI: the recorded path records both fields on approve and deny, and the
-  `taskDetails` line; the live path records the finding outside `Reason`;
-  `decideCounts` counts a recorded approval.
+  `taskDetails` line; the live path records the finding outside `Reason`.
+- Delegate: the task hash of an approval with rules equals the recorded
+  `Step.CommandHash`.
 
 ## Docs
 
