@@ -369,11 +369,10 @@ func buildFunc[T any]() error {
 
 func TestFuncRequiresStructArguments(t *testing.T) {
 	refused := map[string]error{
-		"string":         buildFunc[string](),
-		"map":            buildFunc[map[string]any](),
-		"any":            buildFunc[any](),
-		"time":           buildFunc[*time.Time](),
-		"nested ,string": buildFunc[quotedInput](),
+		"string": buildFunc[string](),
+		"map":    buildFunc[map[string]any](),
+		"any":    buildFunc[any](),
+		"time":   buildFunc[*time.Time](),
 	}
 	for name, err := range refused {
 		if err == nil {
@@ -382,6 +381,33 @@ func TestFuncRequiresStructArguments(t *testing.T) {
 	}
 	if err := buildFunc[*searchInput](); err != nil {
 		t.Fatalf("pointer to struct: %v", err)
+	}
+}
+
+// A ",string" field is a JSON string in both the schema and decoding, so a
+// call that quotes the number validates and decodes.
+func TestFuncAcceptsQuotedField(t *testing.T) {
+	var got int
+	fn, err := Func(
+		"quoted",
+		"",
+		func(_ context.Context, _ Call, in quotedInput) (Outcome, error) {
+			got = in.Inner.Count
+			return Succeeded(""), nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(fn.Definition.Schema), `"count":{"type":"string"}`) {
+		t.Fatalf("schema = %s", fn.Definition.Schema)
+	}
+	out, err := fn.Executor.Execute(
+		t.Context(),
+		Call{ID: "call-1", Name: "quoted", Args: json.RawMessage(`{"inner":{"count":"5"}}`)},
+	)
+	if err != nil || out.State != StateSucceeded || got != 5 {
+		t.Fatalf("out=%+v err=%v count=%d", out, err, got)
 	}
 }
 

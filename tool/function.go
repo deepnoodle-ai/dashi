@@ -249,10 +249,8 @@ func (e typedExecutor[T]) Execute(
 
 // checkArgumentsType requires a struct, or a pointer to one, other than
 // time.Time: providers need an input schema with named properties, and strict
-// modes reject open objects such as maps. It also refuses the json ",string"
-// option at any depth, because the schema describes the plain value while
-// decoding would expect it quoted, so every call would fail, and recursion
-// that does not pass through a struct, which has no finite schema.
+// modes reject open objects such as maps. It also refuses recursion that does
+// not pass through a struct, which has no finite schema.
 func checkArgumentsType(t reflect.Type) error {
 	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
@@ -301,7 +299,7 @@ func checkFieldTypes(
 	}
 	seen[t] = true
 	for field := range t.Fields() {
-		name, opts, _ := strings.Cut(field.Tag.Get("json"), ",")
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 		if name == "-" {
 			continue
 		}
@@ -309,13 +307,6 @@ func checkFieldTypes(
 			if err := checkNullableTag(t, field); err != nil {
 				return err
 			}
-		}
-		if slices.Contains(strings.Split(opts, ","), "string") {
-			return fmt.Errorf(
-				"field %s.%s: the json \",string\" option is not supported",
-				t,
-				field.Name,
-			)
 		}
 		err := checkFieldTypes(field.Type, seen, map[reflect.Type]bool{})
 		if err != nil {

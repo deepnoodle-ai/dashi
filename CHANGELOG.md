@@ -9,6 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 
 - **Dashi now uses Wonton v0.10.0**, which brings the fixes below.
+- **`tool.Func` accepts the `json` `,string` option.** Such a field is now a
+  string in the schema, as `encoding/json` decodes it, so a call that quotes
+  the value validates and decodes. Before, the tool failed to build. Wonton
+  v0.10.0 also makes `tool.Func` and `MustOutputSchema` schemas match
+  `encoding/json` for types that decode from text with
+  `encoding.TextUnmarshaler`, which are now strings, and for embedded
+  fields that shadow one another.
 
 ## [0.15.1] - 2026-10-25
 
