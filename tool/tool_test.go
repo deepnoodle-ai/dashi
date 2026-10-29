@@ -442,6 +442,11 @@ func TestFuncAcceptsQuotedStringField(t *testing.T) {
 	if err != nil || out.State != StateSucceeded || got != "abc" {
 		t.Fatalf("out=%+v err=%v name=%q", out, err, got)
 	}
+	// The schema, checked before decoding, is what turns "abc" away.
+	validator := fn.Executor.(interface{ ValidateArguments(json.RawMessage) error })
+	if err := validator.ValidateArguments(json.RawMessage(`{"inner":{"name":"abc"}}`)); err == nil {
+		t.Fatal("schema accepted an unquoted string")
+	}
 	out, err = run(`{"inner":{"name":"abc"}}`)
 	if err != nil || out.State != StateNotExecuted {
 		t.Fatalf("unquoted string: out=%+v err=%v", out, err)
