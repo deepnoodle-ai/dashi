@@ -75,14 +75,19 @@ func TestDecideFlagsCommandInPrompt(t *testing.T) {
 		t.Fatal("a flagged prompt offered allow for this run")
 	}
 	v := decideVerdict(t, h, 1, "c1")
-	if v.Kind != dashi.DecisionDeny || !strings.HasPrefix(v.Reason, declinedReason+"; decide: severe 91% flagged (") ||
-		!strings.HasPrefix(v.RulesVersion, "decide/") {
+	if v.Kind != dashi.DecisionDeny || v.Reason != declinedReason ||
+		!strings.HasPrefix(v.RulesFinding, "severe 91% flagged (") || !strings.HasPrefix(v.RulesVersion, "decide/") {
 		t.Fatalf("verdict = %+v", v)
 	}
 	text := h.ui.text()
 	mustHave(t, text, "decide command: severe 91% — flagged")
 	mustHave(t, text, "decide 1 checked, 1 flagged")
-	mustHave(t, inputText(h.client.inputAt(1)), "; decide: severe 91% flagged")
+	// The model reads the person's denial, never the check's score.
+	in := inputText(h.client.inputAt(1))
+	mustHave(t, in, declinedReason)
+	if strings.Contains(in, "91%") || strings.Contains(in, "decide") {
+		t.Fatalf("the model read the decide answer:\n%s", in)
+	}
 	if strings.Contains(text, declinedReason+";") {
 		t.Fatalf("the row repeats the decide line in the denial:\n%s", text)
 	}
@@ -103,7 +108,7 @@ func TestDecideAnsweredFirst(t *testing.T) {
 	}
 	h.input("go")
 	v := decideVerdict(t, h, 1, "c1")
-	if !strings.HasSuffix(v.Reason, "; decide: not checked (answered first)") || v.RulesVersion != "decide/unchecked" {
+	if v.RulesFinding != "not checked (answered first)" || v.RulesVersion != "decide/unchecked" || strings.Contains(v.Reason, "decide") {
 		t.Fatalf("verdict = %+v", v)
 	}
 	mustHave(t, h.ui.text(), "first")
@@ -156,7 +161,7 @@ func TestDecideBypassHoldsFlaggedCommand(t *testing.T) {
 	if !a.Hold || a.offersRemember() || a.Command != "echo severe" {
 		t.Fatalf("approval = %+v", a)
 	}
-	if v := decideVerdict(t, h, 1, "c1"); v.Kind != dashi.DecisionAllow || !strings.Contains(v.Reason, "decide: severe 3% (jev-test, request ") {
+	if v := decideVerdict(t, h, 1, "c1"); v.Kind != dashi.DecisionAllow || !strings.HasPrefix(v.RulesFinding, "severe 3% (jev-test, request ") {
 		t.Fatalf("routine verdict = %+v", v)
 	}
 	if v := decideVerdict(t, h, 1, "c2"); v.Kind != dashi.DecisionDeny {
@@ -293,8 +298,10 @@ func TestDecideRunYesRefusesFlaggedCommand(t *testing.T) {
 		t.Fatalf("code = %d\nstderr:\n%s", code, stderr.String())
 	}
 	in := inputText(h.client.inputAt(1))
-	mustHave(t, in, "The decide command-risk check flagged this command (severe 95%)")
-	mustHave(t, in, "; decide: severe 95% flagged")
+	mustHave(t, in, "The decide command-risk check flagged this command, and no one can approve it")
+	if strings.Contains(in, "95%") {
+		t.Fatalf("the model read the check's score:\n%s", in)
+	}
 }
 
 // The record line is a format the renderer parses on reopen; this pins it.
@@ -319,19 +326,19 @@ func TestDecideRecordFormat(t *testing.T) {
 		if got := tc.r.recordLine(); got != tc.line {
 			t.Errorf("recordLine = %q; want %q", got, tc.line)
 		}
-		v := dashi.ToolVerdict{Reason: withDecide("approved by the user", tc.r.recordLine()), RulesVersion: tc.r.rulesVersion()}
-		if v.RulesVersion != tc.rule {
-			t.Errorf("rulesVersion = %q; want %q", v.RulesVersion, tc.rule)
+		if got := tc.r.rulesVersion(); got != tc.rule {
+			t.Errorf("rulesVersion = %q; want %q", got, tc.rule)
 		}
-		if m := markFromRecord(v); m == nil || *m != tc.mark {
-			t.Errorf("mark of %q = %+v; want %+v", v.Reason, m, tc.mark)
-		}
-		if reason, _, _ := splitDecide(v); reason != "approved by the user" {
-			t.Errorf("split reason = %q", reason)
+		if m := markFromRecord(tc.r.rulesVersion(), tc.r.recordLine()); m == nil || *m != tc.mark {
+			t.Errorf("mark of %q = %+v; want %+v", tc.r.recordLine(), m, tc.mark)
 		}
 	}
-	if markFromRecord(dashi.ToolVerdict{Reason: "approved by the user; decide: x"}) != nil {
-		t.Error("a reason without the decide rules version was read as checked")
+	if markFromRecord("policy-v1", "severe 91% flagged (x)") != nil {
+		t.Error("a finding without the decide rules version was read as checked")
+	}
+	// An old record keeps its decide line in Reason, with no rules finding.
+	if markFromRecord("decide/jev-1.13.0", "") != nil {
+		t.Error("a decide rules version with no rules finding built a mark")
 	}
 }
 

@@ -76,6 +76,21 @@ approved calls and returns `ErrNotReady` while any call is unresolved. Once
 every call is resolved, `out.Pending` is empty and `out.ReadyToContinue` is
 true, but `out.Stop` still says waiting until `Continue` runs.
 
+When a check informed the decision, such as a policy service or a decision
+model, record it with `WithRules`. The record keeps the rules' version and
+one line on what they found, in `ToolView.Approval`; the model never sees
+either, even for a denial, which gives the model only its reason:
+
+```go
+decision := p.Deny("The operator declined.").
+	WithRules("risk-policy-v3", "deploy outside the release window")
+```
+
+`WithRules` returns a provider tool approval unchanged, since its answer
+goes to the provider. The rules are not part of the command's identity: a
+retry that ran its check again is still a duplicate, and the first rules
+stay.
+
 ## Using a model's advice
 
 A model can review whether a proposed tool call fits the user's request.

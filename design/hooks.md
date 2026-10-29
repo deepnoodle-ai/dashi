@@ -87,9 +87,9 @@ runner.Hooks = ask.Hooks()
   failed.
 - `ModelDecision{Settings, AddMessages, Stop}`;
   `SendDecision{Deny, Reason, Limit, Reservation}` (a `Limit` implies `Deny`);
-  `ToolDecision{Kind, Reason, RulesVersion, Rewrite}`;
+  `ToolDecision{Kind, Reason, RulesVersion, RulesFinding, Rewrite}`;
   `FinishDecision{AddMessages, AcceptEmpty, Reason}`.
-- `ToolVerdict{Kind, Reason, Hook, RulesVersion}` is the combined result for a
+- `ToolVerdict{Kind, Reason, Hook, RulesVersion, RulesFinding}` is the combined result for a
   call, recorded as `ToolFact.Verdict` and shown as `ToolView.Verdict`. An
   allow takes the name and reason of the first hook that returned `Allow`;
   with none, `Hook` is empty and the reason is `no hook opinion`.

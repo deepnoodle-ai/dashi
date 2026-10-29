@@ -6,8 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **An approval decision can record the check that informed it.**
+  `ApprovalDecision` gains `RulesVersion` and `RulesFinding`, and
+  `Resolve.WithRules(version, finding)` sets them:
+  `p.Deny("no").WithRules("risk-policy-v3", "deploy outside the window")`.
+  `ToolDecision` and `ToolVerdict` gain `RulesFinding` too. The model never
+  sees either field, even for a denial. The rules of an approval are not
+  part of the `Resolve` command's identity, so a retry that ran its check
+  again is a duplicate.
+- **`/task ID continue` keeps the decide line in the child's record**,
+  and `/task ID` shows each recorded approval with it.
+
 ### Changed
 
+- **The model no longer reads decide's score or request ID when a checked
+  command is denied**, because the model cannot act on a score and both
+  approval paths now behave the same. The CLI records the decide line in
+  `RulesFinding` instead of the decision's reason, and the `run --yes`
+  refusal names the check without its score. Records from earlier versions
+  lose their decide marks.
 - **Dashi now uses Wonton v0.10.2**, which brings the fixes below.
 - **`tool.Func` accepts the `json` `,string` option on number and bool
   fields.** Such a field is now a string in the schema, as `encoding/json`

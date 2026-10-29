@@ -109,3 +109,38 @@ type internalSucceeds struct{}
 func (internalSucceeds) Execute(context.Context, tool.Call) (tool.Outcome, error) {
 	return tool.Succeeded("read it"), nil
 }
+
+// The task hash of an approval with rules matches the hash the runner
+// records, which leaves the rules out, so Tasks.Run sees a retry as one.
+func TestCommandHashMatchesRunnerForApprovalRules(t *testing.T) {
+	recorder := dashi.NewMemoryRecorder()
+	client := dashitest.NewClient(dashitest.CallTool("c1", "read", `{}`))
+	runner := dashi.Runner{Recorder: recorder, Client: client, Hooks: dashi.RequireApproval(), Tools: tool.List{{
+		Definition: tool.Definition{Name: "read", Description: "Read", Schema: []byte(`{"type":"object"}`)},
+		Executor:   internalSucceeds{},
+	}}}
+	out, err := runner.Run(t.Context(), dashi.Turn{ID: "t1"}, dashi.Start{
+		Agent: dashi.Agent{Model: dashitest.Model},
+		Input: []llm.Message{llm.UserMessage(llm.Text("look"))},
+	})
+	if err != nil || len(out.Pending) != 1 {
+		t.Fatalf("pending=%+v err=%v", out.Pending, err)
+	}
+	cmd := out.Pending[0].Approve().WithRules("decide/jev-1", "severe 9% (request r_1)")
+	out, err = runner.Run(t.Context(), out.Turn, cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := commandHash(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := out.Turn.Steps[len(out.Turn.Steps)-1]
+	if last.CommandID != cmd.CommandID || last.CommandHash != hash {
+		t.Fatalf("recorded %s %s; task hash %s", last.CommandID, last.CommandHash, hash)
+	}
+	// The hash blanks the rules on a copy, never the caller's decision.
+	if cmd.Approval.RulesVersion != "decide/jev-1" || cmd.Approval.RulesFinding != "severe 9% (request r_1)" {
+		t.Fatalf("hashing changed the caller's decision: %+v", *cmd.Approval)
+	}
+}
