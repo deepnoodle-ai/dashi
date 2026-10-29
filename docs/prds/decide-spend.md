@@ -56,10 +56,11 @@ the turn cost in its footer.
 - **Side model.** A model that a tool or hook calls itself, apart from the
   turn's own model calls. A decision model called through Decide is the
   first case; a small classifier LLM in a host hook is another.
-- **Side model cost.** What a tool or hook spent on a side model: the
-  model, the number of calls, input and output tokens, and the amount (or
-  "unknown"). The turn record keeps each one. `Spend` sums them in a line
-  next to model cost and tool cost. That sum counts toward `MaxCost`; side
+- **Side model call.** A record of calls a tool or hook made to a side
+  model: the model, the number of calls, input and output tokens, and the
+  cost (or "unknown"). The turn record keeps each one.
+- **Side model cost.** The sum of side model calls' costs in `Spend`, a
+  line next to model cost and tool cost. It counts toward `MaxCost`. Side
   model tokens do not count toward the token caps.
 
 ## Use cases
@@ -86,27 +87,33 @@ Acceptance:
 The host adds `toolcheck`, `turnwatch`, and `contextrank` hooks.
 
 Acceptance:
-- [ ] Every Decide request each hook sends appears in `Spend`, including
-      checks that passed, failed, or were cancelled mid-chain.
+- [ ] Every Decide request each hook sends during a run appears in
+      `Spend`, including checks that passed or failed, and checks in a
+      hook chain that a steer or stop cut short.
+- [ ] A hook asked in a dry run (when `Advance` polls a held turn) sends
+      no Decide request.
 - [ ] A turn replayed or loaded from its record has the same `Spend`.
 - [ ] Under a cap, a hook whose check would not fit what is left skips
       the check and acts as it does without Decide. `CommandRisk` holds
-      the call for approval instead, as it does for any check the input
-      can cause to fail.
+      the call for approval instead, as it does for any check failure the
+      input can cause.
 - [ ] The model call after a `BeforeModel` hook is checked against a cap
       that includes that hook's spend.
 
 ### UC-3: A model with no price
 
-The host pins a model that has no built-in price, such as a new Clef.
+The host pins a model that has no built-in price, such as a new Clef, or
+sets a cap in a currency the price table lacks (it holds USD).
 
 Acceptance:
-- [ ] Without a cap, the cost is recorded with an unknown cost and
-      counts in `Spend.CostUnknown`; the turn runs normally.
-- [ ] With a cap, the decide packages do not send the request (as in
-      UC-1 and UC-2), so the turn is not stopped by an unknown cost.
+- [ ] Without a cap, the call is recorded with an unknown cost and counts
+      in `Spend.CostUnknown`; the turn runs normally.
+- [ ] With a cap, the decide packages send nothing. `judge_items` returns
+      a failed result that names the model. Hooks, `CommandRisk`
+      included, run as if Decide were not set up, and warn once per turn.
+      The turn is never stopped by an unknown side model cost.
 - [ ] A host can supply prices with a `LookupPricing` function on each
-  config.
+      config.
 
 ### UC-4: The dashi CLI shows library numbers
 
@@ -119,7 +126,7 @@ Acceptance:
 
 ## Requirements
 
-- R-1: Any tool or hook can add a side model cost while it runs. Dashi
+- R-1: Any tool or hook can add a side model call while it runs. Dashi
   records it on the next step it commits, so it is durable and replays.
 - R-2: `MaxCost` covers model cost plus side model cost.
 - R-3: The four `decide/` packages add the cost of every request they
@@ -127,8 +134,9 @@ Acceptance:
   override.
 - R-4: Under a cap, the decide packages check the turn's remaining cost
   before they send, and fail as their designs already say: tools return an
-  error to the model, hooks fail open, `CommandRisk` holds.
-- R-5: Child turns count their own side model costs; delegation's spend
+  error to the model, hooks fail open, `CommandRisk` holds when the check
+  does not fit. A missing price is a setup gap, so hooks fail open.
+- R-5: Child turns count their own side model calls; delegation's spend
   reports include them.
 
 ## Not in scope
@@ -139,6 +147,9 @@ Acceptance:
   start together each check the same remaining amount, so together they
   can pass the cap by their worst case. The next check stops the turn.
 - Spend from a check run outside any turn and never passed to Dashi.
+- Requests still running when a run commits its last step, such as a stop
+  that does not wait for running tools. They are lost, as a crash loses
+  them.
 
 ## Decisions
 
@@ -156,8 +167,11 @@ Acceptance:
 - **Unpublished output prices count as zero.** Both vendors list only
   input prices, and Decide answers are a few tokens.
 - **Added through the context.** Then a failed hook, a passed check, and a
-  cancelled call still count. Rejected: a field on each decision and on
-  `tool.Outcome`, which loses those cases.
+  dropped hook chain still count. Rejected: a field on each decision and
+  on `tool.Outcome`, which loses those cases.
+- **No price under a cap means "not set up".** No input causes it, so
+  hooks fail open as on a paused check. Rejected: holding every shell call
+  for approval, which would deny them all in an unattended run.
 
 ## Success
 
