@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
-- **Dashi now uses Wonton v0.10.1**, which brings the fixes below.
+- **Dashi now uses Wonton v0.10.2**, which brings the fixes below.
 - **`tool.Func` accepts the `json` `,string` option.** Such a field is now a
   string in the schema, as `encoding/json` decodes it, so a call that quotes
   the value validates and decodes. Before, the tool failed to build. Wonton
@@ -23,7 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   the Kitty keyboard protocol in terminals that support it, such as Kitty,
   Ghostty, Alacritty, and foot, so Shift+Enter, Alt+Enter, and Ctrl+Enter
   insert a newline instead of sending the draft, in fullscreen and inline
-  modes. In other terminals, press Ctrl+J for a newline.
+  modes. Ctrl+J inserts a newline in every terminal.
 - **Terminal input in the CLI is more reliable.** A key sequence split
   across two reads, as over SSH, decodes as one key, and a malformed mouse
   report no longer stops input. In the composer, Home and End (Ctrl+A and

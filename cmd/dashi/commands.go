@@ -364,7 +364,7 @@ func (c *Controller) helpDoc() helpDoc {
 var composerKeys = []helpRow{
 	{Name: "Enter", Text: "send the draft"},
 	{Name: "Shift+Enter", Text: "insert a new line"},
-	{Name: "Ctrl+J", Text: "insert a new line where Shift+Enter sends the draft"},
+	{Name: "Ctrl+J", Text: "insert a new line in any terminal"},
 	{Name: "Up/Down", Text: "move between lines, then recall history"},
 	{Name: "Tab", Text: "complete; Tab and Shift+Tab cycle choices"},
 	{Name: "Esc", Text: "undo completion, stop work, or return to live output"},
