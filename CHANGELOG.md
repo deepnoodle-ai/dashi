@@ -35,6 +35,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   reason for denying a tool call, sends its text on Alt+Enter as on Enter.
 - **Pasted text with Windows line endings shows its line breaks.** The
   composer drew `ab\r\ncd` as one row, `abcd`; it now breaks the line there.
+- **The CLI status keeps showing a decide pause until it ends.** A decide
+  check that began before the pause and answered during it cleared the
+  status, though commands or tool results still went unchecked until the
+  pause ended.
 - **A click on "lines below" returns to live output again.** Since the empty
   row above the composer was added, the click landed on that row instead.
 
