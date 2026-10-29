@@ -217,7 +217,12 @@ selection; failed or unconfirmed writes keep it for retry. Without selection,
 Ctrl+C interrupts work or uses the idle exit confirmation. Dialogs keep their
 cancellation controls. Escape interrupts running work, or clears a selection
 when idle. Ctrl+L repaints. Click a tool line to show its input and full
-retained output.
+retained output. Right-click a transcript item for a menu of what applies to
+it: expand or collapse a tool line, copy its input or output, or copy a
+message, reasoning, diff, or the selection. Copies use the same text and
+clipboard path as selection copying. Arrow keys and Enter choose; Escape or a
+click outside closes the menu. A terminal that keeps right-click for its own
+menu leaves selection, Ctrl+C, and `/copy`.
 
 `/copy` copies selected text or lists fenced blocks in the latest reply.
 `/copy N` copies one code block; `/copy all` copies all, without fences or

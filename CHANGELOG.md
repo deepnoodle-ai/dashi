@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **Right-click menu on transcript items in the fullscreen CLI.** A tool
+  line offers Expand or Collapse, Copy input, and Copy output; a message,
+  reasoning, or diff offers to copy its text; and a selection adds Copy
+  selection. Copies match what selecting the same text copies. Arrow keys
+  and Enter choose, and Escape or a click outside closes the menu.
+
 ### Changed
 
 - **Dashi now uses Wonton v0.10.2**, which brings the fixes below.
