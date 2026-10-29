@@ -1,6 +1,7 @@
 # Count decision-model spend in a turn's Spend and cost cap
 
-Status: Draft\ PRD PR: #TBD Implementation PR: #TBD Updated: 2026-10-29\
+Status: Draft\
+PRD PR: #342  Implementation PR: TBD  Updated: 2026-10-29\
 Spec: [design/decide-spend.md](../design/decide-spend.md)
 
 ## Problem
