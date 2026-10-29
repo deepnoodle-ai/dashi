@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
-- **Dashi now uses Wonton v0.10.0**, which brings the fixes below.
+- **Dashi now uses Wonton v0.10.1**, which brings the fixes below.
 - **`tool.Func` accepts the `json` `,string` option.** Such a field is now a
   string in the schema, as `encoding/json` decodes it, so a call that quotes
   the value validates and decodes. Before, the tool failed to build. Wonton
@@ -30,6 +30,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Ctrl+E) move to the ends of the line, not of the wrapped row, and Up and
   Down move between wrapped rows correctly. A one-line field, such as the
   reason for denying a tool call, sends its text on Alt+Enter as on Enter.
+- **Pasted text with Windows line endings shows its line breaks.** The
+  composer drew `ab\r\ncd` as one row, `abcd`; it now breaks the line there.
 - **A click on "lines below" returns to live output again.** Since the empty
   row above the composer was added, the click landed on that row instead.
 
