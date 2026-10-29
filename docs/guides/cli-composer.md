@@ -6,6 +6,22 @@ protocol, such as Kitty, Ghostty, Alacritty, and foot. Other terminals send
 Shift+Enter as Enter; there, press Ctrl+J, or Alt+Enter where Alt sends
 Escape. Bracketed paste retains Unicode, tabs, and line breaks without
 sending the request. Large text remains directly editable.
+
+Inside tmux 3.2 or later, Shift+Enter adds a newline once tmux forwards it.
+Add these lines to `~/.tmux.conf`, restart tmux or reload the file and
+reattach, then start Dashi again:
+
+```
+set -s extended-keys on
+set -as terminal-features 'xterm*:extkeys'
+```
+
+The second line tells tmux that the outer terminal reports modified keys,
+which tmux detects by itself only for iTerm2, WezTerm, foot, and xterm. The
+outer terminal must support xterm's modifyOtherKeys, as Ghostty also does.
+GNU screen and Apple Terminal never report Shift+Enter. There, use Ctrl+J, or
+Alt+Enter; in Apple Terminal, first check Settings → Profiles → Keyboard →
+"Use Option as Meta Key".
 Pasted commands and aliases, such as `/status` and `/q`, stay in the composer
 until Enter; they do not become file attachments. In fullscreen, F2 enables
 native terminal selection and copying without changing the draft. Press F2

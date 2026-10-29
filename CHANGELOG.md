@@ -22,6 +22,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Shift+Enter inserts a newline inside tmux.** tmux ignores the Kitty
+  keyboard protocol, so the CLI, through Wonton, now also asks tmux for its
+  extended keys, in fullscreen and inline modes. tmux forwards them once its
+  `extended-keys` option is on; the composer guide lists the two lines to add
+  to `~/.tmux.conf`. With tmux's default settings, Shift+Enter still sends
+  the draft, and Ctrl+J still inserts a newline.
 - **Shift+Enter inserts a newline in more terminals.** The CLI now turns on
   the Kitty keyboard protocol in terminals that support it, such as Kitty,
   Ghostty, Alacritty, and foot, so Shift+Enter, Alt+Enter, and Ctrl+Enter
