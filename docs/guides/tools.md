@@ -87,9 +87,11 @@ error, for a tool built once at startup, as the examples do. The rules:
   and its fields are optional when it is embedded by pointer; with a name it
   is a regular field.
 - In fields, `[]byte` is a base64 string, `time.Time` a date-time string, and
-  `any` or `json.RawMessage` accept any value. A field with the `json`
-  `,string` option, or of a type that decodes from text with
-  `encoding.TextUnmarshaler`, is a string, as `encoding/json` reads it. Maps
+  `any` or `json.RawMessage` accept any value. A number or bool field with
+  the `json` `,string` option, or a field of a type that decodes from text
+  with `encoding.TextUnmarshaler`, is a string, as `encoding/json` reads it.
+  The `,string` option on a string field fails when the tool is built,
+  because `encoding/json` then wants a quoted string inside the quotes. Maps
   need string keys; channels, functions, and complex numbers fail when the
   tool is built.
 - A recursive type must recurse through a struct, as in

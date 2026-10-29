@@ -356,6 +356,12 @@ type quotedInput struct {
 	} `json:"inner"`
 }
 
+type quotedStringInput struct {
+	Inner struct {
+		Name *string `json:"name,string"`
+	} `json:"inner"`
+}
+
 func buildFunc[T any]() error {
 	_, err := Func(
 		"f",
@@ -373,6 +379,8 @@ func TestFuncRequiresStructArguments(t *testing.T) {
 		"map":    buildFunc[map[string]any](),
 		"any":    buildFunc[any](),
 		"time":   buildFunc[*time.Time](),
+		// encoding/json wants "\"abc\"" for this field; the schema allows "abc".
+		"quoted string": buildFunc[quotedStringInput](),
 	}
 	for name, err := range refused {
 		if err == nil {
