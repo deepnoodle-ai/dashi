@@ -307,7 +307,8 @@ func (c *Controller) approveBypass(ctx context.Context, r ApprovalRequest) (Appr
 		return Approval{Allow: true}, nil
 	}
 	if !c.canAnswer() {
-		what := "flagged this command (severe " + percent(result.Severe) + ")"
+		// The model never reads the score; the record keeps it.
+		what := "flagged this command"
 		if !result.Flagged {
 			what = "could not check this command (" + result.Cause + ")"
 		}

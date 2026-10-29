@@ -173,9 +173,12 @@ The status area is quiet while every check answers.
   run's requests and tokens, and each feature's counts.
   `/settings --json` has the same fields under `decide`.
 
-The turn record keeps each answer in the approval decision: its reason gets
-`; decide: severe 90% flagged (jev-1.13.0, request r_12)`, and its rules
-version names `decide/` and the model.
+The turn record keeps each answer as the rules of the decision it
+informed: a rules version that names `decide/` and the model, and a rules
+finding such as `severe 90% flagged (jev-1.13.0, request r_12)`. A live
+call keeps them in its tool verdict; a delegated task's call answered with
+`/task ID continue` keeps them in its recorded approval. The agent never
+reads them: a denial gives it only the reason.
 
 ## What is sent
 

@@ -223,8 +223,8 @@ func percent(p float64) string {
 	return fmt.Sprintf("%d%%", int(math.Floor(p*100+1e-9)))
 }
 
-// recordLine is the decide answer as the turn record keeps it, after
-// "decide: " in the approval decision's Reason. renderDecide parses it.
+// recordLine is the decide answer as the turn record keeps it, in the
+// RulesFinding of the decision it informed. markFromRecord parses it.
 func (r decideResult) recordLine() string {
 	switch {
 	case r.AnsweredFirst:
@@ -445,37 +445,9 @@ func (p *pendingCheck) flagged() bool {
 	return ok && r.Flagged
 }
 
-// decideRulesPrefix starts the RulesVersion of a checked approval. The
+// decideRulesPrefix starts the RulesVersion of a checked decision. The
 // renderer finds checked calls by it.
 const decideRulesPrefix = "decide/"
-
-// decideReasonSep joins the decide line to the policy's own reason.
-const decideReasonSep = "; decide: "
-
-// withDecide appends the decide line to an approval decision's reason. A
-// denial keeps its own text first, so the model reads why it was refused.
-func withDecide(reason, line string) string {
-	if reason == "" {
-		return "decide: " + line
-	}
-	return reason + decideReasonSep + line
-}
-
-// splitDecide splits a recorded reason into the policy's reason and the
-// decide line. ok is false when the call was not checked.
-func splitDecide(v dashi.ToolVerdict) (reason, line string, ok bool) {
-	if !strings.HasPrefix(v.RulesVersion, decideRulesPrefix) {
-		return v.Reason, "", false
-	}
-	if rest, found := strings.CutPrefix(v.Reason, "decide: "); found {
-		return "", rest, true
-	}
-	i := strings.LastIndex(v.Reason, decideReasonSep)
-	if i < 0 {
-		return v.Reason, "", false
-	}
-	return v.Reason[:i], v.Reason[i+len(decideReasonSep):], true
-}
 
 // What a decide mark on a tool row checked: the shell command before it
 // ran, or the result before the model read it.
@@ -539,11 +511,11 @@ func decideLines(b Block) []decideMark {
 	return lines
 }
 
-// markFromRecord reads the decide mark of a call from its recorded
-// verdict, so a reopened session shows what the live run showed.
-func markFromRecord(v dashi.ToolVerdict) *decideMark {
-	_, line, ok := splitDecide(v)
-	if !ok {
+// markFromRecord reads the decide mark of a call from the rules recorded
+// with its decision, so a reopened session shows what the live run showed.
+// It is nil when decide did not inform the decision.
+func markFromRecord(rulesVersion, line string) *decideMark {
+	if !strings.HasPrefix(rulesVersion, decideRulesPrefix) || line == "" {
 		return nil
 	}
 	m := &decideMark{Check: decideCheckCommand, Text: line}
@@ -558,6 +530,18 @@ func markFromRecord(v dashi.ToolVerdict) *decideMark {
 	return m
 }
 
+// toolMark is the decide mark of a call: from the approval decision when
+// decide informed it, as on /task ID continue, or else from the hooks'
+// verdict, as on a live call.
+func toolMark(v dashi.ToolView) *decideMark {
+	if a := v.Approval; a != nil {
+		if m := markFromRecord(a.RulesVersion, a.RulesFinding); m != nil {
+			return m
+		}
+	}
+	return markFromRecord(v.Verdict.RulesVersion, v.Verdict.RulesFinding)
+}
+
 // decideCounts counts the checked, flagged, and unchecked calls of a turn
 // from its record.
 func decideCounts(v dashi.TurnView) (checked, flagged, unchecked int) {
@@ -567,7 +551,7 @@ func decideCounts(v dashi.TurnView) (checked, flagged, unchecked int) {
 	}
 	slices.Sort(ids)
 	for _, id := range ids {
-		m := markFromRecord(v.Tools[id].Verdict)
+		m := toolMark(v.Tools[id])
 		switch {
 		case m == nil:
 		case m.OK:

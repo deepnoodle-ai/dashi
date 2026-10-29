@@ -1,7 +1,9 @@
 package dashi
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -115,7 +117,10 @@ func codecCommands() map[string]Command {
 		"resolve/approval": Resolve{
 			CommandID: "cmd-approve",
 			CallID:    "c1",
-			Approval:  &ApprovalDecision{CallID: "c1", Approve: false, ArgsHash: ArgsHash(call.Args), Reason: "no"},
+			Approval: &ApprovalDecision{
+				CallID: "c1", Approve: false, ArgsHash: ArgsHash(call.Args), Reason: "no",
+				RulesVersion: "policy-v3", RulesFinding: "risk 91%",
+			},
 		},
 		"resolve/provider tool": Resolve{
 			CommandID:            "cmd-provider tool",
@@ -297,5 +302,147 @@ func TestNormalizeCommandDropsNullSchemas(t *testing.T) {
 	}
 	if err := (Agent{OutputSchema: json.RawMessage("null")}).Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// WithRules records the rules that informed an approval decision. The
+// record and a reload keep them, and no model request holds them, for an
+// approval or a denial; a denial's result is its reason alone.
+func TestWithRulesIsRecordedAndHiddenFromModel(t *testing.T) {
+	const version, finding = "decide/jev-1.13.0", "decide: severe 91% flagged (jev-1.13.0, request r_12)"
+	for _, approve := range []bool{true, false} {
+		client := &scriptedClient{results: []llm.Result{callResult("call-1", "write"), final("done")}}
+		rec := NewMemoryRecorder()
+		binding := tool.Tool{
+			Definition: tool.Definition{Name: "write", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal},
+			Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+				return tool.Succeeded("ok"), nil
+			}),
+		}
+		runner := Runner{Client: client, Tools: tool.List{binding}, Recorder: rec, Hooks: deferredHooks()}
+		got, err := start(t, client, tool.List{binding}, rec, deferredHooks())
+		if err != nil || len(got.Pending) != 1 {
+			t.Fatalf("pending=%+v err=%v", got.Pending, err)
+		}
+		cmd := got.Pending[0].Deny("The operator declined.")
+		if approve {
+			cmd = got.Pending[0].Approve()
+		}
+		got, err = runner.Run(t.Context(), got.Turn, cmd.WithRules(version, finding))
+		if err != nil {
+			t.Fatal(err)
+		}
+		a := got.Tools["call-1"].Approval
+		if a == nil || a.Approve != approve || a.RulesVersion != version || a.RulesFinding != finding {
+			t.Fatalf("approve=%t: approval=%+v", approve, a)
+		}
+		got, err = runner.Run(t.Context(), got.Turn, Continue{CommandID: "continue"})
+		if err != nil || got.Stop.Kind != StopCompleted {
+			t.Fatalf("approve=%t: stop=%+v err=%v", approve, got.Stop, err)
+		}
+		raw, err := json.Marshal(got.Turn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var reloaded Turn
+		if err := json.Unmarshal(raw, &reloaded); err != nil {
+			t.Fatal(err)
+		}
+		view, err := reloaded.View()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := view.Tools["call-1"].Approval; !reflect.DeepEqual(got, a) {
+			t.Fatalf("approve=%t: reloaded approval=%+v, want %+v", approve, got, a)
+		}
+		sent, err := json.Marshal(client.inputs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(sent), "decide") || strings.Contains(string(sent), "91%") {
+			t.Fatalf("approve=%t: a model request holds the rules: %s", approve, sent)
+		}
+		if !approve && !strings.Contains(string(sent), "The operator declined.") {
+			t.Fatalf("denial reason did not reach the model: %s", sent)
+		}
+	}
+}
+
+// WithRules leaves a command without an approval decision unchanged, and
+// never changes a Resolve the caller kept.
+func TestWithRulesCopiesAndSkipsProviderApproval(t *testing.T) {
+	provider := Resolve{ProviderToolApproval: &llm.ProviderToolApprovalResponse{RequestID: "r1", Approve: true}}
+	if got := provider.WithRules("v1", "found"); !reflect.DeepEqual(got, provider) {
+		t.Fatalf("provider approval changed: %+v", got)
+	}
+	kept := Resolve{CallID: "c1", Approval: &ApprovalDecision{CallID: "c1", Approve: true}}
+	got := kept.WithRules("v1", "found")
+	if kept.Approval.RulesVersion != "" || kept.Approval.RulesFinding != "" {
+		t.Fatalf("kept command changed: %+v", kept.Approval)
+	}
+	if got.Approval.RulesVersion != "v1" || got.Approval.RulesFinding != "found" {
+		t.Fatalf("approval=%+v", got.Approval)
+	}
+	raw, err := json.Marshal(kept.Approval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "rules_") {
+		t.Fatalf("empty rules encoded: %s", raw)
+	}
+}
+
+// A retried approval whose check ran again, with other rules, is a
+// duplicate: the first recorded rules stay. Other changes still conflict.
+func TestRetriedApprovalWithOtherRulesIsDuplicate(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write")}}
+	rec := NewMemoryRecorder()
+	binding := tool.Tool{Definition: tool.Definition{Name: "write", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}}
+	runner := Runner{Client: client, Tools: tool.List{binding}, Recorder: rec, Hooks: deferredHooks()}
+	got, err := start(t, client, tool.List{binding}, rec, deferredHooks())
+	if err != nil || len(got.Pending) != 1 {
+		t.Fatalf("pending=%+v err=%v", got.Pending, err)
+	}
+	p := got.Pending[0]
+	first, err := runner.Run(t.Context(), got.Turn, p.Approve().WithRules("decide/jev-1", "severe 10% (request r_1)"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := runner.Run(t.Context(), first.Turn, p.Approve().WithRules("decide/jev-1", "severe 11% (request r_2)"))
+	if err != nil {
+		t.Fatalf("retry with other rules: %v", err)
+	}
+	if f := again.Tools["call-1"].Approval.RulesFinding; f != "severe 10% (request r_1)" {
+		t.Fatalf("finding=%q", f)
+	}
+	if _, err := runner.Run(t.Context(), first.Turn, p.Deny("no")); !errors.Is(err, ErrCommandIDReused) {
+		t.Fatalf("a different decision: err=%v", err)
+	}
+}
+
+// A BeforeTool hook's RulesFinding is recorded in the verdict. A denial
+// gives the model its Reason, never the finding.
+func TestToolDecisionRulesFindingIsHiddenFromModel(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{callResult("call-1", "write"), final("done")}}
+	binding := tool.Tool{Definition: tool.Definition{Name: "write", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal}}
+	hooks := ToolHook{Name: "check", Func: func(context.Context, ToolPlan) (ToolDecision, error) {
+		d := Deny("The operator declined.")
+		d.RulesVersion, d.RulesFinding = "decide/jev-1", "severe 91% flagged (request r_12)"
+		return d, nil
+	}}.Hooks()
+	got, err := start(t, client, tool.List{binding}, NewMemoryRecorder(), hooks)
+	if err != nil || got.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", got.Stop, err)
+	}
+	v := got.Tools["call-1"].Verdict
+	if v.RulesVersion != "decide/jev-1" || v.RulesFinding != "severe 91% flagged (request r_12)" || v.Reason != "The operator declined." {
+		t.Fatalf("verdict=%+v", v)
+	}
+	sent, err := json.Marshal(client.inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(sent), "91%") || !strings.Contains(string(sent), "The operator declined.") {
+		t.Fatalf("model input: %s", sent)
 	}
 }

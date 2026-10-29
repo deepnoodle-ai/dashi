@@ -78,7 +78,8 @@ type Pending struct {
 
 // Approve builds the Resolve command that approves this call with exactly
 // the arguments shown. Resolve only records the decision; Continue runs the
-// call.
+// call. To record the check that informed the decision, chain
+// Resolve.WithRules.
 func (p Pending) Approve() Resolve {
 	return p.decide(true, "")
 }
