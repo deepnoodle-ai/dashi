@@ -17,6 +17,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `encoding.TextUnmarshaler`, which are now strings, and for embedded
   fields that shadow one another.
 
+### Fixed
+
+- **Shift+Enter inserts a newline in more terminals.** The CLI now turns on
+  the Kitty keyboard protocol in terminals that support it, such as Kitty,
+  Ghostty, Alacritty, and foot, so Shift+Enter, Alt+Enter, and Ctrl+Enter
+  insert a newline instead of sending the draft, in fullscreen and inline
+  modes. In other terminals, press Ctrl+J for a newline.
+- **Terminal input in the CLI is more reliable.** A key sequence split
+  across two reads, as over SSH, decodes as one key, and a malformed mouse
+  report no longer stops input. In the composer, Home and End (Ctrl+A and
+  Ctrl+E) move to the ends of the line, not of the wrapped row, and Up and
+  Down move between wrapped rows correctly. A one-line field, such as the
+  reason for denying a tool call, sends its text on Alt+Enter as on Enter.
+
 ## [0.15.1] - 2026-10-25
 
 ### Fixed

@@ -193,7 +193,7 @@ func TestDragOnTheTopRowAtTheStartSelectsThatRow(t *testing.T) {
 
 // --- selection across transcript blocks ---
 
-const selW, selH = 60, 100
+const selW, selH = 60, 120
 
 // selectionTranscript is two turns with the blocks a real session draws
 // between them: markdown, a tool line with a task status, a task result,

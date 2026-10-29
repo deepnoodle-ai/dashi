@@ -31,6 +31,7 @@ Use one private inventory of canonical names, aliases, usage, description, avail
 | Keys | Action and context |
 | --- | --- |
 | Enter / Shift+Enter | Submit displayed main draft / insert newline, idle or running. |
+| Ctrl+J | Insert newline in terminals without the Kitty keyboard protocol, which send Shift+Enter as Enter. |
 | Up / Down | Move through visual rows, then recall history at the first/last row; restore the draft beyond newest history. |
 | Tab / Shift+Tab / Down / Up | Tab starts completion; while cycling, Tab/Down advances and Shift+Tab/Up reverses. |
 | Escape | Restore pre-completion draft while cycling; otherwise use existing running-work, selection, and transcript actions. Dialog focus retains cancellation. |
