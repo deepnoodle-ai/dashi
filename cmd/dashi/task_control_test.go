@@ -89,7 +89,4 @@ func TestTaskDetailsShowRecordedApprovals(t *testing.T) {
 	details := taskDetails(taskSnapshot{Bound: true, View: view})
 	mustHave(t, details, "Recorded approval: call c1 · bash · denied · decide command: severe 91% — flagged\n")
 	mustHave(t, details, "Recorded approval: call c2 · write_file · approved\n")
-	if checked, flagged, _ := decideCounts(view); checked != 1 || flagged != 1 {
-		t.Fatalf("counts = %d checked, %d flagged", checked, flagged)
-	}
 }

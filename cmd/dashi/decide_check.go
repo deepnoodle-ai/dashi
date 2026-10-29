@@ -530,18 +530,6 @@ func markFromRecord(rulesVersion, line string) *decideMark {
 	return m
 }
 
-// toolMark is the decide mark of a call: from the approval decision when
-// decide informed it, as on /task ID continue, or else from the hooks'
-// verdict, as on a live call.
-func toolMark(v dashi.ToolView) *decideMark {
-	if a := v.Approval; a != nil {
-		if m := markFromRecord(a.RulesVersion, a.RulesFinding); m != nil {
-			return m
-		}
-	}
-	return markFromRecord(v.Verdict.RulesVersion, v.Verdict.RulesFinding)
-}
-
 // decideCounts counts the checked, flagged, and unchecked calls of a turn
 // from its record.
 func decideCounts(v dashi.TurnView) (checked, flagged, unchecked int) {
@@ -551,7 +539,8 @@ func decideCounts(v dashi.TurnView) (checked, flagged, unchecked int) {
 	}
 	slices.Sort(ids)
 	for _, id := range ids {
-		m := toolMark(v.Tools[id])
+		verdict := v.Tools[id].Verdict
+		m := markFromRecord(verdict.RulesVersion, verdict.RulesFinding)
 		switch {
 		case m == nil:
 		case m.OK:

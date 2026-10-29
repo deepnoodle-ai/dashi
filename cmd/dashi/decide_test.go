@@ -336,15 +336,6 @@ func TestDecideRecordFormat(t *testing.T) {
 	if markFromRecord("policy-v1", "severe 91% flagged (x)") != nil {
 		t.Error("a finding without the decide rules version was read as checked")
 	}
-	// A recorded approval's rules win over the hooks' verdict, which on
-	// /task ID continue holds no decide answer.
-	v := dashi.ToolView{
-		Verdict:  dashi.ToolVerdict{Kind: dashi.DecisionNeedsApproval, RulesVersion: "require_approval:*"},
-		Approval: &dashi.ApprovalDecision{RulesVersion: "decide/jev-1.13.0", RulesFinding: "severe 91% flagged (jev-1.13.0, request r_12)"},
-	}
-	if m := toolMark(v); m == nil || !m.Flagged {
-		t.Errorf("toolMark = %+v", m)
-	}
 }
 
 // A pause, and failures the command can cause, which ask, each name their

@@ -65,11 +65,15 @@ func ownedCommand(cmd dashi.Command) (dashi.Command, string, string, error) {
 }
 
 // commandHash is the hash the runner records for cmd in Step.CommandHash,
-// which leaves Continue.OnHistoryMismatch out.
+// which leaves out Continue.OnHistoryMismatch and the rules of a Resolve's
+// approval decision.
 func commandHash(cmd dashi.Command) (string, error) {
-	if v, ok := cmd.(dashi.Continue); ok {
+	switch v := cmd.(type) {
+	case dashi.Continue:
 		v.OnHistoryMismatch = ""
 		cmd = v
+	case dashi.Resolve:
+		cmd = v.WithRules("", "")
 	}
 	b, err := json.Marshal(cmd)
 	if err != nil {

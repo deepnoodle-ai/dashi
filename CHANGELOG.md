@@ -17,8 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   part of the `Resolve` command's identity, so a retry that ran its check
   again is a duplicate.
 - **`/task ID continue` keeps the decide answer in the child's record**,
-  and `/task ID` shows each recorded approval with it. The footer's decide
-  counts include these checks.
+  and `/task ID` shows each recorded approval with it.
 
 ### Changed
 
