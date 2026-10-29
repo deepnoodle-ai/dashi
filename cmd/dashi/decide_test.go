@@ -253,6 +253,29 @@ func TestDecideBypassRunsWhilePaused(t *testing.T) {
 	}
 }
 
+// A check that began before a pause and answers during it leaves the
+// status showing the pause until it ends, since toolcheck still skips
+// checks until then.
+func TestDecidePauseOutlastsLateSuccess(t *testing.T) {
+	now := time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
+	rt := newDecideRuntime(decideSettings{On: []string{decideCommandRisk}}, decideSetup{})
+	rt.now = func() time.Time { return now }
+	pause := &toolcheck.PausedError{Until: now.Add(time.Minute), Cause: decide.ErrAuth}
+	rt.record(decideCommandRisk, &rt.commands, false, toolcheck.Verdict{}, pause)
+	rt.record(decideCommandRisk, &rt.commands, false, toolcheck.Verdict{Model: "jev"}, nil)
+	if s := rt.status(); s != "decide: command_risk paused (auth failed), resumes in 60s" {
+		t.Fatalf("status after a late success = %q", s)
+	}
+	now = now.Add(time.Minute)
+	rt.record(decideCommandRisk, &rt.commands, false, toolcheck.Verdict{Model: "jev"}, nil)
+	if _, _, ok := rt.pausedUntil(decideCommandRisk); ok {
+		t.Fatal("a success after the pause ended must clear it")
+	}
+	if s := rt.status(); s != "" {
+		t.Fatalf("status after the pause ended = %q", s)
+	}
+}
+
 // With no one to answer, run --yes refuses a flagged command with a reason
 // that names the check.
 func TestDecideRunYesRefusesFlaggedCommand(t *testing.T) {

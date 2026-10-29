@@ -294,7 +294,11 @@ func (rt *decideRuntime) record(feature string, counts *decideCheckCounts, cance
 			counts.Flagged++
 		}
 		rt.model = v.Model
-		delete(rt.paused, feature)
+		// A check that began before a pause can answer during it; toolcheck
+		// still skips checks until the pause ends, so keep it until then.
+		if p, ok := rt.paused[feature]; ok && !rt.now().Before(p.Until) {
+			delete(rt.paused, feature)
+		}
 		return decideResult{
 			Checked: true, Flagged: v.Flagged, Severe: v.Probabilities[toolcheck.QuestionSevere],
 			Model: v.Model, Request: v.RequestID,
