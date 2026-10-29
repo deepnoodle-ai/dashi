@@ -79,6 +79,10 @@ func localDropPath(path string) bool {
 // owns insertion and cursor state; an empty modification consumes only paste.
 func (s *screen) inputPaste(id uint64) tui.PasteHandler {
 	return func(info tui.PasteInfo) (tui.PasteHandlerDecision, string) {
+		// The open transcript menu is modal: a paste does not reach the draft.
+		if s.transcriptMenu.IsOpen() {
+			return tui.PasteReject, ""
+		}
 		if s.promptActive || s.promptID != id {
 			return tui.PasteAccept, ""
 		}

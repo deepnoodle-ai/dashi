@@ -47,6 +47,9 @@ func (s *screen) inputKey(e tui.KeyEvent) bool {
 		return false
 	}
 	s.exitGuard.reset()
+	if s.transcriptMenuKey(e) {
+		return true
+	}
 	if s.commandMenuKey(e) {
 		return true
 	}
@@ -197,6 +200,11 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 	if !s.mouseEnabled {
 		return
 	}
+	// An open transcript menu takes every mouse event. A press outside it
+	// closes it, and nothing else sees that press.
+	if s.transcriptMenu.HandleMouse(e) {
+		return
+	}
 	if (s.approval != nil && !s.approval.denying) || s.asking != nil || s.picker != nil {
 		// While a dialog is open, the wheel scrolls its details.
 		if vp := s.dialogViewport(); vp != nil && e.Type == tui.MouseScroll {
@@ -217,6 +225,12 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 	if e.Type == tui.MousePress && !inside {
 		return
 	}
+	if e.Button == tui.MouseButtonRight {
+		if e.Type == tui.MouseClick && inside {
+			s.openTranscriptMenu(e.X, e.Y, local)
+		}
+		return
+	}
 	if e.Button == tui.MouseButtonLeft && (e.Type == tui.MousePress || e.Type == tui.MouseClick || e.Type == tui.MouseDrag || e.Type == tui.MouseMove) {
 		s.selectionRevision++
 	}
@@ -231,11 +245,7 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 			if line != 0 && s.expanded[i] {
 				return
 			}
-			if s.expanded == nil {
-				s.expanded = map[int]bool{}
-			}
-			s.expanded[i] = !s.expanded[i]
-			s.vp.Invalidate(i)
+			s.toggleTool(i)
 		} else if area, ok := s.hits.At(e.X, e.Y); ok && area == linesBelowArea {
 			s.vp.ScrollToBottom()
 		}

@@ -18,6 +18,8 @@ import (
 func (s *screen) View() tui.View {
 	s.hits.Reset()
 	view := belowTranscript(tui.PaddingLTRB(1, 0, 1, 0, tui.Viewport(&s.vp, s).Gap(1)), s.footer())
+	// The menu goes last so it draws over everything else.
+	view = tui.ZStack(view, s.transcriptMenuView()).Align(tui.AlignLeft)
 	if s.noColor {
 		return withoutColors(view, s.height)
 	}
