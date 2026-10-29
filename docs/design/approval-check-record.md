@@ -46,8 +46,8 @@ assignment in a loop over `out.Pending` would panic there.
 
 **Tool verdict.** `authorizeTool` (`hooks_tool.go`) copies the deciding
 hook's `RulesFinding` into `ToolVerdict`, beside `RulesVersion`. The model
-reads a denied call's `Verdict.Reason`, never the finding. `HookResult` is
-unchanged: the verdict holds the deciding hook's finding.
+reads a denied call's `Verdict.Reason`, never the rules finding. `HookResult`
+is unchanged: the verdict holds the deciding hook's rules finding.
 
 **Record and replay.** `Run` copies `Resolve.Approval` into the
 `StepApprovalDecided` step, and replay copies it into `ToolView.Approval`;
@@ -58,17 +58,22 @@ optional, so old records replay unchanged. No shims.
 the denial in `run_tools.go`, which reads `Reason` alone. Tests pin that
 neither rules field reaches a model request, on either path.
 
-**Command identity.** `commandHash` blanks `RulesVersion` and
-`RulesFinding` of a `Resolve`'s approval before hashing, as it blanks
-`Continue.OnHistoryMismatch`. A retry with a rerun check is a duplicate;
-the first recorded values stay. `delegate.commandHash`, which must match
-the runner's for `Tasks.Run` retries, blanks them the same way.
+**Command identity.** Two functions hash a command: the root
+`commandHash` (`command.go`) and `delegate.commandHash`
+(`delegate/control.go`), which must match it for `Tasks.Run` retries. Both
+leave the rules out the same way: copy, then blank. Each calls
+`v.WithRules("", "")`, which copies the `ApprovalDecision` and blanks the
+copy's `RulesVersion` and `RulesFinding`; neither writes through the
+caller's `Approval` pointer. This matches how `Continue.OnHistoryMismatch`
+is left out. A retry with a rerun check is a duplicate; the first recorded
+values stay.
 
 ## CLI change
 
 Both paths call the same helpers in `decide_check.go`:
 `result.rulesVersion()` (`decide/<model>` or `decide/unchecked`) and
-`result.recordLine()` (`severe 91% flagged (jev-1.13.0, request r_12)`).
+`result.recordLine()`, the decide line
+(`severe 91% flagged (jev-1.13.0, request r_12)`).
 
 - **Live** (`attributeToolHooks`): sets `d.RulesVersion` and
   `d.RulesFinding`. `Reason` stays the policy's text.
@@ -78,8 +83,10 @@ Both paths call the same helpers in `decide_check.go`:
   `response.WithRules(r.rulesVersion(), r.recordLine())`.
 
 `withDecide`, `splitDecide`, and `decideReasonSep` go away.
-`markFromRecord(rulesVersion, finding string)` builds the mark when the
-version starts with `decide/`. The tool row and the footer counts read
+`markFromRecord(rulesVersion, finding string)` builds the mark only when
+the version starts with `decide/` and the rules finding is set. An old
+record keeps its decide line in `Reason` and has no rules finding, so it
+shows no mark. The tool row and the footer counts read
 the verdict as before: the CLI draws neither for child turns, the only
 turns with recorded approvals.
 
@@ -90,7 +97,10 @@ Recorded approval: call c1 · bash · denied · decide command: severe 91% — f
 ```
 
 The bypass-mode refusal with no one to ask drops the score: "The decide
-command-risk check flagged this command, and no one can approve it…".
+command-risk check flagged this command, and no one can approve it…". The
+model no longer sees a decide score or request ID, which reverses the
+earlier CLI behavior, because the model cannot act on a score and both
+approval paths now behave the same.
 
 ## How the two paths line up
 
@@ -107,11 +117,15 @@ command-risk check flagged this command, and no one can approve it…".
   show both fields; no model input holds them; a denial's result is the
   reason alone; a hook's `RulesFinding` lands in `ToolVerdict` and not in
   the model's denial result; a retry with other rules values is a
-  duplicate; `WithRules` skips a provider approval and copies.
+  duplicate; `WithRules` skips a provider approval and copies; hashing a
+  `Resolve` leaves the caller's rules fields in place.
 - CLI: the recorded path records both fields on approve and deny, and the
-  `taskDetails` line; the live path records the finding outside `Reason`.
+  `taskDetails` line; the live path records the rules finding outside
+  `Reason`; the bypass refusal holds no score; a `decide/` version with no
+  rules finding builds no mark.
 - Delegate: the task hash of an approval with rules equals the recorded
-  `Step.CommandHash`.
+  `Step.CommandHash`, and hashing leaves the caller's rules fields in
+  place.
 
 ## Docs
 
