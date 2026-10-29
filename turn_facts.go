@@ -285,7 +285,8 @@ type ToolFact struct {
 // ApprovalDecision approves or denies a tool call that needs approval.
 // Resolve accepts it only while the call awaits approval and its arguments
 // are the ones ArgsHash names.
-// Pending.Approve and Pending.Deny build it.
+// Pending.Approve and Pending.Deny build it; Resolve.WithRules adds the
+// rules that informed it.
 type ApprovalDecision struct {
 	CallID  string `json:"call_id"`
 	Approve bool   `json:"approve"`
@@ -296,8 +297,15 @@ type ApprovalDecision struct {
 	// but only while the arguments keep their original bytes.
 	ArgsHash string `json:"args_hash"`
 	// Reason explains a denial. The next Continue gives it to the model as
-	// the denied call's result.
+	// the denied call's result. It is the only field the model sees.
 	Reason string `json:"reason,omitempty"`
+	// RulesVersion names the rules that informed the decision, such as a
+	// policy or decision model version. It is recorded and never shown to
+	// the model. Resolve.WithRules sets it.
+	RulesVersion string `json:"rules_version,omitempty"`
+	// RulesFinding is what those rules found, in one line, such as a
+	// check's score. It is recorded and never shown to the model.
+	RulesFinding string `json:"rules_finding,omitempty"`
 }
 
 // StopKind classifies why a turn stopped.

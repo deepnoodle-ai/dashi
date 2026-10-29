@@ -429,10 +429,10 @@ func (r *Renderer) toolCall(s dashi.Step) *callState {
 
 func (r *Renderer) toolDecision(s dashi.Step) []Block {
 	c := r.toolCall(s)
-	c.decide = markFromRecord(s.Tool.Verdict)
+	c.decide = markFromRecord(s.Tool.Verdict.RulesVersion, s.Tool.Verdict.RulesFinding)
 	if s.Tool.Verdict.Kind == dashi.DecisionDeny {
 		// The row shows the decide answer on its own line.
-		c.denied, _, _ = splitDecide(s.Tool.Verdict)
+		c.denied = s.Tool.Verdict.Reason
 	}
 	return nil
 }

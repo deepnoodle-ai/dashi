@@ -36,7 +36,11 @@ that original call; remembered grants keep their existing run scope.
   Ctrl-C retains that child prompt. At idle, running children also stay alive;
   explicit quit closes all children.
 - `/task ID continue` resumes a ready stopped child with its recorded destination
-  and restrictions. A waiting approval uses its original bound response. A
+  and restrictions. A waiting approval uses its original bound response. With
+  `--decide command_risk`, a waiting bash call is checked as a live one is,
+  and the child's record keeps the answer with your decision; `/task ID`
+  shows it, such as `Recorded approval: call c1 · bash · denied · decide
+  command: severe 91% — flagged`. A
   model-call limit requires confirmation of the doubled model-call cap; other
   limits require their recorded remedy.
 - `/task ID done CALL_ID` requires verification that this exact already-started

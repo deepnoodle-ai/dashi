@@ -20,8 +20,8 @@ type brokerOwnerKey struct{}
 // attributeToolHooks pins the exact hook call before the workspace policy
 // reaches its callback. CurrentCall alone is not present in BeforeTool hooks.
 // It also carries the call's plan to the approval prompt in a decideSlot,
-// and writes a decide answer the prompt left there into the decision, so
-// the turn record keeps it.
+// and writes a decide answer the prompt left there into the decision's
+// rules, so the turn record keeps it and the model never reads it.
 func attributeToolHooks(hooks dashi.Hooks) dashi.Hooks {
 	hooks.BeforeTool = slices.Clone(hooks.BeforeTool)
 	for i := range hooks.BeforeTool {
@@ -35,8 +35,7 @@ func attributeToolHooks(hooks dashi.Hooks) dashi.Hooks {
 			ctx = context.WithValue(ctx, decideSlotKey{}, slot)
 			d, err := original(context.WithValue(ctx, brokerOwnerKey{}, owner), plan)
 			if r, ok := slot.take(); ok && err == nil {
-				d.Reason = withDecide(d.Reason, r.recordLine())
-				d.RulesVersion = r.rulesVersion()
+				d.RulesVersion, d.RulesFinding = r.rulesVersion(), r.recordLine()
 			}
 			return d, err
 		}

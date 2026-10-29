@@ -372,6 +372,10 @@ type ToolDecision struct {
 	// RulesVersion is audit data naming the rules that decided, such as a policy
 	// version.
 	RulesVersion string `json:"rules_version,omitempty"`
+	// RulesFinding is what those rules found, in one line, such as a
+	// check's score. It is recorded in ToolVerdict and never shown to the
+	// model, even for a denial.
+	RulesFinding string `json:"rules_finding,omitempty"`
 	// Rewrite replaces the call's arguments. The new arguments are checked
 	// against the tool's schema, and every hook is asked again about them.
 	// Kind is ignored.
@@ -387,6 +391,9 @@ type ToolVerdict struct {
 	Reason       string       `json:"reason,omitempty"`
 	Hook         string       `json:"hook,omitempty"`
 	RulesVersion string       `json:"rules_version,omitempty"`
+	// RulesFinding is the deciding hook's ToolDecision.RulesFinding. The
+	// model never sees it.
+	RulesFinding string `json:"rules_finding,omitempty"`
 }
 
 // ResultPlan gives AfterTool one final tool result. Outcome is what

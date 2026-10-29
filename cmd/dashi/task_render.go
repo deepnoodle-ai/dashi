@@ -628,6 +628,11 @@ func taskDetails(snapshot taskSnapshot) string {
 		}
 		fmt.Fprintf(&b, "Recorded requested call %s: %s · %s\nArguments: %s\n", id, call.Call.Name, call.Status, string(call.Call.Args))
 	}
+	for _, id := range slices.Sorted(maps.Keys(v.Tools)) {
+		if a := v.Tools[id].Approval; a != nil {
+			b.WriteString(approvalLine(id, v.Tools[id].Call.Name, *a) + "\n")
+		}
+	}
 	if snapshot.Task.Running() {
 		fmt.Fprintf(&b, "Live lower bounds. Stop: /task-stop %s\n", snapshot.Task.ID)
 	} else if !v.Stop.Ended {
@@ -645,6 +650,21 @@ func taskDetails(snapshot taskSnapshot) string {
 		}
 	}
 	return workspace.PrintableText(b.String())
+}
+
+// approvalLine is one recorded approval decision, with the decide answer
+// that informed it, if any: "Recorded approval: call c1 · bash · denied ·
+// decide command: severe 91% — flagged".
+func approvalLine(id, name string, a dashi.ApprovalDecision) string {
+	answer := "denied"
+	if a.Approve {
+		answer = "approved"
+	}
+	line := fmt.Sprintf("Recorded approval: call %s · %s · %s", id, name, answer)
+	if m := markFromRecord(a.RulesVersion, a.RulesFinding); m != nil {
+		line += " · decide " + m.Check + ": " + m.Text
+	}
+	return line
 }
 
 // A model_call_started step counts a started call; only a recorded result
