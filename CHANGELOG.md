@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Dashi now uses Wonton v0.10.2**, which brings the fixes below.
+- **`tool.Func` accepts the `json` `,string` option on number and bool
+  fields.** Such a field is now a string in the schema, as `encoding/json`
+  decodes it, so a call that quotes the value, such as `"5"`, validates and
+  decodes. Before, the tool failed to build. On a string field the option
+  still fails the build, because `encoding/json` then wants a quoted string
+  inside the quotes, which the schema doesn't describe. Wonton
+  v0.10.0 also makes `tool.Func` and `MustOutputSchema` schemas match
+  `encoding/json` for types that decode from text with
+  `encoding.TextUnmarshaler`, which are now strings, and for embedded
+  fields that shadow one another.
+
+### Fixed
+
+- **Shift+Enter inserts a newline in more terminals.** The CLI now turns on
+  the Kitty keyboard protocol in terminals that support it, such as Kitty,
+  Ghostty, Alacritty, and foot, so Shift+Enter, Alt+Enter, and Ctrl+Enter
+  insert a newline instead of sending the draft, in fullscreen and inline
+  modes. Ctrl+J inserts a newline in every terminal.
+- **Terminal input in the CLI is more reliable.** A key sequence split
+  across two reads, as over SSH, decodes as one key, and a malformed mouse
+  report no longer stops input. In the composer, Home and End (Ctrl+A and
+  Ctrl+E) move to the ends of the line, not of the wrapped row, and Up and
+  Down move between wrapped rows correctly. A one-line field, such as the
+  reason for denying a tool call, sends its text on Alt+Enter as on Enter.
+- **Pasted text with Windows line endings shows its line breaks.** The
+  composer drew `ab\r\ncd` as one row, `abcd`; it now breaks the line there.
+- **A click on "lines below" returns to live output again.** Since the empty
+  row above the composer was added, the click landed on that row instead.
+
 ## [0.15.1] - 2026-10-25
 
 ### Fixed

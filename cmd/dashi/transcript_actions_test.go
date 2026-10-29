@@ -162,6 +162,37 @@ func TestDragOnTheLastTranscriptRowScrollsOnlyBelowIt(t *testing.T) {
 	mouse(tui.MouseRelease, last+1)
 }
 
+// A click on the "lines below" line returns to live output. A click on the
+// empty row between the transcript and that line does not.
+func TestClickOnLinesBelowReturnsToLiveOutput(t *testing.T) {
+	h := newScreenHarness(t, 0)
+	s := h.scr
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := range 40 {
+		s.Emit(Block{Kind: KindAssistant, Text: fmt.Sprintf("answer %d", i), Done: true})
+	}
+	s.drain()
+	render := func() string {
+		return tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24)).Text()
+	}
+	render()
+	s.vp.ScrollBy(-20)
+	y := transcriptRow(t, render(), "lines below")
+	click := func(y int) {
+		s.HandleEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, X: 3, Y: y})
+		render()
+	}
+	click(y - 1)
+	if s.vp.AtBottom {
+		t.Fatal("a click on the empty row above the indicator returned to live output")
+	}
+	click(y)
+	if !s.vp.AtBottom {
+		t.Fatal("a click on the indicator did not return to live output")
+	}
+}
+
 // At the start of the transcript there is nothing to scroll to, so the top
 // row selects like any other row.
 func TestDragOnTheTopRowAtTheStartSelectsThatRow(t *testing.T) {
@@ -193,7 +224,7 @@ func TestDragOnTheTopRowAtTheStartSelectsThatRow(t *testing.T) {
 
 // --- selection across transcript blocks ---
 
-const selW, selH = 60, 100
+const selW, selH = 60, 120
 
 // selectionTranscript is two turns with the blocks a real session draws
 // between them: markdown, a tool line with a task status, a task result,

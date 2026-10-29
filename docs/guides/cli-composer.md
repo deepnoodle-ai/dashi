@@ -1,8 +1,11 @@
 # Compose and recall requests
 
 Fullscreen and inline Dashi use the same composer. Enter submits the displayed
-text. Shift+Enter adds a newline. Bracketed paste retains Unicode, tabs, and
-line breaks without sending the request. Large text remains directly editable.
+text. Shift+Enter adds a newline in terminals that support the Kitty keyboard
+protocol, such as Kitty, Ghostty, Alacritty, and foot. Other terminals send
+Shift+Enter as Enter; there, press Ctrl+J, or Alt+Enter where Alt sends
+Escape. Bracketed paste retains Unicode, tabs, and line breaks without
+sending the request. Large text remains directly editable.
 Pasted commands and aliases, such as `/status` and `/q`, stay in the composer
 until Enter; they do not become file attachments. In fullscreen, F2 enables
 native terminal selection and copying without changing the draft. Press F2
@@ -13,7 +16,8 @@ selection and copy controls; F2 reports that native selection is already availab
 
 Up/Down first move through visual rows. At the first or last row, they recall
 submitted input. Moving beyond the newest entry restores the draft you were
-writing. Editing a recalled entry does not change its stored text.
+writing. Editing a recalled entry does not change its stored text. Home and
+End move to the ends of the line, not of the wrapped row.
 
 Dashi keeps up to your latest 1,000 submitted inputs across sessions and launches in
 `~/.dashi/history.json`, within 64 MiB of serialized JSON. It removes oldest

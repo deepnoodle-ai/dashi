@@ -73,6 +73,8 @@ type screen struct {
 	clipboardOut      io.Writer
 	clipboardWrite    func(context.Context, string) (clipboardWriteResult, error)
 	selectionRevision uint64
+	// hits records where clickable footer lines were drawn.
+	hits tui.HitMap
 }
 
 // queued is one item of pending work: a block to show, or a reset.
@@ -158,7 +160,7 @@ func (s *screen) bind(a *app) {
 }
 
 func isCtrlC(e tui.KeyEvent) bool {
-	return e.Key == tui.KeyCtrlC || e.Ctrl && (e.Rune == 'c' || e.Rune == 'C')
+	return e.Key == tui.KeyCtrlC
 }
 
 // SetRuntime implements tui.RuntimeAware.
@@ -521,8 +523,7 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 			s.runtime.Terminal().Invalidate()
 		}
 	}
-	isD := e.Key == tui.KeyCtrlD || e.Ctrl && (e.Rune == 'd' || e.Rune == 'D')
-	if isD && s.input == "" {
+	if e.Key == tui.KeyCtrlD && s.input == "" {
 		return s.requestQuit()
 	}
 	return nil

@@ -30,7 +30,11 @@ func newInlineScreen(s *screen, output io.Writer) *inlineScreen {
 			s.width, s.height = width, height
 		}
 	}
-	i.runner = tui.NewInlineApp(tui.WithInlineOutput(output), tui.WithInlineFPS(30), tui.WithInlineBracketedPaste(true))
+	// Fullscreen turns on the Kitty keyboard protocol where the terminal
+	// supports it. Inline asks for it outright, so Shift+Enter inserts a
+	// newline in the same terminals; the others ignore the request.
+	i.runner = tui.NewInlineApp(tui.WithInlineOutput(output), tui.WithInlineFPS(30), tui.WithInlineBracketedPaste(true),
+		tui.WithInlineKittyKeyboard(true))
 	s.pendMu.Lock()
 	s.send = i.runner.SendEvent
 	s.pendMu.Unlock()
@@ -124,6 +128,7 @@ func (i *inlineScreen) printCompletedBlock(b Block) {
 }
 
 func (i *inlineScreen) LiveView() tui.View {
+	i.hits.Reset()
 	if i.exiting {
 		return tui.Text("")
 	}

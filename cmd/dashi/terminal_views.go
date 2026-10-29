@@ -16,12 +16,17 @@ import (
 
 // View implements tui.Application.
 func (s *screen) View() tui.View {
+	s.hits.Reset()
 	view := belowTranscript(tui.PaddingLTRB(1, 0, 1, 0, tui.Viewport(&s.vp, s).Gap(1)), s.footer())
 	if s.noColor {
 		return withoutColors(view, s.height)
 	}
 	return view
 }
+
+// linesBelowArea tags the "lines below" line; a click on it returns to live
+// output.
+const linesBelowArea = "lines-below"
 
 // belowTranscript stacks the live UI under the transcript with one empty
 // row between them, so transcript text never touches the working line, a
@@ -46,7 +51,8 @@ func (s *screen) footer() tui.View {
 		views = append(views, tui.Text(" %s", hint).Wrap().Style(hintStyle))
 	}
 	if !s.vp.AtBottom && s.vp.LinesBelow > 0 {
-		views = append(views, tui.Text(" %d lines below · Ctrl+End returns to live output", s.vp.LinesBelow).Style(hintStyle))
+		views = append(views, s.hits.Area(linesBelowArea,
+			tui.Text(" %d lines below · Ctrl+End returns to live output", s.vp.LinesBelow).Style(hintStyle)))
 	}
 	var menu []commandMenuItem
 	switch {
