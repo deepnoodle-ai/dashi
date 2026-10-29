@@ -249,10 +249,8 @@ func (e typedExecutor[T]) Execute(
 
 // checkArgumentsType requires a struct, or a pointer to one, other than
 // time.Time: providers need an input schema with named properties, and strict
-// modes reject open objects such as maps. It also refuses the json ",string"
-// option on a string field, which no call that follows the schema can decode,
-// and recursion that does not pass through a struct, which has no finite
-// schema.
+// modes reject open objects such as maps. It also refuses recursion that does
+// not pass through a struct, which has no finite schema.
 func checkArgumentsType(t reflect.Type) error {
 	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
@@ -301,16 +299,9 @@ func checkFieldTypes(
 	}
 	seen[t] = true
 	for field := range t.Fields() {
-		name, opts, _ := strings.Cut(field.Tag.Get("json"), ",")
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 		if name == "-" {
 			continue
-		}
-		if quotedString(field.Type) && slices.Contains(strings.Split(opts, ","), "string") {
-			return fmt.Errorf(
-				"field %s.%s: the json \",string\" option is not supported on a string",
-				t,
-				field.Name,
-			)
 		}
 		if field.IsExported() {
 			if err := checkNullableTag(t, field); err != nil {
@@ -323,17 +314,6 @@ func checkFieldTypes(
 		}
 	}
 	return nil
-}
-
-// quotedString reports whether t is a string or a pointer to one. With the
-// json ",string" option, encoding/json decodes such a field only from a JSON
-// string inside the quotes, such as "\"abc\"", while the schema allows any
-// string, so every call that follows the schema would fail to decode.
-func quotedString(t reflect.Type) bool {
-	if t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	return t.Kind() == reflect.String
 }
 
 // checkNullableTag refuses tags that would make the generated schema disagree

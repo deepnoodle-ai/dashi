@@ -90,10 +90,10 @@ error, for a tool built once at startup, as the examples do. The rules:
   `any` or `json.RawMessage` accept any value. A number or bool field with
   the `json` `,string` option, or a field of a type that decodes from text
   with `encoding.TextUnmarshaler`, is a string, as `encoding/json` reads it.
-  The `,string` option on a string field fails when the tool is built,
-  because `encoding/json` then wants a quoted string inside the quotes. Maps
-  need string keys; channels, functions, and complex numbers fail when the
-  tool is built.
+  A string field with `,string` is a string holding a JSON string literal,
+  such as `"\"abc\""`, because `encoding/json` decodes only that. Maps need
+  string keys; channels, functions, and complex numbers fail when the tool is
+  built.
 - A recursive type must recurse through a struct, as in
   `type Node struct{ Children []Node }`; `type Nodes []Nodes` fails when the
   tool is built.

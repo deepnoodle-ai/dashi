@@ -27,13 +27,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `RulesFinding` instead of the decision's reason, and the `run --yes`
   refusal names the check without its score. Records from earlier versions
   lose their decide marks.
-- **Dashi now uses Wonton v0.10.2**, which brings the fixes below.
-- **`tool.Func` accepts the `json` `,string` option on number and bool
-  fields.** Such a field is now a string in the schema, as `encoding/json`
-  decodes it, so a call that quotes the value, such as `"5"`, validates and
-  decodes. Before, the tool failed to build. On a string field the option
-  still fails the build, because `encoding/json` then wants a quoted string
-  inside the quotes, which the schema doesn't describe. Wonton
+- **Dashi now uses Wonton v0.10.3**, which brings the fixes below.
+- **`tool.Func` accepts the `json` `,string` option.** On a number or bool
+  field, the schema is a string, so a call that sends `"5"` validates and
+  decodes. On a string field, the schema is a string holding a JSON string
+  literal, such as `"\"abc\""`, which is what `encoding/json` decodes.
+  Before, the tool failed to build. Wonton
   v0.10.0 also makes `tool.Func` and `MustOutputSchema` schemas match
   `encoding/json` for types that decode from text with
   `encoding.TextUnmarshaler`, which are now strings, and for embedded
