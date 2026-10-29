@@ -178,7 +178,9 @@ informed: a rules version that names `decide/` and the model, and a rules
 finding such as `severe 90% flagged (jev-1.13.0, request r_12)`. A live
 call keeps them in its tool verdict; a delegated task's call answered with
 `/task ID continue` keeps them in its recorded approval. The agent never
-reads them: a denial gives it only the reason.
+reads them: a denial gives it only the reason. Earlier versions also gave
+the agent the decide line on a denial; this changed because the agent
+cannot act on a score, and both approval paths now behave the same.
 
 ## What is sent
 

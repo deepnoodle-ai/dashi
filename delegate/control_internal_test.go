@@ -139,4 +139,8 @@ func TestCommandHashMatchesRunnerForApprovalRules(t *testing.T) {
 	if last.CommandID != cmd.CommandID || last.CommandHash != hash {
 		t.Fatalf("recorded %s %s; task hash %s", last.CommandID, last.CommandHash, hash)
 	}
+	// The hash blanks the rules on a copy, never the caller's decision.
+	if cmd.Approval.RulesVersion != "decide/jev-1" || cmd.Approval.RulesFinding != "severe 9% (request r_1)" {
+		t.Fatalf("hashing changed the caller's decision: %+v", *cmd.Approval)
+	}
 }

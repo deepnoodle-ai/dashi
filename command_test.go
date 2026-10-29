@@ -420,6 +420,21 @@ func TestRetriedApprovalWithOtherRulesIsDuplicate(t *testing.T) {
 	}
 }
 
+// commandHash leaves an approval's rules out on a copy: the hash matches
+// the command without rules, and the caller's decision keeps its rules.
+func TestCommandHashBlanksRulesOnCopy(t *testing.T) {
+	plain := Resolve{CommandID: "r", Approval: &ApprovalDecision{CallID: "c1", Approve: true}}
+	cmd := plain.WithRules("decide/jev-1", "severe 9% (request r_1)")
+	want, _ := commandHash(plain)
+	got, err := commandHash(cmd)
+	if err != nil || got != want {
+		t.Fatalf("hash = %s, %v; want %s", got, err, want)
+	}
+	if cmd.Approval.RulesVersion != "decide/jev-1" || cmd.Approval.RulesFinding != "severe 9% (request r_1)" {
+		t.Fatalf("hashing changed the caller's decision: %+v", *cmd.Approval)
+	}
+}
+
 // A BeforeTool hook's RulesFinding is recorded in the verdict. A denial
 // gives the model its Reason, never the finding.
 func TestToolDecisionRulesFindingIsHiddenFromModel(t *testing.T) {

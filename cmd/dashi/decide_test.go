@@ -336,6 +336,10 @@ func TestDecideRecordFormat(t *testing.T) {
 	if markFromRecord("policy-v1", "severe 91% flagged (x)") != nil {
 		t.Error("a finding without the decide rules version was read as checked")
 	}
+	// An old record keeps its decide line in Reason, with no rules finding.
+	if markFromRecord("decide/jev-1.13.0", "") != nil {
+		t.Error("a decide rules version with no rules finding built a mark")
+	}
 }
 
 // A pause, and failures the command can cause, which ask, each name their

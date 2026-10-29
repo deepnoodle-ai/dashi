@@ -135,7 +135,8 @@ format. A deny reason keeps its existing text first, so the model reads
 why it was refused, then the decide line.
 
 > Since #309 the decide line is the decision's `RulesFinding`, not part of
-> its `Reason`, and the model never reads it. See
+> its `Reason`, and the model never reads it, because the model cannot act
+> on a score and both approval paths now behave the same. See
 > [approval-check-record](approval-check-record.md).
 
 ### 5. Rendering (PR 1)
