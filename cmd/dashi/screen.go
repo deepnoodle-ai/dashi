@@ -73,6 +73,8 @@ type screen struct {
 	clipboardOut      io.Writer
 	clipboardWrite    func(context.Context, string) (clipboardWriteResult, error)
 	selectionRevision uint64
+	// hits records where clickable footer lines were drawn.
+	hits tui.HitMap
 }
 
 // queued is one item of pending work: a block to show, or a reset.

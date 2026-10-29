@@ -30,6 +30,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Ctrl+E) move to the ends of the line, not of the wrapped row, and Up and
   Down move between wrapped rows correctly. A one-line field, such as the
   reason for denying a tool call, sends its text on Alt+Enter as on Enter.
+- **A click on "lines below" returns to live output again.** Since the empty
+  row above the composer was added, the click landed on that row instead.
 
 ## [0.15.1] - 2026-10-25
 

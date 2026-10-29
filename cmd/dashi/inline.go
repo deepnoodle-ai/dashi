@@ -128,6 +128,7 @@ func (i *inlineScreen) printCompletedBlock(b Block) {
 }
 
 func (i *inlineScreen) LiveView() tui.View {
+	i.hits.Reset()
 	if i.exiting {
 		return tui.Text("")
 	}

@@ -236,7 +236,7 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 			}
 			s.expanded[i] = !s.expanded[i]
 			s.vp.Invalidate(i)
-		} else if local.Y == s.vp.Height && !s.vp.AtBottom {
+		} else if area, ok := s.hits.At(e.X, e.Y); ok && area == linesBelowArea {
 			s.vp.ScrollToBottom()
 		}
 	}
