@@ -201,7 +201,7 @@ func (c *Controller) confirmTask(ctx context.Context, snapshot taskSnapshot, cal
 // recordedApproval is the approval request for a recorded pending call of a
 // stopped task. A workspace bash call gets its command and a decide slot, so
 // the command-risk check reads it as it reads a live call, in bypass mode
-// too.
+// too. recordedResponse records the slot's answer with the decision.
 func (c *Controller) recordedApproval(ctx context.Context, turnID string, p dashi.Pending) (context.Context, ApprovalRequest) {
 	r := ApprovalRequest{Tool: p.Name, Summary: p.Name, Args: p.Args, RememberScope: "This exact recorded task call only"}
 	if p.Name != workspace.ToolBash || p.ProviderTool != nil {
@@ -220,6 +220,20 @@ func (c *Controller) recordedApproval(ctx context.Context, turnID string, p dash
 	r.Command, r.Dir, r.Summary = in.Command, c.dir, "run: "+first
 	plan := dashi.ToolPlan{Turn: dashi.TurnView{ID: turnID}, Call: tool.Call{ID: p.ID, Name: p.Name, Args: p.Args}}
 	return context.WithValue(ctx, decideSlotKey{}, &decideSlot{plan: plan}), r
+}
+
+// recordedResponse is the bound decision on a recorded pending call. It
+// keeps the decide answer the prompt showed, which ctx's slot holds, in the
+// rules fields a live call uses, which the model never reads.
+func recordedResponse(ctx context.Context, p dashi.Pending, answer Approval) dashi.Resolve {
+	response := p.Deny(answer.Reason)
+	if answer.Allow {
+		response = p.Approve()
+	}
+	if r, ok := decideSlotFrom(ctx).take(); ok {
+		response = response.WithRules(r.rulesVersion(), r.recordLine())
+	}
+	return response
 }
 
 func (c *Controller) taskAction(ctx context.Context, id, action, callID string) error {
@@ -291,11 +305,7 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 			if err != nil {
 				return err
 			}
-			response := p.Deny(answer.Reason)
-			if answer.Allow {
-				response = p.Approve()
-			}
-			if _, err := c.runTaskCommand(ctx, snapshot, action, p.ID, response); err != nil {
+			if _, err := c.runTaskCommand(ctx, snapshot, action, p.ID, recordedResponse(askCtx, p, answer)); err != nil {
 				return err
 			}
 			snapshot, err = c.eng.inspectTask(ctx, id)

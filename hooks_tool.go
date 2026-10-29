@@ -114,6 +114,7 @@ restart:
 			Reason:       d.Reason,
 			Hook:         h.Name,
 			RulesVersion: d.RulesVersion,
+			RulesFinding: d.RulesFinding,
 		}
 		switch d.Kind {
 		case DecisionDeny:

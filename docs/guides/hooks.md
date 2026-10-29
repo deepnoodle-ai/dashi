@@ -35,7 +35,9 @@ the policy or decision model version that decided. A `BeforeModel` or
 `RulesVersion` is recorded as `VerdictNoChange`, such as a check that passed;
 for `BeforeModel`, `HookActed` then tells a retried call that the hook
 already ran. Only a `BeforeTool`
-denial's reason reaches the model. When a `BeforeTool` hook fails, the model
+denial's reason reaches the model. A `ToolDecision` also has
+`RulesFinding`, one line on what the rules found, such as a check's score;
+`ToolVerdict` records it, and the model never sees it, even for a denial. When a `BeforeTool` hook fails, the model
 sees its name, so keep private details out of hook names. A hook that stops
 the turn with a cost or token limit resumes like the turn's own caps, with a
 `Continue` that raises the `Budget`; a limit the host owns, such as prepaid

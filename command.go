@@ -111,6 +111,24 @@ type Resolve struct {
 	ModelFailure *ModelFailure `json:"model_failure,omitempty"`
 }
 
+// WithRules records, in the approval decision r carries, the rules that
+// informed it and what they found, such as a check that ran before a person
+// decided. The record keeps both for later review; the model never sees
+// them. They are not part of the command's identity: a retry with other
+// rules, such as a check run again, is a duplicate, and the first recorded
+// rules stay. It copies the decision, so a Resolve the caller kept does not
+// change. A command with no approval decision, such as a provider tool
+// approval, whose answer goes to the provider, is returned unchanged.
+func (r Resolve) WithRules(version, finding string) Resolve {
+	if r.Approval == nil {
+		return r
+	}
+	d := *r.Approval
+	d.RulesVersion, d.RulesFinding = version, finding
+	r.Approval = &d
+	return r
+}
+
 // Cancel ends a turn with a caller-supplied reason.
 type Cancel struct {
 	CommandID string `json:"command_id,omitempty"`
@@ -294,11 +312,20 @@ func absentNull(raw json.RawMessage) json.RawMessage {
 }
 
 // commandHash is the hash of a command, reporting values that cannot be
-// encoded. Continue.OnHistoryMismatch is left out (see its doc).
+// encoded. Continue.OnHistoryMismatch and the rules of a Resolve's approval
+// decision are left out (see their docs).
 func commandHash(c Command) (string, error) {
-	if v, ok := c.(Continue); ok {
+	switch v := c.(type) {
+	case Continue:
 		v.OnHistoryMismatch = ""
 		c = v
+	case Resolve:
+		// The rules behind an approval are audit data, not what the
+		// command asks for. A retry that ran its check again, with a new
+		// request ID, is a duplicate; the first recorded values stay.
+		if v.Approval != nil && (v.Approval.RulesVersion != "" || v.Approval.RulesFinding != "") {
+			c = v.WithRules("", "")
+		}
 	}
 	if _, err := json.Marshal(c); err != nil {
 		return "", err
