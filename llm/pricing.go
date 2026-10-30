@@ -287,6 +287,16 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 			rates = tier.Rates
 		}
 	}
+	// Only the aggregate reports one-hour writes, so they are priced at the
+	// selected rates and must come from the unattributed writes.
+	long := u.CacheCreation1hInputTokens
+	if long > 0 {
+		if rates.CacheWrite1h == nil ||
+			long > unattributed.CacheCreationInputTokens {
+			return Cost{}, false
+		}
+		unattributed.CacheCreationInputTokens -= long
+	}
 	if !pricingDetailAvailable(p, rates, u, unattributed) {
 		return Cost{}, false
 	}
@@ -300,14 +310,7 @@ func (p Pricing) Estimate(u *Usage) (Cost, bool) {
 			rates.CacheWrite,
 		)
 	}
-	if long := u.CacheCreation1hInputTokens; long > 0 {
-		// Only the aggregate reports one-hour writes, so they are priced at
-		// the selected rates and must come from the unattributed writes.
-		if rates.CacheWrite1h == nil ||
-			long > unattributed.CacheCreationInputTokens {
-			return Cost{}, false
-		}
-		unattributed.CacheCreationInputTokens -= long
+	if long > 0 {
 		cacheWrite.add(long, *rates.CacheWrite1h)
 	}
 	applyRates(unattributed, rates)
@@ -584,6 +587,11 @@ func pricingDetailAvailable(
 			return false
 		case rates.CacheWrite != base.CacheWrite &&
 			unattributed.CacheCreationInputTokens != 0:
+			return false
+		case u.CacheCreation1hInputTokens > 0 &&
+			(rates.CacheWrite1h == nil ||
+				*rates.CacheWrite1h != *base.CacheWrite1h):
+			// One-hour writes are unattributed too.
 			return false
 		}
 		if u.CacheCreationInputTokensUnavailable &&

@@ -572,3 +572,94 @@ func TestCompactionTurnWaitsAtAHostHold(t *testing.T) {
 		t.Fatalf("canceled: stop=%+v warnings=%v err=%v", out.Stop, out.Warnings, err)
 	}
 }
+
+// A NoRaise turn ends only at a cap it sets; a hook or recorder hold at a
+// limit the turn does not set waits for Continue.
+func TestNoRaiseEndsOnlyAtTheTurnsCap(t *testing.T) {
+	limited := func(kind LimitKind) Stop {
+		return Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: kind}}
+	}
+	usd := func(amount money.Amount) *Money { return &Money{Amount: amount, Currency: "USD"} }
+	tests := []struct {
+		name  string
+		stop  Stop
+		setup func(*replayState)
+		want  bool
+	}{
+		{
+			name:  "model calls spent",
+			stop:  limited(LimitModelCalls),
+			setup: func(s *replayState) { s.ModelCalls = 8 },
+			want:  true,
+		},
+		{name: "model calls hold", stop: limited(LimitModelCalls)},
+		{
+			name: "output tokens spent",
+			stop: limited(LimitOutputTokens),
+			setup: func(s *replayState) {
+				s.Budget = &Budget{MaxOutputTokens: 10}
+				s.Spend.Usage.OutputTokens = 10
+			},
+			want: true,
+		},
+		{name: "output tokens hold", stop: limited(LimitOutputTokens)},
+		{
+			name: "cost spent",
+			stop: limited(LimitCost),
+			setup: func(s *replayState) {
+				s.Budget = &Budget{MaxCost: usd(100)}
+				s.Spend.Cost = map[string]money.Amount{"USD": 100}
+			},
+			want: true,
+		},
+		{
+			name: "next call over the cost cap",
+			stop: Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: LimitCost, WorstCaseCost: 50}},
+			setup: func(s *replayState) {
+				s.Budget = &Budget{MaxCost: usd(100)}
+				s.Spend.Cost = map[string]money.Amount{"USD": 60}
+			},
+			want: true,
+		},
+		{name: "cost hold", stop: limited(LimitCost)},
+		{
+			name:  "unpriced model",
+			stop:  Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: LimitCost, UnpricedModel: "m"}},
+			setup: func(s *replayState) { s.Budget = &Budget{MaxCost: usd(100)} },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &replayState{}
+			s.Agent.Limits.NoRaise = true
+			s.modelCallCap = 8
+			s.LastSeq = 2
+			if tt.setup != nil {
+				tt.setup(s)
+			}
+			if got := s.stopEnds(tt.stop); got != tt.want {
+				t.Fatalf("stopEnds=%t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+// A raise must lift every cap the spend has reached, not only the one the
+// stop names.
+func TestContinueRaiseLiftsEveryReachedCap(t *testing.T) {
+	s := &replayState{}
+	s.modelCallCap = 8
+	s.LastSeq = 2
+	s.Budget = &Budget{MaxOutputTokens: 10, MaxTotalTokens: 20}
+	s.Spend.Usage = llm.Usage{InputTokens: 10, OutputTokens: 10}
+	s.Stop = Stop{
+		Kind:  StopLimited,
+		Limit: &LimitDetail{Kind: LimitOutputTokens, Limit: 10, Used: 10},
+	}
+	if s.canContinueWith(&Budget{MaxOutputTokens: 100, MaxTotalTokens: 20}, 0) {
+		t.Fatal("a raise of one cap continued with the other cap spent")
+	}
+	if !s.canContinueWith(&Budget{MaxOutputTokens: 100, MaxTotalTokens: 200}, 0) {
+		t.Fatal("a raise of both caps cannot continue")
+	}
+}

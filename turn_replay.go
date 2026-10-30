@@ -341,5 +341,5 @@ func (s *replayState) calculateSpend() error {
 // turn's messages.
 // It does not calculate accounting or recursively validate a prefix.
 func (s *replayState) viewSnapshot() *replayState {
-	return &replayState{TurnView: TurnView{Stop: s.Stop, Tools: maps.Clone(s.Tools)}, modelCallStart: s.modelCallStart, unresolvedModel: s.unresolvedModel, callOrder: slices.Clone(s.callOrder), providerTool: maps.Clone(s.providerTool)}
+	return &replayState{TurnView: TurnView{Stop: s.Stop, Tools: maps.Clone(s.Tools)}, modelCallStart: s.modelCallStart, unresolvedModel: s.unresolvedModel, callOrder: slices.Clone(s.callOrder), providerTool: maps.Clone(s.providerTool), pausedProviderTool: s.pausedProviderTool}
 }

@@ -221,6 +221,11 @@ func (s *replayState) canContinueWith(raise *Budget, raisedCap int) bool {
 			if spent && s.Output == nil {
 				return false
 			}
+			// A raise must lift every cap the spend has reached, not
+			// only the one the stop names.
+			if s.capReached(budget) {
+				return false
+			}
 		}
 		// A hook or recorder may stop the turn at a cost or token limit the
 		// turn's budget does not set. Continue cannot add that cap, so the
@@ -301,9 +306,20 @@ func (s *replayState) stopEnds(stop Stop) bool {
 		return stop.Limit.Ends
 	}
 	if s.Agent.Limits.NoRaise {
+		// Only a stop at a limit the turn sets needs a raise. A hook or
+		// recorder may hold the turn at a limit the turn does not set.
 		switch stop.Limit.Kind {
-		case LimitModelCalls, LimitCost, LimitOutputTokens, LimitTotalTokens:
-			return true
+		case LimitModelCalls:
+			if s.ModelCalls >= s.modelCallCap {
+				return true
+			}
+		case LimitCost, LimitOutputTokens, LimitTotalTokens:
+			if s.capReached(s.Budget) ||
+				stop.Limit.Kind == LimitCost &&
+					stop.Limit.WorstCaseCost > 0 &&
+					s.Budget != nil && s.Budget.MaxCost != nil {
+				return true
+			}
 		}
 	}
 	switch stop.Limit.Kind {
@@ -315,6 +331,27 @@ func (s *replayState) stopEnds(stop Stop) bool {
 	case LimitTotalTokens:
 		return s.Spend.UsageIncomplete && s.Budget != nil &&
 			s.Budget.MaxTotalTokens > 0
+	}
+	return false
+}
+
+// capReached reports whether the spend has reached a token or cost cap
+// that b sets.
+func (s *replayState) capReached(b *Budget) bool {
+	if b == nil {
+		return false
+	}
+	usage := s.Spend.Usage
+	if b.MaxOutputTokens > 0 && usage.OutputTokens >= b.MaxOutputTokens {
+		return true
+	}
+	total := usage.TotalInputTokens() + usage.OutputTokens
+	if b.MaxTotalTokens > 0 && total >= b.MaxTotalTokens {
+		return true
+	}
+	if b.MaxCost != nil {
+		used, known := s.Spend.costIn(b.MaxCost.Currency)
+		return known && used >= b.MaxCost.Amount
 	}
 	return false
 }

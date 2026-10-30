@@ -345,8 +345,8 @@ type Stop struct {
 	// whatever the host resolves or raises. It is true for completed and
 	// canceled turns; for a limited turn stopped by its deadline, its
 	// resumes limit, or its context window; for a host limit with
-	// LimitDetail.Ends; for a model-call, cost, or token limit when the
-	// agent sets Limits.NoRaise; and for a turn limited by cost whose spend
+	// LimitDetail.Ends; for a stop at the turn's model-call limit or one
+	// of its cost or token caps when the agent sets Limits.NoRaise; and for a turn limited by cost whose spend
 	// includes a cost that cannot be priced, or a token-capped turn whose
 	// usage totals are incomplete. A compaction turn (origin
 	// StartCompaction) ends at any stop but a host limit without

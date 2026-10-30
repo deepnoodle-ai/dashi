@@ -505,3 +505,12 @@ func interruptionModelCallStart(id string) Step {
 		},
 	}
 }
+
+// Cached compaction checks rebuild messages from a view snapshot, which must
+// keep the provider pause that suppresses the crash-resume reminder.
+func TestViewSnapshotKeepsProviderToolPause(t *testing.T) {
+	s := &replayState{pausedProviderTool: true}
+	if !s.viewSnapshot().pausedProviderTool {
+		t.Fatal("view snapshot dropped the provider tool pause")
+	}
+}
