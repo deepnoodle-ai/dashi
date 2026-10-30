@@ -379,8 +379,6 @@ func TestFuncRequiresStructArguments(t *testing.T) {
 		"map":    buildFunc[map[string]any](),
 		"any":    buildFunc[any](),
 		"time":   buildFunc[*time.Time](),
-		// encoding/json wants "\"abc\"" for this field; the schema allows "abc".
-		"quoted string": buildFunc[quotedStringInput](),
 	}
 	for name, err := range refused {
 		if err == nil {
@@ -416,6 +414,42 @@ func TestFuncAcceptsQuotedField(t *testing.T) {
 	)
 	if err != nil || out.State != StateSucceeded || got != 5 {
 		t.Fatalf("out=%+v err=%v count=%d", out, err, got)
+	}
+}
+
+// A ",string" string field holds a JSON string literal, as encoding/json
+// decodes it: the schema accepts "\"abc\"" and rejects "abc".
+func TestFuncAcceptsQuotedStringField(t *testing.T) {
+	var got string
+	fn, err := Func(
+		"quoted",
+		"",
+		func(_ context.Context, _ Call, in quotedStringInput) (Outcome, error) {
+			got = *in.Inner.Name
+			return Succeeded(""), nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(args string) (Outcome, error) {
+		return fn.Executor.Execute(
+			t.Context(),
+			Call{ID: "call-1", Name: "quoted", Args: json.RawMessage(args)},
+		)
+	}
+	out, err := run(`{"inner":{"name":"\"abc\""}}`)
+	if err != nil || out.State != StateSucceeded || got != "abc" {
+		t.Fatalf("out=%+v err=%v name=%q", out, err, got)
+	}
+	// The schema, checked before decoding, is what turns "abc" away.
+	validator := fn.Executor.(interface{ ValidateArguments(json.RawMessage) error })
+	if err := validator.ValidateArguments(json.RawMessage(`{"inner":{"name":"abc"}}`)); err == nil {
+		t.Fatal("schema accepted an unquoted string")
+	}
+	out, err = run(`{"inner":{"name":"abc"}}`)
+	if err != nil || out.State != StateNotExecuted {
+		t.Fatalf("unquoted string: out=%+v err=%v", out, err)
 	}
 }
 
