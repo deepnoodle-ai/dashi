@@ -306,18 +306,22 @@ func (s *replayState) stopEnds(stop Stop) bool {
 		return stop.Limit.Ends
 	}
 	if s.Agent.Limits.NoRaise {
-		// Only a stop at a limit the turn sets needs a raise. A hook or
-		// recorder may hold the turn at a limit the turn does not set.
+		// A stop at a limit the turn sets ends the turn: every cost
+		// stop under the turn's cost cap, and a model-call or token stop
+		// once that limit is spent. A hook or recorder may hold the turn
+		// at a limit the turn does not set; that hold waits.
 		switch stop.Limit.Kind {
 		case LimitModelCalls:
 			if s.ModelCalls >= s.modelCallCap {
 				return true
 			}
-		case LimitCost, LimitOutputTokens, LimitTotalTokens:
-			if s.capReached(s.Budget) ||
-				stop.Limit.Kind == LimitCost &&
-					stop.Limit.WorstCaseCost > 0 &&
-					s.Budget != nil && s.Budget.MaxCost != nil {
+		case LimitCost:
+			if s.Budget != nil && s.Budget.MaxCost != nil ||
+				s.capReached(s.Budget) {
+				return true
+			}
+		case LimitOutputTokens, LimitTotalTokens:
+			if s.capReached(s.Budget) {
 				return true
 			}
 		}

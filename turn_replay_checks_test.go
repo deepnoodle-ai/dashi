@@ -626,6 +626,7 @@ func TestNoRaiseEndsOnlyAtTheTurnsCap(t *testing.T) {
 			name:  "unpriced model",
 			stop:  Stop{Kind: StopLimited, Limit: &LimitDetail{Kind: LimitCost, UnpricedModel: "m"}},
 			setup: func(s *replayState) { s.Budget = &Budget{MaxCost: usd(100)} },
+			want:  true,
 		},
 	}
 	for _, tt := range tests {
