@@ -51,6 +51,11 @@ func TestApplyEditKeepsCRLF(t *testing.T) {
 	if err != nil || got != "first\r\nsecond\r\ninserted\r\nthird\r\n" {
 		t.Fatalf("got %q, %v", got, err)
 	}
+	// A leading \n would otherwise match the \n of a \r\n and add a \r.
+	got, _, err = applyEdit("f", text, editArgs{OldString: "\nsecond", NewString: "\nsecond\ninserted"})
+	if err != nil || got != "first\r\nsecond\r\ninserted\r\nthird\r\n" {
+		t.Fatalf("got %q, %v", got, err)
+	}
 	_, _, err = applyEdit("f", text, editArgs{OldString: "first\nsecond", NewString: "first\r\nsecond"})
 	if err == nil {
 		t.Fatal("CRLF-only change succeeded")

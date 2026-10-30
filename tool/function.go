@@ -249,8 +249,9 @@ func (e typedExecutor[T]) Execute(
 
 // checkArgumentsType requires a struct, or a pointer to one, without an
 // UnmarshalText method such as time.Time has: providers need an input schema
-// with named properties, and strict modes reject open objects such as maps. It also refuses recursion that does
-// not pass through a struct, which has no finite schema.
+// with named properties, and strict modes reject open objects such as maps.
+// It also refuses recursion that does not pass through a struct, which has
+// no finite schema.
 func checkArgumentsType(t reflect.Type) error {
 	if t.Kind() == reflect.Pointer {
 		t = t.Elem()

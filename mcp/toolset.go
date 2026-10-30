@@ -278,7 +278,8 @@ func (t *Toolset) Refresh(ctx context.Context, names ...string) error {
 }
 
 // Close stops every server and its child process. Afterward Tools is empty
-// and Status reports each server that was connected as failed. It is safe to call twice.
+// and Status reports each server that was connected as failed. It is safe
+// to call twice.
 func (t *Toolset) Close() error {
 	var err error
 	t.closing.Do(func() {
@@ -524,8 +525,8 @@ func (t *Toolset) relist(ctx context.Context, c *conn, cs *mcp.ClientSession) {
 }
 
 // fail marks c failed when cs is still its session. The tools stay in the
-// snapshot until the next Refresh of any server, so a pending call gets a clear error, not a missing
-// tool.
+// snapshot until the next rebuild, so a pending call gets a clear error, not
+// a missing tool.
 func (t *Toolset) fail(c *conn, cs *mcp.ClientSession, err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -545,8 +546,8 @@ func (t *Toolset) note(c *conn, text string) {
 }
 
 // rebuild recomputes the snapshot from connected servers. The caller holds
-// t.mu. It walks servers in sorted order and keeps the first tool for a name, so start order never
-// changes a name.
+// t.mu. It walks servers in sorted order and keeps the first tool for a
+// name, so start order never changes a name.
 func (t *Toolset) rebuild() {
 	t.tools, t.info = nil, map[string]ToolInfo{}
 	for _, name := range slices.Sorted(maps.Keys(t.conns)) {

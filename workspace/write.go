@@ -116,15 +116,15 @@ func applyEdit(name, text string, in editArgs) (string, int, error) {
 	}
 	count := strings.Count(text, in.OldString)
 	// read_file shows lines without their \r, so the model writes \n.
-	// Match and write the file's CRLF line ends instead.
-	crlf := strings.NewReplacer("\r\n", "\r\n", "\n", "\r\n")
+	// Match and write the file's CRLF line ends instead: always in a file
+	// whose every line ends in CRLF, and in a mixed file when old_string
+	// matches only that way.
 	lines := strings.Count(text, "\n")
-	switch {
-	case count == 0 && strings.Contains(in.OldString, "\n") && strings.Contains(text, "\r\n"):
+	allCRLF := lines > 0 && strings.Count(text, "\r\n") == lines
+	if allCRLF || (count == 0 && strings.Contains(in.OldString, "\n") && strings.Contains(text, "\r\n")) {
+		crlf := strings.NewReplacer("\r\n", "\r\n", "\n", "\r\n")
 		in.OldString, in.NewString = crlf.Replace(in.OldString), crlf.Replace(in.NewString)
 		count = strings.Count(text, in.OldString)
-	case lines > 0 && strings.Count(text, "\r\n") == lines:
-		in.NewString = crlf.Replace(in.NewString)
 	}
 	if in.OldString == in.NewString {
 		return "", 0, errors.New("old_string and new_string are the same. Nothing would change.")
