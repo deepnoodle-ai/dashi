@@ -174,7 +174,10 @@ func (wire codec) readStream(
 					"invalid stream part",
 				)
 			}
-			index, merge := indexes.next(part)
+			index, merge, skip := indexes.next(part)
+			if skip {
+				continue
+			}
 			if decoded.Text != "" {
 				kind := llm.DeltaText
 				if decoded.Thought {
@@ -216,12 +219,7 @@ func (wire codec) readStream(
 		return partial, ctx.Err()
 	}
 	if err := reader.Err(); err != nil {
-		return partial, providerhttp.Failure(
-			wire.origin.Provider,
-			llm.ErrorTransport,
-			"stream interrupted: %w",
-			err,
-		)
+		return partial, providerhttp.StreamFailure(wire.origin.Provider, err)
 	}
 	if buildErr != nil {
 		return partial, buildErr
@@ -250,17 +248,23 @@ type partIndexes struct {
 	thought bool
 }
 
-// next returns the part's index and whether it extends the previous part.
-func (x *partIndexes) next(part map[string]any) (index int, merge bool) {
-	text, hasText, thought, signed, ok := textFragment(part)
-	if x.open && ok && thought == x.thought && (text != "" || signed) {
+// next returns the part's index, whether it extends the previous part, and
+// whether it carries nothing and should be dropped. Google can send an empty
+// text part, such as {"text":""} on the final chunk; kept, it would become an
+// unknown part in the assembled message.
+func (x *partIndexes) next(part map[string]any) (index int, merge, skip bool) {
+	text, _, thought, signed, ok := textFragment(part)
+	if (ok || len(part) == 0) && text == "" && !signed {
+		return x.count - 1, false, true
+	}
+	if x.open && ok && thought == x.thought {
 		// A signature closes the part it lands on.
 		x.open = !signed
-		return x.count - 1, true
+		return x.count - 1, true, false
 	}
 	x.count++
-	x.open, x.thought = ok && hasText && !signed, thought
-	return x.count - 1, false
+	x.open, x.thought = ok && text != "" && !signed, thought
+	return x.count - 1, false, false
 }
 
 // textFragment reports whether part holds only text fields: text, thought,

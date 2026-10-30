@@ -45,6 +45,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Switching away from Gemini after a thinking turn works.** Gemini
+  thought parts can now be omitted for another model or provider instead of
+  failing the call as unsupported.
+- **Gemini streams drop empty text parts.** An empty `{"text":""}` part,
+  such as Google sends on a final chunk, no longer becomes an unknown part
+  in the message. A streamed call cancelled before it was sent no longer
+  reports an `other` stop, and a malformed or oversized stream event is a
+  protocol error.
 - **Keys typed just before Ctrl+G are kept.** The CLI now uses Wonton
   v0.11.0, which keeps input typed just before it hands the terminal to the
   external editor, even when the terminal hangs up at the same moment.

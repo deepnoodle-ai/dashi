@@ -211,3 +211,58 @@ func TestAdaptGeminiReplayRejectsForeignDestination(t *testing.T) {
 		t.Fatal("foreign Gemini replay was accepted for stripping")
 	}
 }
+
+func TestAdaptOmitsGeminiReasoningForAnotherDestination(t *testing.T) {
+	source := content.Origin{
+		Provider: "google",
+		API:      "google.generate_content",
+		Model:    "gemini",
+	}
+	target := content.Origin{
+		Provider: "anthropic",
+		API:      "anthropic.messages",
+		Model:    "claude",
+	}
+	for _, tc := range []struct {
+		raw  string
+		fail bool
+	}{
+		{raw: `{"text":"thinking","thought":true,"thoughtSignature":"c2ln"}`},
+		{raw: `{"thought":true,"thoughtSignature":"c2ln"}`},
+		{raw: `{"text":"thinking","thought":true,"extra":1}`, fail: true},
+		{raw: `{"text":"thinking"}`, fail: true},
+	} {
+		reasoning := llm.Content{
+			Kind:      llm.ContentReasoning,
+			Reasoning: &llm.Reasoning{Text: "thinking"},
+			Replay: &llm.Opaque{
+				Version: 1,
+				Origin:  source,
+				Type:    "thinking",
+				Unit:    llm.OpaqueUnitContentBlock,
+				Raw:     json.RawMessage(tc.raw),
+			},
+		}
+		input := llm.Input{
+			Model:         "claude",
+			ContentPolicy: llm.ContentPolicy{UnreplayableReasoning: llm.ReasoningOmit},
+			Messages: []llm.Message{
+				llm.UserMessage(llm.Text("hi")),
+				llm.AssistantMessage(reasoning, llm.Text("answer")),
+			},
+		}
+		out, _, err := Adapt(input, target)
+		if tc.fail {
+			if err == nil {
+				t.Fatalf("%s: unfamiliar shape was omitted", tc.raw)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", tc.raw, err)
+		}
+		if got := out.Messages[1].Content; len(got) != 1 || got[0].Kind != llm.ContentBlock {
+			t.Fatalf("%s: reasoning was not omitted: %+v", tc.raw, got)
+		}
+	}
+}
