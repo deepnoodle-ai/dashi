@@ -243,9 +243,9 @@ func (a *advancer) advance(ctx context.Context) (RunResult, error) {
 
 // releaseSteers releases the steers any inbox read of this call returned
 // that turn does not record. Without a loaded turn it keeps the claims: a
-// steer that might be recorded must not go to another turn. A steer a run left in doubt is
-// released as in doubt again, never as unrecorded: turn may be the run's
-// copy, which lacks a write whose result is unknown.
+// steer that might be recorded must not go to another turn. A steer a run
+// left in doubt is released as in doubt again, never as unrecorded: turn
+// may be the run's copy, which lacks a write whose result is unknown.
 func (a *advancer) releaseSteers(ctx context.Context, turn Turn) {
 	releaser, ok := a.inbox.(InboxReleaser)
 	if !ok || len(a.claimed) == 0 || len(turn.Steps) == 0 {
@@ -451,14 +451,12 @@ func (a *advancer) applyInbox(ctx context.Context, turn Turn) (Turn, bool, error
 	}
 	// The inbox may claim every steer it returned, including those after
 	// a command that ends this read early.
-	_, releases := a.inbox.(InboxReleaser)
-	for _, c := range commands {
-		if !releases {
-			break
-		}
-		if s, ok := c.(Steer); ok && s.Item.ID != "" && !a.claimedSeen[s.Item.ID] {
-			a.claimedSeen[s.Item.ID] = true
-			a.claimed = append(a.claimed, s.Item.ID)
+	if _, ok := a.inbox.(InboxReleaser); ok {
+		for _, c := range commands {
+			if s, ok := c.(Steer); ok && s.Item.ID != "" && !a.claimedSeen[s.Item.ID] {
+				a.claimedSeen[s.Item.ID] = true
+				a.claimed = append(a.claimed, s.Item.ID)
+			}
 		}
 	}
 	applied := false
