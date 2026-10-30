@@ -383,15 +383,7 @@ func (l *steerListener) check(
 		// FR-6 reports a failing inbox; the listener writes no warnings.
 		return fetchCtx.Err() != nil && ctx.Err() == nil
 	}
-	// Decided under mu, which committed also holds, so a Cancel never
-	// ends the run after the output is recorded.
-	if waitingCancel != nil && waitingCancel.CommandID != "" && l.cancelRun != nil {
-		if l.outputRecorded {
-			l.lateCancel = waitingCancel
-		} else {
-			l.cancelRun(&inboxCancel{command: *waitingCancel})
-		}
-	}
+	l.applyCancel(waitingCancel)
 	ids, items := l.merge(steers)
 	c := l.call
 	if len(ids) == 0 || c == nil || c.cut {
@@ -414,6 +406,20 @@ func (l *steerListener) check(
 	}
 	c.cancel(errSteered)
 	return false
+}
+
+// applyCancel acts on a fetched inbox Cancel. The caller holds mu, which
+// committed also holds, so a Cancel never ends the run after the output is
+// recorded.
+func (l *steerListener) applyCancel(waitingCancel *Cancel) {
+	if waitingCancel == nil || waitingCancel.CommandID == "" || l.cancelRun == nil {
+		return
+	}
+	if l.outputRecorded {
+		l.lateCancel = waitingCancel
+	} else {
+		l.cancelRun(&inboxCancel{command: *waitingCancel})
+	}
 }
 
 // merge claims a fetch's steers and adds the fresh urgent ones to the
@@ -611,8 +617,11 @@ func (r *runtime) urgentSteers() []ContextItem {
 	if fetch {
 		// FR-6 reports a failing inbox; this check only looks.
 		if commands, err := r.opts.inbox.Waiting(r.ctx, r.turn.ID); err == nil {
-			steers, _ := splitWaiting(commands)
+			// This fetch took the listener's signal over, so it acts on
+			// a Cancel as the listener would have.
+			steers, waitingCancel := splitWaiting(commands)
 			l.mu.Lock()
+			l.applyCancel(waitingCancel)
 			l.merge(steers)
 			l.mu.Unlock()
 		}

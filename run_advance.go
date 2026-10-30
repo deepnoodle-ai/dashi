@@ -172,6 +172,11 @@ type advancer struct {
 	// as of the last inbox read; the next run takes them. The inbox's
 	// claim on those no run took is released when the call returns.
 	steers []string
+	// claimed lists, in order, every steer an inbox read of this call
+	// returned, which the inbox may hold claimed for the turn. Those the
+	// record does not hold are released when the call returns.
+	claimed     []string
+	claimedSeen map[string]bool
 	// inboxContinued records that the last inbox read ran a Continue.
 	inboxContinued bool
 	// tried lists the steers a Continue already ran for, so a steer the
@@ -220,6 +225,8 @@ func (r Runner) newAdvancer(turnID string, o runOptions) (*advancer, error) {
 		handled: map[string]bool{},
 		tried:   map[string]bool{},
 
+		claimedSeen: map[string]bool{},
+
 		recorderRetry: true,
 	}, nil
 }
@@ -234,14 +241,14 @@ func (a *advancer) advance(ctx context.Context) (RunResult, error) {
 	return out, err
 }
 
-// releaseSteers releases the steers of the last inbox read that turn does
-// not record. Without a loaded turn it keeps the claims: a steer that might
-// be recorded must not go to another turn. A steer a run left in doubt is
+// releaseSteers releases the steers any inbox read of this call returned
+// that turn does not record. Without a loaded turn it keeps the claims: a
+// steer that might be recorded must not go to another turn. A steer a run left in doubt is
 // released as in doubt again, never as unrecorded: turn may be the run's
 // copy, which lacks a write whose result is unknown.
 func (a *advancer) releaseSteers(ctx context.Context, turn Turn) {
 	releaser, ok := a.inbox.(InboxReleaser)
-	if !ok || len(a.steers) == 0 || len(turn.Steps) == 0 {
+	if !ok || len(a.claimed) == 0 || len(turn.Steps) == 0 {
 		return
 	}
 	state, err := replay(turn)
@@ -249,7 +256,7 @@ func (a *advancer) releaseSteers(ctx context.Context, turn Turn) {
 		return
 	}
 	var unrecorded, inDoubt []string
-	for _, id := range a.steers {
+	for _, id := range a.claimed {
 		if _, recorded := state.contextIDs[id]; recorded {
 			continue
 		}
@@ -259,7 +266,7 @@ func (a *advancer) releaseSteers(ctx context.Context, turn Turn) {
 			unrecorded = append(unrecorded, id)
 		}
 	}
-	a.steers = nil
+	a.claimed, a.claimedSeen = nil, map[string]bool{}
 	if len(unrecorded) == 0 && len(inDoubt) == 0 {
 		return
 	}
@@ -273,13 +280,16 @@ func (a *advancer) passes(ctx context.Context) (RunResult, error) {
 	// ownStop is the Seq of the last stop this call recorded. A hold it
 	// recorded itself is not asked about again without new input.
 	var ownStop int64
+	// last is the turn as of the end of the previous pass, so an error
+	// before the next pass loads still releases the steers it holds.
+	var last Turn
 	for {
 		if err := ctx.Err(); err != nil {
-			return RunResult{}, err
+			return unchangedResult(last), err
 		}
 		turn, err := a.load(ctx)
 		if err != nil {
-			return RunResult{}, err
+			return unchangedResult(last), err
 		}
 		turn, applied, err := a.applyInbox(ctx, turn)
 		if err != nil {
@@ -300,6 +310,7 @@ func (a *advancer) passes(ctx context.Context) (RunResult, error) {
 		}
 		if view.Stop.Ended {
 			if applied {
+				last = turn
 				continue // refuse what arrived meanwhile
 			}
 			return unchangedResult(turn), nil
@@ -321,9 +332,10 @@ func (a *advancer) passes(ctx context.Context) (RunResult, error) {
 				// the derived ID, return rather than spin.
 				return out, err
 			}
-			if last := lastStep(out.Turn); last.Kind == StepTurnStopped {
-				a.selfStop, ownStop = last.Seq, last.Seq
+			if step := lastStep(out.Turn); step.Kind == StepTurnStopped {
+				a.selfStop, ownStop = step.Seq, step.Seq
 			}
+			last = out.Turn
 			continue
 		}
 		out := unchangedResult(turn)
@@ -337,6 +349,7 @@ func (a *advancer) passes(ctx context.Context) (RunResult, error) {
 		if !applied {
 			return out, nil
 		}
+		last = out.Turn
 	}
 }
 
@@ -436,6 +449,18 @@ func (a *advancer) applyInbox(ctx context.Context, turn Turn) (Turn, bool, error
 		}
 		return turn, false, nil
 	}
+	// The inbox may claim every steer it returned, including those after
+	// a command that ends this read early.
+	_, releases := a.inbox.(InboxReleaser)
+	for _, c := range commands {
+		if !releases {
+			break
+		}
+		if s, ok := c.(Steer); ok && s.Item.ID != "" && !a.claimedSeen[s.Item.ID] {
+			a.claimedSeen[s.Item.ID] = true
+			a.claimed = append(a.claimed, s.Item.ID)
+		}
+	}
 	applied := false
 	for _, c := range commands {
 		id := CommandIDOf(c)
@@ -483,6 +508,12 @@ func (a *advancer) applyInbox(ctx context.Context, turn Turn) (Turn, bool, error
 		out, err := a.run(ctx, turn, c, []DeliveredCommand{{ID: id, Kind: CommandKindOf(c)}})
 		if err != nil && !isRefusal(err) {
 			return out.Turn, applied, err
+		}
+		if err == nil && out.LastSeq <= int64(len(turn.Steps)) {
+			// The turn already records this command, as when its
+			// acknowledgement was lost: nothing ran now.
+			a.acknowledge(ctx, id, state)
+			continue
 		}
 		turn = out.Turn
 		applied = true

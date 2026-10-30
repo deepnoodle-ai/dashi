@@ -45,6 +45,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **An inbox `Cancel` always ends the run.** A `Cancel` found by the check
+  before a tool call starts now cancels the run, so the call no longer runs.
+  A `Cancel` waiting with steers now ends the run before the steers are
+  recorded, and they stay in the inbox for the next turn.
+- **`Runner.Advance` continues past an inbox command the turn already
+  records**, as after a lost acknowledgement, instead of resting at the
+  existing stop. It also releases every steer an inbox read returned, even
+  one after a `Continue` when the call then ends early.
 - **Keys typed just before Ctrl+G are kept.** The CLI now uses Wonton
   v0.11.0, which keeps input typed just before it hands the terminal to the
   external editor, even when the terminal hangs up at the same moment.

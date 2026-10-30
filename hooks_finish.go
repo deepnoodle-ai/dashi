@@ -109,7 +109,12 @@ func (r *runtime) finishPoint(
 ) (finishResult, *RunResult) {
 	// A steer is a nudge: it supersedes the candidate only when a further
 	// model call can happen, and otherwise waits with its inbox.
-	if steers := r.waitingSteers(s); len(steers) > 0 {
+	steers := r.waitingSteers(s)
+	if r.ctx.Err() != nil {
+		o := r.contextStop()
+		return finishResult{}, &o
+	}
+	if len(steers) > 0 {
 		if r.nextCallPossible(s, estimatedItemTokens(steers)) {
 			return finishResult{steers: steers}, nil
 		}

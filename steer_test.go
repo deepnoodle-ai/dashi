@@ -1156,3 +1156,27 @@ func steersFrom(in Inbox, ctx context.Context, turnID string) ([]Steer, error) {
 	steers, _ := splitWaiting(commands)
 	return steers, err
 }
+
+// A Cancel waiting with a steer ends the run before the steer is recorded:
+// the steer stays in the inbox for the next turn.
+func TestCancelWaitingWithASteerDeliversNoSteer(t *testing.T) {
+	inbox := NewMemoryInbox()
+	id := mustSend(t, inbox, "use the staging database")
+	if err := inbox.Put("t1", Cancel{CommandID: "stop"}); err != nil {
+		t.Fatal(err)
+	}
+	client := &scriptedClient{results: []llm.Result{final("unneeded")}}
+	out, err := (Runner{Client: client}).Run(
+		t.Context(), Turn{ID: "t1"}, startInput(), WithInbox(inbox),
+	)
+	if err != nil || out.Stop.Kind != StopCanceled || client.sends != 0 {
+		t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
+	}
+	if added := stepsOf(out.Turn, StepMessagesAdded); len(added) != 0 {
+		t.Fatalf("steer recorded: %+v", added)
+	}
+	left, err := inbox.Leftovers(out.Turn)
+	if err != nil || len(left) != 1 || left[0].Item.ID != id {
+		t.Fatalf("leftovers=%+v err=%v", left, err)
+	}
+}
