@@ -197,7 +197,7 @@ func TestSDKStreamDeltaIndexesMatchMessageParts(t *testing.T) {
 		for _, chunk := range []string{
 			`{"responseId":"r1","candidates":[{"content":{"parts":[{"text":"Hel"}]}}]}`,
 			`{"candidates":[{"content":{"parts":[{"text":"lo"}]}}]}`,
-			`{"candidates":[{"content":{"parts":[{"text":""},{"futureField":1}]}}]}`,
+			`{"candidates":[{"content":{"parts":[{"text":""},{"futureField":1},{"text":"","thought":true}]}}]}`,
 			`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"search","args":{}}}]}}]}`,
 			`{"candidates":[{"content":{"parts":[{"text":"done"}]},"finishReason":"STOP"}]}`,
 		} {

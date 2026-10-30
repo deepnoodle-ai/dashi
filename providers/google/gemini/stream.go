@@ -274,9 +274,14 @@ func emptyPart(raw json.RawMessage) bool {
 	return sdkPartEmpty(&part)
 }
 
-// sdkPartEmpty reports whether an SDK part encodes to no fields.
+// sdkPartEmpty reports whether an SDK part encodes to no fields. A thought
+// flag on a part with no text or signature carries nothing either.
 func sdkPartEmpty(part *genai.Part) bool {
-	encoded, err := json.Marshal(part)
+	view := *part
+	if view.Text == "" && len(view.ThoughtSignature) == 0 {
+		view.Thought = false
+	}
+	encoded, err := json.Marshal(&view)
 	return err == nil && string(encoded) == "{}"
 }
 
