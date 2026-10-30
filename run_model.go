@@ -35,6 +35,9 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	var steers []ContextItem
 	if purpose != ModelPurposeCompaction {
 		steers = r.waitingSteers(s)
+		if r.ctx.Err() != nil {
+			return r.contextStop(), false
+		}
 	}
 	if len(steers) > 0 {
 		o := r.commitSteers(

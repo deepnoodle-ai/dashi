@@ -187,13 +187,18 @@ func (r *runtime) waitingSteers(s *replayState) []ContextItem {
 		}
 		return nil
 	}
-	if cancel != nil {
-		r.cancelFromInbox(s, *cancel)
-	}
 	for _, steer := range steers {
 		if steer.Item.ID != "" {
 			r.steers.claim(steer.Item.ID)
 		}
+	}
+	if cancel != nil {
+		r.cancelFromInbox(s, *cancel)
+	}
+	// A run that ended, by this Cancel or otherwise, delivers no steers:
+	// they stay in the inbox for the next turn.
+	if r.ctx.Err() != nil {
+		return nil
 	}
 	for _, p := range invalid {
 		r.warnSteerOnce(p.id, p.message)

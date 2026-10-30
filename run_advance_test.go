@@ -947,3 +947,78 @@ func TestAdvanceReleasesAnInDoubtSteerAsInDoubt(t *testing.T) {
 		t.Fatalf("another turn received the in-doubt steer: %+v", other)
 	}
 }
+
+// An inbox Continue the turn already records, whose acknowledgement was
+// lost, ran nothing now: Advance still continues the turn from its stop.
+func TestAdvanceContinuesPastARecordedInboxContinue(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	inbox := NewMemoryInbox()
+	runner := Runner{Client: client, Recorder: NewMemoryRecorder(), Inbox: inbox}
+	id := savedTurn(t, runner)
+	pause := make(chan struct{})
+	close(pause)
+	mustPut(t, inbox, id, Continue{CommandID: "go"})
+	if _, err := runner.Advance(t.Context(), id, WithPause(pause)); err != nil {
+		t.Fatal(err)
+	}
+	// The acknowledgement was lost: the inbox offers "go" again.
+	again := NewMemoryInbox()
+	mustPut(t, again, id, Continue{CommandID: "go"})
+	runner.Inbox = again
+	out, err := runner.Advance(t.Context(), id)
+	if err != nil || !out.Stop.Ended || client.sends != 1 {
+		t.Fatalf("stop=%+v sends=%d err=%v", out.Stop, client.sends, err)
+	}
+	if left, err := again.Waiting(t.Context(), id); err != nil || len(left) != 0 {
+		t.Fatalf("waiting=%+v err=%v", left, err)
+	}
+}
+
+// cancelOnDelivered cancels the call's context when the inbox hears that
+// command ID was delivered.
+type cancelOnDelivered struct {
+	*releaseLog
+	id     string
+	cancel context.CancelFunc
+}
+
+func (in *cancelOnDelivered) Delivered(ctx context.Context, turnID string, ids []string) error {
+	if slices.Contains(ids, in.id) {
+		in.cancel()
+	}
+	return in.releaseLog.Delivered(ctx, turnID, ids)
+}
+
+// A steer the inbox returned after an inbox Continue is released when
+// Advance ends early, so another turn can take it.
+func TestAdvanceReleasesASteerAfterAnInboxContinue(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	inbox := &cancelOnDelivered{
+		releaseLog: &releaseLog{MemoryInbox: NewMemoryInbox()},
+		id:         "go",
+		cancel:     cancel,
+	}
+	runner := Runner{
+		Client:   &scriptedClient{results: []llm.Result{final("unneeded")}},
+		Recorder: NewMemoryRecorder(),
+		Inbox:    inbox,
+	}
+	id := savedTurn(t, runner)
+	pause := make(chan struct{})
+	close(pause)
+	mustPut(t, inbox.MemoryInbox, id, Continue{CommandID: "go"})
+	steer, err := inbox.SendText("one more thing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Advance(ctx, id, WithPause(pause)); err == nil {
+		t.Fatal("the canceled call returned no error")
+	}
+	if !slices.Contains(inbox.unrecorded, steer) {
+		t.Fatalf("unrecorded=%v", inbox.unrecorded)
+	}
+	if other, err := inbox.Waiting(t.Context(), "t2"); err != nil || len(other) != 1 {
+		t.Fatalf("another turn did not receive the steer: %+v err=%v", other, err)
+	}
+}

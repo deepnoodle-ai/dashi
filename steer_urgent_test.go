@@ -1293,3 +1293,53 @@ func (w *watchedInbox) Waiting(ctx context.Context, turnID string) ([]Command, e
 func (s *stallingInbox) Waiting(ctx context.Context, turnID string) ([]Command, error) {
 	return steerCommands(s.Steers(ctx, turnID))
 }
+
+// commandStaleInbox is a staleInbox whose fetches return every command,
+// Cancels included.
+type commandStaleInbox struct{ *staleInbox }
+
+func (s *commandStaleInbox) Waiting(ctx context.Context, turnID string) ([]Command, error) {
+	if !s.armed.CompareAndSwap(true, false) {
+		return s.MemoryInbox.Waiting(ctx, turnID)
+	}
+	commands, err := s.MemoryInbox.Waiting(ctx, turnID)
+	s.entered <- struct{}{}
+	<-ctx.Done()
+	return commands, err
+}
+
+// An inbox Cancel waiting when a call reaches its start ends the run, even
+// when the run's own check takes the listener's signal over and fetches it:
+// the call does not run.
+func TestCancelWaitingAtStartEndsTheRun(t *testing.T) {
+	oneProc(t)
+	inbox := &commandStaleInbox{newStaleInbox()}
+	bench := newSkipBench()
+	// BeforeTool for b runs after the check at the top of the loop and
+	// before the check at the start, on the run goroutine. The listener's
+	// fetch began before the Cancel was queued.
+	bench.onPlan = func(id string) {
+		if id != "b" {
+			return
+		}
+		inbox.armed.Store(true)
+		inbox.signal()
+		<-inbox.entered
+		if err := inbox.Put("t1", Cancel{CommandID: "stop"}); err != nil {
+			t.Error(err)
+		}
+		inbox.signal()
+	}
+	client := newUrgentClient(
+		urgentCall{result: batchResult(func(string) string { return "work" }, "a", "b")},
+		urgentCall{result: final("ok")},
+	)
+	runner := skipRunner(client, bench, nil)
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, skipStart(1), WithInbox(inbox))
+	if err != nil || out.Stop.Kind != StopCanceled {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	if bench.runs("b") != 0 {
+		t.Fatal("b ran")
+	}
+}
