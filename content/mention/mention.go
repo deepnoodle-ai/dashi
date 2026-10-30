@@ -403,7 +403,7 @@ func readFile(full string, limit int64) ([]byte, error) {
 	}
 	defer f.Close()
 	var r io.Reader = f
-	if limit >= 0 {
+	if limit >= 0 && limit < math.MaxInt64 {
 		// One extra byte shows that the file grew after the size check.
 		r = io.LimitReader(f, limit+1)
 	}
@@ -480,6 +480,16 @@ func scanWords(input string) []word {
 	return words
 }
 
+// hasMention reports whether s holds a word that is a mention.
+func hasMention(s string) bool {
+	for _, w := range scanWords(s) {
+		if w.mention {
+			return true
+		}
+	}
+	return false
+}
+
 func scanWord(input string, start int) word {
 	p := start
 	for p < len(input) && strings.IndexByte(openingBrackets, input[p]) >= 0 {
@@ -497,7 +507,10 @@ func scanWord(input string, start int) word {
 	}
 	if p < len(input) && (input[p] == '"' || input[p] == '\'') {
 		quote := input[p]
-		if n := strings.IndexByte(input[p+1:], quote); n >= 0 {
+		// A quoted bare path may hold spaces, but quoted prose holding a
+		// mention is prose: the mention inside it still counts.
+		if n := strings.IndexByte(input[p+1:], quote); n >= 0 &&
+			(w.mention || !hasMention(input[p+1:p+1+n])) {
 			w.path = input[p+1 : p+1+n]
 			w.pathEnd = p + 1 + n + 1
 			w.end = w.pathEnd

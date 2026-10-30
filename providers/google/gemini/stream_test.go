@@ -91,3 +91,27 @@ func TestStreamEmptyHasNoProvenance(t *testing.T) {
 		t.Fatalf("empty stream invented provenance: %+v", result)
 	}
 }
+
+// An empty text part, as Google sends on a final chunk, is dropped instead of
+// becoming an unknown part.
+func TestStreamDropsEmptyTextPart(t *testing.T) {
+	result, deltas, err := readTestStream(
+		t,
+		`{"responseId":"r1","candidates":[{"content":{"parts":[{"text":"hi"}]}}]}`,
+		`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"search","args":{}}}]}}]}`,
+		`{"candidates":[{"content":{"parts":[{"text":"","thought":true},{"text":""}]},"finishReason":"STOP"}]}`,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := result.Message.Content
+	if len(content) != 2 || content[0].Block == nil || content[1].ToolCall == nil {
+		t.Fatalf("content = %+v", content)
+	}
+	want := map[llm.DeltaKind]int{llm.DeltaText: 0, llm.DeltaToolArguments: 1}
+	for _, d := range deltas {
+		if index, ok := want[d.Kind]; ok && d.Index != index {
+			t.Fatalf("%s delta index %d, want %d", d.Kind, d.Index, index)
+		}
+	}
+}

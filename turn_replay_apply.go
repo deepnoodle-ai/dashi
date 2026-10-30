@@ -338,7 +338,10 @@ func (s *replayState) apply(step Step) error {
 		}
 		s.modelCallStart = ""
 		s.modelFinishes[step.Model.ModelCallID] = step.Model
-		if step.Model.Interrupted == InterruptNone {
+		// A call proven not sent or rejected by the provider ran nothing.
+		if step.Model.Interrupted == InterruptNone &&
+			step.Model.SendStatus != llm.SendStatusProviderRejected &&
+			step.Model.SendStatus != llm.SendStatusNotSent {
 			s.ModelCalls++
 		}
 		if step.Model.ResultUnknown {
@@ -416,6 +419,11 @@ func (s *replayState) apply(step Step) error {
 					step.Model.SendStatus != llm.SendStatusNotSent) ||
 				step.Model.Evidence == "") {
 			return errors.New("host-supplied model failure lacks evidence")
+		}
+		// The call was counted when it finished with an unknown result;
+		// proof that it was never sent takes it back.
+		if step.Model.Error != "" && !failedSummary && !s.unresolvedInterrupted {
+			s.ModelCalls--
 		}
 		if step.Model.Error != "" &&
 			s.startedModelCalls[step.Model.ModelCallID].Purpose == ModelPurposeCompaction {

@@ -430,7 +430,7 @@ func (r Runner) apply(
 			}
 			fact := &ModelFact{
 				ModelCallID: c.CallID,
-				MessageID:   c.CallID + ":message",
+				MessageID:   state.modelMessages[c.CallID],
 				Result:      c.ModelResult,
 			}
 			if c.ModelFailure != nil {

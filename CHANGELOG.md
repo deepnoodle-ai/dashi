@@ -51,6 +51,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   message that streamed on after the menu opened is copied whole, and the
   menu closes when its item changes state, such as a tool call ending, or
   when `/mouse` turns mouse capture off.
+- **Switching away from Gemini after a thinking turn works.** Gemini
+  thought parts can now be omitted for another model or provider instead of
+  failing the call as unsupported.
+- **Gemini streams drop empty text parts.** An empty `{"text":""}` part,
+  such as Google sends on a final chunk, no longer becomes an unknown part
+  in the message, and live delta indexes still match the message's parts. A streamed call cancelled before it was sent no longer
+  reports an `other` stop, and a malformed or oversized stream event is a
+  protocol error.
+- **`Resolve` of a model call reuses the recorded message ID.** Before, it
+  assumed the runner's ID format and refused a record with any other ID.
+- **A call proven not sent no longer counts in `TurnView.ModelCalls`**, so
+  it does not use up the model call limit.
+- **Spend that a cost cap cannot check ends the turn ahead of a token
+  cap.** Before, the stop named the token cap and invited a raise that
+  could not help.
+- **A budget raise must lift every cap the spend has reached.** Before,
+  `Continue` accepted a raise of only the cap the stop named and stopped
+  again at once.
+- **With `Limits.NoRaise`, only a stop at a limit the turn sets ends the
+  turn.** A hook or recorder hold at a limit the turn does not set now waits
+  for `Continue`.
+- **`Turn.Citations` and `Turn.ProviderToolUses` leave out late results
+  recorded after the turn ended**, as the reply does.
+- **One-hour cache writes are priced on sheets with modality rates.**
+  Before, `Pricing.Estimate` refused them when a modality had its own
+  cache-write rate, and priced them at the base rate when a modality had a
+  different one-hour rate; now it refuses only that second case.
+- **An `@mention` inside quoted prose is attached.** `mention.Expand` read
+  `"what does @main.go do?"` as one quoted path and skipped the mention.
+  A `MaxTextBytes`, `MaxImageBytes`, or `MaxFileBytes` of `math.MaxInt64`
+  no longer reads every file as empty.
+- **`edit_file` keeps CRLF line ends** when a single-line `old_string`
+  matches and `new_string` adds lines, and refuses an edit that only
+  changes `\n` to `\r\n`.
+- **`tool.Func` rejects arguments it cannot decode before hooks and
+  approval run.** `ValidateArguments` now decodes into the argument type,
+  so an invalid `[]byte`, `,string`, or out-of-range value fails as early
+  as it does in `Execute`. `tool.Func` also refuses any argument type with
+  an `UnmarshalText` method, such as `netip.Addr`, since its schema is a
+  string, not an object.
+- **`mcp.Toolset` stops listing the tools of a failed or closed server.**
+  `Refresh`, of any server, and `Close` now drop them from `Tools` and
+  `Status`.
+- **Realtime sessions report events in order.** Gemini Live usage in a
+  frame that starts a response now follows `EventResponseStarted` and
+  carries that response's ID. A setup deadline that passes while history is
+  being sent is a transport error, not a cancellation. A Grok Voice tool
+  call without a response ID belongs to the current response, so cancelling
+  the response cancels the call.
 - **Keys typed just before Ctrl+G are kept.** The CLI now uses Wonton
   v0.11.0, which keeps input typed just before it hands the terminal to the
   external editor, even when the terminal hangs up at the same moment.
@@ -80,6 +129,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   pause ended.
 - **A click on "lines below" returns to live output again.** Since the empty
   row above the composer was added, the click landed on that row instead.
+- **Compaction keeps a provider tool result with its use.** A kept tail
+  could start between a `ProviderToolUse` and its `ProviderToolResult`,
+  and the next turn failed with "provider tool result requires an earlier
+  use".
+- **`session` finds steers a turn missed when its end went unseen.** After a
+  lost stop acknowledgement, `Open` and `RunQueue` now count and run the
+  steers the ended turn never read; before, only a caller's `Start` did.
+- **`filerecorder.Recorder.Wait` no longer misses a commit after a torn
+  tail is truncated**, when the next commit brought the log back to the
+  size Wait first saw.
+- **`delegate` fixes for messages, deferred notices, and Stop:**
+  - A message a child dropped at a wait is not reported as unread again
+    when `Tasks.Run` continues the turn, and `Tasks.Recover` no longer sends
+    it as a new turn.
+  - A follow-up that closes a stopped turn whose notice waited for the host
+    (`Config.NoticeReady`) clears that notice, so `Tasks.Wait` no longer
+    returns an `AttentionError` for a turn nobody can act on.
+  - When the cancellation from `Tasks.Stop` during `Tasks.Run` has an
+    unknown result, the next `Tasks.Run` finishes it instead of refusing
+    every command with `ErrTaskCommandUnknown`.
 
 ## [0.15.1] - 2026-10-25
 
