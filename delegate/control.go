@@ -191,11 +191,27 @@ func (ts *Tasks) Run(ctx context.Context, target TaskTarget, cmd dashi.Command) 
 	}
 	if pending != nil {
 		known, e := receipt(turn, pending.id, pending.hash)
-		if e != nil || known || view.LastSeq != pending.target.LastSeq {
+		switch {
+		case e != nil || known || view.LastSeq != pending.target.LastSeq:
 			ts.mu.Lock()
 			t.pending = nil
 			ts.mu.Unlock()
-		} else if target != pending.target || id != pending.id || hash != pending.hash {
+		case pending.id == turn.ID+"/cancel" && id != pending.id:
+			// Stop's cancellation is the unknown write, and the caller
+			// never sent it, so no retry of theirs could match it. Finish
+			// it, as Stop asked; the caller's command then meets the
+			// canceled turn.
+			canceled, err := ts.cancelTurn(t, turn.ID)
+			if err != nil {
+				return out, err
+			}
+			ts.mu.Lock()
+			t.pending = nil
+			ts.mu.Unlock()
+			out, turn, view = canceled, canceled.Turn, canceled.TurnView
+			ts.controlResult(t, out, false)
+			notify, ended = true, out.Turn
+		case target != pending.target || id != pending.id || hash != pending.hash:
 			ts.controlResult(t, out, true)
 			return out, ErrTaskCommandUnknown
 		}

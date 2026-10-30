@@ -453,6 +453,9 @@ func (r *Recorder) Wait(ctx context.Context, turnID string, after int64) error {
 		r.mu.Lock()
 		cached = r.index.get(turnID)
 		r.mu.Unlock()
+		// The read may have seen the log change since the stat, as when a
+		// claim truncates a torn tail, so later checks compare to it.
+		size = cached.size
 	}
 	// A commit replaces a torn tail, and a line of the same length leaves
 	// the size unchanged, so while the log has one each check reads it.
