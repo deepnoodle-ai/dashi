@@ -529,6 +529,9 @@ func (s *sdkStream) emitContent(content *genai.Content) {
 		if err != nil || providerhttp.Decode(raw, &fields) != nil {
 			fields = nil
 		}
+		if sdkPartEmpty(part) {
+			continue
+		}
 		index, _ := s.indexes.next(fields)
 		if part.Text != "" {
 			kind := llm.DeltaText

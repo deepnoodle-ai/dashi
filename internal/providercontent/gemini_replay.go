@@ -153,6 +153,25 @@ func checkGeminiReplay(c, original llm.Content, foreign bool) error {
 	)
 }
 
+// checkGeminiReasoningReplay classifies a Gemini thought part before an
+// explicit omission. Gemini parts have no type key, so the shape is checked
+// directly: thought must be true, and only text and thoughtSignature may
+// accompany it.
+func checkGeminiReasoningReplay(o *llm.Opaque) error {
+	var fields map[string]json.RawMessage
+	if o.Unit != llm.OpaqueUnitContentBlock ||
+		o.Type != "thinking" ||
+		json.Unmarshal(o.Raw, &fields) != nil ||
+		fields == nil ||
+		!only(fields, "text", "thought", "thoughtSignature") ||
+		string(bytes.TrimSpace(fields["thought"])) != "true" ||
+		(len(fields["text"]) > 0 && !validString(fields["text"])) ||
+		(len(fields["thoughtSignature"]) > 0 && !validString(fields["thoughtSignature"])) {
+		return errors.New("providercontent: reasoning replay has an unsupported or unfamiliar source shape")
+	}
+	return nil
+}
+
 func geminiJSONObject(raw json.RawMessage) bool {
 	var object map[string]json.RawMessage
 	return json.Unmarshal(raw, &object) == nil && object != nil

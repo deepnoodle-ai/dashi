@@ -693,3 +693,56 @@ func TestGrokInfoReportsServingModel(t *testing.T) {
 		t.Fatalf("model %q", got)
 	}
 }
+
+// Usage in a frame that starts a response follows EventResponseStarted and
+// carries that response's ID.
+func TestGeminiUsageFollowsResponseStart(t *testing.T) {
+	s, _ := connect(t, true, fake(`{"setupComplete":{}}`, `{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"mimeType":"audio/pcm","data":"AQI="}}]}},"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":4}}`))
+	id := next(t, s, realtime.EventResponseStarted).ResponseID
+	next(t, s, realtime.EventAudio)
+	if got := next(t, s, realtime.EventUsage).ResponseID; got != id {
+		t.Fatalf("usage response %q, started %q", got, id)
+	}
+}
+
+// blockingSeedConn acknowledges setup, then blocks the history write until
+// its context ends.
+type blockingSeedConn struct{ *fakeConn }
+
+func (c blockingSeedConn) Write(ctx context.Context, b []byte) error {
+	c.mu.Lock()
+	n := len(c.writes)
+	c.mu.Unlock()
+	if n > 0 {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return c.fakeConn.Write(ctx, b)
+}
+
+// The setup deadline passing during the history seed is a transport failure,
+// not a cancellation.
+func TestSeedHistoryTimeoutIsTransportFailure(t *testing.T) {
+	old := setupTimeout
+	setupTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { setupTimeout = old })
+	c, _ := New(Config{APIKey: "fake", Dial: func(context.Context, string, http.Header, *http.Client) (realtime.Connection, error) {
+		return blockingSeedConn{fake(`{"setupComplete":{}}`)}, nil
+	}}, true)
+	_, err := c.Connect(context.Background(), realtime.Config{History: history})
+	var re *realtime.Error
+	if !errors.As(err, &re) || re.Category != realtime.ErrorTransport {
+		t.Fatalf("seed timeout error %v, want transport", err)
+	}
+}
+
+// A call event without a response ID belongs to the current response, so
+// cancelling that response cancels the call.
+func TestGrokCallWithoutResponseIDIsCanceledWithResponse(t *testing.T) {
+	s, _ := connect(t, false, fake(`{"type":"session.updated"}`, `{"type":"response.created","response":{"id":"r"}}`, `{"type":"response.function_call_arguments.done","call_id":"c","name":"ask_agent","arguments":"{}"}`, `{"type":"response.done","response":{"id":"r","status":"cancelled"}}`))
+	next(t, s, realtime.EventResponseStarted)
+	next(t, s, realtime.EventToolCall)
+	if e := next(t, s, realtime.EventToolCanceled); len(e.CanceledCallIDs) != 1 || e.CanceledCallIDs[0] != "c" {
+		t.Fatalf("canceled %v", e.CanceledCallIDs)
+	}
+}

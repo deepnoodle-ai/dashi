@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -379,6 +380,8 @@ func TestFuncRequiresStructArguments(t *testing.T) {
 		"map":    buildFunc[map[string]any](),
 		"any":    buildFunc[any](),
 		"time":   buildFunc[*time.Time](),
+		"addr":   buildFunc[netip.Addr](),
+		"embeds": buildFunc[struct{ time.Time }](),
 	}
 	for name, err := range refused {
 		if err == nil {

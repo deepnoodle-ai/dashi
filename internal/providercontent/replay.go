@@ -196,6 +196,9 @@ func checkReasoningReplay(c llm.Content) error {
 	if o == nil || o.Partial || o.Version != 1 {
 		return errors.New("providercontent: reasoning omission requires complete version 1 replay")
 	}
+	if o.Origin.API == "google.generate_content" {
+		return checkGeminiReasoningReplay(o)
+	}
 	fields, metadata, err := replayFields(o)
 	if err != nil || metadata != nil || stringField(
 		fields,
