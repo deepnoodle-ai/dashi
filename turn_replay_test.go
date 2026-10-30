@@ -339,6 +339,10 @@ func TestReplayReportedModelNonexecutionCanContinue(t *testing.T) {
 	if !view.ReadyToContinue {
 		t.Fatal("verified nonexecution did not make turn ready")
 	}
+	// The unknown result was counted; proof it was never sent takes it back.
+	if view.ModelCalls != 0 {
+		t.Fatalf("model calls=%d after verified nonexecution, want 0", view.ModelCalls)
+	}
 	turn.Steps = append(
 		turn.Steps,
 		Step{
@@ -503,5 +507,14 @@ func interruptionModelCallStart(id string) Step {
 			API:         "test.chat",
 			Model:       "fixture",
 		},
+	}
+}
+
+// Cached compaction checks rebuild messages from a view snapshot, which must
+// keep the provider pause that suppresses the crash-resume reminder.
+func TestViewSnapshotKeepsProviderToolPause(t *testing.T) {
+	s := &replayState{pausedProviderTool: true}
+	if !s.viewSnapshot().pausedProviderTool {
+		t.Fatal("view snapshot dropped the provider tool pause")
 	}
 }

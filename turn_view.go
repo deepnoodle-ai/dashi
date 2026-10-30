@@ -107,7 +107,8 @@ type TurnView struct {
 	Compaction *CompactionFact `json:"compaction,omitempty"`
 	// LastSeq is the latest acknowledged step sequence number.
 	LastSeq int64 `json:"last_seq"`
-	// ModelCalls counts finished model calls that were not interrupted.
+	// ModelCalls counts finished model calls that were not interrupted,
+	// leaving out calls proven not sent or rejected by the provider.
 	ModelCalls int `json:"model_calls,omitempty"`
 	// Resumes counts resumes after a context stop or worker crash,
 	// except an interrupted stop before the first model call.

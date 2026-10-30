@@ -45,6 +45,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **`Resolve` of a model call reuses the recorded message ID.** Before, it
+  assumed the runner's ID format and refused a record with any other ID.
+- **A call proven not sent no longer counts in `TurnView.ModelCalls`**, so
+  it does not use up the model call limit.
+- **Spend that a cost cap cannot check ends the turn ahead of a token
+  cap.** Before, the stop named the token cap and invited a raise that
+  could not help.
+- **A budget raise must lift every cap the spend has reached.** Before,
+  `Continue` accepted a raise of only the cap the stop named and stopped
+  again at once.
+- **With `Limits.NoRaise`, only a stop at a limit the turn sets ends the
+  turn.** A hook or recorder hold at a limit the turn does not set now waits
+  for `Continue`.
+- **`Turn.Citations` and `Turn.ProviderToolUses` leave out late results
+  recorded after the turn ended**, as the reply does.
+- **One-hour cache writes are priced on sheets with modality rates.**
+  Before, `Pricing.Estimate` refused them when a modality had its own
+  cache-write rate, and priced them at the base rate when a modality had a
+  different one-hour rate; now it refuses only that second case.
 - **An `@mention` inside quoted prose is attached.** `mention.Expand` read
   `"what does @main.go do?"` as one quoted path and skipped the mention.
   A `MaxTextBytes`, `MaxImageBytes`, or `MaxFileBytes` of `math.MaxInt64`

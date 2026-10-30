@@ -836,15 +836,17 @@ func TestResolveAndAddMessagesWithoutClient(t *testing.T) {
 	})
 
 	for _, tc := range []struct {
-		name   string
-		finish Resolve
+		name       string
+		finish     Resolve
+		modelCalls int
 	}{
-		{"model result", Resolve{ModelResult: new(final("recovered"))}},
+		{"model result", Resolve{ModelResult: new(final("recovered"))}, 1},
+		// A call proven not sent does not count toward the model call limit.
 		{"model failure", Resolve{ModelFailure: &ModelFailure{
 			SendStatus: llm.SendStatusNotSent,
 			Reason:     "worker did not send",
 			Evidence:   "dispatch log",
-		}}},
+		}}, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := NewMemoryRecorder()
@@ -854,6 +856,9 @@ func TestResolveAndAddMessagesWithoutClient(t *testing.T) {
 			out, err := (Runner{Recorder: rec}).Run(t.Context(), turn, tc.finish)
 			if err != nil || !out.ReadyToContinue {
 				t.Fatalf("out=%+v err=%v", out.Stop, err)
+			}
+			if out.ModelCalls != tc.modelCalls {
+				t.Fatalf("model calls=%d, want %d", out.ModelCalls, tc.modelCalls)
 			}
 		})
 	}
@@ -873,7 +878,9 @@ func crashedModelCallStart(t *testing.T, rec *MemoryRecorder) Turn {
 		}},
 		{Kind: StepModelCallStarted, Model: &ModelFact{
 			ModelCallID: "t1:model:1",
-			MessageID:   "t1:model:1:message",
+			// A message ID the runner would not choose: Resolve must reuse
+			// the recorded one.
+			MessageID:   "assistant-1",
 			RequestHash: "hash",
 			Provider:    def.Provider,
 			API:         def.API,
