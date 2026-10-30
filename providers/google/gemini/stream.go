@@ -9,6 +9,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
 	"github.com/deepnoodle-ai/dashi/internal/sse"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"google.golang.org/genai"
 )
 
 // readStream assembles GenerateContent SSE chunks before authoritative decode.
@@ -174,10 +175,10 @@ func (wire codec) readStream(
 					"invalid stream part",
 				)
 			}
-			index, merge, skip := indexes.next(part)
-			if skip {
+			if emptyPart(rawPart) {
 				continue
 			}
+			index, merge := indexes.next(part)
 			if decoded.Text != "" {
 				kind := llm.DeltaText
 				if decoded.Thought {
@@ -248,23 +249,35 @@ type partIndexes struct {
 	thought bool
 }
 
-// next returns the part's index, whether it extends the previous part, and
-// whether it carries nothing and should be dropped. Google can send an empty
-// text part, such as {"text":""} on the final chunk; kept, it would become an
-// unknown part in the assembled message.
-func (x *partIndexes) next(part map[string]any) (index int, merge, skip bool) {
-	text, _, thought, signed, ok := textFragment(part)
-	if (ok || len(part) == 0) && text == "" && !signed {
-		return x.count - 1, false, true
-	}
-	if x.open && ok && thought == x.thought {
+// next returns the part's index and whether it extends the previous part.
+func (x *partIndexes) next(part map[string]any) (index int, merge bool) {
+	text, hasText, thought, signed, ok := textFragment(part)
+	if x.open && ok && thought == x.thought && (text != "" || signed) {
 		// A signature closes the part it lands on.
 		x.open = !signed
-		return x.count - 1, true, false
+		return x.count - 1, true
 	}
 	x.count++
-	x.open, x.thought = ok && text != "" && !signed, thought
-	return x.count - 1, false, false
+	x.open, x.thought = ok && hasText && !signed, thought
+	return x.count - 1, false
+}
+
+// emptyPart reports whether a wire part carries nothing the SDK's Part
+// models, such as the {"text":""} Google can send on a final chunk. Both
+// stream paths drop such parts, deciding from the same SDK view, so their
+// delta indexes agree; kept, one would become an unknown part.
+func emptyPart(raw json.RawMessage) bool {
+	var part genai.Part
+	if json.Unmarshal(raw, &part) != nil {
+		return false
+	}
+	return sdkPartEmpty(&part)
+}
+
+// sdkPartEmpty reports whether an SDK part encodes to no fields.
+func sdkPartEmpty(part *genai.Part) bool {
+	encoded, err := json.Marshal(part)
+	return err == nil && string(encoded) == "{}"
 }
 
 // textFragment reports whether part holds only text fields: text, thought,

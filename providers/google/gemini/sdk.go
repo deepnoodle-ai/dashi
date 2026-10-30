@@ -529,10 +529,10 @@ func (s *sdkStream) emitContent(content *genai.Content) {
 		if err != nil || providerhttp.Decode(raw, &fields) != nil {
 			fields = nil
 		}
-		index, _, skip := s.indexes.next(fields)
-		if skip {
+		if sdkPartEmpty(part) {
 			continue
 		}
+		index, _ := s.indexes.next(fields)
 		if part.Text != "" {
 			kind := llm.DeltaText
 			if part.Thought {

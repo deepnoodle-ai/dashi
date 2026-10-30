@@ -50,7 +50,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   failing the call as unsupported.
 - **Gemini streams drop empty text parts.** An empty `{"text":""}` part,
   such as Google sends on a final chunk, no longer becomes an unknown part
-  in the message. A streamed call cancelled before it was sent no longer
+  in the message, and live delta indexes still match the message's parts. A streamed call cancelled before it was sent no longer
   reports an `other` stop, and a malformed or oversized stream event is a
   protocol error.
 - **Keys typed just before Ctrl+G are kept.** The CLI now uses Wonton

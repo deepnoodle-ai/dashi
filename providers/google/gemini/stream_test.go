@@ -108,9 +108,10 @@ func TestStreamDropsEmptyTextPart(t *testing.T) {
 	if len(content) != 2 || content[0].Block == nil || content[1].ToolCall == nil {
 		t.Fatalf("content = %+v", content)
 	}
+	want := map[llm.DeltaKind]int{llm.DeltaText: 0, llm.DeltaToolArguments: 1}
 	for _, d := range deltas {
-		if d.Kind != llm.DeltaUsage && d.Index > 1 {
-			t.Fatalf("delta index %d beyond assembled parts", d.Index)
+		if index, ok := want[d.Kind]; ok && d.Index != index {
+			t.Fatalf("%s delta index %d, want %d", d.Kind, d.Index, index)
 		}
 	}
 }
