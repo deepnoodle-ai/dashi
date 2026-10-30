@@ -441,3 +441,157 @@ func TestTaskPreparationRejectsProtectedFieldsAndBindingFailure(t *testing.T) {
 		})
 	}
 }
+
+// A message the child dropped at a wait counts on that stop's notice only:
+// the end of the turn Run continues does not report it again, and Recover
+// does not send it as a new turn.
+func TestTaskRunDoesNotReportOrResendDroppedMail(t *testing.T) {
+	g := newGate()
+	child := func(ctx context.Context, in llm.Input) (llm.Result, error) {
+		if len(in.Messages) == 1 {
+			if err := g.wait(ctx); err != nil {
+				return llm.Result{}, err
+			}
+			return toolCall("c1", "write", `{}`), nil
+		}
+		return text("child finished"), nil
+	}
+	h := newHarness(t, scripted(child), delegate.Config{}, nil)
+	h.base = tool.List{tool.Tool{
+		Definition: tool.Definition{Name: "write", Description: "External write", Schema: []byte(`{"type":"object"}`)},
+		Executor: executor(func(context.Context, tool.Call) (tool.Outcome, error) {
+			return tool.Waiting("external worker owns this write"), nil
+		}),
+	}}
+	h.runner.Tools = tool.Join(h.base, h.tasks.Tools())
+	parent, err := h.start(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.waitStarted(t)
+	sent := h.send(t, sendArgs("look in config/", ""))
+	g.open()
+	if e := h.next(t, delegate.TaskEnded); e.Task.State != "waiting" || e.Task.UnreadMessages != 1 {
+		t.Fatalf("waiting=%+v", e.Task)
+	}
+	resolved, err := h.tasks.Run(t.Context(), target(h, t), dashi.Resolve{
+		CommandID: "verify-write", CallID: "c1",
+		Outcome: ptrOutcome(tool.Succeeded("Operator verified the write.")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.tasks.Run(t.Context(),
+		delegate.TaskTarget{ID: taskID(), TurnID: childTurnID(), LastSeq: resolved.LastSeq},
+		dashi.Continue{CommandID: "finish"}); err != nil {
+		t.Fatal(err)
+	}
+	ended := h.next(t, delegate.TaskEnded)
+	if ended.Task.State != "completed" || ended.Task.UnreadMessages != 0 {
+		t.Fatalf("completed=%+v", ended.Task)
+	}
+
+	// The process restarts.
+	sends := h.client.sends("child")
+	h.newTasks(t)
+	if err := h.tasks.Recover(t.Context(), h.runner,
+		[]dashi.Turn{parent.Turn, sent.Turn}); err != nil {
+		t.Fatal(err)
+	}
+	h.quiet(t)
+	if h.client.sends("child") != sends || h.childTurns(t) != 1 ||
+		h.delivered(t, msgID(1)) != 0 {
+		t.Fatal("Recover sent the dropped message")
+	}
+}
+
+// A follow-up that starts the next turn closes a stopped turn whose notice
+// waited for the host, so Wait no longer asks for attention to it.
+func TestFollowUpClearsADeferredNotice(t *testing.T) {
+	child := func(_ context.Context, in llm.Input) (llm.Result, error) {
+		if strings.Contains(inputText(in), "try again") {
+			return text("done now"), nil
+		}
+		return toolCall("c1", "read", `{}`), nil
+	}
+	sub := scout()
+	sub.Agent.Limits.ModelCalls = 1
+	h := newHarness(t, scripted(child), delegate.Config{
+		Subagents: []delegate.Subagent{sub}, NoticeReady: finalNotice,
+	}, nil)
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if e := attention(h, t); e.Tasks[0].State != "limited" {
+		t.Fatalf("state=%s", e.Tasks[0].State)
+	}
+	h.send(t, sendArgs("try again", ""))
+	if ended := h.next(t, delegate.TaskEnded); ended.Task.Reply != "done now" {
+		t.Fatalf("ended=%+v", ended.Task)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	for {
+		idle, err := h.tasks.Wait(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if idle {
+			return
+		}
+	}
+}
+
+// When Stop's cancellation of a Run is the write whose result is unknown,
+// the next Run finishes that cancellation instead of refusing every
+// command the caller could send.
+func TestTaskRunFinishesAnUnknownStop(t *testing.T) {
+	g := newGate()
+	var calls atomic.Int32
+	sub := scout()
+	sub.Agent.Limits.ModelCalls = 1
+	child := func(ctx context.Context, in llm.Input) (llm.Result, error) {
+		if calls.Add(1) == 1 {
+			return toolCall("c1", "write", `{}`), nil
+		}
+		if err := g.wait(ctx); err != nil {
+			return llm.Result{}, err
+		}
+		return text("done"), nil
+	}
+	var recorder *commandAckRecorder
+	h := newHarness(t, scripted(child), delegate.Config{
+		Subagents: []delegate.Subagent{sub}, NoticeReady: finalNotice,
+	}, func(r *dashi.MemoryRecorder) dashi.Recorder {
+		recorder = &commandAckRecorder{MemoryRecorder: r, command: childTurnID() + "/cancel"}
+		return recorder
+	})
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	attention(h, t)
+	before := target(h, t)
+	done := make(chan error, 1)
+	go func() {
+		_, err := h.tasks.Run(t.Context(), before, dashi.Continue{CommandID: "raise", ModelCalls: 3})
+		done <- err
+	}()
+	g.waitStarted(t)
+	recorder.mode.Store(1)
+	if err := h.tasks.Stop(t.Context(), taskID()); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err == nil {
+		t.Fatal("the unknown cancellation was not exposed")
+	}
+	_, err := h.tasks.Run(t.Context(), target(h, t), dashi.Continue{CommandID: "next"})
+	if !errors.Is(err, dashi.ErrStaleTurn) {
+		t.Fatalf("err=%v, want the canceled turn to be stale", err)
+	}
+	if got := h.view(t, childTurnID()).Stop.Kind; got != dashi.StopCanceled {
+		t.Fatalf("recorded stop=%s", got)
+	}
+	if e := h.next(t, delegate.TaskEnded); e.Task.State != "canceled" {
+		t.Fatalf("ended=%+v", e.Task)
+	}
+}

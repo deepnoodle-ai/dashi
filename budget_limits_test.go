@@ -324,3 +324,22 @@ func TestBudgetIncompleteCallStartRecoversBeforeTokenStop(t *testing.T) {
 		t.Fatal("recovering unknown provider tool work dispatched another call")
 	}
 }
+
+// Spend the cost cap cannot check stops a turn ahead of a token cap, so the
+// stop ends the turn instead of inviting a token raise that cannot help.
+func TestBudgetUncheckableCostStopsBeforeTokenCaps(t *testing.T) {
+	s := &replayState{}
+	s.Budget = &Budget{
+		MaxOutputTokens: 10,
+		MaxCost:         &Money{Amount: 100, Currency: "USD"},
+	}
+	s.Spend.Usage.OutputTokens = 20
+	s.Spend.CostUnknown = 1
+	stop := budgetSpentStop(s)
+	if stop == nil || stop.Limit == nil || stop.Limit.Kind != LimitCost {
+		t.Fatalf("stop = %+v, want a cost limit", stop)
+	}
+	if !s.stopEnds(*stop) {
+		t.Fatal("an uncheckable cost stop does not end the turn")
+	}
+}

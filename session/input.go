@@ -312,6 +312,28 @@ func (s *Session) moveLeftovers(turn dashi.Turn) {
 	}
 }
 
+// reclaimLeftovers moves to the queue the steers this handle sent to the
+// last turn when that turn ended without this handle seeing it end, as when
+// its last commit lost its acknowledgement or another worker ended it. A
+// read error leaves them for the caller's own read to report. The caller
+// holds mu.
+func (s *Session) reclaimLeftovers(ctx context.Context) {
+	if len(s.sent) == 0 || s.ID == "" {
+		return
+	}
+	last, err := s.findLast(ctx)
+	if err != nil || last == 0 {
+		return
+	}
+	t, err := s.load(ctx, last)
+	if err != nil {
+		return
+	}
+	if s.sentTo(t.turn.ID) && s.refine(ctx, t).next == dashi.NextNone {
+		s.moveLeftovers(t.turn)
+	}
+}
+
 // sentTo reports whether this handle sent steers to turnID that have not
 // moved to the queue. The caller holds mu.
 func (s *Session) sentTo(turnID string) bool {
@@ -516,6 +538,7 @@ func (s *Session) planQueue(
 	if err := s.finishReserved(ctx); err != nil {
 		return startPlan{}, false, err
 	}
+	s.reclaimLeftovers(ctx)
 	items := s.free(nil)
 	if len(items) == 0 || holdUser && s.queuedUser() > 0 {
 		return startPlan{}, false, nil

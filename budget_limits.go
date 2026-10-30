@@ -219,6 +219,22 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 		return stop
 	}
 	b := s.Budget
+	// Spend the cost cap cannot check stops the turn first: a raise of a
+	// token cap could not let it continue.
+	if b.MaxCost != nil {
+		if used, known := s.Spend.costIn(b.MaxCost.Currency); !known {
+			return &Stop{
+				Kind:   StopLimited,
+				Reason: uncheckableCostReason(s.Spend),
+				Limit: &LimitDetail{
+					Kind:      LimitCost,
+					CostLimit: b.MaxCost.Amount,
+					Currency:  b.MaxCost.Currency,
+					CostUsed:  used,
+				},
+			}
+		}
+	}
 	output := s.Spend.Usage.OutputTokens
 	if b.MaxOutputTokens > 0 &&
 		(output > b.MaxOutputTokens ||
@@ -249,19 +265,7 @@ func budgetStop(s *replayState, overOnly bool) *Stop {
 	if b.MaxCost == nil {
 		return nil
 	}
-	used, known := s.Spend.costIn(b.MaxCost.Currency)
-	if !known {
-		return &Stop{
-			Kind:   StopLimited,
-			Reason: uncheckableCostReason(s.Spend),
-			Limit: &LimitDetail{
-				Kind:      LimitCost,
-				CostLimit: b.MaxCost.Amount,
-				Currency:  b.MaxCost.Currency,
-				CostUsed:  used,
-			},
-		}
-	}
+	used, _ := s.Spend.costIn(b.MaxCost.Currency)
 	if used > b.MaxCost.Amount ||
 		!overOnly && used == b.MaxCost.Amount {
 		return &Stop{

@@ -417,3 +417,34 @@ func TestCostString(t *testing.T) {
 		t.Fatalf("partial cost = %q", got)
 	}
 }
+
+// One-hour writes are only reported in aggregate, so they count as
+// unattributed writes: priced when every modality shares the one-hour rate,
+// and unavailable when a modality could price them differently.
+func TestPricingEstimateOneHourWritesWithModalities(t *testing.T) {
+	p := pricedSheet()
+	oneHour := amt("2")
+	p.Base.CacheWrite1h = &oneHour
+	audio := p.Base.clone()
+	audio.CacheWrite = amt("3")
+	p.Modality = map[string]Rates{"audio": audio}
+	u := &Usage{
+		InputTokens:                1_000_000,
+		CacheCreationInputTokens:   1_000_000,
+		CacheCreation1hInputTokens: 1_000_000,
+	}
+	cost, ok := p.Estimate(u)
+	if !ok {
+		t.Fatal("one-hour writes with a shared one-hour rate could not be priced")
+	}
+	if cost.CacheWrite != amt("2") {
+		t.Fatalf("one-hour writes priced wrong: %+v", cost)
+	}
+
+	audio.CacheWrite = p.Base.CacheWrite
+	audio.CacheWrite1h = nil
+	p.Modality = map[string]Rates{"audio": audio}
+	if _, ok := p.Estimate(u); ok {
+		t.Fatal("one-hour writes were priced at the base rate with a modality lacking it")
+	}
+}

@@ -64,11 +64,14 @@ func (t Turn) ProviderToolUses() []llm.ProviderToolUse {
 
 // finishedResults returns the actionable assistant results in step order:
 // finished calls, including those the host resolved, that neither failed
-// nor were interrupted.
+// nor were interrupted, up to the stop that ended the turn.
 func finishedResults(steps []Step) []*llm.Result {
 	var out []*llm.Result
 	turn := Turn{Steps: steps}
 	for _, step := range steps {
+		if step.Kind == StepTurnStopped && step.Stop != nil && step.Stop.Ended {
+			break
+		}
 		if step.Model != nil && modelPurpose(turn, step.Model.ModelCallID) == ModelPurposeCompaction {
 			continue
 		}

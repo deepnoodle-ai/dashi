@@ -5,6 +5,7 @@ package tool
 import (
 	"bytes"
 	"context"
+	"encoding"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +14,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/wonton/schema"
@@ -133,33 +133,44 @@ func MustFunc[T any](
 	return t
 }
 
-// ValidateArguments applies the same schema and Go field-name policy used by
-// Execute. The runner calls it before BeforeTool and after argument rewrites.
+// ValidateArguments applies the same schema, Go field-name policy, and
+// decoding into T used by Execute. The runner calls it before BeforeTool and
+// after argument rewrites.
 func (e typedExecutor[T]) ValidateArguments(args json.RawMessage) error {
-	_, err := e.validatedArguments(args)
+	_, err := e.decodeArguments(args)
 	return err
 }
 
-// validatedArguments returns the same last-key-wins JSON meaning used for
-// schema validation and typed decoding, without changing the raw Call.Args.
-func (e typedExecutor[T]) validatedArguments(
-	args json.RawMessage,
-) ([]byte, error) {
+// decodeArguments validates args against the schema and Go field names, then
+// decodes their last-key-wins JSON meaning into T, without changing the raw
+// Call.Args.
+func (e typedExecutor[T]) decodeArguments(args json.RawMessage) (T, error) {
+	var input T
 	canonical, err := canonjson.Canonicalize(args)
 	if err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
+		return input, fmt.Errorf("invalid input: %w", err)
 	}
 	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(canonical))
 	if err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
+		return input, fmt.Errorf("invalid input: %w", err)
 	}
 	if err := e.schema.Validate(value); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
+		return input, fmt.Errorf("invalid input: %w", err)
 	}
 	if err := rejectCaseAliases(value, reflect.TypeFor[T](), "$"); err != nil {
-		return nil, fmt.Errorf("invalid input: %w", err)
+		return input, fmt.Errorf("invalid input: %w", err)
 	}
-	return canonical, nil
+	decoder := json.NewDecoder(bytes.NewReader(canonical))
+	if e.strictArguments {
+		decoder.DisallowUnknownFields()
+	}
+	if err := decoder.Decode(&input); err != nil {
+		return input, fmt.Errorf("invalid input: %w", err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return input, errors.New("unexpected trailing input")
+	}
+	return input, nil
 }
 
 // FuncOption configures a typed tool. Its zero value leaves the defaults
@@ -218,20 +229,9 @@ func (e typedExecutor[T]) Execute(
 	if call.Name != e.name {
 		return notExecuted("tool name does not match executor"), nil
 	}
-	canonical, err := e.validatedArguments(call.Args)
+	input, err := e.decodeArguments(call.Args)
 	if err != nil {
 		return notExecuted(err.Error()), nil
-	}
-	var input T
-	decoder := json.NewDecoder(bytes.NewReader(canonical))
-	if e.strictArguments {
-		decoder.DisallowUnknownFields()
-	}
-	if err := decoder.Decode(&input); err != nil {
-		return notExecuted("invalid input: " + err.Error()), nil
-	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return notExecuted("unexpected trailing input"), nil
 	}
 	outcome, err := e.fn(ctx, call.Clone(), input)
 	if err != nil {
@@ -247,15 +247,18 @@ func (e typedExecutor[T]) Execute(
 	return outcome, nil
 }
 
-// checkArgumentsType requires a struct, or a pointer to one, other than
-// time.Time: providers need an input schema with named properties, and strict
-// modes reject open objects such as maps. It also refuses recursion that does
-// not pass through a struct, which has no finite schema.
+// checkArgumentsType requires a struct, or a pointer to one, without an
+// UnmarshalText method such as time.Time has: providers need an input schema
+// with named properties, and strict modes reject open objects such as maps.
+// It also refuses recursion that does not pass through a struct, which has
+// no finite schema.
 func checkArgumentsType(t reflect.Type) error {
 	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
-	if t.Kind() != reflect.Struct || t == reflect.TypeFor[time.Time]() {
+	// A struct with UnmarshalText, such as time.Time, has a string schema.
+	if t.Kind() != reflect.Struct ||
+		reflect.PointerTo(t).Implements(reflect.TypeFor[encoding.TextUnmarshaler]()) {
 		return fmt.Errorf("arguments type %s must be a struct", t)
 	}
 	return checkFieldTypes(
