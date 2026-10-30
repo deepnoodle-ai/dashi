@@ -77,7 +77,20 @@ type screen struct {
 	hits tui.HitMap
 	// transcriptMenu is the right-click menu on a transcript item.
 	transcriptMenu tui.MenuState
+	// transcriptMenuItem is the transcript item the open menu acts on, or
+	// -1, and transcriptMenuShape is its kind and state at open time.
+	transcriptMenuItem  int
+	transcriptMenuShape blockShape
 }
+
+// blockShape is what the transcript menu's entries depend on.
+type blockShape struct {
+	kind  BlockKind
+	state string
+	done  bool
+}
+
+func shapeOf(b Block) blockShape { return blockShape{b.Kind, b.State, b.Done} }
 
 // queued is one item of pending work: a block to show, or a reset.
 type queued struct {
@@ -378,6 +391,10 @@ func (s *screen) drain() {
 		}
 		i := s.tr.Apply(q.block)
 		s.vp.Invalidate(i)
+		if i == s.transcriptMenuItem && shapeOf(s.tr.Blocks[i]) != s.transcriptMenuShape {
+			// The menu's entries were chosen for the item's old shape.
+			s.transcriptMenu.Close()
+		}
 	}
 }
 

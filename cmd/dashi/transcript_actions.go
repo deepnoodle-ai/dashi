@@ -143,6 +143,7 @@ func (s *screen) toggleMouse() {
 	} else {
 		s.selectionRevision++
 		s.vp.ClearSelection()
+		s.transcriptMenu.Close()
 		s.runtime.Terminal().DisableMouseTracking()
 		s.Emit(Block{Kind: KindNotice, Text: "Application mouse capture off. Use native terminal selection and copying; F2 restores capture.", Done: true})
 	}

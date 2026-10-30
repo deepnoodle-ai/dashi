@@ -45,6 +45,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **The CLI shows a denial given later with `Resolve`**: the tool line
+  shows its reason and its decide line, as for a denial at decision time.
+- **The transcript right-click menu copies an item's current text.** A
+  message that streamed on after the menu opened is copied whole, and the
+  menu closes when its item changes state, such as a tool call ending, or
+  when `/mouse` turns mouse capture off.
 - **Keys typed just before Ctrl+G are kept.** The CLI now uses Wonton
   v0.11.0, which keeps input typed just before it hands the terminal to the
   external editor, even when the terminal hangs up at the same moment.
