@@ -367,7 +367,8 @@ func checkCommand(c dashi.Command) error {
 }
 
 // Open reads the session's last turn and reports its state. It never runs
-// anything. An ID with no turns gives ErrNotFound, unless New is
+// anything. Steers that an ended turn missed, when this handle did not see
+// it end, move to the queue, as a Start would move them. An ID with no turns gives ErrNotFound, unless New is
 // set; with New, a session that has turns gives ErrExists. An empty
 // ID is a new session.
 func (s *Session) Open(ctx context.Context) (State, error) {

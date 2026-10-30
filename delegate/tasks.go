@@ -276,10 +276,12 @@ func (c *childTurn) setNotice(turn dashi.Turn) {
 	c.notice = id
 }
 
-// dropsMail reports whether mail sent to the turn never reaches it: the
-// turn stopped where it drops its mail, now or at an earlier stop of its
-// record.
-func (c *childTurn) dropsMail() bool {
+// dropsSteers reports whether a message steered into the turn, which the
+// record lacks, was dropped: the turn stopped where it drops its mail, now
+// or at an earlier stop of its record. Only steers into the turn count;
+// mail that waited on the turn after that stop, as for a turn Tasks.Run
+// continued, still reaches a later turn.
+func (c *childTurn) dropsSteers() bool {
 	return dropOnStop(c.state) || c.droppedBefore
 }
 

@@ -671,7 +671,7 @@ func (ts *Tasks) sortSentLocked(
 			s.data.LastTurnID = t.waitedOn(order, s.call)
 		}
 		var unread *childTurn
-		if c := t.find(s.data.TargetTurnID); c != nil && c.dropsMail() {
+		if c := t.find(s.data.TargetTurnID); c != nil && c.dropsSteers() {
 			unread = c
 		}
 		if unread == nil && s.data.LastTurnID != "" {
@@ -705,7 +705,7 @@ func (t *task) droppedFrom(id string) *childTurn {
 		i = len(t.turns) - 1
 	}
 	for _, c := range t.turns[i:] {
-		if c.dropsMail() {
+		if dropOnStop(c.state) {
 			return c
 		}
 	}
