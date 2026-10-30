@@ -45,6 +45,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Switching away from Gemini after a thinking turn works.** Gemini
+  thought parts can now be omitted for another model or provider instead of
+  failing the call as unsupported.
+- **Gemini streams drop empty text parts.** An empty `{"text":""}` part,
+  such as Google sends on a final chunk, no longer becomes an unknown part
+  in the message, and live delta indexes still match the message's parts. A streamed call cancelled before it was sent no longer
+  reports an `other` stop, and a malformed or oversized stream event is a
+  protocol error.
 - **`Resolve` of a model call reuses the recorded message ID.** Before, it
   assumed the runner's ID format and refused a record with any other ID.
 - **A call proven not sent no longer counts in `TurnView.ModelCalls`**, so

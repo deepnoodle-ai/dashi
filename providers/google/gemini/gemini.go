@@ -610,6 +610,10 @@ func (p *Client) Send(
 			nil,
 		)
 		if streamErr != nil {
+			// A call that was never sent has no response to assemble.
+			if sendStatusOf(streamErr) == llm.SendStatusNotSent {
+				return result, streamErr
+			}
 			return partial, streamErr
 		}
 		if err := providerhttp.Expired(p.Provider(), guard.rawBody()); err != nil {

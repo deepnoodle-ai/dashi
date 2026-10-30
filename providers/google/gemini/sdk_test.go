@@ -136,27 +136,29 @@ func TestSDKStreamErrorCodeDecidesReason(t *testing.T) {
 	}
 }
 
-// A call canceled before dispatch is known unsent.
+// A call canceled before dispatch is known unsent, streamed or not.
 func TestSendCanceledBeforeDispatchIsNotSent(t *testing.T) {
-	var dispatched bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		dispatched = true
-	}))
-	defer server.Close()
-	p := newTestClient(t, server)
-	prepared, err := p.Prepare(t.Context(), sampleInput(false))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	result, err := p.Send(ctx, llm.Call{Request: prepared})
-	failure, ok := errors.AsType[*llm.Error](err)
-	// No response arrived, so the result has no stop kind.
-	if !ok || failure.SendStatus != llm.SendStatusNotSent ||
-		!errors.Is(err, context.Canceled) || dispatched ||
-		result.Stop.Kind != "" {
-		t.Fatalf("err = %#v", err)
+	for _, stream := range []bool{false, true} {
+		var dispatched bool
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			dispatched = true
+		}))
+		p := newTestClient(t, server)
+		prepared, err := p.Prepare(t.Context(), sampleInput(stream))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		result, err := p.Send(ctx, llm.Call{Request: prepared})
+		server.Close()
+		failure, ok := errors.AsType[*llm.Error](err)
+		// No response arrived, so the result has no stop kind.
+		if !ok || failure.SendStatus != llm.SendStatusNotSent ||
+			!errors.Is(err, context.Canceled) || dispatched ||
+			result.Stop != (llm.Stop{}) {
+			t.Fatalf("stream=%v: err = %#v, stop = %+v", stream, err, result.Stop)
+		}
 	}
 }
 
@@ -187,13 +189,15 @@ func TestSendDroppedAfterDispatchKeepsStopKind(t *testing.T) {
 }
 
 // The SDK stream path gives text fragments of one part one index, as the
-// assembled message does.
+// assembled message does. Empty parts, and parts with only fields the SDK
+// does not model, are dropped by both paths alike.
 func TestSDKStreamDeltaIndexesMatchMessageParts(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		for _, chunk := range []string{
 			`{"responseId":"r1","candidates":[{"content":{"parts":[{"text":"Hel"}]}}]}`,
 			`{"candidates":[{"content":{"parts":[{"text":"lo"}]}}]}`,
+			`{"candidates":[{"content":{"parts":[{"text":""},{"futureField":1},{"text":"","thought":true}]}}]}`,
 			`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"search","args":{}}}]}}]}`,
 			`{"candidates":[{"content":{"parts":[{"text":"done"}]},"finishReason":"STOP"}]}`,
 		} {

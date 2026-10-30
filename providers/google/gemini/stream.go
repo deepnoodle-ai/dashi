@@ -9,6 +9,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
 	"github.com/deepnoodle-ai/dashi/internal/sse"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"google.golang.org/genai"
 )
 
 // readStream assembles GenerateContent SSE chunks before authoritative decode.
@@ -174,6 +175,9 @@ func (wire codec) readStream(
 					"invalid stream part",
 				)
 			}
+			if emptyPart(rawPart) {
+				continue
+			}
 			index, merge := indexes.next(part)
 			if decoded.Text != "" {
 				kind := llm.DeltaText
@@ -216,12 +220,7 @@ func (wire codec) readStream(
 		return partial, ctx.Err()
 	}
 	if err := reader.Err(); err != nil {
-		return partial, providerhttp.Failure(
-			wire.origin.Provider,
-			llm.ErrorTransport,
-			"stream interrupted: %w",
-			err,
-		)
+		return partial, providerhttp.StreamFailure(wire.origin.Provider, err)
 	}
 	if buildErr != nil {
 		return partial, buildErr
@@ -261,6 +260,29 @@ func (x *partIndexes) next(part map[string]any) (index int, merge bool) {
 	x.count++
 	x.open, x.thought = ok && hasText && !signed, thought
 	return x.count - 1, false
+}
+
+// emptyPart reports whether a wire part carries nothing the SDK's Part
+// models, such as the {"text":""} Google can send on a final chunk. Both
+// stream paths drop such parts, deciding from the same SDK view, so their
+// delta indexes agree; kept, one would become an unknown part.
+func emptyPart(raw json.RawMessage) bool {
+	var part genai.Part
+	if json.Unmarshal(raw, &part) != nil {
+		return false
+	}
+	return sdkPartEmpty(&part)
+}
+
+// sdkPartEmpty reports whether an SDK part encodes to no fields. A thought
+// flag on a part with no text or signature carries nothing either.
+func sdkPartEmpty(part *genai.Part) bool {
+	view := *part
+	if view.Text == "" && len(view.ThoughtSignature) == 0 {
+		view.Thought = false
+	}
+	encoded, err := json.Marshal(&view)
+	return err == nil && string(encoded) == "{}"
 }
 
 // textFragment reports whether part holds only text fields: text, thought,
