@@ -99,7 +99,7 @@ func TestStreamDropsEmptyTextPart(t *testing.T) {
 		t,
 		`{"responseId":"r1","candidates":[{"content":{"parts":[{"text":"hi"}]}}]}`,
 		`{"candidates":[{"content":{"parts":[{"functionCall":{"name":"search","args":{}}}]}}]}`,
-		`{"candidates":[{"content":{"parts":[{"text":""}]},"finishReason":"STOP"}]}`,
+		`{"candidates":[{"content":{"parts":[{"text":"","thought":true},{"text":""}]},"finishReason":"STOP"}]}`,
 	)
 	if err != nil {
 		t.Fatal(err)
