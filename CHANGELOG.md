@@ -45,6 +45,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Keys typed just before Ctrl+G are kept.** The CLI now uses Wonton
+  v0.11.0, which keeps input typed just before it hands the terminal to the
+  external editor, even when the terminal hangs up at the same moment.
+  Before, those keys could be dropped.
 - **Shift+Enter inserts a newline inside tmux.** tmux ignores the Kitty
   keyboard protocol, so the CLI, through Wonton, now also asks tmux for its
   extended keys, in fullscreen and inline modes. tmux forwards them once its
