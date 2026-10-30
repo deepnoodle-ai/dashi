@@ -366,10 +366,12 @@ func checkCommand(c dashi.Command) error {
 	return nil
 }
 
-// Open reads the session's last turn and reports its state. It never runs
-// anything. An ID with no turns gives ErrNotFound, unless New is
-// set; with New, a session that has turns gives ErrExists. An empty
-// ID is a new session.
+// Open reads the session's last turn and reports its state. It never starts
+// or continues a turn. The one change it makes: steers that an ended turn
+// missed, when this handle did not see it end, move to the queue, as a
+// Start would move them. An ID with no turns gives ErrNotFound, unless New
+// is set; with New, a session that has turns gives ErrExists. An empty ID
+// is a new session.
 func (s *Session) Open(ctx context.Context) (State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -378,6 +380,7 @@ func (s *Session) Open(ctx context.Context) (State, error) {
 	}
 	// A reservation that cannot be finished holds only the queue back.
 	_ = s.finishReserved(ctx)
+	s.reclaimLeftovers(ctx)
 	last, err := s.findLast(ctx)
 	if err != nil {
 		return State{}, err

@@ -39,6 +39,26 @@ func TestTailStartKeepsProviderToolApprovalPairs(t *testing.T) {
 	}
 }
 
+// A provider tool result answers the use before it, so a tail that starts
+// between them splits the exchange.
+func TestSplitsExchangeKeepsProviderToolPairs(t *testing.T) {
+	use := llm.Message{Role: llm.RoleAssistant, Content: []llm.Content{{
+		Kind:            llm.ContentProviderToolUse,
+		ProviderToolUse: &llm.ProviderToolUse{ID: "p1", Name: "web_search"},
+	}}}
+	result := llm.Message{Role: llm.RoleAssistant, Content: []llm.Content{{
+		Kind:               llm.ContentProviderToolResult,
+		ProviderToolResult: &llm.ProviderToolResult{CallID: "p1"},
+	}}}
+	messages := []llm.Message{use, llm.UserMessage(llm.Text("reminder")), result}
+	if !splitsExchange(messages[1:]) {
+		t.Fatal("a provider tool result without its use does not split the exchange")
+	}
+	if splitsExchange(messages) {
+		t.Fatal("a provider tool use and its result split the exchange")
+	}
+}
+
 // Sizes saturate, so two messages too large to estimate never add up to
 // a tail that looks small enough to keep.
 func TestTailStartSaturatesSizes(t *testing.T) {

@@ -80,6 +80,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   pause ended.
 - **A click on "lines below" returns to live output again.** Since the empty
   row above the composer was added, the click landed on that row instead.
+- **Compaction keeps a provider tool result with its use.** A kept tail
+  could start between a `ProviderToolUse` and its `ProviderToolResult`,
+  and the next turn failed with "provider tool result requires an earlier
+  use".
+- **`session` finds steers a turn missed when its end went unseen.** After a
+  lost stop acknowledgement, `Open` and `RunQueue` now count and run the
+  steers the ended turn never read; before, only a caller's `Start` did.
+- **`filerecorder.Recorder.Wait` no longer misses a commit after a torn
+  tail is truncated**, when the next commit brought the log back to the
+  size Wait first saw.
+- **`delegate` fixes for messages, deferred notices, and Stop:**
+  - A message a child dropped at a wait is not reported as unread again
+    when `Tasks.Run` continues the turn, and `Tasks.Recover` no longer sends
+    it as a new turn.
+  - A follow-up that closes a stopped turn whose notice waited for the host
+    (`Config.NoticeReady`) clears that notice, so `Tasks.Wait` no longer
+    returns an `AttentionError` for a turn nobody can act on.
+  - When the cancellation from `Tasks.Stop` during `Tasks.Run` has an
+    unknown result, the next `Tasks.Run` finishes it instead of refusing
+    every command with `ErrTaskCommandUnknown`.
 
 ## [0.15.1] - 2026-10-25
 
