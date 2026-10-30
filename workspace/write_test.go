@@ -41,3 +41,23 @@ func TestEditFileMatchesCRLFLines(t *testing.T) {
 		t.Fatalf("file = %q", got)
 	}
 }
+
+// A single-line old_string matches a CRLF file directly; new lines in
+// new_string still get CRLF, and an edit that only changes line ends is a
+// no-op.
+func TestApplyEditKeepsCRLF(t *testing.T) {
+	text := "first\r\nsecond\r\nthird\r\n"
+	got, _, err := applyEdit("f", text, editArgs{OldString: "second", NewString: "second\ninserted"})
+	if err != nil || got != "first\r\nsecond\r\ninserted\r\nthird\r\n" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	_, _, err = applyEdit("f", text, editArgs{OldString: "first\nsecond", NewString: "first\r\nsecond"})
+	if err == nil {
+		t.Fatal("CRLF-only change succeeded")
+	}
+	// A file with LF lines keeps them, even with one stray CRLF.
+	got, _, err = applyEdit("f", "a\nb\r\nc\n", editArgs{OldString: "a", NewString: "a\nz"})
+	if err != nil || got != "a\nz\nb\r\nc\n" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}

@@ -45,6 +45,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **An `@mention` inside quoted prose is attached.** `mention.Expand` read
+  `"what does @main.go do?"` as one quoted path and skipped the mention.
+  A `MaxTextBytes`, `MaxImageBytes`, or `MaxFileBytes` of `math.MaxInt64`
+  no longer reads every file as empty.
+- **`edit_file` keeps CRLF line ends** when a single-line `old_string`
+  matches and `new_string` adds lines, and refuses an edit that only
+  changes `\n` to `\r\n`.
+- **`tool.Func` rejects arguments it cannot decode before hooks and
+  approval run.** `ValidateArguments` now decodes into the argument type,
+  so an invalid `[]byte`, `,string`, or out-of-range value fails as early
+  as it does in `Execute`. `tool.Func` also refuses any argument type with
+  an `UnmarshalText` method, such as `netip.Addr`, since its schema is a
+  string, not an object.
+- **`mcp.Toolset` stops listing the tools of a failed or closed server.**
+  `Refresh`, of any server, and `Close` now drop them from `Tools` and
+  `Status`.
 - **Keys typed just before Ctrl+G are kept.** The CLI now uses Wonton
   v0.11.0, which keeps input typed just before it hands the terminal to the
   external editor, even when the terminal hangs up at the same moment.

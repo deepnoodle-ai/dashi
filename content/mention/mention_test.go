@@ -3,6 +3,7 @@ package mention
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -407,6 +408,31 @@ func TestExpandMentionInBackticksOrQuotesAttaches(t *testing.T) {
 		if len(res.Blocks) != 1 || len(res.Warnings) != 0 {
 			t.Fatalf("%q: blocks = %d, warnings = %q", in, len(res.Blocks), res.Warnings)
 		}
+	}
+}
+
+func TestExpandMentionInsideQuotedProseAttaches(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "main.go"), []byte("package main"))
+
+	for _, in := range []string{
+		`Please explain "what does @main.go do?"`,
+		`Fix the stray " in @main.go where "ok" is printed`,
+	} {
+		res := Expand(in, Options{Root: root})
+		if len(res.Blocks) != 1 || len(res.Warnings) != 0 {
+			t.Fatalf("%q: blocks = %d, warnings = %q", in, len(res.Blocks), res.Warnings)
+		}
+	}
+}
+
+func TestExpandMaxInt64LimitReadsFile(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "a.go"), []byte("package a"))
+
+	res := Expand("@a.go", Options{Root: root, MaxTextBytes: math.MaxInt64})
+	if len(res.Blocks) != 1 || len(res.Warnings) != 0 {
+		t.Fatalf("blocks = %d, warnings = %q", len(res.Blocks), res.Warnings)
 	}
 }
 

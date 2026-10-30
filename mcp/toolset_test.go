@@ -733,4 +733,32 @@ func TestStatusAfterCloseReportsNoServerConnected(t *testing.T) {
 	if st.State != StateFailed || st.Err == nil || !strings.Contains(st.Err.Error(), "closed") {
 		t.Fatalf("status after Close = %+v", st)
 	}
+	if tools, _ := ts.Tools(t.Context()); len(tools) != 0 || st.Tools != 0 {
+		t.Fatalf("after Close: %d tools, status tools = %d", len(tools), st.Tools)
+	}
+}
+
+// Refreshing one server drops the tools of another that failed meanwhile.
+func TestRefreshOfOneServerDropsAFailedServersTools(t *testing.T) {
+	a, _ := stdioServer(t)
+	b, _ := stdioServer(t)
+	ts := open(t, map[string]Server{"a": a, "b": b}, Options{})
+	if _, err := run(t, ts, "mcp__a__exit", `{}`); err == nil {
+		t.Fatal("call to an exiting server succeeded")
+	}
+	waitFor(t, "the failed status", func() bool {
+		return statusOf(t, ts, "a").State == StateFailed
+	})
+	if err := ts.Refresh(t.Context(), "b"); err != nil {
+		t.Fatal(err)
+	}
+	tools, _ := ts.Tools(t.Context())
+	for _, tl := range tools {
+		if strings.HasPrefix(tl.Definition.Name, "mcp__a__") {
+			t.Fatalf("failed server's tool %s is still listed", tl.Definition.Name)
+		}
+	}
+	if st := statusOf(t, ts, "a"); st.Tools != 0 {
+		t.Fatalf("status of a = %+v", st)
+	}
 }
