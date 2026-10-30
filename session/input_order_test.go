@@ -229,3 +229,34 @@ func TestSessionLeftoversAfterLostStopAck(t *testing.T) {
 		t.Fatalf("input=%q", got)
 	}
 }
+
+// After a lost stop acknowledgement, Open and RunQueue see the steer the
+// ended turn missed, without waiting for a caller's Start to close it.
+func TestSessionLeftoversAfterLostStopAckRunQueue(t *testing.T) {
+	rec := dashi.NewMemoryRecorder()
+	client := held(1, dashitest.Reply("done"), dashitest.Reply("fresh"))
+	s := handle(&dashitest.FaultRecorder{
+		Recorder: rec, Kind: dashi.StepTurnStopped, Fault: dashitest.LoseAck,
+	}, client)
+	s.New = true
+	s.Agent.Limits.ModelCalls = 1
+	done := sendAsync(t.Context(), s, "start")
+	entered(t, client)
+	if _, err := s.Steer(t.Context(), "missed"); err != nil {
+		t.Fatal(err)
+	}
+	close(client.gate.release)
+	<-done
+	s.New = false
+	state, err := s.Open(t.Context())
+	if err != nil || state.Queued != 1 {
+		t.Fatalf("queued=%d err=%v, want the missed steer", state.Queued, err)
+	}
+	out, ran, err := s.RunQueue(t.Context())
+	if err != nil || !ran {
+		t.Fatalf("ran=%v err=%v", ran, err)
+	}
+	if got := input(t, rec, out.Turn.ID); !slices.Equal(got, []string{"missed"}) {
+		t.Fatalf("input=%q", got)
+	}
+}

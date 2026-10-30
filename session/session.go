@@ -378,6 +378,7 @@ func (s *Session) Open(ctx context.Context) (State, error) {
 	}
 	// A reservation that cannot be finished holds only the queue back.
 	_ = s.finishReserved(ctx)
+	s.reclaimLeftovers(ctx)
 	last, err := s.findLast(ctx)
 	if err != nil {
 		return State{}, err

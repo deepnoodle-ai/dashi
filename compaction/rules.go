@@ -140,9 +140,9 @@ func isStart(m llm.Message) bool {
 	})
 }
 
-// splitsExchange reports whether tail has a tool result whose call is not in
-// tail, or a provider tool approval response whose request is not in tail.
-// Such a tail is not valid history for a model.
+// splitsExchange reports whether tail has a tool result or provider tool
+// result whose call is not in tail, or a provider tool approval response
+// whose request is not in tail. Such a tail is not valid history for a model.
 func splitsExchange(tail []llm.Message) bool {
 	calls := map[string]bool{}
 	requests := map[string]bool{}
@@ -152,6 +152,10 @@ func splitsExchange(tail []llm.Message) bool {
 			case c.ToolCall != nil:
 				calls[c.ToolCall.ID] = true
 			case c.ToolResult != nil && !calls[c.ToolResult.CallID]:
+				return true
+			case c.ProviderToolUse != nil:
+				calls[c.ProviderToolUse.ID] = true
+			case c.ProviderToolResult != nil && !calls[c.ProviderToolResult.CallID]:
 				return true
 			case c.ProviderToolApprovalRequest != nil:
 				requests[c.ProviderToolApprovalRequest.ID] = true

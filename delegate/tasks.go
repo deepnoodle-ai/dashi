@@ -212,6 +212,9 @@ type childTurn struct {
 	suppressed bool
 	// unread counts the messages sent to the turn that it never read.
 	unread int
+	// droppedBefore is set by Recover when an earlier stop in the turn's
+	// record dropped its mail, as a wait that Tasks.Run later continued.
+	droppedBefore bool
 	// recorded closes once the child's record holds the turn, or the turn
 	// failed first, with startErr set. It is nil for a turn Tasks did not
 	// start, such as a queue turn.
@@ -259,14 +262,25 @@ func (c *childTurn) markRecorded() {
 
 // setNotice records the notice of turn's newest stop. A stop after the one
 // the turn last reported, such as the end of a turn that Tasks.Run
-// continued, is reported again, with its own notice. The caller holds
-// ts.mu.
+// continued, is reported again, with its own notice. The messages the
+// reported stop counted as not read are not counted again. The caller
+// holds ts.mu.
 func (c *childTurn) setNotice(turn dashi.Turn) {
 	id := noticeIDOf(turn)
 	if c.notice != "" && c.notice != id {
+		if c.reported {
+			c.unread = 0
+		}
 		c.notified, c.reported, c.suppressed = false, false, false
 	}
 	c.notice = id
+}
+
+// dropsMail reports whether mail sent to the turn never reaches it: the
+// turn stopped where it drops its mail, now or at an earlier stop of its
+// record.
+func (c *childTurn) dropsMail() bool {
+	return dropOnStop(c.state) || c.droppedBefore
 }
 
 // noticeID returns the ID of the notice for the turn's newest stop.
@@ -730,6 +744,12 @@ func (ts *Tasks) restoreLocked(
 			v := rec.views[i]
 			c.final = &v
 			c.state, c.answer, c.reason = endState(ts, stop, v)
+			// A message the record lacks never reached an ended turn
+			// that stopped where it drops its mail, though Tasks.Run
+			// continued it to a later stop.
+			c.droppedBefore = slices.ContainsFunc(turn.Steps, func(s dashi.Step) bool {
+				return s.Stop != nil && dropOnStop(TaskState(s.Stop.Kind))
+			})
 		}
 		c.setNotice(turn)
 		if delivered[c.noticeID()] {
@@ -955,6 +975,7 @@ func (ts *Tasks) stream(ctx context.Context, t *task, cmd dashi.Command) {
 			if ts.ended(t, id) {
 				// A Start closed the stopped turn before it; that turn
 				// already ended here.
+				ts.closedByStart(t, id)
 				continue
 			}
 			if ts.isStopping(t) {
@@ -1010,6 +1031,21 @@ func (ts *Tasks) ended(t *task, id string) bool {
 	defer ts.mu.Unlock()
 	c := t.find(id)
 	return c != nil && c.state != TaskRunning
+}
+
+// closedByStart settles a stopped turn that a Start closed. A notice the
+// turn held for the host (see Config.NoticeReady) waits for nothing now,
+// since the host can no longer act on that turn, so it is never sent.
+func (ts *Tasks) closedByStart(t *task, id string) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	c := t.find(id)
+	if c == nil || !c.deferred {
+		return
+	}
+	c.deferred = false
+	c.suppressed = !c.reported
+	ts.reportedLocked(c, false)
 }
 
 // errNoOutcome marks a run that ended without a result or an error.
