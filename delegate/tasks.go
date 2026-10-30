@@ -281,6 +281,15 @@ func (c *childTurn) setNotice(turn dashi.Turn) {
 // or at an earlier stop of its record. Only steers into the turn count;
 // mail that waited on the turn after that stop, as for a turn Tasks.Run
 // continued, still reaches a later turn.
+//
+// After a restart, which steers the earlier stop dropped is unknown: that
+// list lives only in memory. So a steer into the continued turn that the
+// turn left unread, and that the process lost before the next turn
+// recorded it, also counts as dropped. Its notice says it was not read and
+// it is not sent again. The records of the two cases are the same, and
+// sending a dropped message again after the parent was told it was not
+// read would be worse. TestTaskRunDoesNotReportOrResendDroppedMail pins
+// this.
 func (c *childTurn) dropsSteers() bool {
 	return dropOnStop(c.state) || c.droppedBefore
 }
