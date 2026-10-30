@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -453,7 +454,8 @@ func (r *Renderer) approvalDecided(a *dashi.ApprovalDecision) {
 		c.decide = m
 	}
 	if !a.Approve {
-		c.denied = a.Reason
+		// The same sentence the model gets for a denial without a reason.
+		c.denied = cmp.Or(a.Reason, "The call was denied.")
 	}
 }
 
