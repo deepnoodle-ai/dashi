@@ -45,6 +45,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Realtime sessions report events in order.** Gemini Live usage in a
+  frame that starts a response now follows `EventResponseStarted` and
+  carries that response's ID. A setup deadline that passes while history is
+  being sent is a transport error, not a cancellation. A Grok Voice tool
+  call without a response ID belongs to the current response, so cancelling
+  the response cancels the call.
 - **Keys typed just before Ctrl+G are kept.** The CLI now uses Wonton
   v0.11.0, which keeps input typed just before it hands the terminal to the
   external editor, even when the terminal hangs up at the same moment.
