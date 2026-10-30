@@ -139,6 +139,43 @@ func TestRenderDeniedTool(t *testing.T) {
 	}
 }
 
+// A denial given later with Resolve shows its reason, and its decide line
+// replaces the one from the tool decision.
+func TestRenderResolvedDenial(t *testing.T) {
+	for _, c := range []struct {
+		name, reason, finding, summary string
+		flagged                        bool
+	}{
+		{"with rules", "Not now.", "severe 91% flagged (x)", "Not now.", true},
+		{"bare", "", "", "The call was denied.", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := NewRenderer(1, "m", "/repo")
+			decision := toolStep(dashi.StepToolDecision, time.Time{}, nil)
+			decision.Tool.Verdict = dashi.ToolVerdict{
+				Kind:         dashi.DecisionNeedsApproval,
+				RulesVersion: "decide/jev-1.13.0",
+				RulesFinding: "severe 10% ok (x)",
+			}
+			r.Event(stepEvent(decision))
+			r.Event(stepEvent(dashi.Step{
+				Kind: dashi.StepApprovalDecided,
+				Approval: &dashi.ApprovalDecision{
+					CallID:       "c1",
+					Reason:       c.reason,
+					RulesVersion: "decide/jev-1.13.0",
+					RulesFinding: c.finding,
+				},
+			}))
+			out := tl.Outcome{State: tl.StateNotExecuted}
+			b := onlyBlock(t, r.Event(stepEvent(toolStep(dashi.StepToolFinished, time.Time{}, &out))))
+			if b.State != StateDenied || b.Summary != c.summary || b.Decide == nil || b.Decide.Flagged != c.flagged {
+				t.Fatalf("denied=%+v decide=%+v", b, b.Decide)
+			}
+		})
+	}
+}
+
 func TestRenderStopKinds(t *testing.T) {
 	tests := []struct {
 		name string

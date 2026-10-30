@@ -13,7 +13,9 @@ import (
 // with the same text a selection of that part would copy.
 //
 // The menu is modal while open. It takes every key and mouse event, except
-// Ctrl+C, which closes it and then does what it always does.
+// Ctrl+C, which closes it and then does what it always does. It closes when
+// the item it acts on changes kind or state, since its entries depend on
+// both.
 
 // openTranscriptMenu opens the menu at the screen position (x, y) for the
 // item at the viewport position local. It does nothing while a dialog, the
@@ -23,11 +25,13 @@ func (s *screen) openTranscriptMenu(x, y int, local tui.MouseEvent) {
 		return
 	}
 	var items []tui.MenuItem
+	item := -1
 	if s.vp.SelectedText() != "" {
 		items = append(items, tui.MenuItem{Label: "Copy selection", Hint: "Ctrl+C", Action: func() { s.copySelection() }})
 	}
 	if i, _, ok := s.vp.ItemAt(local.X, local.Y); ok {
 		if more := s.transcriptMenuItems(i); len(more) > 0 {
+			item = i
 			if len(items) > 0 {
 				items = append(items, tui.MenuSeparator())
 			}
@@ -36,6 +40,10 @@ func (s *screen) openTranscriptMenu(x, y int, local tui.MouseEvent) {
 	}
 	if len(items) == 0 {
 		return
+	}
+	s.transcriptMenuItem = item
+	if item >= 0 {
+		s.transcriptMenuShape = shapeOf(s.tr.Blocks[item])
 	}
 	s.transcriptMenu.Open(x, y, "", items)
 }
@@ -47,14 +55,19 @@ func (s *screen) transcriptMenuItems(i int) []tui.MenuItem {
 		return nil
 	}
 	b := s.tr.Blocks[i]
-	copyEntry := func(label, text string) []tui.MenuItem {
-		if strings.TrimSpace(text) == "" {
+	// An entry reads the item's text when chosen, so a message that
+	// streamed on after the menu opened is copied whole.
+	copyEntry := func(label string, text func() string) []tui.MenuItem {
+		if strings.TrimSpace(text()) == "" {
 			return nil
 		}
-		return []tui.MenuItem{{Label: label, Action: func() { s.copyText(text, false) }}}
+		return []tui.MenuItem{{Label: label, Action: func() { s.copyText(text(), false) }}}
 	}
 	// Source is what a selection of the whole item copies.
-	source, _ := s.Source(i)
+	source := func() string {
+		text, _ := s.Source(i)
+		return text
+	}
 	switch b.Kind {
 	case KindTool:
 		var items []tui.MenuItem
@@ -65,7 +78,14 @@ func (s *screen) transcriptMenuItems(i int) []tui.MenuItem {
 			}
 			items = append(items, tui.MenuItem{Label: label, Action: func() { s.toggleTool(i) }})
 		}
-		input, output := toolSections(b)
+		input := func() string {
+			text, _ := toolSections(s.tr.Blocks[i])
+			return text
+		}
+		output := func() string {
+			_, text := toolSections(s.tr.Blocks[i])
+			return text
+		}
 		items = append(items, copyEntry("Copy input", input)...)
 		// A running call's output is only its latest lines.
 		if toolEnded(b.State) {

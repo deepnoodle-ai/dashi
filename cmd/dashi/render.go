@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -289,6 +290,8 @@ func (r *Renderer) step(s dashi.Step) []Block {
 		out = append(out, r.modelFinished(s)...)
 	case dashi.StepToolDecision:
 		out = append(out, r.toolDecision(s)...)
+	case dashi.StepApprovalDecided:
+		r.approvalDecided(s.Approval)
 	case dashi.StepToolStarted:
 		out = append(out, r.toolStarted(s)...)
 	case dashi.StepToolFinished:
@@ -435,6 +438,25 @@ func (r *Renderer) toolDecision(s dashi.Step) []Block {
 		c.denied = s.Tool.Verdict.Reason
 	}
 	return nil
+}
+
+// approvalDecided records a host decision given later with Resolve. A check
+// recorded with the decision replaces the one from the tool decision.
+func (r *Renderer) approvalDecided(a *dashi.ApprovalDecision) {
+	if a == nil {
+		return
+	}
+	c := r.calls[a.CallID]
+	if c == nil {
+		return
+	}
+	if m := markFromRecord(a.RulesVersion, a.RulesFinding); m != nil {
+		c.decide = m
+	}
+	if !a.Approve {
+		// The same sentence the model gets for a denial without a reason.
+		c.denied = cmp.Or(a.Reason, "The call was denied.")
+	}
 }
 
 func (r *Renderer) toolStarted(s dashi.Step) []Block {

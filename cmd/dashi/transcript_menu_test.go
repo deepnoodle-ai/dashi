@@ -302,6 +302,59 @@ func TestRightClickDoesNothingWhileSomethingElseHoldsTheScreen(t *testing.T) {
 	}
 }
 
+// The menu stays open while its item streams on, copies the item's text as
+// it is when chosen, and closes when the item changes state.
+func TestTranscriptMenuFollowsItsItem(t *testing.T) {
+	f := newMenuFixture(t)
+	f.locked(func() { f.scr.Emit(Block{ID: "live", Kind: KindAssistant, Text: "first part"}) })
+	f.rightClick("first part")
+	f.locked(func() { f.scr.Emit(Block{ID: "live", Kind: KindAssistant, Text: "first part and more"}) })
+	f.frame()
+	f.choose("Copy message")
+	f.wantCopy("first part and more")
+
+	f.rightClick("Running a command")
+	running := Block{ID: "running", Kind: KindTool, Name: "bash", Input: "$ sleep 9", State: StateRunning, Lines: []string{"tick 2"}}
+	f.locked(func() { f.scr.Emit(running) })
+	f.frame()
+	if f.labels() == nil {
+		t.Fatal("progress closed the menu")
+	}
+	running.State, running.Done = StateOK, true
+	f.locked(func() { f.scr.Emit(running) })
+	f.frame()
+	if f.labels() != nil {
+		t.Fatal("menu stayed open after its tool call ended")
+	}
+}
+
+// The wheel does not scroll the transcript under an open menu.
+func TestTranscriptMenuKeepsTheWheel(t *testing.T) {
+	f := newMenuFixture(t)
+	f.locked(func() {
+		for range 60 {
+			f.scr.Emit(Block{Kind: KindUser, Text: "filler", Done: true})
+		}
+	})
+	x, y := cellOf(t, strings.Split(f.frame(), "\n"), "filler")
+	wheel := func() {
+		f.locked(func() {
+			f.scr.HandleEvent(tui.MouseEvent{Type: tui.MouseScroll, Button: tui.MouseButtonWheelUp, X: x, Y: y})
+		})
+	}
+	f.rightClick("filler")
+	wheel()
+	if f.labels() == nil || !f.check(func() bool { return f.scr.vp.Follow }) {
+		t.Fatal("the wheel reached the transcript under the menu")
+	}
+	// With the menu closed, the same wheel scrolls.
+	f.locked(f.scr.transcriptMenu.Close)
+	wheel()
+	if f.check(func() bool { return f.scr.vp.Follow }) {
+		t.Fatal("the wheel did not scroll")
+	}
+}
+
 // A dialog that arrives while the menu is open takes the keys from it.
 func TestADialogClosesTheTranscriptMenu(t *testing.T) {
 	f := newMenuFixture(t)
