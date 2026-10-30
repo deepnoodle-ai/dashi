@@ -204,6 +204,9 @@ func (c *Client) Connect(ctx context.Context, in realtime.Config) (realtime.Sess
 	}
 	if e := s.seedHistory(setupCtx, in.History); e != nil {
 		s.Close()
+		if ctx.Err() == nil && setupCtx.Err() != nil {
+			return nil, realtime.Failf(realtime.ErrorTransport, "history not sent within %v", setupTimeout)
+		}
 		return nil, e
 	}
 	return s, nil

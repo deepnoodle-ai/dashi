@@ -440,11 +440,10 @@ func (s *Session) google(m map[string]any) error {
 			}
 		}
 	}
-	if usage := object(m, "usageMetadata"); usage != nil {
-		if e := s.usage(usage, true); e != nil {
-			return e
-		}
-	}
+	// Usage is reported after the frame's output, so a frame that starts a
+	// response reports EventResponseStarted first and the usage carries the
+	// new response's ID.
+	usage := object(m, "usageMetadata")
 	if _, ok := m["goAway"]; ok {
 		return realtime.Fail(realtime.ErrorProvider)
 	}
@@ -483,7 +482,7 @@ func (s *Session) google(m map[string]any) error {
 	}
 	c := object(m, "serverContent")
 	if c == nil {
-		return nil
+		return s.googleUsage(usage)
 	}
 	if interrupted, _ := c["interrupted"].(bool); interrupted {
 		if err := s.finalizeGoogleOutput(); err != nil {
@@ -560,6 +559,9 @@ func (s *Session) google(m map[string]any) error {
 			return err
 		}
 	}
+	if e := s.googleUsage(usage); e != nil {
+		return e
+	}
 	if done, _ := c["turnComplete"].(bool); done {
 		// A turn with no model output started no response to complete.
 		if s.open {
@@ -572,6 +574,12 @@ func (s *Session) google(m map[string]any) error {
 		s.discard = false
 	}
 	return nil
+}
+func (s *Session) googleUsage(usage map[string]any) error {
+	if usage == nil {
+		return nil
+	}
+	return s.usage(usage, true)
 }
 func array(m map[string]any, k string) []any { v, _ := m[k].([]any); return v }
 func (s *Session) grok(m map[string]any) error {
@@ -632,6 +640,11 @@ func (s *Session) grok(m map[string]any) error {
 	case "conversation.item.input_audio_transcription.updated":
 		return s.transcript(str(m, "transcript"), realtime.SpeakerUser, realtime.TranscriptModeReplace, false, r, i)
 	case "response.function_call_arguments.done":
+		// The call belongs to the current response when the event omits its
+		// ID, so a cancelled response still cancels the call.
+		if r == "" {
+			r = s.response
+		}
 		return s.call(str(m, "call_id"), str(m, "name"), m["arguments"], r, i)
 	case "error":
 		// A rejected response.create gets no response.created. Clearing the
