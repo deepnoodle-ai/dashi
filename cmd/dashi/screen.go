@@ -535,7 +535,7 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 		if s.ctrl.Mode() == ModeRunning || s.ctrl.Mode() == ModeApproval {
 			s.ctrl.CancelWork()
 		} else if p := s.selectionPane(); p != nil {
-			p.vp.ClearSelection()
+			p.clearSelection()
 		} else {
 			vp.ScrollToBottom()
 		}
