@@ -88,8 +88,17 @@ func (p *transcriptPane) Source(i int) (string, bool) {
 // input and output when the user expanded it, and spins while it runs.
 func (p *transcriptPane) liveBlock(i int) Block {
 	b := p.tr.Blocks[i]
+	// A task line opens the task's pane on click.
+	if b.Kind == KindTaskStatus {
+		b.Openable = true
+	}
 	if b.Kind != KindTool {
 		return b
+	}
+	if b.Task != nil {
+		task := *b.Task
+		task.Openable = true
+		b.Task = &task
 	}
 	b.Expanded = p.expanded[i] && toolExpandable(b)
 	if toolSpins(b.State) {
@@ -154,6 +163,47 @@ func (p *transcriptPane) clickTool(x, y int) bool {
 		p.toggleTool(i)
 	}
 	return true
+}
+
+// taskLineAt returns the ID of the task whose status line is drawn at the
+// viewport position (x, y). Under a tool row, the status line is the row's
+// last rendered lines.
+func (p *transcriptPane) taskLineAt(x, y int) (string, bool) {
+	i, line, ok := p.vp.ItemAt(x, y)
+	if !ok || i >= len(p.tr.Blocks) {
+		return "", false
+	}
+	b := p.tr.Blocks[i]
+	task := taskOfLine(b)
+	if task == "" {
+		return "", false
+	}
+	if b.Kind == KindTool {
+		head := p.liveBlock(i)
+		head.Task = nil
+		if _, rows := tui.Measure(toolView(head), p.vp.Width, 0); line < rows {
+			return "", false
+		}
+	}
+	return task, true
+}
+
+// truncate keeps the first n blocks and drops the rest, with their expanded
+// rows and the menu item that pointed at them.
+func (p *transcriptPane) truncate(n int) {
+	if n >= len(p.tr.Blocks) {
+		return
+	}
+	p.tr.truncate(n)
+	for i := range p.expanded {
+		if i >= n {
+			delete(p.expanded, i)
+		}
+	}
+	if p.menuItem >= n {
+		p.menuItem = -1
+	}
+	p.vp.InvalidateAll()
 }
 
 // local returns e in the viewport's own coordinates and whether it falls

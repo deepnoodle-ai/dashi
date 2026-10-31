@@ -35,6 +35,17 @@ type taskHost struct {
 	problems     map[string]string
 	wake         func()
 	observedSeq  map[string]int64
+	// watchers holds the one watcher of each watched task, by task ID (see
+	// Engine.WatchTask).
+	watchers map[string]taskWatcher
+	watchSeq uint64
+}
+
+// taskWatcher is the function that receives a watched task's child events.
+// n tells one watch of a task from a later one.
+type taskWatcher struct {
+	n  uint64
+	fn func(delegate.ChildEvent)
 }
 
 func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentResolver) *taskHost {
@@ -59,6 +70,15 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 		// holds them while a turn runs or waits for the host.
 		Session: chat,
 		OnChild: func(event delegate.ChildEvent) {
+			id := delegate.TaskID(delegate.ChildID(event.Parent.TurnID, event.Parent.CallID))
+			host.mu.Lock()
+			watcher := host.watchers[id].fn
+			host.mu.Unlock()
+			// The watcher gets every event, steps and previews alike, and
+			// orders them itself; observedSeq only spares status lines.
+			if watcher != nil {
+				defer watcher(event)
+			}
 			if event.Event.Step != nil {
 				host.mu.Lock()
 				seq := host.observedSeq[event.Event.TurnID]
@@ -68,7 +88,7 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 				}
 				host.observedSeq[event.Event.TurnID] = event.Event.Seq
 				host.mu.Unlock()
-				view := delegate.TaskView{ID: delegate.TaskID(delegate.ChildID(event.Parent.TurnID, event.Parent.CallID)), TurnID: event.Event.TurnID, Subagent: event.Subagent, State: delegate.TaskRunning}
+				view := delegate.TaskView{ID: id, TurnID: event.Event.TurnID, Subagent: event.Subagent, State: delegate.TaskRunning}
 				if event.Event.Step.Stop != nil {
 					view.State = delegate.TaskState(event.Event.Step.Stop.Kind)
 					view.Reason = event.Event.Step.Stop.Reason
@@ -242,7 +262,70 @@ func (e *Engine) closeTasks() error {
 		return fmt.Errorf("task shutdown unresolved; session stays owned: %w", err)
 	}
 	host.inputs.close()
+	host.mu.Lock()
+	host.watchers = nil
+	host.mu.Unlock()
 	return nil
+}
+
+// WatchTask calls fn with each child event of task id until unwatch runs.
+// fn runs on the child's observer goroutine and must return promptly. A
+// task has one watcher: a second watch replaces the first, and the first's
+// unwatch then does nothing. Closing the task host drops every watcher.
+func (e *Engine) WatchTask(id string, fn func(delegate.ChildEvent)) (unwatch func()) {
+	host := e.taskHost()
+	if host == nil {
+		return func() {}
+	}
+	host.mu.Lock()
+	host.watchSeq++
+	n := host.watchSeq
+	if host.watchers == nil {
+		host.watchers = map[string]taskWatcher{}
+	}
+	host.watchers[id] = taskWatcher{n: n, fn: fn}
+	host.mu.Unlock()
+	return func() {
+		host.mu.Lock()
+		defer host.mu.Unlock()
+		if host.watchers[id].n == n {
+			delete(host.watchers, id)
+		}
+	}
+}
+
+// TaskRecord returns the task's inspection snapshot and its recorded
+// child Turns, as /task ID and /tasks ID load them.
+func (e *Engine) TaskRecord(ctx context.Context, id string) (taskSnapshot, []dashi.Turn, error) {
+	snapshot, err := e.inspectTask(ctx, id)
+	if err != nil {
+		return taskSnapshot{}, nil, err
+	}
+	host := e.taskHost()
+	turns, err := host.loadTurns(ctx, snapshot.Task)
+	if err != nil {
+		return taskSnapshot{}, nil, err
+	}
+	return snapshot, turns, nil
+}
+
+// loadTurns loads the recorded child Turns of a task, in order. It reads
+// past the task's count of turns, which can trail a turn that just started.
+func (host *taskHost) loadTurns(ctx context.Context, task delegate.TaskView) ([]dashi.Turn, error) {
+	if host.inputs.loader == nil {
+		return nil, errors.New("task recorder cannot load records")
+	}
+	var turns []dashi.Turn
+	for n := 1; ; n++ {
+		turn, err := host.inputs.loader.Load(ctx, session.TurnID(task.SessionID, n))
+		if errors.Is(err, dashi.ErrTurnNotFound) {
+			return turns, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		turns = append(turns, turn)
+	}
 }
 
 // DriveTaskNotices is called only by the Controller's parent driver. It runs
@@ -475,23 +558,13 @@ func (e *Engine) taskConversation(ctx context.Context, id string) (string, error
 	if host == nil {
 		return "", errors.New("no task host is open")
 	}
-	if host.inputs.loader == nil {
-		return "", errors.New("task recorder cannot load records")
-	}
 	for _, task := range host.list() {
 		if task.ID != id {
 			continue
 		}
-		var turns []dashi.Turn
-		for n := 1; n <= max(task.Turns, 1); n++ {
-			turn, err := host.inputs.loader.Load(ctx, session.TurnID(task.SessionID, n))
-			if errors.Is(err, dashi.ErrTurnNotFound) {
-				break
-			}
-			if err != nil {
-				return "", err
-			}
-			turns = append(turns, turn)
+		turns, err := host.loadTurns(ctx, task)
+		if err != nil {
+			return "", err
 		}
 		return taskConversation(task, turns), nil
 	}

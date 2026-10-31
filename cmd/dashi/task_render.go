@@ -154,9 +154,30 @@ func taskCounts(v delegate.TaskView) []string {
 	return parts
 }
 
+// taskFacts is the text of a task status line: its counts, then the
+// inspect hint. taskLineTitle relies on the hint coming last.
 func taskFacts(v delegate.TaskView) string {
-	return strings.Join(append(taskCounts(v), "/task "+v.ID+" to inspect"), " · ")
+	return strings.Join(append(taskCounts(v), taskInspectHint(v.ID)), " · ")
 }
+
+func taskInspectHint(id string) string { return "/task " + id + " to inspect" }
+
+// taskTitle is what a task pane's title row says after the task ID, such
+// as "explore · running · 3 model calls · $0.0123".
+func taskTitle(v delegate.TaskView) string {
+	return joinNonEmpty(" · ", append([]string{v.Subagent, taskStateLabel(v)}, taskCounts(v)...)...)
+}
+
+// taskLineTitle is taskTitle read from a task status line, which carries
+// the state label and the counts of the latest TaskView.
+func taskLineTitle(b Block, subagent string) string {
+	counts := strings.TrimSuffix(b.Text, taskInspectHint(taskIDOf(b.Arg)))
+	return joinNonEmpty(" · ", subagent, b.Name, strings.TrimSuffix(counts, " · "))
+}
+
+// openMark ends a task line that opens a task pane on click. It is a faint
+// decoration of the fullscreen view, not part of the line's text.
+const openMark = " ›"
 
 // deliveredItemBlocks returns a block for each message from an agent in
 // msgs: a message line for an agent message, and a KindTaskResult marker
@@ -375,6 +396,9 @@ func taskLineView(b Block) tui.View {
 	// The text is the line's source for selection; the rest is a label.
 	views = append(views, tui.Text(" · ").Style(faintStyle),
 		tui.Text("%s", b.Text).SourceOffset(0).Wrap().Style(mutedStyle).Flex(1))
+	if b.Openable {
+		views = append(views, tui.Text(openMark).Style(faintStyle))
+	}
 	return tui.Group(views...)
 }
 
@@ -386,12 +410,16 @@ func withTaskLine(v tui.View, b Block) tui.View {
 	t := *b.Task
 	// The separator is its own view: a wrapping view drops the spaces at its
 	// edges, which would join the state and the separator where it wraps.
-	return tui.Stack(v, tui.Group(
+	line := []tui.View{
 		tui.Text("  %s", toolResultMarker).Style(faintStyle),
 		tui.Text("%s", t.Name).Style(taskLineStyle(t.State)),
 		tui.Text(" · ").Style(faintStyle),
 		tui.Text("%s", t.Text).Wrap().Style(mutedStyle).Flex(1),
-	)).Gap(0)
+	}
+	if t.Openable {
+		line = append(line, tui.Text(openMark).Style(faintStyle))
+	}
+	return tui.Stack(v, tui.Group(line...)).Gap(0)
 }
 func (c *Controller) endDialog() {
 	c.mu.Lock()
@@ -575,7 +603,17 @@ func (e *Engine) inspectTask(ctx context.Context, id string) (taskSnapshot, erro
 	}
 	return taskSnapshot{}, delegate.ErrUnknownTask
 }
+
+// taskDetails is what /task ID prints: the facts of the task, then each
+// recorded tool result and child message of its current Turn.
 func taskDetails(snapshot taskSnapshot) string {
+	return taskDetailFacts(snapshot) + taskRecordedOutput(snapshot)
+}
+
+// taskDetailFacts is the facts part of taskDetails: identity, state, spend,
+// limits, pending calls, approvals, and controls. A task pane shows it above
+// the child conversation, which shows the recorded output itself.
+func taskDetailFacts(snapshot taskSnapshot) string {
 	v := snapshot.View
 	var b strings.Builder
 	if !snapshot.Bound {
@@ -638,6 +676,13 @@ func taskDetails(snapshot taskSnapshot) string {
 	} else if !v.Stop.Ended {
 		fmt.Fprintf(&b, "Target controls: /task %s continue · /task %s done CALL_ID · /task %s discard\nContinue requires the recorded remedy; done requires verified completion of the exact started call.\n", snapshot.Task.ID, snapshot.Task.ID, snapshot.Task.ID)
 	}
+	return workspace.PrintableText(b.String())
+}
+
+// taskRecordedOutput lists the recorded tool results and child messages of
+// the snapshot's Turn.
+func taskRecordedOutput(snapshot taskSnapshot) string {
+	var b strings.Builder
 	for _, step := range snapshot.Turn.Steps {
 		if step.Kind == dashi.StepToolFinished && step.Tool != nil && step.Tool.Outcome != nil {
 			fmt.Fprintf(&b, "Recorded tool result: %s · call %s · %s\n%s\n", step.Tool.Call.Name, step.Tool.Call.ID, step.Tool.Outcome.State, taskDetailText(outputText(step.Tool.Outcome)))

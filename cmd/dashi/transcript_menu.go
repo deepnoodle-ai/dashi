@@ -49,6 +49,18 @@ func (s *screen) openTranscriptMenu(p *transcriptPane, x, y int, local tui.Mouse
 	s.transcriptMenu.Open(x, y, "", items)
 }
 
+// taskOfLine returns the task ID of a task status line, or of the status
+// line under a tool row, or "".
+func taskOfLine(b Block) string {
+	switch {
+	case b.Kind == KindTaskStatus:
+		return taskIDOf(b.Arg)
+	case b.Kind == KindTool && b.Task != nil:
+		return taskIDOf(b.Task.Arg)
+	}
+	return ""
+}
+
 // transcriptMenuItems returns the menu entries for item i of pane p. An
 // entry appears only when it has something to act on.
 func (s *screen) transcriptMenuItems(p *transcriptPane, i int) []tui.MenuItem {
@@ -69,9 +81,16 @@ func (s *screen) transcriptMenuItems(p *transcriptPane, i int) []tui.MenuItem {
 		text, _ := p.Source(i)
 		return text
 	}
+	// A task line opens the task's pane.
+	var open []tui.MenuItem
+	if task := taskOfLine(b); task != "" {
+		open = []tui.MenuItem{{Label: "Open task", Action: func() { s.openTask(task) }}}
+	}
 	switch b.Kind {
+	case KindTaskStatus:
+		return open
 	case KindTool:
-		var items []tui.MenuItem
+		items := open
 		if toolExpandable(b) {
 			label := "Expand"
 			if p.expanded[i] {

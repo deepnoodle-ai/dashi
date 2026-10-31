@@ -25,6 +25,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   does the same. Below 120 columns the panes fold to a tab strip. With only
   the main pane the screen is unchanged; inline and plain modes reply that
   panes need fullscreen.
+- **Live task panes in the fullscreen CLI.** Click a task line (it ends in
+  a faint `›`), choose "Open task" from its right-click menu, or type a
+  bare `/task ID` to watch a task beside the conversation. The pane shows
+  the task's facts, then its child conversation streaming live, recorded
+  steps first and each step once, including after a restart. Its title row
+  shows state, model calls, and spend, and says "needs approval" in the
+  warning color while the task waits for you. The fullscreen `/task ID`
+  details viewer is gone; inline and plain modes print the details as
+  before.
 - **Right-click menu on transcript items in the fullscreen CLI.** A tool
   line offers Expand or Collapse, Copy input, and Copy output; a message,
   reasoning, or diff offers to copy its text; and a selection adds Copy

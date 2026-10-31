@@ -129,6 +129,9 @@ type Block struct {
 	// DecideResult is the prompt-injection answer of a call's result, or
 	// nil: a warning the agent got, or a check that failed.
 	DecideResult *decideMark
+	// Openable marks a task status line that opens a task pane on click.
+	// Only the fullscreen view sets it, and draws a faint mark for it.
+	Openable bool
 }
 
 // Renderer turns Dashi events into blocks. The screen, line mode, and the run
@@ -799,6 +802,25 @@ func (t *Transcript) Apply(b Block) int {
 		t.index[b.ID] = len(t.Blocks) - 1
 	}
 	return len(t.Blocks) - 1
+}
+
+// truncate keeps the first n blocks and drops the rest.
+func (t *Transcript) truncate(n int) {
+	if n < 0 || n >= len(t.Blocks) {
+		return
+	}
+	t.Blocks = t.Blocks[:n:n]
+	t.index = map[string]int{}
+	for i, b := range t.Blocks {
+		if b.ID != "" {
+			t.index[b.ID] = i
+		}
+	}
+	for id := range t.toolDone {
+		if _, ok := t.index[id]; !ok {
+			delete(t.toolDone, id)
+		}
+	}
 }
 
 // FormatBlock returns the plain-text form of a block, without color, for line

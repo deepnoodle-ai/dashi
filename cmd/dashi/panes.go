@@ -58,6 +58,10 @@ type pane struct {
 	waiting bool
 	// onClose, if set, runs when the pane closes.
 	onClose func()
+	// feed renders a task pane's child events; subagent is its task's
+	// subagent. Task panes only.
+	feed     *taskFeed
+	subagent string
 }
 
 // paneSet owns every pane and the layout. Only the loop touches it.

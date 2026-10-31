@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/deepnoodle-ai/dashi"
@@ -61,8 +62,9 @@ func (c *Controller) taskInput(line string) bool {
 		// One list at the bottom. Status lines keep their places under the
 		// tool lines that started the tasks.
 		lines := []string{"Tasks:"}
+		waiting := c.broker.waitingOwners()
 		for _, task := range host.list() {
-			if owner, active := c.broker.activeOwner(); active && owner.TaskID == task.SessionID && task.Running() {
+			if task.Running() && slices.ContainsFunc(waiting, func(o brokerOwner) bool { return o.TaskID == task.SessionID }) {
 				task.State = taskApprovalPending
 			}
 			lines = append(lines, "  "+taskSummary(task))
@@ -96,6 +98,10 @@ func (c *Controller) taskInput(line string) bool {
 		return true
 	}
 	if action == "inspect" {
+		// In fullscreen, a bare /task ID opens or focuses the task's pane.
+		if opener, ok := c.ui.(interface{ OpenTask(string) bool }); ok && c.knownTask(id) && opener.OpenTask(id) {
+			return true
+		}
 		show := func(ctx context.Context) {
 			snapshot, err := c.eng.inspectTask(ctx, id)
 			if err != nil {
@@ -105,13 +111,7 @@ func (c *Controller) taskInput(line string) bool {
 			if owner, active := c.broker.activeOwner(); active && owner.TaskID == snapshot.Task.SessionID {
 				snapshot.Prompt = &owner.Call
 			}
-			if viewer, ok := c.ui.(interface {
-				ChooseTaskDetails(context.Context, string, string)
-			}); ok && c.Mode() == ModeCommand {
-				_ = c.broker.presentOnly(ctx, func() { viewer.ChooseTaskDetails(ctx, id, taskDetails(snapshot)) })
-			} else {
-				c.notice("%s", taskDetails(snapshot))
-			}
+			c.notice("%s", taskDetails(snapshot))
 		}
 		if c.Mode() == ModeIdle {
 			c.async(show)
@@ -136,6 +136,15 @@ func (c *Controller) taskInput(line string) bool {
 		c.goWork(func() { work(c.base) })
 	}
 	return true
+}
+
+// knownTask reports whether the open session has task id.
+func (c *Controller) knownTask(id string) bool {
+	host := c.eng.taskHost()
+	if host == nil {
+		return false
+	}
+	return slices.ContainsFunc(host.list(), func(v delegate.TaskView) bool { return v.ID == id })
 }
 
 // taskCommandID binds the full target and payload by JSON meaning. Original

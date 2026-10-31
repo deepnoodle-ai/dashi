@@ -103,6 +103,8 @@ func (s *screen) transcriptCommand(name, arg string) {
 		s.toggleMouse()
 	case "/pane":
 		s.paneCommand(arg)
+	case "/task":
+		s.openTask(arg)
 	case "/scrollback":
 		if arg != "" && arg != "raw" {
 			s.Emit(warnBlock("Usage: /scrollback [raw]"))
@@ -296,6 +298,13 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 	}
 	if p.vp.HandleMouse(local) {
 		return
+	}
+	if e.Type == tui.MouseClick && e.Button == tui.MouseButtonLeft {
+		// A click on a task line opens the task's pane.
+		if id, ok := p.taskLineAt(local.X, local.Y); ok {
+			s.openTask(id)
+			return
+		}
 	}
 	if e.Type == tui.MouseClick && e.Button == tui.MouseButtonLeft && !p.clickTool(local.X, local.Y) {
 		if area, ok := s.hits.At(e.X, e.Y); ok && area == linesBelowArea {

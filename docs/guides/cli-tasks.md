@@ -15,9 +15,17 @@ calls with no recorded result. Inspection sends no model request, loads no
 attachment content, and has no external effect. Long messages/results disclose
 their 64 KiB display limit; the full content remains in the Turn record.
 
-Fullscreen and inline modes use the native detail viewport. Page Up/Down
-scrolls; Enter/Escape closes it. The composer draft and attachment selection
-return afterward. Plain mode prints the same details.
+In fullscreen mode, a bare `/task ID` opens that task's pane beside the
+conversation, or focuses it if it is open. Clicking a task line, which ends
+in a faint `›`, or choosing "Open task" from its right-click menu does the
+same. The pane's title row shows the task ID, subagent, state, model calls,
+and spend, and turns to the warning color with "needs approval" while the
+task waits for you. Below the title, the pane shows the facts of `/task ID`,
+then the child's conversation, streaming live in the same style as the main
+pane: recorded steps first, then live ones, each once. A turn that
+`task_send` starts continues in the same pane. An ended task keeps its pane
+until you close it; closing a pane never stops the task. Typing still goes
+to the main agent. Inline and plain modes print the details instead.
 
 Each approval identifies the original child Turn/call, tool, arguments, and
 existing preview/scope. Parent and child questions share one dialog owner.

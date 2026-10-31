@@ -309,3 +309,56 @@ func TestGutterDragResizes(t *testing.T) {
 		t.Fatal("a gutter drag selected text")
 	}
 }
+
+// With panes side by side the terminal reports every pointer motion, so
+// hover events (no button) arrive between and after presses. Drag,
+// double-click, and triple-click selection in main must work as with one
+// pane.
+func TestMainSelectionWorksUnderMotionReporting(t *testing.T) {
+	for _, sides := range []bool{false, true} {
+		t.Run(fmt.Sprintf("sides=%v", sides), func(t *testing.T) {
+			s := terminalVisualFixture(t, "success", 120, 40)
+			if sides {
+				openTestPanes(s, true)
+			}
+			rows := strings.Split(frameText(s), "\n")
+			hover := func(x, y int) {
+				s.HandleEvent(tui.MouseEvent{Type: tui.MouseMove, Button: tui.MouseButtonNone, X: x, Y: y})
+			}
+			x, y := cellOf(t, rows, "I’ll inspect")
+			hover(x, y)
+			s.HandleEvent(tui.MouseEvent{Type: tui.MousePress, Button: tui.MouseButtonLeft, X: x, Y: y})
+			s.HandleEvent(tui.MouseEvent{Type: tui.MouseDrag, Button: tui.MouseButtonLeft, X: x + 4, Y: y})
+			s.HandleEvent(tui.MouseEvent{Type: tui.MouseDrag, Button: tui.MouseButtonLeft, X: x + 12, Y: y})
+			s.HandleEvent(tui.MouseEvent{Type: tui.MouseRelease, Button: tui.MouseButtonLeft, X: x + 12, Y: y})
+			// Hovering after the release leaves the selection alone.
+			hover(x+30, y+2)
+			hover(x+40, y)
+			if got := s.main().vp.SelectedText(); got != "I’ll inspect" {
+				t.Fatalf("drag selected %q", got)
+			}
+			// The word "inspect" starts after "I’ll ".
+			wx, wy := x+5, y
+			clickN := func(n int) {
+				s.HandleEvent(tui.MouseEvent{Type: tui.MousePress, Button: tui.MouseButtonLeft, X: wx + 1, Y: wy})
+				s.HandleEvent(tui.MouseEvent{Type: tui.MouseRelease, Button: tui.MouseButtonLeft, X: wx + 1, Y: wy})
+				s.HandleEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: n, X: wx + 1, Y: wy})
+			}
+			hover(wx, wy)
+			clickN(1)
+			clickN(2)
+			hover(wx+5, wy)
+			if got := s.main().vp.SelectedText(); got != "inspect" {
+				t.Fatalf("double-click selected %q", got)
+			}
+			clickN(3)
+			hover(wx+9, wy+1)
+			if got := s.main().vp.SelectedText(); !strings.HasPrefix(got, "I’ll inspect the composer") {
+				t.Fatalf("triple-click selected %q", got)
+			}
+			if s.panes.active != mainPaneID {
+				t.Fatal("selection in main did not activate it")
+			}
+		})
+	}
+}

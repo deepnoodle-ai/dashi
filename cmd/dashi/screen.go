@@ -77,6 +77,14 @@ type screen struct {
 	// transcriptMenuPane is the ID of the pane whose item it acts on.
 	transcriptMenu     tui.MenuState
 	transcriptMenuPane string
+	// tasks is where task panes watch and load tasks: the Engine.
+	tasks taskSource
+	// taskOpens numbers task pane opens; flushes counts drains, which
+	// time a task feed's missing step. gapCheck is set while a flush is
+	// due for a missing step.
+	taskOpens uint64
+	flushes   uint64
+	gapCheck  bool
 }
 
 // blockShape is what the transcript menu's entries depend on.
@@ -88,10 +96,13 @@ type blockShape struct {
 
 func shapeOf(b Block) blockShape { return blockShape{b.Kind, b.State, b.Done} }
 
-// queued is one item of pending work: a block to show, or a reset.
+// queued is one item of pending work: a block to show, a reset, a child
+// event for a task pane, or a task record load result.
 type queued struct {
 	block Block
 	reset bool
+	child *taskChildEvent
+	load  *taskLoad
 }
 
 type approvalPrompt struct {
@@ -235,7 +246,7 @@ func (s *screen) paneWidth(id string) int {
 
 // bind connects the screen to the app built around it.
 func (s *screen) bind(a *app) {
-	s.ctrl, s.eng, s.model = a.ctrl, a.eng, a.eng.Model
+	s.ctrl, s.eng, s.model, s.tasks = a.ctrl, a.eng, a.eng.Model, a.eng
 	s.startMCP = func() { a.startMCP(true) }
 }
 
@@ -383,10 +394,21 @@ func (s *screen) drain() {
 			s.generation++
 			continue
 		}
+		if q.child != nil {
+			s.taskChild(*q.child)
+			continue
+		}
+		if q.load != nil {
+			s.taskLoaded(*q.load)
+			continue
+		}
 		if s.main().apply(q.block) && s.transcriptMenuPane == mainPaneID {
 			s.transcriptMenu.Close()
 		}
+		s.taskLine(q.block)
 	}
+	s.flushes++
+	s.settleTaskFeeds()
 }
 
 // --- events ---
@@ -405,6 +427,8 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		before := s.spinnerFrame()
 		s.frame = e.Frame
 		spin := s.spinnerFrame() != before
+		// A prompt queued behind the open dialog posts no event.
+		s.refreshWaiting()
 		if spin {
 			for _, p := range s.visiblePanes() {
 				p.spinTools()
@@ -459,6 +483,7 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		s.transcriptMenu.Close()
 		s.endDialogStatus()
 		s.approval, s.asking, s.picker = e.approval, e.asking, e.picker
+		s.refreshWaiting()
 		return []tui.Cmd{tui.Focus(s.focusID())}
 	case endPromptEvent:
 		if e.id != s.promptID {
@@ -466,6 +491,9 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		}
 		s.clearPrompts()
 		return []tui.Cmd{tui.Focus(inputID)}
+	case taskGapEvent:
+		s.gapCheck = false
+		s.drain()
 	}
 	return nil
 }
@@ -478,6 +506,7 @@ func (s *screen) clearPrompts() {
 	if s.promptActive {
 		s.input, s.savedDraft, s.promptActive = s.savedDraft, "", false
 	}
+	s.refreshWaiting()
 }
 
 func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
@@ -716,8 +745,4 @@ func (s *screen) inputSubmit(id uint64) func(string) {
 // screen leaves no scrollback, so the program prints this on exit.
 func (s *screen) dumpTranscript(w io.Writer) {
 	s.main().dump(w)
-}
-
-func (s *screen) ChooseTaskDetails(ctx context.Context, id, text string) {
-	s.choosePicker(ctx, &pickerState{title: "Task " + id, options: []string{"Close details"}, details: []string{text}, sessionCards: true})
 }
