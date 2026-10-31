@@ -17,13 +17,22 @@ import (
 // View implements tui.Application.
 func (s *screen) View() tui.View {
 	s.hits.Reset()
-	view := belowTranscript(tui.PaddingLTRB(1, 0, 1, 0, tui.Viewport(&s.vp, s).Gap(1)), s.footer())
+	view := belowTranscript(tui.Split(&s.split, s.paneView), s.footer())
 	// The menu goes last so it draws over everything else.
 	view = tui.ZStack(view, s.transcriptMenuView()).Align(tui.AlignLeft)
 	if s.noColor {
 		return withoutColors(view, s.height)
 	}
 	return view
+}
+
+// paneView draws the pane with this ID for the split layout.
+func (s *screen) paneView(id string) tui.View {
+	p := s.panes[id]
+	if p == nil {
+		return nil
+	}
+	return tui.PaddingLTRB(1, 0, 1, 0, tui.Viewport(&p.vp, p).Gap(1))
 }
 
 // linesBelowArea tags the "lines below" line; a click on it returns to live
@@ -52,9 +61,9 @@ func (s *screen) footer() tui.View {
 	if hint := s.selectionHint(); hint != "" {
 		views = append(views, tui.Text(" %s", hint).Wrap().Style(hintStyle))
 	}
-	if !s.vp.AtBottom && s.vp.LinesBelow > 0 {
+	if vp := &s.focused().vp; !vp.AtBottom && vp.LinesBelow > 0 {
 		views = append(views, s.hits.Area(linesBelowArea,
-			tui.Text(" %d lines below · Ctrl+End returns to live output", s.vp.LinesBelow).Style(hintStyle)))
+			tui.Text(" %d lines below · Ctrl+End returns to live output", vp.LinesBelow).Style(hintStyle)))
 	}
 	var menu []commandMenuItem
 	switch {
@@ -218,8 +227,9 @@ func (s *screen) inputHint(mode Mode) string {
 	case mode == ModeCommand && !s.eng.cfg.MCP.Ready():
 		return "Starting MCP servers. Submit input after startup finishes; Ctrl-C cancels startup."
 	case mode == ModeRunning:
-		for i := len(s.tr.Blocks) - 1; i >= 0; i-- {
-			b := s.tr.Blocks[i]
+		blocks := s.main().tr.Blocks
+		for i := len(blocks) - 1; i >= 0; i-- {
+			b := blocks[i]
 			if b.Kind == KindUser {
 				break
 			}

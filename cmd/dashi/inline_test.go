@@ -223,7 +223,7 @@ func TestInlineMediaWarningReachesScrollbackOnce(t *testing.T) {
 		t.Fatal("warning update flushed unfinished answer")
 	}
 	warnings := 0
-	for _, block := range i.tr.Blocks {
+	for _, block := range i.main().tr.Blocks {
 		if block.State == "unavailable" {
 			warnings++
 		}

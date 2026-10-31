@@ -126,7 +126,7 @@ func (f *menuFixture) wantCopy(want string) {
 		f.t.Fatalf("nothing copied, want %q", want)
 	}
 	f.waitFor(func() bool {
-		for _, b := range f.scr.tr.Blocks {
+		for _, b := range f.scr.main().tr.Blocks {
 			if b.Kind == KindNotice && b.Text == "Copied for the fixture." {
 				return true
 			}
@@ -236,7 +236,7 @@ func TestTranscriptMenuClosesWithoutSideEffects(t *testing.T) {
 	})
 	f.rightClick("pass.")
 	f.locked(func() { f.scr.HandleEvent(tui.KeyEvent{Key: tui.KeyEscape}) })
-	if f.labels() != nil || !f.check(f.scr.vp.HasSelection) {
+	if f.labels() != nil || !f.check(f.scr.main().vp.HasSelection) {
 		t.Fatal("Escape did not just close the menu")
 	}
 
@@ -247,7 +247,7 @@ func TestTranscriptMenuClosesWithoutSideEffects(t *testing.T) {
 	if f.labels() != nil {
 		t.Fatal("a click outside left the menu open")
 	}
-	if got := f.frame(); strings.Contains(got, "ok  pkg") || !f.check(f.scr.vp.HasSelection) {
+	if got := f.frame(); strings.Contains(got, "ok  pkg") || !f.check(f.scr.main().vp.HasSelection) {
 		t.Fatalf("the click outside reached the transcript:\n%s", got)
 	}
 	// A right-click outside closes it too, without opening another.
@@ -295,7 +295,7 @@ func TestRightClickDoesNothingWhileSomethingElseHoldsTheScreen(t *testing.T) {
 			if got := f.labels(); got != nil {
 				t.Fatalf("menu opened: %v", got)
 			}
-			if c.name == "drag" && !f.check(f.scr.vp.SelectionActive) {
+			if c.name == "drag" && !f.check(f.scr.main().vp.SelectionActive) {
 				t.Fatal("the right-click ended the drag")
 			}
 		})
@@ -344,13 +344,13 @@ func TestTranscriptMenuKeepsTheWheel(t *testing.T) {
 	}
 	f.rightClick("filler")
 	wheel()
-	if f.labels() == nil || !f.check(func() bool { return f.scr.vp.Follow }) {
+	if f.labels() == nil || !f.check(func() bool { return f.scr.main().vp.Follow }) {
 		t.Fatal("the wheel reached the transcript under the menu")
 	}
 	// With the menu closed, the same wheel scrolls.
 	f.locked(f.scr.transcriptMenu.Close)
 	wheel()
-	if f.check(func() bool { return f.scr.vp.Follow }) {
+	if f.check(func() bool { return f.scr.main().vp.Follow }) {
 		t.Fatal("the wheel did not scroll")
 	}
 }

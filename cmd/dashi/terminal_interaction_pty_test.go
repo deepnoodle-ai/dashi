@@ -144,7 +144,7 @@ func (c *terminalInteractionCapture) write(s *screen) {
 		Copies, Sends, Prepared, Width, Height, ViewportY int
 		Mode                                              Mode
 		Mouse, FileWarning                                bool
-	}{Draft: terminalProof(s.input), Selected: terminalProof(s.vp.SelectedText()), Mode: s.ctrl.Mode(), Mouse: s.mouseEnabled, Width: s.width, Height: s.height, ViewportY: s.vp.Y}
+	}{Draft: terminalProof(s.input), Selected: terminalProof(s.main().vp.SelectedText()), Mode: s.ctrl.Mode(), Mouse: s.mouseEnabled, Width: s.width, Height: s.height, ViewportY: s.main().vp.Y}
 	c.mu.Lock()
 	state.Clipboard, state.Copies = terminalProof(c.clipboard), c.copies
 	c.mu.Unlock()
@@ -162,7 +162,7 @@ func (c *terminalInteractionCapture) write(s *screen) {
 		}
 	}
 	client.mu.Unlock()
-	for _, block := range s.tr.Blocks {
+	for _, block := range s.main().tr.Blocks {
 		if strings.Contains(block.Text, "file-selection limit") {
 			state.FileWarning = true
 		}

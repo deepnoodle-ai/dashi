@@ -150,7 +150,7 @@ func (s *screen) captureAttachmentEvidence() {
 		PDFSHA256   string
 		Picker      string
 		Session     string
-	}{s.input, attachmentRows(&s.attachments, s.ctrl.attachmentRoot), s.tr.Blocks, s.ctrl.Mode(), sends, docs, imageSize, imageHash, pdfSize, pdfHash, "", s.eng.Session().ID}
+	}{s.input, attachmentRows(&s.attachments, s.ctrl.attachmentRoot), s.main().tr.Blocks, s.ctrl.Mode(), sends, docs, imageSize, imageHash, pdfSize, pdfHash, "", s.eng.Session().ID}
 	if s.picker != nil {
 		state.Picker = s.picker.title
 	}
