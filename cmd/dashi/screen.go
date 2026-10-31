@@ -81,10 +81,12 @@ type screen struct {
 	tasks taskSource
 	// taskOpens numbers task pane opens. gapCheck is set while a flush is
 	// due for a task feed's missing step. clock, if set, replaces
-	// time.Now for the feeds' gap wait, in tests.
-	taskOpens uint64
-	gapCheck  bool
-	clock     func() time.Time
+	// time.Now for the feeds' gap wait, in tests. taskTimeout, if set,
+	// replaces taskLoadTimeout, in tests.
+	taskOpens   uint64
+	gapCheck    bool
+	clock       func() time.Time
+	taskTimeout time.Duration
 	// inline is set in inline mode, which has no panes (see Panes).
 	inline bool
 	// taskHinted reports that the session's first task line showed the

@@ -67,14 +67,21 @@ func TestPaneSetRoomMaking(t *testing.T) {
 	const height = 17
 	ps.open(testPane("task:a", paneTask), height)
 	ps.open(testPane("task:b", paneTask), height)
+	ps.toggleZoom("task:b")
 	if _, ok := ps.open(testPane("task:c", paneTask), height); ok {
 		t.Fatal("opened with no room and no ended pane")
+	}
+	if ps.zoom != "task:b" {
+		t.Fatalf("a failed open changed zoom to %q", ps.zoom)
 	}
 	ps.get("task:a").ended = true
 	ps.get("task:b").ended, ps.get("task:b").waiting = true, true
 	closed, ok := ps.open(testPane("task:c", paneTask), height)
 	if !ok || closed == nil || closed.id != "task:a" {
 		t.Fatalf("closed=%v ok=%v, want task:a closed", closed, ok)
+	}
+	if ps.zoom != "" {
+		t.Fatal("an open kept the zoom")
 	}
 	// The active pane never closes to make room, nor one that waits.
 	ps.get("task:c").ended = true

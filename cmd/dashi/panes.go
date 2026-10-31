@@ -150,10 +150,11 @@ func columnFits(rows, height int) bool {
 // to check the right column has room. When it has none, open first closes
 // the oldest ended task pane that is neither active nor waiting, and
 // returns it as closed. When no pane may close, open adds nothing and
-// reports false. Opening a pane that is already open activates it.
+// reports false and keeps any zoom. Opening a pane that is already open
+// activates it. A successful open ends zoom.
 func (ps *paneSet) open(p *pane, height int) (closed *pane, ok bool) {
-	ps.zoom = ""
 	if ps.byID[p.id] != nil {
+		ps.zoom = ""
 		ps.active = p.id
 		return nil, true
 	}
@@ -170,6 +171,7 @@ func (ps *paneSet) open(p *pane, height int) (closed *pane, ok bool) {
 	p.opened = ps.opens
 	ps.byID[p.id] = p
 	ps.active = p.id
+	ps.zoom = ""
 	return closed, true
 }
 

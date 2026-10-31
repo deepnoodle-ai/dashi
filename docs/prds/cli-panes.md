@@ -1,7 +1,7 @@
 # Watch delegated tasks beside the conversation
 
 Status: In review\
-PRD PR: [#357](https://github.com/deepnoodle-ai/dashi/pull/357) · Implementation PR: Not opened · Updated: 2026-10-31\
+PRD PR: [#357](https://github.com/deepnoodle-ai/dashi/pull/357) · Implementation PR: [#361](https://github.com/deepnoodle-ai/dashi/pull/361) · Updated: 2026-10-31\
 Tech spec: [CLI panes](../design/cli-panes.md)
 
 ## Problem

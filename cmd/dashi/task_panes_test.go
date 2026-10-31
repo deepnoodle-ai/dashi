@@ -22,6 +22,8 @@ type fakeTaskSource struct {
 	unwatched int
 	calls     []string
 	record    func(id string) (taskSnapshot, []dashi.Turn, error)
+	// recordCtx, if set, replaces record and gets the load's context.
+	recordCtx func(ctx context.Context, id string) (taskSnapshot, []dashi.Turn, error)
 }
 
 func (f *fakeTaskSource) WatchTask(id string, fn func(delegate.ChildEvent)) func() {
@@ -39,15 +41,25 @@ func (f *fakeTaskSource) WatchTask(id string, fn func(delegate.ChildEvent)) func
 	}
 }
 
-func (f *fakeTaskSource) TaskRecord(_ context.Context, id string) (taskSnapshot, []dashi.Turn, error) {
+func (f *fakeTaskSource) TaskRecord(ctx context.Context, id string) (taskSnapshot, []dashi.Turn, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, "load "+id)
-	record := f.record
+	record, recordCtx := f.record, f.recordCtx
 	f.mu.Unlock()
+	if recordCtx != nil {
+		return recordCtx(ctx, id)
+	}
 	if record == nil {
 		return taskSnapshot{}, nil, errors.New("no record")
 	}
 	return record(id)
+}
+
+// firstCalls returns the first n watch and load calls, joined by commas.
+func (f *fakeTaskSource) firstCalls(n int) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return strings.Join(f.calls[:min(n, len(f.calls))], ",")
 }
 
 // send delivers a child event the way OnChild does.
@@ -107,7 +119,8 @@ func TestTaskPaneWatchesBeforeLoadingAndShowsRecordThenLive(t *testing.T) {
 		src.send("t_1", ev)
 	}
 	waitLoad(t, s)
-	if got := strings.Join(src.calls, ","); got != "watch t_1,load t_1" {
+	// The stop step's facts reload may already have started a third call.
+	if got := src.firstCalls(2); got != "watch t_1,load t_1" {
 		t.Fatalf("calls=%s", got)
 	}
 	got := strings.Join(strings.Split(paneText(p.feed), "\n"), "\n")
@@ -130,6 +143,26 @@ func TestTaskPaneWatchesBeforeLoadingAndShowsRecordThenLive(t *testing.T) {
 		t.Fatal("a second open did not focus the open pane")
 	}
 	waitLoad(t, s)
+}
+
+func TestTaskPaneOpenLoadTimesOutAndGoesLive(t *testing.T) {
+	turn := recordedChildTurn(t)
+	s, src := taskPaneFixture(t, 120, 40, turn)
+	s.taskTimeout = 20 * time.Millisecond
+	src.recordCtx = func(ctx context.Context, _ string) (taskSnapshot, []dashi.Turn, error) {
+		<-ctx.Done()
+		return taskSnapshot{}, nil, ctx.Err()
+	}
+	s.openTask("t_1")
+	p := s.panes.get(taskPaneID("t_1"))
+	waitLoad(t, s)
+	if p.feed.replaying || p.state != "record unavailable" {
+		t.Fatalf("replaying=%v state=%q", p.feed.replaying, p.state)
+	}
+	facts := p.view.tr.Blocks[0]
+	if facts.Kind != KindWarning || !strings.Contains(facts.Text, "the load took longer than 20ms") {
+		t.Fatalf("facts=%+v", facts)
+	}
 }
 
 func TestTaskPaneCloseDropsQueuedEventsAndStaleLoads(t *testing.T) {

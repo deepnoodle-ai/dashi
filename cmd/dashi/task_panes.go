@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -34,6 +36,10 @@ func (e taskGapEvent) Timestamp() time.Time { return e.at }
 // taskGapWait is how long a task feed waits for a missing step before it
 // reloads the Turn from the record.
 const taskGapWait = 100 * time.Millisecond
+
+// taskLoadTimeout is how long a task record load may take. A load that
+// takes longer fails: an open shows the warning and continues live.
+const taskLoadTimeout = 30 * time.Second
 
 // taskWatchTip is the one-time hint the first task line of a session
 // shows, with that task's ID.
@@ -85,8 +91,8 @@ func (s *screen) openTask(id string) {
 	s.refreshWaiting()
 }
 
-// loadTask loads the record of p's task off the loop and queues the result
-// with the pane's open token.
+// loadTask loads the record of p's task off the loop, within
+// taskLoadTimeout, and queues the result with the pane's open token.
 func (s *screen) loadTask(p *pane, l taskLoad) {
 	if s.tasks == nil || p.feed == nil {
 		return
@@ -98,8 +104,17 @@ func (s *screen) loadTask(p *pane, l taskLoad) {
 	if s.ctrl != nil {
 		ctx, broker = s.ctrl.base, s.ctrl.broker
 	}
+	timeout := taskLoadTimeout
+	if s.taskTimeout > 0 {
+		timeout = s.taskTimeout
+	}
 	go func() {
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
 		l.snapshot, l.turns, l.err = src.TaskRecord(ctx, id)
+		if l.err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			l.err = fmt.Errorf("the load took longer than %v", timeout)
+		}
 		if broker != nil && l.err == nil {
 			if owner, active := broker.activeOwner(); active && owner.TaskID == l.snapshot.Task.SessionID {
 				l.snapshot.Prompt = &owner.Call
