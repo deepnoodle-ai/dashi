@@ -1,6 +1,6 @@
 # Watch delegated tasks beside the conversation
 
-Status: Draft\
+Status: In review\
 PRD PR: [#357](https://github.com/deepnoodle-ai/dashi/pull/357) · Implementation PR: Not opened · Updated: 2026-10-31\
 Tech spec: [CLI panes](../design/cli-panes.md)
 
@@ -71,9 +71,10 @@ main keeps about 60% of the width. The pane streams the child's text, tool
 calls, and tool progress. Keep typing to the main agent.
 
 - [ ] Clicking a task line, choosing "Open task" from its right-click menu,
-  or typing a bare `/task ID` opens that task's pane and focuses it.
-  `/task ID continue|done|discard` keep today's behavior. If the pane is
-  open, the same action focuses it. No pane ever opens by itself.
+  or typing a bare `/task ID` opens that task's pane and focuses it. If the
+  pane is open, the same action focuses it. Only a bare `/task ID` does
+  this: `/task ID continue|done|discard` keep today's behavior and do not
+  open a pane or change focus. No pane ever opens by itself.
 - [ ] The title row shows task ID, subagent, state, model calls, and spend,
   and updates as the task runs. Below it, the pane shows the facts `/task ID`
   shows today (parent call, child Turn, limits, stop, approvals), then the
@@ -111,8 +112,9 @@ column. One task asks to edit a file.
   unzooms the focused pane; Alt+W closes the focused side pane. PgUp, PgDn,
   and Ctrl+End act on the focused pane. Esc keeps every current meaning.
 - [ ] `/pane close`, `/pane zoom`, and `/pane equalize` do the same as the
-  menu. `/pane focus main|ID|details` and `/pane next` move focus. `/help` lists the commands and keys. The first side pane in a
-  session shows a one-time hint with the keys.
+  menu. `/pane focus main|ID|details` and `/pane next` move focus. `/help`
+  lists the commands and keys. The first side pane in a session shows a
+  one-time hint with the keys.
 - [ ] The main pane cannot be closed. Closing the focused pane moves focus to
   main. Equalize restores main to about 60% and evens the right column.
 - [ ] Where a terminal does not send Alt+arrows or Alt+letters (for example,
@@ -140,14 +142,14 @@ pane".
 
 ### UC-6: Narrow terminals, resize, and modes
 
-- [ ] Below 100 columns, the split folds to the focused pane. A one-line tab
+- [ ] Below 120 columns, the split folds to the focused pane. A one-line tab
   strip (`main · t_k3f2 · details`) shows above it. Click a tab or press
-  Alt+←/→ to switch. Tabs that do not fit collapse to `+N`, which opens a
-  menu of panes.
+  Alt+←/→ or Alt+↑/↓ to switch. Tabs that do not fit collapse to `+N`,
+  which opens a menu of panes.
 - [ ] At 80×24 and 40×16, with one or more panes, the composer, a pending
   dialog, and the status line stay reachable without overlap. Empty,
   streaming, approval, ended, and error states stay usable.
-- [ ] Resizing, including across the 100-column line, keeps the draft, each
+- [ ] Resizing, including across the 120-column line, keeps the draft, each
   pane's scroll position, follow mode, focus, and the open panes.
 - [ ] With NO_COLOR, the focused pane is still clear (a `▸` mark on its title
   or tab), and "needs approval" is spelled out.
@@ -174,8 +176,10 @@ Quit while a task runs, reopen, and open its pane.
   accent for focus, warning only for "needs you", muted otherwise.
 - R-4: Opening, watching, or closing a pane sends no model request, writes
   no record, and does not change a task's state or notice delivery.
-- R-5: No library change. If one becomes necessary, the behavior goes in
-  the library for every client, not in CLI plumbing.
+- R-5: No Dashi library change. If one becomes necessary, the behavior goes
+  in the library for every client, not in CLI plumbing. The build depends
+  on Wonton v0.12.1, which decodes legacy `ESC ESC [D` as Alt+←
+  ([wonton#227](https://github.com/deepnoodle-ai/wonton/pull/227)).
 
 ## Not in scope
 
@@ -205,8 +209,8 @@ The use cases state each choice; these are the rejected options.
   borders, which cost width and leak into selections.
 - Alt chords and `/pane`. Rejected: a prefix key (tmux owns Ctrl+B) and any
   new meaning for Esc.
-- Fold to tabs below 100 columns. Rejected: two columns under 50 cells,
-  which wrap too much to read.
+- Fold to tabs below 120 columns. Rejected: two columns with a side pane
+  under about 45 cells, which wrap too much to read.
 - Make room by closing an ended task pane. Rejected: closing any unfocused
   pane, which could hide a task that needs approval.
 - No layout persistence this round.
