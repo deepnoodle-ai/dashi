@@ -54,7 +54,8 @@ taking over the screen.
 - **Details pane**: one reused pane for `/tasks`, `/status`, `/settings`, and
   long tool output or diffs. New details replace the old ones.
 - **Focus**: the pane that scroll keys act on. Typing always goes to the
-  composer and the main agent, whatever pane has focus.
+  composer and the main agent, whatever pane has focus. The one-time key
+  hint says so.
 - **Zoom**: the focused pane fills the whole pane area until you zoom out.
 
 A pane is not a new session or a new agent. Closing a task pane does not
@@ -70,7 +71,8 @@ main keeps about 60% of the width. The pane streams the child's text, tool
 calls, and tool progress. Keep typing to the main agent.
 
 - [ ] Clicking a task line, choosing "Open task" from its right-click menu,
-  or typing `/task ID` opens that task's pane and focuses it. If the pane is
+  or typing a bare `/task ID` opens that task's pane and focuses it.
+  `/task ID continue|done|discard` keep today's behavior. If the pane is
   open, the same action focuses it. No pane ever opens by itself.
 - [ ] The title row shows task ID, subagent, state, model calls, and spend,
   and updates as the task runs. Below it, the pane shows the facts `/task ID`
@@ -95,8 +97,10 @@ column. One task asks to edit a file.
 - [ ] A task that waits for the developer turns its title row (or tab) to
   the warning color and says "needs approval". The dialog stays in the
   full-width footer, labeled with the task, exactly as today.
-- [ ] If the right column has no room for another pane, the oldest task
-  pane without focus closes to make room, and a hint names it.
+- [ ] If the right column has no room for another pane (each row needs
+  about eight lines), the oldest ended task pane closes to make room, and a
+  hint names it. A focused pane or a pane that needs approval never closes
+  this way. If no pane can close, the request says to close one first.
 
 ### UC-3: Move between panes and arrange them
 
@@ -107,13 +111,13 @@ column. One task asks to edit a file.
   unzooms the focused pane; Alt+W closes the focused side pane. PgUp, PgDn,
   and Ctrl+End act on the focused pane. Esc keeps every current meaning.
 - [ ] `/pane close`, `/pane zoom`, and `/pane equalize` do the same as the
-  menu. `/help` lists the commands and keys. The first side pane in a
+  menu. `/pane focus main|ID|details` and `/pane next` move focus. `/help` lists the commands and keys. The first side pane in a
   session shows a one-time hint with the keys.
 - [ ] The main pane cannot be closed. Closing the focused pane moves focus to
   main. Equalize restores main to about 60% and evens the right column.
 - [ ] Where a terminal does not send Alt+arrows or Alt+letters (for example,
   macOS Option without "Option as Meta"), mouse and `/pane` give every
-  action. The guide says so.
+  action, including with mouse capture off. The guide says so.
 
 ### UC-4: Look at details without losing your place
 
@@ -147,8 +151,9 @@ pane".
   pane's scroll position, follow mode, focus, and the open panes.
 - [ ] With NO_COLOR, the focused pane is still clear (a `▸` mark on its title
   or tab), and "needs approval" is spelled out.
-- [ ] With only the main pane, the screen is identical to today: no title
-  row, no gutter, no tab strip, at every size.
+- [ ] With only the main pane, the screen is identical to today at every
+  size, except the faint `›` after task lines: no title row, no gutter, no
+  tab strip.
 - [ ] Inline and plain modes do not change. `/task ID` there prints today's
   output. `/pane` there says panes need fullscreen mode.
 
@@ -185,26 +190,25 @@ Quit while a task runs, reopen, and open its pane.
 
 ## Decisions
 
-- Shared composer below the split. Typing always reaches the main agent, so
-  focus never decides who receives a prompt. Rejected: a composer per pane,
-  which makes focus a safety question.
-- Panes open only on request. Rejected: auto-open on task start, which moves
-  the conversation without consent.
-- Task panes reuse the main Renderer. Live and reopened output look the same
-  as main. Rejected: a compact task-only view, a second visual language.
-- One reused details pane. Rejected: one pane per inspection, which
-  multiplies panes the developer must close.
-- Layout: main left at about 60%, side panes as rows on the right.
-  Rejected: free splitting in any direction, which needs layout commands
-  this job does not need.
-- Chrome only with two or more panes: title rows and a one-cell gutter with
-  a faint line, no box borders, so text keeps full width and copies clean.
-- Alt chords, no prefix key. tmux owns Ctrl+B. Esc keeps its meanings.
-  Mouse and `/pane` cover terminals that do not send Alt.
-- Below 100 columns, fold to tabs. Two panes under 50 columns each wrap too
-  much to read.
-- When the right column is full, the oldest task pane without focus closes.
-  Rejected: refusing to open, which blocks the request the developer made.
+The use cases state each choice; these are the rejected options.
+
+- Shared composer. Rejected: a composer per pane, which makes focus decide
+  who receives a prompt.
+- Open on request only. Rejected: auto-open on task start, which moves the
+  conversation without consent.
+- Task panes reuse the main Renderer. Rejected: a compact task-only view, a
+  second visual language.
+- One reused details pane. Rejected: a pane per inspection.
+- Main left at about 60%, side panes as rows. Rejected: free splitting in
+  any direction, which needs layout commands this job does not need.
+- Title rows and a faint gutter, only with two or more panes. Rejected: box
+  borders, which cost width and leak into selections.
+- Alt chords and `/pane`. Rejected: a prefix key (tmux owns Ctrl+B) and any
+  new meaning for Esc.
+- Fold to tabs below 100 columns. Rejected: two columns under 50 cells,
+  which wrap too much to read.
+- Make room by closing an ended task pane. Rejected: closing any unfocused
+  pane, which could hide a task that needs approval.
 - No layout persistence this round.
 
 ## Success
