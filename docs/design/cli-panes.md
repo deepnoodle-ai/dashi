@@ -3,7 +3,7 @@
 Status: Draft · Author: Panes track · Date: 2026-10-31\
 Workflow: spec, then build in parallel (stacked on the PRD PR and on the
 `transcriptPane` refactor).\
-Requirements: [Watch delegated tasks beside the conversation](../prds/cli-panes.md)
+Requirements: [Watch delegated tasks beside the conversation](../prds/cli-panes.md) · PRD PR: #357
 
 ## Context
 
