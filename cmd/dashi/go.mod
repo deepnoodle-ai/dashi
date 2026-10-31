@@ -8,7 +8,7 @@ require (
 	github.com/deepnoodle-ai/dashi/mcp v0.15.1
 	github.com/deepnoodle-ai/dashi/providers/google/gemini v0.15.1
 	github.com/deepnoodle-ai/decide v0.4.0
-	github.com/deepnoodle-ai/wonton v0.12.0
+	github.com/deepnoodle-ai/wonton v0.13.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0

@@ -45,6 +45,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **CLI fixes from Wonton v0.13.0.** Alt+Left and Alt+Right no longer act
+  as Escape in terminals that send them as `ESC ESC [ D`. The inline CLI's
+  live area redraws cleanly after the window narrows.
 - **CLI fixes from Wonton v0.12.0.** The transcript menu no longer runs an
   item clipped off a small screen. Transcript items inside the scrolled view
   take clicks at their real positions. Scrolling while selecting text keeps

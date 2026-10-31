@@ -23,8 +23,8 @@ github.com/deepnoodle-ai/dashi/providers/google/gemini v0.15.1 h1:qDP2jud7C68NZw
 github.com/deepnoodle-ai/dashi/providers/google/gemini v0.15.1/go.mod h1:KtUx+71/8zyAG7o9GpPDftmGdbPwGMtQuCPfCigPFB0=
 github.com/deepnoodle-ai/decide v0.4.0 h1:w6ie3jxPj0BTHQDqcmPuAIq31tNkQzM7G1EHB1zDdqI=
 github.com/deepnoodle-ai/decide v0.4.0/go.mod h1:1ipa8271yR+qXkjZ7gOyIZptnUOhYpdjp9vvObc/Lj4=
-github.com/deepnoodle-ai/wonton v0.12.0 h1:+nsK8vh/oZbtD0Nakc2wo7PhCftEi7dFEM66KzTRj7k=
-github.com/deepnoodle-ai/wonton v0.12.0/go.mod h1:jTr/Xl7Ll4WOqMB8dlEQ1FJL8Wohq/rulpY6qDVOEbA=
+github.com/deepnoodle-ai/wonton v0.13.0 h1:VrmKkO9W6WWbUALlE3hZq0rxjjrKT50VdymHlCQPQPo=
+github.com/deepnoodle-ai/wonton v0.13.0/go.mod h1:jTr/Xl7Ll4WOqMB8dlEQ1FJL8Wohq/rulpY6qDVOEbA=
 github.com/dlclark/regexp2 v1.11.0 h1:G/nrcoOa7ZXlpoa/91N3X7mM3r8eIlMBBJZvsz/mxKI=
 github.com/dlclark/regexp2 v1.11.0/go.mod h1:DHkYz0B9wPfa6wondMfaivmHpzrQ3v9q8cnmRbL6yW8=
 github.com/dlclark/regexp2/v2 v2.7.1 h1:yqDtwI1ptXXvEUNpYTk2lad4jLtAcKqkzepn4savSk4=
