@@ -221,8 +221,8 @@ viewer goes away.
 
 ## Wonton gap
 
-[wonton#227](https://github.com/deepnoodle-ai/wonton/pull/227), in review
-for v0.12.1, must be released before the implementation merges. Today
+[wonton#227](https://github.com/deepnoodle-ai/wonton/pull/227) has merged;
+v0.12.1 must be released before the implementation merges. Without it,
 `ESC ESC [D` (rxvt, some iTerm2 profiles) decodes as Escape, then ←, so
 Alt+← would cancel running work. The fix decodes `ESC ESC` plus a complete
 CSI or SS3 key as that key with `Alt`, only when the bytes arrive together
