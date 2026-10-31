@@ -18,6 +18,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   again is a duplicate.
 - **`/task ID continue` keeps the decide line in the child's record**,
   and `/task ID` shows each recorded approval with it.
+- **Side panes in the fullscreen CLI.** Panes sit beside the main
+  conversation, each with a title row; click to focus, drag the line
+  between panes to resize, and right-click a title for Zoom, Equalize, and
+  Close. Alt+arrows move focus, Alt+Z zooms, Alt+W closes, and `/pane`
+  does the same. Below 120 columns the panes fold to a tab strip. With only
+  the main pane the screen is unchanged; inline and plain modes reply that
+  panes need fullscreen.
 - **Right-click menu on transcript items in the fullscreen CLI.** A tool
   line offers Expand or Collapse, Copy input, and Copy output; a message,
   reasoning, or diff offers to copy its text; and a selection adds Copy

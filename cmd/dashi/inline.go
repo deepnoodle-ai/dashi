@@ -45,6 +45,10 @@ func newInlineScreen(s *screen, output io.Writer) *inlineScreen {
 	return i
 }
 
+// PaneCommand implements /pane: native scrollback cannot split, so inline
+// mode has no panes.
+func (*inlineScreen) PaneCommand(string) bool { return false }
+
 func (i *inlineScreen) Init() error {
 	i.screen.Init()
 	return nil

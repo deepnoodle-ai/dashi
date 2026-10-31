@@ -17,22 +17,13 @@ import (
 // View implements tui.Application.
 func (s *screen) View() tui.View {
 	s.hits.Reset()
-	view := belowTranscript(tui.Split(&s.split, s.paneView), s.footer())
+	view := belowTranscript(s.paneArea(), s.footer())
 	// The menu goes last so it draws over everything else.
 	view = tui.ZStack(view, s.transcriptMenuView()).Align(tui.AlignLeft)
 	if s.noColor {
 		return withoutColors(view, s.height)
 	}
 	return view
-}
-
-// paneView draws the pane with this ID for the split layout.
-func (s *screen) paneView(id string) tui.View {
-	p := s.panes[id]
-	if p == nil {
-		return nil
-	}
-	return tui.PaddingLTRB(1, 0, 1, 0, tui.Viewport(&p.vp, p).Gap(1))
 }
 
 // linesBelowArea tags the "lines below" line; a click on it returns to live

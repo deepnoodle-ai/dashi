@@ -134,6 +134,12 @@ func (c *Controller) commands() []commandEntry {
 			entries = append(entries, commandEntry{name: display.name, group: "Transcript", usage: display.usage, description: display.description, run: action, during: action})
 		}
 	}
+	pane := func(arg string) {
+		if ui, ok := c.ui.(interface{ PaneCommand(string) bool }); !ok || !ui.PaneCommand(arg) {
+			c.notice("Panes need fullscreen mode.")
+		}
+	}
+	entries = append(entries, commandEntry{name: "/pane", group: "Panes", usage: "ACTION", description: "fullscreen panes: close, zoom, equalize, next, focus main|ID|details", run: pane, during: pane})
 	// Discovery uses metadata only. Skill text is loaded by the existing handler.
 	if c.eng.cfg.Resources != nil {
 		if found, err := c.eng.cfg.Resources.discover(); err == nil {
@@ -301,7 +307,7 @@ func (c *Controller) refreshCommandNamesLocked() {
 }
 
 // helpGroups orders the built-in command groups in help. Skills follow.
-var helpGroups = []string{"Session", "Turn", "Model", "Inspect", "Tasks", "Attachments", "Transcript"}
+var helpGroups = []string{"Session", "Turn", "Model", "Inspect", "Tasks", "Attachments", "Transcript", "Panes"}
 
 const skillGroup = "Skills"
 
@@ -341,6 +347,9 @@ func (c *Controller) helpDoc() helpDoc {
 	if full || inline {
 		keys.Title = "Keys"
 	}
+	if full {
+		keys.Rows = append(slices.Clone(composerKeys), paneKeys...)
+	}
 	if inline {
 		keys.Rows = slices.Clone(composerKeys)
 		for i := range keys.Rows {
@@ -378,6 +387,13 @@ var composerKeys = []helpRow{
 	{Name: "F2", Text: "toggle native selection without changing the draft"},
 	{Name: "Ctrl+D", Text: "delete forward; exit on an empty draft"},
 	{Name: "text, !text", Text: "while a turn runs: steer it; ! also cuts the model call"},
+}
+
+// paneKeys are the fullscreen keys that act on side panes.
+var paneKeys = []helpRow{
+	{Name: "Alt+arrows", Text: "move focus between panes; scroll keys act on the focused pane"},
+	{Name: "Alt+Z", Text: "zoom or unzoom the focused pane"},
+	{Name: "Alt+W", Text: "close the focused side pane"},
 }
 
 // Print mode has no interactive command loop. Never turn unknown slash input

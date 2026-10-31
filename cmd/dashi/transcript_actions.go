@@ -55,6 +55,14 @@ func (s *screen) inputKey(e tui.KeyEvent) bool {
 	if s.commandMenuKey(e) {
 		return true
 	}
+	// Pane keys run on the loop, and only when no dialog owns the keys;
+	// a dialog's text field must not insert them either.
+	if isPaneKey(e) {
+		if s.mainComposerActive() {
+			s.post(inputActionEvent{at: time.Now(), key: e})
+		}
+		return true
+	}
 	// Main Escape must reach native completion before application handling.
 	if e.Key == tui.KeyEscape && !s.promptActive {
 		return false
@@ -93,6 +101,8 @@ func (s *screen) transcriptCommand(name, arg string) {
 			return
 		}
 		s.toggleMouse()
+	case "/pane":
+		s.paneCommand(arg)
 	case "/scrollback":
 		if arg != "" && arg != "raw" {
 			s.Emit(warnBlock("Usage: /scrollback [raw]"))
@@ -183,8 +193,8 @@ func (s *screen) toggleMouse() {
 
 func (s *screen) clipboardResult(e clipboardResultEvent) {
 	if e.err == nil {
-		if p := s.panes[e.pane]; p != nil && e.result.confirmed && e.generation == s.generation && e.selectionRevision == p.selectionRevision && p.vp.SelectedText() == e.text {
-			p.vp.ClearSelection()
+		if p := s.panes.get(e.pane); p != nil && e.result.confirmed && e.generation == s.generation && e.selectionRevision == p.view.selectionRevision && p.view.vp.SelectedText() == e.text {
+			p.view.vp.ClearSelection()
 		}
 		s.Emit(Block{Kind: KindNotice, Text: e.result.notice, Done: true})
 		return
@@ -246,17 +256,34 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 		return
 	}
 	// Dragging a gutter between panes takes the pointer.
-	if s.split.HandleMouse(e) {
+	if s.panes.drawn == &s.panes.split && s.panes.split.HandleMouse(e) {
+		return
+	}
+	if s.paneChromeMouse(e) {
 		return
 	}
 	p := s.mousePane(e)
 	local, inside := p.local(e)
+	// The wheel scrolls the pane under the pointer without activating it.
 	if e.Type == tui.MouseScroll && inside {
 		p.vp.ScrollBy(wheelDelta(e))
 		return
 	}
+	if e.Type == tui.MousePress {
+		if under := s.paneAt(e.X, e.Y); under != nil {
+			s.activatePane(under.id)
+		}
+	}
 	if e.Type == tui.MousePress && !inside {
 		return
+	}
+	// One selection at a time: starting one clears any other pane's.
+	if e.Type == tui.MousePress && e.Button == tui.MouseButtonLeft {
+		for _, other := range s.paneList() {
+			if other != p && other.vp.HasSelection() {
+				other.clearSelection()
+			}
+		}
 	}
 	if e.Button == tui.MouseButtonRight {
 		if e.Type == tui.MouseClick && inside {

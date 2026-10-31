@@ -84,6 +84,9 @@ func (s *screen) dialogStatusKeyHook(p *dialogStatusInput) func(tui.KeyEvent) bo
 		if isCtrlC(e) {
 			return false // Wonton forwards the single interrupt to HandleEvent.
 		}
+		if isPaneKey(e) {
+			return true // A dialog owns the keys; the field must not insert them.
+		}
 		if e.Key == tui.KeyEscape || e.Key == tui.KeyPageUp || e.Key == tui.KeyPageDown ||
 			(e.Key == tui.KeyHome || e.Key == tui.KeyEnd) && e.Ctrl {
 			s.post(dialogStatusKeyEvent{input: p, key: e})

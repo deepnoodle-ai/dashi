@@ -128,7 +128,7 @@ func TestTranscriptPaneLocal(t *testing.T) {
 
 func TestScreenHasOneMainPane(t *testing.T) {
 	s := newScreen("fixture")
-	if got := s.split.Leaves(); !slices.Equal(got, []string{mainPaneID}) {
+	if got := s.panes.leaves(); !slices.Equal(got, []string{mainPaneID}) {
 		t.Fatalf("leaves=%v", got)
 	}
 	if s.focused() != s.main() || s.main().id != mainPaneID || len(s.paneList()) != 1 {
@@ -138,7 +138,7 @@ func TestScreenHasOneMainPane(t *testing.T) {
 	s.Emit(Block{ID: "a", Kind: KindAssistant, Text: "hello", Done: true})
 	s.drain()
 	// The pane is under the pointer once drawn.
-	tui.SprintScreen(tui.Split(&s.split, s.paneView), tui.WithWidth(40), tui.WithHeight(5))
+	tui.SprintScreen(s.paneArea(), tui.WithWidth(40), tui.WithHeight(5))
 	if s.paneAt(1, 0) != s.main() {
 		t.Fatal("the main pane is not under the pointer")
 	}
