@@ -47,7 +47,17 @@ func newScreenHarness(t *testing.T, attempts int, script ...reply) *screenHarnes
 	h.app = a
 	sh := &screenHarness{harness: h, scr: scr}
 	events := make(chan tui.Event, 1000)
-	scr.send = func(e tui.Event) { events <- e }
+	// The loop and background work can still send while cleanup runs;
+	// sends after cleanup closes events are dropped.
+	var sendMu sync.Mutex
+	closed := false
+	scr.send = func(e tui.Event) {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		if !closed {
+			events <- e
+		}
+	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -60,7 +70,10 @@ func newScreenHarness(t *testing.T, attempts int, script ...reply) *screenHarnes
 	t.Cleanup(func() {
 		a.ctrl.CancelWork()
 		a.ctrl.Wait()
+		sendMu.Lock()
+		closed = true
 		close(events)
+		sendMu.Unlock()
 		<-done
 	})
 	return sh
