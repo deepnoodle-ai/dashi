@@ -177,7 +177,7 @@ func (c *Controller) settings(ctx context.Context, arg string) {
 	view.Decide = c.inspectDecide()
 	if arg == "--json" {
 		raw, _ := json.MarshalIndent(view, "", "  ")
-		c.notice("%s", string(raw))
+		c.showDetails("/settings --json", noticeBlock("%s", string(raw)))
 		return
 	}
 	var text strings.Builder
@@ -234,5 +234,5 @@ func (c *Controller) settings(ctx context.Context, arg string) {
 		}
 	}
 	writeDecideInspection(&text, *view.Decide)
-	c.notice("%s", text.String())
+	c.showDetails("/settings", noticeBlock("%s", text.String()))
 }

@@ -98,7 +98,7 @@ func TestRuntimeNavigationAfterPromptEnds(t *testing.T) {
 	h.typeText("retained draft")
 	h.key(tui.KeyEvent{Key: tui.KeyPageUp})
 	h.wait(func(s transcriptState) bool {
-		return !s.follow && s.input == "retained draft" && strings.Contains(s.text, "Ctrl+End returns")
+		return !s.follow && s.input == "retained draft" && strings.Contains(s.text, "more · Ctrl+End")
 	})
 	h.key(tui.KeyEvent{Key: tui.KeyEnd, Ctrl: true})
 	h.wait(func(s transcriptState) bool { return s.follow && s.input == "retained draft" })

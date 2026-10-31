@@ -34,7 +34,17 @@ func (c *Controller) taskInput(line string) bool {
 					c.notice("Task %s unavailable: %v", arg, err)
 					return
 				}
-				c.notice("%s", text)
+				// The details pane shows the task's facts above its turns.
+				var blocks []Block
+				if c.hasDetails() {
+					if snapshot, err := c.eng.inspectTask(ctx, arg); err == nil {
+						if owner, active := c.broker.activeOwner(); active && owner.TaskID == snapshot.Task.SessionID {
+							snapshot.Prompt = &owner.Call
+						}
+						blocks = append(blocks, noticeBlock("%s", taskDetailFacts(snapshot)))
+					}
+				}
+				c.showDetails("/tasks "+arg, append(blocks, noticeBlock("%s", text))...)
 			}
 			if c.Mode() == ModeIdle {
 				c.async(show)
@@ -44,23 +54,28 @@ func (c *Controller) taskInput(line string) bool {
 			return true
 		}
 		host := c.eng.taskHost()
+		var incomplete error
 		if host != nil {
 			host.mu.Lock()
-			incomplete := host.inventoryErr
+			incomplete = host.inventoryErr
 			host.mu.Unlock()
-			if incomplete != nil {
-				c.notice("Task inventory incomplete; unreadable parent history was skipped: %v", incomplete)
-			}
-			if incomplete != nil && len(host.list()) == 0 {
-				return true
-			}
+		}
+		var blocks []Block
+		if incomplete != nil {
+			blocks = append(blocks, noticeBlock("Task inventory incomplete; unreadable parent history was skipped: %v", incomplete))
 		}
 		if host == nil || len(host.list()) == 0 {
-			c.notice("No delegated tasks in this session.")
+			// Nothing to list: the notices print in main.
+			if incomplete == nil {
+				blocks = append(blocks, noticeBlock("No delegated tasks in this session."))
+			}
+			for _, b := range blocks {
+				c.emit(b)
+			}
 			return true
 		}
-		// One list at the bottom. Status lines keep their places under the
-		// tool lines that started the tasks.
+		// One list at the bottom, or in the details pane. Status lines keep
+		// their places under the tool lines that started the tasks.
 		lines := []string{"Tasks:"}
 		waiting := c.broker.waitingOwners()
 		for _, task := range host.list() {
@@ -69,8 +84,12 @@ func (c *Controller) taskInput(line string) bool {
 			}
 			lines = append(lines, "  "+taskSummary(task))
 		}
-		lines = append(lines, "/tasks ID shows its turns and messages; /task ID shows details.")
-		c.notice("%s", strings.Join(lines, "\n"))
+		if c.hasDetails() {
+			lines = append(lines, "/task ID watches a task; /tasks ID shows its details, turns, and messages.")
+		} else {
+			lines = append(lines, "/tasks ID shows its turns and messages; /task ID shows details.")
+		}
+		c.showDetails("/tasks", append(blocks, noticeBlock("%s", strings.Join(lines, "\n")))...)
 		c.goWork(c.taskSpend)
 		return true
 	}
@@ -354,6 +373,11 @@ func (c *Controller) taskAction(ctx context.Context, id, action, callID string) 
 	return fmt.Errorf("unsupported task action")
 }
 
+// spendNotice adds a line of the /tasks spend report under the list.
+func (c *Controller) spendNotice(format string, args ...any) {
+	c.addDetails("/tasks", noticeBlock(format, args...))
+}
+
 func (c *Controller) taskSpend() {
 	chat := c.eng.handle()
 	if chat == nil {
@@ -361,13 +385,13 @@ func (c *Controller) taskSpend() {
 	}
 	loader, ok := chat.Runner.Recorder.(dashi.Loader)
 	if !ok {
-		c.notice("Task-inclusive accounting unavailable: recorder cannot load authoritative records.")
+		c.spendNotice("Task-inclusive accounting unavailable: recorder cannot load authoritative records.")
 		return
 	}
 	var turns []dashi.Turn
 	for turn, err := range chat.Turns(c.base) {
 		if err != nil {
-			c.notice("Task-inclusive accounting incomplete: %v", err)
+			c.spendNotice("Task-inclusive accounting incomplete: %v", err)
 			return
 		}
 		turns = append(turns, turn)
@@ -379,7 +403,7 @@ func (c *Controller) taskSpend() {
 					c.emit(taskStatusBlock(task))
 				}
 			}
-			c.notice("Task-inclusive accounting incomplete; child and inclusive totals unavailable: %v", err)
+			c.spendNotice("Task-inclusive accounting incomplete; child and inclusive totals unavailable: %v", err)
 			return
 		}
 	}
@@ -387,12 +411,12 @@ func (c *Controller) taskSpend() {
 	for _, turn := range turns {
 		view, err := turn.View()
 		if err != nil {
-			c.notice("Task-inclusive accounting incomplete: %v", err)
+			c.spendNotice("Task-inclusive accounting incomplete: %v", err)
 			return
 		}
 		report, err := delegate.Report(c.base, loader, view)
 		if err != nil {
-			c.notice("Task-inclusive accounting incomplete: %v", err)
+			c.spendNotice("Task-inclusive accounting incomplete: %v", err)
 			return
 		}
 		parent = parent.Add(report.Parent)
@@ -401,5 +425,5 @@ func (c *Controller) taskSpend() {
 	if c.eng.handle() != chat {
 		return
 	}
-	c.notice("Session %s spend (live lower bounds while work runs):\nParent: %s\nChildren: %s\nInclusive: %s\nParent and child money/tool costs remain separate. Recorded parent caps exclude children. Explore: 24 model calls; General: 32 model calls; no child monetary cap.", chat.ID, parent.String(), children.String(), parent.Add(children).String())
+	c.spendNotice("Session %s spend (live lower bounds while work runs):\nParent: %s\nChildren: %s\nInclusive: %s\nParent and child money/tool costs remain separate. Recorded parent caps exclude children. Explore: 24 model calls; General: 32 model calls; no child monetary cap.", chat.ID, parent.String(), children.String(), parent.Add(children).String())
 }

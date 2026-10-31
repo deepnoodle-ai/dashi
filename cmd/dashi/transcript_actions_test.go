@@ -162,9 +162,10 @@ func TestDragOnTheLastTranscriptRowScrollsOnlyBelowIt(t *testing.T) {
 	mouse(tui.MouseRelease, last+1)
 }
 
-// A click on the "lines below" line returns to live output. A click on the
-// empty row between the transcript and that line does not.
-func TestClickOnLinesBelowReturnsToLiveOutput(t *testing.T) {
+// A click on the "more below" mark returns to live output, and the click
+// neither selects nor expands what is under it. A click on the row above
+// the mark does not return.
+func TestClickOnMoreBelowReturnsToLiveOutput(t *testing.T) {
 	h := newScreenHarness(t, 0)
 	s := h.scr
 	h.mu.Lock()
@@ -178,18 +179,22 @@ func TestClickOnLinesBelowReturnsToLiveOutput(t *testing.T) {
 	}
 	render()
 	s.main().vp.ScrollBy(-20)
-	y := transcriptRow(t, render(), "lines below")
-	click := func(y int) {
-		s.HandleEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, X: 3, Y: y})
+	frame := render()
+	y := transcriptRow(t, frame, "↓ 20 more · Ctrl+End")
+	x := strings.Index(strings.Split(frame, "\n")[y], "↓")
+	click := func(x, y int) {
+		s.HandleEvent(tui.MouseEvent{Type: tui.MousePress, Button: tui.MouseButtonLeft, X: x, Y: y})
+		s.HandleEvent(tui.MouseEvent{Type: tui.MouseRelease, Button: tui.MouseButtonLeft, X: x, Y: y})
+		s.HandleEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 1, X: x, Y: y})
 		render()
 	}
-	click(y - 1)
+	click(x, y-1)
 	if s.main().vp.AtBottom {
-		t.Fatal("a click on the empty row above the indicator returned to live output")
+		t.Fatal("a click above the mark returned to live output")
 	}
-	click(y)
-	if !s.main().vp.AtBottom {
-		t.Fatal("a click on the indicator did not return to live output")
+	click(x, y)
+	if !s.main().vp.AtBottom || s.main().vp.HasSelection() {
+		t.Fatal("a click on the mark did not return to live output cleanly")
 	}
 }
 
@@ -729,7 +734,7 @@ func TestComposerShortcutsYieldToDialogs(t *testing.T) {
 			case "status":
 				s.dialogStatus = &dialogStatusInput{}
 			}
-			if s.selectionHint() != "" {
+			if hint, _ := s.selectionHint(); hint != "" {
 				t.Fatal("dialog advertises main-composer shortcut")
 			}
 			s.key(tui.KeyEvent{Key: tui.KeyF2})

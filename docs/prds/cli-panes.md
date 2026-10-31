@@ -13,12 +13,9 @@ state, model calls, spend. To see what the task does, the developer types
 shows a snapshot, not live work. With two or three tasks running, the
 developer cannot watch any of them and keep composing at the same time.
 
-The same pressure applies to long output. `/tasks`, `/settings`, and a long
-tool result or diff push the conversation out of view or open a modal
-dialog. Each look costs the developer their place.
-
-If we do nothing, delegation stays a black box until a task ends. Developers
-must trust the result line or interrupt to inspect.
+Long output has the same cost: `/tasks`, `/settings`, and a long tool result
+or diff push the conversation out of view. If we do nothing, delegation
+stays a black box until a task ends.
 
 ## Context
 
@@ -29,13 +26,8 @@ must trust the result line or interrupt to inspect.
   it only to update the status line.
 - The [terminal UI track](codex-terminal-ui.md) set the visual hierarchy,
   selection and copy, and the 80×24 and 40×16 acceptance sizes.
-- Wonton v0.12.0, already on main, adds resizable split layouts
-  (`tui.Split`, `SplitState`) and right-click menus. Its reference app,
-  `examples/corral`, shows the interaction pattern: click to focus, drag the
-  edge between panes, right-click for zoom and close.
-- Terminal workspaces such as tmux and herdr put live sessions side by side.
-  A developer can do that by hand today, but a second terminal loses Dashi's
-  link between a task, its parent call, and its approvals.
+- Wonton adds resizable split layouts (`tui.Split`, `SplitState`) and
+  right-click menus; its `examples/corral` shows the interaction pattern.
 
 ## Users and job
 
@@ -58,15 +50,15 @@ taking over the screen.
   hint says so.
 - **Zoom**: the focused pane fills the whole pane area until you zoom out.
 
-A pane is not a new session or a new agent. Closing a task pane does not
-stop the task; `/task-stop ID` does that, as today.
+A pane is not a new session or agent. Closing a task pane does not stop the
+task.
 
 ## Use cases
 
 ### UC-1: Watch a task while you keep working
 
 Ask the agent to delegate an investigation. The task line under the `task`
-call shows a quiet `›`. Click the line. A task pane opens to the right;
+call ends in "click to watch". Click the line. A task pane opens to the right;
 main keeps about 60% of the width. The pane streams the child's text, tool
 calls, and tool progress. Keep typing to the main agent.
 
@@ -74,11 +66,15 @@ calls, and tool progress. Keep typing to the main agent.
   or typing a bare `/task ID` opens that task's pane and focuses it. If the
   pane is open, the same action focuses it. Only a bare `/task ID` does
   this: `/task ID continue|done|discard` keep today's behavior and do not
-  open a pane or change focus. No pane ever opens by itself.
+  open a pane or change focus. No pane ever opens by itself. While the pane
+  is open, its task line reads "watching". The first task line of a session
+  shows a one-time hint: "Click a task to watch it beside the conversation,
+  or type /task ID."
 - [ ] The title row shows task ID, subagent, state, model calls, and spend,
-  and updates as the task runs. Below it, the pane shows the facts `/task ID`
-  shows today (parent call, child Turn, limits, stop, approvals), then the
-  child's conversation in the same style as main.
+  and updates as the task runs. Below it, one quiet line gives the task's
+  description, then the child's conversation in the same style as main. The
+  full facts (parent call, child Turn, limits, stop, approvals) are one step
+  away: "Task details" on the title's right-click menu, or `/tasks ID`.
 - [ ] Child text, tool rows, spinners, and tool progress stream live. A
   child turn started by `task_send` continues in the same pane.
 - [ ] Each step shows once. Opening a pane mid-task shows the recorded steps
@@ -126,9 +122,12 @@ column. One task asks to edit a file.
 Type `/tasks`, or right-click a long tool row and choose "Open in side
 pane".
 
-- [ ] `/tasks`, `/tasks ID`, `/status`, `/settings`, and "Open in side
-  pane" (on tool rows and diffs) show their content in the details pane and
-  focus it. The main transcript keeps its scroll position.
+- [ ] `/tasks`, `/tasks ID`, `/status`, `/settings`, "Open in side pane"
+  (on finished tool rows and diffs), and "Task details" (on a task pane's
+  title) show their content in the details pane and focus it. `/tasks ID`
+  there shows the task's full facts above its turns. The main transcript
+  keeps its scroll position. A command with nothing to show, such as
+  `/tasks` with no tasks, answers in main.
 - [ ] Each new request replaces the details pane's content. There is never
   more than one details pane.
 
@@ -136,6 +135,10 @@ pane".
 
 - [ ] Drag, double-click, and triple-click select text in the pane under the
   pointer. Starting a selection in one pane clears a selection in another.
+- [ ] Pointer actions, focus changes, and selections never change the height
+  of the pane area, so a drag selects exactly the rows it crosses. Each pane
+  marks lines below on its own bottom row (`↓ 12 more · Ctrl+End`, click to
+  return), and the copy hint shows on the status line.
 - [ ] Ctrl+C with the composer active copies the selection, from whatever
   pane holds it, with the same fidelity rules as main today. Without a
   selection, Ctrl+C keeps its interrupt and exit meanings.
@@ -154,8 +157,8 @@ pane".
 - [ ] With NO_COLOR, the focused pane is still clear (a `▸` mark on its title
   or tab), and "needs approval" is spelled out.
 - [ ] With only the main pane, the screen is identical to today at every
-  size, except the faint `›` after task lines: no title row, no gutter, no
-  tab strip.
+  size, except the task-line hint, the lines-below mark, and the copy hint
+  (UC-5): no title row, no gutter, no tab strip.
 - [ ] Inline and plain modes do not change. `/task ID` there prints today's
   output. `/pane` there says panes need fullscreen mode.
 

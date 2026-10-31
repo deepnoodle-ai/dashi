@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"strings"
 	"time"
 
@@ -137,16 +138,18 @@ func (s *screen) selectedText() string {
 	return ""
 }
 
-func (s *screen) selectionHint() string {
+// selectionHint says how to copy the selection, in a long and a short
+// form, or returns empty strings when there is nothing to copy.
+func (s *screen) selectionHint() (long, short string) {
 	// A selection over only a running tool row has no text, so Ctrl+C
 	// would interrupt; offer copy only when there is text to copy.
 	if !s.mainComposerActive() || s.selectedText() == "" {
-		return ""
+		return "", ""
 	}
 	if s.ctrl.Mode() == ModeRunning || s.ctrl.Mode() == ModeApproval {
-		return "Ctrl+C copies selection · Esc stops work · F2 native selection"
+		return "Ctrl+C copies selection · Esc stops work · F2 native selection", "Ctrl+C copies · Esc stops work"
 	}
-	return "Ctrl+C copies selection · Esc clears · F2 native selection"
+	return "Ctrl+C copies selection · Esc clears · F2 native selection", "Ctrl+C copies · Esc clears"
 }
 
 func (s *screen) copySelection() bool {
@@ -293,6 +296,20 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 		}
 		return
 	}
+	// A press on the "more below" mark returns the pane to live output.
+	if e.Button == tui.MouseButtonLeft && e.Type == tui.MousePress {
+		p.morePressed = image.Pt(e.X, e.Y).In(p.more)
+		if p.morePressed {
+			p.vp.ScrollToBottom()
+			return
+		}
+	}
+	if p.morePressed && e.Button == tui.MouseButtonLeft {
+		if e.Type == tui.MouseClick {
+			p.morePressed = false
+		}
+		return
+	}
 	if e.Button == tui.MouseButtonLeft && (e.Type == tui.MousePress || e.Type == tui.MouseClick || e.Type == tui.MouseDrag || e.Type == tui.MouseMove) {
 		p.selectionRevision++
 	}
@@ -306,10 +323,8 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 			return
 		}
 	}
-	if e.Type == tui.MouseClick && e.Button == tui.MouseButtonLeft && !p.clickTool(local.X, local.Y) {
-		if area, ok := s.hits.At(e.X, e.Y); ok && area == linesBelowArea {
-			s.focused().vp.ScrollToBottom()
-		}
+	if e.Type == tui.MouseClick && e.Button == tui.MouseButtonLeft {
+		p.clickTool(local.X, local.Y)
 	}
 }
 

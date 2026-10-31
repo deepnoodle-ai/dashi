@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"io"
 	"strings"
 
@@ -32,10 +33,18 @@ type transcriptPane struct {
 	// menuShape is its kind and state at open time.
 	menuItem  int
 	menuShape blockShape
+	// more is where the "more below" mark was drawn last frame, in screen
+	// cells, or empty; morePressed is set from a press on it until its
+	// click, so the press and click do not also select or open anything.
+	more        image.Rectangle
+	morePressed bool
 	// width is the width a turn footer fits; spinner is the glyph a
 	// running tool row shows.
 	width   func() int
 	spinner func() string
+	// watches reports whether the pane of a task is open, which its task
+	// line says. It is nil in tests that need no task panes.
+	watches func(task string) bool
 }
 
 func newTranscriptPane(id string, width func() int, spinner func() string) *transcriptPane {
@@ -88,16 +97,16 @@ func (p *transcriptPane) Source(i int) (string, bool) {
 // input and output when the user expanded it, and spins while it runs.
 func (p *transcriptPane) liveBlock(i int) Block {
 	b := p.tr.Blocks[i]
-	// A task line opens the task's pane on click.
+	// A task line says that a click opens the task's pane.
 	if b.Kind == KindTaskStatus {
-		b.Openable = true
+		b.Text = taskLineHint(b.Text, taskIDOf(b.Arg), p.watching(taskIDOf(b.Arg)))
 	}
 	if b.Kind != KindTool {
 		return b
 	}
 	if b.Task != nil {
 		task := *b.Task
-		task.Openable = true
+		task.Text = taskLineHint(task.Text, taskIDOf(task.Arg), p.watching(taskIDOf(task.Arg)))
 		b.Task = &task
 	}
 	b.Expanded = p.expanded[i] && toolExpandable(b)
@@ -105,6 +114,11 @@ func (p *transcriptPane) liveBlock(i int) Block {
 		b.Spinner = p.spinner()
 	}
 	return b
+}
+
+// watching reports whether the pane of task id is open.
+func (p *transcriptPane) watching(id string) bool {
+	return p.watches != nil && p.watches(id)
 }
 
 // apply adds or updates a block and redraws its item. It reports whether

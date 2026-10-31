@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"strings"
 
 	"github.com/deepnoodle-ai/wonton/runewidth"
@@ -56,11 +57,38 @@ func (s *screen) paneView(id string) tui.View {
 	if p == nil {
 		return nil
 	}
-	body := tui.PaddingLTRB(1, 0, 1, 0, tui.Viewport(&p.view.vp, p.view).Gap(1))
-	if s.panes.count() < 2 || s.narrow() {
-		return body
+	var content tui.View = tui.PaddingLTRB(1, 0, 1, 0, tui.Viewport(&p.view.vp, p.view).Gap(1))
+	if s.panes.count() > 1 && !s.narrow() {
+		content = tui.Stack(s.hits.Area(paneTitleArea+id, s.paneTitle(p)), content).Gap(0)
 	}
-	return tui.Stack(s.hits.Area(paneTitleArea+id, s.paneTitle(p)), body).Gap(0)
+	return tui.ZStack(content, s.moreBelow(p)).Align(tui.AlignLeft)
+}
+
+// moreBelow draws, over the bottom row of pane p's viewport, how many lines are below
+// the view when it is scrolled up, such as "↓ 12 more · Ctrl+End". It is
+// part of the pane rather than a footer row, so scrolling never changes
+// the height of the panes. It reads the viewport after the viewport drew,
+// and records where it drew, since a click on it returns to live output.
+func (s *screen) moreBelow(p *pane) tui.View {
+	active := p.id == s.panes.active
+	return tui.CanvasContext(func(ctx *tui.RenderContext) {
+		vp := &p.view.vp
+		p.view.more = image.Rectangle{}
+		if vp.AtBottom || vp.LinesBelow <= 0 {
+			return
+		}
+		text := fmt.Sprintf(" ↓ %d more ", vp.LinesBelow)
+		if active {
+			text += "· Ctrl+End "
+		}
+		text = runewidth.Truncate(text, vp.Width, "")
+		w := runewidth.StringWidth(text)
+		// The mark ends at the viewport's right edge on its bottom row.
+		p.view.more = image.Rect(vp.X+vp.Width-w, vp.Y+vp.Height-1, vp.X+vp.Width, vp.Y+vp.Height)
+		at := p.view.more.Min.Sub(ctx.AbsoluteBounds().Min)
+		// The prompt's band sets the mark apart from the text under it.
+		ctx.PrintStyled(at.X, at.Y, text, mutedStyle.WithBackground(promptBackground))
+	})
 }
 
 // paneTitle is a pane's one-line title row: warning when its task waits

@@ -26,14 +26,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   the main pane the screen is unchanged; inline and plain modes reply that
   panes need fullscreen.
 - **Live task panes in the fullscreen CLI.** Click a task line (it ends in
-  a faint `›`), choose "Open task" from its right-click menu, or type a
-  bare `/task ID` to watch a task beside the conversation. The pane shows
-  the task's facts, then its child conversation streaming live, recorded
-  steps first and each step once, including after a restart. Its title row
-  shows state, model calls, and spend, and says "needs approval" in the
-  warning color while the task waits for you. The fullscreen `/task ID`
-  details viewer is gone; inline and plain modes print the details as
-  before.
+  "click to watch", then "watching" while its pane is open), choose "Open
+  task" from its right-click menu, or type a bare `/task ID` to watch a
+  task beside the conversation. The first task line of a session shows a
+  one-time hint. The pane shows the task's description, then its child
+  conversation streaming live, recorded steps first and each step once,
+  including after a restart. Its title row shows state, model calls, and
+  spend, and says "needs approval" in the warning color while the task
+  waits for you; "Task details" on its right-click menu shows the full
+  facts. The fullscreen `/task ID` details viewer is gone; inline and plain
+  modes print the details as before.
+- **A details pane in the fullscreen CLI.** `/tasks`, `/tasks ID` (now with
+  the task's full facts above its turns), `/status`, `/settings`, and "Open
+  in side pane" on a finished tool row or a diff show in one reused side
+  pane and focus it, so the conversation keeps its place. Inline and plain
+  modes print them as before.
 - **Right-click menu on transcript items in the fullscreen CLI.** A tool
   line offers Expand or Collapse, Copy input, and Copy output; a message,
   reasoning, or diff offers to copy its text; and a selection adds Copy
@@ -42,6 +49,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **The fullscreen CLI keeps the transcript still while you select.** The
+  "lines below" indicator is now a mark on the scrolled pane's bottom row
+  (`↓ 12 more · Ctrl+End`, click to return), and the copy hint shows on
+  the status line, so dragging, focusing, or selecting never moves the
+  transcript under the pointer.
 - **The model no longer reads decide's score or request ID when a checked
   command is denied**, because the model cannot act on a score and both
   approval paths now behave the same. The CLI records the decide line in

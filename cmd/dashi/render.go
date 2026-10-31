@@ -129,9 +129,6 @@ type Block struct {
 	// DecideResult is the prompt-injection answer of a call's result, or
 	// nil: a warning the agent got, or a check that failed.
 	DecideResult *decideMark
-	// Openable marks a task status line that opens a task pane on click.
-	// Only the fullscreen view sets it, and draws a faint mark for it.
-	Openable bool
 }
 
 // Renderer turns Dashi events into blocks. The screen, line mode, and the run

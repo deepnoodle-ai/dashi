@@ -77,7 +77,7 @@ func waitLoad(t *testing.T, s *screen) {
 }
 
 func runningTask(id string) delegate.TaskView {
-	return delegate.TaskView{ID: id, Subagent: "explore", State: delegate.TaskRunning, ModelCalls: 2}
+	return delegate.TaskView{ID: id, Subagent: "explore", State: delegate.TaskRunning, ModelCalls: 2, Description: "Find Config.MaxReply usage\nThen report."}
 }
 
 // taskPaneFixture is the visual fixture with a fake task source whose
@@ -113,7 +113,8 @@ func TestTaskPaneWatchesBeforeLoadingAndShowsRecordThenLive(t *testing.T) {
 	if want := wantText(t, turn); got != want {
 		t.Fatalf("pane:\n%s\nwant:\n%s", got, want)
 	}
-	if facts := p.view.tr.Blocks[0]; facts.ID != taskFactsID || !strings.Contains(facts.Text, "Task t_1 · explore") {
+	// The pane's header is the description's first line, not the facts.
+	if facts := p.view.tr.Blocks[0]; facts.ID != taskFactsID || facts.Kind != KindHint || facts.Text != "Find Config.MaxReply usage" {
 		t.Fatalf("facts=%+v", facts)
 	}
 	if p.title != "explore · running · 2 model calls" {
@@ -243,17 +244,18 @@ func TestTaskLineOpensPaneByClickAndMenu(t *testing.T) {
 	s.Emit(taskStatusBlock(v))
 	s.drain()
 	rows := strings.Split(frameText(s), "\n")
-	line := ""
-	for _, r := range rows {
-		if strings.Contains(r, "/task t_k3f2 to inspect") {
-			line = r
+	if strings.Contains(strings.Join(rows, "\n"), "to inspect") || strings.Contains(strings.Join(rows, "\n"), "›") {
+		t.Fatalf("fullscreen task line keeps the inspect hint or the old mark:\n%s", strings.Join(rows, "\n"))
+	}
+	// The record keeps the inspect hint that inline mode prints.
+	var line Block
+	for _, b := range s.main().tr.Blocks {
+		if b.Kind == KindTool && b.Task != nil {
+			line = *b.Task
 		}
 	}
-	if !strings.HasSuffix(strings.TrimRight(line, " "), "›") {
-		t.Fatalf("task line has no mark: %q", line)
-	}
-	if strings.Contains(FormatBlock(s.main().tr.Blocks[len(s.main().tr.Blocks)-1]), "›") {
-		t.Fatal("the mark entered the line's text")
+	if !strings.Contains(FormatBlock(line), "/task t_k3f2 to inspect") {
+		t.Fatal("the fullscreen hint entered the line's text")
 	}
 	// The tool row's head does not open the task.
 	x, y := cellOf(t, rows, "Starting a subagent")
@@ -261,7 +263,7 @@ func TestTaskLineOpensPaneByClickAndMenu(t *testing.T) {
 	if s.panes.count() != 1 {
 		t.Fatal("a click on the tool row opened a pane")
 	}
-	x, y = cellOf(t, rows, "/task t_k3f2 to inspect")
+	x, y = cellOf(t, rows, "click to watch")
 	s.HandleEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonRight, ClickCount: 1, X: x, Y: y})
 	var labels []string
 	for _, item := range s.transcriptMenu.Items() {
@@ -276,6 +278,13 @@ func TestTaskLineOpensPaneByClickAndMenu(t *testing.T) {
 		t.Fatal("a click on the task line did not open its pane")
 	}
 	waitLoad(t, s)
+	if got := frameText(s); !strings.Contains(got, "watching") || strings.Contains(got, "click to watch") {
+		t.Fatalf("an open pane's task line does not say watching:\n%s", got)
+	}
+	s.closePane(taskPaneID("t_k3f2"))
+	if got := frameText(s); !strings.Contains(got, "click to watch") {
+		t.Fatalf("a closed pane's task line does not offer to watch:\n%s", got)
+	}
 }
 
 func TestTaskPaneFramesAtNarrowWidth(t *testing.T) {
@@ -284,7 +293,7 @@ func TestTaskPaneFramesAtNarrowWidth(t *testing.T) {
 	s.openTask("t_1")
 	waitLoad(t, s)
 	rows := frameText(s)
-	for _, want := range []string{"main · " + activeMark + " t_1", "The notes say hello.", "Live lower bounds"} {
+	for _, want := range []string{"main · " + activeMark + " t_1", "The notes say hello.", "Find Config.MaxReply usage"} {
 		if !strings.Contains(rows, want) {
 			t.Fatalf("missing %q:\n%s", want, rows)
 		}
@@ -403,6 +412,18 @@ func TestTaskPaneStreamsARealChildOpenedMidTurn(t *testing.T) {
 	if !strings.Contains(title, "completed") {
 		t.Fatalf("title=%q", title)
 	}
+	// /tasks ID shows the full facts above the turns in the details pane.
+	on(func() { s.submit("/tasks " + task.ID) })
+	wait("the task details", func() bool {
+		got := detailsText(s)
+		return s.panes.active == detailsPaneID && strings.Contains(got, "Child Turn:") && strings.Contains(got, "Child result, recorded once.")
+	})
+	// /tasks lists the tasks there, then adds the spend under the list.
+	on(func() { s.submit("/tasks") })
+	wait("the task list and spend", func() bool {
+		got := detailsText(s)
+		return strings.Contains(got, "Tasks:\n  "+task.ID) && strings.Contains(got, "spend (live lower bounds")
+	})
 	// A subcommand keeps its behavior and does not move focus.
 	on(func() { s.activatePane(mainPaneID); s.submit("/task " + task.ID + " discard") })
 	time.Sleep(20 * time.Millisecond)
@@ -445,4 +466,33 @@ func TestBrokerWaitingOwnersIncludesQueuedPrompts(t *testing.T) {
 	}
 	b.respond(p.ID, second, brokerResponse{})
 	waitOwners(0)
+}
+
+// The first task line of a session shows a one-time hint about watching
+// tasks; a new session shows it again.
+func TestFirstTaskLineShowsTheWatchTipOnce(t *testing.T) {
+	s := terminalVisualFixture(t, "success", 120, 40)
+	count := func() int {
+		n := 0
+		for _, b := range s.main().tr.Blocks {
+			if b.Text == taskWatchTip {
+				n++
+			}
+		}
+		return n
+	}
+	s.Emit(taskStatusBlock(runningTask("t_1")))
+	s.Emit(taskStatusBlock(runningTask("t_1")))
+	s.Emit(taskStatusBlock(runningTask("t_2")))
+	s.drain()
+	if count() != 1 {
+		t.Fatalf("tip shown %d times", count())
+	}
+	s.Reset()
+	s.drain()
+	s.Emit(taskStatusBlock(runningTask("t_3")))
+	s.drain()
+	if count() != 1 {
+		t.Fatalf("a new session showed the tip %d times", count())
+	}
 }

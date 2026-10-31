@@ -85,6 +85,9 @@ type screen struct {
 	taskOpens uint64
 	flushes   uint64
 	gapCheck  bool
+	// taskHinted reports that the session's first task line showed the
+	// one-time hint about watching tasks.
+	taskHinted bool
 }
 
 // blockShape is what the transcript menu's entries depend on.
@@ -97,12 +100,14 @@ type blockShape struct {
 func shapeOf(b Block) blockShape { return blockShape{b.Kind, b.State, b.Done} }
 
 // queued is one item of pending work: a block to show, a reset, a child
-// event for a task pane, or a task record load result.
+// event for a task pane, a task record load result, or content for the
+// details pane.
 type queued struct {
-	block Block
-	reset bool
-	child *taskChildEvent
-	load  *taskLoad
+	block   Block
+	reset   bool
+	child   *taskChildEvent
+	load    *taskLoad
+	details *detailsUpdate
 }
 
 type approvalPrompt struct {
@@ -177,7 +182,9 @@ func newScreen(dir string) *screen {
 
 // newTranscriptPane returns an empty transcript for the pane with this ID.
 func (s *screen) newTranscriptPane(id string) *transcriptPane {
-	return newTranscriptPane(id, func() int { return s.paneWidth(id) }, s.spinnerFrame)
+	p := newTranscriptPane(id, func() int { return s.paneWidth(id) }, s.spinnerFrame)
+	p.watches = func(task string) bool { return s.panes.get(taskPaneID(task)) != nil }
+	return p
 }
 
 // main is the pane that shows the conversation.
@@ -392,6 +399,7 @@ func (s *screen) drain() {
 			s.attachmentUnsaved.Store(false)
 			s.input = ""
 			s.generation++
+			s.taskHinted = false
 			continue
 		}
 		if q.child != nil {
@@ -402,10 +410,18 @@ func (s *screen) drain() {
 			s.taskLoaded(*q.load)
 			continue
 		}
+		if q.details != nil {
+			s.showDetails(*q.details)
+			continue
+		}
 		if s.main().apply(q.block) && s.transcriptMenuPane == mainPaneID {
 			s.transcriptMenu.Close()
 		}
 		s.taskLine(q.block)
+		if !s.taskHinted && taskOfLine(q.block) != "" {
+			s.taskHinted = true
+			s.main().apply(Block{Kind: KindNotice, Text: taskWatchTip, Done: true})
+		}
 	}
 	s.flushes++
 	s.settleTaskFeeds()

@@ -47,7 +47,9 @@ type transcriptProbe struct{ reply chan transcriptState }
 func (transcriptProbe) Timestamp() time.Time { return time.Now() }
 
 type transcriptState struct {
-	text, input, selected                           string
+	// details and main are the text of those panes' blocks, which narrow
+	// mode may not draw.
+	text, input, selected, details, main            string
 	follow, approval, question, own, denying, mouse bool
 	mode                                            Mode
 	// focus is the field the screen means to focus (screen.focusID).
@@ -93,7 +95,16 @@ func (s *transcriptRuntime) HandleEvent(e tui.Event) []tui.Cmd {
 			}
 			b.WriteByte('\n')
 		}
-		p.reply <- transcriptState{text: b.String(), input: s.input, selected: s.main().vp.SelectedText(), follow: s.main().vp.Follow, mode: s.ctrl.Mode(), approval: s.approval != nil, question: s.asking != nil, own: s.asking != nil && s.asking.own, denying: s.approval != nil && s.approval.denying, mouse: s.mouseEnabled, focus: s.focusID()}
+		var details, main strings.Builder
+		if d := s.panes.get(detailsPaneID); d != nil {
+			for _, block := range d.view.tr.Blocks {
+				details.WriteString(block.Text + "\n")
+			}
+		}
+		for _, block := range s.main().tr.Blocks {
+			main.WriteString(block.Text + "\n")
+		}
+		p.reply <- transcriptState{text: b.String(), details: details.String(), main: main.String(), input: s.input, selected: s.main().vp.SelectedText(), follow: s.main().vp.Follow, mode: s.ctrl.Mode(), approval: s.approval != nil, question: s.asking != nil, own: s.asking != nil && s.asking.own, denying: s.approval != nil && s.approval.denying, mouse: s.mouseEnabled, focus: s.focusID()}
 		return nil
 	}
 	return s.screen.HandleEvent(e)
@@ -208,10 +219,10 @@ func TestRuntimeTranscriptNavigationPreservesDraftAndSelection(t *testing.T) {
 	h.typeText("draft 世界")
 	h.wait(func(s transcriptState) bool { return s.input == "draft 世界" })
 	h.key(tui.KeyEvent{Key: tui.KeyPageUp})
-	before := h.wait(func(s transcriptState) bool { return !s.follow && strings.Contains(s.text, "lines below") })
+	before := h.wait(func(s transcriptState) bool { return !s.follow && strings.Contains(s.text, "more · Ctrl+End") })
 	h.scr.Emit(Block{ID: "stream", Kind: KindAssistant, Text: source.String() + "\nnew streamed output"})
 	after := h.wait(func(s transcriptState) bool {
-		return !s.follow && s.input == "draft 世界" && strings.Contains(s.text, "lines below")
+		return !s.follow && s.input == "draft 世界" && strings.Contains(s.text, "more · Ctrl+End")
 	})
 	if strings.Contains(after.text, "new streamed output") {
 		t.Fatal("streaming forced the reader to the bottom")

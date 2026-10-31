@@ -206,13 +206,15 @@ means a name writes `\@word`.
 
 In fullscreen, Page Up/Down and the wheel scroll without following new output.
 End returns an empty draft to live output; Ctrl+Home/End navigate with a draft.
-The indicator shows lines below. Drag selects; double/triple clicks select a
+A mark on the bottom row, such as `↓ 12 more · Ctrl+End`, counts the lines
+below; click it to return. Drag selects; double/triple clicks select a
 word or original logical line, including its whitespace and Markdown syntax.
 Copying selection excludes role labels, display indentation, and wrapped row
 breaks. A tool row's text is copyable once its call ends, so a selection across
 a running call survives when the call ends; it copies the text around that row,
 not the row itself. With the main composer focused, Ctrl+C copies selected
-source without changing the draft. A confirmed local clipboard write clears the
+source without changing the draft; the status line says so while a selection
+has text. A confirmed local clipboard write clears the
 selection; failed or unconfirmed writes keep it for retry. Without selection,
 Ctrl+C interrupts work or uses the idle exit confirmation. Dialogs keep their
 cancellation controls. Escape interrupts running work, or clears a selection
@@ -249,6 +251,33 @@ Line mode, `dashi run`, and `NO_COLOR` never ask.
 Dashi waits up to 300ms for the answer. Over a slow connection the answer
 can come later: dashi then uses the dark palette, and the late answer may
 appear as typed text in the prompt. Set `DASHI_THEME` to skip the question.
+
+## Panes
+
+Fullscreen mode can show panes beside the conversation. Inline and plain
+modes cannot split; `/pane` there says panes need fullscreen. Panes open only
+when you ask:
+
+- **Task pane**: click a task line ("click to watch"), choose "Open task" from
+  its right-click menu, or type `/task ID`. The pane streams the task's
+  conversation; its title shows state, model calls, and spend. Right-click the
+  title and choose "Task details" for the full facts.
+- **Details pane**: `/tasks`, `/tasks ID`, `/status`, `/settings`, and "Open in
+  side pane" on a finished tool row or a diff. There is one; new details
+  replace the old.
+
+Typing always goes to the main agent, whatever pane has focus. Click a pane to
+focus it; the wheel scrolls the pane under the pointer; drag the line between
+panes to resize; right-click a title for Zoom, Equalize, and Close. Alt+arrows
+move focus, Alt+Z zooms, Alt+W closes the focused side pane, and PgUp, PgDn,
+and Ctrl+End act on the focused pane. `/pane close|zoom|equalize|next` and
+`/pane focus main|ID|details` do the same. Below 120 columns the panes fold
+to the focused pane with a tab strip; click a tab or use Alt+arrows. Closing a
+task pane does not stop the task.
+
+On macOS, Option sends Alt only when the terminal treats it as Meta (iTerm2:
+set the Option key to "Esc+"; Terminal: "Use Option as Meta key"). Otherwise
+use the mouse or `/pane`, which give every action.
 
 ## Approvals
 

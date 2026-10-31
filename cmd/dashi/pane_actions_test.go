@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/deepnoodle-ai/wonton/terminal"
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
@@ -51,10 +52,10 @@ func TestPaneClicksActivateAndTitleMenu(t *testing.T) {
 	for _, item := range s.transcriptMenu.Items() {
 		labels = append(labels, item.Label)
 	}
-	if strings.Join(labels, ",") != "Zoom,Equalize,Close" {
+	if strings.Join(labels, ",") != "Task details,,Zoom,Equalize,Close" {
 		t.Fatalf("menu=%v", labels)
 	}
-	s.transcriptMenu.Choose(0)
+	s.transcriptMenu.Choose(2)
 	if s.panes.zoom != "task:t_k3f2" {
 		t.Fatal("Zoom did nothing")
 	}
@@ -79,10 +80,14 @@ func TestWheelScrollsThePaneUnderThePointer(t *testing.T) {
 	if s.panes.active != detailsPaneID {
 		t.Fatal("the wheel activated a pane")
 	}
-	// PgUp and the lines-below line act on the active pane.
+	// The scrolled pane marks what is below it; the active pane's mark
+	// names Ctrl+End, which acts on the active pane.
+	if got := frameText(s); !strings.Contains(got, "↓ 3 more") || strings.Contains(got, "more · Ctrl+End") {
+		t.Fatalf("want a mark without Ctrl+End on the inactive pane:\n%s", got)
+	}
 	s.activatePane("task:t_k3f2")
-	if got := frameText(s); !strings.Contains(got, "lines below") {
-		t.Fatalf("no lines-below line for the active pane:\n%s", got)
+	if got := frameText(s); !strings.Contains(got, "more · Ctrl+End") {
+		t.Fatalf("no mark for the active pane:\n%s", got)
 	}
 	s.HandleEvent(tui.KeyEvent{Key: tui.KeyEnd, Ctrl: true})
 	frameText(s)
@@ -360,5 +365,138 @@ func TestMainSelectionWorksUnderMotionReporting(t *testing.T) {
 				t.Fatal("selection in main did not activate it")
 			}
 		})
+	}
+}
+
+// paneGeometry is where every pane's viewport was drawn last frame.
+func paneGeometry(s *screen) string {
+	var parts []string
+	for _, p := range s.paneList() {
+		parts = append(parts, fmt.Sprintf("%s:%d,%d,%dx%d", p.id, p.vp.X, p.vp.Y, p.vp.Width, p.vp.Height))
+	}
+	return strings.Join(parts, " ")
+}
+
+// pointerKeepsGeometry sends each event with a frame after it, as the loop
+// does, and fails if any pane moved or changed size.
+func pointerKeepsGeometry(t *testing.T, s *screen, events ...tui.MouseEvent) {
+	t.Helper()
+	frameText(s)
+	want := paneGeometry(s)
+	for _, e := range events {
+		s.HandleEvent(e)
+		frameText(s)
+		if got := paneGeometry(s); got != want {
+			t.Fatalf("after %v at %d,%d the panes moved:\n%s\nwant\n%s", e.Type, e.X, e.Y, got, want)
+		}
+	}
+}
+
+// Pointer actions, focus changes, and selections never change the height
+// of the pane area, so a drag selects exactly the rows it crosses. Each
+// case drags across three rows, then double- and triple-clicks.
+func TestPointerActionsKeepPanesInPlace(t *testing.T) {
+	longDetails := func(s *screen) {
+		var lines []string
+		for i := range 60 {
+			lines = append(lines, fmt.Sprintf("detail line %d", i))
+		}
+		s.ShowDetails(detailsUpdate{title: "/status", blocks: []Block{noticeBlock("%s", strings.Join(lines, "\n"))}})
+		s.drain()
+	}
+	for _, c := range []struct {
+		name  string
+		setup func(*screen)
+		// first is the text of the first of the three rows; last is the
+		// text of the third.
+		first, last, before, after string
+	}{
+		{"single-pane main", func(*screen) {}, "main line 55", "main line 56", "main line 54", "main line 57"},
+		{"main beside details", func(s *screen) { longDetails(s); s.activatePane(mainPaneID) }, "main line 55", "main line 56", "main line 54", "main line 57"},
+		{"unfocused details", func(s *screen) { longDetails(s); s.activatePane(mainPaneID) }, "detail line 5", "detail line 7", "detail line 4", "detail line 8"},
+		{"main after the wheel", func(s *screen) {
+			frameText(s)
+			x, y := s.main().vp.X+2, s.main().vp.Y+2
+			s.HandleEvent(tui.MouseEvent{Type: tui.MouseScroll, Button: tui.MouseButtonWheelUp, X: x, Y: y})
+			s.HandleEvent(tui.MouseEvent{Type: tui.MouseScroll, Button: tui.MouseButtonWheelUp, X: x, Y: y})
+		}, "main line 51", "main line 52", "main line 50", "main line 53"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := terminalVisualFixture(t, "success", 160, 40)
+			for i := range 60 {
+				s.Emit(Block{ID: fmt.Sprintf("m%d", i), Kind: KindAssistant, Text: fmt.Sprintf("main line %d", i), Done: true})
+			}
+			s.drain()
+			c.setup(s)
+			s.send = func(tui.Event) {}
+			rows := strings.Split(frameText(s), "\n")
+			x, y := cellOf(t, rows, c.first)
+			_, y2 := cellOf(t, rows, c.last)
+			if y2 != y+2 {
+				t.Fatalf("rows %d and %d are not three rows apart", y, y2)
+			}
+			pointerKeepsGeometry(t, s,
+				tui.MouseEvent{Type: tui.MousePress, Button: tui.MouseButtonLeft, X: x, Y: y},
+				tui.MouseEvent{Type: tui.MouseDrag, Button: tui.MouseButtonLeft, X: x + 4, Y: y + 1},
+				tui.MouseEvent{Type: tui.MouseDrag, Button: tui.MouseButtonLeft, X: x + 30, Y: y2},
+				tui.MouseEvent{Type: tui.MouseRelease, Button: tui.MouseButtonLeft, X: x + 30, Y: y2},
+			)
+			got := s.selectedText()
+			if !strings.Contains(got, c.first) || !strings.Contains(got, c.last) || strings.Contains(got, c.before) || strings.Contains(got, c.after) {
+				t.Fatalf("selected %q, want the rows from %q to %q", got, c.first, c.last)
+			}
+			if !strings.Contains(frameText(s), "Ctrl+C copies selection") {
+				t.Fatal("no selection hint on the status line")
+			}
+			wx := x + strings.Index(c.first, "line")
+			pointerKeepsGeometry(t, s,
+				tui.MouseEvent{Type: tui.MousePress, Button: tui.MouseButtonLeft, X: wx, Y: y},
+				tui.MouseEvent{Type: tui.MouseRelease, Button: tui.MouseButtonLeft, X: wx, Y: y},
+				tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 2, X: wx, Y: y},
+			)
+			if got := s.selectedText(); got != "line" {
+				t.Fatalf("double-click selected %q", got)
+			}
+			pointerKeepsGeometry(t, s,
+				tui.MouseEvent{Type: tui.MousePress, Button: tui.MouseButtonLeft, X: wx, Y: y},
+				tui.MouseEvent{Type: tui.MouseRelease, Button: tui.MouseButtonLeft, X: wx, Y: y},
+				tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 3, X: wx, Y: y},
+			)
+			if got := strings.TrimSpace(s.selectedText()); got != c.first {
+				t.Fatalf("triple-click selected %q", got)
+			}
+		})
+	}
+}
+
+// Legacy terminals send Alt+Left as ESC ESC [D. Wonton decodes it as one
+// key, so it moves pane focus and does not cancel running work as Escape
+// would.
+func TestLegacyAltLeftMovesFocusWithoutCancelling(t *testing.T) {
+	ev, err := terminal.NewKeyDecoder(strings.NewReader("\x1b\x1b[D")).ReadEvent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, ok := ev.(tui.KeyEvent)
+	if !ok || key.Key != tui.KeyArrowLeft || !key.Alt {
+		t.Fatalf("decoded %#v", ev)
+	}
+	s, _ := panesOn(t)
+	s.activatePane("task:t_k3f2")
+	frameText(s)
+	canceled := false
+	s.ctrl.mode = ModeRunning
+	s.ctrl.cancel = func() { canceled = true }
+	var posted []tui.Event
+	s.send = func(e tui.Event) { posted = append(posted, e) }
+	if !s.inputKey(key) || len(posted) != 1 {
+		t.Fatal("the composer did not take the key for the loop")
+	}
+	s.HandleEvent(posted[0])
+	if s.panes.active != mainPaneID {
+		t.Fatalf("Alt+Left went to %s, want main", s.panes.active)
+	}
+	if canceled {
+		t.Fatal("Alt+Left canceled running work")
 	}
 }

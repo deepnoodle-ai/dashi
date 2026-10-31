@@ -175,9 +175,26 @@ func taskLineTitle(b Block, subagent string) string {
 	return joinNonEmpty(" · ", subagent, b.Name, strings.TrimSuffix(counts, " · "))
 }
 
-// openMark ends a task line that opens a task pane on click. It is a faint
-// decoration of the fullscreen view, not part of the line's text.
-const openMark = " ›"
+// In fullscreen, a task line ends with what a click on it does instead of
+// the inspect hint: it opens the task's pane, or, while that pane is open,
+// the line says so.
+const (
+	taskWatchHint    = "click to watch"
+	taskWatchingHint = "watching"
+)
+
+// taskLineHint is the text of a task status line with its inspect hint
+// replaced by the fullscreen hint.
+func taskLineHint(text, id string, watching bool) string {
+	hint := taskWatchHint
+	if watching {
+		hint = taskWatchingHint
+	}
+	if rest, ok := strings.CutSuffix(text, taskInspectHint(id)); ok {
+		return rest + hint
+	}
+	return text
+}
 
 // deliveredItemBlocks returns a block for each message from an agent in
 // msgs: a message line for an agent message, and a KindTaskResult marker
@@ -396,9 +413,6 @@ func taskLineView(b Block) tui.View {
 	// The text is the line's source for selection; the rest is a label.
 	views = append(views, tui.Text(" · ").Style(faintStyle),
 		tui.Text("%s", b.Text).SourceOffset(0).Wrap().Style(mutedStyle).Flex(1))
-	if b.Openable {
-		views = append(views, tui.Text(openMark).Style(faintStyle))
-	}
 	return tui.Group(views...)
 }
 
@@ -415,9 +429,6 @@ func withTaskLine(v tui.View, b Block) tui.View {
 		tui.Text("%s", t.Name).Style(taskLineStyle(t.State)),
 		tui.Text(" · ").Style(faintStyle),
 		tui.Text("%s", t.Text).Wrap().Style(mutedStyle).Flex(1),
-	}
-	if t.Openable {
-		line = append(line, tui.Text(openMark).Style(faintStyle))
 	}
 	return tui.Stack(v, tui.Group(line...)).Gap(0)
 }
@@ -610,9 +621,18 @@ func taskDetails(snapshot taskSnapshot) string {
 	return taskDetailFacts(snapshot) + taskRecordedOutput(snapshot)
 }
 
+// taskPaneHeader is the line at the top of a task pane: the task's
+// description, or, without one, where its full facts are.
+func taskPaneHeader(v delegate.TaskView) string {
+	if d, _, _ := strings.Cut(strings.TrimSpace(workspace.PrintableText(v.Description)), "\n"); d != "" {
+		return d
+	}
+	return "/tasks " + v.ID + " shows the task's details."
+}
+
 // taskDetailFacts is the facts part of taskDetails: identity, state, spend,
-// limits, pending calls, approvals, and controls. A task pane shows it above
-// the child conversation, which shows the recorded output itself.
+// limits, pending calls, approvals, and controls. The details pane shows
+// it above the task's turns for /tasks ID.
 func taskDetailFacts(snapshot taskSnapshot) string {
 	v := snapshot.View
 	var b strings.Builder

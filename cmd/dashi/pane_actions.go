@@ -69,6 +69,21 @@ func (s *screen) paneClosed(id string) {
 	if s.transcriptMenuPane == id {
 		s.transcriptMenu.Close()
 	}
+	if task, ok := strings.CutPrefix(id, taskPaneID("")); ok {
+		s.redrawTaskLines(task)
+	}
+}
+
+// redrawTaskLines redraws the status lines of task id in every pane, since
+// they say whether its pane is open.
+func (s *screen) redrawTaskLines(id string) {
+	for _, p := range s.paneList() {
+		for i, b := range p.tr.Blocks {
+			if taskOfLine(b) == id {
+				p.vp.Invalidate(i)
+			}
+		}
+	}
 }
 
 // paneAreaHeight is the height of the pane area at the last frame, or zero
@@ -285,8 +300,9 @@ func (s *screen) paneChromeMouse(e tui.MouseEvent) bool {
 	return true
 }
 
-// openPaneMenu opens the menu of a pane's title row: Zoom or Unzoom,
-// Equalize, and Close, which main does not offer.
+// openPaneMenu opens the menu of a pane's title row: Task details on a
+// task pane, then Zoom or Unzoom, Equalize, and Close, which main does not
+// offer.
 func (s *screen) openPaneMenu(id string, x, y int) {
 	p := s.panes.get(id)
 	if p == nil || !s.mainComposerActive() {
@@ -296,11 +312,17 @@ func (s *screen) openPaneMenu(id string, x, y int) {
 	if s.panes.zoom == id {
 		zoom = "Unzoom"
 	}
-	items := []tui.MenuItem{
-		{Label: zoom, Hint: "Alt+Z", Action: func() { s.panes.toggleZoom(id); s.syncMouseMode() }},
-		{Label: "Equalize", Action: s.panes.equalize},
-		{Label: "Close", Hint: "Alt+W", Disabled: id == mainPaneID, Action: func() { s.closePane(id) }},
+	var items []tui.MenuItem
+	// A task pane's full facts open in the details pane, as /tasks ID.
+	if p.kind == paneTask && s.ctrl != nil {
+		task := p.label
+		items = append(items, tui.MenuItem{Label: "Task details", Action: func() { s.ctrl.taskInput("/tasks " + task) }}, tui.MenuSeparator())
 	}
+	items = append(items,
+		tui.MenuItem{Label: zoom, Hint: "Alt+Z", Action: func() { s.panes.toggleZoom(id); s.syncMouseMode() }},
+		tui.MenuItem{Label: "Equalize", Action: s.panes.equalize},
+		tui.MenuItem{Label: "Close", Hint: "Alt+W", Disabled: id == mainPaneID, Action: func() { s.closePane(id) }},
+	)
 	s.transcriptMenuPane, p.view.menuItem = id, -1
 	s.transcriptMenu.Open(x, y, "", items)
 }

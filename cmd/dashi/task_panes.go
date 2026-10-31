@@ -35,6 +35,10 @@ func (e taskGapEvent) Timestamp() time.Time { return e.at }
 // again to check for it.
 const taskGapWait = 100 * time.Millisecond
 
+// taskWatchTip is the one-time notice the first task line of a session
+// shows.
+const taskWatchTip = "Click a task to watch it beside the conversation, or type /task ID."
+
 // taskPaneID is the pane ID of task id.
 func taskPaneID(id string) string { return "task:" + id }
 
@@ -67,6 +71,7 @@ func (s *screen) openTask(id string) {
 	if !s.openPane(p) {
 		return
 	}
+	s.redrawTaskLines(id)
 	pane, token := p.id, p.feed.token
 	unwatch := s.tasks.WatchTask(id, func(ev delegate.ChildEvent) {
 		s.enqueue(queued{child: &taskChildEvent{pane: pane, token: token, subagent: ev.Subagent, event: ev.Event}})

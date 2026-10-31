@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -153,10 +154,10 @@ func TestRightClickMenuEntriesFitTheItem(t *testing.T) {
 		{"user message", menuUserText, []string{"Copy message"}},
 		{"reply", "pass.", []string{"Copy message"}},
 		{"reasoning", menuReasoningText, []string{"Copy reasoning"}},
-		{"ended tool", "Ran a command", []string{"Expand", "Copy input", "Copy output"}},
+		{"ended tool", "Ran a command", []string{"Expand", "Copy input", "Copy output", "Open in side pane"}},
 		// A running call's output is not complete yet.
 		{"running tool", "Running a command", []string{"Expand", "Copy input"}},
-		{"diff", "+added line", []string{"Copy diff"}},
+		{"diff", "+added line", []string{"Copy diff", "Open in side pane"}},
 		{"notice", "a notice line", nil},
 	} {
 		f.rightClick(c.text)
@@ -217,10 +218,10 @@ func TestTranscriptMenuOffersToCopyTheSelection(t *testing.T) {
 		f.scr.HandleEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 3, X: x, Y: y})
 	})
 	f.rightClick("Ran a command")
-	if got := f.labels(); !slices.Equal(got, []string{"Copy selection", "Expand", "Copy input", "Copy output"}) {
+	if got := f.labels(); !slices.Equal(got, []string{"Copy selection", "Expand", "Copy input", "Copy output", "Open in side pane"}) {
 		t.Fatalf("menu with a selection = %v", got)
 	}
-	if !strings.Contains(f.frame(), "Copy selection   Ctrl+C") {
+	if !regexp.MustCompile(`Copy selection +Ctrl\+C`).MatchString(f.frame()) {
 		t.Fatalf("no Ctrl+C hint:\n%s", f.frame())
 	}
 	f.choose("Copy selection")

@@ -26,10 +26,6 @@ func (s *screen) View() tui.View {
 	return view
 }
 
-// linesBelowArea tags the "lines below" line; a click on it returns to live
-// output.
-const linesBelowArea = "lines-below"
-
 // belowTranscript stacks the live UI under the transcript with one empty
 // row between them, so transcript text never touches the working line, a
 // hint, a dialog, or the prompt. The live UI itself starts with no empty
@@ -48,14 +44,11 @@ func separate(views []tui.View) []tui.View {
 }
 
 func (s *screen) footer() tui.View {
+	// Nothing a pointer action changes adds or removes a row here: rows
+	// that come and go mid-drag would move the panes under the pointer.
+	// The selection hint uses the status line, and each pane draws its own
+	// "more below" mark.
 	views := make([]tui.View, 0, 10)
-	if hint := s.selectionHint(); hint != "" {
-		views = append(views, tui.Text(" %s", hint).Wrap().Style(hintStyle))
-	}
-	if vp := &s.focused().vp; !vp.AtBottom && vp.LinesBelow > 0 {
-		views = append(views, s.hits.Area(linesBelowArea,
-			tui.Text(" %d lines below · Ctrl+End returns to live output", vp.LinesBelow).Style(hintStyle)))
-	}
 	var menu []commandMenuItem
 	switch {
 	case s.dialogStatus != nil:
@@ -268,17 +261,30 @@ func (s *screen) decideStatus() string {
 func (s *screen) statusView(menuOpen bool) tui.View {
 	model := workspace.PrintableText(s.model())
 	dir := workspace.PrintableText(shortDir(s.dir))
+	long, short := s.selectionHint()
 	return tui.CanvasContext(func(ctx *tui.RenderContext) {
 		width, _ := ctx.Size()
-		help := " " + statusHint + " "
-		budget := max(1, width-runewidth.StringWidth(help)-1)
+		// The right side offers /help, or, while a selection has text,
+		// says how to copy it, in the shortest form that fits.
+		right := " " + statusHint + " "
+		if long != "" {
+			right = " " + long + " "
+			if runewidth.StringWidth(right) > width-1 {
+				right = runewidth.Truncate(" "+short+" ", max(1, width-1), "…")
+			}
+		} else if width < 16 {
+			right = ""
+		}
+		budget := width - runewidth.StringWidth(right) - 1
 		left := model + " · " + dir
 		if menuOpen {
 			left = "esc to cancel"
 		}
-		ctx.PrintTruncated(1, 0, runewidth.Truncate(left, budget, "…"), mutedStyle)
-		if width >= 16 {
-			ctx.PrintStyled(width-runewidth.StringWidth(help), 0, help, mutedStyle)
+		if long == "" || budget >= 8 {
+			ctx.PrintTruncated(1, 0, runewidth.Truncate(left, max(1, budget), "…"), mutedStyle)
+		}
+		if right != "" {
+			ctx.PrintStyled(width-runewidth.StringWidth(right), 0, right, mutedStyle)
 		}
 	}).Height(1)
 }

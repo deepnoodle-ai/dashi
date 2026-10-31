@@ -11,7 +11,12 @@ import (
 
 func dialogTranscriptText(s *screen) string {
 	var text strings.Builder
-	for _, b := range s.main().tr.Blocks {
+	// Inspection output goes to the details pane, so read every pane.
+	var blocks []Block
+	for _, p := range s.paneList() {
+		blocks = append(blocks, p.tr.Blocks...)
+	}
+	for _, b := range blocks {
 		text.WriteString(b.Text)
 		text.WriteByte('\n')
 	}
@@ -165,7 +170,7 @@ func TestRuntimeNativeStatusLeavesApprovalPending(t *testing.T) {
 	h.wait(func(s transcriptState) bool { return s.approval && strings.Contains(s.text, "Inspect: /status") })
 	h.key(tui.KeyEvent{Key: tui.KeyEnter})
 	h.wait(func(s transcriptState) bool {
-		return s.approval && strings.Contains(s.text, "still pending") && strings.Contains(s.text, "waits for an approval or answer")
+		return s.approval && strings.Contains(s.text, "still pending") && strings.Contains(s.details, "waits for an approval or answer")
 	})
 	h.key(tui.KeyEvent{Key: tui.KeyHome, Ctrl: true})
 	h.wait(func(s transcriptState) bool { return s.approval && strings.Contains(s.text, "Recorded snapshot") })
@@ -190,7 +195,7 @@ func TestRuntimeNativeQuestionStatusRecordsOnlyIntentionalAnswer(t *testing.T) {
 	h.typeText("/status")
 	h.key(tui.KeyEvent{Key: tui.KeyEnter})
 	h.wait(func(s transcriptState) bool {
-		return s.question && s.own && s.mode == ModeApproval && strings.Contains(s.text, "Question still pending") && strings.Contains(s.text, "waits for an approval or answer")
+		return s.question && s.own && s.mode == ModeApproval && strings.Contains(s.text, "Question still pending") && strings.Contains(s.details, "waits for an approval or answer")
 	})
 	for _, step := range h.turn(1).Steps {
 		if step.Tool != nil && step.Tool.Call.ID == "question" && step.Tool.Outcome != nil {
@@ -236,12 +241,12 @@ func TestRuntimeStatusShortcutPreservesOwnWordsDraft(t *testing.T) {
 		tui.KeyEvent{Key: tui.KeyEnter},
 	}})
 	h.wait(func(s transcriptState) bool {
-		return s.question && s.mode == ModeApproval && strings.Contains(s.text, "waits for an approval or answer")
+		return s.question && s.mode == ModeApproval && strings.Contains(s.details, "waits for an approval or answer")
 	})
 	// Ordinary slash/path text edits only the separate status field.
 	h.key(tui.KeyEvent{Paste: "/tmp/inspection-only"})
 	h.key(tui.KeyEvent{Key: tui.KeyEnter})
-	h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "Use /status [ID]") })
+	h.wait(func(s transcriptState) bool { return strings.Contains(s.main, "Use /status [ID]") })
 	if pending.text != draft || h.scr.asking != pending || len(pending.reply) != 0 ||
 		!reflect.DeepEqual(before, inspectionFiles(t, h.app.ctrl.store.Root())) {
 		t.Fatal("inspection edited, answered, or recorded the pending question")
@@ -291,7 +296,7 @@ func TestRuntimeStatusShortcutPreservesDenialDraft(t *testing.T) {
 		tui.KeyEvent{Key: tui.KeyEnter},
 	}})
 	h.wait(func(s transcriptState) bool {
-		return s.approval && s.mode == ModeApproval && strings.Contains(s.text, "waits for an approval or answer")
+		return s.approval && s.mode == ModeApproval && strings.Contains(s.details, "waits for an approval or answer")
 	})
 	if pending.reason != draft || h.scr.approval != pending || len(pending.reply) != 0 || runs.Load() != 0 ||
 		!reflect.DeepEqual(before, inspectionFiles(t, h.app.ctrl.store.Root())) {

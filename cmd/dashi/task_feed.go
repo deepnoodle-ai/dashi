@@ -422,9 +422,11 @@ func (f *taskFeed) missing(t *feedTurn, reason string) {
 	f.settle(t)
 }
 
-// facts shows the facts block at the top of the pane.
+// facts shows the task's description, one quiet line at the top of the
+// pane. The title row carries the state and counts, and the details pane
+// (/tasks ID) the full facts.
 func (f *taskFeed) facts(snapshot taskSnapshot) {
-	f.view.apply(Block{ID: taskFactsID, Kind: KindNotice, Text: taskDetailFacts(snapshot), Done: true})
+	f.view.apply(hintBlock(taskFactsID, taskPaneHeader(snapshot.Task)))
 }
 
 // replay shows the recorded Turns numbered from and after, each through a
