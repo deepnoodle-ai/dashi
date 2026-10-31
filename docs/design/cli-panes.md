@@ -14,11 +14,9 @@ event. One Wonton decoder fix is needed (below).
 
 ## Goals
 
-- Task panes use main's `Renderer`, live and after reopen, with each step
-  shown once and none lost.
+- Task panes use main's `Renderer`; each step shows once and none is lost.
 - `OnChild` never renders, loads, or blocks on the loop.
-- With one pane, `View()` draws today's frame, except the task-line `›`.
-- Pane input never changes what Esc, Ctrl+C, typing, or a dialog do.
+- One pane draws today's frame, except the task-line `›`.
 
 ## Proposal
 
@@ -45,13 +43,9 @@ type paneSet struct {
 }
 ```
 
-The field is `active`, not `focus`, because Wonton keyboard focus stays on
-the composer.
-
 ### Engine seam
 
-The screen does not touch the task host's lock or loader. `Engine` gets two
-CLI-internal methods:
+The screen does not touch the task host's lock or loader. `Engine` gets:
 
 ```go
 // WatchTask calls fn with each child event of task id until unwatch runs.
@@ -63,10 +57,9 @@ func (e *Engine) WatchTask(id string, fn func(delegate.ChildEvent)) (unwatch fun
 func (e *Engine) TaskRecord(ctx context.Context, id string) (taskSnapshot, []dashi.Turn, error)
 ```
 
-`OnChild` keeps its status-line work, then calls the task's watcher, if
-any, found in the host's watch map under `host.mu`. Closing the task
-host (quit, `/new`, session switch) drops every watcher; the screen's
-`Reset` closes every side pane.
+`OnChild` keeps its status-line work, then calls the task's watcher from
+the host's watch map under `host.mu`. Closing the task host (quit, `/new`,
+session switch) drops every watcher; `Reset` closes every side pane.
 
 ### Task feed
 
@@ -89,25 +82,28 @@ no holes, so for steps:
   `Continue` before the last call drains) can deliver out of order, and a
   step whose commit outcome is unknown is only in the record, never in
   `OnChild`. If the missing step has not arrived by the next flush, reload
-  the Turn: drop that Turn's blocks, make a fresh `Renderer`, and replay
-  its recorded steps as in opening step 3. Never feed recorded steps into a
-  `Renderer` that has already rendered them.
+  the Turn: call `TaskRecord` off the loop with the pane's token, and keep
+  holding events. On success, drop that Turn's blocks, make a fresh
+  `Renderer`, and replay its recorded steps as in opening step 3. Never
+  feed recorded steps into a `Renderer` that has already rendered them. A
+  failed reload keeps the Turn's blocks and follows the load-failure rule
+  below from the first held step.
 
 Previews (delta, progress) follow the same order. A preview with
 `Seq > lastSeq` is held with the steps and applies once `lastSeq` reaches
 it. A preview at or below `lastSeq` is dropped if it is stale (its `Seq`
-is below `lastSeq`, or its message's step has committed). A `Gap` drops that message's
-preview text and ignores its deltas until its `model_call_finished` step,
-as `dashi.Event` documents. Past 4,096 unapplied previews for one pane,
-`drain` drops that pane's previews and records a gap. Steps are never
-dropped.
+is below `lastSeq`, or its message's step has committed). A `Gap` drops
+that message's preview text and ignores its deltas until its
+`model_call_finished` step, as `dashi.Event` documents. Past 4,096
+unapplied previews for one pane, `drain` drops that pane's previews and
+records a gap. Steps are never dropped.
 
 ### Opening and recovery
 
 Opening a task pane (click, "Open task", bare `/task ID`) runs on the loop:
 
 1. Add the pane with a new open token, mark it `replaying`, and call
-   `WatchTask`. Live events queue without applying.
+   `WatchTask`. Live events queue.
 2. Off the loop, call `TaskRecord` and post the result with the token.
 3. On the loop, drop the result if the pane is gone or its token differs.
    Otherwise apply the facts block (`taskDetails(snapshot)`), then each
@@ -120,12 +116,13 @@ A step reaches `OnChild` only after the recorder saved it, and the watch
 starts before the load, so no step falls between record and stream. The
 same path serves a task recovered after restart and one opened mid-run.
 
-If the load fails, the pane shows a warning block that names the error and
-marks the gap. The feed sets `lastSeq` to one before the first live step
-and applies from there; held steps do not retry the load. The facts block
-refreshes when a child Turn ends and when `/task ID` runs again. Closing a
-pane calls `unwatch` and drops its queued events; a later load result finds
-no pane and is dropped. The task keeps running.
+If an open or a reload fails to load, the pane shows a warning block that
+names the error and marks the gap. The feed sets `lastSeq` to one before
+the first held or next live step and applies from there; it does not retry
+the load. The facts block refreshes when a child Turn ends and when
+`/task ID` runs again. Closing a pane calls `unwatch` and drops its queued
+events; a later load result finds no pane and is dropped. The task keeps
+running.
 
 ### Title state
 
@@ -173,13 +170,13 @@ Tabs are `HitMap` areas in `split.Leaves()` order; tabs that do not fit
 collapse into `+N`, which opens a `MenuState` of hidden panes. The tree,
 weights, and zoom survive narrow mode.
 
-The task-line `›` is a faint decoration after the line, fullscreen only. It
-is not source, so copying does not change.
+The task-line `›` is a faint fullscreen decoration, not source, so copying
+does not change.
 
 ### Mouse and keys
 
-Mouse routing, in order: open menu; dialog; `split.HandleMouse` (gutters,
-only when drawn); title and tab areas (left click activates; right click
+Mouse routing, in order: open menu; dialog; `split.HandleMouse` (gutters);
+title and tab areas (left click activates; right click
 opens Zoom/Unzoom, Equalize, Close, with Close disabled on main); then the
 pane under the pointer (`split.PaneAt`). The wheel scrolls that pane
 without activating it. A press activates it, then runs today's transcript
@@ -195,8 +192,7 @@ focus, it swallows them and does nothing.
   mode, Alt+←/↑ and Alt+→/↓ step through tabs. With stale bounds, step in
   `Leaves()` order.
 - Alt+Z, Alt+W: zoom or close the active pane. Alt+W on main does nothing.
-- PgUp, PgDn, Home/End, Ctrl+End, and "N lines below" use the active pane
-  when no dialog takes them.
+- PgUp, PgDn, Home/End, Ctrl+End, and "N lines below" use the active pane.
 - Esc: cancels running work as today; otherwise clears the selection;
   otherwise scrolls the active pane to the bottom.
 - `/pane close|zoom|equalize|next` and `/pane focus main|ID|details` act as
@@ -212,8 +208,7 @@ selection crosses pane edges.
 ### Selection, copy, and details
 
 Each pane's `ViewportState` holds its own selection; starting one clears
-the others. `copySelection` asks the pane that holds a selection, with
-today's source rules. `/copy N`, `/copy all`, `/scrollback`, and the exit
+the others, and `copySelection` asks the pane that holds it. `/copy N`, `/copy all`, `/scrollback`, and the exit
 transcript stay main-only.
 
 Fullscreen `/tasks`, `/tasks ID`, `/status`, `/settings`, and "Open in side
@@ -226,8 +221,8 @@ viewer goes away.
 
 ## Wonton gap
 
-[wonton#227](https://github.com/deepnoodle-ai/wonton/pull/227), released
-as v0.12.1, must land before the implementation merges. Today
+[wonton#227](https://github.com/deepnoodle-ai/wonton/pull/227), in review
+for v0.12.1, must be released before the implementation merges. Today
 `ESC ESC [D` (rxvt, some iTerm2 profiles) decodes as Escape, then ←, so
 Alt+← would cancel running work. The fix decodes `ESC ESC` plus a complete
 CSI or SS3 key as that key with `Alt`, only when the bytes arrive together
@@ -236,10 +231,9 @@ separate reads further apart, so Esc still cancels.
 
 ## Alternatives and tradeoffs
 
-- Rejected: rendering on the child goroutine, where `OnChild` must return
-  promptly.
-- Rejected: a transcript for every task from its first event, which costs
-  memory for unwatched tasks and still needs replay.
+- Rejected: rendering on the child goroutine, and a transcript for every
+  task from its first event (memory for unwatched tasks; still needs
+  replay).
 - Cost accepted: a long task pane appears after its records load, and a
   pane opened mid-stream shows the current message from the open point.
   Viewports draw only visible, changed rows; hidden panes do not draw.
@@ -247,8 +241,7 @@ separate reads further apart, so Esc still cancels.
 ## Test plan
 
 - **Unit**: layout operations and `active` repair; every `taskFeed` rule
-  above (dedup, held events, reload, stale previews, gaps, load error,
-  stale token, a second child Turn); approval titles.
+  above, including a failed open load and a failed reload; approval titles.
 - **Frames**: one pane equals today's frames at 120×40, 80×24, and 40×16,
   except the `›`; two and three panes, tabs, zoom, approval, NO_COLOR.
 - **Events and PTY**: mouse routing, Alt keys (with `ESC ESC [D`), Esc,
