@@ -416,12 +416,27 @@ func (f *taskFeed) loaded(l taskLoad) {
 		f.view.truncate(cut)
 		f.menuStale = true
 		from := turnNumber(l.turn)
+		// A later Turn's blocks go too. Its steps shown live may be past
+		// what the record held when it was read; they apply again after
+		// the replay rather than leave a gap.
+		shown := map[string][]dashi.Step{}
 		for id, other := range f.turns {
 			if other.start >= cut || id == l.turn {
+				if id != l.turn {
+					shown[id] = other.steps
+				}
 				delete(f.turns, id)
 			}
 		}
 		f.replay(l.turns, from)
+		for id, steps := range shown {
+			t := f.turn(id)
+			for i := range steps {
+				if step := steps[i]; step.Seq > t.lastSeq {
+					f.held[id] = append(f.held[id], dashi.Event{TurnID: id, Seq: step.Seq, Step: &step})
+				}
+			}
+		}
 		f.turn(l.turn).reloading = false
 		f.settleAll()
 		// Only a record that ends before the missing step proves it lost.

@@ -556,3 +556,122 @@ func TestPointerReachesPanesDuringAnApproval(t *testing.T) {
 		t.Fatal("the × did not close the pane")
 	}
 }
+
+// A task_send message starts the task's next Turn, which streams into the
+// pane already open after the first. After a restart, a new launch has only
+// the main pane, and the reopened task's pane shows each recorded Turn
+// once (UC-1, UC-7).
+func TestTaskPaneFollowsTaskSendAndReopensFromTheRecord(t *testing.T) {
+	const up, down = "Parse is in config/load.go; env overrides too?", "Yes, check env overrides too"
+	hold := make(chan struct{})
+	started := make(chan struct{})
+	client := &taskFixtureClient{childHold: hold, childStarted: started, messageParent: up, messageDeliver: "queue", sendQueue: down}
+	cfg := testConfig(t)
+	cfg.Client = client
+	cfg.ApproveAll = true
+	launch := func(opts Options) (*app, *screen, func(func())) {
+		s := newScreen(cfg.Dir)
+		s.width, s.height = 120, 40
+		a, err := buildApp(t.Context(), cfg, s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.bind(a)
+		if _, err = a.openSession(cfg.Store, cfg.Dir, opts); err != nil {
+			t.Fatal(err)
+		}
+		a.ctrl.mu.Lock()
+		a.ctrl.autoTaskDelivery = false
+		a.ctrl.mu.Unlock()
+		return a, s, loopScreen(t, s)
+	}
+	a, s, on := launch(Options{})
+	closed := false
+	t.Cleanup(func() {
+		if !closed {
+			a.ctrl.CancelWork()
+			a.eng.closeTasks()
+			a.ctrl.Wait()
+			a.eng.Close()
+		}
+	})
+	wait := func(on func(func()), what string, cond func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			ok := false
+			on(func() { ok = cond() })
+			if ok {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("timeout waiting for %s", what)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	result, err := a.eng.Prompt(t.Context(), "Delegate this job")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	task := a.eng.taskHost().tasks.List()[0]
+	pane := taskPaneID(task.ID)
+	on(func() { s.submit("/task " + task.ID) })
+	wait(on, "the record", func() bool { s.drain(); p := s.panes.get(pane); return p != nil && !p.feed.replaying })
+	close(hold)
+	if _, err = a.eng.QuietTasks(t.Context(), result); err != nil {
+		t.Fatal(err)
+	}
+	waitTask(t, a, func(v delegate.TaskView) bool { return v.Turns == 2 && !v.Running() })
+	turnRule := func(n int) string { return fmt.Sprintf("── %s turn %d ", task.ID, n) }
+	check := func(text string) {
+		t.Helper()
+		for _, want := range []string{turnRule(1), turnRule(2), down} {
+			if strings.Count(text, want) != 1 {
+				t.Fatalf("%q shows %d times:\n%s", want, strings.Count(text, want), text)
+			}
+		}
+		if strings.Index(text, turnRule(1)) > strings.Index(text, down) {
+			t.Fatalf("turn 2 is not after turn 1:\n%s", text)
+		}
+	}
+	var text string
+	wait(on, "turn 2 in the pane", func() bool {
+		s.drain()
+		text = paneText(s.panes.get(pane).feed)
+		return strings.Contains(text, turnRule(2))
+	})
+	check(text)
+
+	// Restart: the next launch starts with only main, and the task's pane
+	// replays both Turns from the record.
+	sessionID := a.eng.Session().ID
+	a.ctrl.CancelWork()
+	a.eng.closeTasks()
+	a.ctrl.Wait()
+	a.eng.Close()
+	closed = true
+	b, s2, on2 := launch(Options{Resume: true, ResumeID: sessionID})
+	t.Cleanup(func() { b.ctrl.CancelWork(); b.eng.closeTasks(); b.ctrl.Wait(); b.eng.Close() })
+	// Startup recovers the session's tasks, as the MCP start does.
+	if err := b.eng.recoverTasks(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	on2(func() {
+		if s2.panes.count() != 1 {
+			t.Errorf("a new launch opened %d panes", s2.panes.count())
+		}
+	})
+	on2(func() { s2.submit("/task " + task.ID) })
+	wait(on2, "the reopened record", func() bool {
+		s2.drain()
+		p := s2.panes.get(pane)
+		if p == nil || p.feed.replaying {
+			return false
+		}
+		text = paneText(p.feed)
+		return strings.Contains(text, turnRule(2))
+	})
+	check(text)
+}

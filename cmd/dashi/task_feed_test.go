@@ -305,3 +305,48 @@ func TestTaskFeedCapsHeldPreviews(t *testing.T) {
 		t.Fatal("dropped previews left no gap")
 	}
 }
+
+// recordedChildTurns returns two real recorded Turns of one session, each
+// with a tool call between two model calls, for a task with two turns.
+func recordedChildTurns(t *testing.T) (dashi.Turn, dashi.Turn) {
+	t.Helper()
+	h := newHarness(t, callTool("c1", "read_file", `{"path":"notes.txt"}`), say("The notes say hello."),
+		callTool("c2", "read_file", `{"path":"notes.txt"}`), say("Still hello."))
+	if err := os.WriteFile(filepath.Join(h.dir, "notes.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.input("Read the notes")
+	h.input("Read them again")
+	return h.turn(1), h.turn(2)
+}
+
+// A reload of an earlier Turn while a later one streams replaces both from
+// the record, then the later Turn continues live; every step shows once.
+func TestTaskFeedReloadWhileALaterTurnStreams(t *testing.T) {
+	one, two := recordedChildTurns(t)
+	first, second := stepsOf(one), stepsOf(two)
+	f := newTestFeed()
+	f.loaded(openLoad())
+	f.push(first[0])
+	f.push(first[1])
+	// Step 3 of Turn 1 is late; Turn 2 starts streaming meanwhile.
+	f.push(first[3])
+	f.push(second[0])
+	f.push(second[1])
+	if loads := reloadNow(f); len(loads) != 1 || loads[0].turn != one.ID {
+		t.Fatalf("loads=%+v", loads)
+	}
+	f.push(second[2])
+	// The record has all of Turn 1 and the start of Turn 2.
+	f.loaded(taskLoad{kind: taskLoadReload, turn: one.ID, turns: []dashi.Turn{one, {ID: two.ID, Steps: two.Steps[:2]}}})
+	for _, ev := range second[3:] {
+		f.push(ev)
+	}
+	want := wantText(t, f.task, one) + "\n" + wantText(t, f.task, two)
+	if got := paneText(f); got != want {
+		t.Fatalf("pane:\n%s\nwant:\n%s", got, want)
+	}
+	if len(f.held) != 0 {
+		t.Fatalf("held=%v", f.held)
+	}
+}
