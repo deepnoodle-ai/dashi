@@ -178,7 +178,7 @@ Quit while a task runs, reopen, and open its pane.
   no record, and does not change a task's state or notice delivery.
 - R-5: No Dashi library change. If one becomes necessary, the behavior goes
   in the library for every client, not in CLI plumbing. The build depends
-  on Wonton v0.12.1, which decodes legacy `ESC ESC [D` as Alt+←
+  on Wonton v0.13.0, which decodes legacy `ESC ESC [D` as Alt+←
   ([wonton#227](https://github.com/deepnoodle-ai/wonton/pull/227)).
 
 ## Not in scope
