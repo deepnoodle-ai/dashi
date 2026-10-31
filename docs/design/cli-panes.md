@@ -34,17 +34,11 @@ one-time key hint has shown.
 
 ### Engine seam
 
-The screen does not touch the task host's lock or loader. `Engine` gets:
-
-```go
-// WatchTask calls fn with each child event of task id until unwatch runs.
-// fn runs on the child's observer goroutine and must return promptly.
-func (e *Engine) WatchTask(id string, fn func(delegate.ChildEvent)) (unwatch func())
-
-// TaskRecord returns the task's inspection snapshot and its recorded
-// child Turns, as /task ID and /tasks ID load them today.
-func (e *Engine) TaskRecord(ctx context.Context, id string) (taskSnapshot, []dashi.Turn, error)
-```
+The screen does not touch the task host's lock or loader. `Engine` gets
+`WatchTask(id, fn) (unwatch func())`, which calls `fn` on the child's
+observer goroutine with each child event, and `TaskRecord(ctx, id)`, which
+returns the inspection snapshot and recorded child Turns as `/tasks ID`
+loads them.
 
 `OnChild` keeps its status-line work, reads the task's watcher from the
 host's watch map under `host.mu`, and calls it after releasing the lock
@@ -73,8 +67,8 @@ no holes, so for steps:
 - `Seq > lastSeq+1`: hold it. Overlapping observer calls on one Turn (a
   `Continue` before the last call drains) can deliver out of order, and a
   step whose commit outcome is unknown is only in the record, never in
-  `OnChild`. If the missing step has not arrived by the next flush, reload
-  the Turn: call `TaskRecord` off the loop with the pane's token, and keep
+  `OnChild`. If the missing step has not arrived within `taskGapWait`
+  (100 ms of clock time, not a count of flushes), reload the Turn: call `TaskRecord` off the loop with the pane's token, and keep
   holding events. On success, drop that Turn's blocks, make a fresh
   `Renderer`, and replay its recorded steps as in opening step 3. Never
   feed recorded steps into a `Renderer` that has already rendered them. A
@@ -111,7 +105,11 @@ same path serves a task recovered after restart and one opened mid-run.
 If an open or a reload fails to load, the pane shows a warning block that
 names the error and marks the gap. The feed sets `lastSeq` to one before
 the first held or next live step and applies from there; it does not retry
-the load. The header refreshes when a child Turn ends and when `/task ID`
+the load. After a reload, a step still held past the record counts as
+lost only if the record ends before the last step the reload asked for;
+otherwise it is a new gap and waits again. A reload also replays later
+Turns from the record and reapplies their steps already shown live. The
+header refreshes when a child Turn ends and when `/task ID`
 runs again. The full facts (`taskDetailFacts`) show in the details pane for
 `/tasks ID` and the title menu's "Task details". Closing a pane calls `unwatch` and drops its queued
 events; a later load result finds no pane and is dropped. The task keeps
@@ -119,8 +117,8 @@ running.
 
 ### Title state
 
-The title shows task ID, subagent, state, model calls, and spend. It is read
-from the task's status lines as they pass through `drain` (the loop never
+The title reads task ID · state · spend · model calls · subagent; tool
+calls stay on the task line. It is read from the task's status lines as they pass through `drain` (the loop never
 takes the task host's locks), so it refreshes on each step and `OnTask`
 event.
 "Needs approval" comes from the approval broker, not `TaskView`. Add
@@ -154,24 +152,30 @@ With one pane, `View()` draws today's tree. With two or more and width at
 least 120, the transcript area is
 `tui.Split(&split, paneView).GutterStyle(faintStyle).ActiveGutterStyle(accentStyle)`;
 at 120 columns, 3:2 leaves the side pane about 47 cells. `paneView` stacks a
-one-line `HitMap` title on the padded viewport, such as
-`▸ t_k3f2 · explore · running · 3 model calls · $0.0123` ("needs approval"
-and "zoomed" come right after the label, so truncation keeps them): warning
-color when
-the task waits for approval, else accent when active, else muted. The `▸`
-marks the active pane, so NO_COLOR keeps it.
+one-line title on the padded viewport, such as
+`▸ t_k3f2 · running · $0.0123 · 3 model calls · explore ×`: "needs
+approval" replaces the state; a zoomed title ends `zoomed · Alt+Z`, kept
+when the rest is cut; side panes end with a `×` (its cells recorded on the
+pane) that closes them; the details title adds the capture time. Warning
+color when the task waits for approval, else accent when active, else
+muted. The `▸` marks the active pane, so NO_COLOR keeps it. A row with
+another row under it keeps its last row blank, so a turn rule never sits on
+the row separator, and a task pane's turn rules read `t_k3f2 turn 1`.
 
 Zoom draws a one-leaf `SplitState` holding the zoomed pane. Below 120
 columns (narrow mode), the area is a tab strip plus the active pane alone.
-Tabs are `HitMap` areas in `split.Leaves()` order; tabs that do not fit
-collapse into `+N`, which opens a `MenuState` of hidden panes. The tree,
+Tabs are `HitMap` areas in `split.Leaves()` order, padded with spaces; the
+active tab is reverse video, the others muted, and the active pane's title
+fills the right of the strip. Tabs that do not fit collapse into `+N`,
+which opens a `MenuState` of hidden panes. While another pane is active,
+the composer band shows a muted `→ main`. The tree,
 weights, and zoom survive narrow mode.
 
 In fullscreen, `transcriptPane.liveBlock` replaces a task line's inspect hint
 with "click to watch", or "watching" while its pane is open; opening or
 closing a task pane redraws that task's lines. The record and inline output
-keep the inspect hint. The first task line of a session adds a one-time hint
-notice.
+keep the inspect hint; task lines start with the task ID in every mode.
+The first task line of a session adds a one-time muted hint naming its ID.
 
 **Stable pane area.** Pointer actions, focus changes, and selections never
 add or remove a footer row, since rows that come and go mid-drag move the
@@ -185,14 +189,17 @@ so the gutter highlights on hover; otherwise it reports drags only.
 
 ### Mouse and keys
 
-Mouse routing, in order: open menu; dialog; `split.HandleMouse` (gutters);
+Mouse routing, in order: open menu; while a dialog is open, the wheel off
+the panes scrolls its details, and every other pointer event continues, so
+panes, task lines, and menus work during an approval (a dialog's status
+field still blocks menus); `split.HandleMouse` (gutters); a title's `×`;
 title and tab areas (left click activates; right click
 opens Zoom/Unzoom, Equalize, Close, with Close disabled on main); then the
 pane under the pointer (`split.PaneAt`). The wheel scrolls that pane
 without activating it. A press activates it, then runs today's transcript
 handling on it. A click on a task line opens its pane; under a tool row,
 the hit is the row's last rendered lines. Tool and diff item menus gain
-"Open in side pane"; task lines gain "Open task".
+"Show in details"; task lines gain "Open task".
 
 `inputKey` takes Alt+arrows, Alt+Z, and Alt+W (either case) before the
 composer field and posts them to the loop. While any dialog is open, they
@@ -207,7 +214,9 @@ are swallowed and do nothing.
 - Esc: cancels running work as today; otherwise clears the selection;
   otherwise scrolls the active pane to the bottom.
 - `/pane close|zoom|equalize|next` and `/pane focus main|ID|details` act as
-  above. Inline and plain modes reply that panes need fullscreen.
+  above; a bare `/pane` lists the panes as a hint, and Tab completes
+  actions and names. Inline and plain modes reply that panes need
+  fullscreen and leave `/pane` out of help and completion.
 
 Caveats, covered by mouse and `/pane` and named in the guide: macOS Option
 without "Option as Meta" sends `Ω` and `∑` (ordinary text); some profiles
@@ -220,25 +229,25 @@ Each pane's `ViewportState` holds its own selection; starting one clears
 the others, and `copySelection` asks the pane that holds it. `/copy N`, `/copy all`, `/scrollback`, and the exit
 transcript stay main-only.
 
-Fullscreen `/tasks`, `/tasks ID`, `/status`, `/settings`, "Open in side
-pane" (finished tool rows, expanded, and diffs), and "Task details" call
-`screen.ShowDetails(detailsUpdate)` through the optional `detailsUI`
-interface (`Controller.showDetails`). It opens `details` if needed, replaces
+Fullscreen `/tasks`, `/tasks ID`, `/status`, `/settings`, `/help`, "Show in
+details" (finished tool rows, expanded, and diffs), and "Task details" call
+`screen.ShowDetails(detailsUpdate)` through the optional `panesUI`
+interface (`Controller.showDetails`). Inline mode runs on the same screen
+with `screen.inline` set, so `Panes()` reports false and the Controller
+prints instead. It opens `details` if needed, replaces
 its blocks, scrolls to the top, and activates it. An update with `add` (the
 spend after the `/tasks` list) appends only while the pane still shows the
 same title. Without room, the blocks print in main. Other UIs keep printing
 notices; a command with nothing to show answers in main. Only a bare
 `/task ID` opens or activates the task pane; `/task ID continue|done|discard`
 keep today's behavior and do not change `active`. The `ChooseTaskDetails`
-viewer goes away.
+viewer stays for inline mode and for tasks the session does not list.
 
 ## Wonton gap
 
-[wonton#227](https://github.com/deepnoodle-ai/wonton/pull/227), in Wonton
-v0.13.0, decodes `ESC ESC` plus a complete CSI or SS3 key, arriving within
-the 50 ms escape timeout, as that key with `Alt`. Without it, `ESC ESC [D`
-(rxvt, some iTerm2 profiles) would decode as Escape, then ←, and Alt+←
-would cancel running work. A person pressing Esc, then ←, still cancels.
+[wonton#227](https://github.com/deepnoodle-ai/wonton/pull/227) (v0.13.0)
+decodes `ESC ESC [D` (rxvt, some iTerm2 profiles) as Alt+←, not Escape then
+←, which would cancel running work.
 
 ## Alternatives and tradeoffs
 

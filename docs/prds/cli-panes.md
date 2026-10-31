@@ -58,7 +58,7 @@ task.
 ### UC-1: Watch a task while you keep working
 
 Ask the agent to delegate an investigation. The task line under the `task`
-call ends in "click to watch". Click the line. A task pane opens to the right;
+call starts with the task ID and ends in "click to watch". Click the line. A task pane opens to the right;
 main keeps about 60% of the width. The pane streams the child's text, tool
 calls, and tool progress. Keep typing to the main agent.
 
@@ -68,10 +68,11 @@ calls, and tool progress. Keep typing to the main agent.
   this: `/task ID continue|done|discard` keep today's behavior and do not
   open a pane or change focus. No pane ever opens by itself. While the pane
   is open, its task line reads "watching". The first task line of a session
-  shows a one-time hint: "Click a task to watch it beside the conversation,
-  or type /task ID."
-- [ ] The title row shows task ID, subagent, state, model calls, and spend,
-  and updates as the task runs. Below it, one quiet line gives the task's
+  shows a one-time muted hint: "Click a task, or type /task t_k3f2, to
+  watch it here."
+- [ ] The title row reads task ID · state · spend · model calls · subagent,
+  ends with a `×` that closes the pane, and updates as the task runs. The
+  pane's turn rules name the task (`t_k3f2 turn 1`). Below it, one quiet line gives the task's
   description, then the child's conversation in the same style as main. The
   full facts (parent call, child Turn, limits, stop, approvals) are one step
   away: "Task details" on the title's right-click menu, or `/tasks ID`.
@@ -92,8 +93,10 @@ column. One task asks to edit a file.
 - [ ] Further side panes stack as rows in the right column. The details pane
   is the bottom row when open.
 - [ ] A task that waits for the developer turns its title row (or tab) to
-  the warning color and says "needs approval". The dialog stays in the
-  full-width footer, labeled with the task, exactly as today.
+  the warning color and says "needs approval" in place of its state. The
+  dialog stays in the full-width footer, labeled with the task, exactly as
+  today. While it waits, clicks, the wheel, drags, and title menus still
+  reach panes and task lines; keys stay with the dialog.
 - [ ] If the right column has no room for another pane (each row needs
   about eight lines), the oldest ended task pane closes to make room, and a
   hint names it. A focused pane or a pane that needs approval never closes
@@ -108,9 +111,11 @@ column. One task asks to edit a file.
   unzooms the focused pane; Alt+W closes the focused side pane. PgUp, PgDn,
   and Ctrl+End act on the focused pane. Esc keeps every current meaning.
 - [ ] `/pane close`, `/pane zoom`, and `/pane equalize` do the same as the
-  menu. `/pane focus main|ID|details` and `/pane next` move focus. `/help`
-  lists the commands and keys. The first side pane in a session shows a
-  one-time hint with the keys.
+  menu. `/pane focus main|ID|details` and `/pane next` move focus. A bare
+  `/pane` lists the open panes, and Tab completes actions and pane names.
+  `/help` lists the commands and keys. The first side pane in a session
+  shows a one-time muted hint: typing goes to main, click to focus, `×` or
+  Alt+W closes, `/pane` lists panes. A zoomed title ends `zoomed · Alt+Z`.
 - [ ] The main pane cannot be closed. Closing the focused pane moves focus to
   main. Equalize restores main to about 60% and evens the right column.
 - [ ] Where a terminal does not send Alt+arrows or Alt+letters (for example,
@@ -119,16 +124,17 @@ column. One task asks to edit a file.
 
 ### UC-4: Look at details without losing your place
 
-Type `/tasks`, or right-click a long tool row and choose "Open in side
-pane".
+Type `/tasks`, or right-click a long tool row and choose "Show in
+details".
 
-- [ ] `/tasks`, `/tasks ID`, `/status`, `/settings`, "Open in side pane"
+- [ ] `/tasks`, `/tasks ID`, `/status`, `/settings`, `/help`, "Show in details"
   (on finished tool rows and diffs), and "Task details" (on a task pane's
   title) show their content in the details pane and focus it. `/tasks ID`
   there shows the task's full facts above its turns. The main transcript
   keeps its scroll position. A command with nothing to show, such as
   `/tasks` with no tasks, answers in main.
-- [ ] Each new request replaces the details pane's content. There is never
+- [ ] Each new request replaces the details pane's content, and its title
+  says what it shows and when (`details · /status · 20:31`). There is never
   more than one details pane.
 
 ### UC-5: Select and copy from any pane
@@ -138,7 +144,8 @@ pane".
 - [ ] Pointer actions, focus changes, and selections never change the height
   of the pane area, so a drag selects exactly the rows it crosses. Each pane
   marks lines below on its own bottom row (`↓ 12 more · Ctrl+End`, click to
-  return), and the copy hint shows on the status line.
+  return, set apart by a few blank cells), and the copy hint shows on the
+  status line.
 - [ ] Ctrl+C with the composer active copies the selection, from whatever
   pane holds it, with the same fidelity rules as main today. Without a
   selection, Ctrl+C keeps its interrupt and exit meanings.
@@ -146,7 +153,9 @@ pane".
 ### UC-6: Narrow terminals, resize, and modes
 
 - [ ] Below 120 columns, the split folds to the focused pane. A one-line tab
-  strip (`main · t_k3f2 · details`) shows above it. Click a tab or press
+  strip shows above it: tabs spaced apart, the focused one in reverse, and
+  the focused pane's title on the right. While a pane other than main has
+  focus, the composer shows `→ main` at any width. Click a tab or press
   Alt+←/→ or Alt+↑/↓ to switch. Tabs that do not fit collapse to `+N`,
   which opens a menu of panes.
 - [ ] At 80×24 and 40×16, with one or more panes, the composer, a pending
@@ -154,13 +163,15 @@ pane".
   streaming, approval, ended, and error states stay usable.
 - [ ] Resizing, including across the 120-column line, keeps the draft, each
   pane's scroll position, follow mode, focus, and the open panes.
-- [ ] With NO_COLOR, the focused pane is still clear (a `▸` mark on its title
-  or tab), and "needs approval" is spelled out.
+- [ ] With NO_COLOR, the focused pane is still clear (a `▸` mark on its title,
+  reverse video on its tab), and "needs approval" is spelled out.
 - [ ] With only the main pane, the screen is identical to today at every
   size, except the task-line hint, the lines-below mark, and the copy hint
   (UC-5): no title row, no gutter, no tab strip.
-- [ ] Inline and plain modes do not change. `/task ID` there prints today's
-  output. `/pane` there says panes need fullscreen mode.
+- [ ] Inline and plain modes do not change, except that task lines start
+  with the task ID. `/tasks`, `/task ID`, `/status`, `/settings`, and
+  `/help` print today's output. `/pane` there says panes need fullscreen
+  mode and is left out of help and completion.
 
 ### UC-7: Reopen a session with a running task
 

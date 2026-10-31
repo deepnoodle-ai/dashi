@@ -22,25 +22,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   conversation, each with a title row; click to focus, drag the line
   between panes to resize, and right-click a title for Zoom, Equalize, and
   Close. Alt+arrows move focus, Alt+Z zooms, Alt+W closes, and `/pane`
-  does the same. Below 120 columns the panes fold to a tab strip. With only
+  does the same; a bare `/pane` lists the panes and Tab completes it. Below
+  120 columns the panes fold to tabs with the focused pane's title. With only
   the main pane the screen is unchanged; inline and plain modes reply that
   panes need fullscreen.
 - **Live task panes in the fullscreen CLI.** Click a task line (it ends in
   "click to watch", then "watching" while its pane is open), choose "Open
   task" from its right-click menu, or type a bare `/task ID` to watch a
-  task beside the conversation. The first task line of a session shows a
-  one-time hint. The pane shows the task's description, then its child
-  conversation streaming live, recorded steps first and each step once,
-  including after a restart. Its title row shows state, model calls, and
-  spend, and says "needs approval" in the warning color while the task
-  waits for you; "Task details" on its right-click menu shows the full
-  facts. The fullscreen `/task ID` details viewer is gone; inline and plain
-  modes print the details as before.
+  task beside the conversation, also while an approval waits. The first
+  task line of a session shows a one-time hint. The pane shows the task's
+  description, then its child conversation streaming live, recorded steps
+  first and each step once, including after a restart. Its title row reads
+  ID · state · cost · model calls, says "needs approval" in the warning
+  color while the task waits for you, and ends with a `×` that closes it;
+  "Task details" on its right-click menu shows the full facts. In
+  fullscreen a bare `/task ID` opens the pane instead of the details
+  viewer.
+- **Task lines start with the task ID**, such as `└ t_k3f2 · running ·
+  2 model calls`, so the ID to type is on screen while the task runs.
 - **A details pane in the fullscreen CLI.** `/tasks`, `/tasks ID` (now with
-  the task's full facts above its turns), `/status`, `/settings`, and "Open
-  in side pane" on a finished tool row or a diff show in one reused side
-  pane and focus it, so the conversation keeps its place. Inline and plain
-  modes print them as before.
+  the task's full facts above its turns), `/status`, `/settings`, `/help`,
+  and "Show in details" on a finished tool row or a diff show in one reused
+  side pane, titled with the command and the time, and focus it, so the
+  conversation keeps its place. Inline and plain modes print them as
+  before.
 - **Right-click menu on transcript items in the fullscreen CLI.** A tool
   line offers Expand or Collapse, Copy input, and Copy output; a message,
   reasoning, or diff offers to copy its text; and a selection adds Copy

@@ -15,13 +15,14 @@ calls with no recorded result. Inspection sends no model request, loads no
 attachment content, and has no external effect. Long messages/results disclose
 their 64 KiB display limit; the full content remains in the Turn record.
 
-In fullscreen mode, a task line ends in "click to watch" instead of the
-inspect hint. Clicking it, choosing "Open task" from its right-click menu, or
+Every task line starts with the task ID. In fullscreen mode, it ends in
+"click to watch" instead of the inspect hint. Clicking it, choosing "Open task" from its right-click menu, or
 typing a bare `/task ID` opens that task's pane beside the conversation, or
 focuses it if it is open; the line then reads "watching". The first task line
-of a session shows a one-time hint saying so. The pane's title row shows the
-task ID, subagent, state, model calls, and spend, and turns to the warning
-color with "needs approval" while the task waits for you. Below the title,
+of a session shows a one-time hint saying so. This works while an approval
+waits too. The pane's title row reads task ID · state · spend · model calls
+· subagent, shows "needs approval" in the warning color in place of the
+state while the task waits for you, and ends with a `×` that closes it. Below the title,
 one quiet line gives the task's description, then the child's conversation
 streams live in the same style as the main pane: recorded steps first, then
 live ones, each once. A turn that `task_send` starts continues in the same
