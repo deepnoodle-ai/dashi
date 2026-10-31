@@ -154,10 +154,10 @@ func TestRightClickMenuEntriesFitTheItem(t *testing.T) {
 		{"user message", menuUserText, []string{"Copy message"}},
 		{"reply", "pass.", []string{"Copy message"}},
 		{"reasoning", menuReasoningText, []string{"Copy reasoning"}},
-		{"ended tool", "Ran a command", []string{"Expand", "Copy input", "Copy output", "Open in side pane"}},
+		{"ended tool", "Ran a command", []string{"Expand", "Copy input", "Copy output", "Show in details"}},
 		// A running call's output is not complete yet.
 		{"running tool", "Running a command", []string{"Expand", "Copy input"}},
-		{"diff", "+added line", []string{"Copy diff", "Open in side pane"}},
+		{"diff", "+added line", []string{"Copy diff", "Show in details"}},
 		{"notice", "a notice line", nil},
 	} {
 		f.rightClick(c.text)
@@ -218,7 +218,7 @@ func TestTranscriptMenuOffersToCopyTheSelection(t *testing.T) {
 		f.scr.HandleEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 3, X: x, Y: y})
 	})
 	f.rightClick("Ran a command")
-	if got := f.labels(); !slices.Equal(got, []string{"Copy selection", "Expand", "Copy input", "Copy output", "Open in side pane"}) {
+	if got := f.labels(); !slices.Equal(got, []string{"Copy selection", "Expand", "Copy input", "Copy output", "Show in details"}) {
 		t.Fatalf("menu with a selection = %v", got)
 	}
 	if !regexp.MustCompile(`Copy selection +Ctrl\+C`).MatchString(f.frame()) {
@@ -261,7 +261,9 @@ func TestTranscriptMenuClosesWithoutSideEffects(t *testing.T) {
 	f.wantNoCopy()
 }
 
-func TestRightClickDoesNothingWhileSomethingElseHoldsTheScreen(t *testing.T) {
+// A dialog keeps its keys, but the pointer still reaches the transcript,
+// so the menu opens; it takes the keys only while it is open.
+func TestRightClickOpensTheMenuDuringADialog(t *testing.T) {
 	for _, c := range []struct {
 		name  string
 		setup func(f *menuFixture)
@@ -274,6 +276,28 @@ func TestRightClickDoesNothingWhileSomethingElseHoldsTheScreen(t *testing.T) {
 		}},
 		{"picker", func(f *menuFixture) {
 			f.scr.HandleEvent(promptEvent{id: 1, picker: &pickerState{title: "Model", options: []string{"a"}, reply: make(chan int, 1)}})
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newMenuFixture(t)
+			x, y := cellOf(t, strings.Split(f.frame(), "\n"), "Ran a command")
+			f.locked(func() { c.setup(f) })
+			f.click(tui.MouseButtonRight, x, y)
+			if got := f.labels(); got == nil {
+				t.Fatal("menu did not open")
+			}
+		})
+	}
+}
+
+func TestRightClickDoesNothingWhileSomethingElseHoldsTheScreen(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		setup func(f *menuFixture)
+	}{
+		{"dialog status field", func(f *menuFixture) {
+			f.scr.HandleEvent(promptEvent{id: 1, approval: &approvalPrompt{reply: make(chan Approval, 1)}})
+			f.scr.beginDialogStatus("/")
 		}},
 		{"command menu", func(f *menuFixture) {
 			f.scr.input, f.scr.commandMenu.typing = "/co", true

@@ -253,12 +253,18 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 	if s.transcriptMenu.HandleMouse(e) {
 		return
 	}
+	// While a dialog is open, its keys stay with it, but the pointer still
+	// reaches the panes: a click focuses a pane or opens a task, the wheel
+	// scrolls the pane under it, and a drag selects. The wheel anywhere
+	// else scrolls the dialog's details. The dialog's own clickable parts
+	// sit below the panes, so they never compete.
 	if (s.approval != nil && !s.approval.denying) || s.asking != nil || s.picker != nil {
-		// While a dialog is open, the wheel scrolls its details.
-		if vp := s.dialogViewport(); vp != nil && e.Type == tui.MouseScroll {
-			vp.ScrollBy(wheelDelta(e))
+		if e.Type == tui.MouseScroll && s.paneAt(e.X, e.Y) == nil {
+			if vp := s.dialogViewport(); vp != nil {
+				vp.ScrollBy(wheelDelta(e))
+			}
+			return
 		}
-		return
 	}
 	// Dragging a gutter between panes takes the pointer.
 	if s.panes.drawn == &s.panes.split && s.panes.split.HandleMouse(e) {

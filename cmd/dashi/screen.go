@@ -420,9 +420,9 @@ func (s *screen) drain() {
 			s.transcriptMenu.Close()
 		}
 		s.taskLine(q.block)
-		if !s.inline && !s.taskHinted && taskOfLine(q.block) != "" {
+		if task := taskOfLine(q.block); !s.inline && !s.taskHinted && task != "" {
 			s.taskHinted = true
-			s.main().apply(Block{Kind: KindNotice, Text: taskWatchTip, Done: true})
+			s.main().apply(Block{Kind: KindHint, Text: taskWatchTip(task), Done: true})
 		}
 	}
 	s.settleTaskFeeds()

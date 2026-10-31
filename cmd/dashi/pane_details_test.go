@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/wonton/tui"
 )
@@ -38,11 +39,13 @@ func mainScrolledUp(t *testing.T) *screen {
 
 func TestDetailsPaneReplacesItsContentAndKeepsMainInPlace(t *testing.T) {
 	s := mainScrolledUp(t)
+	s.clock = func() time.Time { return time.Date(2026, 10, 31, 20, 31, 5, 0, time.Local) }
 	top, _ := s.main().vp.Anchor()
 	s.ShowDetails(detailsUpdate{title: "/tasks", blocks: []Block{noticeBlock("Tasks:\n  t_1 explore")}})
 	s.drain()
 	frame := frameText(s)
-	if s.panes.active != detailsPaneID || !strings.Contains(frame, activeMark+" details · /tasks") {
+	// The title says what the pane holds and when it was captured.
+	if s.panes.active != detailsPaneID || !strings.Contains(frame, activeMark+" details · /tasks · 20:31") {
 		t.Fatalf("the details pane did not open with focus:\n%s", frame)
 	}
 	if now, _ := s.main().vp.Anchor(); now != top || s.main().vp.Follow {
@@ -95,6 +98,14 @@ func TestInspectionCommandsUseTheDetailsPane(t *testing.T) {
 		}
 		return true
 	})
+	// /help is inspection output too.
+	h.submit("/help")
+	h.waitFor(func() bool {
+		p := h.scr.panes.get(detailsPaneID)
+		return p.title == "/help" && strings.Contains(detailsText(h.scr), "Page Up/Down  scroll the focused pane")
+	})
+	h.submit("/status " + id)
+	h.waitFor(func() bool { return h.scr.panes.get(detailsPaneID).title == "/status "+id })
 	// With nothing to list, /tasks says so in main and leaves the pane.
 	h.submit("/tasks")
 	h.waitFor(func() bool { return strings.Contains(dialogTranscriptText(h.scr), "No delegated tasks") })
@@ -115,12 +126,12 @@ func TestOpenInSidePaneShowsAToolRowOrADiff(t *testing.T) {
 	choose := func(i int) {
 		t.Helper()
 		for _, item := range s.transcriptMenuItems(s.main(), i) {
-			if item.Label == "Open in side pane" {
+			if item.Label == "Show in details" {
 				item.Action()
 				return
 			}
 		}
-		t.Fatalf("no Open in side pane for item %d", i)
+		t.Fatalf("no Show in details for item %d", i)
 	}
 	choose(n - 2)
 	frame := frameText(s)
@@ -138,8 +149,8 @@ func TestOpenInSidePaneShowsAToolRowOrADiff(t *testing.T) {
 	// A running tool row has no complete output to open.
 	s.main().apply(Block{ID: "t:2", Kind: KindTool, Name: "run", Arg: "make", State: StateRunning, Detail: "partial"})
 	for _, item := range s.transcriptMenuItems(s.main(), len(s.main().tr.Blocks)-1) {
-		if item.Label == "Open in side pane" {
-			t.Fatal("a running tool row offers Open in side pane")
+		if item.Label == "Show in details" {
+			t.Fatal("a running tool row offers Show in details")
 		}
 	}
 }
@@ -159,7 +170,7 @@ func TestDetailsCommandsPrintInInlineMode(t *testing.T) {
 func TestTaskPaneTitleMenuOffersTaskDetails(t *testing.T) {
 	s, _ := panesOn(t)
 	rows := strings.Split(frameText(s), "\n")
-	x, y := cellOf(t, rows, "t_k3f2 · explore")
+	x, y := cellOf(t, rows, "t_k3f2 · running")
 	click(s, tui.MouseButtonRight, x, y)
 	if items := s.transcriptMenu.Items(); len(items) == 0 || items[0].Label != "Task details" {
 		t.Fatalf("menu=%v", items)

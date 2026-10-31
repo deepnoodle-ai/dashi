@@ -20,10 +20,12 @@ import (
 
 // openTranscriptMenu opens the menu at the screen position (x, y) for the
 // item of pane p at the viewport position local. It does nothing while a
-// dialog, the command menu, or a drag holds the screen, or when the item has
-// no entries.
+// dialog's status field, the command menu, or a drag holds the screen, or
+// when the item has no entries.
 func (s *screen) openTranscriptMenu(p *transcriptPane, x, y int, local tui.MouseEvent) {
-	if !s.mainComposerActive() || p.vp.SelectionActive() || s.commandMenuMatches() != nil {
+	// A dialog's status field owns the keys a menu needs; other dialogs
+	// let the menu take them while it is open.
+	if s.dialogStatus != nil || p.vp.SelectionActive() || s.commandMenuMatches() != nil {
 		return
 	}
 	var items []tui.MenuItem
@@ -88,7 +90,7 @@ func (s *screen) transcriptMenuItems(p *transcriptPane, i int) []tui.MenuItem {
 		open = []tui.MenuItem{{Label: "Open task", Action: func() { s.openTask(task) }}}
 	}
 	// A finished tool row or a diff opens in the details pane.
-	openInSidePane := tui.MenuItem{Label: "Open in side pane", Action: func() { s.openInDetails(p, i) }}
+	openInSidePane := tui.MenuItem{Label: "Show in details", Action: func() { s.openInDetails(p, i) }}
 	switch b.Kind {
 	case KindTaskStatus:
 		return open

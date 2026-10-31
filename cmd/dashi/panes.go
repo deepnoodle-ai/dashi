@@ -1,6 +1,7 @@
 package main
 
 import (
+	"image"
 	"slices"
 
 	"github.com/deepnoodle-ai/wonton/tui"
@@ -47,15 +48,23 @@ type pane struct {
 	kind paneKind
 	view *transcriptPane
 	// label names the pane in its title row and tab, such as "main" or a
-	// task ID; title is what the title row says after it.
+	// task ID. state is a task pane's state, such as "running"; title is
+	// what the title row says after it: a task's cost and model calls, or
+	// the command the details pane shows. at is the local time the details
+	// pane's content was captured, such as "20:31".
 	label string
+	state string
 	title string
+	at    string
 	// opened orders panes by when they opened, oldest first.
 	opened uint64
 	// ended and waiting are a task pane's state: the task has ended, or it
 	// waits for the person to answer an approval.
 	ended   bool
 	waiting bool
+	// closer is where the title row's × was drawn last frame, in screen
+	// cells, or empty; a click on it closes the pane.
+	closer image.Rectangle
 	// onClose, if set, runs when the pane closes.
 	onClose func()
 	// feed renders a task pane's child events; subagent is its task's
@@ -116,6 +125,18 @@ func (ps *paneSet) rightColumn() []*tui.SplitNode {
 		return []*tui.SplitNode{right}
 	}
 	return right.Children
+}
+
+// rowBelow reports whether pane id is a row of the right column with
+// another row under it.
+func (ps *paneSet) rowBelow(id string) bool {
+	rows := ps.rightColumn()
+	for i, r := range rows {
+		if r.ID == id {
+			return i < len(rows)-1
+		}
+	}
+	return false
 }
 
 // columnFits reports whether a right column of this many rows gives each

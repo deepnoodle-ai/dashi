@@ -13,12 +13,12 @@ import (
 // holding static text, as later phases will fill them.
 func openTestPanes(s *screen, details bool) {
 	task := s.newPane("task:t_k3f2", paneTask, "t_k3f2")
-	task.title = "explore · running · 3 model calls · $0.0123"
+	task.state, task.title, task.subagent = "running", "$0.0123 · 3 model calls", "explore"
 	task.view.apply(Block{ID: "a", Kind: KindAssistant, Text: "Reading the composer code for the task.", Done: true})
 	s.openPane(task)
 	if details {
 		d := s.newPane(detailsPaneID, paneDetails, "details")
-		d.title = "/tasks"
+		d.title, d.at = "/tasks", "20:31"
 		d.view.apply(Block{Kind: KindNotice, Text: "t_k3f2 explore running", Done: true})
 		s.openPane(d)
 	}
@@ -94,7 +94,7 @@ func TestSideBySidePanesHaveTitlesAndAGutter(t *testing.T) {
 	s := sidePaneFixture(t, 120, 40, true)
 	got := frameText(s)
 	rows := strings.Split(got, "\n")
-	for _, want := range []string{"   main", activeMark + " details · /tasks", "   t_k3f2 · explore · running", "Reading the composer", "t_k3f2 explore running", "I’ll inspect"} {
+	for _, want := range []string{"   main", activeMark + " details · /tasks", "   t_k3f2 · running · $0.0123 · 3 model", "Reading the composer", "t_k3f2 explore running", "I’ll inspect"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q:\n%s", want, got)
 		}
@@ -136,7 +136,7 @@ func TestZoomDrawsOnePaneWithItsTitle(t *testing.T) {
 	s := sidePaneFixture(t, 120, 40, true)
 	s.panes.toggleZoom("task:t_k3f2")
 	got := frameText(s)
-	if !strings.Contains(got, activeMark+" t_k3f2 · zoomed · explore · running · 3 model calls · $0.0123") || strings.Contains(got, "I’ll inspect") || strings.Contains(got, "│") {
+	if !strings.Contains(got, activeMark+" t_k3f2 · running · $0.0123 · 3 model calls · explore · zoomed · Alt+Z") || strings.Contains(got, "I’ll inspect") || strings.Contains(got, "│") {
 		t.Fatalf("zoom frame:\n%s", got)
 	}
 	// The real layout survives zoom.
@@ -150,8 +150,19 @@ func TestNarrowModeShowsTabs(t *testing.T) {
 		s := sidePaneFixture(t, size[0], size[1], true)
 		got := frameText(s)
 		rows := strings.Split(got, "\n")
-		if !strings.HasPrefix(rows[0], " main · t_k3f2 · "+activeMark+" details") {
+		if !strings.HasPrefix(rows[0], "  main  t_k3f2  details ") {
 			t.Fatalf("%dx%d tab strip=%q", size[0], size[1], rows[0])
+		}
+		// The active tab is in reverse, the others are not.
+		frame := tui.SprintScreen(s.View(), tui.WithWidth(size[0]), tui.WithHeight(size[1]))
+		dx, _ := cellOf(t, rows, "details")
+		mx, _ := cellOf(t, rows, "main")
+		if !frame.Cell(dx, 0).Style.Reverse || frame.Cell(mx, 0).Style.Reverse {
+			t.Fatalf("%dx%d the active tab is not marked", size[0], size[1])
+		}
+		// The active pane's title sits at the right of the strip.
+		if size[0] >= 80 && !strings.HasSuffix(strings.TrimRight(rows[0], " "), "/tasks · 20:31") {
+			t.Fatalf("%dx%d strip lacks the title: %q", size[0], size[1], rows[0])
 		}
 		if strings.Contains(got, "I’ll inspect") || strings.Contains(got, "│") || !strings.Contains(got, "t_k3f2 explore running") {
 			t.Fatalf("%dx%d must show only the active pane:\n%s", size[0], size[1], got)
@@ -194,7 +205,7 @@ func TestPanesKeepNoColorMark(t *testing.T) {
 		s.noColor = true
 		got := frameText(s)
 		frame := tui.SprintScreen(s.View(), tui.WithWidth(size[0]), tui.WithHeight(size[1]))
-		if !strings.Contains(got, activeMark+" details") || !strings.Contains(got, "needs approval") {
+		if !strings.Contains(got, "details") || !strings.Contains(got, "needs approval") {
 			t.Fatalf("%dx%d no-color frame lost the mark or the warning:\n%s", size[0], size[1], got)
 		}
 		for y := range size[1] {

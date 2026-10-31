@@ -55,9 +55,9 @@ func paneText(f *taskFeed) string {
 	return strings.Join(lines, "\n")
 }
 
-// wantText is what the pane shows for the whole turn: what RenderTurn
-// shows for a reopened session.
-func wantText(t *testing.T, turn dashi.Turn) string {
+// wantText is what the pane of task shows for the whole turn: what
+// RenderTurn shows for a reopened session, with the task in the footer.
+func wantText(t *testing.T, task string, turn dashi.Turn) string {
 	t.Helper()
 	blocks, err := RenderTurn(turnNumber(turn.ID), "", "/repo", turn, nil)
 	if err != nil {
@@ -65,13 +65,22 @@ func wantText(t *testing.T, turn dashi.Turn) string {
 	}
 	var tr Transcript
 	for _, b := range blocks {
+		if b.Footer != nil {
+			f := *b.Footer
+			f.Task = task
+			b.Footer, b.Text = &f, f.String()
+		}
 		tr.Apply(b)
 	}
 	var lines []string
 	for _, b := range tr.Blocks {
 		lines = append(lines, FormatBlock(b))
 	}
-	return strings.Join(lines, "\n")
+	text := strings.Join(lines, "\n")
+	if strings.Contains(text, "── turn") {
+		t.Fatalf("a footer lacks the task:\n%s", text)
+	}
+	return text
 }
 
 func openLoad(turns ...dashi.Turn) taskLoad {
@@ -91,7 +100,7 @@ func TestTaskFeedReplaysRecordThenHeldLiveEvents(t *testing.T) {
 		t.Fatal("events applied before the record")
 	}
 	f.loaded(openLoad(dashi.Turn{ID: turn.ID, Steps: turn.Steps[:4]}))
-	if got, want := paneText(f), wantText(t, turn); got != want {
+	if got, want := paneText(f), wantText(t, f.task, turn); got != want {
 		t.Fatalf("pane:\n%s\nwant:\n%s", got, want)
 	}
 	if len(f.held) != 0 {
@@ -112,7 +121,7 @@ func TestTaskFeedOrdersStepsAndDropsDuplicates(t *testing.T) {
 	for _, i := range order {
 		f.push(events[i])
 	}
-	if got, want := paneText(f), wantText(t, turn); got != want {
+	if got, want := paneText(f), wantText(t, f.task, turn); got != want {
 		t.Fatalf("pane:\n%s\nwant:\n%s", got, want)
 	}
 	if len(f.loads) != 1 || f.loads[0].kind != taskLoadFacts {
@@ -153,7 +162,7 @@ func TestTaskFeedReloadsATurnWithAMissingStep(t *testing.T) {
 	}
 	before := len(f.view.tr.Blocks)
 	f.loaded(taskLoad{kind: taskLoadReload, turn: turn.ID, turns: []dashi.Turn{{ID: turn.ID, Steps: turn.Steps[:5]}}})
-	if got, want := paneText(f), wantText(t, turn); got != want {
+	if got, want := paneText(f), wantText(t, f.task, turn); got != want {
 		t.Fatalf("pane:\n%s\nwant:\n%s", got, want)
 	}
 	if before == 0 || strings.Contains(paneText(f), "missing") {
@@ -191,7 +200,7 @@ func TestTaskFeedReloadKeepsAStepThatArrivesLate(t *testing.T) {
 	for _, ev := range events[5:] {
 		f.push(ev)
 	}
-	if got, want := paneText(f), wantText(t, turn); got != want {
+	if got, want := paneText(f), wantText(t, f.task, turn); got != want {
 		t.Fatalf("pane:\n%s\nwant:\n%s", got, want)
 	}
 }
@@ -278,7 +287,7 @@ func TestTaskFeedPreviewsFollowTheirStep(t *testing.T) {
 	}
 	// A delta after its message committed is stale.
 	f.push(delta(" stale"))
-	if got, want := paneText(f), wantText(t, turn); got != want {
+	if got, want := paneText(f), wantText(t, f.task, turn); got != want {
 		t.Fatalf("pane:\n%s\nwant:\n%s", got, want)
 	}
 }

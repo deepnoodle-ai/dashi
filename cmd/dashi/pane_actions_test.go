@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -43,7 +44,7 @@ func TestPaneClicksActivateAndTitleMenu(t *testing.T) {
 		t.Fatalf("a click in main did not activate it: %s", s.panes.active)
 	}
 	rows = strings.Split(frameText(s), "\n")
-	x, y = cellOf(t, rows, "t_k3f2 · explore")
+	x, y = cellOf(t, rows, "t_k3f2 · running")
 	click(s, tui.MouseButtonRight, x, y)
 	if s.panes.active != "task:t_k3f2" || !s.transcriptMenu.IsOpen() {
 		t.Fatal("a right click on a title did not activate and open the menu")
@@ -212,6 +213,24 @@ func TestPaneCommand(t *testing.T) {
 	}
 	if got := run("sideways"); !strings.Contains(got, "Usage: /pane") {
 		t.Fatalf("bad arg reply %q", got)
+	}
+	// A bare /pane lists the panes and the actions as a quiet hint.
+	if got := run(""); got != "Open panes: main, t_k3f2, "+activeMark+" details.\n"+paneActionsHint {
+		t.Fatalf("bare /pane replied %q", got)
+	}
+	if b := s.main().tr.Blocks; b[len(b)-1].Kind != KindHint {
+		t.Fatalf("bare /pane kind=%s", b[len(b)-1].Kind)
+	}
+	// Tab completes the actions, and after focus the pane names.
+	for draft, want := range map[string][]string{
+		"/pane ":          {"/pane close", "/pane equalize", "/pane focus ", "/pane next", "/pane zoom"},
+		"/pane eq":        {"/pane equalize"},
+		"/pane focus t_":  {"/pane focus t_k3f2"},
+		"/pane focus det": {"/pane focus details"},
+	} {
+		if got := s.completeDraft(draft); !slices.Equal(got, want) {
+			t.Errorf("complete %q = %q, want %q", draft, got, want)
+		}
 	}
 	run("equalize")
 	run("close")

@@ -162,17 +162,34 @@ func taskFacts(v delegate.TaskView) string {
 
 func taskInspectHint(id string) string { return "/task " + id + " to inspect" }
 
-// taskTitle is what a task pane's title row says after the task ID, such
-// as "explore · running · 3 model calls · $0.0123".
-func taskTitle(v delegate.TaskView) string {
-	return joinNonEmpty(" · ", append([]string{v.Subagent, taskStateLabel(v)}, taskCounts(v)...)...)
+// taskTitle is what a task pane's title row says after the task ID: the
+// state, such as "running", and the facts, such as "$0.0123 · 3 model
+// calls".
+func taskTitle(v delegate.TaskView) (state, facts string) {
+	return taskStateLabel(v), taskTitleFacts(taskCounts(v))
 }
 
 // taskLineTitle is taskTitle read from a task status line, which carries
 // the state label and the counts of the latest TaskView.
-func taskLineTitle(b Block, subagent string) string {
-	counts := strings.TrimSuffix(b.Text, taskInspectHint(taskIDOf(b.Arg)))
-	return joinNonEmpty(" · ", subagent, b.Name, strings.TrimSuffix(counts, " · "))
+func taskLineTitle(b Block) (state, facts string) {
+	counts := strings.TrimSuffix(strings.TrimSuffix(b.Text, taskInspectHint(taskIDOf(b.Arg))), " · ")
+	return b.Name, taskTitleFacts(strings.Split(counts, " · "))
+}
+
+// taskTitleFacts orders a task's counts for a title, which has little
+// room: the cost, then the model calls. Tool calls stay on the task line.
+func taskTitleFacts(counts []string) string {
+	var cost, calls []string
+	for _, c := range counts {
+		switch {
+		case strings.HasSuffix(c, " tool call"), strings.HasSuffix(c, " tool calls"):
+		case strings.HasSuffix(c, " model call"), strings.HasSuffix(c, " model calls"):
+			calls = append(calls, c)
+		default:
+			cost = append(cost, c)
+		}
+	}
+	return joinNonEmpty(" · ", append(cost, calls...)...)
 }
 
 // In fullscreen, a task line ends with what a click on it does instead of
@@ -368,7 +385,7 @@ const taskUnderMarker = "    " + toolResultMarker
 
 // taskLineUnderText is the plain text of a status line under its tool line.
 func taskLineUnderText(b Block) string {
-	return taskUnderMarker + joinNonEmpty(" · ", b.Name, b.Text)
+	return taskUnderMarker + joinNonEmpty(" · ", taskIDOf(b.Arg), b.Name, b.Text)
 }
 
 func joinNonEmpty(sep string, parts ...string) string {
@@ -424,12 +441,17 @@ func withTaskLine(v tui.View, b Block) tui.View {
 	t := *b.Task
 	// The separator is its own view: a wrapping view drops the spaces at its
 	// edges, which would join the state and the separator where it wraps.
-	line := []tui.View{
-		tui.Text("  %s", toolResultMarker).Style(faintStyle),
+	// The task ID leads, so the line names the task the way /task ID,
+	// the pane title, and its tab do.
+	line := []tui.View{tui.Text("  %s", toolResultMarker).Style(faintStyle)}
+	if id := taskIDOf(t.Arg); id != "" {
+		line = append(line, tui.Text("%s", id).Style(mutedStyle), tui.Text(" · ").Style(faintStyle))
+	}
+	line = append(line,
 		tui.Text("%s", t.Name).Style(taskLineStyle(t.State)),
 		tui.Text(" · ").Style(faintStyle),
 		tui.Text("%s", t.Text).Wrap().Style(mutedStyle).Flex(1),
-	}
+	)
 	return tui.Stack(v, tui.Group(line...)).Gap(0)
 }
 func (c *Controller) endDialog() {

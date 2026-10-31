@@ -2,17 +2,20 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"strings"
 
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
-// paneKeyHint is the one-time notice the first side pane of a session
-// shows.
-const paneKeyHint = "Panes: click to focus · Alt+arrows move focus · Alt+Z zooms · Alt+W closes · /pane for more. Typing still goes to the main agent."
+// paneKeyHint is the one-time hint the first side pane of a session shows.
+const paneKeyHint = "Typing goes to the main agent. Click a pane to focus · × or Alt+W closes · /pane lists panes."
 
 // paneUsage is the reply to a /pane command it cannot read.
 const paneUsage = "Usage: /pane close|zoom|equalize|next, or /pane focus main|ID|details"
+
+// paneActionsHint lists what /pane does, after a bare /pane.
+const paneActionsHint = "/pane close · zoom · equalize · next · focus NAME (Tab completes)"
 
 // newPane returns a side pane with an empty transcript.
 func (s *screen) newPane(id string, kind paneKind, label string) *pane {
@@ -37,7 +40,7 @@ func (s *screen) openPane(p *pane) bool {
 	}
 	if !s.panes.hinted {
 		s.panes.hinted = true
-		s.Emit(Block{Kind: KindNotice, Text: paneKeyHint, Done: true})
+		s.Emit(Block{Kind: KindHint, Text: paneKeyHint, Done: true})
 	}
 	s.syncMouseMode()
 	return true
@@ -135,7 +138,11 @@ func (s *screen) paneCommand(arg string) {
 	notice := func(format string, args ...any) {
 		s.Emit(Block{Kind: KindNotice, Text: fmt.Sprintf(format, args...), Done: true})
 	}
-	if len(fields) == 0 || len(fields) > 2 || (len(fields) == 2) != (fields[0] == "focus") {
+	if len(fields) == 0 {
+		s.listPanes()
+		return
+	}
+	if len(fields) > 2 || (len(fields) == 2) != (fields[0] == "focus") {
 		s.Emit(warnBlock("%s", paneUsage))
 		return
 	}
@@ -268,6 +275,15 @@ func (s *screen) paneChromeMouse(e tui.MouseEvent) bool {
 			return false
 		}
 	}
+	// The × at the end of a side pane's title row closes it.
+	for _, id := range s.panes.leaves() {
+		if p := s.panes.get(id); p != nil && image.Pt(e.X, e.Y).In(p.closer) && s.paneShown(id) {
+			if e.Type == tui.MouseClick && e.Button == tui.MouseButtonLeft {
+				s.closePane(id)
+			}
+			return true
+		}
+	}
 	area, ok := s.hits.At(e.X, e.Y)
 	if !ok {
 		return false
@@ -303,7 +319,7 @@ func (s *screen) paneChromeMouse(e tui.MouseEvent) bool {
 // offer.
 func (s *screen) openPaneMenu(id string, x, y int) {
 	p := s.panes.get(id)
-	if p == nil || !s.mainComposerActive() {
+	if p == nil || s.dialogStatus != nil {
 		return
 	}
 	zoom := "Zoom"
@@ -327,7 +343,7 @@ func (s *screen) openPaneMenu(id string, x, y int) {
 
 // openHiddenPanesMenu lists the panes whose tabs did not fit.
 func (s *screen) openHiddenPanesMenu(x, y int) {
-	if !s.mainComposerActive() {
+	if s.dialogStatus != nil {
 		return
 	}
 	_, hidden := s.tabs(s.width)
@@ -340,4 +356,28 @@ func (s *screen) openHiddenPanesMenu(x, y int) {
 	}
 	s.transcriptMenuPane, s.focused().menuItem = s.panes.active, -1
 	s.transcriptMenu.Open(x, y, "", items)
+}
+
+// paneShown reports whether pane id was drawn with its title row last
+// frame.
+func (s *screen) paneShown(id string) bool {
+	if s.panes.count() < 2 || s.narrow() || s.panes.drawn == nil {
+		return false
+	}
+	_, ok := s.panes.drawn.Bounds(id)
+	return ok
+}
+
+// listPanes answers a bare /pane, in the hint style: the open panes, with
+// the active one marked, and the actions.
+func (s *screen) listPanes() {
+	var names []string
+	for _, id := range s.panes.leaves() {
+		name := s.panes.get(id).label
+		if id == s.panes.active && s.panes.count() > 1 {
+			name = activeMark + " " + name
+		}
+		names = append(names, name)
+	}
+	s.Emit(Block{Kind: KindHint, Text: "Open panes: " + strings.Join(names, ", ") + ".\n" + paneActionsHint, Done: true})
 }

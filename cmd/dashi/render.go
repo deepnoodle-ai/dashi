@@ -564,6 +564,9 @@ func (r *Renderer) Footer(v dashi.TurnView, steps []dashi.Step) Block {
 // footerFacts is the turn summary: number, model, model calls, tokens, and
 // cost. The screen styles each value; plain output joins them.
 type footerFacts struct {
+	// Task names the task whose Turn this is, in a task pane, so its
+	// footer reads "t_k3f2 turn 1" and cannot pass for main's.
+	Task  string
 	Turn  int
 	Model string
 	Calls int
@@ -615,7 +618,7 @@ const (
 )
 
 func (f footerFacts) parts() []footerPart {
-	parts := []footerPart{{fmt.Sprintf("turn %d", f.Turn), footerMeta, 0}}
+	parts := []footerPart{{strings.TrimSpace(fmt.Sprintf("%s turn %d", f.Task, f.Turn)), footerMeta, 0}}
 	if f.Model != "" {
 		parts = append(parts, footerPart{f.Model, footerValue, 3})
 	}

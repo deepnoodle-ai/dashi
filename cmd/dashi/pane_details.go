@@ -71,7 +71,7 @@ func (s *screen) showDetails(d detailsUpdate) {
 			s.transcriptMenu.Close()
 		}
 	}
-	p.title = d.title
+	p.title, p.at = d.title, s.now().Format("15:04")
 	for _, b := range d.blocks {
 		p.view.apply(b)
 	}

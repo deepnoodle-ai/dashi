@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -110,15 +111,15 @@ func TestTaskPaneWatchesBeforeLoadingAndShowsRecordThenLive(t *testing.T) {
 		t.Fatalf("calls=%s", got)
 	}
 	got := strings.Join(strings.Split(paneText(p.feed), "\n"), "\n")
-	if want := wantText(t, turn); got != want {
+	if want := wantText(t, p.feed.task, turn); got != want {
 		t.Fatalf("pane:\n%s\nwant:\n%s", got, want)
 	}
 	// The pane's header is the description's first line, not the facts.
 	if facts := p.view.tr.Blocks[0]; facts.ID != taskFactsID || facts.Kind != KindHint || facts.Text != "Find Config.MaxReply usage" {
 		t.Fatalf("facts=%+v", facts)
 	}
-	if p.title != "explore · running · 2 model calls" {
-		t.Fatalf("title=%q", p.title)
+	if p.state != "running" || p.title != "2 model calls" || p.subagent != "explore" {
+		t.Fatalf("state=%q title=%q subagent=%q", p.state, p.title, p.subagent)
 	}
 	// The stop step asked for fresh facts.
 	waitLoad(t, s)
@@ -170,7 +171,7 @@ func TestTaskPaneCloseDropsQueuedEventsAndStaleLoads(t *testing.T) {
 	}
 	// A late event of the closed open is dropped.
 	s.taskChild(taskChildEvent{pane: p.id, token: 1, event: stepsOf(turn)[0]})
-	if got, want := paneText(p.feed), wantText(t, turn); got != want {
+	if got, want := paneText(p.feed), wantText(t, p.feed.task, turn); got != want {
 		t.Fatalf("pane:\n%s\nwant:\n%s", got, want)
 	}
 	// Reset closes every side pane, which unwatches.
@@ -192,14 +193,14 @@ func TestTaskPaneTitleFollowsStatusLinesAndApprovals(t *testing.T) {
 	v := delegate.TaskView{ID: id, Subagent: "explore", State: delegate.TaskRunning, ModelCalls: 3, Parent: dashi.CallRef{TurnID: "parent-1", CallID: "call-1"}}
 	s.Emit(taskStatusBlock(v))
 	s.drain()
-	if p.title != "explore · running · 3 model calls" || p.ended {
-		t.Fatalf("title=%q ended=%v", p.title, p.ended)
+	if p.state != "running" || p.title != "3 model calls" || p.ended {
+		t.Fatalf("state=%q title=%q ended=%v", p.state, p.title, p.ended)
 	}
 	rows := frameText(s)
-	if !strings.Contains(rows, activeMark+" "+id+" · explore · running · 3 model calls") {
+	if !strings.Contains(rows, activeMark+" "+id+" · running · 3 model calls") {
 		t.Fatalf("running title not drawn:\n%s", rows)
 	}
-	ax, ay := cellOf(t, strings.Split(rows, "\n"), id+" · explore")
+	ax, ay := cellOf(t, strings.Split(rows, "\n"), id+" · running")
 	accent := tui.SprintScreen(s.View(), tui.WithWidth(120), tui.WithHeight(40)).Cell(ax, ay).Style.Foreground
 	// A prompt of the task, active or queued, marks it.
 	s.ctrl.broker.mu.Lock()
@@ -210,7 +211,7 @@ func TestTaskPaneTitleFollowsStatusLinesAndApprovals(t *testing.T) {
 		t.Fatal("a queued prompt of the task did not mark it")
 	}
 	frame := tui.SprintScreen(s.View(), tui.WithWidth(120), tui.WithHeight(40))
-	x, y := cellOf(t, strings.Split(frame.Text(), "\n"), id+" · needs approval")
+	x, y := cellOf(t, strings.Split(frame.Text(), "\n"), id+" · needs approval · 3 model calls")
 	if frame.Cell(x, y).Style.Foreground == accent {
 		t.Fatal("needs approval is not in the warning color")
 	}
@@ -231,7 +232,7 @@ func TestTaskPaneTitleFollowsStatusLinesAndApprovals(t *testing.T) {
 	v.State, v.ModelCalls = delegate.TaskState(dashi.StopCompleted), 4
 	s.Emit(taskStatusBlock(v))
 	s.drain()
-	if !p.ended || !strings.Contains(frameText(s), id+" · explore · completed") {
+	if !p.ended || !strings.Contains(frameText(s), id+" · completed · 4 model calls") {
 		t.Fatalf("ended title=%q", p.title)
 	}
 }
@@ -293,13 +294,13 @@ func TestTaskPaneFramesAtNarrowWidth(t *testing.T) {
 	s.openTask("t_1")
 	waitLoad(t, s)
 	rows := frameText(s)
-	for _, want := range []string{"main · " + activeMark + " t_1", "The notes say hello.", "Find Config.MaxReply usage"} {
+	for _, want := range []string{"  main  t_1 ", "The notes say hello.", "Find Config.MaxReply usage", "→ main"} {
 		if !strings.Contains(rows, want) {
 			t.Fatalf("missing %q:\n%s", want, rows)
 		}
 	}
 	s.width, s.height = 40, 16
-	if rows := frameText(s); !strings.Contains(rows, activeMark+" t_1") {
+	if rows := frameText(s); !strings.Contains(rows, " t_1 ") {
 		t.Fatalf("40x16:\n%s", rows)
 	}
 }
@@ -399,11 +400,11 @@ func TestTaskPaneStreamsARealChildOpenedMidTurn(t *testing.T) {
 	close(hold)
 	wait("the child's end", func() bool {
 		p := s.panes.get(pane)
-		return strings.Contains(paneText(p.feed), "── turn 1") && p.ended
+		return strings.Contains(paneText(p.feed), "── "+task.ID+" turn 1") && p.ended
 	})
 	var text, title string
-	on(func() { p := s.panes.get(pane); text, title = paneText(p.feed), p.title })
-	if strings.Count(text, "Child result, recorded once.") != 1 || strings.Count(text, "── turn 1") != 1 {
+	on(func() { p := s.panes.get(pane); text, title = paneText(p.feed), p.state })
+	if strings.Count(text, "Child result, recorded once.") != 1 || strings.Count(text, "── "+task.ID+" turn 1") != 1 {
 		t.Fatalf("pane:\n%s", text)
 	}
 	if strings.Count(text, "list_directory") != 2 || !strings.HasPrefix(text, "> Inspect the focused task") {
@@ -475,7 +476,10 @@ func TestFirstTaskLineShowsTheWatchTipOnce(t *testing.T) {
 	count := func() int {
 		n := 0
 		for _, b := range s.main().tr.Blocks {
-			if b.Text == taskWatchTip {
+			if strings.HasPrefix(b.Text, "Click a task, or type /task t_") {
+				if b.Kind != KindHint {
+					t.Fatalf("tip kind=%s", b.Kind)
+				}
 				n++
 			}
 		}
@@ -488,11 +492,67 @@ func TestFirstTaskLineShowsTheWatchTipOnce(t *testing.T) {
 	if count() != 1 {
 		t.Fatalf("tip shown %d times", count())
 	}
+	if !strings.Contains(dialogTranscriptText(s), "type /task t_1, to watch") {
+		t.Fatal("the tip does not name the task")
+	}
 	s.Reset()
 	s.drain()
 	s.Emit(taskStatusBlock(runningTask("t_3")))
 	s.drain()
 	if count() != 1 {
 		t.Fatalf("a new session showed the tip %d times", count())
+	}
+}
+
+// While an approval waits, keys stay with it, but the pointer still
+// reaches the panes: a click on a task line opens its pane, the wheel
+// scrolls the pane under it, a title right-click opens its menu, and the
+// wheel elsewhere scrolls the dialog.
+func TestPointerReachesPanesDuringAnApproval(t *testing.T) {
+	turn := recordedChildTurn(t)
+	s, _ := taskPaneFixture(t, 120, 40, turn)
+	v := delegate.TaskView{ID: "t_k3f2", TurnID: "child-1", Subagent: "explore", State: delegate.TaskRunning, Parent: dashi.CallRef{TurnID: "parent-1", CallID: "tool"}}
+	s.Emit(Block{Kind: KindTool, ID: "t:tool", Name: "task", Arg: "explore · find the parser", State: StateRunning})
+	s.Emit(taskStatusBlock(v))
+	for i := range 60 {
+		s.Emit(Block{ID: fmt.Sprintf("m%d", i), Kind: KindAssistant, Text: fmt.Sprintf("main line %d", i), Done: true})
+	}
+	s.drain()
+	s.main().vp.ScrollToTop()
+	s.approval = &approvalPrompt{reply: make(chan Approval, 1)}
+	rows := strings.Split(frameText(s), "\n")
+	x, y := cellOf(t, rows, "click to watch")
+	click(s, tui.MouseButtonLeft, x, y)
+	if s.panes.get(taskPaneID("t_k3f2")) == nil || s.approval == nil {
+		t.Fatal("a click on a task line during an approval did not open its pane")
+	}
+	waitLoad(t, s)
+	rows = strings.Split(frameText(s), "\n")
+	// The wheel over main scrolls main, not the dialog.
+	mx, my := cellOf(t, rows, "main line 0")
+	before, _ := s.main().vp.Anchor()
+	s.HandleEvent(tui.MouseEvent{Type: tui.MouseScroll, Button: tui.MouseButtonWheelDown, X: mx, Y: my})
+	frameText(s)
+	if after, _ := s.main().vp.Anchor(); after == before {
+		t.Fatal("the wheel over main did not scroll it during an approval")
+	}
+	// A right-click on the task pane's title opens its menu.
+	tx, ty := cellOf(t, rows, "t_k3f2 · running")
+	click(s, tui.MouseButtonRight, tx, ty)
+	if items := s.transcriptMenu.Items(); len(items) == 0 || items[0].Label != "Task details" {
+		t.Fatalf("title menu during an approval=%v", items)
+	}
+	s.transcriptMenu.Close()
+	// Pane keys stay swallowed.
+	active := s.panes.active
+	s.HandleEvent(inputActionEvent{key: altKey(tui.KeyArrowLeft, 0)})
+	if s.panes.active != active {
+		t.Fatal("Alt+Left moved focus during an approval")
+	}
+	// The × closes the pane.
+	cx, cy := cellOf(t, rows, "×")
+	click(s, tui.MouseButtonLeft, cx, cy)
+	if s.panes.get(taskPaneID("t_k3f2")) != nil {
+		t.Fatal("the × did not close the pane")
 	}
 }

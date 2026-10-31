@@ -72,7 +72,18 @@ func (s *screen) footer() tui.View {
 		if hint := s.inputHint(mode); hint != "" {
 			views = append(separate(views), tui.Text(" %s", hint).Wrap().Style(hintStyle))
 		}
-		views = append(separate(views), tui.Panel(tui.PaddingLTRB(1, 1, 1, 1, s.inputView(mode))).Style(promptStyle))
+		var composer tui.View = tui.Panel(tui.PaddingLTRB(1, 1, 1, 1, s.inputView(mode))).Style(promptStyle)
+		// While another pane is active, the composer's band says that
+		// typing still goes to the main agent.
+		if s.panes.active != mainPaneID {
+			composer = tui.ZStack(composer, tui.CanvasContext(func(ctx *tui.RenderContext) {
+				const mark = "→ main "
+				if width, _ := ctx.Size(); width > 20 {
+					ctx.PrintStyled(width-len([]rune(mark)), 0, mark, mutedStyle.WithBackground(promptBackground))
+				}
+			}).Height(1)).Align(tui.AlignLeft)
+		}
+		views = append(separate(views), composer)
 		if menu = s.commandMenuMatches(); menu != nil {
 			views = append(views, s.commandMenuView(menu))
 		}

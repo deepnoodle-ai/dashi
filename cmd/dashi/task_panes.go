@@ -35,9 +35,11 @@ func (e taskGapEvent) Timestamp() time.Time { return e.at }
 // reloads the Turn from the record.
 const taskGapWait = 100 * time.Millisecond
 
-// taskWatchTip is the one-time notice the first task line of a session
-// shows.
-const taskWatchTip = "Click a task to watch it beside the conversation, or type /task ID."
+// taskWatchTip is the one-time hint the first task line of a session
+// shows, with that task's ID.
+func taskWatchTip(id string) string {
+	return "Click a task, or type /task " + id + ", to watch it here."
+}
 
 // taskPaneID is the pane ID of task id.
 func taskPaneID(id string) string { return "task:" + id }
@@ -65,7 +67,7 @@ func (s *screen) openTask(id string) {
 	p := s.newPane(taskPaneID(id), paneTask, id)
 	s.taskOpens++
 	p.feed = newTaskFeed(id, s.taskOpens, s.dir, p.view)
-	p.title = "loading"
+	p.state = "loading"
 	p.view.apply(hintBlock(taskFactsID, "Loading the task record…"))
 	if !s.openPane(p) {
 		return
@@ -149,11 +151,11 @@ func (s *screen) taskLoaded(l taskLoad) {
 	if l.kind == taskLoadOpen && l.err == nil {
 		v := l.snapshot.Task
 		p.subagent = v.Subagent
-		p.title = taskTitle(v)
+		p.state, p.title = taskTitle(v)
 		p.ended = !v.Running() && v.State != taskApprovalPending
 	}
 	if l.kind == taskLoadOpen && l.err != nil {
-		p.title = "record unavailable"
+		p.state, p.title = "record unavailable", ""
 	}
 	p.feed.loaded(l)
 	s.taskMenuCheck(p)
@@ -180,7 +182,7 @@ func (s *screen) taskLine(b Block) {
 	if p == nil || p.feed == nil {
 		return
 	}
-	p.title = taskLineTitle(b, p.subagent)
+	p.state, p.title = taskLineTitle(b)
 	p.ended = b.Done
 }
 

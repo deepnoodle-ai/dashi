@@ -281,7 +281,15 @@ func (f *taskFeed) close(t *feedTurn, turn dashi.Turn, view dashi.TurnView) {
 		f.add(t, b)
 	}
 	r.Model = turnModel(turn, r.Model)
-	f.add(t, r.Footer(view, turn.Steps))
+	f.add(t, f.footer(r, view, turn.Steps))
+}
+
+// footer is a Turn's footer, labeled with the task.
+func (f *taskFeed) footer(r *Renderer, view dashi.TurnView, steps []dashi.Step) Block {
+	b := r.Footer(view, steps)
+	b.Footer.Task = f.task
+	b.Text = b.Footer.String()
+	return b
 }
 
 // markDone records that a step committed a message or a tool call, so
@@ -500,7 +508,7 @@ func (f *taskFeed) replay(turns []dashi.Turn, from int) {
 			r.summary = view.Reply
 			f.add(t, r.compactionBlock(view.ID, stop))
 			if stopped {
-				f.add(t, r.Footer(view, turn.Steps))
+				f.add(t, f.footer(r, view, turn.Steps))
 			}
 		case stopped:
 			f.close(t, turn, view)
