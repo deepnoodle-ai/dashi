@@ -115,7 +115,7 @@ func TestAutomaticCompactionInterruptedInputOrder(t *testing.T) {
 	got = h.render()
 	compactionMustHave(t, got, "Original answered.", "Later answered.")
 	if !h.check(func() bool {
-		for _, b := range h.scr.tr.Blocks {
+		for _, b := range h.scr.main().tr.Blocks {
 			if b.Kind == KindCompaction && b.Text == "Compaction completed." {
 				return true
 			}

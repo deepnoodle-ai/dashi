@@ -31,7 +31,9 @@ type clipboardResultEvent struct {
 	err               error
 	selectionRevision uint64
 	generation        uint64
-	selected          bool
+	// pane is the ID of the pane whose selection was copied, or empty
+	// when the text was not a selection.
+	pane string
 }
 
 func (e clipboardResultEvent) Timestamp() time.Time { return e.at }
@@ -74,12 +76,17 @@ func (s *screen) transcriptCommand(name, arg string) {
 	s.drain()
 	switch name {
 	case "/copy":
-		text, notice := copyRequest(s.tr.Blocks, s.vp.SelectedText(), arg)
+		// Without a selection, code blocks come from the conversation.
+		text, notice := copyRequest(s.main().tr.Blocks, s.selectedText(), arg)
 		if notice != "" {
 			s.Emit(Block{Kind: KindNotice, Text: notice, Done: true})
 			return
 		}
-		s.copyText(text, strings.TrimSpace(arg) == "" && s.vp.HasSelection())
+		var from *transcriptPane
+		if strings.TrimSpace(arg) == "" {
+			from = s.selectionPane()
+		}
+		s.copyText(text, from)
 	case "/mouse":
 		if arg != "" {
 			s.Emit(warnBlock("Usage: /mouse"))
@@ -100,10 +107,28 @@ func (s *screen) mainComposerActive() bool {
 	return !s.promptActive && s.approval == nil && s.asking == nil && s.picker == nil && s.dialogStatus == nil
 }
 
+// selectionPane returns the pane that holds a selection, if any.
+func (s *screen) selectionPane() *transcriptPane {
+	for _, p := range s.paneList() {
+		if p.vp.HasSelection() {
+			return p
+		}
+	}
+	return nil
+}
+
+// selectedText is the text of the selection, if any.
+func (s *screen) selectedText() string {
+	if p := s.selectionPane(); p != nil {
+		return p.vp.SelectedText()
+	}
+	return ""
+}
+
 func (s *screen) selectionHint() string {
 	// A selection over only a running tool row has no text, so Ctrl+C
 	// would interrupt; offer copy only when there is text to copy.
-	if !s.mainComposerActive() || s.vp.SelectedText() == "" {
+	if !s.mainComposerActive() || s.selectedText() == "" {
 		return ""
 	}
 	if s.ctrl.Mode() == ModeRunning || s.ctrl.Mode() == ModeApproval {
@@ -113,16 +138,22 @@ func (s *screen) selectionHint() string {
 }
 
 func (s *screen) copySelection() bool {
-	text := s.vp.SelectedText()
+	text := s.selectedText()
 	if text == "" {
 		return false
 	}
-	s.copyText(text, true)
+	s.copyText(text, s.selectionPane())
 	return true
 }
 
-func (s *screen) copyText(text string, selected bool) {
-	event := clipboardResultEvent{text: text, selected: selected, selectionRevision: s.selectionRevision, generation: s.generation}
+// copyText writes text to the clipboard. When text is the selection of
+// pane from, a confirmed write clears that selection; from is nil
+// otherwise.
+func (s *screen) copyText(text string, from *transcriptPane) {
+	event := clipboardResultEvent{text: text, generation: s.generation}
+	if from != nil {
+		event.pane, event.selectionRevision = from.id, from.selectionRevision
+	}
 	write := s.clipboardWrite
 	go func() {
 		event.result, event.err = write(s.ctrl.base, text)
@@ -141,8 +172,9 @@ func (s *screen) toggleMouse() {
 		s.runtime.Terminal().EnableMouseDrag()
 		s.Emit(Block{Kind: KindNotice, Text: "Application mouse capture on. Drag to select; Ctrl+C copies. F2 enables native selection.", Done: true})
 	} else {
-		s.selectionRevision++
-		s.vp.ClearSelection()
+		for _, p := range s.paneList() {
+			p.clearSelection()
+		}
 		s.transcriptMenu.Close()
 		s.runtime.Terminal().DisableMouseTracking()
 		s.Emit(Block{Kind: KindNotice, Text: "Application mouse capture off. Use native terminal selection and copying; F2 restores capture.", Done: true})
@@ -151,8 +183,8 @@ func (s *screen) toggleMouse() {
 
 func (s *screen) clipboardResult(e clipboardResultEvent) {
 	if e.err == nil {
-		if e.result.confirmed && e.selected && e.generation == s.generation && e.selectionRevision == s.selectionRevision && s.vp.SelectedText() == e.text {
-			s.vp.ClearSelection()
+		if p := s.panes[e.pane]; p != nil && e.result.confirmed && e.generation == s.generation && e.selectionRevision == p.selectionRevision && p.vp.SelectedText() == e.text {
+			p.vp.ClearSelection()
 		}
 		s.Emit(Block{Kind: KindNotice, Text: e.result.notice, Done: true})
 		return
@@ -213,14 +245,14 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 		}
 		return
 	}
-	// The viewport takes its own coordinates; it recorded its screen
-	// origin at the last render.
-	local := e
-	local.X -= s.vp.X
-	local.Y -= s.vp.Y
-	inside := local.X >= 0 && local.X < s.vp.Width && local.Y >= 0 && local.Y < s.vp.Height
+	// Dragging a gutter between panes takes the pointer.
+	if s.split.HandleMouse(e) {
+		return
+	}
+	p := s.mousePane(e)
+	local, inside := p.local(e)
 	if e.Type == tui.MouseScroll && inside {
-		s.vp.ScrollBy(wheelDelta(e))
+		p.vp.ScrollBy(wheelDelta(e))
 		return
 	}
 	if e.Type == tui.MousePress && !inside {
@@ -228,29 +260,37 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 	}
 	if e.Button == tui.MouseButtonRight {
 		if e.Type == tui.MouseClick && inside {
-			s.openTranscriptMenu(e.X, e.Y, local)
+			s.openTranscriptMenu(p, e.X, e.Y, local)
 		}
 		return
 	}
 	if e.Button == tui.MouseButtonLeft && (e.Type == tui.MousePress || e.Type == tui.MouseClick || e.Type == tui.MouseDrag || e.Type == tui.MouseMove) {
-		s.selectionRevision++
+		p.selectionRevision++
 	}
-	if s.vp.HandleMouse(local) {
+	if p.vp.HandleMouse(local) {
 		return
 	}
-	if e.Type == tui.MouseClick && e.Button == tui.MouseButtonLeft {
-		i, line, ok := s.vp.ItemAt(local.X, local.Y)
-		if ok && i < len(s.tr.Blocks) && s.tr.Blocks[i].Kind == KindTool && toolExpandable(s.tr.Blocks[i]) {
-			// A click anywhere on a collapsed row expands it. An expanded row
-			// collapses only from its head, so a click in the output does not.
-			if line != 0 && s.expanded[i] {
-				return
-			}
-			s.toggleTool(i)
-		} else if area, ok := s.hits.At(e.X, e.Y); ok && area == linesBelowArea {
-			s.vp.ScrollToBottom()
+	if e.Type == tui.MouseClick && e.Button == tui.MouseButtonLeft && !p.clickTool(local.X, local.Y) {
+		if area, ok := s.hits.At(e.X, e.Y); ok && area == linesBelowArea {
+			s.focused().vp.ScrollToBottom()
 		}
 	}
+}
+
+// mousePane is the pane a transcript mouse event goes to. A pane whose
+// selection is being dragged keeps the pointer until the drag ends, even
+// outside it; otherwise it is the pane under the pointer, or the focused
+// pane when there is none, as below the transcript.
+func (s *screen) mousePane(e tui.MouseEvent) *transcriptPane {
+	for _, p := range s.paneList() {
+		if p.vp.SelectionActive() {
+			return p
+		}
+	}
+	if p := s.paneAt(e.X, e.Y); p != nil {
+		return p
+	}
+	return s.focused()
 }
 
 // fullBlock is b with a tool row expanded, for the views that cannot take
@@ -272,7 +312,7 @@ func (s *screen) showNativeScrollback(raw bool) {
 		return
 	}
 	err := s.runtime.Suspend(func(keys <-chan tui.Event) {
-		for _, b := range s.tr.Blocks {
+		for _, b := range s.main().tr.Blocks {
 			b = printable(fullBlock(b))
 			text := FormatBlock(b)
 			if !raw {

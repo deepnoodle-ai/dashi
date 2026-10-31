@@ -121,7 +121,7 @@ func (s *screen) captureTaskEvidence(client *taskFixtureClient, effects *atomic.
 		Blocks                                     []Block
 		Tasks                                      []delegate.TaskView
 		Details, Rows                              []string
-	}{Input: s.input, SavedDraft: s.savedDraft, Prompt: s.promptID, Session: meta.ID, Mode: s.ctrl.Mode(), ParentCalls: parent, ChildCalls: child, Effects: int(effects.Load()), Blocks: s.tr.Blocks, Tasks: s.eng.taskHost().list(), Rows: attachmentRows(&s.attachments, s.ctrl.attachmentRoot)}
+	}{Input: s.input, SavedDraft: s.savedDraft, Prompt: s.promptID, Session: meta.ID, Mode: s.ctrl.Mode(), ParentCalls: parent, ChildCalls: child, Effects: int(effects.Load()), Blocks: s.main().tr.Blocks, Tasks: s.eng.taskHost().list(), Rows: attachmentRows(&s.attachments, s.ctrl.attachmentRoot)}
 	if s.picker != nil {
 		state.Picker = s.picker.title
 		state.Details = s.picker.details

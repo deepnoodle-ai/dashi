@@ -11,7 +11,7 @@ import (
 
 func dialogTranscriptText(s *screen) string {
 	var text strings.Builder
-	for _, b := range s.tr.Blocks {
+	for _, b := range s.main().tr.Blocks {
 		text.WriteString(b.Text)
 		text.WriteByte('\n')
 	}

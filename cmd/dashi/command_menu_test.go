@@ -187,7 +187,7 @@ func TestCommandMenuKeys(t *testing.T) {
 	locked(func() { h.scr.inputSubmit(h.scr.promptID)("/hel") })
 	h.waitFor(func() bool {
 		h.scr.drain()
-		for _, b := range h.scr.tr.Blocks {
+		for _, b := range h.scr.main().tr.Blocks {
 			if b.Kind == KindHelp {
 				return h.scr.input == ""
 			}

@@ -53,16 +53,16 @@ func (s *screen) dialogStatusKey(e tui.KeyEvent) []tui.Cmd {
 		s.endDialogStatus()
 		return []tui.Cmd{tui.Focus(s.focusID())}
 	case tui.KeyPageUp:
-		s.vp.PageUp()
+		s.focused().vp.PageUp()
 	case tui.KeyPageDown:
-		s.vp.PageDown()
+		s.focused().vp.PageDown()
 	case tui.KeyHome:
 		if e.Ctrl {
-			s.vp.ScrollToTop()
+			s.focused().vp.ScrollToTop()
 		}
 	case tui.KeyEnd:
 		if e.Ctrl {
-			s.vp.ScrollToBottom()
+			s.focused().vp.ScrollToBottom()
 		}
 	default:
 		// Keys can arrive before Wonton renders the newly focused field.
@@ -144,7 +144,7 @@ func (s *screen) dialogStatusSubmit(p *dialogStatusInput) func(string) {
 			return
 		}
 		p.text = ""
-		s.vp.ScrollToBottom()
+		s.main().vp.ScrollToBottom()
 		s.ctrl.Input(value)
 	}
 }
@@ -164,7 +164,7 @@ func (s *screen) inspectDialogSubmission(value string) bool {
 		s.approval.reason = ""
 	}
 	s.beginDialogStatus("")
-	s.vp.ScrollToBottom()
+	s.main().vp.ScrollToBottom()
 	s.ctrl.Input(value)
 	s.post(focusEvent{id: dialogStatusInputID, prompt: s.promptID})
 	return true

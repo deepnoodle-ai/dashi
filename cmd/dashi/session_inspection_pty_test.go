@@ -140,7 +140,7 @@ func (s *screen) captureSessionEvidence(other, bad string) {
 		Sends                                         int
 		Blocks                                        []Block
 		Options, Details, Rows                        []string
-	}{Input: s.input, Session: current.ID, Title: current.Title, Other: other, Damaged: bad, Mode: s.ctrl.Mode(), Sends: sends, Blocks: s.tr.Blocks, Rows: attachmentRows(&s.attachments, s.ctrl.attachmentRoot)}
+	}{Input: s.input, Session: current.ID, Title: current.Title, Other: other, Damaged: bad, Mode: s.ctrl.Mode(), Sends: sends, Blocks: s.main().tr.Blocks, Rows: attachmentRows(&s.attachments, s.ctrl.attachmentRoot)}
 	state.SavedDraft, state.Prompt = s.savedDraft, s.promptID
 	state.Approval, state.Question, state.Inspecting = s.approval != nil, s.asking != nil, s.dialogStatus != nil
 	if s.dialogStatus != nil {
