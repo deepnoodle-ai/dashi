@@ -45,6 +45,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **CLI fixes from Wonton v0.12.0.** The transcript menu no longer runs an
+  item clipped off a small screen. Transcript items inside the scrolled view
+  take clicks at their real positions. Scrolling while selecting text keeps
+  your place when the selection ends. The composer cursor stays visible when
+  the text exactly fills the width.
 - **An inbox `Cancel` always ends the run.** A `Cancel` found by the check
   before a tool call starts now cancels the run, so the call no longer runs.
   A `Cancel` waiting with steers now ends the run before the steers are
