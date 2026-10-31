@@ -22,16 +22,32 @@ type detailsUpdate struct {
 	add bool
 }
 
-// detailsUI is a UI with a details pane: the fullscreen screen.
-type detailsUI interface {
-	ShowDetails(detailsUpdate) bool
+// panesUI is a UI that can have panes. Only fullscreen has them: Panes
+// reports false in inline mode, which embeds the fullscreen screen, and
+// the Controller then prints what it would show in a pane, as it did
+// before panes existed.
+type panesUI interface {
+	Panes() bool
+	ShowDetails(detailsUpdate)
+	OpenTask(id string)
+	PaneCommand(arg string)
 }
 
-// ShowDetails queues content for the details pane. It implements
-// detailsUI.
-func (s *screen) ShowDetails(d detailsUpdate) bool {
+// panes returns the UI's panes, or nil where it has none.
+func (c *Controller) panes() panesUI {
+	if ui, ok := c.ui.(panesUI); ok && ui.Panes() {
+		return ui
+	}
+	return nil
+}
+
+// Panes reports whether the screen draws panes: false in inline mode. It
+// implements panesUI.
+func (s *screen) Panes() bool { return !s.inline }
+
+// ShowDetails queues content for the details pane. It implements panesUI.
+func (s *screen) ShowDetails(d detailsUpdate) {
 	s.enqueue(queued{details: &d})
-	return true
 }
 
 // showDetails shows d in the details pane on the loop, opening the pane
@@ -96,7 +112,8 @@ func detailsTitle(b Block) string {
 // showDetails shows the output of the inspection command title in the
 // details pane, or prints it as notices where the UI has none.
 func (c *Controller) showDetails(title string, blocks ...Block) {
-	if ui, ok := c.ui.(detailsUI); ok && ui.ShowDetails(detailsUpdate{title: title, blocks: blocks}) {
+	if ui := c.panes(); ui != nil {
+		ui.ShowDetails(detailsUpdate{title: title, blocks: blocks})
 		return
 	}
 	for _, b := range blocks {
@@ -108,7 +125,8 @@ func (c *Controller) showDetails(title string, blocks ...Block) {
 // /tasks list, to the details pane while it still shows title. Where the
 // UI has no details pane, it prints as notices.
 func (c *Controller) addDetails(title string, blocks ...Block) {
-	if ui, ok := c.ui.(detailsUI); ok && ui.ShowDetails(detailsUpdate{title: title, blocks: blocks, add: true}) {
+	if ui := c.panes(); ui != nil {
+		ui.ShowDetails(detailsUpdate{title: title, blocks: blocks, add: true})
 		return
 	}
 	for _, b := range blocks {
@@ -118,10 +136,7 @@ func (c *Controller) addDetails(title string, blocks ...Block) {
 
 // hasDetails reports whether the UI shows inspection output in a details
 // pane.
-func (c *Controller) hasDetails() bool {
-	_, ok := c.ui.(detailsUI)
-	return ok
-}
+func (c *Controller) hasDetails() bool { return c.panes() != nil }
 
 // noticeBlock is a notice with formatted text.
 func noticeBlock(format string, args ...any) Block {

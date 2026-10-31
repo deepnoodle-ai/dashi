@@ -16,7 +16,10 @@ import (
 )
 
 type commandEntry struct {
-	hidden                   bool
+	hidden bool
+	// fullscreen lists the command in help and completion only in
+	// fullscreen mode; elsewhere it still runs and explains itself.
+	fullscreen               bool
 	group                    string
 	name, usage, description string
 	aliases                  []string
@@ -104,7 +107,7 @@ func (c *Controller) commands() []commandEntry {
 			}
 			c.goWork(func() { c.resources(c.base) })
 		}},
-		{name: "/help", group: "Inspect", aliases: []string{"/?"}, description: "show commands, skills, and keys", run: func(string) { c.emit(c.helpBlock()) }, during: func(string) { c.emit(c.helpBlock()) }},
+		{name: "/help", group: "Inspect", aliases: []string{"/?"}, description: "show commands, skills, and keys", run: func(string) { c.help() }, during: func(string) { c.help() }},
 	}
 	_, printAttachments := c.ui.(*printUI)
 	if _, hasAttachments := c.ui.(attachmentUI); hasAttachments || printAttachments {
@@ -135,11 +138,13 @@ func (c *Controller) commands() []commandEntry {
 		}
 	}
 	pane := func(arg string) {
-		if ui, ok := c.ui.(interface{ PaneCommand(string) bool }); !ok || !ui.PaneCommand(arg) {
+		if ui := c.panes(); ui != nil {
+			ui.PaneCommand(arg)
+		} else {
 			c.notice("Panes need fullscreen mode.")
 		}
 	}
-	entries = append(entries, commandEntry{name: "/pane", group: "Panes", usage: "ACTION", description: "fullscreen panes: close, zoom, equalize, next, focus main|ID|details", run: pane, during: pane})
+	entries = append(entries, commandEntry{name: "/pane", group: "Panes", usage: "ACTION", description: "fullscreen panes: close, zoom, equalize, next, focus main|ID|details", run: pane, during: pane, fullscreen: true})
 	// Discovery uses metadata only. Skill text is loaded by the existing handler.
 	if c.eng.cfg.Resources != nil {
 		if found, err := c.eng.cfg.Resources.discover(); err == nil {
@@ -223,8 +228,9 @@ func (c *Controller) dispatchCommand(line string, running bool) {
 func (c *Controller) commandNames() []string {
 	var names []string
 	var items []commandMenuItem
+	panes := c.panes() != nil
 	for _, entry := range c.commands() {
-		if entry.hidden {
+		if entry.hidden || entry.fullscreen && !panes {
 			continue
 		}
 		names = append(names, entry.name)
@@ -316,15 +322,22 @@ func (c *Controller) helpBlock() Block {
 	return Block{Kind: KindHelp, Text: h.String(), Help: &h, Done: true}
 }
 
+// help shows /help: in the details pane in fullscreen, like the other
+// inspection output, and as a block in the transcript elsewhere.
+func (c *Controller) help() {
+	c.showDetails("/help", c.helpBlock())
+}
+
 func (c *Controller) commandHelp() string { return c.helpDoc().String() }
 
 func (c *Controller) helpDoc() helpDoc {
 	var h helpDoc
 	entries := c.commands()
+	panes := c.panes() != nil
 	for _, group := range append(slices.Clone(helpGroups), skillGroup) {
 		section := helpSection{Title: group}
 		for _, entry := range entries {
-			if entry.hidden || entry.group != group {
+			if entry.hidden || entry.group != group || entry.fullscreen && !panes {
 				continue
 			}
 			name := strings.Join(append([]string{entry.name}, entry.aliases...), ", ")
@@ -347,8 +360,15 @@ func (c *Controller) helpDoc() helpDoc {
 	if full || inline {
 		keys.Title = "Keys"
 	}
-	if full {
+	// Inline mode runs on the fullscreen screen, so only panes tell the
+	// two apart here.
+	if full && c.panes() != nil {
 		keys.Rows = append(slices.Clone(composerKeys), paneKeys...)
+		for i := range keys.Rows {
+			if keys.Rows[i].Name == "Page Up/Down" {
+				keys.Rows[i].Text = "scroll the focused pane"
+			}
+		}
 	}
 	if inline {
 		keys.Rows = slices.Clone(composerKeys)

@@ -79,12 +79,14 @@ type screen struct {
 	transcriptMenuPane string
 	// tasks is where task panes watch and load tasks: the Engine.
 	tasks taskSource
-	// taskOpens numbers task pane opens; flushes counts drains, which
-	// time a task feed's missing step. gapCheck is set while a flush is
-	// due for a missing step.
+	// taskOpens numbers task pane opens. gapCheck is set while a flush is
+	// due for a task feed's missing step. clock, if set, replaces
+	// time.Now for the feeds' gap wait, in tests.
 	taskOpens uint64
-	flushes   uint64
 	gapCheck  bool
+	clock     func() time.Time
+	// inline is set in inline mode, which has no panes (see Panes).
+	inline bool
 	// taskHinted reports that the session's first task line showed the
 	// one-time hint about watching tasks.
 	taskHinted bool
@@ -418,12 +420,11 @@ func (s *screen) drain() {
 			s.transcriptMenu.Close()
 		}
 		s.taskLine(q.block)
-		if !s.taskHinted && taskOfLine(q.block) != "" {
+		if !s.inline && !s.taskHinted && taskOfLine(q.block) != "" {
 			s.taskHinted = true
 			s.main().apply(Block{Kind: KindNotice, Text: taskWatchTip, Done: true})
 		}
 	}
-	s.flushes++
 	s.settleTaskFeeds()
 }
 
@@ -761,4 +762,8 @@ func (s *screen) inputSubmit(id uint64) func(string) {
 // screen leaves no scrollback, so the program prints this on exit.
 func (s *screen) dumpTranscript(w io.Writer) {
 	s.main().dump(w)
+}
+
+func (s *screen) ChooseTaskDetails(ctx context.Context, id, text string) {
+	s.choosePicker(ctx, &pickerState{title: "Task " + id, options: []string{"Close details"}, details: []string{text}, sessionCards: true})
 }

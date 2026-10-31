@@ -223,6 +223,22 @@ func (b *approvalBroker) waitingOwners() []brokerOwner {
 	return owners
 }
 
+// presentOnly reserves the same dialog owner for a native details viewport.
+// A child prompt waits until this viewport closes; it cannot replace the draft.
+func (b *approvalBroker) presentOnly(ctx context.Context, fn func()) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-b.gate:
+	}
+	defer func() { b.gate <- struct{}{} }()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	fn()
+	return ctx.Err()
+}
+
 func (b *approvalBroker) activeOwner() (brokerOwner, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

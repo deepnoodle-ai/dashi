@@ -118,7 +118,8 @@ func (c *Controller) taskInput(line string) bool {
 	}
 	if action == "inspect" {
 		// In fullscreen, a bare /task ID opens or focuses the task's pane.
-		if opener, ok := c.ui.(interface{ OpenTask(string) bool }); ok && c.knownTask(id) && opener.OpenTask(id) {
+		if ui := c.panes(); ui != nil && c.knownTask(id) {
+			ui.OpenTask(id)
 			return true
 		}
 		show := func(ctx context.Context) {
@@ -130,7 +131,13 @@ func (c *Controller) taskInput(line string) bool {
 			if owner, active := c.broker.activeOwner(); active && owner.TaskID == snapshot.Task.SessionID {
 				snapshot.Prompt = &owner.Call
 			}
-			c.notice("%s", taskDetails(snapshot))
+			if viewer, ok := c.ui.(interface {
+				ChooseTaskDetails(context.Context, string, string)
+			}); ok && c.Mode() == ModeCommand {
+				_ = c.broker.presentOnly(ctx, func() { viewer.ChooseTaskDetails(ctx, id, taskDetails(snapshot)) })
+			} else {
+				c.notice("%s", taskDetails(snapshot))
+			}
 		}
 		if c.Mode() == ModeIdle {
 			c.async(show)

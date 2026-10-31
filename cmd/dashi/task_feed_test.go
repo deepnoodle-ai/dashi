@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -128,11 +129,19 @@ func TestTaskFeedReloadsATurnWithAMissingStep(t *testing.T) {
 	f.push(events[1])
 	// Step 3 is only in the record.
 	f.push(events[3])
-	if f.checkGaps(1) != true || len(f.takeLoads()) != 0 {
-		t.Fatal("a gap found in this flush must wait one flush")
+	start := time.Unix(1000, 0)
+	if wait := f.checkGaps(start); wait != taskGapWait || len(f.takeLoads()) != 0 {
+		t.Fatalf("a new gap must wait taskGapWait, got %v", wait)
 	}
-	if f.checkGaps(2) {
-		t.Fatal("the same gap counted as fresh")
+	// Flushes come every few milliseconds while children stream; they do
+	// not shorten the wait.
+	for ms := 1; ms < 100; ms += 3 {
+		if wait := f.checkGaps(start.Add(time.Duration(ms) * time.Millisecond)); wait <= 0 || len(f.takeLoads()) != 0 {
+			t.Fatalf("reloaded after %d ms", ms)
+		}
+	}
+	if wait := f.checkGaps(start.Add(taskGapWait)); wait != 0 {
+		t.Fatalf("a due gap still waits %v", wait)
 	}
 	loads := f.takeLoads()
 	if len(loads) != 1 || loads[0].kind != taskLoadReload || loads[0].turn != turn.ID {
@@ -152,6 +161,41 @@ func TestTaskFeedReloadsATurnWithAMissingStep(t *testing.T) {
 	}
 }
 
+// reloadNow lets the feed's gap wait pass and returns the reloads it asks
+// for.
+func reloadNow(f *taskFeed) []taskLoad {
+	start := time.Unix(1000, 0)
+	f.checkGaps(start)
+	f.checkGaps(start.Add(taskGapWait))
+	return f.takeLoads()
+}
+
+func TestTaskFeedReloadKeepsAStepThatArrivesLate(t *testing.T) {
+	turn := recordedChildTurn(t)
+	events := stepsOf(turn)
+	f := newTestFeed()
+	f.loaded(openLoad())
+	f.push(events[0])
+	f.push(events[1])
+	// Step 3 is late; the reload asks for it.
+	f.push(events[3])
+	if loads := reloadNow(f); len(loads) != 1 {
+		t.Fatalf("loads=%+v", loads)
+	}
+	// While the record loads, step 7 overtakes step 6.
+	f.push(events[6])
+	f.loaded(taskLoad{kind: taskLoadReload, turn: turn.ID, turns: []dashi.Turn{{ID: turn.ID, Steps: turn.Steps[:5]}}})
+	if strings.Contains(paneText(f), "missing") {
+		t.Fatalf("a step past a record that covers the gap counted as lost:\n%s", paneText(f))
+	}
+	for _, ev := range events[5:] {
+		f.push(ev)
+	}
+	if got, want := paneText(f), wantText(t, turn); got != want {
+		t.Fatalf("pane:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestTaskFeedFailedReloadContinuesFromHeldStep(t *testing.T) {
 	turn := recordedChildTurn(t)
 	events := stepsOf(turn)
@@ -160,15 +204,13 @@ func TestTaskFeedFailedReloadContinuesFromHeldStep(t *testing.T) {
 	f.push(events[0])
 	f.push(events[3])
 	f.push(events[4])
-	f.checkGaps(1)
-	f.checkGaps(2)
-	f.takeLoads()
+	reloadNow(f)
 	f.loaded(taskLoad{kind: taskLoadReload, turn: turn.ID, err: errors.New("disk gone")})
 	text := paneText(f)
 	if !strings.Contains(text, "disk gone") || f.turns[turn.ID].lastSeq != events[4].Seq {
 		t.Fatalf("failed reload: lastSeq=%d\n%s", f.turns[turn.ID].lastSeq, text)
 	}
-	if f.checkGaps(3) || len(f.takeLoads()) != 0 {
+	if f.checkGaps(time.Unix(2000, 0)) != 0 || len(f.takeLoads()) != 0 {
 		t.Fatal("a failed reload loaded again")
 	}
 }

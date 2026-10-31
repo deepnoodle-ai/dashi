@@ -27,7 +27,7 @@ func TestHelpGroupsCommandsAndListsSkillsSeparately(t *testing.T) {
 	}
 	defer a.eng.Close()
 	h := a.ctrl.helpDoc()
-	want := []string{"Session", "Turn", "Model", "Inspect", "Tasks", "Attachments", "Panes", "Skills", "Keys (fullscreen and inline modes)"}
+	want := []string{"Session", "Turn", "Model", "Inspect", "Tasks", "Attachments", "Skills", "Keys (fullscreen and inline modes)"}
 	if got := helpTitles(h); !slices.Equal(got, want) {
 		t.Fatalf("sections = %q", got)
 	}
@@ -39,7 +39,7 @@ func TestHelpGroupsCommandsAndListsSkillsSeparately(t *testing.T) {
 			}
 		}
 	}
-	skills := h.Sections[7]
+	skills := h.Sections[6]
 	if len(skills.Rows) != 1 || skills.Rows[0] != (helpRow{Name: "/deploy", Usage: "<env>", Text: "Fixture skill"}) {
 		t.Fatalf("skills = %+v", skills.Rows)
 	}
@@ -47,7 +47,7 @@ func TestHelpGroupsCommandsAndListsSkillsSeparately(t *testing.T) {
 	for _, line := range []string{
 		"  • /status [ID]                  inspect recorded status and own-session spend",
 		"    /deploy <env>                 Fixture skill",
-		"focus main|ID|details\n\n  • also works while a turn runs",
+		"mention tokens\n\n  • also works while a turn runs",
 		"    Ctrl+C        copy selection; otherwise interrupt or press twice to exit",
 	} {
 		if !strings.Contains(text, line+"\n") {

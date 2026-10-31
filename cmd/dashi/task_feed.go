@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi"
 )
@@ -78,9 +79,12 @@ type feedTurn struct {
 	lastSeq int64
 	// start is the index of the Turn's first block in the pane, or -1.
 	start int
-	// gapAt is the flush in which a missing step was first seen, or 0.
-	gapAt     uint64
+	// gapSince is when the feed first saw a missing step, or zero.
+	gapSince  time.Time
 	reloading bool
+	// reloadTo is the last missing Seq when the reload was asked for: the
+	// record must reach it to fill the gap.
+	reloadTo int64
 	// resync makes the next step that arrives the Turn's next step.
 	resync bool
 	// skip holds the messages whose previews are ignored until their
@@ -197,7 +201,7 @@ func (f *taskFeed) settle(t *feedTurn) {
 		f.held[t.id] = held
 	}
 	if firstStep(held) < 0 {
-		t.gapAt = 0
+		t.gapSince = time.Time{}
 	}
 }
 
@@ -335,27 +339,34 @@ func (f *taskFeed) gap(t *feedTurn, key string) {
 	}
 }
 
-// checkGaps starts a reload of each Turn whose missing step did not arrive
-// by the flush after the one that found it. It reports whether a gap was
-// found in this flush, so the screen makes sure another flush follows.
-func (f *taskFeed) checkGaps(flush uint64) (fresh bool) {
+// checkGaps starts a reload of each Turn whose missing step has not
+// arrived taskGapWait after the feed first saw the gap. It returns how long
+// until the next gap that still waits is due, or zero when none waits, so
+// the screen can flush again then.
+func (f *taskFeed) checkGaps(now time.Time) (next time.Duration) {
 	if f.replaying {
-		return false
+		return 0
 	}
 	for _, id := range f.heldTurns() {
 		t := f.turn(id)
-		if t.reloading || firstStep(f.held[id]) < 0 {
+		i := firstStep(f.held[id])
+		if t.reloading || i < 0 {
 			continue
 		}
-		switch {
-		case t.gapAt == 0:
-			t.gapAt, fresh = flush, true
-		case flush > t.gapAt:
-			t.reloading = true
+		if t.gapSince.IsZero() {
+			t.gapSince = now
+		}
+		wait := taskGapWait - now.Sub(t.gapSince)
+		if wait <= 0 {
+			t.reloading, t.reloadTo = true, f.held[id][i].Seq-1
 			f.loads = append(f.loads, taskLoad{kind: taskLoadReload, turn: id})
+			continue
+		}
+		if next == 0 || wait < next {
+			next = wait
 		}
 	}
-	return fresh
+	return next
 }
 
 // takeLoads returns the loads to start and forgets them.
@@ -384,7 +395,8 @@ func (f *taskFeed) loaded(l taskLoad) {
 		f.settleAll()
 	case taskLoadReload:
 		t := f.turn(l.turn)
-		t.reloading, t.gapAt = false, 0
+		t.reloading, t.gapSince = false, time.Time{}
+		reloadTo := t.reloadTo
 		if l.err != nil {
 			f.missing(t, l.err.Error())
 			return
@@ -404,7 +416,10 @@ func (f *taskFeed) loaded(l taskLoad) {
 		f.replay(l.turns, from)
 		f.turn(l.turn).reloading = false
 		f.settleAll()
-		if t := f.turn(l.turn); firstStep(f.held[l.turn]) >= 0 {
+		// Only a record that ends before the missing step proves it lost.
+		// A step still held past a record that covers the gap is a new
+		// gap, from events that arrived during the load; it waits again.
+		if t := f.turn(l.turn); firstStep(f.held[l.turn]) >= 0 && t.lastSeq < reloadTo {
 			f.missing(t, "the record lacks it too")
 		}
 	case taskLoadFacts:

@@ -31,8 +31,8 @@ type taskGapEvent struct{ at time.Time }
 
 func (e taskGapEvent) Timestamp() time.Time { return e.at }
 
-// taskGapWait is how long after a missing step is found the loop flushes
-// again to check for it.
+// taskGapWait is how long a task feed waits for a missing step before it
+// reloads the Turn from the record.
 const taskGapWait = 100 * time.Millisecond
 
 // taskWatchTip is the one-time notice the first task line of a session
@@ -43,10 +43,9 @@ const taskWatchTip = "Click a task to watch it beside the conversation, or type 
 func taskPaneID(id string) string { return "task:" + id }
 
 // OpenTask opens or focuses the pane of task id, as a bare /task ID does in
-// fullscreen mode.
-func (s *screen) OpenTask(id string) bool {
+// fullscreen mode. It implements panesUI.
+func (s *screen) OpenTask(id string) {
 	s.TranscriptCommand("/task", id)
-	return true
 }
 
 // openTask opens the pane of task id and activates it, or activates it if
@@ -186,24 +185,25 @@ func (s *screen) taskLine(b Block) {
 }
 
 // settleTaskFeeds starts the loads the task feeds ask for, and makes sure a
-// flush follows one that found a missing step.
+// flush follows when a missing step is due for a reload.
 func (s *screen) settleTaskFeeds() {
-	fresh := false
+	now := s.now()
+	var next time.Duration
 	for _, id := range s.panes.leaves() {
 		p := s.panes.get(id)
 		if p == nil || p.feed == nil {
 			continue
 		}
-		if p.feed.checkGaps(s.flushes) {
-			fresh = true
+		if wait := p.feed.checkGaps(now); wait > 0 && (next == 0 || wait < next) {
+			next = wait
 		}
 		for _, l := range p.feed.takeLoads() {
 			s.loadTask(p, l)
 		}
 	}
-	if fresh && !s.gapCheck {
+	if next > 0 && !s.gapCheck {
 		s.gapCheck = true
-		time.AfterFunc(taskGapWait, func() { s.post(taskGapEvent{at: time.Now()}) })
+		time.AfterFunc(next, func() { s.post(taskGapEvent{at: time.Now()}) })
 	}
 }
 
@@ -226,4 +226,12 @@ func (s *screen) refreshWaiting() {
 			return o.TaskID != "" && delegate.TaskID(o.TaskID) == p.label
 		})
 	}
+}
+
+// now is the time for the task feeds' gap wait.
+func (s *screen) now() time.Time {
+	if s.clock != nil {
+		return s.clock()
+	}
+	return time.Now()
 }

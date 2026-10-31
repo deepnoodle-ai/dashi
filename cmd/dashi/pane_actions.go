@@ -123,11 +123,9 @@ func (s *screen) syncMouseMode() {
 	}
 }
 
-// PaneCommand runs /pane on the loop. It reports false where panes do not
-// exist.
-func (s *screen) PaneCommand(arg string) bool {
+// PaneCommand runs /pane on the loop. It implements panesUI.
+func (s *screen) PaneCommand(arg string) {
 	s.TranscriptCommand("/pane", arg)
-	return true
 }
 
 // paneCommand runs /pane close|zoom|equalize|next and /pane focus NAME.

@@ -43,7 +43,8 @@ type transcriptPane struct {
 	width   func() int
 	spinner func() string
 	// watches reports whether the pane of a task is open, which its task
-	// line says. It is nil in tests that need no task panes.
+	// line says. It is nil where task panes do not exist (inline mode),
+	// and task lines then keep their inspect hint.
 	watches func(task string) bool
 }
 
@@ -97,14 +98,15 @@ func (p *transcriptPane) Source(i int) (string, bool) {
 // input and output when the user expanded it, and spins while it runs.
 func (p *transcriptPane) liveBlock(i int) Block {
 	b := p.tr.Blocks[i]
-	// A task line says that a click opens the task's pane.
-	if b.Kind == KindTaskStatus {
+	// Where task panes exist, a task line says that a click opens the
+	// task's pane.
+	if b.Kind == KindTaskStatus && p.watches != nil {
 		b.Text = taskLineHint(b.Text, taskIDOf(b.Arg), p.watching(taskIDOf(b.Arg)))
 	}
 	if b.Kind != KindTool {
 		return b
 	}
-	if b.Task != nil {
+	if b.Task != nil && p.watches != nil {
 		task := *b.Task
 		task.Text = taskLineHint(task.Text, taskIDOf(task.Arg), p.watching(taskIDOf(task.Arg)))
 		b.Task = &task
