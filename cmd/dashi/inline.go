@@ -79,7 +79,7 @@ func (i *inlineScreen) HandleEvent(e tui.Event) []tui.Cmd {
 		i.runner.PrintRaw(nil)
 	}
 	i.flushCompleted()
-	i.vp.InvalidateAll()
+	i.main().vp.InvalidateAll()
 	return cmds
 }
 
@@ -94,25 +94,26 @@ func (i *inlineScreen) flushCompleted() {
 	// Native scrollback cannot replace a completed row. A recorded warning
 	// can replace its initial protection marker after that row was printed,
 	// so append the authoritative correction once, before later replies.
+	tr := &i.main().tr
 	var updates []int
 	for id, text := range i.protectionPrinted {
-		n, ok := i.tr.index[id]
+		n, ok := tr.index[id]
 		if !ok || n >= i.printed {
 			continue
 		}
-		b := i.tr.Blocks[n]
+		b := tr.Blocks[n]
 		if b.Done && b.Kind == KindCompaction && b.State == "unavailable" && b.Text != text {
 			updates = append(updates, n)
 		}
 	}
 	sort.Ints(updates)
 	for _, n := range updates {
-		b := i.tr.Blocks[n]
+		b := tr.Blocks[n]
 		i.protectionPrinted[b.ID] = b.Text
 		i.printCompletedBlock(printable(b))
 	}
-	for i.printed < len(i.tr.Blocks) && i.tr.Blocks[i.printed].Done {
-		b := i.tr.Blocks[i.printed]
+	for i.printed < len(tr.Blocks) && tr.Blocks[i.printed].Done {
+		b := tr.Blocks[i.printed]
 		i.printed++ // Print re-renders LiveView synchronously.
 		if strings.HasPrefix(b.ID, "active-protection:") {
 			i.protectionPrinted[b.ID] = b.Text
@@ -164,7 +165,7 @@ func (i *inlineScreen) LiveView() tui.View {
 	var view tui.View = footer
 	viewHeight := footerHeight
 	if liveHeight > 0 {
-		view = belowTranscript(tui.Height(liveHeight, tui.Viewport(&i.vp, items).Gap(1)), footer)
+		view = belowTranscript(tui.Height(liveHeight, tui.Viewport(&i.main().vp, items).Gap(1)), footer)
 		viewHeight += liveHeight + 1
 	}
 	if i.noColor {
@@ -175,7 +176,7 @@ func (i *inlineScreen) LiveView() tui.View {
 
 func (i *inlineScreen) showScrollback(raw bool) {
 	i.inspecting = true
-	for _, b := range i.tr.Blocks {
+	for _, b := range i.main().tr.Blocks {
 		b = printable(fullBlock(b))
 		if raw {
 			i.runner.PrintRaw([]byte(strings.ReplaceAll(FormatBlock(b), "\n", "\r\n") + "\r\n"))
@@ -194,7 +195,8 @@ func (i *inlineScreen) flushExit(output io.Writer) {
 	if i.generation != i.screen.generation {
 		i.printed = 0
 	}
-	for _, b := range i.tr.Blocks[min(i.printed, len(i.tr.Blocks)):] {
+	blocks := i.main().tr.Blocks
+	for _, b := range blocks[min(i.printed, len(blocks)):] {
 		fmt.Fprintln(output, FormatBlock(printable(fullBlock(b))))
 	}
 }
@@ -203,11 +205,12 @@ func (i *inlineScreen) flushExit(output io.Writer) {
 type inlineItems struct{ app *inlineScreen }
 
 func (v inlineItems) Len() int {
-	return len(v.app.tr.Blocks) - min(v.app.printed, len(v.app.tr.Blocks))
+	n := v.app.main().Len()
+	return n - min(v.app.printed, n)
 }
-func (v inlineItems) Item(n int) tui.View { return v.app.screen.Item(v.app.printed + n) }
+func (v inlineItems) Item(n int) tui.View { return v.app.main().Item(v.app.printed + n) }
 
-func (v inlineItems) Source(n int) (string, bool) { return v.app.screen.Source(v.app.printed + n) }
+func (v inlineItems) Source(n int) (string, bool) { return v.app.main().Source(v.app.printed + n) }
 
 // outputWidth uses a default only before a terminal size is available.
 func (i *inlineScreen) outputWidth() int {

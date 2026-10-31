@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -12,9 +11,9 @@ import (
 	"github.com/deepnoodle-ai/wonton/tui"
 )
 
-// screen is the full-screen UI. It draws the transcript in a scrollable
-// viewport, with the prompt and status line below. It implements UI and
-// Chooser for the Controller.
+// screen is the full-screen UI. It draws transcript panes in a split
+// layout, with the prompt and status line below. Today the layout holds one
+// pane, the conversation. It implements UI and Chooser for the Controller.
 //
 // Only the Wonton event loop touches the fields marked "loop". Other
 // goroutines call Emit, Approve, and the rest, which queue an event and, when
@@ -37,8 +36,11 @@ type screen struct {
 	promptSeq atomic.Uint64
 
 	// loop state
-	tr                    Transcript
-	vp                    tui.ViewportState
+	// split lays out the panes, which panes holds by ID; focus is the ID of
+	// the pane that keys such as PgUp act on.
+	split                 tui.SplitState
+	panes                 map[string]*transcriptPane
+	focus                 string
 	input                 string
 	attachments           attachmentDraft
 	attachmentInput       *submittedInput
@@ -63,24 +65,20 @@ type screen struct {
 	promptID              uint64
 	promptActive          bool
 	savedDraft            string
-	expanded              map[int]bool
 	runtime               *tui.Runtime
 	mouseEnabled          bool
 	generation            uint64
 	nativeScrollback      func(bool)
 	// noColor makes text printed to native scrollback plain, as NO_COLOR asks.
-	noColor           bool
-	clipboardOut      io.Writer
-	clipboardWrite    func(context.Context, string) (clipboardWriteResult, error)
-	selectionRevision uint64
+	noColor        bool
+	clipboardOut   io.Writer
+	clipboardWrite func(context.Context, string) (clipboardWriteResult, error)
 	// hits records where clickable footer lines were drawn.
 	hits tui.HitMap
-	// transcriptMenu is the right-click menu on a transcript item.
-	transcriptMenu tui.MenuState
-	// transcriptMenuItem is the transcript item the open menu acts on, or
-	// -1, and transcriptMenuShape is its kind and state at open time.
-	transcriptMenuItem  int
-	transcriptMenuShape blockShape
+	// transcriptMenu is the right-click menu on a transcript item, and
+	// transcriptMenuPane is the ID of the pane whose item it acts on.
+	transcriptMenu     tui.MenuState
+	transcriptMenuPane string
 }
 
 // blockShape is what the transcript menu's entries depend on.
@@ -164,8 +162,51 @@ func (e endPromptEvent) Timestamp() time.Time { return e.at }
 
 func newScreen(dir string) *screen {
 	s := &screen{dir: dir, mouseEnabled: true, clipboardWrite: writeClipboard}
-	s.vp.Follow = true
+	s.addPane(mainPaneID)
+	s.focus = mainPaneID
 	return s
+}
+
+// addPane adds an empty transcript pane to the panes and the layout.
+func (s *screen) addPane(id string) *transcriptPane {
+	p := newTranscriptPane(id, func() int { return s.width }, s.spinnerFrame)
+	if s.panes == nil {
+		s.panes = map[string]*transcriptPane{}
+	}
+	s.panes[id] = p
+	s.split.Append(id, tui.SplitColumns)
+	return p
+}
+
+// main is the pane that shows the conversation.
+func (s *screen) main() *transcriptPane { return s.panes[mainPaneID] }
+
+// focused is the pane that keys such as PgUp and Ctrl+End act on.
+func (s *screen) focused() *transcriptPane {
+	if p := s.panes[s.focus]; p != nil {
+		return p
+	}
+	return s.main()
+}
+
+// paneAt returns the pane drawn at the screen position (x, y), if any.
+func (s *screen) paneAt(x, y int) *transcriptPane {
+	id, ok := s.split.PaneAt(x, y)
+	if !ok {
+		return nil
+	}
+	return s.panes[id]
+}
+
+// paneList returns the panes in layout order.
+func (s *screen) paneList() []*transcriptPane {
+	var list []*transcriptPane
+	for _, id := range s.split.Leaves() {
+		if p := s.panes[id]; p != nil {
+			list = append(list, p)
+		}
+	}
+	return list
 }
 
 // bind connects the screen to the app built around it.
@@ -297,76 +338,6 @@ func (s *screen) choosePicker(ctx context.Context, p *pickerState) (int, bool) {
 	}
 }
 
-// --- tui.ViewportItems ---
-
-// Len implements tui.ViewportItems.
-func (s *screen) Len() int { return len(s.tr.Blocks) }
-
-// Item implements tui.ViewportItems.
-func (s *screen) Item(i int) tui.View {
-	if i < 0 || i >= len(s.tr.Blocks) {
-		return nil
-	}
-	b := s.liveBlock(i)
-	if b.Kind == KindFooter {
-		return footerView(b, s.width)
-	}
-	return blockView(b)
-}
-
-// liveBlock is block i as the live screen draws it. A tool row shows its
-// input and output when the user expanded it, and spins while it runs.
-func (s *screen) liveBlock(i int) Block {
-	b := s.tr.Blocks[i]
-	if b.Kind != KindTool {
-		return b
-	}
-	b.Expanded = s.expanded[i] && toolExpandable(b)
-	if toolSpins(b.State) {
-		b.Spinner = s.spinnerFrame()
-	}
-	return b
-}
-
-// spinTools redraws the tool lines that show the spinner. Only the lines
-// after the last turn footer can still run.
-func (s *screen) spinTools() {
-	for i := len(s.tr.Blocks) - 1; i >= 0; i-- {
-		b := s.tr.Blocks[i]
-		if b.Kind == KindFooter {
-			return
-		}
-		if b.Kind == KindTool && toolSpins(b.State) {
-			s.vp.Invalidate(i)
-		}
-	}
-}
-
-// Source implements tui.ViewportSourceItems: it is the text a selection
-// copies. Glyphs, labels, rules, and states are decorations. Every
-// non-empty source must match text its view marks with SourceOffset;
-// otherwise Wonton cannot map the item, treats it as decoration, and a
-// selection skips its text.
-func (s *screen) Source(i int) (string, bool) {
-	if i < 0 || i >= len(s.tr.Blocks) {
-		return "", true
-	}
-	b := s.liveBlock(i)
-	switch b.Kind {
-	case KindTool:
-		return toolSource(b), true
-	case KindDiff:
-		return strings.Join(b.Lines, "\n"), true
-	case KindFooter:
-		return footerSource(b, s.width), true
-	case KindPending:
-		if b.Done {
-			return "", true
-		}
-	}
-	return b.Text, true
-}
-
 func (s *screen) drain() {
 	s.pendMu.Lock()
 	items := s.pending
@@ -378,21 +349,15 @@ func (s *screen) drain() {
 			s.endDialogStatus()
 			// The menu's entries name items of the old transcript.
 			s.transcriptMenu.Close()
-			s.tr = Transcript{}
+			s.main().reset()
 			s.attachments.clear()
 			s.attachmentInput = nil
 			s.attachmentUnsaved.Store(false)
 			s.input = ""
 			s.generation++
-			s.expanded = nil
-			s.vp.InvalidateAll()
-			s.vp.Follow = true
 			continue
 		}
-		i := s.tr.Apply(q.block)
-		s.vp.Invalidate(i)
-		if i == s.transcriptMenuItem && shapeOf(s.tr.Blocks[i]) != s.transcriptMenuShape {
-			// The menu's entries were chosen for the item's old shape.
+		if s.main().apply(q.block) && s.transcriptMenuPane == mainPaneID {
 			s.transcriptMenu.Close()
 		}
 	}
@@ -412,11 +377,14 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 	case tui.TickEvent:
 		before := s.spinnerFrame()
 		s.frame = e.Frame
-		if s.spinnerFrame() != before {
-			s.spinTools()
-		}
-		if s.vp.DragAutoScroll() {
-			s.selectionRevision++
+		spin := s.spinnerFrame() != before
+		for _, p := range s.paneList() {
+			if spin {
+				p.spinTools()
+			}
+			if p.vp.DragAutoScroll() {
+				p.selectionRevision++
+			}
 		}
 	case tui.MouseEvent:
 		s.exitGuard.reset()
@@ -517,26 +485,27 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 	case s.asking != nil:
 		return s.questionKey(e)
 	}
+	vp := &s.focused().vp
 	switch e.Key {
 	case tui.KeyPageUp:
-		s.vp.PageUp()
+		vp.PageUp()
 	case tui.KeyPageDown:
-		s.vp.PageDown()
+		vp.PageDown()
 	case tui.KeyHome:
 		if e.Ctrl || s.input == "" {
-			s.vp.ScrollToTop()
+			vp.ScrollToTop()
 		}
 	case tui.KeyEnd:
 		if e.Ctrl || s.input == "" {
-			s.vp.ScrollToBottom()
+			vp.ScrollToBottom()
 		}
 	case tui.KeyEscape:
 		if s.ctrl.Mode() == ModeRunning || s.ctrl.Mode() == ModeApproval {
 			s.ctrl.CancelWork()
-		} else if s.vp.HasSelection() {
-			s.vp.ClearSelection()
+		} else if p := s.selectionPane(); p != nil {
+			p.vp.ClearSelection()
 		} else {
-			s.vp.ScrollToBottom()
+			vp.ScrollToBottom()
 		}
 	case tui.KeyF2:
 		if s.mainComposerActive() {
@@ -693,7 +662,7 @@ func (s *screen) submit(value string) {
 		s.attachmentInput = nil
 		s.attachmentUnsaved.Store(false)
 	}
-	s.vp.ScrollToBottom()
+	s.main().vp.ScrollToBottom()
 	s.ctrl.Input(value)
 }
 
@@ -714,9 +683,7 @@ func (s *screen) inputSubmit(id uint64) func(string) {
 // dumpTranscript writes the plain text of the whole transcript. The alternate
 // screen leaves no scrollback, so the program prints this on exit.
 func (s *screen) dumpTranscript(w io.Writer) {
-	for _, b := range s.tr.Blocks {
-		fmt.Fprintln(w, FormatBlock(printable(fullBlock(b))))
-	}
+	s.main().dump(w)
 }
 
 func (s *screen) ChooseTaskDetails(ctx context.Context, id, text string) {

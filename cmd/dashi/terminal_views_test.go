@@ -171,7 +171,7 @@ func TestInlineUsesNarrowWidthAndNoEmptyTranscriptRows(t *testing.T) {
 	if i.outputWidth() != 40 {
 		t.Fatal("inline widened terminal")
 	}
-	i.printed = len(s.tr.Blocks)
+	i.printed = len(s.main().tr.Blocks)
 	_, footerHeight := tui.Measure(i.footer(), 40, 0)
 	_, liveHeight := tui.Measure(i.LiveView(), 40, 0)
 	if liveHeight != footerHeight {
@@ -441,17 +441,17 @@ func toolRowFixture() *screen {
 func addToolRows(s *screen) {
 	s.width, s.height = 80, 24
 	bash := newToolLabel("bash", json.RawMessage(`{"command":"go test ./..."}`), "")
-	s.tr.Apply(Block{ID: "ok", Kind: KindTool, Name: "bash", Arg: "go test ./...", Label: bash, Input: "$ go test ./...",
+	s.main().tr.Apply(Block{ID: "ok", Kind: KindTool, Name: "bash", Arg: "go test ./...", Label: bash, Input: "$ go test ./...",
 		State: StateOK, Elapsed: 1200 * time.Millisecond, Summary: "PASS", Detail: "ok  pkg\nPASS\n", Done: true})
-	s.tr.Apply(Block{ID: "failed", Kind: KindTool, Name: "bash", Arg: "make lint", Label: bash, Input: "$ make lint",
+	s.main().tr.Apply(Block{ID: "failed", Kind: KindTool, Name: "bash", Arg: "make lint", Label: bash, Input: "$ make lint",
 		State: StateFailed, Elapsed: 3200 * time.Millisecond, Summary: "exit 2 · undefined: foo", Detail: "undefined: foo\n[Exit code 2]", Done: true})
-	s.tr.Apply(Block{ID: "running", Kind: KindTool, Name: "bash", Arg: "sleep 9", Label: bash, Input: "$ sleep 9",
+	s.main().tr.Apply(Block{ID: "running", Kind: KindTool, Name: "bash", Arg: "sleep 9", Label: bash, Input: "$ sleep 9",
 		State: StateRunning, Lines: []string{"tick 1", "tick 2"}})
 }
 
 func TestToolRowHidesInputAndOutputUntilExpanded(t *testing.T) {
 	s := toolRowFixture()
-	row := func(i int) string { return tui.Sprint(s.Item(i), tui.WithWidth(78), tui.WithColor(false)) }
+	row := func(i int) string { return tui.Sprint(s.main().Item(i), tui.WithWidth(78), tui.WithColor(false)) }
 	for i, want := range []string{"● Ran a command", "✗ Ran a command", spinnerFrames[0] + " Running a command…"} {
 		got := row(i)
 		if !strings.HasPrefix(got, want) || strings.Contains(got, "\n") {
@@ -466,14 +466,14 @@ func TestToolRowHidesInputAndOutputUntilExpanded(t *testing.T) {
 	if got := row(1); !strings.HasSuffix(got, "failed  3.2s") {
 		t.Fatalf("failed row=%q", got)
 	}
-	if styled := tui.Sprint(s.Item(1), tui.WithWidth(78), tui.WithColor(true)); !strings.Contains(styled, "\x1b[0;31mfailed") {
+	if styled := tui.Sprint(s.main().Item(1), tui.WithWidth(78), tui.WithColor(true)); !strings.Contains(styled, "\x1b[0;31mfailed") {
 		t.Fatalf("failed state style=%q", styled)
 	}
-	if src, _ := s.Source(0); src != "Ran a command" {
+	if src, _ := s.main().Source(0); src != "Ran a command" {
 		t.Fatalf("collapsed source=%q", src)
 	}
 
-	s.expanded = map[int]bool{0: true, 1: true, 2: true}
+	s.main().expanded = map[int]bool{0: true, 1: true, 2: true}
 	for i, want := range []string{
 		"Input\n  $ go test ./...\n  Output\n  ok  pkg\n  PASS",
 		"Input\n  $ make lint\n  Output\n  undefined: foo\n  [Exit code 2]",
@@ -485,7 +485,7 @@ func TestToolRowHidesInputAndOutputUntilExpanded(t *testing.T) {
 	}
 	// The headings are decoration; a selection copies the label, the
 	// input, and the output.
-	if src, _ := s.Source(0); src != "Ran a command\n$ go test ./...\nok  pkg\nPASS" {
+	if src, _ := s.main().Source(0); src != "Ran a command\n$ go test ./...\nok  pkg\nPASS" {
 		t.Fatalf("expanded source=%q", src)
 	}
 }
@@ -526,16 +526,16 @@ func TestClickTogglesAToolRow(t *testing.T) {
 func TestRowsSpanTheWholeWidth(t *testing.T) {
 	s := toolRowFixture()
 	s.width = 160
-	s.tr.Apply(Block{ID: "a", Kind: KindAssistant, Text: strings.Repeat("word ", 60), Done: true})
-	head := tui.Sprint(s.Item(1), tui.WithWidth(158), tui.WithColor(false))
+	s.main().tr.Apply(Block{ID: "a", Kind: KindAssistant, Text: strings.Repeat("word ", 60), Done: true})
+	head := tui.Sprint(s.main().Item(1), tui.WithWidth(158), tui.WithColor(false))
 	if runewidth.StringWidth(head) != 158 || !strings.HasSuffix(head, "failed  3.2s") {
 		t.Fatalf("tool row is %d columns: %q", runewidth.StringWidth(head), head)
 	}
-	first := strings.Split(tui.Sprint(s.Item(3), tui.WithWidth(158), tui.WithColor(false)), "\n")[0]
+	first := strings.Split(tui.Sprint(s.main().Item(3), tui.WithWidth(158), tui.WithColor(false)), "\n")[0]
 	if w := runewidth.StringWidth(strings.TrimRight(first, " ")); w <= 100 {
 		t.Fatalf("reply line is %d columns: %q", w, first)
 	}
-	native, _ := nativeBlockText(s.tr.Blocks[1], 160, false)
+	native, _ := nativeBlockText(s.main().tr.Blocks[1], 160, false)
 	if w := runewidth.StringWidth(strings.Split(native, "\n")[0]); w != 160 {
 		t.Fatalf("native row is %d columns: %q", w, native)
 	}
@@ -566,7 +566,7 @@ func TestBlankRowAboveTheLiveUI(t *testing.T) {
 			s.drain()
 			screen := tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24))
 			if state == "scrolled" {
-				s.vp.ScrollBy(-5)
+				s.main().vp.ScrollBy(-5)
 				screen = tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24))
 			}
 			rows := strings.Split(screen.Text(), "\n")

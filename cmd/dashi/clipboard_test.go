@@ -60,13 +60,13 @@ func TestClipboardFallbackIsExplicitBoundedAndHonest(t *testing.T) {
 	s.clipboardOut = &transport
 	s.clipboardResult(clipboardResultEvent{text: "世界", err: context.DeadlineExceeded})
 	s.drain()
-	if !strings.Contains(transport.String(), "\x1b]52;") || !strings.Contains(s.tr.Blocks[0].Text, "unconfirmed") {
+	if !strings.Contains(transport.String(), "\x1b]52;") || !strings.Contains(s.main().tr.Blocks[0].Text, "unconfirmed") {
 		t.Fatal("OSC52 receipt was overstated or request omitted")
 	}
 	transport.Reset()
 	s.clipboardResult(clipboardResultEvent{text: strings.Repeat("x", 100*1024+1), err: context.DeadlineExceeded})
 	s.drain()
-	if transport.Len() != 0 || !strings.Contains(s.tr.Blocks[len(s.tr.Blocks)-1].Text, "/scrollback") {
+	if transport.Len() != 0 || !strings.Contains(s.main().tr.Blocks[len(s.main().tr.Blocks)-1].Text, "/scrollback") {
 		t.Fatal("oversized OSC52 did not offer safe fallback")
 	}
 }

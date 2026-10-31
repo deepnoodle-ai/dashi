@@ -27,7 +27,7 @@ func TestMouseWheelScrollsThreeLines(t *testing.T) {
 	below := func() int {
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		return h.scr.vp.LinesBelow
+		return h.scr.main().vp.LinesBelow
 	}
 	wheel(tui.MouseButtonWheelUp)
 	first := below()
@@ -80,38 +80,38 @@ func TestDragHeldOnTheTopRowScrollsUpAndExtendsTheSelection(t *testing.T) {
 		}
 	}
 	render()
-	topBefore, _ := s.vp.Anchor()
+	topBefore, _ := s.main().vp.Anchor()
 
 	mouse(tui.MousePress, 10)
 	mouse(tui.MouseDrag, 0)
 	tick(10)
 
-	top, _ := s.vp.Anchor()
+	top, _ := s.main().vp.Anchor()
 	if top >= topBefore {
 		t.Fatalf("top item %d, want above %d: the drag did not scroll up", top, topBefore)
 	}
-	start, _, ok := s.vp.Selection()
+	start, _, ok := s.main().vp.Selection()
 	if !ok || start.Item > top+1 {
 		t.Fatalf("selection start %+v (ok=%v), want it to follow the scroll to item %d", start, ok, top)
 	}
-	if got := s.vp.SelectedText(); !strings.Contains(got, fmt.Sprintf("answer %d", top+1)) {
+	if got := s.main().vp.SelectedText(); !strings.Contains(got, fmt.Sprintf("answer %d", top+1)) {
 		t.Fatalf("selected %q, want it to reach answer %d", got, top+1)
 	}
 
 	// Back inside the viewport, the scrolling stops.
 	mouse(tui.MouseDrag, 5)
-	stopped, _ := s.vp.Anchor()
+	stopped, _ := s.main().vp.Anchor()
 	tick(5)
-	if now, _ := s.vp.Anchor(); now != stopped {
+	if now, _ := s.main().vp.Anchor(); now != stopped {
 		t.Fatalf("top item moved from %d to %d after the pointer returned inside", stopped, now)
 	}
 
 	// After release, ticks no longer scroll even with the pointer on the top row.
 	mouse(tui.MouseDrag, 0)
 	mouse(tui.MouseRelease, 0)
-	released, _ := s.vp.Anchor()
+	released, _ := s.main().vp.Anchor()
 	tick(5)
-	if now, _ := s.vp.Anchor(); now != released {
+	if now, _ := s.main().vp.Anchor(); now != released {
 		t.Fatalf("top item moved from %d to %d after release", released, now)
 	}
 }
@@ -139,24 +139,24 @@ func TestDragOnTheLastTranscriptRowScrollsOnlyBelowIt(t *testing.T) {
 		}
 	}
 	render()
-	s.vp.ScrollBy(-20)
+	s.main().vp.ScrollBy(-20)
 	render()
-	last := s.vp.Y + s.vp.Height - 1
+	last := s.main().vp.Y + s.main().vp.Height - 1
 	if last >= 23 {
 		t.Fatalf("transcript reaches the screen's last row %d; nothing sits below it", last)
 	}
-	topBefore, _ := s.vp.Anchor()
+	topBefore, _ := s.main().vp.Anchor()
 
 	mouse(tui.MousePress, 5)
 	mouse(tui.MouseDrag, last)
 	tick(10)
-	if top, _ := s.vp.Anchor(); top != topBefore {
+	if top, _ := s.main().vp.Anchor(); top != topBefore {
 		t.Fatalf("top item moved from %d to %d with the pointer on the last transcript row", topBefore, top)
 	}
 
 	mouse(tui.MouseDrag, last+1)
 	tick(10)
-	if top, _ := s.vp.Anchor(); top <= topBefore {
+	if top, _ := s.main().vp.Anchor(); top <= topBefore {
 		t.Fatalf("top item %d, want below %d: a drag under the transcript did not scroll down", top, topBefore)
 	}
 	mouse(tui.MouseRelease, last+1)
@@ -177,18 +177,18 @@ func TestClickOnLinesBelowReturnsToLiveOutput(t *testing.T) {
 		return tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24)).Text()
 	}
 	render()
-	s.vp.ScrollBy(-20)
+	s.main().vp.ScrollBy(-20)
 	y := transcriptRow(t, render(), "lines below")
 	click := func(y int) {
 		s.HandleEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, X: 3, Y: y})
 		render()
 	}
 	click(y - 1)
-	if s.vp.AtBottom {
+	if s.main().vp.AtBottom {
 		t.Fatal("a click on the empty row above the indicator returned to live output")
 	}
 	click(y)
-	if !s.vp.AtBottom {
+	if !s.main().vp.AtBottom {
 		t.Fatal("a click on the indicator did not return to live output")
 	}
 }
@@ -217,7 +217,7 @@ func TestDragOnTheTopRowAtTheStartSelectsThatRow(t *testing.T) {
 	s.HandleEvent(tui.MouseEvent{Type: tui.MousePress, Button: tui.MouseButtonLeft, X: 12, Y: row})
 	s.HandleEvent(tui.MouseEvent{Type: tui.MouseDrag, Button: tui.MouseButtonLeft, X: 3, Y: 0})
 	s.HandleEvent(tui.TickEvent{})
-	if got, want := s.vp.SelectedText(), "answer 0\n\nanswer 1"; got != want {
+	if got, want := s.main().vp.SelectedText(), "answer 0\n\nanswer 1"; got != want {
 		t.Fatalf("selected %q, want %q", got, want)
 	}
 }
@@ -307,10 +307,10 @@ func TestDragAcrossATurnCopiesTextWithoutDecorations(t *testing.T) {
 	tx, ty := cellOf(t, rows, "question")
 
 	drag(s, fx, fy, tx, ty)
-	forward := s.vp.SelectedText()
+	forward := s.main().vp.SelectedText()
 	_, lit := selectionFrame(s)
 	drag(s, tx, ty, fx, fy)
-	if backward := s.vp.SelectedText(); backward != forward {
+	if backward := s.main().vp.SelectedText(); backward != forward {
 		t.Fatalf("backward copy %q, forward %q", backward, forward)
 	}
 	for _, want := range []string{"Done with **bold** words.", "Ran a command", "turn 1 · fixture · 2 model calls", "Second "} {
@@ -350,7 +350,7 @@ func TestDragThroughATaskResultKeepsTheSelection(t *testing.T) {
 
 	for _, ends := range [][4]int{{fx, fy, tx + 4, ty}, {tx + 4, ty, fx, fy}} {
 		drag(s, ends[0], ends[1], ends[2], ends[3])
-		got := s.vp.SelectedText()
+		got := s.main().vp.SelectedText()
 		if !strings.Contains(got, "Second answer.") || !strings.Contains(got, "result here") || strings.Contains(got, "↳") {
 			t.Fatalf("drag %v copied %q", ends, got)
 		}
@@ -375,7 +375,7 @@ func TestASelectionAcrossARunningToolSurvivesItsEnd(t *testing.T) {
 		s.Emit(b)
 	}
 	s.drain()
-	s.vp.ScrollToTop()
+	s.main().vp.ScrollToTop()
 	rows, _ := selectionFrame(s)
 	bx, by := cellOf(t, rows, "BEFORE")
 	ax, ay := cellOf(t, rows, "AFTER")
@@ -389,7 +389,7 @@ func TestASelectionAcrossARunningToolSurvivesItsEnd(t *testing.T) {
 	rows, lit := selectionFrame(s)
 	// The row had no copyable text when the drag crossed it, so the copy and
 	// the highlight skip it, as they skip a glyph.
-	if got, want := s.vp.SelectedText(), "BEFORE\n\nAFTER"; got != want {
+	if got, want := s.main().vp.SelectedText(), "BEFORE\n\nAFTER"; got != want {
 		t.Fatalf("after the call ended the selection copies %q, want %q", got, want)
 	}
 	if _, ry := cellOf(t, rows, "Read a.go"); strings.Contains(lit[ry], "Read") {
@@ -439,12 +439,12 @@ func TestADragSurvivesEveryKindOfBlock(t *testing.T) {
 				s.Emit(b)
 			}
 			s.drain()
-			s.vp.ScrollToTop()
+			s.main().vp.ScrollToTop()
 			rows, _ := selectionFrame(s)
 			bx, by := cellOf(t, rows, "BEFORE")
 			ax, ay := cellOf(t, rows, "AFTER")
 			drag(s, bx, by, ax+5, ay)
-			if got := s.vp.SelectedText(); !strings.HasPrefix(got, "BEFORE") || !strings.HasSuffix(got, "AFTER") {
+			if got := s.main().vp.SelectedText(); !strings.HasPrefix(got, "BEFORE") || !strings.HasSuffix(got, "AFTER") {
 				t.Fatalf("selection across %s block copied %q", b.Kind, got)
 			}
 		})
@@ -486,7 +486,7 @@ func TestDragAutoScrollAcrossTurnsKeepsTheAnchor(t *testing.T) {
 		render()
 	}
 	s.HandleEvent(tui.MouseEvent{Type: tui.MouseRelease, Button: tui.MouseButtonLeft, X: 3, Y: 0})
-	got := s.vp.SelectedText()
+	got := s.main().vp.SelectedText()
 	if !strings.HasSuffix(got, "result 4") {
 		t.Fatalf("the pressed end moved: copy ends %q", got[max(0, len(got)-40):])
 	}
@@ -517,7 +517,7 @@ func TestDragAcrossATurnMatchesTheHighlight(t *testing.T) {
 	tx, ty := cellOf(t, rows, "question")
 	drag(s, fx, fy, tx, ty)
 	want := "Done with **bold** words.\n\nRan a command\n\nturn 1 · fixture · 2 model calls · 1,234 tokens · $0.01\n\nSecond "
-	if got := s.vp.SelectedText(); got != want {
+	if got := s.main().vp.SelectedText(); got != want {
 		t.Fatalf("copy %q\nwant %q", got, want)
 	}
 	_, lit := selectionFrame(s)
@@ -557,7 +557,7 @@ func TestDragAcrossATurnMatchesTheHighlight(t *testing.T) {
 		{"gap row backward", 3, ty - 1, cx, cy, "$0.01"},
 	} {
 		drag(s, c.x0, c.y0, c.x1, c.y1)
-		if got := s.vp.SelectedText(); got != c.want {
+		if got := s.main().vp.SelectedText(); got != c.want {
 			t.Errorf("%s: copy %q, want %q", c.name, got, c.want)
 		}
 	}
@@ -768,7 +768,7 @@ func TestInlineF2KeepsDraftAndNativeSelection(t *testing.T) {
 	s.input = "draft 世界\nsecond"
 	s.key(tui.KeyEvent{Key: tui.KeyF2})
 	s.drain()
-	if s.mouseEnabled || s.input != "draft 世界\nsecond" || !strings.Contains(s.tr.Blocks[len(s.tr.Blocks)-1].Text, "Native selection is already available") {
+	if s.mouseEnabled || s.input != "draft 世界\nsecond" || !strings.Contains(s.main().tr.Blocks[len(s.main().tr.Blocks)-1].Text, "Native selection is already available") {
 		t.Fatal("inline F2 changed the draft or native selection mode")
 	}
 }

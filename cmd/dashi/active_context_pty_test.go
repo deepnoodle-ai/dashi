@@ -116,7 +116,7 @@ func (s *screen) captureActiveEvidence() {
 		ApprovalTool string
 		Picker       string
 		Blocks       []Block
-	}{Session: s.eng.Session().ID, Mode: s.ctrl.Mode(), Approval: s.approval != nil, Blocks: s.tr.Blocks}
+	}{Session: s.eng.Session().ID, Mode: s.ctrl.Mode(), Approval: s.approval != nil, Blocks: s.main().tr.Blocks}
 	if s.approval != nil {
 		state.ApprovalTool = s.approval.req.Tool
 	}

@@ -114,7 +114,7 @@ func (s *screen) captureMCPState() {
 		Input, PickerTitle, ApprovalTool, Inventory string
 		Mode                                        Mode
 		Blocks                                      []Block
-	}{Input: s.input, Mode: s.ctrl.Mode(), Blocks: s.tr.Blocks, Inventory: s.eng.cfg.MCP.Inventory()}
+	}{Input: s.input, Mode: s.ctrl.Mode(), Blocks: s.main().tr.Blocks, Inventory: s.eng.cfg.MCP.Inventory()}
 	if s.picker != nil {
 		state.PickerTitle = s.picker.title
 	}

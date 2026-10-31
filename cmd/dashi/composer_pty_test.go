@@ -111,7 +111,7 @@ func (s *screen) captureComposerEvidence() {
 		Input  string
 		Blocks []Block
 		Mode   Mode
-	}{s.input, s.tr.Blocks, s.ctrl.Mode()}
+	}{s.input, s.main().tr.Blocks, s.ctrl.Mode()}
 	data, _ := json.Marshal(state)
 	temp := path + ".tmp"
 	if os.WriteFile(temp, data, 0600) == nil {

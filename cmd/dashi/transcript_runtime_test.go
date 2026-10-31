@@ -93,7 +93,7 @@ func (s *transcriptRuntime) HandleEvent(e tui.Event) []tui.Cmd {
 			}
 			b.WriteByte('\n')
 		}
-		p.reply <- transcriptState{text: b.String(), input: s.input, selected: s.vp.SelectedText(), follow: s.vp.Follow, mode: s.ctrl.Mode(), approval: s.approval != nil, question: s.asking != nil, own: s.asking != nil && s.asking.own, denying: s.approval != nil && s.approval.denying, mouse: s.mouseEnabled, focus: s.focusID()}
+		p.reply <- transcriptState{text: b.String(), input: s.input, selected: s.main().vp.SelectedText(), follow: s.main().vp.Follow, mode: s.ctrl.Mode(), approval: s.approval != nil, question: s.asking != nil, own: s.asking != nil && s.asking.own, denying: s.approval != nil && s.approval.denying, mouse: s.mouseEnabled, focus: s.focusID()}
 		return nil
 	}
 	return s.screen.HandleEvent(e)

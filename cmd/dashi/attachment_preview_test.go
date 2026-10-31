@@ -36,7 +36,7 @@ func TestAttachmentManySelectionsKeepComposerAndStatusAt80x24(t *testing.T) {
 	h.mu.Lock()
 	h.scr.drain()
 	var inspection strings.Builder
-	for _, b := range h.scr.tr.Blocks {
+	for _, b := range h.scr.main().tr.Blocks {
 		inspection.WriteString(b.Text)
 	}
 	h.mu.Unlock()
