@@ -105,7 +105,7 @@ An `AfterTool` hook's `AddMessages` tells the model something because of a
 call, without changing its result: a nudge to save what a search found, a
 skill's guidance after the model reads its file, or a warning that output
 looks like an injection attempt. Use a contextual reminder from the runtime,
-and name the tool or call in the text:
+and name the tool or the situation in the text:
 
 ```go
 nudge := dashi.ResultHook{Name: "memory-nudge", Func: func(
@@ -131,21 +131,37 @@ means. The items are recorded on the call's `tool_finished` step with the
 result, so a crash loses or doubles neither, and the step's `HookResults` show
 `add_messages`. The model sees them after every result of the model message's
 calls, in the order the calls finished, never between a call and its result.
-With parallel calls, text that does not name its call is ambiguous.
+With parallel calls, text that does not say which tool it is about is
+ambiguous.
 
-An item without an ID gets one from the turn, call, hook, and position, so
-each call can add its own; an ID the turn already records is skipped, as are
-repeats from later hooks. A fixed ID, as above, adds one item per turn. For one
-per batch, put the model call count in the ID, such as
-`fmt.Sprintf("memory-nudge:%d", p.Turn.ModelCalls)`: it is the same for every
-call of a batch, including one resolved later. Items
-follow the same rules as `BeforeModel` items (`ContextItem.Validate`); an
-invalid item is dropped with a `WarningMessagesDropped`, and the result and the
-hook's other items stand. A hook may also replace the result; it then records
-one `replace` result. When a failing hook withholds the result, every item of
-the chain is dropped, since one could describe what was withheld; a `FailOpen`
-hook that fails loses only its own items. Adding items keeps `Outcome.Data`.
-Claude Code's `PostToolUse` `additionalContext` maps to this field.
+The rules for items:
+
+- **An item without an ID** gets a generated ID from the turn, call, hook, and
+  position, so each call adds its own. Its text can name the call.
+- **An item with a fixed ID** is added once: a later item with that ID is
+  skipped. It must have the same content every time, so its text names the
+  tool or the situation, never the call ID. A different item under the same
+  ID is dropped with a `WarningMessagesDropped` that names the hook.
+- **Once per turn:** a fixed ID, as above.
+- **Once per batch:** put the model call count in the ID. It is the same for
+  every call of a batch, including one resolved later:
+
+  ```go
+  ID: fmt.Sprintf("memory-nudge:%d", p.Turn.ModelCalls), // ContextItem
+  // ... and in the Reminder, text that holds for every call of the batch:
+  Content: "web_search returned new facts. If any are durable, save them.",
+  ```
+
+- **Validation** follows `BeforeModel` items (`ContextItem.Validate`). An
+  invalid item is dropped with a `WarningMessagesDropped`; the result and the
+  hook's other items stand.
+- **Replacing too:** a hook may also replace the result; it then records one
+  `replace` result.
+- **Withheld results:** when a failing hook withholds the result, every item
+  of the chain is dropped, since one could describe what was withheld. A
+  `FailOpen` hook that fails loses only its own items.
+- **Data:** adding items keeps `Outcome.Data`.
+- **Claude Code:** `PostToolUse` `additionalContext` maps to this field.
 
 ## Hook sets
 

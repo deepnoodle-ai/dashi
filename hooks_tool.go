@@ -281,10 +281,10 @@ func (r *runtime) afterToolHooks(
 	def := view.Tools[fact.Call.ID].Definition
 	mark := r.hookMark()
 	var items []ContextItem
-	// recorded holds the items the turn and earlier hooks of this chain
-	// add, by ID, so the record shows add_messages only for a hook whose
-	// items are recorded.
-	var recorded map[string]ContextItem
+	// seen holds the items the turn and earlier hooks of this chain add,
+	// by ID, so the record shows add_messages only for a hook whose items
+	// are recorded.
+	var seen afterToolSeen
 	for i, h := range r.hooks.AfterTool {
 		d, err := callHook(hookContext(ctx, view), h, ResultPlan{
 			Call:       fact.Call.Clone(),
@@ -343,7 +343,7 @@ func (r *runtime) afterToolHooks(
 			items = r.dropAfterToolItems(mark, fact.Call.ID, items)
 			break
 		}
-		added := r.afterToolItems(fact.Call.ID, h.Name, d.AddMessages, &recorded)
+		added := r.afterToolItems(fact.Call.ID, h.Name, d.AddMessages, &seen)
 		items = append(items, added...)
 		verdict := VerdictReplace
 		switch {
@@ -369,15 +369,25 @@ func (r *runtime) afterToolHooks(
 	return current, items
 }
 
+// afterToolSeen holds the items with an ID that an AfterTool chain cannot
+// add again: those the turn records, and those earlier hooks of the chain
+// added, kept apart so a warning names the right source.
+type afterToolSeen struct {
+	turn  map[string]ContextItem
+	chain map[string]ContextItem
+}
+
 // afterToolItems returns the items of one AfterTool hook's answer that the
 // call's step records: each gets an ID when it has none, an invalid item
 // is dropped with a warning, and an item whose ID the turn or an earlier
-// hook of the chain already adds is skipped, as skipRecordedItems does.
+// hook of the chain already adds is skipped. A repeat with the same
+// content was already added; one with different content is dropped with a
+// warning that names the hook and the call.
 func (r *runtime) afterToolItems(
 	callID string,
 	hook string,
 	add []ContextItem,
-	recorded *map[string]ContextItem,
+	seen *afterToolSeen,
 ) []ContextItem {
 	if len(add) == 0 {
 		return nil
@@ -403,12 +413,40 @@ func (r *runtime) afterToolItems(
 		if item.ID == "" {
 			item.ID = afterToolItemID(r.turn.ID, callID, hook, i)
 		}
-		out = append(out, item)
+		if seen.turn == nil {
+			seen.turn = recordedItems(r.turn)
+			seen.chain = map[string]ContextItem{}
+		}
+		old, inChain := seen.chain[item.ID]
+		source := "an earlier after_tool hook for this call added"
+		if !inChain {
+			var inTurn bool
+			old, inTurn = seen.turn[item.ID]
+			if !inTurn {
+				seen.chain[item.ID] = item
+				out = append(out, item)
+				continue
+			}
+			source = "the turn already records"
+		}
+		if !canonjson.SameValue(old, item) {
+			r.pendingWarnings = append(r.pendingWarnings, Warning{
+				Code: WarningMessagesDropped,
+				Message: fmt.Sprintf(
+					"after_tool hook %q: context item %s for call %s "+
+						"dropped: %s a different item with this ID; an "+
+						"item with a fixed ID must have the same content "+
+						"every time",
+					hook,
+					item.ID,
+					callID,
+					source,
+				),
+				Hook: hook,
+			})
+		}
 	}
-	if *recorded == nil {
-		*recorded = recordedItems(r.turn)
-	}
-	return r.skipItems(out, *recorded)
+	return out
 }
 
 // afterToolItemID names the i-th item without an ID that AfterTool hook h

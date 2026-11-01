@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -1229,8 +1230,56 @@ func TestAfterToolDuplicateIDsRecordOnce(t *testing.T) {
 			if tc.warn != hasWarning(out, WarningMessagesDropped) {
 				t.Fatalf("warnings = %+v", out.Warnings)
 			}
+			if tc.warn {
+				w := droppedWarning(t, out)
+				if w.Hook != "second" ||
+					!strings.Contains(w.Message, `"second"`) ||
+					!strings.Contains(w.Message, "c1") ||
+					!strings.Contains(w.Message, "an earlier after_tool hook") {
+					t.Fatalf("warning = %+v", w)
+				}
+			}
 		})
 	}
+}
+
+// A fixed per-batch ID whose text names the call clashes on the second
+// call: the item the first call's step records wins, and the warning names
+// the hook and the call rather than an unknown source.
+func TestAfterToolBatchIDWithCallTextWarnsWithHook(t *testing.T) {
+	hook := ResultHook{Name: "nudge", Func: func(_ context.Context, p ResultPlan) (ResultDecision, error) {
+		id := fmt.Sprintf("nudge:%d", p.Turn.ModelCalls)
+		return ResultDecision{AddMessages: []ContextItem{note(id, "call "+p.Call.ID+" ran")}}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{callsResult("a", "b"), final("done")}}
+	out, err := runHooked(t, client, tool.List{outTool("remote", "ok")}, hook.Hooks())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(finishOf(t, out.Turn, "a").Items())+len(finishOf(t, out.Turn, "b").Items()) != 1 {
+		t.Fatalf("want one item across the batch")
+	}
+	w := droppedWarning(t, out)
+	if w.Hook != "nudge" || !strings.Contains(w.Message, `"nudge"`) ||
+		!strings.Contains(w.Message, "the turn already records") ||
+		!strings.Contains(w.Message, "same content every time") {
+		t.Fatalf("warning = %+v", w)
+	}
+}
+
+// droppedWarning returns the run's one WarningMessagesDropped.
+func droppedWarning(t *testing.T, out RunResult) Warning {
+	t.Helper()
+	var found []Warning
+	for _, w := range out.Warnings {
+		if w.Code == WarningMessagesDropped {
+			found = append(found, w)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("warnings = %+v", out.Warnings)
+	}
+	return found[0]
 }
 
 // UC-4: a crash before the tool_finished step is committed records neither

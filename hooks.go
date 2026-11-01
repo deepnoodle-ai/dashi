@@ -433,14 +433,18 @@ type ResultDecision struct {
 	// reminder (llm.ReminderMessage with llm.ReminderContextual) with
 	// Origin ContextRuntime: its text may echo tool output, so it must not
 	// carry operator authority, and it is not the person's words. An item
-	// with no Origin counts as ContextUser. Name the tool or call in the
-	// text, since with parallel calls the model cannot tell which call an
-	// item is about.
+	// with no Origin counts as ContextUser. Say in the text which tool or
+	// situation the item is about, since with parallel calls the model
+	// cannot tell otherwise.
 	//
 	// An item without an ID gets one made from the turn, the call, the
 	// hook's name, and the item's position, so a rerun after a crash adds
-	// it once. Give a fixed ID to add an item at most once per turn: an ID
-	// the turn already records is skipped. An invalid item (see
+	// it once; its text can name the call. Give a fixed ID to add an item
+	// at most once per turn, or once per batch with the model call count
+	// in the ID: a later item with that ID is skipped. Such an item must
+	// have the same content every time, so its text names the tool or the
+	// situation, not the call ID; a different item under the ID is dropped
+	// with a WarningMessagesDropped that names the hook. An invalid item (see
 	// ContextItem.Validate) is dropped with a WarningMessagesDropped, and
 	// the result and the hook's other items stand. When the result is
 	// withheld because a hook failed, every item of the chain is dropped;
