@@ -1,7 +1,7 @@
 # Add context from AfterTool hooks
 
 Status: Draft\
-PRD PR: TBD  Implementation PR: TBD  Updated: 2026-11-01
+PRD PR: #362  Implementation PR: TBD  Updated: 2026-11-01
 
 ## Problem
 
