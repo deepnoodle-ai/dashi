@@ -61,7 +61,7 @@ func (r Runner) apply(
 	_, isStart := command.(Start)
 	implicitRecorder := r.Recorder == nil
 	if implicitRecorder {
-		r.Recorder = newMemoryRecorderForTurn(turn)
+		r.Recorder = NewMemoryRecorder(turn)
 	}
 	if isStart && len(turn.Steps) > 0 {
 		if err := agentChanged(agent, state.Agent); err != nil {

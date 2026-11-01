@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **`NewMemoryRecorder` takes turns to start with.**
+  `dashi.NewMemoryRecorder(turn)` lets a host that saves whole `Turn`s run
+  `Advance` or `Drive` on one it loaded. New steps live only in memory, so
+  save the turn from `Load` after every call.
 - **An approval decision can record the check that informed it.**
   `ApprovalDecision` gains `RulesVersion` and `RulesFinding`, and
   `Resolve.WithRules(version, finding)` sets them:
