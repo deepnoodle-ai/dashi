@@ -133,8 +133,12 @@ result, so a crash loses or doubles neither, and the step's `HookResults` show
 calls, in the order the calls finished, never between a call and its result.
 With parallel calls, text that does not name its call is ambiguous.
 
-An item without an ID gets one from the turn, call, hook, and position; an ID
-the turn already records is skipped, as are repeats from later hooks. Items
+An item without an ID gets one from the turn, call, hook, and position, so
+each call can add its own; an ID the turn already records is skipped, as are
+repeats from later hooks. A fixed ID, as above, adds one item per turn. For one
+per batch, put the model call count in the ID, such as
+`fmt.Sprintf("memory-nudge:%d", p.Turn.ModelCalls)`: it is the same for every
+call of a batch, including one resolved later. Items
 follow the same rules as `BeforeModel` items (`ContextItem.Validate`); an
 invalid item is dropped with a `WarningMessagesDropped`, and the result and the
 hook's other items stand. A hook may also replace the result; it then records

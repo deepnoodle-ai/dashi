@@ -1118,9 +1118,11 @@ func TestStartItems(t *testing.T) {
 // request has the assistant message, both results, then the items.
 func TestResolveRecordsAfterToolItems(t *testing.T) {
 	calls := 0
+	batches := map[int]bool{}
 	checked := ResultHook{Name: "checked", Func: func(
 		_ context.Context, p ResultPlan) (ResultDecision, error) {
 		calls++
+		batches[p.Turn.ModelCalls] = true
 		return ResultDecision{AddMessages: []ContextItem{{
 			Origin:  ContextRuntime,
 			Message: llm.UserMessage(llm.Text("checked the " + p.Call.Name + " call " + p.Call.ID)),
@@ -1165,6 +1167,11 @@ func TestResolveRecordsAfterToolItems(t *testing.T) {
 	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "go"})
 	if err != nil || out.Stop.Kind != StopCompleted || calls != 2 {
 		t.Fatalf("stop=%+v calls=%d err=%v", out.Stop, calls, err)
+	}
+	// Both calls of the batch, one resolved later, see one model call count,
+	// so a hook can key an item per batch on it.
+	if len(batches) != 1 {
+		t.Fatalf("model call counts = %v", batches)
 	}
 	sent := client.inputs[1].Messages
 	requireNoItemInsideABatch(t, sent)
