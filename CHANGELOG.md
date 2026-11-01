@@ -25,7 +25,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - A reply cut off at `max_tokens` stops with `StopReasonMaxTokens`
   (`"max_tokens"`), not `output_tokens`, which now means only the turn's
-  output-token budget.
+  output-token budget. Hosts that matched `output_tokens` for this stop must
+  match the new reason. To go on, add a user message first: a bare `Continue`
+  resends the cut-off reply as a prefill, which many models reject.
 
 ### Changed
 
