@@ -669,3 +669,95 @@ func TestRepeatedCrashResumeCarriesOneReminder(t *testing.T) {
 		t.Fatalf("request saw %d restart reminders, want 1", n)
 	}
 }
+
+// requireNoItemInsideABatch fails when anything comes between a model
+// message's tool calls and their results: every call is followed, at once,
+// by one tool result message per call.
+func requireNoItemInsideABatch(t *testing.T, messages []llm.Message) {
+	t.Helper()
+	for i, m := range messages {
+		var calls []string
+		for _, part := range m.Content {
+			if part.Kind == llm.ContentToolCall && part.ToolCall != nil {
+				calls = append(calls, part.ToolCall.ID)
+			}
+		}
+		if len(calls) == 0 {
+			continue
+		}
+		if i+len(calls) >= len(messages) {
+			t.Fatalf("message %d: %d calls but %d messages follow", i, len(calls), len(messages)-i-1)
+		}
+		for j, id := range calls {
+			next := messages[i+1+j]
+			if len(next.Content) != 1 || next.Content[0].Kind != llm.ContentToolResult ||
+				next.Content[0].ToolResult.CallID != id {
+				t.Fatalf("message %d: call %s is followed by %+v", i, id, next)
+			}
+		}
+	}
+}
+
+// UC-2: AfterTool items for a parallel batch follow every result of the
+// batch, in the order the calls finished, in the recorded steps and in
+// every request.
+func TestTurnMessagesPutsAfterToolItemsAfterTheBatch(t *testing.T) {
+	name := func(p ResultPlan) ResultDecision {
+		return ResultDecision{AddMessages: []ContextItem{{
+			Origin:  ContextRuntime,
+			Message: llm.UserMessage(llm.Text("checked " + p.Call.ID)),
+		}}}
+	}
+	hook := ResultHook{Name: "name", Func: func(_ context.Context, p ResultPlan) (ResultDecision, error) {
+		return name(p), nil
+	}}
+	call := func(id string) llm.Content {
+		return llm.Content{Kind: llm.ContentToolCall, ToolCall: &tool.Call{ID: id, Name: "remote", Args: []byte(`{}`)}}
+	}
+	batch := llm.Result{
+		Message:   llm.AssistantMessage(call("a"), call("b"), call("c")),
+		Stop:      llm.Stop{Kind: llm.StopToolUse},
+		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
+	}
+	remote := tool.Tool{
+		Definition: tool.Definition{Name: "remote", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			return tool.Succeeded("ok"), nil
+		}),
+	}
+	client := &scriptedClient{results: []llm.Result{batch, final("done")}}
+	out, err := runHooked(t, client, tool.List{remote}, hook.Hooks())
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+	var order []string
+	for _, step := range out.Turn.Steps {
+		if step.Kind == StepToolFinished {
+			order = append(order, "checked "+step.Tool.Call.ID)
+		}
+	}
+	for _, messages := range [][]llm.Message{client.inputs[1].Messages, mustTurnMessages(t, out.Turn)} {
+		requireNoItemInsideABatch(t, messages)
+		start := slices.IndexFunc(messages, func(m llm.Message) bool {
+			return len(m.Content) > 0 && m.Content[0].Kind == llm.ContentToolCall
+		})
+		var got []string
+		for _, m := range messages[start+4:] {
+			if strings.HasPrefix(m.Text(), "checked ") {
+				got = append(got, m.Text())
+			}
+		}
+		if strings.Join(got, "|") != strings.Join(order, "|") {
+			t.Fatalf("items %q, want %q", got, order)
+		}
+	}
+}
+
+func mustTurnMessages(t *testing.T, turn Turn) []llm.Message {
+	t.Helper()
+	messages, err := TurnMessagesFull(turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return messages
+}

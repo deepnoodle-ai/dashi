@@ -514,12 +514,13 @@ func (r Runner) apply(
 			// The turn deadline limits the turn's own work, not the host
 			// recording a result, so the hooks run under the command's
 			// context.
-			rt.afterTool(ctx, fact)
+			items := rt.afterTool(ctx, fact)
 			step := Step{
 				Kind:        StepToolFinished,
 				CommandID:   c.CommandID,
 				CommandHash: d,
 				Tool:        fact,
+				Context:     afterToolContext(items),
 				Warnings:    warnings,
 			}
 			if err := checkLateResultStep(turn, step); err != nil {

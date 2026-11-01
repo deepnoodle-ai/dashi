@@ -89,7 +89,8 @@ func (h FinishHook) Hooks() Hooks {
 }
 
 // ResultHook sees each final tool result from a tool or the host and may
-// replace what the model sees of it; see ResultPlan. It fails closed: an
+// replace what the model sees of it or add messages; see ResultPlan and
+// ResultDecision. It fails closed: an
 // error withholds the result from the model, with a WarningHookFailed,
 // unless FailOpen is set.
 type ResultHook Hook[ResultPlan, ResultDecision]
@@ -113,7 +114,10 @@ func (h ResultHook) Hooks() Hooks {
 //     may be asked again for the same reply.
 //   - BeforeTool: the first denial ends the chain; otherwise NeedsApproval wins
 //     over an allow. A Rewrite restarts the chain on the new arguments.
-//   - AfterTool: each hook sees the result as earlier hooks replaced it.
+//   - AfterTool: each hook sees the result as earlier hooks replaced it,
+//     and added messages append, skipping an ID the turn or an earlier
+//     hook already adds. A hook that both replaces and adds records one
+//     replace result. A withheld result drops every added message.
 //   - BeforeFinish: added messages append, the first Reason is kept, and
 //     AcceptEmpty holds if any hook says so.
 //
@@ -214,9 +218,11 @@ const (
 	VerdictAllow         HookVerdict = "allow"
 	VerdictNeedsApproval HookVerdict = "needs_approval"
 	VerdictRewrite       HookVerdict = "rewrite"
-	// VerdictAddMessages, VerdictReject and VerdictAcceptEmpty are BeforeFinish
-	// answers: added messages, a reason alone, or accepting an empty
-	// reply.
+	// VerdictAddMessages is a BeforeFinish or AfterTool answer that added
+	// messages; for AfterTool, at least one item was recorded and the
+	// result was not replaced. BeforeModel records VerdictChange instead.
+	// VerdictReject and VerdictAcceptEmpty are BeforeFinish answers: a
+	// reason, or accepting an empty reply.
 	VerdictAddMessages HookVerdict = "add_messages"
 	VerdictReject      HookVerdict = "reject"
 	VerdictAcceptEmpty HookVerdict = "accept_empty"
@@ -419,9 +425,34 @@ type ResultDecision struct {
 	// CallID. A replacement with the same JSON meaning as Result is no
 	// opinion, so a hook may return one on every call.
 	Replace *llm.ToolResult `json:"replace,omitempty"`
-	// Reason is recorded with a replacement and is never shown to the
-	// model. With no replacement, a Reason or RulesVersion is recorded as
-	// a no_change result, such as a check that passed.
+	// AddMessages adds context items the model sees on its next call,
+	// after every result of the model message's calls, in the order the
+	// calls finished; the result itself is unchanged, and so is
+	// Outcome.Data. The items are recorded on the call's tool_finished
+	// step, with the result. The recommended shape is a contextual
+	// reminder (llm.ReminderMessage with llm.ReminderContextual) with
+	// Origin ContextRuntime: its text may echo tool output, so it must not
+	// carry operator authority, and it is not the person's words. An item
+	// with no Origin counts as ContextUser. Say in the text which tool or
+	// situation the item is about, since with parallel calls the model
+	// cannot tell otherwise.
+	//
+	// An item without an ID gets one made from the turn, the call, the
+	// hook's name, and the item's position, so a rerun after a crash adds
+	// it once; its text can name the call. Give a fixed ID to add an item
+	// at most once per turn, or once per batch with the model call count
+	// in the ID: a later item with that ID is skipped. Such an item must
+	// have the same content every time, so its text names the tool or the
+	// situation, not the call ID; a different item under the ID is dropped
+	// with a WarningMessagesDropped that names the hook. An invalid item (see
+	// ContextItem.Validate) is dropped with a WarningMessagesDropped, and
+	// the result and the hook's other items stand. When the result is
+	// withheld because a hook failed, every item of the chain is dropped;
+	// a FailOpen hook that fails loses only its own items.
+	AddMessages []ContextItem `json:"add_messages,omitempty"`
+	// Reason is recorded with a replacement or added items and is never
+	// shown to the model. With neither, a Reason or RulesVersion is
+	// recorded as a no_change result, such as a check that passed.
 	Reason string `json:"reason,omitempty"`
 	// RulesVersion is audit data naming the rules that decided, such as a
 	// policy or decision model version.

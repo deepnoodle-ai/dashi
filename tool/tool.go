@@ -333,7 +333,8 @@ type Outcome struct {
 	// shortens it, the runner records the outcome without Data and adds
 	// the same warning. So a host may treat recorded Data as true of what the model
 	// saw. A change the model does not see keeps Data: a hook that returns
-	// the result unchanged, or one that changes only Output.Display.
+	// the result unchanged, one that changes only Output.Display, or one
+	// that only adds messages.
 	Data json.RawMessage `json:"data,omitempty"`
 }
 

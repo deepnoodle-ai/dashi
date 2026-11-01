@@ -113,7 +113,8 @@ type Step struct {
 }
 
 // Items returns the context items the step added: those of a Start, an
-// AddMessages or steer, a loop continuation, or a rejected submission. A durable
+// AddMessages or steer, a loop continuation, a rejected submission, or the
+// AfterTool hooks of a tool or host result (on its tool_finished step). A durable
 // host can read steer IDs from them in the transaction that saves the step.
 func (s Step) Items() []ContextItem {
 	if s.Started != nil {
@@ -143,9 +144,11 @@ const (
 	// WarningHooksChanged means a command ran with different Runner hooks
 	// from the previous command. Supply the same hooks on every command.
 	WarningHooksChanged WarningCode = "hooks_changed"
-	// WarningMessagesDropped means a BeforeFinish hook asked the model to
-	// continue when no further model call was possible, so its items were
-	// not added.
+	// WarningMessagesDropped means context items were not added: a
+	// BeforeFinish hook asked the model to continue when no further model
+	// call was possible, an item reused an ID the turn records for a
+	// different item, an AfterTool hook returned an invalid item, or an
+	// AfterTool result was withheld, which drops its chain's items.
 	WarningMessagesDropped WarningCode = "messages_dropped"
 	// WarningSteering means waiting steers could not be added, or an
 	// urgent steer could not cut a call short, because no further model

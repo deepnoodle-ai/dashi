@@ -109,6 +109,7 @@ nothing is recorded for that hook.
 | `BeforeModel` | Each hook sees settings as changed by earlier ones; non-nil `Settings` replaces them; `AddMessages` appends; the first `Stop` ends the chain and no added messages commit. A `Stop` may be `refused`, `failed`, or `limited` with a host, cost or token `Limit` | Fails open: `WarningHookFailed`; that decision is dropped |
 | `BeforeSend` | The first `Deny` stops: `StopRefused`, or `StopLimited` with `Limit`. `Reservation` is kept per hook name, 16 KiB in total | `StopFailed`, reason `hook_failed` |
 | `BeforeTool` | The first deny ends the chain; otherwise needs-approval beats allow. A `Rewrite` is schema-checked and restarts the chain | The call is denied ("Denied: check `<name>` failed."); `WarningHookFailed`. With `FailOpen`, no opinion and a `WarningHookFailed`, for advice only |
+| `AfterTool` | Each hook sees the result as earlier ones replaced it; `AddMessages` items append on the call's `tool_finished` step, skipping IDs the turn or an earlier hook adds. A hook that replaces and adds records `replace` | The result is withheld and the chain's items dropped; `WarningHookFailed`. With `FailOpen`, the result so far and other hooks' items stand. An invalid item is dropped with `WarningMessagesDropped` |
 | `BeforeFinish` | `AddMessages` items append; `AcceptEmpty` if any hook says so; the first `Reason` is kept | `StopFailed`, reason `hook_failed` |
 
 - **`hook_failed`** sits beside `tool_fatal`: fix the cause, then `Continue`.
@@ -176,7 +177,7 @@ reply.
   Reason, Error}` holds every non-zero or failed decision, on the next committed step of
   any kind. `Pass` counts rewrite restarts. `Verdict`: `allow`, `deny`,
   `needs_approval`, `rewrite` (tool); `deny`, `limit`, `reserve` (send); `change`,
-  `stop` (model); `add_messages`, `reject`, `accept_empty` (finish); `failed` (any).
+  `stop` (model); `replace`, `add_messages`, `no_change` (after tool); `add_messages`, `reject`, `accept_empty` (finish); `failed` (any).
   `Turn.View` checks each against its point.
 - The first step of each `Start` and `Continue`, the commands that run hooks,
   records `ActiveHooks`, the `Runner.Hooks` names per point; `WithHooks` extras

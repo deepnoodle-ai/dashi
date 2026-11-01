@@ -115,7 +115,9 @@ func TestFinishRejectsSubmissionWithItemsOnTheSameStep(t *testing.T) {
 	}
 }
 
-func TestReplayAllowsContextOnlyOnATurnedDownSubmission(t *testing.T) {
+// A tool result may carry AfterTool items, but steers stay limited to
+// turned-down submissions.
+func TestReplayAllowsSteersOnlyOnATurnedDownSubmission(t *testing.T) {
 	remote := &valueTool{}
 	client := &scriptedClient{
 		results: []llm.Result{callResult("call-1", "remote"), final("done")},
@@ -128,8 +130,9 @@ func TestReplayAllowsContextOnlyOnATurnedDownSubmission(t *testing.T) {
 	for i, step := range turn.Steps {
 		if step.Kind == StepToolFinished {
 			turn.Steps[i].Context = &ContextFact{Items: []ContextItem{{
+				ID:      "s1",
 				Message: llm.UserMessage(llm.Text("smuggled")),
-			}}}
+			}}, Steering: true}
 		}
 	}
 	if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {

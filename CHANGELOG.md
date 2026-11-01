@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **`AfterTool` hooks can add messages.** `ResultDecision.AddMessages`
+  adds context items, such as a reminder to save what a search found, that
+  the model sees on its next call after every result of the batch. The
+  items are recorded on the call's `tool_finished` step with the result,
+  for executor results and `Resolve`, and the hook records `add_messages`.
+  Unlabeled items get IDs from the turn, call, hook, and position; an ID
+  the turn already records is skipped. An invalid item is dropped with
+  `WarningMessagesDropped`, and a withheld result drops the chain's items.
+  This replaces a queue drained by `BeforeModel` and `BeforeFinish` hooks,
+  and maps Claude Code's `PostToolUse` `additionalContext`.
 - **`NewMemoryRecorder` takes turns to start with.**
   `dashi.NewMemoryRecorder(turn)` lets a host that saves whole `Turn`s run
   `Advance` or `Drive` on one it loaded. New steps live only in memory, so

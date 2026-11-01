@@ -30,7 +30,7 @@ var hookVerdicts = map[HookPoint][]HookVerdict{
 		VerdictRewrite,
 		VerdictFailed,
 	},
-	HookAfterTool: {VerdictReplace, VerdictNoChange, VerdictFailed},
+	HookAfterTool: {VerdictReplace, VerdictAddMessages, VerdictNoChange, VerdictFailed},
 	HookBeforeFinish: {
 		VerdictAddMessages,
 		VerdictReject,
@@ -148,6 +148,11 @@ func validateStepPayload(step Step) error {
 		if err := validateHookResult(result); err != nil {
 			return err
 		}
+		// An AfterTool hook's added messages ride on the result's step.
+		if result.Point == HookAfterTool && result.Verdict == VerdictAddMessages &&
+			(step.Kind != StepToolFinished || len(step.Items()) == 0) {
+			return errors.New("after_tool add_messages without recorded items")
+		}
 	}
 	if step.Tool != nil && step.Tool.Result != nil &&
 		step.Kind != StepToolFinished {
@@ -208,7 +213,7 @@ func validateStepPayload(step Step) error {
 			expected = 0
 		}
 	case StepToolFinished:
-		// A turned-down submission carries the items to add.
+		// A turned-down submission or an AfterTool hook adds items.
 		if step.Context != nil {
 			expected = 2
 		}
