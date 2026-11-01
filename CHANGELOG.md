@@ -6,236 +6,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-01
+
 ### Added
 
-- **`AfterTool` hooks can add messages.** `ResultDecision.AddMessages`
-  adds context items, such as a reminder to save what a search found, that
-  the model sees on its next call after every result of the batch. The
-  items are recorded on the call's `tool_finished` step with the result,
-  for executor results and `Resolve`, and the hook records `add_messages`.
-  Unlabeled items get IDs from the turn, call, hook, and position; an ID
-  the turn already records is skipped. An invalid item is dropped with
-  `WarningMessagesDropped`, and a withheld result drops the chain's items.
-  Hosts that queued reminders in `AfterTool` and drained them in
-  `BeforeModel` or `BeforeFinish` can move that logic here. It maps Claude
-  Code's `PostToolUse` `additionalContext`.
-- **`NewMemoryRecorder` takes turns to start with.**
-  `dashi.NewMemoryRecorder(turn)` lets a host that saves whole `Turn`s run
-  `Advance` or `Drive` on one it loaded. New steps live only in memory, so
-  save the turn from `Load` after every call.
-- **An approval decision can record the check that informed it.**
-  `ApprovalDecision` gains `RulesVersion` and `RulesFinding`, and
-  `Resolve.WithRules(version, finding)` sets them:
-  `p.Deny("no").WithRules("risk-policy-v3", "deploy outside the window")`.
-  `ToolDecision` and `ToolVerdict` gain `RulesFinding` too. The model never
-  sees either field, even for a denial. The rules of an approval are not
-  part of the `Resolve` command's identity, so a retry that ran its check
-  again is a duplicate.
-- **`/task ID continue` keeps the decide line in the child's record**,
-  and `/task ID` shows each recorded approval with it.
-- **Side panes in the fullscreen CLI.** Panes sit beside the main
-  conversation, each with a title row; click to focus, drag the line
-  between panes to resize, and right-click a title for Zoom, Equalize, and
-  Close. Alt+arrows move focus, Alt+Z zooms, Alt+W closes, and `/pane`
-  does the same; a bare `/pane` lists the panes and Tab completes it. Below
-  120 columns the panes fold to tabs with the focused pane's title. With only
-  the main pane the screen is unchanged; inline and plain modes reply that
-  panes need fullscreen.
-- **Live task panes in the fullscreen CLI.** Click a task line (it ends in
-  "click to watch", then "watching" while its pane is open), choose "Open
-  task" from its right-click menu, or type a bare `/task ID` to watch a
-  task beside the conversation, also while an approval waits. The first
-  task line of a session shows a one-time hint. The pane shows the task's
-  description, then its child conversation streaming live, recorded steps
-  first and each step once, including after a restart. Its title row reads
-  ID · state · cost · model calls, says "needs approval" in the warning
-  color while the task waits for you, and ends with a `×` that closes it;
-  "Task details" on its right-click menu shows the full facts. In
-  fullscreen a bare `/task ID` opens the pane instead of the details
-  viewer.
-- **Task lines start with the task ID**, such as `└ t_k3f2 · running ·
-  2 model calls`, so the ID to type is on screen while the task runs.
-- **A details pane in the fullscreen CLI.** `/tasks`, `/tasks ID` (now with
-  the task's full facts above its turns), `/status`, `/settings`, `/help`,
-  and "Show in details" on a finished tool row or a diff show in one reused
-  side pane, titled with the command and the time, and focus it, so the
-  conversation keeps its place. Inline and plain modes print them as
-  before.
-- **Right-click menu on transcript items in the fullscreen CLI.** A tool
-  line offers Expand or Collapse, Copy input, and Copy output; a message,
-  reasoning, or diff offers to copy its text; and a selection adds Copy
-  selection. Copies match what selecting the same text copies. Arrow keys
-  and Enter choose, and Escape or a click outside closes the menu.
+- `AfterTool` hooks can add messages for the next model call with
+  `ResultDecision.AddMessages`, like Claude Code's `additionalContext`.
+- `NewMemoryRecorder(turn)` starts from a saved turn, so a host can `Advance`
+  or `Drive` a turn it loaded.
+- Approvals can record the check behind them with `Resolve.WithRules`. The
+  model never sees it.
+- Fullscreen CLI: side panes, live task panes (click a task line or
+  `/task ID`), a details pane for `/tasks`, `/status`, `/help` and similar,
+  and a right-click menu for copying transcript items.
+- Task lines start with the task ID.
 
 ### Changed (breaking)
 
-- **A reply cut off at its `max_tokens` setting records reason
-  `max_tokens`, not `output_tokens`.** A host that matched
-  `Stop.Reason == "output_tokens"` for this stop must match
-  `dashi.StopReasonMaxTokens` instead. `output_tokens` now means only the
-  turn's output-token budget, which sets `Stop.Limit`.
+- A reply cut off at `max_tokens` stops with `StopReasonMaxTokens`
+  (`"max_tokens"`), not `output_tokens`, which now means only the turn's
+  output-token budget. Hosts that matched `output_tokens` for this stop must
+  match the new reason. To go on, add a user message first: a bare `Continue`
+  resends the cut-off reply as a prefill, which many models reject.
 
 ### Changed
 
-- **The fullscreen CLI keeps the transcript still while you select.** The
-  "lines below" indicator is now a mark on the scrolled pane's bottom row
-  (`↓ 12 more · Ctrl+End`, click to return), and the copy hint shows on
-  the status line, so dragging, focusing, or selecting never moves the
-  transcript under the pointer.
-- **The model no longer reads decide's score or request ID when a checked
-  command is denied**, because the model cannot act on a score and both
-  approval paths now behave the same. The CLI records the decide line in
-  `RulesFinding` instead of the decision's reason, and the `run --yes`
-  refusal names the check without its score. Records from earlier versions
-  lose their decide marks.
-- **Dashi now uses Wonton v0.10.3**, which brings the fixes below.
-- **`tool.Func` accepts the `json` `,string` option.** On a number or bool
-  field, the schema is a string, so a call that sends `"5"` validates and
-  decodes. On a string field, the schema is a string holding a JSON string
-  literal, such as `"\"abc\""`, which is what `encoding/json` decodes.
-  Before, the tool failed to build. Wonton
-  v0.10.0 also makes `tool.Func` and `MustOutputSchema` schemas match
-  `encoding/json` for types that decode from text with
-  `encoding.TextUnmarshaler`, which are now strings, and for embedded
-  fields that shadow one another.
+- The fullscreen transcript no longer moves while you select text.
+- A denied checked command no longer shows the model decide's score or
+  request ID.
+- `tool.Func` supports the `json` `,string` option and matches
+  `encoding/json` for `TextUnmarshaler` types and shadowed embedded fields.
 
 ### Fixed
 
-- **A reply cut off at its `max_tokens` setting no longer looks like a
-  budget stop.** It stops `limited` with the new reason
-  `StopReasonMaxTokens` (`"max_tokens"`) and a nil `Stop.Limit`, and `Next`
-  is still `NextFix`. Before, its reason was `output_tokens`, the same
-  string as the `LimitOutputTokens` budget cap, so a host that read the
-  reason as a `LimitKind` took every cut-off reply for a spent budget. The
-  CLI now says the reply was cut off and points to `/max-tokens`. A hook
-  cannot stop a turn with this reason. A bare `Continue` resends the
-  cut-off reply as an assistant prefill, which many models reject, so add
-  a user message with `AddMessages` first, or start a new turn.
-- **`tool.Outcome.Data` docs cover waiting calls.** A `StateWaiting` or
-  `StateDetached` outcome keeps its `Data`, such as the job it waits on,
-  and hosts read it from `RunResult.Pending[i].Tool.Outcome.Data`; the
-  rule that drops `Data` when the model sees a changed result applies only
-  to final outcomes.
-- **CLI fixes from Wonton v0.13.0.** Alt+Left and Alt+Right no longer act
-  as Escape in terminals that send them as `ESC ESC [ D`. The inline CLI's
-  live area redraws cleanly after the window narrows.
-- **CLI fixes from Wonton v0.12.0.** The transcript menu no longer runs an
-  item clipped off a small screen. Transcript items inside the scrolled view
-  take clicks at their real positions. Scrolling while selecting text keeps
-  your place when the selection ends. The composer cursor stays visible when
-  the text exactly fills the width.
-- **An inbox `Cancel` always ends the run.** A `Cancel` found by the check
-  before a tool call starts now cancels the run, so the call no longer runs.
-  A `Cancel` waiting with steers now ends the run before the steers are
-  recorded, and they stay in the inbox for the next turn.
-- **`Runner.Advance` continues past an inbox command the turn already
-  records**, as after a lost acknowledgement, instead of resting at the
-  existing stop. It also releases every steer an inbox read returned, even
-  one after a `Continue` when the call then ends early.
-- **The CLI shows a denial given later with `Resolve`**: the tool line
-  shows its reason and its decide line, as for a denial at decision time.
-- **The transcript right-click menu copies an item's current text.** A
-  message that streamed on after the menu opened is copied whole, and the
-  menu closes when its item changes state, such as a tool call ending, or
-  when `/mouse` turns mouse capture off.
-- **Switching away from Gemini after a thinking turn works.** Gemini
-  thought parts can now be omitted for another model or provider instead of
-  failing the call as unsupported.
-- **Gemini streams drop empty text parts.** An empty `{"text":""}` part,
-  such as Google sends on a final chunk, no longer becomes an unknown part
-  in the message, and live delta indexes still match the message's parts. A streamed call cancelled before it was sent no longer
-  reports an `other` stop, and a malformed or oversized stream event is a
-  protocol error.
-- **`Resolve` of a model call reuses the recorded message ID.** Before, it
-  assumed the runner's ID format and refused a record with any other ID.
-- **A call proven not sent no longer counts in `TurnView.ModelCalls`**, so
-  it does not use up the model call limit.
-- **Spend that a cost cap cannot check ends the turn ahead of a token
-  cap.** Before, the stop named the token cap and invited a raise that
-  could not help.
-- **A budget raise must lift every cap the spend has reached.** Before,
-  `Continue` accepted a raise of only the cap the stop named and stopped
-  again at once.
-- **With `Limits.NoRaise`, only a stop at a limit the turn sets ends the
-  turn.** A hook or recorder hold at a limit the turn does not set now waits
-  for `Continue`.
-- **`Turn.Citations` and `Turn.ProviderToolUses` leave out late results
-  recorded after the turn ended**, as the reply does.
-- **One-hour cache writes are priced on sheets with modality rates.**
-  Before, `Pricing.Estimate` refused them when a modality had its own
-  cache-write rate, and priced them at the base rate when a modality had a
-  different one-hour rate; now it refuses only that second case.
-- **An `@mention` inside quoted prose is attached.** `mention.Expand` read
-  `"what does @main.go do?"` as one quoted path and skipped the mention.
-  A `MaxTextBytes`, `MaxImageBytes`, or `MaxFileBytes` of `math.MaxInt64`
-  no longer reads every file as empty.
-- **`edit_file` keeps CRLF line ends** when a single-line `old_string`
-  matches and `new_string` adds lines, and refuses an edit that only
-  changes `\n` to `\r\n`.
-- **`tool.Func` rejects arguments it cannot decode before hooks and
-  approval run.** `ValidateArguments` now decodes into the argument type,
-  so an invalid `[]byte`, `,string`, or out-of-range value fails as early
-  as it does in `Execute`. `tool.Func` also refuses any argument type with
-  an `UnmarshalText` method, such as `netip.Addr`, since its schema is a
-  string, not an object.
-- **`mcp.Toolset` stops listing the tools of a failed or closed server.**
-  `Refresh`, of any server, and `Close` now drop them from `Tools` and
-  `Status`.
-- **Realtime sessions report events in order.** Gemini Live usage in a
-  frame that starts a response now follows `EventResponseStarted` and
-  carries that response's ID. A setup deadline that passes while history is
-  being sent is a transport error, not a cancellation. A Grok Voice tool
-  call without a response ID belongs to the current response, so cancelling
-  the response cancels the call.
-- **Keys typed just before Ctrl+G are kept.** The CLI now uses Wonton
-  v0.11.0, which keeps input typed just before it hands the terminal to the
-  external editor, even when the terminal hangs up at the same moment.
-  Before, those keys could be dropped.
-- **Shift+Enter inserts a newline inside tmux.** tmux ignores the Kitty
-  keyboard protocol, so the CLI, through Wonton, now also asks tmux for its
-  extended keys, in fullscreen and inline modes. tmux forwards them once its
-  `extended-keys` option is on; the composer guide lists the two lines to add
-  to `~/.tmux.conf`. With tmux's default settings, Shift+Enter still sends
-  the draft, and Ctrl+J still inserts a newline.
-- **Shift+Enter inserts a newline in more terminals.** The CLI now turns on
-  the Kitty keyboard protocol in terminals that support it, such as Kitty,
-  Ghostty, Alacritty, and foot, so Shift+Enter, Alt+Enter, and Ctrl+Enter
-  insert a newline instead of sending the draft, in fullscreen and inline
-  modes. Ctrl+J inserts a newline in every terminal.
-- **Terminal input in the CLI is more reliable.** A key sequence split
-  across two reads, as over SSH, decodes as one key, and a malformed mouse
-  report no longer stops input. In the composer, Home and End (Ctrl+A and
-  Ctrl+E) move to the ends of the line, not of the wrapped row, and Up and
-  Down move between wrapped rows correctly. A one-line field, such as the
-  reason for denying a tool call, sends its text on Alt+Enter as on Enter.
-- **Pasted text with Windows line endings shows its line breaks.** The
-  composer drew `ab\r\ncd` as one row, `abcd`; it now breaks the line there.
-- **The CLI status keeps showing a decide pause until it ends.** A decide
-  check that began before the pause and answered during it cleared the
-  status, though commands or tool results still went unchecked until the
-  pause ended.
-- **A click on "lines below" returns to live output again.** Since the empty
-  row above the composer was added, the click landed on that row instead.
-- **Compaction keeps a provider tool result with its use.** A kept tail
-  could start between a `ProviderToolUse` and its `ProviderToolResult`,
-  and the next turn failed with "provider tool result requires an earlier
-  use".
-- **`session` finds steers a turn missed when its end went unseen.** After a
-  lost stop acknowledgement, `Open` and `RunQueue` now count and run the
-  steers the ended turn never read; before, only a caller's `Start` did.
-- **`filerecorder.Recorder.Wait` no longer misses a commit after a torn
-  tail is truncated**, when the next commit brought the log back to the
-  size Wait first saw.
-- **`delegate` fixes for messages, deferred notices, and Stop:**
-  - A message a child dropped at a wait is not reported as unread again
-    when `Tasks.Run` continues the turn, and `Tasks.Recover` no longer sends
-    it as a new turn.
-  - A follow-up that closes a stopped turn whose notice waited for the host
-    (`Config.NoticeReady`) clears that notice, so `Tasks.Wait` no longer
-    returns an `AttentionError` for a turn nobody can act on.
-  - When the cancellation from `Tasks.Stop` during `Tasks.Run` has an
-    unknown result, the next `Tasks.Run` finishes it instead of refusing
-    every command with `ErrTaskCommandUnknown`.
+- Inbox `Cancel` always ends the run, and `Runner.Advance` handles commands
+  the turn already records.
+- Budgets: a raise must lift every reached cap, uncheckable spend stops ahead
+  of a token cap, `Limits.NoRaise` stops only at the turn's own limits, and
+  unsent calls no longer count toward the model call limit.
+- `Resolve` of a model call reuses the recorded message ID.
+- `Turn.Citations` and `Turn.ProviderToolUses` skip results recorded after the
+  turn ended.
+- One-hour cache writes are priced correctly on sheets with modality rates.
+- Compaction keeps a provider tool result with its use.
+- `session` runs steers a turn missed when its end went unseen.
+- `filerecorder.Recorder.Wait` no longer misses a commit after a torn tail.
+- `delegate` fixes for dropped messages, deferred notices, and `Tasks.Stop`.
+- `mention.Expand` attaches mentions inside quoted prose.
+- `edit_file` keeps CRLF line ends.
+- `tool.Func` rejects undecodable arguments before hooks and approval run.
+- `mcp.Toolset` drops the tools of a failed or closed server.
+- Gemini: switching away after a thinking turn works, and streams drop empty
+  text parts.
+- Realtime sessions report events in order (Gemini Live, Grok Voice).
+- CLI: Shift+Enter inserts a newline in tmux and Kitty-protocol terminals,
+  terminal input is more reliable, keys typed before Ctrl+G are kept, pasted
+  CRLF text keeps its line breaks, Resolve denials show on the tool line, and
+  assorted fixes from Wonton v0.10.3 through v0.13.0.
 
 ## [0.15.1] - 2026-10-25
 
