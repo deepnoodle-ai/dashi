@@ -24,6 +24,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   selection. Copies match what selecting the same text copies. Arrow keys
   and Enter choose, and Escape or a click outside closes the menu.
 
+### Changed (breaking)
+
+- **A reply cut off at its `max_tokens` setting records reason
+  `max_tokens`, not `output_tokens`.** A host that matched
+  `Stop.Reason == "output_tokens"` for this stop must match
+  `dashi.StopReasonMaxTokens` instead. `output_tokens` now means only the
+  turn's output-token budget, which sets `Stop.Limit`.
+
 ### Changed
 
 - **The model no longer reads decide's score or request ID when a checked
