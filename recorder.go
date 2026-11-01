@@ -184,19 +184,25 @@ var (
 	_ StepWaiter = (*MemoryRecorder)(nil)
 )
 
-// NewMemoryRecorder creates an empty in-memory recorder.
-func NewMemoryRecorder() *MemoryRecorder {
-	return &MemoryRecorder{turns: map[string]Turn{}, owners: map[string]string{}}
-}
-
-// newMemoryRecorderForTurn lets an unbound call extend its supplied record.
-// The returned Turn is the only copy the caller can carry to another call.
-func newMemoryRecorderForTurn(turn Turn) *MemoryRecorder {
-	recorder := NewMemoryRecorder()
-	if len(turn.Steps) > 0 {
-		recorder.turns[turn.ID] = cloneTurn(turn)
+// NewMemoryRecorder creates an in-memory recorder, for tests and local use,
+// holding a copy of each given turn that has steps. Turns with no steps are
+// skipped, and of two turns with one ID the later wins. The recorder checks
+// a seeded turn only when it loads or commits to it, so Advance, Drive, or
+// Run on an invalid one returns an error matching ErrInvalidTurn.
+//
+// Seeding lets a host that saves Turns itself run Advance or Drive on a turn
+// it loaded. Steps the recorder commits live only in memory: the host must
+// save RunResult.Turn afterwards, and a crash before that loses them. A
+// production host with its own store should implement Recorder and Loader
+// over it instead.
+func NewMemoryRecorder(turns ...Turn) *MemoryRecorder {
+	r := &MemoryRecorder{turns: map[string]Turn{}, owners: map[string]string{}}
+	for _, turn := range turns {
+		if len(turn.Steps) > 0 {
+			r.turns[turn.ID] = cloneTurn(turn)
+		}
 	}
-	return recorder
+	return r
 }
 
 // Claim changes the in-memory owner token. Production lease policy belongs to

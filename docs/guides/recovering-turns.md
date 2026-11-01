@@ -118,6 +118,13 @@ retry a failed model call: the turn rests at `NextFix` with the failure's
 category on its `ModelFact`, and the host puts a `Continue` in the inbox when
 it wants another try.
 
+A host that saves whole `Turn`s in its own checkpoint, rather than behind a
+`Recorder`, can seed an in-memory one with the turn it loaded:
+`Recorder: dashi.NewMemoryRecorder(turn)`. The steps `Advance` or `Drive`
+commit then live only in memory, so save `out.Turn` afterwards; a crash
+before that loses them. A production host with its own store should
+implement `Recorder` and `Loader` over it instead.
+
 A command the turn cannot take, such as a result for an unknown call, is
 acknowledged with a `WarningInbox` on the record; it never fails the turn.
 Any other error, such as a failed write or `ErrStaleTurn`, stops `Advance`
