@@ -140,8 +140,9 @@ A host that creates and stores its own turns needs no loop of its own:
    the inbox otherwise, until the turn ends or `ctx` ends.
 
 `Advance` is one pass of `Drive`, for a host that schedules its own wakeups.
-A host that saves whole `Turn`s itself can run either on a
-`dashi.NewMemoryRecorder(turn)` and save `out.Turn` afterwards.
+A host that saves whole `Turn`s itself can run a short pass on
+`rec := dashi.NewMemoryRecorder(turn)` and save `rec.Load(ctx, id)` after
+every call, error or not ([the risks](recovering-turns.md#advancing-saved-turns)).
 Both derive each `Continue`'s ID from the record, so a crash replays the same
 command and no outbox is needed. `NextRaiseBudget`, `NextRaiseModelCalls`,
 and `NextFix` wait for the host: put a raising `Continue` or a `Cancel` in the

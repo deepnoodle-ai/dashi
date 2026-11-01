@@ -264,3 +264,61 @@ func TestNewMemoryRecorderRejectsAnInvalidSeed(t *testing.T) {
 		t.Fatalf("Run: err=%v", err)
 	}
 }
+
+func TestNewMemoryRecorderLoadKeepsStepsAfterAnError(t *testing.T) {
+	waiting := waitingTurn(t)
+	turn := waiting.Turn
+	client := &blockingClient{started: make(chan struct{}, 1)}
+	inbox := NewMemoryInbox()
+	rec := NewMemoryRecorder(turn)
+	runner := Runner{
+		Client: client, Recorder: rec, Inbox: inbox,
+		Tools: tool.List{externalTool("mail")},
+	}
+	result := waiting.Pending[0].Result(tool.Succeeded("ok"))
+	mustPut(t, inbox, turn.ID, result)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		_, err := runner.Advance(ctx, turn.ID)
+		done <- err
+	}()
+	<-client.started
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v", err)
+	}
+	// The inbox acknowledged the result; only the recorder still holds it.
+	if inbox.Has(result.CommandID) {
+		t.Fatal("the result was not acknowledged")
+	}
+	saved, err := rec.Load(t.Context(), turn.ID)
+	if err != nil || len(stepsOf(saved, StepToolFinished)) != 1 {
+		t.Fatalf("saved=%d steps err=%v", len(saved.Steps), err)
+	}
+}
+
+func TestNewMemoryRecorderFencesASeededTurn(t *testing.T) {
+	waiting := waitingTurn(t)
+	turn := waiting.Turn
+	inbox := NewMemoryInbox()
+	rec := NewMemoryRecorder(turn)
+	runner := Runner{
+		Client:   &scriptedClient{results: []llm.Result{final("sent")}},
+		Recorder: rec,
+		Inbox:    inbox,
+		Tools:    tool.List{externalTool("mail")},
+	}
+	mustPut(t, inbox, turn.ID, waiting.Pending[0].Result(tool.Succeeded("ok")))
+	if err := rec.Claim(t.Context(), turn.ID, "w1"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runner.Advance(t.Context(), turn.ID, WithOwner("w2"))
+	if !errors.Is(err, ErrStaleTurn) {
+		t.Fatalf("stale owner: err=%v", err)
+	}
+	out, err := runner.Advance(t.Context(), turn.ID, WithOwner("w1"))
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("owner: stop=%+v err=%v", out.Stop, err)
+	}
+}
