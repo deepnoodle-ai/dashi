@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-01
+
 ### Added
 
 - **`AfterTool` hooks can add messages.** `ResultDecision.AddMessages`
