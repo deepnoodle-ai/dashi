@@ -153,9 +153,12 @@ func nextRows() []nextRow {
 		{name: "active context window", covers: []string{"limited/context_window"}, stop: limited(LimitContextWindow), want: NextNone},
 		{name: "compaction failed", covers: []string{"failed/compaction_failed"}, stop: &Stop{Kind: StopFailed, Reason: StopReasonCompactionFailed}, want: NextFix},
 		{
-			name: "one call hit its output or context window",
-			stop: &Stop{Kind: StopLimited, Reason: string(LimitOutputTokens)},
-			want: NextFix,
+			// One reply reached its max_tokens setting; the budget is
+			// not involved, so there is no Limit.
+			name:   "max tokens",
+			covers: []string{"limited/" + StopReasonMaxTokens},
+			stop:   &Stop{Kind: StopLimited, Reason: StopReasonMaxTokens},
+			want:   NextFix,
 		},
 		{
 			name:   "waiting, every answer recorded",
@@ -372,7 +375,7 @@ func TestNextCoversEveryStop(t *testing.T) {
 		value := consts[name]
 		switch {
 		case strings.HasPrefix(name, "StopReason"):
-			if !covered["failed/"+value] {
+			if !covered["failed/"+value] && !covered["limited/"+value] {
 				t.Errorf("%s has no row in the Next table", name)
 			}
 		case strings.HasPrefix(name, "Limit"):

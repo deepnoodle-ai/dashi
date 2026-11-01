@@ -24,6 +24,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   selection. Copies match what selecting the same text copies. Arrow keys
   and Enter choose, and Escape or a click outside closes the menu.
 
+### Changed (breaking)
+
+- **A reply cut off at its `max_tokens` setting records reason
+  `max_tokens`, not `output_tokens`.** A host that matched
+  `Stop.Reason == "output_tokens"` for this stop must match
+  `dashi.StopReasonMaxTokens` instead. `output_tokens` now means only the
+  turn's output-token budget, which sets `Stop.Limit`.
+
 ### Changed
 
 - **The model no longer reads decide's score or request ID when a checked
@@ -45,6 +53,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **A reply cut off at its `max_tokens` setting no longer looks like a
+  budget stop.** It stops `limited` with the new reason
+  `StopReasonMaxTokens` (`"max_tokens"`) and a nil `Stop.Limit`, and `Next`
+  is still `NextFix`. Before, its reason was `output_tokens`, the same
+  string as the `LimitOutputTokens` budget cap, so a host that read the
+  reason as a `LimitKind` took every cut-off reply for a spent budget. The
+  CLI now says the reply was cut off and points to `/max-tokens`. A hook
+  cannot stop a turn with this reason. A bare `Continue` resends the
+  cut-off reply as an assistant prefill, which many models reject, so add
+  a user message with `AddMessages` first, or start a new turn.
+- **`tool.Outcome.Data` docs cover waiting calls.** A `StateWaiting` or
+  `StateDetached` outcome keeps its `Data`, such as the job it waits on,
+  and hosts read it from `RunResult.Pending[i].Tool.Outcome.Data`; the
+  rule that drops `Data` when the model sees a changed result applies only
+  to final outcomes.
 - **CLI fixes from Wonton v0.13.0.** Alt+Left and Alt+Right no longer act
   as Escape in terminals that send them as `ESC ESC [ D`. The inline CLI's
   live area redraws cleanly after the window narrows.

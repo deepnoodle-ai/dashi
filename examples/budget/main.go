@@ -62,11 +62,11 @@ func run(ctx context.Context) error {
 		return err
 	}
 	report(out)
-	if out.Stop.Kind != dashi.StopLimited || out.Stop.Ended {
+	if out.Next() != dashi.NextRaiseBudget {
 		return nil
 	}
 
-	// The turn stopped at its limit. Continue it with a larger budget.
+	// The turn stopped at its budget cap. Continue it with a larger budget.
 	out, err = runner.Run(ctx, out.Turn, dashi.Continue{
 		Budget: &dashi.Budget{MaxCost: usd("0.10")},
 	})

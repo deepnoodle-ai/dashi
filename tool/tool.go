@@ -320,11 +320,18 @@ type Outcome struct {
 	// or exceeds 64 KiB is dropped: the runner records the outcome without
 	// it and adds a dashi.WarningToolDataDropped warning.
 	//
-	// Data describes the output this outcome returns, and the record keeps
-	// it only while the model sees that output. When an AfterTool hook
-	// replaces or withholds the result, or the result limit shortens it,
-	// the runner records the outcome without Data and adds the same
-	// warning. So a host may treat recorded Data as true of what the model
+	// Data is allowed in every state. On a StateWaiting or StateDetached
+	// outcome it can describe what the call waits on, such as a job ID or
+	// an event; the record keeps it, and hosts read it from
+	// RunResult.Pending[i].Tool.Outcome.Data while the call waits. The
+	// model sees no result until the final outcome arrives, so the rule
+	// below does not apply to a waiting outcome.
+	//
+	// On a final outcome, Data describes the output it returns, and the
+	// record keeps Data only while the model sees that output. When an
+	// AfterTool hook replaces or withholds the result, or the result limit
+	// shortens it, the runner records the outcome without Data and adds
+	// the same warning. So a host may treat recorded Data as true of what the model
 	// saw. A change the model does not see keeps Data: a hook that returns
 	// the result unchanged, or one that changes only Output.Display.
 	Data json.RawMessage `json:"data,omitempty"`

@@ -87,7 +87,8 @@ func (v TurnView) Next() Next {
 // limitNext maps a limited stop that has not ended the turn.
 func (v TurnView) limitNext() Next {
 	if v.Stop.Limit == nil {
-		// One call hit its output or context window.
+		// One model reply reached its max_tokens setting
+		// (StopReasonMaxTokens).
 		return NextFix
 	}
 	switch v.Stop.Limit.Kind {

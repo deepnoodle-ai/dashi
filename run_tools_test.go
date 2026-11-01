@@ -342,6 +342,35 @@ func TestReplayKeepsRecordedToolUnknownResult(t *testing.T) {
 	}
 }
 
+// A waiting or detached outcome keeps its Data, which hosts read from
+// Pending while the call waits. The model sees no result yet, so an
+// AfterTool hook that would change one does not drop it.
+func TestWaitingOutcomeKeepsData(t *testing.T) {
+	data := json.RawMessage(`{"job":"j-1"}`)
+	for _, outcome := range []tool.Outcome{
+		{State: tool.StateWaiting, Wait: &tool.Wait{Reason: "job running"}, Data: data},
+		{State: tool.StateDetached, Handle: &tool.Handle{ID: "j-1"}, Data: data},
+	} {
+		t.Run(string(outcome.State), func(t *testing.T) {
+			executor := execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+				return outcome, nil
+			})
+			client := &scriptedClient{results: []llm.Result{callResult("call-1", "remote")}}
+			out, err := runHooked(t, client, tool.List{localTool("remote", executor)},
+				replaceText("shout", strings.ToUpper).Hooks())
+			if err != nil || out.Stop.Kind != StopWaiting || len(out.Pending) != 1 ||
+				hasWarning(out, WarningToolDataDropped) {
+				t.Fatalf("stop=%+v pending=%+v warnings=%+v err=%v",
+					out.Stop, out.Pending, out.Warnings, err)
+			}
+			got := out.Pending[0].Tool.Outcome
+			if got == nil || string(got.Data) != string(data) {
+				t.Fatalf("pending outcome = %+v", got)
+			}
+		})
+	}
+}
+
 // startTurn starts turn "t1" with a fixed user input.
 func startTurn(def Agent, runner Runner) (RunResult, error) {
 	command := Start{
