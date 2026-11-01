@@ -565,13 +565,22 @@ func (s *replayState) apply(step Step) error {
 			s.answerVetoed = true
 		}
 		if step.Context != nil {
-			started := s.Tools[step.Tool.Call.ID].Status == ToolStarted
-			if step.Tool.Call.Name != SubmitOutputTool || !started ||
-				!strings.HasPrefix(step.Tool.Reason, "not accepted: ") ||
-				step.Tool.Outcome == nil ||
-				step.Tool.Outcome.State != tool.StateFailed ||
-				len(step.Context.Items) == 0 {
-				return errors.New("only a turned-down submission carries context")
+			status := s.Tools[step.Tool.Call.ID].Status
+			submission := step.Tool.Call.Name == SubmitOutputTool &&
+				status == ToolStarted &&
+				strings.HasPrefix(step.Tool.Reason, "not accepted: ") &&
+				step.Tool.Outcome != nil &&
+				step.Tool.Outcome.State == tool.StateFailed
+			// AfterTool runs for a tool's or host's result: one that
+			// finishes a started, waiting, or unknown call, never a denied,
+			// skipped, or not-run one. Steers stay limited to submissions.
+			afterTool := step.Tool.Call.Name != SubmitOutputTool &&
+				!step.Context.Steering &&
+				step.Tool.Outcome != nil &&
+				(status == ToolStarted || status == ToolWaiting ||
+					status == ToolResultUnknown)
+			if !submission && !afterTool || len(step.Context.Items) == 0 {
+				return errors.New("only a turned-down submission or a tool result carries context")
 			}
 			for _, item := range step.Context.Items {
 				if err := item.Validate(); err != nil {

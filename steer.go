@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
@@ -558,15 +559,23 @@ func noCallCause(s *replayState) string {
 // A repeat with the same content was already added; one with different
 // content is dropped with a warning, since an ID names one item.
 func (r *runtime) skipRecordedItems(items []ContextItem) []ContextItem {
-	var recorded map[string]ContextItem
+	if !slices.ContainsFunc(items, func(i ContextItem) bool { return i.ID != "" }) {
+		return items[:len(items):len(items)]
+	}
+	return r.skipItems(items, recordedItems(r.turn))
+}
+
+// skipItems is skipRecordedItems against recorded, the items added so far
+// by ID. It adds each kept item to recorded.
+func (r *runtime) skipItems(
+	items []ContextItem,
+	recorded map[string]ContextItem,
+) []ContextItem {
 	out := items[:0:0]
 	for _, item := range items {
 		if item.ID == "" {
 			out = append(out, item)
 			continue
-		}
-		if recorded == nil {
-			recorded = recordedItems(r.turn)
 		}
 		old, ok := recorded[item.ID]
 		if !ok {

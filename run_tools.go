@@ -46,7 +46,7 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 		r.emitToolProgress(progress.take(v.call.ID, true))
 		step, stop := toolFinish(v)
 		if step.Kind == StepToolFinished {
-			r.afterTool(ctx, step.Tool)
+			step.Context = afterToolContext(r.afterTool(ctx, step.Tool))
 		}
 		if o := r.commit(step); o != nil {
 			return o

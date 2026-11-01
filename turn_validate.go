@@ -208,7 +208,7 @@ func validateStepPayload(step Step) error {
 			expected = 0
 		}
 	case StepToolFinished:
-		// A turned-down submission carries the items to add.
+		// A turned-down submission or an AfterTool hook adds items.
 		if step.Context != nil {
 			expected = 2
 		}

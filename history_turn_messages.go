@@ -154,8 +154,10 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 					emit(m.Clone())
 				}
 			}
-			// A turned-down submission's items follow its result, which is
-			// shown with the model message that made the call.
+			// The items of a turned-down submission or of AfterTool hooks follow
+			// every result of the batch, which is shown with the model message
+			// that made the calls, so no item lands between a call and its
+			// result.
 			//
 			// A replaced Snapshot item stays where it was, so the request
 			// keeps its prefix and the provider's prompt cache still
