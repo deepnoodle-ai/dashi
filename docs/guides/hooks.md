@@ -1,8 +1,8 @@
 # Hooks
 
 A hook is a named function that Dashi calls at one point of a turn. This guide
-covers the hook points, hiding tools, changing results, and vetoing replies;
-[approving tool calls](approvals.md) builds on it, and
+covers the hook points, hiding tools, changing results, adding messages, and
+vetoing replies; [approving tool calls](approvals.md) builds on it, and
 [running turns](running-turns.md) covers the basics.
 
 ## Hook points
@@ -14,7 +14,7 @@ Set hooks on `Runner.Hooks`; any number run at each point, in order:
 | `BeforeModel` | before each model request is prepared | change settings, add messages, hide tools, stop | skipped, with a warning |
 | `BeforeSend` | on each prepared request, with its worst-case cost | deny, report a limit, record reservation terms | the turn stops failed |
 | `BeforeTool` | on each client tool call with valid arguments | allow, deny, hold for approval, rewrite the arguments | the call is denied, with a warning; with `FailOpen`, no opinion |
-| `AfterTool` | on each final result from a tool, or from the host through `Resolve` | replace what the model sees | the result is withheld from the model, with a warning |
+| `AfterTool` | on each final result from a tool, or from the host through `Resolve` | replace what the model sees, add messages | the result is withheld from the model, and its added messages dropped, with a warning |
 | `BeforeFinish` | on each final reply: final text, or output submitted with `dashi_submit_output` | ask the model to continue, turn a submission down, accept an empty reply | the turn stops failed |
 
 A zero decision means no opinion. Each hook's decision is saved in the turn
@@ -98,6 +98,50 @@ The result limit (`Limits.ToolResultBytes`) runs after the `AfterTool` chain.
 A hook sees the full text, and the limit shortens what the hooks leave. A hook
 cannot bring back text that the limit removed. `ToolView.Shortened()` counts
 bytes after the hooks ran. See [tools](tools.md#large-results).
+
+## Adding context after a tool call
+
+An `AfterTool` hook's `AddMessages` tells the model something because of a
+call, without changing its result: a nudge to save what a search found, a
+skill's guidance after the model reads its file, or a warning that output
+looks like an injection attempt. Use a contextual reminder from the runtime,
+and name the tool or call in the text:
+
+```go
+nudge := dashi.ResultHook{Name: "memory-nudge", Func: func(
+	_ context.Context, p dashi.ResultPlan) (dashi.ResultDecision, error) {
+	if p.Call.Name != "web_search" || p.Outcome.State != tool.StateSucceeded {
+		return dashi.ResultDecision{}, nil
+	}
+	return dashi.ResultDecision{AddMessages: []dashi.ContextItem{{
+		ID:     "memory-nudge", // a fixed ID: at most once per turn
+		Origin: dashi.ContextRuntime,
+		Message: llm.ReminderMessage(llm.Reminder{
+			Name: "memory", Tier: llm.ReminderContextual,
+			Content: "The web_search call returned new facts. If any are " +
+				"durable, save them with remember.",
+		}),
+	}}}, nil
+}}
+```
+
+The text may echo tool output, so it must not carry operator authority, and it
+is not the person's words, so it is not `ContextUser`, which an empty `Origin`
+means. The items are recorded on the call's `tool_finished` step with the
+result, so a crash loses or doubles neither, and the step's `HookResults` show
+`add_messages`. The model sees them after every result of the model message's
+calls, in the order the calls finished, never between a call and its result.
+With parallel calls, text that does not name its call is ambiguous.
+
+An item without an ID gets one from the turn, call, hook, and position; an ID
+the turn already records is skipped, as are repeats from later hooks. Items
+follow the same rules as `BeforeModel` items (`ContextItem.Validate`); an
+invalid item is dropped with a `WarningMessagesDropped`, and the result and the
+hook's other items stand. A hook may also replace the result; it then records
+one `replace` result. When a failing hook withholds the result, every item of
+the chain is dropped, since one could describe what was withheld; a `FailOpen`
+hook that fails loses only its own items. Adding items keeps `Outcome.Data`.
+Claude Code's `PostToolUse` `additionalContext` maps to this field.
 
 ## Hook sets
 

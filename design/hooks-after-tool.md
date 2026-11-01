@@ -32,6 +32,10 @@ type ResultDecision struct {
     // Replace is what the model sees instead. The runner sets CallID. A
     // replacement equal to Result is no opinion.
     Replace *llm.ToolResult
+    // AddMessages adds items on the call's tool_finished step, after
+    // every result of the batch; see "Adding messages" below.
+    AddMessages []ContextItem
+    Reason, RulesVersion string
 }
 
 // Hook gains FailOpen, allowed only for AfterTool and BeforeFinish.
@@ -96,6 +100,21 @@ the finish step only when a hook changed it; `TurnMessagesFull` uses it, and
 `TurnMessagesFull` uses. `HookResults` gain the point `after_tool` and the verdicts
 `replace` and `failed`. `ActiveHooks` gains `after_tool` and is recorded on a
 `Resolve` with a tool result.
+
+**Adding messages** ([PRD](../docs/prds/after-tool-add-messages.md)).
+`AddMessages` items go on the `ContextFact` of the call's `tool_finished`
+step, committed with the result, so replay reads them and a crash loses or
+doubles nothing. Rendering puts every step's items after the batch's results,
+and no request is built while a call of the batch is unresolved, so an item
+never lands between a call and its result. An item without an ID gets
+`<turn>:tool:<call ID>:hook:<hook>:<n>`. Items pass `ContextItem.Validate`;
+an invalid one is dropped with `WarningMessagesDropped`, not a hook failure.
+IDs are deduplicated against the turn and earlier hooks before verdicts are
+recorded, so `add_messages` appears only when an item is recorded. A withheld
+result drops every item of the chain; earlier `replace` and `no_change`
+results stay. `Outcome.Data` stays when only items are added. Replay accepts
+non-steer items only on a step that finishes a started, waiting, or unknown
+call with an outcome.
 
 **Tests.** Chains of replacements; an equal replacement as no opinion;
 error, panic, invalid replacement, `FailOpen`; the ended context; parallel
