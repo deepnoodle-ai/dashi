@@ -16,8 +16,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Unlabeled items get IDs from the turn, call, hook, and position; an ID
   the turn already records is skipped. An invalid item is dropped with
   `WarningMessagesDropped`, and a withheld result drops the chain's items.
-  This replaces a queue drained by `BeforeModel` and `BeforeFinish` hooks,
-  and maps Claude Code's `PostToolUse` `additionalContext`.
+  Hosts that queued reminders in `AfterTool` and drained them in
+  `BeforeModel` or `BeforeFinish` can move that logic here. It maps Claude
+  Code's `PostToolUse` `additionalContext`.
 - **`NewMemoryRecorder` takes turns to start with.**
   `dashi.NewMemoryRecorder(turn)` lets a host that saves whole `Turn`s run
   `Advance` or `Drive` on one it loaded. New steps live only in memory, so

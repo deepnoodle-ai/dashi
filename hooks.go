@@ -90,9 +90,8 @@ func (h FinishHook) Hooks() Hooks {
 
 // ResultHook sees each final tool result from a tool or the host and may
 // replace what the model sees of it or add messages; see ResultPlan and
-// ResultDecision. It fails closed: an
-// error withholds the result from the model, with a WarningHookFailed,
-// unless FailOpen is set.
+// ResultDecision. It fails closed: an error withholds the result from the
+// model, with a WarningHookFailed, unless FailOpen is set.
 type ResultHook Hook[ResultPlan, ResultDecision]
 
 // Hooks returns a Hooks value holding just h, for a Runner or WithHooks.

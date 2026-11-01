@@ -114,8 +114,9 @@ type Step struct {
 
 // Items returns the context items the step added: those of a Start, an
 // AddMessages or steer, a loop continuation, a rejected submission, or the
-// AfterTool hooks of a tool or host result (on its tool_finished step). A durable
-// host can read steer IDs from them in the transaction that saves the step.
+// AfterTool hooks of a tool or host result (on its tool_finished step). A
+// durable host can read steer IDs from them in the transaction that saves
+// the step.
 func (s Step) Items() []ContextItem {
 	if s.Started != nil {
 		return s.Started.Items
