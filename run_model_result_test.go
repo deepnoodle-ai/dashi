@@ -3,6 +3,7 @@ package dashi
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/llm"
@@ -154,13 +155,15 @@ func TestProviderContextLimitRecordsTypedLimitAndEnds(t *testing.T) {
 
 // A reply cut off at its max_tokens setting stops limited with
 // StopReasonMaxTokens and no Limit, so a host cannot mistake it for the
-// turn's output-token budget. Continue sends a new call after the cut-off
-// reply, and a BeforeModel hook can raise max_tokens for it.
+// turn's output-token budget. AddMessages then Continue sends a request that
+// ends with the host's user message, not the cut-off reply (a prefill many
+// models reject), and a BeforeModel hook can raise max_tokens for it.
 func TestMaxTokensReplyStopsLimited(t *testing.T) {
 	cut := final("partial")
 	cut.Stop = llm.Stop{Kind: llm.StopOutputLimit, Raw: "max_tokens"}
 	client := &scriptedClient{results: []llm.Result{cut, final("done")}}
 	rec := NewMemoryRecorder()
+	runner := Runner{Client: client, Recorder: rec}
 	first, err := start(t, client, nil, rec, Hooks{})
 	if err != nil || first.Stop.Kind != StopLimited ||
 		first.Stop.Reason != StopReasonMaxTokens || first.Stop.Limit != nil ||
@@ -168,22 +171,31 @@ func TestMaxTokensReplyStopsLimited(t *testing.T) {
 		t.Fatalf("first: stop=%+v ready=%t next=%s err=%v",
 			first.Stop, first.ReadyToContinue, first.Next(), err)
 	}
+	added, err := runner.Run(t.Context(), first.Turn, AddMessages{
+		CommandID: "add",
+		Items:     []ContextItem{{Message: llm.UserMessage(llm.Text("go on, briefly"))}},
+	})
+	if err != nil || client.sends != 1 {
+		t.Fatalf("add: stop=%+v err=%v sends=%d", added.Stop, err, client.sends)
+	}
 	raise := ModelHook{Name: "raise", Func: func(_ context.Context, plan ModelPlan) (ModelDecision, error) {
 		settings := plan.Input.Settings
 		settings.MaxTokens = 4096
 		return ModelDecision{Settings: &settings}, nil
 	}}
-	second, err := (Runner{Client: client, Recorder: rec}).Run(
-		t.Context(), first.Turn, Continue{CommandID: "again"}, WithHooks(raise.Hooks()),
+	second, err := runner.Run(
+		t.Context(), added.Turn, Continue{CommandID: "again"}, WithHooks(raise.Hooks()),
 	)
 	if err != nil || second.Stop.Kind != StopCompleted || client.sends != 2 {
 		t.Fatalf("second: stop=%+v err=%v sends=%d", second.Stop, err, client.sends)
 	}
 	in := client.inputs[1]
-	last := in.Messages[len(in.Messages)-1]
-	if in.Settings.MaxTokens != 4096 || last.Role != llm.RoleAssistant ||
-		last.Text() != "partial" {
-		t.Fatalf("second input: max_tokens=%d last=%s %q",
-			in.Settings.MaxTokens, last.Role, last.Text())
+	n := len(in.Messages)
+	prev, last := in.Messages[n-2], in.Messages[n-1]
+	if in.Settings.MaxTokens != 4096 ||
+		prev.Role != llm.RoleAssistant || prev.Text() != "partial" ||
+		last.Role != llm.RoleUser || !strings.Contains(last.Text(), "go on, briefly") {
+		t.Fatalf("second input: max_tokens=%d prev=%s %q last=%s %q",
+			in.Settings.MaxTokens, prev.Role, prev.Text(), last.Role, last.Text())
 	}
 }

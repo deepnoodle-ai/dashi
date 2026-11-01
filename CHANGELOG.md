@@ -52,7 +52,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   string as the `LimitOutputTokens` budget cap, so a host that read the
   reason as a `LimitKind` took every cut-off reply for a spent budget. The
   CLI now says the reply was cut off and points to `/max-tokens`. A hook
-  cannot stop a turn with this reason.
+  cannot stop a turn with this reason. A bare `Continue` resends the
+  cut-off reply as an assistant prefill, which many models reject, so add
+  a user message with `AddMessages` first, or start a new turn.
 - **`tool.Outcome.Data` docs cover waiting calls.** A `StateWaiting` or
   `StateDetached` outcome keeps its `Data`, such as the job it waits on,
   and hosts read it from `RunResult.Pending[i].Tool.Outcome.Data`; the
