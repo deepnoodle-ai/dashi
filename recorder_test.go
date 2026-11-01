@@ -9,6 +9,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi/internal/canonjson"
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/tool"
 )
 
 // capturingRecorder keeps every commit request it accepts.
@@ -177,5 +178,164 @@ func TestMemoryRecorderFencesOwnerAndSeq(t *testing.T) {
 	saved, err := rec.Load(t.Context(), "t1")
 	if err != nil || len(saved.Steps) != 1 {
 		t.Fatalf("saved=%+v err=%v", saved, err)
+	}
+}
+
+// waitingTurn runs a turn on its own recorder until it waits on an
+// external tool, as a host that saves Turns itself would hold it.
+func waitingTurn(t *testing.T) RunResult {
+	t.Helper()
+	runner := Runner{
+		Client: &scriptedClient{results: []llm.Result{
+			toolUse(toolCall("ext-1", "mail", `{}`)),
+		}},
+		Tools: tool.List{externalTool("mail")},
+	}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, startInput())
+	if err != nil || out.Next() != NextResolvePending {
+		t.Fatalf("next=%s err=%v", out.Next(), err)
+	}
+	return out
+}
+
+func TestNewMemoryRecorderSeedsCopies(t *testing.T) {
+	turn := waitingTurn(t).Turn
+	want := turn.Clone()
+	older := Turn{ID: "t1", Steps: want.Steps[:1]}
+	rec := NewMemoryRecorder(older, turn, Turn{ID: "empty"})
+	// The caller's later edits do not reach the recorder.
+	turn.Steps[0].Started.Input[0].Content[0] = llm.Text("changed")
+	turn.Steps = turn.Steps[:1]
+	got, err := rec.Load(t.Context(), "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !canonjson.SameValue(got, want) {
+		t.Fatalf("Load = %+v, want %+v", got, want)
+	}
+	// Nor do edits to a loaded copy.
+	got.Steps[0].Started.Input[0].Content[0] = llm.Text("changed")
+	again, _ := rec.Load(t.Context(), "t1")
+	if !canonjson.SameValue(again, want) {
+		t.Fatal("a loaded copy shares memory with the recorder")
+	}
+	if _, err := rec.Load(t.Context(), "empty"); !errors.Is(err, ErrTurnNotFound) {
+		t.Fatalf("empty turn: err=%v", err)
+	}
+}
+
+func TestNewMemoryRecorderSeedRunsAdvance(t *testing.T) {
+	waiting := waitingTurn(t)
+	turn := waiting.Turn
+	inbox := NewMemoryInbox()
+	runner := Runner{
+		Client:   &scriptedClient{results: []llm.Result{final("sent")}},
+		Recorder: NewMemoryRecorder(turn),
+		Inbox:    inbox,
+		Tools:    tool.List{externalTool("mail")},
+	}
+	mustPut(t, inbox, turn.ID, waiting.Pending[0].Result(tool.Succeeded("ok")))
+	out, err := runner.Advance(t.Context(), turn.ID)
+	if err != nil || out.Stop.Kind != StopCompleted || out.Reply != "sent" {
+		t.Fatalf("stop=%+v reply=%q err=%v", out.Stop, out.Reply, err)
+	}
+	if len(out.Turn.Steps) <= len(turn.Steps) {
+		t.Fatalf("Advance recorded nothing: %d steps", len(out.Turn.Steps))
+	}
+}
+
+func TestNewMemoryRecorderRejectsAnInvalidSeed(t *testing.T) {
+	turn := waitingTurn(t).Turn
+	// Without its start step the record is not a turn.
+	bad := Turn{ID: turn.ID, Steps: turn.Steps[1:]}
+	runner := Runner{
+		Client:   &scriptedClient{results: []llm.Result{final("done")}},
+		Recorder: NewMemoryRecorder(bad),
+		Tools:    tool.List{externalTool("mail")},
+	}
+	if _, err := runner.Advance(t.Context(), bad.ID); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("Advance: err=%v", err)
+	}
+	if _, err := runner.Drive(t.Context(), bad.ID); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("Drive: err=%v", err)
+	}
+	_, err := runner.Run(t.Context(), bad, Continue{CommandID: "go"})
+	if !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("Run: err=%v", err)
+	}
+}
+
+func TestNewMemoryRecorderRejectsAMismatchedSeedID(t *testing.T) {
+	turn := waitingTurn(t).Turn
+	bad := Turn{ID: "other", Steps: turn.Steps}
+	rec := NewMemoryRecorder(bad)
+	runner := Runner{
+		Client:   &scriptedClient{results: []llm.Result{final("done")}},
+		Recorder: rec,
+		Tools:    tool.List{externalTool("mail")},
+	}
+	if _, err := runner.Advance(t.Context(), bad.ID); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("Advance: err=%v", err)
+	}
+	if _, err := rec.Load(t.Context(), turn.ID); !errors.Is(err, ErrTurnNotFound) {
+		t.Fatalf("Load by the steps' ID: err=%v", err)
+	}
+}
+
+func TestNewMemoryRecorderLoadKeepsStepsAfterAnError(t *testing.T) {
+	waiting := waitingTurn(t)
+	turn := waiting.Turn
+	client := &blockingClient{started: make(chan struct{}, 1)}
+	inbox := NewMemoryInbox()
+	rec := NewMemoryRecorder(turn)
+	runner := Runner{
+		Client: client, Recorder: rec, Inbox: inbox,
+		Tools: tool.List{externalTool("mail")},
+	}
+	result := waiting.Pending[0].Result(tool.Succeeded("ok"))
+	mustPut(t, inbox, turn.ID, result)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		_, err := runner.Advance(ctx, turn.ID)
+		done <- err
+	}()
+	<-client.started
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v", err)
+	}
+	// The inbox acknowledged the result; only the recorder still holds it.
+	if inbox.Has(result.CommandID) {
+		t.Fatal("the result was not acknowledged")
+	}
+	saved, err := rec.Load(t.Context(), turn.ID)
+	if err != nil || len(stepsOf(saved, StepToolFinished)) != 1 {
+		t.Fatalf("saved=%d steps err=%v", len(saved.Steps), err)
+	}
+}
+
+func TestNewMemoryRecorderFencesASeededTurn(t *testing.T) {
+	waiting := waitingTurn(t)
+	turn := waiting.Turn
+	inbox := NewMemoryInbox()
+	rec := NewMemoryRecorder(turn)
+	runner := Runner{
+		Client:   &scriptedClient{results: []llm.Result{final("sent")}},
+		Recorder: rec,
+		Inbox:    inbox,
+		Tools:    tool.List{externalTool("mail")},
+	}
+	mustPut(t, inbox, turn.ID, waiting.Pending[0].Result(tool.Succeeded("ok")))
+	if err := rec.Claim(t.Context(), turn.ID, "w1"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runner.Advance(t.Context(), turn.ID, WithOwner("w2"))
+	if !errors.Is(err, ErrStaleTurn) {
+		t.Fatalf("stale owner: err=%v", err)
+	}
+	out, err := runner.Advance(t.Context(), turn.ID, WithOwner("w1"))
+	if err != nil || out.Stop.Kind != StopCompleted {
+		t.Fatalf("owner: stop=%+v err=%v", out.Stop, err)
 	}
 }
