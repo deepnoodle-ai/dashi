@@ -265,6 +265,23 @@ func TestNewMemoryRecorderRejectsAnInvalidSeed(t *testing.T) {
 	}
 }
 
+func TestNewMemoryRecorderRejectsAMismatchedSeedID(t *testing.T) {
+	turn := waitingTurn(t).Turn
+	bad := Turn{ID: "other", Steps: turn.Steps}
+	rec := NewMemoryRecorder(bad)
+	runner := Runner{
+		Client:   &scriptedClient{results: []llm.Result{final("done")}},
+		Recorder: rec,
+		Tools:    tool.List{externalTool("mail")},
+	}
+	if _, err := runner.Advance(t.Context(), bad.ID); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("Advance: err=%v", err)
+	}
+	if _, err := rec.Load(t.Context(), turn.ID); !errors.Is(err, ErrTurnNotFound) {
+		t.Fatalf("Load by the steps' ID: err=%v", err)
+	}
+}
+
 func TestNewMemoryRecorderLoadKeepsStepsAfterAnError(t *testing.T) {
 	waiting := waitingTurn(t)
 	turn := waiting.Turn

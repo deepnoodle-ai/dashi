@@ -185,23 +185,16 @@ var (
 )
 
 // NewMemoryRecorder creates an in-memory recorder, for tests and local use,
-// holding a copy of each given turn that has steps. Each turn is stored
-// under its ID: turns with no steps are skipped, of two turns with one ID
-// the later wins, and a turn whose ID is empty or differs from its steps'
-// TurnID is not found by that TurnID (ErrTurnNotFound). The recorder does
-// not check a seeded turn; Advance, Drive, or Run checks it on load and
-// returns an error matching ErrInvalidTurn for an invalid one.
+// holding a copy of each given turn that has steps under the turn's ID. Of
+// two turns with one ID, the later wins. The recorder stores a turn as
+// given; Advance, Drive, and Run check it when they load it, so an invalid
+// turn, such as one whose steps name another TurnID, gives an error matching
+// ErrInvalidTurn.
 //
-// Seeding lets a host that saves Turns itself run Advance or Drive on a turn
-// it loaded. It is a bridge for tests, local use, or a short Advance pass:
-// steps the recorder commits live only in memory, so after every call,
-// error or not, save the turn from Load, which holds every step the recorder
-// accepted (RunResult.Turn may be empty or incomplete after an error). A
-// crash before that save loses those steps: a durable inbox has already
-// acknowledged the commands they record, such as an approval or a tool
-// result, and their model calls and tool runs happen again on recovery. A
-// production host with its own store should implement Recorder and Loader
-// over it instead.
+// Seeding lets a host that saves Turns itself run Advance or Drive on one.
+// New steps live only in memory: save the turn from Load after every call,
+// error or not. See docs/guides/recovering-turns.md for what a crash before
+// that save costs.
 func NewMemoryRecorder(turns ...Turn) *MemoryRecorder {
 	r := &MemoryRecorder{turns: map[string]Turn{}, owners: map[string]string{}}
 	for _, turn := range turns {
