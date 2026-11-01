@@ -1111,3 +1111,69 @@ func TestStartItems(t *testing.T) {
 		}
 	}
 }
+
+// UC-2: in a batch where one call waits for the host, AfterTool items for
+// the other call are recorded in the run and the waiting call's items by
+// Resolve. No model call happens until the batch is resolved, and the next
+// request has the assistant message, both results, then the items.
+func TestResolveRecordsAfterToolItems(t *testing.T) {
+	calls := 0
+	checked := ResultHook{Name: "checked", Func: func(
+		_ context.Context, p ResultPlan) (ResultDecision, error) {
+		calls++
+		return ResultDecision{AddMessages: []ContextItem{{
+			Origin:  ContextRuntime,
+			Message: llm.UserMessage(llm.Text("checked the " + p.Call.Name + " call " + p.Call.ID)),
+		}}}, nil
+	}}
+	readFile := tool.Tool{
+		Definition: tool.Definition{Name: "read_file", Schema: []byte(`{"type":"object"}`), Kind: tool.KindLocal},
+		Executor: execFunc(func(context.Context, tool.Call) (tool.Outcome, error) {
+			return tool.Succeeded("file text"), nil
+		}),
+	}
+	deploy := tool.Tool{Definition: tool.Definition{
+		Name: "deploy", Schema: []byte(`{"type":"object"}`), Kind: tool.KindExternal,
+	}}
+	call := func(id, name string) llm.Content {
+		return llm.Content{Kind: llm.ContentToolCall, ToolCall: &tool.Call{ID: id, Name: name, Args: []byte(`{}`)}}
+	}
+	batch := llm.Result{
+		Message:   llm.AssistantMessage(call("r1", "read_file"), call("d1", "deploy")),
+		Stop:      llm.Stop{Kind: llm.StopToolUse},
+		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
+	}
+	client := &scriptedClient{results: []llm.Result{batch, final("deployed")}}
+	runner := Runner{Client: client, Tools: tool.List{readFile, deploy}, Hooks: checked.Hooks()}
+	out, err := runner.Run(t.Context(), Turn{ID: "t1"}, startAgent(testAgent()))
+	if err != nil || out.Stop.Kind != StopWaiting || len(client.inputs) != 1 {
+		t.Fatalf("stop=%+v inputs=%d err=%v", out.Stop, len(client.inputs), err)
+	}
+	if got := finishOf(t, out.Turn, "r1").Items(); len(got) != 1 ||
+		got[0].ID != "t1:tool:r1:hook:checked:1" {
+		t.Fatalf("read_file items = %+v", got)
+	}
+	out, err = runner.Run(t.Context(), out.Turn, out.Pending[0].Result(tool.Succeeded("live")))
+	if err != nil || len(client.inputs) != 1 {
+		t.Fatalf("stop=%+v inputs=%d err=%v", out.Stop, len(client.inputs), err)
+	}
+	resolved := finishOf(t, out.Turn, "d1")
+	if resolved.CommandID == "" || len(resolved.Items()) != 1 ||
+		resolved.Items()[0].ID != "t1:tool:d1:hook:checked:1" {
+		t.Fatalf("resolve step = %+v", resolved)
+	}
+	out, err = runner.Run(t.Context(), out.Turn, Continue{CommandID: "go"})
+	if err != nil || out.Stop.Kind != StopCompleted || calls != 2 {
+		t.Fatalf("stop=%+v calls=%d err=%v", out.Stop, calls, err)
+	}
+	sent := client.inputs[1].Messages
+	requireNoItemInsideABatch(t, sent)
+	tail := sent[len(sent)-5:]
+	if len(tail[0].Content) != 2 || tail[0].Content[0].Kind != llm.ContentToolCall ||
+		tail[1].Content[0].ToolResult.CallID != "r1" ||
+		tail[2].Content[0].ToolResult.CallID != "d1" ||
+		tail[3].Text() != "checked the read_file call r1" ||
+		tail[4].Text() != "checked the deploy call d1" {
+		t.Fatalf("request tail = %+v", tail)
+	}
+}
