@@ -21,26 +21,25 @@ Every host that wants post-tool context repeats this work.
 
 ## Context
 
-- **Claude Code `PostToolUse`.** The hook gets the tool name, input, and
-  response. It may return `hookSpecificOutput.additionalContext` (capped
-  at 10,000 characters), which Claude Code shows the model next to the
-  tool result, or `updatedToolOutput`, which replaces the result.
-  `decision: "block"` with a `reason` only adds text, since the tool
-  already ran. A separate `PostToolBatch` event runs once after a batch of
-  parallel calls.
-- **OpenAI Agents SDK.** `on_tool_end` only observes. Tool output
-  guardrails can replace a result or stop the run; neither adds a message.
-- **LangChain.** Middleware `wrap_tool_call` can return a `Command` that
-  adds messages, but the `Command` must also carry the `ToolMessage` for
-  the call.
+- **Claude Code `PostToolUse`** ([hooks](https://code.claude.com/docs/en/hooks)).
+  `hookSpecificOutput.additionalContext` becomes a system reminder "next
+  to the tool result", read on the next model request. Text over 10,000
+  characters goes to a file, and the model gets the path and a preview.
+  `updatedToolOutput` replaces the result. A separate `PostToolBatch`
+  event runs after a full batch of parallel calls, before the next model
+  call. Each tool call can add its own item.
+- **OpenAI Agents SDK** ([guardrails](https://openai.github.io/openai-agents-python/guardrails/)).
+  Tool output guardrails "can replace the output or raise a tripwire";
+  they do not add a message.
+- **LangChain** ([custom middleware](https://docs.langchain.com/oss/python/langchain/middleware/custom)).
+  `wrap_tool_call` returns a `ToolMessage` or a `Command`, which can
+  update state, including messages.
 - **Dashi today.** A `BeforeModel` hook can read finished calls from
   `plan.Turn.Tools` and add items whose IDs come from the call IDs, so each
-  item is added once. That works, but the hook must find "new since the
-  last call" itself, it runs (and scans every call) before every model
-  call, its rules are separate from the `AfterTool` hook that judged the
-  result, and it fails open where a result check fails closed. A
-  first-class field puts the item on the same record step as the result it
-  is about, with no state in the host.
+  item is added once. But it must find "new since the last call" itself,
+  scans every call before every model call, and is split from the
+  `AfterTool` hook that judged the result. A first-class field puts the
+  item on the result's own record step, with no state in the host.
 - **Placement already works.** Dashi renders all of a model message's tool
   results right after that message, and renders the items on any later
   step after them. A `tool_finished` step can already carry items: a
@@ -132,6 +131,9 @@ model that the `read_file` output was redacted.
 
 ### UC-4: Failures
 
+- [ ] Two hooks add an item with the same ID: the first hook's item is
+      recorded with `add_messages`; the second hook records no
+      `add_messages`.
 - [ ] An invalid item (for example a system role from `ContextUser`) is
       dropped with a `WarningMessagesDropped` naming the hook and call. The
       result, the hook's `Replace`, and its valid items stand. An invalid
@@ -145,6 +147,8 @@ model that the `read_file` output was redacted.
 - [ ] The run context ends during the chain: when the result is withheld,
       no item is recorded; when it is kept (the rest fail open), earlier
       hooks' items are kept.
+- [ ] Replay refuses a record whose denied call, or call skipped for an
+      urgent steer, has a `tool_finished` step that carries items.
 - [ ] Replaying the turn never calls the hook. A crash before the step is
       committed records neither the result nor the items; the rerun hook
       gives the same IDs.
@@ -160,23 +164,30 @@ model that the `read_file` output was redacted.
 - R-3: An item without an ID gets
   `<turn>:tool:<call ID>:hook:<hook name>:<n>`, n counting from 1 within
   the hook's list, mirroring `hookItemID` for `BeforeModel`.
-- R-4: Items go through `skipRecordedItems` before verdicts are recorded,
-  so the record matches the items: a hook gets `add_messages` only when at
+- R-4: `skipRecordedItems` runs once over the whole chain's items, in
+  hook order, before any verdict is recorded, so the record matches the
+  items: a hook gets `add_messages` only when at
   least one of its items is recorded and it did not replace the result.
   A hook whose items were all dropped records nothing for them, or
   `no_change` when it gave a `Reason` or `RulesVersion`.
 - R-5: Item rules are `ContextItem.Validate`, the same as `BeforeModel`.
-- R-6: Turn validation and replay accept non-steer items on a
-  `tool_finished` step only when its call has an `Outcome` that `AfterTool`
-  runs for: an executor or `Resolve` result. Steps for denied, hidden,
-  invalid, unknown, or not-run calls refuse items; steers stay
-  limited to turned-down submissions.
+- R-6: Replay accepts non-steer items on a `tool_finished` step only when
+  it has an `Outcome`, the call is not `dashi_submit_output`, and the
+  call's status before the step is one an executor or `Resolve` result
+  finishes from: `started`, `waiting`, or `result_unknown`. This mirrors
+  the status check for a turned-down submission (`turn_replay_apply.go`)
+  and reads no `Reason` text. Denied, hidden, invalid, and steer-skipped
+  calls finish from `requested`, `allowed`, or `denied`, so their steps
+  refuse items. Steers stay limited to turned-down submissions.
 - R-7: Update the docs: `docs/guides/hooks.md` (table row, a section with
-  the recommended shape), the `Hooks` combining rules, the
+  the recommended shape and the fixed-ID pattern for one item per turn or
+  batch), the `Hooks` combining rules, the
   `WarningMessagesDropped` comment (today it names only `BeforeFinish`;
   it also covers duplicate IDs and now `AfterTool`), the
   `VerdictAddMessages` comment (now `BeforeFinish` and `AfterTool`;
-  `BeforeModel` records `change`), the hook table in `design/hooks.md`,
+  `BeforeModel` records `change`), the `Step.Items()` comment (it should
+  name `AfterTool` results among the steps that carry items), the hook
+  table in `design/hooks.md`,
   `ResultDecision` in `design/hooks-after-tool.md`, and `CHANGELOG.md`.
 
 ## Not in scope
@@ -184,9 +195,11 @@ model that the `read_file` output was redacted.
 - Adding items for calls with no `AfterTool` run: denied, invalid,
   unknown, or submitted calls. A `BeforeTool` denial already sends the
   model its reason.
-- A size limit on added items, unlike Claude Code's 10,000 characters.
-  `BeforeModel` items have no limit either, and no host has reported a
-  flood; a port that wants the cap truncates in its hook.
+- A size or count limit on added items, unlike Claude Code's 10,000
+  characters. A hook may add one item per tool call, as Claude Code does,
+  and items stay in the turn's messages. A host that wants at most one
+  item per turn or per batch uses a fixed ID (UC-1); one that wants the
+  size cap truncates in its hook. No host has reported a flood.
 - Showing earlier hooks' items to later hooks. Hooks at one point stay
   independent; IDs remove duplicates.
 - A per-batch hook like `PostToolBatch`. A `BeforeModel` hook already runs
@@ -222,9 +235,15 @@ model that the `read_file` output was redacted.
    verdict is `VerdictReplace` when the result changed, else
    `VerdictAddMessages`. Generated IDs name the hook, so the items still
    attribute to it; a host's own ID loses that, which is acceptable.
-7. **The same item rules as `BeforeModel`.** User role for untrusted
-   origins; operator may also use system or developer; content blocks and
-   reminders only. One rule for every hook that adds items.
+7. **The same item rules as `BeforeModel`, with a different penalty.**
+   `ContextItem.Validate` decides what is valid at every point: user role
+   for untrusted origins; operator may also use system or developer;
+   content blocks and reminders only. What happens to an invalid item
+   differs. `BeforeModel` and `BeforeFinish` count it as a hook failure.
+   At `BeforeModel` that only skips the hook, since it fails open. At
+   `AfterTool`, a failure withholds a result the model needs, and an
+   invalid item cannot leak anything, so `AfterTool` drops the item
+   instead (Decision 10).
 8. **`Outcome.Data` stays when only items are added.** Data drops only when
    the model-visible result changes (`sameForModel`); items are not part
    of the result.
@@ -243,9 +262,3 @@ The host's queue-and-drain workaround is deleted and its port maps
 item between a tool call and its result, and the record's `add_messages`
 results always match the recorded items. Existing `AfterTool` behavior,
 replay, and records without items are unchanged.
-
-## Risks and open questions
-
-- Items render in completion order after the whole batch, so an item that
-  does not name its call is ambiguous with parallel calls. Mitigated by
-  the docs and examples (Decision 2). Not blocking.
