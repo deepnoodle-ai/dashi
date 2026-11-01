@@ -118,7 +118,7 @@ func TestTaskResultTurnHasNoEmptyUserLineLiveOrReplayed(t *testing.T) {
 		if b.Kind == KindTool && b.Name == delegate.ToolName {
 			text := FormatBlock(b)
 			if b.Task == nil || !b.Done || !strings.Contains(text, "general · Check the exact effect · t_") ||
-				!strings.Contains(text, "\n    └ completed · 1 model call · /task t_") || b.Detail != "" {
+				!strings.Contains(text, " · completed · 1 model call · /task t_") || !strings.Contains(text, "\n    └ t_") || b.Detail != "" {
 				t.Fatalf("task tool=%q %+v", text, b)
 			}
 		}
@@ -131,7 +131,7 @@ func TestTaskStatusLineCountsAndCost(t *testing.T) {
 	if b.Kind != KindTaskStatus || b.State != StateOK || !b.Done || b.Parent != "t:call-1" || b.ID != "task:child-1" {
 		t.Fatalf("block=%+v", b)
 	}
-	if got, want := taskLineUnderText(b), "    └ completed · 1 model call · $0.0069 · /task t_u6d77c to inspect"; got != want {
+	if got, want := taskLineUnderText(b), "    └ t_u6d77c · completed · 1 model call · $0.0069 · /task t_u6d77c to inspect"; got != want {
 		t.Fatalf("line=%q want %q", got, want)
 	}
 	v.State, v.ModelCalls, v.ToolCalls = delegate.TaskRunning, 3, 1
@@ -435,12 +435,12 @@ func TestTaskLinesKeepTheirSpacesAtEveryWidth(t *testing.T) {
 					t.Fatalf("width %d has %q:\n%s", w, bad, screen)
 				}
 			}
-			if strings.Contains(screen, "└") && !strings.Contains(screen, "└ completed") {
+			if strings.Contains(screen, "└") && !strings.Contains(screen, "└ t_u6d77c · completed") {
 				t.Fatalf("width %d:\n%s", w, screen)
 			}
 		}
 		plain := FormatBlock(b)
-		if strings.Contains(plain, "└") && !strings.Contains(plain, "└ completed") {
+		if strings.Contains(plain, "└") && !strings.Contains(plain, "└ t_u6d77c · completed") {
 			t.Fatalf("plain=%q", plain)
 		}
 		if strings.Contains(plain, "↳") && !strings.Contains(plain, "↳ task") {

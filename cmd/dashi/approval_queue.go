@@ -80,10 +80,12 @@ type brokerResponse struct {
 // or nil when there is nothing to wait for. The next prompt waits for it,
 // so a canceled prompt's UI cannot end the dialog of the prompt after it.
 type approvalBroker struct {
-	gate    chan struct{}
-	mu      sync.Mutex
-	next    uint64
-	active  *brokerPrompt
+	gate   chan struct{}
+	mu     sync.Mutex
+	next   uint64
+	active *brokerPrompt
+	// queued counts the owners of prompts that wait for the active one.
+	queued  map[brokerOwner]int
 	present func(brokerPrompt) <-chan struct{}
 	dismiss func(uint64)
 }
@@ -94,11 +96,26 @@ func newApprovalBroker(present func(brokerPrompt) <-chan struct{}, dismiss func(
 	return b
 }
 func (b *approvalBroker) run(ctx context.Context, prompt brokerPrompt) (brokerResponse, error) {
+	b.mu.Lock()
+	if b.queued == nil {
+		b.queued = map[brokerOwner]int{}
+	}
+	b.queued[prompt.Owner]++
+	b.mu.Unlock()
+	dequeue := func() {
+		b.mu.Lock()
+		if b.queued[prompt.Owner]--; b.queued[prompt.Owner] <= 0 {
+			delete(b.queued, prompt.Owner)
+		}
+		b.mu.Unlock()
+	}
 	select {
 	case <-ctx.Done():
+		dequeue()
 		return brokerResponse{}, ctx.Err()
 	case <-b.gate:
 	}
+	dequeue()
 	defer func() { b.gate <- struct{}{} }()
 	if err := ctx.Err(); err != nil {
 		return brokerResponse{}, err
@@ -189,6 +206,21 @@ func (b *approvalBroker) cancelRequest(id uint64, owner brokerOwner) {
 	if b.active != nil && b.active.ID == id && b.active.Owner == owner {
 		b.active.cancel()
 	}
+}
+
+// waitingOwners returns the owners of the active prompt and of the prompts
+// queued behind it: everyone who waits for the person.
+func (b *approvalBroker) waitingOwners() []brokerOwner {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var owners []brokerOwner
+	if b.active != nil {
+		owners = append(owners, b.active.Owner)
+	}
+	for owner := range b.queued {
+		owners = append(owners, owner)
+	}
+	return owners
 }
 
 // presentOnly reserves the same dialog owner for a native details viewport.

@@ -126,7 +126,9 @@ func (s *screen) completeDraft(value string) []string {
 	marker := trailingPathMarker(value)
 	commandEnd := strings.IndexFunc(rest, unicode.IsSpace)
 	pathInArguments := commandEnd >= 0 && marker >= leading+commandEnd
-	if strings.HasPrefix(rest, "/") && !pathInArguments {
+	if args, ok := strings.CutPrefix(rest, "/pane "); ok && s.Panes() {
+		candidates = s.completePane(value[:leading]+"/pane ", args)
+	} else if strings.HasPrefix(rest, "/") && !pathInArguments {
 		end := strings.IndexFunc(rest, unicode.IsSpace)
 		if end < 0 {
 			end = len(rest)
@@ -173,4 +175,34 @@ func trailingPathMarker(text string) int {
 		previousSpace = unicode.IsSpace(r)
 	}
 	return marker
+}
+
+// paneActions are the actions /pane takes, in the order help lists them.
+var paneActions = []string{"close", "zoom", "equalize", "next", "focus"}
+
+// completePane completes the argument of /pane: an action, or after focus
+// the name of an open pane. prefix is the draft up to the argument.
+func (s *screen) completePane(prefix, args string) []string {
+	var out []string
+	args = strings.TrimLeftFunc(args, unicode.IsSpace)
+	if name, ok := strings.CutPrefix(args, "focus "); ok {
+		var names []string
+		for _, id := range s.panes.leaves() {
+			names = append(names, s.panes.get(id).label)
+		}
+		for _, n := range rankCompletion(strings.TrimSpace(name), names) {
+			out = append(out, prefix+"focus "+n)
+		}
+		return out
+	}
+	if strings.ContainsFunc(args, unicode.IsSpace) {
+		return nil
+	}
+	for _, a := range rankCompletion(args, paneActions) {
+		if a == "focus" {
+			a += " "
+		}
+		out = append(out, prefix+a)
+	}
+	return out
 }

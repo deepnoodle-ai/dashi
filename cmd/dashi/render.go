@@ -567,6 +567,9 @@ func (r *Renderer) Footer(v dashi.TurnView, steps []dashi.Step) Block {
 // footerFacts is the turn summary: number, model, model calls, tokens, and
 // cost. The screen styles each value; plain output joins them.
 type footerFacts struct {
+	// Task names the task whose Turn this is, in a task pane, so its
+	// footer reads "t_k3f2 turn 1" and cannot pass for main's.
+	Task  string
 	Turn  int
 	Model string
 	Calls int
@@ -618,7 +621,7 @@ const (
 )
 
 func (f footerFacts) parts() []footerPart {
-	parts := []footerPart{{fmt.Sprintf("turn %d", f.Turn), footerMeta, 0}}
+	parts := []footerPart{{strings.TrimSpace(fmt.Sprintf("%s turn %d", f.Task, f.Turn)), footerMeta, 0}}
 	if f.Model != "" {
 		parts = append(parts, footerPart{f.Model, footerValue, 3})
 	}
@@ -802,6 +805,25 @@ func (t *Transcript) Apply(b Block) int {
 		t.index[b.ID] = len(t.Blocks) - 1
 	}
 	return len(t.Blocks) - 1
+}
+
+// truncate keeps the first n blocks and drops the rest.
+func (t *Transcript) truncate(n int) {
+	if n < 0 || n >= len(t.Blocks) {
+		return
+	}
+	t.Blocks = t.Blocks[:n:n]
+	t.index = map[string]int{}
+	for i, b := range t.Blocks {
+		if b.ID != "" {
+			t.index[b.ID] = i
+		}
+	}
+	for id := range t.toolDone {
+		if _, ok := t.index[id]; !ok {
+			delete(t.toolDone, id)
+		}
+	}
 }
 
 // FormatBlock returns the plain-text form of a block, without color, for line

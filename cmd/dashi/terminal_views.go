@@ -17,7 +17,7 @@ import (
 // View implements tui.Application.
 func (s *screen) View() tui.View {
 	s.hits.Reset()
-	view := belowTranscript(tui.Split(&s.split, s.paneView), s.footer())
+	view := belowTranscript(s.paneArea(), s.footer())
 	// The menu goes last so it draws over everything else.
 	view = tui.ZStack(view, s.transcriptMenuView()).Align(tui.AlignLeft)
 	if s.noColor {
@@ -25,19 +25,6 @@ func (s *screen) View() tui.View {
 	}
 	return view
 }
-
-// paneView draws the pane with this ID for the split layout.
-func (s *screen) paneView(id string) tui.View {
-	p := s.panes[id]
-	if p == nil {
-		return nil
-	}
-	return tui.PaddingLTRB(1, 0, 1, 0, tui.Viewport(&p.vp, p).Gap(1))
-}
-
-// linesBelowArea tags the "lines below" line; a click on it returns to live
-// output.
-const linesBelowArea = "lines-below"
 
 // belowTranscript stacks the live UI under the transcript with one empty
 // row between them, so transcript text never touches the working line, a
@@ -57,14 +44,11 @@ func separate(views []tui.View) []tui.View {
 }
 
 func (s *screen) footer() tui.View {
+	// Nothing a pointer action changes adds or removes a row here: rows
+	// that come and go mid-drag would move the panes under the pointer.
+	// The selection hint uses the status line, and each pane draws its own
+	// "more below" mark.
 	views := make([]tui.View, 0, 10)
-	if hint := s.selectionHint(); hint != "" {
-		views = append(views, tui.Text(" %s", hint).Wrap().Style(hintStyle))
-	}
-	if vp := &s.focused().vp; !vp.AtBottom && vp.LinesBelow > 0 {
-		views = append(views, s.hits.Area(linesBelowArea,
-			tui.Text(" %d lines below · Ctrl+End returns to live output", vp.LinesBelow).Style(hintStyle)))
-	}
 	var menu []commandMenuItem
 	switch {
 	case s.dialogStatus != nil:
@@ -88,7 +72,18 @@ func (s *screen) footer() tui.View {
 		if hint := s.inputHint(mode); hint != "" {
 			views = append(separate(views), tui.Text(" %s", hint).Wrap().Style(hintStyle))
 		}
-		views = append(separate(views), tui.Panel(tui.PaddingLTRB(1, 1, 1, 1, s.inputView(mode))).Style(promptStyle))
+		var composer tui.View = tui.Panel(tui.PaddingLTRB(1, 1, 1, 1, s.inputView(mode))).Style(promptStyle)
+		// While another pane is active, the composer's band says that
+		// typing still goes to the main agent.
+		if s.panes.active != mainPaneID {
+			composer = tui.ZStack(composer, tui.CanvasContext(func(ctx *tui.RenderContext) {
+				const mark = "→ main "
+				if width, _ := ctx.Size(); width > 20 {
+					ctx.PrintStyled(width-len([]rune(mark)), 0, mark, mutedStyle.WithBackground(promptBackground))
+				}
+			}).Height(1)).Align(tui.AlignLeft)
+		}
+		views = append(separate(views), composer)
 		if menu = s.commandMenuMatches(); menu != nil {
 			views = append(views, s.commandMenuView(menu))
 		}
@@ -277,17 +272,30 @@ func (s *screen) decideStatus() string {
 func (s *screen) statusView(menuOpen bool) tui.View {
 	model := workspace.PrintableText(s.model())
 	dir := workspace.PrintableText(shortDir(s.dir))
+	long, short := s.selectionHint()
 	return tui.CanvasContext(func(ctx *tui.RenderContext) {
 		width, _ := ctx.Size()
-		help := " " + statusHint + " "
-		budget := max(1, width-runewidth.StringWidth(help)-1)
+		// The right side offers /help, or, while a selection has text,
+		// says how to copy it, in the shortest form that fits.
+		right := " " + statusHint + " "
+		if long != "" {
+			right = " " + long + " "
+			if runewidth.StringWidth(right) > width-1 {
+				right = runewidth.Truncate(" "+short+" ", max(1, width-1), "…")
+			}
+		} else if width < 16 {
+			right = ""
+		}
+		budget := width - runewidth.StringWidth(right) - 1
 		left := model + " · " + dir
 		if menuOpen {
 			left = "esc to cancel"
 		}
-		ctx.PrintTruncated(1, 0, runewidth.Truncate(left, budget, "…"), mutedStyle)
-		if width >= 16 {
-			ctx.PrintStyled(width-runewidth.StringWidth(help), 0, help, mutedStyle)
+		if long == "" || budget >= 8 {
+			ctx.PrintTruncated(1, 0, runewidth.Truncate(left, max(1, budget), "…"), mutedStyle)
+		}
+		if right != "" {
+			ctx.PrintStyled(width-runewidth.StringWidth(right), 0, right, mutedStyle)
 		}
 	}).Height(1)
 }

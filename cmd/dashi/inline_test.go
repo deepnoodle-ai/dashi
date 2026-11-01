@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/dashi"
+	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/tui"
@@ -238,5 +239,107 @@ func TestInlineMediaWarningReachesScrollbackOnce(t *testing.T) {
 	i.HandleEvent(flushEvent{})
 	if count := strings.Count(output.String(), "Active-Turn protection unavailable for media"); count != 2 {
 		t.Fatal("session reset suppressed recorded warning")
+	}
+}
+
+// Inline mode has no panes: inspection commands print in the transcript,
+// a bare /task ID prints the task's details, and task lines keep their
+// inspect hint, exactly as before panes existed.
+func TestInlineInspectionPrintsAsBeforePanes(t *testing.T) {
+	cfg := testConfig(t)
+	client := &taskFixtureClient{}
+	holdChildUntilParentStops(&cfg, client)
+	cfg.Client = client
+	cfg.ApproveAll = true
+	s := newScreen(cfg.Dir)
+	a, err := buildApp(t.Context(), cfg, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.bind(a)
+	newInlineScreen(s, &bytes.Buffer{})
+	on := loopScreen(t, s)
+	if _, err = a.openSession(cfg.Store, cfg.Dir, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	a.ctrl.mu.Lock()
+	a.ctrl.autoTaskDelivery = false
+	a.ctrl.mu.Unlock()
+	t.Cleanup(func() { a.ctrl.CancelWork(); a.eng.closeTasks(); a.ctrl.Wait(); a.eng.Close() })
+	if _, err := a.eng.Prompt(t.Context(), "Delegate this job"); err != nil {
+		t.Fatal(err)
+	}
+	task := waitTask(t, a, func(v delegate.TaskView) bool { return !v.Running() })
+	// mainText waits until the transcript holds want, and returns it.
+	mainText := func(want string) string {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			var lines []string
+			on(func() {
+				s.drain()
+				for _, b := range s.main().tr.Blocks {
+					lines = append(lines, FormatBlock(b))
+				}
+			})
+			text := strings.Join(lines, "\n")
+			if strings.Contains(text, want) {
+				return text
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("transcript lacks %q:\n%s", want, text)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	text := mainText(task.ID + " to inspect")
+	if strings.Contains(text, taskWatchHint) || strings.Contains(text, "Click a task") {
+		t.Fatalf("inline shows a pane hint:\n%s", text)
+	}
+	// The live task line keeps the inspect hint.
+	on(func() {
+		for i := range s.main().tr.Blocks {
+			b := s.main().liveBlock(i)
+			if b.Kind == KindTool && b.Task != nil && strings.Contains(b.Task.Text, taskWatchHint) {
+				t.Errorf("inline task line says %q", b.Task.Text)
+			}
+		}
+	})
+	// A bare /task ID shows the details viewer, not a pane.
+	a.ctrl.command("/task " + task.ID)
+	deadline := time.Now().Add(10 * time.Second)
+	for shown := false; !shown; {
+		on(func() { shown = s.picker != nil && s.picker.title == "Task "+task.ID })
+		if time.Now().After(deadline) {
+			t.Fatal("/task ID did not show the details viewer")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	a.ctrl.CancelWork()
+	for idle := false; !idle; {
+		idle = a.ctrl.Mode() == ModeIdle
+		if time.Now().After(deadline) {
+			t.Fatal("the details viewer did not close")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	a.eng.cfg.Preferences = builtinPickerPreferences(t)
+	for _, cmd := range []struct{ line, want string }{
+		{"/tasks", "/tasks ID shows its turns and messages; /task ID shows details."},
+		{"/tasks " + task.ID, "Turn 1 · completed"},
+		{"/settings", "Next turn:"},
+		{"/status", "Recorded snapshot:"},
+		{"/help", "Page Up/Down  scroll the transcript"},
+	} {
+		a.ctrl.command(cmd.line)
+		mainText(cmd.want)
+	}
+	var panes int
+	on(func() { panes = s.panes.count() })
+	if panes != 1 || s.Panes() || a.ctrl.hasDetails() {
+		t.Fatalf("inline opened panes: %d", panes)
+	}
+	if text := mainText("Recorded snapshot:"); strings.Contains(text, "Alt+Z") || strings.Contains(text, "/pane") {
+		t.Fatalf("inline mentions panes:\n%s", text)
 	}
 }

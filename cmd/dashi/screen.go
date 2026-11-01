@@ -12,8 +12,9 @@ import (
 )
 
 // screen is the full-screen UI. It draws transcript panes in a split
-// layout, with the prompt and status line below. Today the layout holds one
-// pane, the conversation. It implements UI and Chooser for the Controller.
+// layout, with the prompt and status line below. The main pane shows the
+// conversation; side panes open on request. It implements UI and Chooser
+// for the Controller.
 //
 // Only the Wonton event loop touches the fields marked "loop". Other
 // goroutines call Emit, Approve, and the rest, which queue an event and, when
@@ -36,11 +37,8 @@ type screen struct {
 	promptSeq atomic.Uint64
 
 	// loop state
-	// split lays out the panes, which panes holds by ID; focus is the ID of
-	// the pane that keys such as PgUp act on.
-	split                 tui.SplitState
-	panes                 map[string]*transcriptPane
-	focus                 string
+	// panes holds the panes and their layout.
+	panes                 paneSet
 	input                 string
 	attachments           attachmentDraft
 	attachmentInput       *submittedInput
@@ -79,6 +77,21 @@ type screen struct {
 	// transcriptMenuPane is the ID of the pane whose item it acts on.
 	transcriptMenu     tui.MenuState
 	transcriptMenuPane string
+	// tasks is where task panes watch and load tasks: the Engine.
+	tasks taskSource
+	// taskOpens numbers task pane opens. gapCheck is set while a flush is
+	// due for a task feed's missing step. clock, if set, replaces
+	// time.Now for the feeds' gap wait, in tests. taskTimeout, if set,
+	// replaces taskLoadTimeout, in tests.
+	taskOpens   uint64
+	gapCheck    bool
+	clock       func() time.Time
+	taskTimeout time.Duration
+	// inline is set in inline mode, which has no panes (see Panes).
+	inline bool
+	// taskHinted reports that the session's first task line showed the
+	// one-time hint about watching tasks.
+	taskHinted bool
 }
 
 // blockShape is what the transcript menu's entries depend on.
@@ -90,10 +103,15 @@ type blockShape struct {
 
 func shapeOf(b Block) blockShape { return blockShape{b.Kind, b.State, b.Done} }
 
-// queued is one item of pending work: a block to show, or a reset.
+// queued is one item of pending work: a block to show, a reset, a child
+// event for a task pane, a task record load result, or content for the
+// details pane.
 type queued struct {
-	block Block
-	reset bool
+	block   Block
+	reset   bool
+	child   *taskChildEvent
+	load    *taskLoad
+	details *detailsUpdate
 }
 
 type approvalPrompt struct {
@@ -162,56 +180,84 @@ func (e endPromptEvent) Timestamp() time.Time { return e.at }
 
 func newScreen(dir string) *screen {
 	s := &screen{dir: dir, mouseEnabled: true, clipboardWrite: writeClipboard}
-	s.addPane(mainPaneID)
-	s.focus = mainPaneID
+	s.panes = newPaneSet(s.newTranscriptPane(mainPaneID))
 	return s
 }
 
-// addPane adds an empty transcript pane to the panes and the layout.
-func (s *screen) addPane(id string) *transcriptPane {
-	p := newTranscriptPane(id, func() int { return s.width }, s.spinnerFrame)
-	if s.panes == nil {
-		s.panes = map[string]*transcriptPane{}
-	}
-	s.panes[id] = p
-	s.split.Append(id, tui.SplitColumns)
+// newTranscriptPane returns an empty transcript for the pane with this ID.
+func (s *screen) newTranscriptPane(id string) *transcriptPane {
+	p := newTranscriptPane(id, func() int { return s.paneWidth(id) }, s.spinnerFrame)
+	p.watches = func(task string) bool { return s.panes.get(taskPaneID(task)) != nil }
 	return p
 }
 
 // main is the pane that shows the conversation.
-func (s *screen) main() *transcriptPane { return s.panes[mainPaneID] }
+func (s *screen) main() *transcriptPane { return s.panes.get(mainPaneID).view }
 
-// focused is the pane that keys such as PgUp and Ctrl+End act on.
+// focused is the active pane: the one keys such as PgUp and Ctrl+End act
+// on.
 func (s *screen) focused() *transcriptPane {
-	if p := s.panes[s.focus]; p != nil {
-		return p
+	if p := s.panes.get(s.panes.active); p != nil {
+		return p.view
 	}
 	return s.main()
 }
 
 // paneAt returns the pane drawn at the screen position (x, y), if any.
 func (s *screen) paneAt(x, y int) *transcriptPane {
-	id, ok := s.split.PaneAt(x, y)
+	if s.panes.drawn == nil {
+		return nil
+	}
+	id, ok := s.panes.drawn.PaneAt(x, y)
 	if !ok {
 		return nil
 	}
-	return s.panes[id]
+	if p := s.panes.get(id); p != nil {
+		return p.view
+	}
+	return nil
 }
 
 // paneList returns the panes in layout order.
 func (s *screen) paneList() []*transcriptPane {
 	var list []*transcriptPane
-	for _, id := range s.split.Leaves() {
-		if p := s.panes[id]; p != nil {
-			list = append(list, p)
+	for _, id := range s.panes.leaves() {
+		if p := s.panes.get(id); p != nil {
+			list = append(list, p.view)
 		}
 	}
 	return list
 }
 
+// visiblePanes returns the panes drawn last frame.
+func (s *screen) visiblePanes() []*transcriptPane {
+	if s.panes.drawn == nil || s.panes.drawn == &s.panes.split {
+		return s.paneList()
+	}
+	var list []*transcriptPane
+	for _, id := range s.panes.drawn.Leaves() {
+		if p := s.panes.get(id); p != nil {
+			list = append(list, p.view)
+		}
+	}
+	return list
+}
+
+// paneWidth is the width a turn footer in pane id fits: the pane's width
+// as drawn last frame. A lone pane, or one not drawn yet, takes the
+// terminal width.
+func (s *screen) paneWidth(id string) int {
+	if s.panes.count() > 1 && s.panes.drawn != nil {
+		if b, ok := s.panes.drawn.Bounds(id); ok {
+			return b.Dx()
+		}
+	}
+	return s.width
+}
+
 // bind connects the screen to the app built around it.
 func (s *screen) bind(a *app) {
-	s.ctrl, s.eng, s.model = a.ctrl, a.eng, a.eng.Model
+	s.ctrl, s.eng, s.model, s.tasks = a.ctrl, a.eng, a.eng.Model, a.eng
 	s.startMCP = func() { a.startMCP(true) }
 }
 
@@ -349,18 +395,39 @@ func (s *screen) drain() {
 			s.endDialogStatus()
 			// The menu's entries name items of the old transcript.
 			s.transcriptMenu.Close()
+			// Side panes belong to the old session.
+			s.closeSidePanes()
 			s.main().reset()
 			s.attachments.clear()
 			s.attachmentInput = nil
 			s.attachmentUnsaved.Store(false)
 			s.input = ""
 			s.generation++
+			s.taskHinted = false
+			continue
+		}
+		if q.child != nil {
+			s.taskChild(*q.child)
+			continue
+		}
+		if q.load != nil {
+			s.taskLoaded(*q.load)
+			continue
+		}
+		if q.details != nil {
+			s.showDetails(*q.details)
 			continue
 		}
 		if s.main().apply(q.block) && s.transcriptMenuPane == mainPaneID {
 			s.transcriptMenu.Close()
 		}
+		s.taskLine(q.block)
+		if task := taskOfLine(q.block); !s.inline && !s.taskHinted && task != "" {
+			s.taskHinted = true
+			s.main().apply(Block{Kind: KindHint, Text: taskWatchTip(task), Done: true})
+		}
 	}
+	s.settleTaskFeeds()
 }
 
 // --- events ---
@@ -374,14 +441,19 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		return s.key(e)
 	case tui.ResizeEvent:
 		s.width, s.height = e.Width, e.Height
+		s.syncMouseMode()
 	case tui.TickEvent:
 		before := s.spinnerFrame()
 		s.frame = e.Frame
 		spin := s.spinnerFrame() != before
-		for _, p := range s.paneList() {
-			if spin {
+		// A prompt queued behind the open dialog posts no event.
+		s.refreshWaiting()
+		if spin {
+			for _, p := range s.visiblePanes() {
 				p.spinTools()
 			}
+		}
+		for _, p := range s.paneList() {
 			if p.vp.DragAutoScroll() {
 				p.selectionRevision++
 			}
@@ -430,6 +502,7 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		s.transcriptMenu.Close()
 		s.endDialogStatus()
 		s.approval, s.asking, s.picker = e.approval, e.asking, e.picker
+		s.refreshWaiting()
 		return []tui.Cmd{tui.Focus(s.focusID())}
 	case endPromptEvent:
 		if e.id != s.promptID {
@@ -437,6 +510,9 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		}
 		s.clearPrompts()
 		return []tui.Cmd{tui.Focus(inputID)}
+	case taskGapEvent:
+		s.gapCheck = false
+		s.drain()
 	}
 	return nil
 }
@@ -449,6 +525,7 @@ func (s *screen) clearPrompts() {
 	if s.promptActive {
 		s.input, s.savedDraft, s.promptActive = s.savedDraft, "", false
 	}
+	s.refreshWaiting()
 }
 
 func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
@@ -485,6 +562,9 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 	case s.asking != nil:
 		return s.questionKey(e)
 	}
+	if s.paneKey(e) {
+		return nil
+	}
 	vp := &s.focused().vp
 	switch e.Key {
 	case tui.KeyPageUp:
@@ -503,7 +583,7 @@ func (s *screen) key(e tui.KeyEvent) []tui.Cmd {
 		if s.ctrl.Mode() == ModeRunning || s.ctrl.Mode() == ModeApproval {
 			s.ctrl.CancelWork()
 		} else if p := s.selectionPane(); p != nil {
-			p.vp.ClearSelection()
+			p.clearSelection()
 		} else {
 			vp.ScrollToBottom()
 		}

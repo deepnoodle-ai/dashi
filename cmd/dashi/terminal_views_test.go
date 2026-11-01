@@ -579,11 +579,11 @@ func TestBlankRowAboveTheLiveUI(t *testing.T) {
 				return bg.Type == termtest.ColorDefault
 			}
 			if state == "scrolled" {
-				// The rows above the indicator may be blank lines of the
-				// reply itself, so only the row right above it is checked.
-				y := transcriptRow(t, screen.Text(), "lines below")
-				if !blank(y - 1) {
-					t.Fatalf("no empty row above the indicator:\n%s", screen.Text())
+				// The mark sits on the transcript's bottom row, so the
+				// live UI keeps its place: one empty row, then the UI.
+				y := transcriptRow(t, screen.Text(), "more · Ctrl+End")
+				if !blank(y+1) || blank(y+2) {
+					t.Fatalf("want one empty row under the mark:\n%s", screen.Text())
 				}
 				return
 			}

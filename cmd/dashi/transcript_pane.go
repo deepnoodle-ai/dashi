@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"io"
 	"strings"
 
@@ -32,10 +33,19 @@ type transcriptPane struct {
 	// menuShape is its kind and state at open time.
 	menuItem  int
 	menuShape blockShape
+	// more is where the "more below" mark was drawn last frame, in screen
+	// cells, or empty; morePressed is set from a press on it until its
+	// click, so the press and click do not also select or open anything.
+	more        image.Rectangle
+	morePressed bool
 	// width is the width a turn footer fits; spinner is the glyph a
 	// running tool row shows.
 	width   func() int
 	spinner func() string
+	// watches reports whether the pane of a task is open, which its task
+	// line says. It is nil where task panes do not exist (inline mode),
+	// and task lines then keep their inspect hint.
+	watches func(task string) bool
 }
 
 func newTranscriptPane(id string, width func() int, spinner func() string) *transcriptPane {
@@ -88,14 +98,29 @@ func (p *transcriptPane) Source(i int) (string, bool) {
 // input and output when the user expanded it, and spins while it runs.
 func (p *transcriptPane) liveBlock(i int) Block {
 	b := p.tr.Blocks[i]
+	// Where task panes exist, a task line says that a click opens the
+	// task's pane.
+	if b.Kind == KindTaskStatus && p.watches != nil {
+		b.Text = taskLineHint(b.Text, taskIDOf(b.Arg), p.watching(taskIDOf(b.Arg)))
+	}
 	if b.Kind != KindTool {
 		return b
+	}
+	if b.Task != nil && p.watches != nil {
+		task := *b.Task
+		task.Text = taskLineHint(task.Text, taskIDOf(task.Arg), p.watching(taskIDOf(task.Arg)))
+		b.Task = &task
 	}
 	b.Expanded = p.expanded[i] && toolExpandable(b)
 	if toolSpins(b.State) {
 		b.Spinner = p.spinner()
 	}
 	return b
+}
+
+// watching reports whether the pane of task id is open.
+func (p *transcriptPane) watching(id string) bool {
+	return p.watches != nil && p.watches(id)
 }
 
 // apply adds or updates a block and redraws its item. It reports whether
@@ -154,6 +179,47 @@ func (p *transcriptPane) clickTool(x, y int) bool {
 		p.toggleTool(i)
 	}
 	return true
+}
+
+// taskLineAt returns the ID of the task whose status line is drawn at the
+// viewport position (x, y). Under a tool row, the status line is the row's
+// last rendered lines.
+func (p *transcriptPane) taskLineAt(x, y int) (string, bool) {
+	i, line, ok := p.vp.ItemAt(x, y)
+	if !ok || i >= len(p.tr.Blocks) {
+		return "", false
+	}
+	b := p.tr.Blocks[i]
+	task := taskOfLine(b)
+	if task == "" {
+		return "", false
+	}
+	if b.Kind == KindTool {
+		head := p.liveBlock(i)
+		head.Task = nil
+		if _, rows := tui.Measure(toolView(head), p.vp.Width, 0); line < rows {
+			return "", false
+		}
+	}
+	return task, true
+}
+
+// truncate keeps the first n blocks and drops the rest, with their expanded
+// rows and the menu item that pointed at them.
+func (p *transcriptPane) truncate(n int) {
+	if n >= len(p.tr.Blocks) {
+		return
+	}
+	p.tr.truncate(n)
+	for i := range p.expanded {
+		if i >= n {
+			delete(p.expanded, i)
+		}
+	}
+	if p.menuItem >= n {
+		p.menuItem = -1
+	}
+	p.vp.InvalidateAll()
 }
 
 // local returns e in the viewport's own coordinates and whether it falls

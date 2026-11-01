@@ -84,11 +84,13 @@ func (c *Controller) inspectSession(id string) {
 	c.statusGeneration++
 	generation := c.statusGeneration
 	c.mu.Unlock()
+	// The details pane's title is the command as typed.
+	title := strings.TrimSpace("/status " + id)
 	current, _ := c.eng.inspectionMetadata()
 	if id == "" && current != nil {
 		id = current.ID
 	}
-	c.notice("Loading recorded status for session %s…", id)
+	c.showDetails(title, noticeBlock("Loading recorded status for session %s…", id))
 	c.goWork(func() {
 		defer cancel()
 		var report sessionstore.Inspection
@@ -104,7 +106,7 @@ func (c *Controller) inspectSession(id string) {
 		if err != nil {
 			c.mu.Lock()
 			if generation == c.statusGeneration && ctx.Err() == nil {
-				c.emit(warnBlock("Session %s status unavailable: %v.", id, err))
+				c.showDetails(title, warnBlock("Session %s status unavailable: %v.", id, err))
 			}
 			c.mu.Unlock()
 			return
@@ -117,7 +119,7 @@ func (c *Controller) inspectSession(id string) {
 			if owned != nil {
 				owner.ID, owner.Owned = owned.ID, lease
 			}
-			c.notice("%s\n%s", text, inspectionGuidance(report, owner))
+			c.showDetails(title, noticeBlock("%s\n%s", text, inspectionGuidance(report, owner)))
 		}
 		c.mu.Unlock()
 	})

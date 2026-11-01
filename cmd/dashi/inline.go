@@ -42,6 +42,10 @@ func newInlineScreen(s *screen, output io.Writer) *inlineScreen {
 	s.clipboardOut = output
 	s.mouseEnabled = false // Native terminal selection remains available.
 	s.nativeScrollback = i.showScrollback
+	// Native scrollback cannot split, so inline mode has no panes, and task
+	// lines keep their inspect hint.
+	s.inline = true
+	s.main().watches = nil
 	return i
 }
 

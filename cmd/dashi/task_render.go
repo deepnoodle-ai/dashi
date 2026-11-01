@@ -154,8 +154,63 @@ func taskCounts(v delegate.TaskView) []string {
 	return parts
 }
 
+// taskFacts is the text of a task status line: its counts, then the
+// inspect hint. taskLineTitle relies on the hint coming last.
 func taskFacts(v delegate.TaskView) string {
-	return strings.Join(append(taskCounts(v), "/task "+v.ID+" to inspect"), " · ")
+	return strings.Join(append(taskCounts(v), taskInspectHint(v.ID)), " · ")
+}
+
+func taskInspectHint(id string) string { return "/task " + id + " to inspect" }
+
+// taskTitle is what a task pane's title row says after the task ID: the
+// state, such as "running", and the facts, such as "$0.0123 · 3 model
+// calls".
+func taskTitle(v delegate.TaskView) (state, facts string) {
+	return taskStateLabel(v), taskTitleFacts(taskCounts(v))
+}
+
+// taskLineTitle is taskTitle read from a task status line, which carries
+// the state label and the counts of the latest TaskView.
+func taskLineTitle(b Block) (state, facts string) {
+	counts := strings.TrimSuffix(strings.TrimSuffix(b.Text, taskInspectHint(taskIDOf(b.Arg))), " · ")
+	return b.Name, taskTitleFacts(strings.Split(counts, " · "))
+}
+
+// taskTitleFacts orders a task's counts for a title, which has little
+// room: the cost, then the model calls. Tool calls stay on the task line.
+func taskTitleFacts(counts []string) string {
+	var cost, calls []string
+	for _, c := range counts {
+		switch {
+		case strings.HasSuffix(c, " tool call"), strings.HasSuffix(c, " tool calls"):
+		case strings.HasSuffix(c, " model call"), strings.HasSuffix(c, " model calls"):
+			calls = append(calls, c)
+		default:
+			cost = append(cost, c)
+		}
+	}
+	return joinNonEmpty(" · ", append(cost, calls...)...)
+}
+
+// In fullscreen, a task line ends with what a click on it does instead of
+// the inspect hint: it opens the task's pane, or, while that pane is open,
+// the line says so.
+const (
+	taskWatchHint    = "click to watch"
+	taskWatchingHint = "watching"
+)
+
+// taskLineHint is the text of a task status line with its inspect hint
+// replaced by the fullscreen hint.
+func taskLineHint(text, id string, watching bool) string {
+	hint := taskWatchHint
+	if watching {
+		hint = taskWatchingHint
+	}
+	if rest, ok := strings.CutSuffix(text, taskInspectHint(id)); ok {
+		return rest + hint
+	}
+	return text
 }
 
 // deliveredItemBlocks returns a block for each message from an agent in
@@ -330,7 +385,7 @@ const taskUnderMarker = "    " + toolResultMarker
 
 // taskLineUnderText is the plain text of a status line under its tool line.
 func taskLineUnderText(b Block) string {
-	return taskUnderMarker + joinNonEmpty(" · ", b.Name, b.Text)
+	return taskUnderMarker + joinNonEmpty(" · ", taskIDOf(b.Arg), b.Name, b.Text)
 }
 
 func joinNonEmpty(sep string, parts ...string) string {
@@ -386,12 +441,18 @@ func withTaskLine(v tui.View, b Block) tui.View {
 	t := *b.Task
 	// The separator is its own view: a wrapping view drops the spaces at its
 	// edges, which would join the state and the separator where it wraps.
-	return tui.Stack(v, tui.Group(
-		tui.Text("  %s", toolResultMarker).Style(faintStyle),
+	// The task ID leads, so the line names the task the way /task ID,
+	// the pane title, and its tab do.
+	line := []tui.View{tui.Text("  %s", toolResultMarker).Style(faintStyle)}
+	if id := taskIDOf(t.Arg); id != "" {
+		line = append(line, tui.Text("%s", id).Style(mutedStyle), tui.Text(" · ").Style(faintStyle))
+	}
+	line = append(line,
 		tui.Text("%s", t.Name).Style(taskLineStyle(t.State)),
 		tui.Text(" · ").Style(faintStyle),
 		tui.Text("%s", t.Text).Wrap().Style(mutedStyle).Flex(1),
-	)).Gap(0)
+	)
+	return tui.Stack(v, tui.Group(line...)).Gap(0)
 }
 func (c *Controller) endDialog() {
 	c.mu.Lock()
@@ -575,7 +636,26 @@ func (e *Engine) inspectTask(ctx context.Context, id string) (taskSnapshot, erro
 	}
 	return taskSnapshot{}, delegate.ErrUnknownTask
 }
+
+// taskDetails is what /task ID prints: the facts of the task, then each
+// recorded tool result and child message of its current Turn.
 func taskDetails(snapshot taskSnapshot) string {
+	return taskDetailFacts(snapshot) + taskRecordedOutput(snapshot)
+}
+
+// taskPaneHeader is the line at the top of a task pane: the task's
+// description, or, without one, where its full facts are.
+func taskPaneHeader(v delegate.TaskView) string {
+	if d, _, _ := strings.Cut(strings.TrimSpace(workspace.PrintableText(v.Description)), "\n"); d != "" {
+		return d
+	}
+	return "/tasks " + v.ID + " shows the task's details."
+}
+
+// taskDetailFacts is the facts part of taskDetails: identity, state, spend,
+// limits, pending calls, approvals, and controls. The details pane shows
+// it above the task's turns for /tasks ID.
+func taskDetailFacts(snapshot taskSnapshot) string {
 	v := snapshot.View
 	var b strings.Builder
 	if !snapshot.Bound {
@@ -638,6 +718,13 @@ func taskDetails(snapshot taskSnapshot) string {
 	} else if !v.Stop.Ended {
 		fmt.Fprintf(&b, "Target controls: /task %s continue · /task %s done CALL_ID · /task %s discard\nContinue requires the recorded remedy; done requires verified completion of the exact started call.\n", snapshot.Task.ID, snapshot.Task.ID, snapshot.Task.ID)
 	}
+	return workspace.PrintableText(b.String())
+}
+
+// taskRecordedOutput lists the recorded tool results and child messages of
+// the snapshot's Turn.
+func taskRecordedOutput(snapshot taskSnapshot) string {
+	var b strings.Builder
 	for _, step := range snapshot.Turn.Steps {
 		if step.Kind == dashi.StepToolFinished && step.Tool != nil && step.Tool.Outcome != nil {
 			fmt.Fprintf(&b, "Recorded tool result: %s · call %s · %s\n%s\n", step.Tool.Call.Name, step.Tool.Call.ID, step.Tool.Outcome.State, taskDetailText(outputText(step.Tool.Outcome)))

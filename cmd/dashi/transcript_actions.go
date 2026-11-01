@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"strings"
 	"time"
 
@@ -55,6 +56,14 @@ func (s *screen) inputKey(e tui.KeyEvent) bool {
 	if s.commandMenuKey(e) {
 		return true
 	}
+	// Pane keys run on the loop, and only when no dialog owns the keys;
+	// a dialog's text field must not insert them either.
+	if isPaneKey(e) {
+		if s.mainComposerActive() {
+			s.post(inputActionEvent{at: time.Now(), key: e})
+		}
+		return true
+	}
 	// Main Escape must reach native completion before application handling.
 	if e.Key == tui.KeyEscape && !s.promptActive {
 		return false
@@ -93,6 +102,10 @@ func (s *screen) transcriptCommand(name, arg string) {
 			return
 		}
 		s.toggleMouse()
+	case "/pane":
+		s.paneCommand(arg)
+	case "/task":
+		s.openTask(arg)
 	case "/scrollback":
 		if arg != "" && arg != "raw" {
 			s.Emit(warnBlock("Usage: /scrollback [raw]"))
@@ -125,16 +138,18 @@ func (s *screen) selectedText() string {
 	return ""
 }
 
-func (s *screen) selectionHint() string {
+// selectionHint says how to copy the selection, in a long and a short
+// form, or returns empty strings when there is nothing to copy.
+func (s *screen) selectionHint() (long, short string) {
 	// A selection over only a running tool row has no text, so Ctrl+C
 	// would interrupt; offer copy only when there is text to copy.
 	if !s.mainComposerActive() || s.selectedText() == "" {
-		return ""
+		return "", ""
 	}
 	if s.ctrl.Mode() == ModeRunning || s.ctrl.Mode() == ModeApproval {
-		return "Ctrl+C copies selection · Esc stops work · F2 native selection"
+		return "Ctrl+C copies selection · Esc stops work · F2 native selection", "Ctrl+C copies · Esc stops work"
 	}
-	return "Ctrl+C copies selection · Esc clears · F2 native selection"
+	return "Ctrl+C copies selection · Esc clears · F2 native selection", "Ctrl+C copies · Esc clears"
 }
 
 func (s *screen) copySelection() bool {
@@ -183,8 +198,8 @@ func (s *screen) toggleMouse() {
 
 func (s *screen) clipboardResult(e clipboardResultEvent) {
 	if e.err == nil {
-		if p := s.panes[e.pane]; p != nil && e.result.confirmed && e.generation == s.generation && e.selectionRevision == p.selectionRevision && p.vp.SelectedText() == e.text {
-			p.vp.ClearSelection()
+		if p := s.panes.get(e.pane); p != nil && e.result.confirmed && e.generation == s.generation && e.selectionRevision == p.view.selectionRevision && p.view.vp.SelectedText() == e.text {
+			p.view.vp.ClearSelection()
 		}
 		s.Emit(Block{Kind: KindNotice, Text: e.result.notice, Done: true})
 		return
@@ -238,29 +253,66 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 	if s.transcriptMenu.HandleMouse(e) {
 		return
 	}
+	// While a dialog is open, its keys stay with it, but the pointer still
+	// reaches the panes: a click focuses a pane or opens a task, the wheel
+	// scrolls the pane under it, and a drag selects. The wheel anywhere
+	// else scrolls the dialog's details. The dialog's own clickable parts
+	// sit below the panes, so they never compete.
 	if (s.approval != nil && !s.approval.denying) || s.asking != nil || s.picker != nil {
-		// While a dialog is open, the wheel scrolls its details.
-		if vp := s.dialogViewport(); vp != nil && e.Type == tui.MouseScroll {
-			vp.ScrollBy(wheelDelta(e))
+		if e.Type == tui.MouseScroll && s.paneAt(e.X, e.Y) == nil {
+			if vp := s.dialogViewport(); vp != nil {
+				vp.ScrollBy(wheelDelta(e))
+			}
+			return
 		}
-		return
 	}
 	// Dragging a gutter between panes takes the pointer.
-	if s.split.HandleMouse(e) {
+	if s.panes.drawn == &s.panes.split && s.panes.split.HandleMouse(e) {
+		return
+	}
+	if s.paneChromeMouse(e) {
 		return
 	}
 	p := s.mousePane(e)
 	local, inside := p.local(e)
+	// The wheel scrolls the pane under the pointer without activating it.
 	if e.Type == tui.MouseScroll && inside {
 		p.vp.ScrollBy(wheelDelta(e))
 		return
 	}
+	if e.Type == tui.MousePress {
+		if under := s.paneAt(e.X, e.Y); under != nil {
+			s.activatePane(under.id)
+		}
+	}
 	if e.Type == tui.MousePress && !inside {
 		return
+	}
+	// One selection at a time: starting one clears any other pane's.
+	if e.Type == tui.MousePress && e.Button == tui.MouseButtonLeft {
+		for _, other := range s.paneList() {
+			if other != p && other.vp.HasSelection() {
+				other.clearSelection()
+			}
+		}
 	}
 	if e.Button == tui.MouseButtonRight {
 		if e.Type == tui.MouseClick && inside {
 			s.openTranscriptMenu(p, e.X, e.Y, local)
+		}
+		return
+	}
+	// A press on the "more below" mark returns the pane to live output.
+	if e.Button == tui.MouseButtonLeft && e.Type == tui.MousePress {
+		p.morePressed = image.Pt(e.X, e.Y).In(p.more)
+		if p.morePressed {
+			p.vp.ScrollToBottom()
+			return
+		}
+	}
+	if p.morePressed && e.Button == tui.MouseButtonLeft {
+		if e.Type == tui.MouseClick {
+			p.morePressed = false
 		}
 		return
 	}
@@ -270,10 +322,15 @@ func (s *screen) handleTranscriptMouse(e tui.MouseEvent) {
 	if p.vp.HandleMouse(local) {
 		return
 	}
-	if e.Type == tui.MouseClick && e.Button == tui.MouseButtonLeft && !p.clickTool(local.X, local.Y) {
-		if area, ok := s.hits.At(e.X, e.Y); ok && area == linesBelowArea {
-			s.focused().vp.ScrollToBottom()
+	if e.Type == tui.MouseClick && e.Button == tui.MouseButtonLeft {
+		// A click on a task line opens the task's pane.
+		if id, ok := p.taskLineAt(local.X, local.Y); ok {
+			s.openTask(id)
+			return
 		}
+	}
+	if e.Type == tui.MouseClick && e.Button == tui.MouseButtonLeft {
+		p.clickTool(local.X, local.Y)
 	}
 }
 

@@ -9,7 +9,8 @@ import (
 // The transcript menu is the right-click menu on a transcript item in
 // fullscreen mode. Its entries depend on the item under the pointer: a tool
 // row expands, collapses, and copies its input or output; a message, the
-// reasoning, and a diff copy their text. Every copy goes through copyText,
+// reasoning, and a diff copy their text. A finished tool row and a diff
+// also open in the details pane. Every copy goes through copyText,
 // with the same text a selection of that part would copy.
 //
 // The menu is modal while open. It takes every key and mouse event, except
@@ -19,10 +20,12 @@ import (
 
 // openTranscriptMenu opens the menu at the screen position (x, y) for the
 // item of pane p at the viewport position local. It does nothing while a
-// dialog, the command menu, or a drag holds the screen, or when the item has
-// no entries.
+// dialog's status field, the command menu, or a drag holds the screen, or
+// when the item has no entries.
 func (s *screen) openTranscriptMenu(p *transcriptPane, x, y int, local tui.MouseEvent) {
-	if !s.mainComposerActive() || p.vp.SelectionActive() || s.commandMenuMatches() != nil {
+	// A dialog's status field owns the keys a menu needs; other dialogs
+	// let the menu take them while it is open.
+	if s.dialogStatus != nil || p.vp.SelectionActive() || s.commandMenuMatches() != nil {
 		return
 	}
 	var items []tui.MenuItem
@@ -49,6 +52,18 @@ func (s *screen) openTranscriptMenu(p *transcriptPane, x, y int, local tui.Mouse
 	s.transcriptMenu.Open(x, y, "", items)
 }
 
+// taskOfLine returns the task ID of a task status line, or of the status
+// line under a tool row, or "".
+func taskOfLine(b Block) string {
+	switch {
+	case b.Kind == KindTaskStatus:
+		return taskIDOf(b.Arg)
+	case b.Kind == KindTool && b.Task != nil:
+		return taskIDOf(b.Task.Arg)
+	}
+	return ""
+}
+
 // transcriptMenuItems returns the menu entries for item i of pane p. An
 // entry appears only when it has something to act on.
 func (s *screen) transcriptMenuItems(p *transcriptPane, i int) []tui.MenuItem {
@@ -69,9 +84,18 @@ func (s *screen) transcriptMenuItems(p *transcriptPane, i int) []tui.MenuItem {
 		text, _ := p.Source(i)
 		return text
 	}
+	// A task line opens the task's pane.
+	var open []tui.MenuItem
+	if task := taskOfLine(b); task != "" {
+		open = []tui.MenuItem{{Label: "Open task", Action: func() { s.openTask(task) }}}
+	}
+	// A finished tool row or a diff opens in the details pane.
+	openInSidePane := tui.MenuItem{Label: "Show in details", Action: func() { s.openInDetails(p, i) }}
 	switch b.Kind {
+	case KindTaskStatus:
+		return open
 	case KindTool:
-		var items []tui.MenuItem
+		items := open
 		if toolExpandable(b) {
 			label := "Expand"
 			if p.expanded[i] {
@@ -91,6 +115,9 @@ func (s *screen) transcriptMenuItems(p *transcriptPane, i int) []tui.MenuItem {
 		// A running call's output is only its latest lines.
 		if toolEnded(b.State) {
 			items = append(items, copyEntry("Copy output", output)...)
+			if toolExpandable(b) {
+				items = append(items, openInSidePane)
+			}
 		}
 		return items
 	case KindUser, KindAssistant, KindSteer, KindPending, KindTaskMessage:
@@ -98,7 +125,7 @@ func (s *screen) transcriptMenuItems(p *transcriptPane, i int) []tui.MenuItem {
 	case KindReasoning:
 		return copyEntry("Copy reasoning", source)
 	case KindDiff:
-		return copyEntry("Copy diff", source)
+		return append(copyEntry("Copy diff", source), openInSidePane)
 	}
 	return nil
 }

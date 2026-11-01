@@ -16,7 +16,10 @@ import (
 )
 
 type commandEntry struct {
-	hidden                   bool
+	hidden bool
+	// fullscreen lists the command in help and completion only in
+	// fullscreen mode; elsewhere it still runs and explains itself.
+	fullscreen               bool
 	group                    string
 	name, usage, description string
 	aliases                  []string
@@ -104,7 +107,7 @@ func (c *Controller) commands() []commandEntry {
 			}
 			c.goWork(func() { c.resources(c.base) })
 		}},
-		{name: "/help", group: "Inspect", aliases: []string{"/?"}, description: "show commands, skills, and keys", run: func(string) { c.emit(c.helpBlock()) }, during: func(string) { c.emit(c.helpBlock()) }},
+		{name: "/help", group: "Inspect", aliases: []string{"/?"}, description: "show commands, skills, and keys", run: func(string) { c.help() }, during: func(string) { c.help() }},
 	}
 	_, printAttachments := c.ui.(*printUI)
 	if _, hasAttachments := c.ui.(attachmentUI); hasAttachments || printAttachments {
@@ -134,6 +137,14 @@ func (c *Controller) commands() []commandEntry {
 			entries = append(entries, commandEntry{name: display.name, group: "Transcript", usage: display.usage, description: display.description, run: action, during: action})
 		}
 	}
+	pane := func(arg string) {
+		if ui := c.panes(); ui != nil {
+			ui.PaneCommand(arg)
+		} else {
+			c.notice("Panes need fullscreen mode.")
+		}
+	}
+	entries = append(entries, commandEntry{name: "/pane", group: "Panes", usage: "ACTION", description: "fullscreen panes: close, zoom, equalize, next, focus main|ID|details", run: pane, during: pane, fullscreen: true})
 	// Discovery uses metadata only. Skill text is loaded by the existing handler.
 	if c.eng.cfg.Resources != nil {
 		if found, err := c.eng.cfg.Resources.discover(); err == nil {
@@ -217,8 +228,9 @@ func (c *Controller) dispatchCommand(line string, running bool) {
 func (c *Controller) commandNames() []string {
 	var names []string
 	var items []commandMenuItem
+	panes := c.panes() != nil
 	for _, entry := range c.commands() {
-		if entry.hidden {
+		if entry.hidden || entry.fullscreen && !panes {
 			continue
 		}
 		names = append(names, entry.name)
@@ -301,7 +313,7 @@ func (c *Controller) refreshCommandNamesLocked() {
 }
 
 // helpGroups orders the built-in command groups in help. Skills follow.
-var helpGroups = []string{"Session", "Turn", "Model", "Inspect", "Tasks", "Attachments", "Transcript"}
+var helpGroups = []string{"Session", "Turn", "Model", "Inspect", "Tasks", "Attachments", "Transcript", "Panes"}
 
 const skillGroup = "Skills"
 
@@ -310,15 +322,22 @@ func (c *Controller) helpBlock() Block {
 	return Block{Kind: KindHelp, Text: h.String(), Help: &h, Done: true}
 }
 
+// help shows /help: in the details pane in fullscreen, like the other
+// inspection output, and as a block in the transcript elsewhere.
+func (c *Controller) help() {
+	c.showDetails("/help", c.helpBlock())
+}
+
 func (c *Controller) commandHelp() string { return c.helpDoc().String() }
 
 func (c *Controller) helpDoc() helpDoc {
 	var h helpDoc
 	entries := c.commands()
+	panes := c.panes() != nil
 	for _, group := range append(slices.Clone(helpGroups), skillGroup) {
 		section := helpSection{Title: group}
 		for _, entry := range entries {
-			if entry.hidden || entry.group != group {
+			if entry.hidden || entry.group != group || entry.fullscreen && !panes {
 				continue
 			}
 			name := strings.Join(append([]string{entry.name}, entry.aliases...), ", ")
@@ -340,6 +359,16 @@ func (c *Controller) helpDoc() helpDoc {
 	_, inline := c.ui.(*inlineScreen)
 	if full || inline {
 		keys.Title = "Keys"
+	}
+	// Inline mode runs on the fullscreen screen, so only panes tell the
+	// two apart here.
+	if full && c.panes() != nil {
+		keys.Rows = append(slices.Clone(composerKeys), paneKeys...)
+		for i := range keys.Rows {
+			if keys.Rows[i].Name == "Page Up/Down" {
+				keys.Rows[i].Text = "scroll the focused pane"
+			}
+		}
 	}
 	if inline {
 		keys.Rows = slices.Clone(composerKeys)
@@ -378,6 +407,13 @@ var composerKeys = []helpRow{
 	{Name: "F2", Text: "toggle native selection without changing the draft"},
 	{Name: "Ctrl+D", Text: "delete forward; exit on an empty draft"},
 	{Name: "text, !text", Text: "while a turn runs: steer it; ! also cuts the model call"},
+}
+
+// paneKeys are the fullscreen keys that act on side panes.
+var paneKeys = []helpRow{
+	{Name: "Alt+arrows", Text: "move focus between panes; scroll keys act on the focused pane"},
+	{Name: "Alt+Z", Text: "zoom or unzoom the focused pane"},
+	{Name: "Alt+W", Text: "close the focused side pane"},
 }
 
 // Print mode has no interactive command loop. Never turn unknown slash input

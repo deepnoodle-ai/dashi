@@ -278,11 +278,11 @@ func TestComposerRunningHelpUnknownAndEditorRetry(t *testing.T) {
 	h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "Unknown command /unknown") })
 	h.typeText("/?")
 	h.key(tui.KeyEvent{Key: tui.KeyEnter})
-	h.wait(func(s transcriptState) bool { return strings.Contains(s.text, "Ctrl+D") })
+	h.wait(func(s transcriptState) bool { return strings.Contains(s.details, "Ctrl+D") })
 	h.typeText("世界 draft")
 	h.key(tui.KeyEvent{Key: tui.KeyCtrlG})
 	h.wait(func(s transcriptState) bool {
-		return s.input == "世界 draft" && strings.Contains(s.text, "press Ctrl+G again then")
+		return s.input == "世界 draft" && strings.Contains(s.main, "press Ctrl+G again then")
 	})
 	if h.app.eng.Queued() != 0 {
 		t.Fatal("running editor or slash command queued input")

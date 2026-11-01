@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -162,9 +163,41 @@ func TestDragOnTheLastTranscriptRowScrollsOnlyBelowIt(t *testing.T) {
 	mouse(tui.MouseRelease, last+1)
 }
 
-// A click on the "lines below" line returns to live output. A click on the
-// empty row between the transcript and that line does not.
-func TestClickOnLinesBelowReturnsToLiveOutput(t *testing.T) {
+// A click on the "more below" mark returns to live output, and the click
+// neither selects nor expands what is under it. A click on the row above
+// the mark does not return.
+// The "more below" mark clears a few cells to its left, so it never reads
+// as the end of the line it covers.
+func TestMoreBelowStandsApartFromTheText(t *testing.T) {
+	s := terminalVisualFixture(t, "success", 80, 24)
+	for i := range 40 {
+		s.Emit(Block{Kind: KindAssistant, Text: strings.Repeat(fmt.Sprintf("word%d ", i), 20), Done: true})
+	}
+	s.drain()
+	frameText(s)
+	s.main().vp.ScrollBy(-20)
+	// Find a scroll position whose bottom row holds text, not a gap.
+	var row []rune
+	x := -1
+	for range 4 {
+		rows := strings.Split(frameText(s), "\n")
+		row = []rune(rows[transcriptRow(t, strings.Join(rows, "\n"), "more · Ctrl+End")])
+		x = slices.Index(row, '↓')
+		if x > moreGap+1 && strings.TrimSpace(string(row[:x-moreGap-1])) != "" {
+			break
+		}
+		x = -1
+		s.main().vp.ScrollBy(-1)
+	}
+	if x < 0 {
+		t.Fatal("no bottom row with text under the mark")
+	}
+	if gap := string(row[x-moreGap-1 : x-1]); strings.TrimSpace(gap) != "" {
+		t.Fatalf("the mark touches the text: %q", string(row))
+	}
+}
+
+func TestClickOnMoreBelowReturnsToLiveOutput(t *testing.T) {
 	h := newScreenHarness(t, 0)
 	s := h.scr
 	h.mu.Lock()
@@ -178,18 +211,22 @@ func TestClickOnLinesBelowReturnsToLiveOutput(t *testing.T) {
 	}
 	render()
 	s.main().vp.ScrollBy(-20)
-	y := transcriptRow(t, render(), "lines below")
-	click := func(y int) {
-		s.HandleEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, X: 3, Y: y})
+	frame := render()
+	y := transcriptRow(t, frame, "↓ 20 more · Ctrl+End")
+	x := strings.Index(strings.Split(frame, "\n")[y], "↓")
+	click := func(x, y int) {
+		s.HandleEvent(tui.MouseEvent{Type: tui.MousePress, Button: tui.MouseButtonLeft, X: x, Y: y})
+		s.HandleEvent(tui.MouseEvent{Type: tui.MouseRelease, Button: tui.MouseButtonLeft, X: x, Y: y})
+		s.HandleEvent(tui.MouseEvent{Type: tui.MouseClick, Button: tui.MouseButtonLeft, ClickCount: 1, X: x, Y: y})
 		render()
 	}
-	click(y - 1)
+	click(x, y-1)
 	if s.main().vp.AtBottom {
-		t.Fatal("a click on the empty row above the indicator returned to live output")
+		t.Fatal("a click above the mark returned to live output")
 	}
-	click(y)
-	if !s.main().vp.AtBottom {
-		t.Fatal("a click on the indicator did not return to live output")
+	click(x, y)
+	if !s.main().vp.AtBottom || s.main().vp.HasSelection() {
+		t.Fatal("a click on the mark did not return to live output cleanly")
 	}
 }
 
@@ -729,7 +766,7 @@ func TestComposerShortcutsYieldToDialogs(t *testing.T) {
 			case "status":
 				s.dialogStatus = &dialogStatusInput{}
 			}
-			if s.selectionHint() != "" {
+			if hint, _ := s.selectionHint(); hint != "" {
 				t.Fatal("dialog advertises main-composer shortcut")
 			}
 			s.key(tui.KeyEvent{Key: tui.KeyF2})
