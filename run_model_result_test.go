@@ -1,6 +1,7 @@
 package dashi
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -148,5 +149,41 @@ func TestProviderContextLimitRecordsTypedLimitAndEnds(t *testing.T) {
 		out.Stop.Limit.Kind != LimitContextWindow || !out.Stop.Ended ||
 		out.Next() != NextNone {
 		t.Fatalf("stop=%+v err=%v", out.Stop, err)
+	}
+}
+
+// A reply cut off at its max_tokens setting stops limited with
+// StopReasonMaxTokens and no Limit, so a host cannot mistake it for the
+// turn's output-token budget. Continue sends a new call after the cut-off
+// reply, and a BeforeModel hook can raise max_tokens for it.
+func TestMaxTokensReplyStopsLimited(t *testing.T) {
+	cut := final("partial")
+	cut.Stop = llm.Stop{Kind: llm.StopOutputLimit, Raw: "max_tokens"}
+	client := &scriptedClient{results: []llm.Result{cut, final("done")}}
+	rec := NewMemoryRecorder()
+	first, err := start(t, client, nil, rec, Hooks{})
+	if err != nil || first.Stop.Kind != StopLimited ||
+		first.Stop.Reason != StopReasonMaxTokens || first.Stop.Limit != nil ||
+		first.Stop.Ended || !first.ReadyToContinue || first.Next() != NextFix {
+		t.Fatalf("first: stop=%+v ready=%t next=%s err=%v",
+			first.Stop, first.ReadyToContinue, first.Next(), err)
+	}
+	raise := ModelHook{Name: "raise", Func: func(_ context.Context, plan ModelPlan) (ModelDecision, error) {
+		settings := plan.Input.Settings
+		settings.MaxTokens = 4096
+		return ModelDecision{Settings: &settings}, nil
+	}}
+	second, err := (Runner{Client: client, Recorder: rec}).Run(
+		t.Context(), first.Turn, Continue{CommandID: "again"}, WithHooks(raise.Hooks()),
+	)
+	if err != nil || second.Stop.Kind != StopCompleted || client.sends != 2 {
+		t.Fatalf("second: stop=%+v err=%v sends=%d", second.Stop, err, client.sends)
+	}
+	in := client.inputs[1]
+	last := in.Messages[len(in.Messages)-1]
+	if in.Settings.MaxTokens != 4096 || last.Role != llm.RoleAssistant ||
+		last.Text() != "partial" {
+		t.Fatalf("second input: max_tokens=%d last=%s %q",
+			in.Settings.MaxTokens, last.Role, last.Text())
 	}
 }

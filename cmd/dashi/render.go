@@ -544,6 +544,9 @@ func limitText(st *dashi.Stop) string {
 			st.Limit.Used,
 		)
 	}
+	if st.Limit == nil && st.Reason == dashi.StopReasonMaxTokens {
+		return "The reply reached its max_tokens setting and was cut off. Raise it with /max-tokens, then send a new prompt."
+	}
 	return "Stopped at a limit: " + orDefault(st.Reason, "unknown") + "."
 }
 

@@ -1319,6 +1319,7 @@ func TestHookStopCannotUseReservedReasons(t *testing.T) {
 	for _, reason := range []string{
 		StopReasonHookFailed, StopReasonCompactionFailed,
 		StopReasonEmptyResponse, StopReasonIncompleteModelResult,
+		StopReasonMaxTokens,
 	} {
 		fake := ModelHook{Name: "fake", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
 			return ModelDecision{Stop: &Stop{Kind: StopFailed, Reason: reason}}, nil

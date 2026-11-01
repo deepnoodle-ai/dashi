@@ -637,7 +637,7 @@ func reservedStopReason(reason string) bool {
 	case StopReasonHookFailed, StopReasonOutputRejected, StopReasonToolFatal,
 		StopReasonToolOutcomeInvalid, StopReasonCompactionFailed,
 		StopReasonEmptyResponse, StopReasonIncompleteModelResult,
-		StopReasonContentNoLoader,
+		StopReasonMaxTokens, StopReasonContentNoLoader,
 		StopReasonContentUnavailable, StopReasonContentTooLarge,
 		StopReasonContentSizeMismatch, StopReasonContentHashMismatch:
 		return true

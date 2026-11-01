@@ -146,7 +146,7 @@ func (r *runtime) classify(result llm.Result) (RunResult, bool) {
 	case llm.StopRefusal:
 		return r.stop(StopRefused, result.Stop.Raw), false
 	case llm.StopOutputLimit:
-		return r.stop(StopLimited, string(LimitOutputTokens)), false
+		return r.stop(StopLimited, StopReasonMaxTokens), false
 	case llm.StopContextLimit:
 		return r.stop(StopLimited, string(LimitContextWindow)), false
 	case llm.StopFinished, llm.StopOther:

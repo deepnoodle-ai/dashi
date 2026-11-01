@@ -340,6 +340,8 @@ type Stop struct {
 	// StopReasonContent... codes. Otherwise it is empty.
 	RefID string `json:"ref_id,omitempty"`
 	// Limit enables callers to handle a limited stop without parsing Reason.
+	// It is nil on a limited stop only when one model reply reached its
+	// max_tokens setting (Reason StopReasonMaxTokens).
 	Limit *LimitDetail `json:"limit,omitempty"`
 	// Ended means the turn has ended: no command can run it again,
 	// whatever the host resolves or raises. It is true for completed and
@@ -412,6 +414,15 @@ const (
 	// that Dashi does not recognize, so the result may be cut short.
 	StopReasonIncompleteModelResult = "incomplete_model_result"
 )
+
+// StopReasonMaxTokens is the reason for a StopLimited turn whose last model
+// reply reached its max_tokens setting (llm.StopOutputLimit) and was cut
+// off. The turn's token Budget is not involved, so Stop.Limit is nil, the
+// stop does not end the turn, and Next is NextFix. The cut-off reply stays
+// in the turn. Continue sends a new model call with the same settings and
+// the cut-off reply as the last message; to send a larger max_tokens,
+// return Settings from a BeforeModel hook.
+const StopReasonMaxTokens = "max_tokens"
 
 // Stop reasons for a StopFailed turn that a content reference stopped. Stop.RefID
 // names the reference. The stop does not end the turn. The runner asks the

@@ -58,6 +58,13 @@ the model has prices in that currency and calls with default settings have a
 finite worst case; provider tools and one-hour cache writes without a price can
 still leave a specific call unbounded.
 
+A stop at the output-token cap has `Limit.Kind` `output_tokens` and `Next`
+`NextRaiseBudget`. A single reply cut off at its own `MaxTokens` is different:
+it stops `limited` with reason `max_tokens` (`dashi.StopReasonMaxTokens`), a
+nil `Limit`, and `NextFix`, because no budget was involved. `Continue` sends a
+new call after the cut-off reply with the same settings; a `BeforeModel` hook
+can return larger `Settings.MaxTokens` for it.
+
 `RunResult.Spend` (or `turn.View()` for a loaded turn) contains token
 totals, model costs by currency, a count of calls without final usage, and
 counts of calls with unknown or incompatible-currency model cost. A call that

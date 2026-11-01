@@ -191,6 +191,11 @@ func TestRenderStopKinds(t *testing.T) {
 			"Stopped after 40 model calls. Press Enter or type /continue to go on.",
 		},
 		{
+			"max tokens",
+			dashi.Stop{Kind: dashi.StopLimited, Reason: dashi.StopReasonMaxTokens},
+			"The reply reached its max_tokens setting and was cut off. Raise it with /max-tokens, then send a new prompt.",
+		},
+		{
 			"other limit",
 			dashi.Stop{Kind: dashi.StopLimited, Reason: "deadline"},
 			"Stopped at a limit: deadline.",

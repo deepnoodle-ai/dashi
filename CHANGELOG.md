@@ -45,6 +45,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **A reply cut off at its `max_tokens` setting no longer looks like a
+  budget stop.** It stops `limited` with the new reason
+  `StopReasonMaxTokens` (`"max_tokens"`) and a nil `Stop.Limit`, and `Next`
+  is still `NextFix`. Before, its reason was `output_tokens`, the same
+  string as the `LimitOutputTokens` budget cap, so a host that read the
+  reason as a `LimitKind` took every cut-off reply for a spent budget. The
+  CLI now says the reply was cut off and points to `/max-tokens`. A hook
+  cannot stop a turn with this reason.
+- **`tool.Outcome.Data` docs cover waiting calls.** A `StateWaiting` or
+  `StateDetached` outcome keeps its `Data`, such as the job it waits on,
+  and hosts read it from `RunResult.Pending[i].Tool.Outcome.Data`; the
+  rule that drops `Data` when the model sees a changed result applies only
+  to final outcomes.
 - **CLI fixes from Wonton v0.13.0.** Alt+Left and Alt+Right no longer act
   as Escape in terminals that send them as `ESC ESC [ D`. The inline CLI's
   live area redraws cleanly after the window narrows.
