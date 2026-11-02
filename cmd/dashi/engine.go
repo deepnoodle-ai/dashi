@@ -21,7 +21,7 @@ import (
 
 // defaultModelCalls is the model-call limit of one turn. Coding reads many
 // files, and Dashi's own default of 8 stops too early.
-const defaultModelCalls = 40
+const defaultModelCalls = 100
 
 // EngineConfig holds what an Engine needs.
 type EngineConfig struct {
@@ -34,7 +34,7 @@ type EngineConfig struct {
 	Preferences *cliPreferences
 	Resources   *resourceManager
 	MCP         *mcpRuntime
-	// ModelCalls is the per-turn model-call limit; zero means 40.
+	// ModelCalls is the per-turn model-call limit; zero means 100.
 	ModelCalls int
 	// CompactionThreshold is the token count at which history is compacted;
 	// zero means the compaction default.

@@ -102,7 +102,7 @@ continuation, sending results, or successful print completion.
 `/tasks` reports parent, child, and inclusive spend from records, counting each
 child Turn once. Model money and tool money stay separate; unknown charges,
 unpriced work, calls without final usage, and incomplete usage remain explicit. Running
-values are lower bounds. Explore has 24 model calls and General has 32;
+values are lower bounds. Explore and General each have 100 model calls;
 neither has a monetary cap. Any configured parent cap excludes children. This
 slice adds no budget flag, queue cap, or family cap.
 

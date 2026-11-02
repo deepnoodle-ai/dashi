@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- The `delegate.Explore` and `delegate.General` subagents now allow 100 model
+  calls, up from 24 and 32. The CLI's turn limit rises from 40 to 100.
+
 ## [0.16.0] - 2026-11-01
 
 ### Added

@@ -2490,3 +2490,11 @@ func TestTaskToolsAreLocal(t *testing.T) {
 		}
 	}
 }
+
+func TestBuiltInSubagentsAllow100ModelCalls(t *testing.T) {
+	for _, sub := range []delegate.Subagent{delegate.Explore(), delegate.General()} {
+		if got := sub.Agent.Limits.ModelCalls; got != 100 {
+			t.Errorf("%s model calls = %d, want 100", sub.Name, got)
+		}
+	}
+}

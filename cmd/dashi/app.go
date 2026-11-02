@@ -27,7 +27,7 @@ type appConfig struct {
 	Preferences   *cliPreferences
 	InvocationDir string
 	MCPFiles      []string
-	// ModelCalls overrides the per-turn model-call limit; zero means 40.
+	// ModelCalls overrides the per-turn model-call limit; zero means 100.
 	ModelCalls int
 	// ApproveAll approves every tool call without asking.
 	ApproveAll bool
