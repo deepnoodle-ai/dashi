@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-01
+
 ### Changed
 
 - The `delegate.Explore` and `delegate.General` subagents now allow 100 model
