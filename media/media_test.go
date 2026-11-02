@@ -212,6 +212,53 @@ func TestResultCloneCopiesRawUsage(t *testing.T) {
 	}
 }
 
+func TestResultValidateChecksVideoUsage(t *testing.T) {
+	base := Result{
+		Kind: KindVideo,
+		Content: []content.Block{
+			content.VideoBlock(content.Source{
+				Data:     []byte{1},
+				MIMEType: "video/mp4",
+			}),
+			content.TextBlock("caption"),
+		},
+		Requested: model.ModelRef{Provider: "test", Model: "veo"},
+		API:       "videos",
+		VideoUsage: []VideoUsage{{
+			ContentIndex: 0,
+			Duration:     8 * time.Second,
+			Width:        1920,
+			Height:       1080,
+			Resolution:   "1080p",
+			Audio:        true,
+		}},
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("valid video usage rejected: %v", err)
+	}
+	for name, usage := range map[string][]VideoUsage{
+		"index out of range": {{ContentIndex: 2}},
+		"negative index":     {{ContentIndex: -1}},
+		"not a video block":  {{ContentIndex: 1}},
+		"duplicate index":    {{ContentIndex: 0}, {ContentIndex: 0}},
+		"negative duration":  {{ContentIndex: 0, Duration: -1}},
+		"negative width":     {{ContentIndex: 0, Width: -1}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := base
+			result.VideoUsage = usage
+			if err := result.Validate(); err == nil {
+				t.Fatal("invalid video usage accepted")
+			}
+		})
+	}
+	clone := base.Clone()
+	clone.VideoUsage[0].Width = 1
+	if base.VideoUsage[0].Width != 1920 {
+		t.Fatal("video usage was shared")
+	}
+}
+
 func TestStoredOutputPreservesProviderFileAndPublicURL(t *testing.T) {
 	expires := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	result := Result{

@@ -61,6 +61,12 @@ func (p *MediaClient) PrepareVideo(
 			"Veo 2 and Veo 3 models are retired from the Gemini API",
 		)
 	}
+	if in.Settings.DisableAudio {
+		return media.VideoRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Veo on the Gemini API cannot turn audio off",
+		)
+	}
 	if in.Settings.Size.Width != 0 || len(in.ReferenceFrames) > 1 {
 		return media.VideoRequest{}, p.failure(
 			media.ErrorUnsupported,

@@ -118,7 +118,10 @@ const (
 
 // JobPoll records one provider status observation. Content holds output
 // references when a provider returns them; a fetch step resolves those refs or
-// retrieves the output from the job ID. Failure is provider-reported detail.
+// retrieves the output from the job ID. Some providers return the output
+// bytes inline in the finished status, and then Content holds them; persist
+// the Job for restart, not a succeeded poll. Failure is provider-reported
+// detail.
 type JobPoll struct {
 	Job     Job             `json:"job"`
 	State   JobState        `json:"state"`
