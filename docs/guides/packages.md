@@ -72,11 +72,23 @@ only the standard library and stay in the root module.
 
 ## Media and speech status
 
-Media has provider clients for Gemini image generation/editing and Veo video
-jobs, xAI image generation/editing and video jobs, and OpenAI image
-generation/editing. The clients prepare exact JSON or multipart request bodies
-before sending. A video submission records an accepted, rejected, or unknown
-result; an unknown result must be checked with the provider before any retry.
+Media has provider clients for Gemini image generation/editing, Veo video
+jobs on Vertex AI (`gemini.NewVertexVideoJobs`), xAI image generation/editing
+and video jobs, and OpenAI image generation/editing. The clients prepare exact
+JSON or multipart request bodies before sending. A video submission records an
+accepted, rejected, or unknown result; an unknown result must be checked with
+the provider before any retry.
+
+Vertex Veo returns the video inside the finished job, so a succeeded
+`PollVideo` carries the bytes: persist the `media.Job`, not the poll, and store
+the bytes once from `FetchVideo`'s result. Each fetched video has a
+`media.Result.VideoUsage` entry measured from the MP4: the video track's
+length (not rounded; the host chooses how to bill partial seconds), frame
+size, resolution tier, and whether it has an audio track. A video Dashi
+cannot measure has no entry; bill it from the recorded request. Audio is on
+by default; `media.VideoSettings.DisableAudio` asks for a silent, cheaper
+video. The `veo-3.1-fast-generate-001` model info allows 4k, but Google's
+model page omits it and nobody has tested it.
 
 `speech` still defines values and capabilities; speech stream transports await
 adapter qualification.

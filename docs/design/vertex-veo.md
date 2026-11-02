@@ -1,6 +1,6 @@
 # Vertex Veo video jobs
 
-**Status:** Draft · **Author:** Claude · **Date:** 2026-11-02\
+**Status:** Approved · **Author:** Claude · **Date:** 2026-11-02\
 **PRD:** [vertex-veo](../prds/vertex-veo.md)
 
 ## Context
@@ -182,6 +182,13 @@ from fixtures, and the token headers. Fixture MP4s are built in the tests by
 `internal/mp4/mp4test`; no third-party files are checked in. `internal/mp4`
 also has a fuzz test. One live test (`//go:build live`, about $0.96) makes
 an 8 s 1080p Fast video with audio and checks the usage.
+
+**Live result (2026-11-02):** passed in 94 s. The operation name used the
+project ID. The done operation held inline bytes. Usage: 8 s, 1920×1080,
+"1080p", audio true; ffprobe agrees (h264 8.000 s, AAC 8.000 s). The run
+used a gcloud access token in a supplied `Client`, because the local ADC
+needed reauthentication; Dashi's ADC token path is covered by contract
+tests only.
 
 ## Tradeoffs
 

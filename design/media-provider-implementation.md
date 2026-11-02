@@ -17,7 +17,7 @@ model calls. Current documented routes include:
 | --- | --- | --- |
 | OpenAI | [Images API](https://developers.openai.com/api/docs/guides/image-generation) with GPT Image 2.5 Sunburst/Flare; Responses image generation provider tool | [Videos API shut down](https://developers.openai.com/api/docs/deprecations) September 24, 2026 |
 | Grok | [Imagine 2.0](https://docs.x.ai/developers/model-capabilities/images/generation) generate/edit; Responses [image generation provider tool](https://docs.x.ai/developers/tools/image-generation) | [Imagine Video 1.5](https://docs.x.ai/developers/model-capabilities/video/generation) generation, edit, and extension jobs |
-| Gemini | [Nano Banana](https://ai.google.dev/gemini-api/docs/image-generation) via Interactions, plus GenerateContent | [Omni Flash](https://ai.google.dev/gemini-api/docs/omni) inline calls and URI-delivered jobs; [Veo 3.1](https://ai.google.dev/gemini-api/docs/veo) jobs |
+| Gemini | [Nano Banana](https://ai.google.dev/gemini-api/docs/image-generation) via Interactions, plus GenerateContent | [Omni Flash](https://ai.google.dev/gemini-api/docs/omni) inline calls and URI-delivered jobs; [Veo 3.1 on Vertex AI](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/veo/3-1-generate) jobs (`NewVertexVideoJobs`); the Gemini API Veo route lost Veo 3.1 on 2026-10-22 |
 
 Gemini conversational editing still needs a qualified history and video-source
 contract. Veo supports the basic generation job; frame-role controls are not
@@ -76,5 +76,13 @@ submit, poll, and Files download. `gemini-omni-1.1-flash` returned valid 360p
 MP4 video through both inline and URI-delivered paths. URI delivery requires
 `store=true` and creates provider-owned state; the host still owns downloaded
 artifacts. The opt-in tests are in `providers/google/gemini/*_live_test.go`.
-Other models, higher resolutions, Vertex credentials, and conversational
-editing remain unqualified.
+Other Gemini API models, higher resolutions, and conversational editing
+remain unqualified.
+
+On 2026-11-02, `veo-3.1-fast-generate-001` on Vertex (us-central1) completed
+an 8 s 1080p job with audio through submit, `fetchPredictOperation`, and the
+inline bytes. `VideoUsage` measured 8 s, 1920×1080, and an audio track; the
+operation name used the project ID. The run used a gcloud access token in a
+supplied Client because the local ADC needed reauthentication, so Dashi's
+own ADC token path is covered by contract tests only. Veo 3.1 (non-Fast),
+Lite, 4k, 9:16, first frames, and `global` remain unqualified on Vertex.
