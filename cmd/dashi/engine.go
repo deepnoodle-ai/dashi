@@ -21,7 +21,7 @@ import (
 
 // defaultModelCalls is the model-call limit of one turn. Coding reads many
 // files, and Dashi's own default of 8 stops too early.
-const defaultModelCalls = 40
+const defaultModelCalls = 100
 
 // EngineConfig holds what an Engine needs.
 type EngineConfig struct {

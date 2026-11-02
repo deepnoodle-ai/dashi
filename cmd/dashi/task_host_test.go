@@ -729,11 +729,11 @@ func TestTaskReopenInspectRecordedChildWithoutAvailableBinding(t *testing.T) {
 }
 
 func TestTaskModelCallLimitRequiresExactConfirmedRaise(t *testing.T) {
-	client := &taskFixtureClient{loopUntil: 32}
+	client := &taskFixtureClient{loopUntil: 100}
 	questions := 0
 	ui := &questionFixtureUI{recorderUI: newRecorderUI(), ask: func(_ context.Context, q Question) (questionAnswer, error) {
 		questions++
-		if !strings.Contains(q.Prompt, "from 32 to 64") || !strings.Contains(q.Prompt, "not a dollar cap") {
+		if !strings.Contains(q.Prompt, "from 100 to 200") || !strings.Contains(q.Prompt, "not a dollar cap") {
 			t.Error(q.Prompt)
 		}
 		return questionAnswer{choices: []int{1}}, nil
@@ -742,13 +742,13 @@ func TestTaskModelCallLimitRequiresExactConfirmedRaise(t *testing.T) {
 	if _, err := a.eng.Prompt(t.Context(), "delegate"); err != nil {
 		t.Fatal(err)
 	}
-	// The child must finish all 32 recorded calls before it asks for a
+	// The child must finish all 100 recorded calls before it asks for a
 	// limit raise. Wait observes that stop without polling its live view.
 	var attention *delegate.AttentionError
 	if _, err := a.eng.taskHost().tasks.Wait(t.Context()); !errors.As(err, &attention) {
 		t.Fatalf("want task attention at the model-call limit, got %v", err)
 	}
-	if len(attention.Tasks) != 1 || attention.Tasks[0].State != delegate.TaskState(dashi.StopLimited) || attention.Tasks[0].ModelCalls != 32 {
+	if len(attention.Tasks) != 1 || attention.Tasks[0].State != delegate.TaskState(dashi.StopLimited) || attention.Tasks[0].ModelCalls != 100 {
 		t.Fatalf("limit attention=%+v", attention.Tasks)
 	}
 	task := attention.Tasks[0]

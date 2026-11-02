@@ -432,5 +432,5 @@ func (c *Controller) taskSpend() {
 	if c.eng.handle() != chat {
 		return
 	}
-	c.spendNotice("Session %s spend (live lower bounds while work runs):\nParent: %s\nChildren: %s\nInclusive: %s\nParent and child money/tool costs remain separate. Recorded parent caps exclude children. Explore: 24 model calls; General: 32 model calls; no child monetary cap.", chat.ID, parent.String(), children.String(), parent.Add(children).String())
+	c.spendNotice("Session %s spend (live lower bounds while work runs):\nParent: %s\nChildren: %s\nInclusive: %s\nParent and child money/tool costs remain separate. Recorded parent caps exclude children. Explore: 100 model calls; General: 100 model calls; no child monetary cap.", chat.ID, parent.String(), children.String(), parent.Add(children).String())
 }
