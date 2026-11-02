@@ -34,13 +34,19 @@ The host records the snapshot before dispatch and decides durable storage for
 generated output.
 Provider-stored files and public URLs are recorded per generated block, with
 their own lifetimes and partial failures; they do not become host artifacts.
-Provider usage is retained as raw JSON until shared billing units are qualified.
+Provider usage is retained as raw JSON. `Result.VideoUsage` is the first
+shared billing unit: per video, the video track's length, frame size,
+resolution tier, and audio track, measured from the file because Vertex
+Veo states none of them ([Vertex Veo](../docs/prds/vertex-veo.md)).
 
 Video submission returns accepted, rejected, or unknown. A transport failure
 or ambiguous server response is unknown unless the provider proves rejection.
 Neither a retry hint nor a local timeout authorizes resubmission. Polling is a
 read-only observation of a known handle; fetching output is a separate step
-that can fail and be retried independently. Provider-specific checks of an
+that can fail and be retried independently. One exception: when the done
+operation already holds the output, as on Vertex Veo, the succeeded poll
+carries it and fetch only checks and measures. Hosts persist the job
+handle, not succeeded poll bodies. Provider-specific checks of an
 unknown submission against provider state, or idempotency, can be added only
 when documented and qualified.
 

@@ -42,7 +42,9 @@ type VertexVideoConfig struct {
     Provider        string // "" means "google-vertex"
     Project         string // "" means GOOGLE_CLOUD_PROJECT
     // "" means GOOGLE_CLOUD_LOCATION, then GOOGLE_CLOUD_REGION, then
-    // "us-central1", the region on Google's Veo model page.
+    // "us-central1", the only region Google documents for Veo. A value
+    // that resolves to "global" becomes "us-central1"; any other value is
+    // used as given.
     Location        string
     CredentialScope string // "" means "project:" + Project
     Endpoint        string // "" means the documented predictLongRunning URL
@@ -78,6 +80,9 @@ type VideoSettings struct {
 // Result.Content.
 type VideoUsage struct {
     ContentIndex int           `json:"content_index"`
+    // Duration is the video track's length with its edit list applied.
+    // A longer audio track does not extend it. It is not rounded; the
+    // host chooses how to round it for billing.
     Duration     time.Duration `json:"duration"`
     Width        int           `json:"width"`
     Height       int           `json:"height"`
@@ -104,6 +109,9 @@ duplicate index, nonnegative values. `Clone` copies the slice.
 No new credential source. Two helpers move out of `gemini.New` and
 `newSDKClient` so both clients share them:
 
+- `vertexLocation(location)`: the env fallbacks, then us-central1;
+  `global` becomes us-central1 (warn and adjust, as the house rule
+  says), because Google documents Veo only there.
 - `vertexHost(location)`: global → `aiplatform.googleapis.com`; us, eu →
   `aiplatform.{loc}.rep.googleapis.com`; other → `{loc}-aiplatform.googleapis.com`.
 - `vertexCredentials()`: `credentials.DetectDefault` with the
@@ -172,8 +180,10 @@ apply the Gemini API rule "1080p and 4k need 8 s"; no Vertex doc states
 it, and a wrong rejection would block a valid video. Then the model
 info check runs (`VideoCapabilities.Check`).
 
-Built-in model info (`EvidenceDocumentation`, owner "dashi", dated
-2026-11-02, endpoint resolved for the configured project and location):
+Built-in model info (owner "dashi", dated 2026-11-02, endpoint resolved
+for the configured project and location; `EvidenceDocumentation` except
+Fast, which is `EvidenceInference` with source "model page; 4k from
+price-list copies, untested"):
 
 | Model | Resolutions | Frames |
 | --- | --- | --- |
@@ -182,8 +192,10 @@ Built-in model info (`EvidenceDocumentation`, owner "dashi", dated
 | `veo-3.1-lite-generate-001` | 720p, 1080p | unknown |
 
 All: generate supported; edit and extend unsupported (not built);
-durations 4, 6, 8 s; 16:9 and 9:16; video/mp4. Fast lists 4k because
-Google prices it, although its model page omits it. Lite's frames are
+durations 4, 6, 8 s; 16:9 and 9:16; video/mp4. Fast allows 4k but is
+marked untested: its model page omits 4k, the text-to-video page says
+"4k (Veo 3.1 Preview models only)", and only copies of the price list
+show a Fast 4k price. The model info doc and guide say so. Lite's frames are
 unknown because its page contradicts itself. `VideoModels` entries win
 over built-in ones.
 
@@ -199,12 +211,14 @@ Decoding:
 | `error` set | `JobFailed`, message or "code N" |
 | `videos[]` with `bytesBase64Encoded` | `JobSucceeded`, inline `VideoBlock`s |
 | no videos, `raiMediaFilteredCount` > 0 | `JobFailed`, "blocked by safety filters: <reasons>" |
-| a video with only `gcsUri` | `ErrorProtocol` (Dashi never sets `storageUri`) |
+| a video with only `gcsUri` | `ErrorProtocol` (Dashi never sets `storageUri`; the live test fails) |
 | `name` differs from the job | `ErrorProtocol` |
 
 A missing `mimeType` means video/mp4; a non-video type is
-`ErrorProtocol`. The succeeded poll carries the bytes, so a host that
-records polls should store the bytes once, from the result.
+`ErrorProtocol`. The succeeded poll carries the bytes. This changes the
+documented rule that a poll only observes and a fetch gets the output.
+The `PollVideo` doc comment tells hosts to persist the job handle, not
+a succeeded poll body, and to store the bytes once, from the result.
 
 ### 6. Fetch and usage
 
@@ -217,10 +231,13 @@ type Info struct { Duration time.Duration; Width, Height int; Audio bool }
 func Probe(data []byte) (Info, error)
 ```
 
-`Probe` walks the boxes to `moov`: `mvhd` (version 0 or 1) gives
-duration over timescale; each `trak`'s `mdia/hdlr` gives the handler;
-the first `vide` track's `tkhd` gives width and height (16.16); any
-`soun` track sets `Audio`. It handles 64-bit and to-end box sizes,
+`Probe` walks the boxes to `moov`. Duration comes from the first `vide`
+track, not `mvhd`, which holds the longest track (AAC audio often runs
+20 to 50 ms past the video). With an `edts/elst`, it is the sum of the
+non-empty edits' segment durations (in `mvhd` timescale); without one,
+the track's `mdhd` duration over the `mdhd` timescale (version 0 or 1).
+Each `trak`'s `mdia/hdlr` gives the handler; the `vide` track's `tkhd`
+gives width and height (16.16); any `soun` track sets `Audio`. It handles 64-bit and to-end box sizes,
 limits depth and box count, and returns an error for a missing `moov`,
 a missing video track, or a zero timescale. On success FetchVideo sets
 `Video.Duration` and adds a `VideoUsage`; on error it adds neither and
@@ -231,9 +248,11 @@ still returns the video.
 - `gemini.MediaClient` (Gemini API Veo) and the Interactions video
   clients reject `DisableAudio` with `ErrorUnsupported`: they cannot
   encode it.
-- Grok `imagine` maps `DisableAudio` to `generate_audio: false` under the
-  existing grok-imagine-video-1.5 rule. With `VideoOptions.GenerateAudio`
-  set to true as well, PrepareVideo fails.
+- Grok `imagine` removes `VideoOptions.GenerateAudio` (no shim; Dashi has
+  no users) and maps `DisableAudio` to `generate_audio: false` under the
+  existing grok-imagine-video-1.5 rule. Unset means omit the field.
+- `gemini.NewMedia`'s doc comment points Veo callers to
+  `NewVertexVideoJobs`.
 
 ### 8. Errors
 
@@ -255,7 +274,8 @@ Contract tests (`media_vertex_video_test.go`, httptest server with a
 supplied `Client`):
 
 - Construction: env fallbacks, default host per location, us-central1
-  default, endpoint scope check, custom host without `Client` refused,
+  default, `global` from config or env adjusted to us-central1, an
+  explicit `europe-west4` kept, endpoint scope check, custom host without `Client` refused,
   built-in models present and overridable.
 - Request body golden JSON: text, frame, `DisableAudio`, Veo 2 omits
   `generateAudio`; rejections from section 4; 4 s 1080p accepted.
@@ -263,13 +283,16 @@ supplied `Client`):
   foreign location, model, or extra segment rejected; status → state.
 - Poll: each row of the section 5 table; poll body names the job; URL is
   the configured one.
-- Fetch: usage from fixture MP4s (720p silent, 1080p with audio, 9:16);
+- Fetch: usage from fixture MP4s (720p silent, 1080p with audio, 9:16,
+  and one whose audio track is longer than its video, with and without
+  an edit list: `Duration` is the video track's);
   an unparsable file returns the video without usage; no request sent.
 - Credentials: a fake token source sets `Authorization` and
   `X-Goog-User-Project`; a supplied `Client` gets no token.
 - `internal/mp4`: fixtures, truncated and looping boxes, and a fuzz test.
 - `media`: `VideoUsage` validation and clone; Grok and Gemini API
-  `DisableAudio` handling.
+  `DisableAudio` handling; Grok wire tests move from `GenerateAudio` to
+  `DisableAudio`.
 
 Live test (`media_vertex_video_live_test.go`, `//go:build live`), one
 paid call of about $0.96: skips unless `DASHI_LIVE_VERTEX_VIDEO_TEST=1`;
@@ -277,26 +300,26 @@ needs `GOOGLE_CLOUD_PROJECT` (run with
 `GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)`), ADC, and
 optional `GOOGLE_CLOUD_LOCATION`. It submits `veo-3.1-fast-generate-001`,
 8 s, 1080p, 16:9, audio on; polls every 10 s for up to 6 minutes; and
-checks usage: 7.5–8.5 s, 1920×1080, "1080p", `Audio` true. It logs the
-operation name form. `DASHI_LIVE_VERTEX_VEO_JOB_ID` resumes a job
+checks usage: `Duration` within one frame (1/24 s) of 8 s, 1920×1080,
+"1080p", `Audio` true. A done operation with only `gcsUri` fails the
+test. It logs the operation name form. `DASHI_LIVE_VERTEX_VEO_JOB_ID` resumes a job
 without a new submission. Run once, before the implementation PR.
 
 ## Alternatives considered
 
-- **`MediaConfig.Vertex`.** One constructor, but image calls on that
-  client would fail, and API-key fields would sit beside Vertex fields.
+The PRD lists the API-level alternatives (`MediaConfig.Vertex`, keeping
+Grok's `GenerateAudio`).
+
 - **The genai SDK** (as Dive and `gemini.Client` do). It hides the
   request body, so Prepare could not record the exact wire bytes, and it
   does not expose the operation name check.
-- **Usage from the request.** No parser, but it bills the request, not
-  the video; Google says the length can differ.
 - **Poll again in Fetch.** Keeps polls small, but downloads each video
   twice and makes Fetch depend on the operation still existing.
 
 ## Tradeoffs and consequences
 
-- A 4k succeeded poll holds tens of MB; hosts that persist polls pay for
-  it.
+- A 4k succeeded poll holds tens of MB; hosts that persist poll bodies
+  pay for it, so the docs say to persist the handle.
 - An MP4 parser reads provider bytes; limits and a fuzz test contain it.
 - Usage reports an audio track, not what Google bills. If Google strips
   audio after a safety filter and still bills it, usage under-reports.
@@ -308,14 +331,16 @@ without a new submission. Run once, before the implementation PR.
 ## Rollout
 
 Pre-release library; no compatibility shims. CHANGELOG under
-Unreleased: Vertex Veo client, `DisableAudio`, `VideoUsage`. Update the
-media row in `design/media-provider-implementation.md` with the live
-result.
+Unreleased: Vertex Veo client, `DisableAudio`, `VideoUsage`, and the
+removal of Grok's `GenerateAudio`. This PR updates
+`design/media-provider-implementation.md` for the two decision changes;
+the implementation PR adds the live result.
 
 ## Open questions
 
-Product questions are in the PRD. The live test settles the operation
-name form and whether an audio request yields a `soun` track.
+None for product: `storageUri` is deferred, and Dashi reports usage
+without prices. The live test settles the operation name form and
+whether an audio request yields a `soun` track.
 
 ## Sources (read 2026-11-02)
 
@@ -323,8 +348,8 @@ name form and whether an audio request yields a `soun` track.
   model IDs, launch stage, durations, aspect ratios, resolutions,
   us-central1.
 - [Generate videos from text](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-text):
-  REST URLs, `fetchPredictOperation` body, response sample, inline bytes
-  without `storageUri`, "4k (Veo 3.1 Preview models only)".
+  REST URLs, `fetchPredictOperation` body, `gcsUri` response sample,
+  "4k (Veo 3.1 Preview models only)".
 - [VideoGenerationModelParams](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest/Shared.Types/VideoGenerationModelParams):
   `generateAudio` defaults to true; duration "may vary slightly".
 - [VideoGenerationModelInstance](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest/Shared.Types/VideoGenerationModelInstance):
@@ -333,5 +358,8 @@ name form and whether an audio request yields a `soun` track.
   second by resolution and audio.
 - [Gemini API video](https://aistudio.google.com/docs/video): Veo 3.1
   Preview shut down 2026-10-22.
-- genai v1.71.0 `models.go` (`videoFromVertex`): response field names;
-  `client.go`: the `cloud-platform` scope.
+- genai v1.71.0 `models.go` (`videoFromVertex`): response field names
+  and inline `bytesBase64Encoded`; `client.go`: the `cloud-platform`
+  scope.
+- Dive `providers/google/media.go`: reads inline Vertex bytes in
+  production; genai refuses `Files.Download` on Vertex.
