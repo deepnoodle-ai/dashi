@@ -109,7 +109,8 @@ The body sends `sampleCount: 1` (one video, one charge), `generateAudio:
 when set. `PrepareVideo` rejects, with `ErrorUnsupported` and a message
 naming the value: an operation other than generate, `Size`, more than one
 frame, aspect ratios other than 16:9 and 9:16, durations other than 4, 6,
-or 8 s, and resolutions other than 720p, 1080p, and 4k. It does not apply
+or 8 s, resolutions other than 720p, 1080p, and 4k, and `DisableAudio` on
+a `veo-2` model, which rejects `generateAudio`. It does not apply
 the Gemini API rule "1080p and 4k need 8 s". Then the model info check runs.
 
 | Model | Resolutions | Frames | Evidence |

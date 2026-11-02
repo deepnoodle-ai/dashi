@@ -43,13 +43,12 @@ type VertexVideoConfig struct {
 	// Project defaults to GOOGLE_CLOUD_PROJECT.
 	Project string
 	// Location defaults to GOOGLE_CLOUD_LOCATION, then GOOGLE_CLOUD_REGION,
-	// then "us-central1", the only region Google documents for Veo. A value
-	// that resolves to "global" becomes "us-central1", so a location shared
-	// with model calls still works, and PrepareVideo records the change as
-	// an Adjustment; any other value is used as given. gemini.New keeps its
-	// own "global" default for model calls.
-	// Veo is documented only in us-central1; set Location if your
-	// environment names another region.
+	// then "us-central1", the only region Google documents for Veo, so set
+	// Location if your environment names another region. A value that
+	// resolves to "global" becomes "us-central1", so a location shared with
+	// model calls still works, and PrepareVideo records the change as an
+	// Adjustment; any other value is used as given. gemini.New keeps its own
+	// "global" default for model calls.
 	Location string
 	// CredentialScope names the credential principal in request origins
 	// without storing the credential. It defaults to "project:" + Project.
@@ -285,6 +284,14 @@ func (p *VertexVideoJobClient) PrepareVideo(
 			media.ErrorUnsupported,
 			"Vertex Veo resolution %q",
 			resolution,
+		)
+	}
+	// Veo 2 rejects generateAudio, so Dashi cannot send the choice.
+	if in.Settings.DisableAudio && strings.HasPrefix(in.Model, "veo-2") {
+		return media.VideoRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Vertex %s does not take DisableAudio",
+			in.Model,
 		)
 	}
 	var info *media.ModelInfo

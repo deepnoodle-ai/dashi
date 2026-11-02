@@ -136,7 +136,9 @@ func (c *Client) PrepareVideo(
 }
 
 // PrepareVideoWithOptions adds xAI-specific reference and frame controls.
-// Settings.DisableAudio sends generate_audio false on grok-imagine-video-1.5. The options and exact wire body are captured in the request.
+// Settings.DisableAudio sends generate_audio false on
+// grok-imagine-video-1.5. The options and exact wire body are captured in
+// the request.
 func (c *Client) PrepareVideoWithOptions(
 	ctx context.Context,
 	input media.VideoInput,

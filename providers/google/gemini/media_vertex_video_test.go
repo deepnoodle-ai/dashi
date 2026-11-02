@@ -413,6 +413,11 @@ func TestVertexVideoPrepareRejects(t *testing.T) {
 			Model:  "veo-3.1-fast-generate-001",
 			Prompt: []content.Block{content.TextBlock("  ")},
 		}, "nonempty"},
+		{"Veo 2 audio off", media.VideoInput{
+			Model:    "veo-2.0-generate-001",
+			Prompt:   []content.Block{content.TextBlock("A cup")},
+			Settings: media.VideoSettings{DisableAudio: true},
+		}, "DisableAudio"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := p.PrepareVideo(t.Context(), tc.input)
@@ -602,6 +607,32 @@ func TestVertexVideoOperationNames(t *testing.T) {
 	}
 	if result, err := p3.FetchVideo(t.Context(), poll); err != nil || len(result.VideoUsage) != 1 {
 		t.Fatalf("resolved model fetch = %+v, %v", result, err)
+	}
+	// A poll reply may name the job in another valid form (project number,
+	// resolved model ID); it is the same operation and its video is fetched.
+	otherForm := strings.Replace(vertexOperation("123456789012"), m, "veo-3.1-fast-generate-002", 1)
+	reform := &vertexServer{
+		t:      t,
+		submit: fmt.Sprintf(`{"name":%q}`, vertexOperation("proj")),
+		polls: []string{doneWithVideo(
+			otherForm,
+			mp4test.Build(mp4test.VideoAudio(8, 0, 1920, 1080)),
+		)},
+	}
+	server4 := httptest.NewServer(reform)
+	defer server4.Close()
+	p4 := newVertexFixture(t, server4)
+	request, _ = p4.PrepareVideo(t.Context(), vertexInput(media.VideoSettings{}))
+	submission, err = p4.SubmitVideo(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	poll, err = p4.PollVideo(t.Context(), *submission.Job)
+	if err != nil || poll.State != media.JobSucceeded {
+		t.Fatalf("other-form poll = %+v, %v", poll, err)
+	}
+	if result, err := p4.FetchVideo(t.Context(), poll); err != nil || len(result.VideoUsage) != 1 {
+		t.Fatalf("other-form fetch = %+v, %v", result, err)
 	}
 	// A bad name from Vertex leaves the submission unknown, never accepted.
 	handler := &vertexServer{t: t, submit: `{"name":"operations/op-1"}`}

@@ -91,7 +91,7 @@ charged; when billing policy needs it, compare it with the request, for
 example to bill the lower of the two or to flag a mismatch. Veo is
 documented only in `us-central1`; set `Location` if your environment names
 another region. Dashi sends its own ADC token only to Vertex AI hosts; a
-custom endpoint elsewhere needs a `Client`. Audio is on by default; `media.VideoSettings.DisableAudio` asks for a silent, cheaper
+custom endpoint elsewhere needs a `Client`. Audio is on by default; `media.VideoSettings.DisableAudio` asks for a silent
 video. The `veo-3.1-fast-generate-001` model info allows 4k, but Google's
 model page omits it and nobody has tested it.
 
