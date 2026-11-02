@@ -1,7 +1,7 @@
 # Make Veo videos on Vertex AI and bill them by the video produced
 
 Status: Draft\
-PRD PR: TBD  Implementation PR: TBD  Updated: 2026-11-02\
+PRD PR: #371  Implementation PR: TBD  Updated: 2026-11-02\
 Spec: [design/vertex-veo.md](../design/vertex-veo.md)
 
 ## Problem
