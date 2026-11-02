@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"cloud.google.com/go/auth/httptransport"
 	"github.com/deepnoodle-ai/dashi/internal/providerhttp"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"google.golang.org/genai"
@@ -125,9 +127,17 @@ func (p *Client) newSDKClient(
 		config.Project = p.config.Project
 		config.Location = p.config.Location
 		if authenticate && p.config.Client == nil {
-			if err := config.UseDefaultCredentials(); err != nil {
+			cred, err := vertexCredentials()
+			if err != nil {
+				return nil, fmt.Errorf("failed to find default credentials: %w", err)
+			}
+			if err := httptransport.AddAuthorizationMiddleware(
+				httpClient,
+				cred,
+			); err != nil {
 				return nil, err
 			}
+			config.Credentials = cred
 			// The SDK sends the credential's quota project only on a client
 			// it builds itself; user credentials need it for Vertex.
 			quota, err := config.Credentials.QuotaProjectID(ctx)
