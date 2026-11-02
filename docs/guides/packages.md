@@ -85,8 +85,13 @@ the bytes once from `FetchVideo`'s result. Each fetched video has a
 `media.Result.VideoUsage` entry measured from the MP4: the video track's
 length (not rounded; the host chooses how to bill partial seconds), frame
 size, resolution tier, and whether it has an audio track. A video Dashi
-cannot measure has no entry; bill it from the recorded request. Audio is on
-by default; `media.VideoSettings.DisableAudio` asks for a silent, cheaper
+cannot measure has no entry; bill it from the recorded request. The entry
+describes the file as produced, not what was requested or what Google
+charged; when billing policy needs it, compare it with the request, for
+example to bill the lower of the two or to flag a mismatch. Veo is
+documented only in `us-central1`; set `Location` if your environment names
+another region. Dashi sends its own ADC token only to Vertex AI hosts; a
+custom endpoint elsewhere needs a `Client`. Audio is on by default; `media.VideoSettings.DisableAudio` asks for a silent, cheaper
 video. The `veo-3.1-fast-generate-001` model info allows 4k, but Google's
 model page omits it and nobody has tested it.
 

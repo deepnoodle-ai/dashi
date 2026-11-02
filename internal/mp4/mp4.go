@@ -34,7 +34,8 @@ type box struct {
 }
 
 // Probe reads Info from a complete MP4 file. It returns an error when the file
-// has no moov box, no video track, a zero timescale, or no video length.
+// has no moov box, no video track, a zero timescale, a video length that
+// rounds to zero, or no video frame size.
 func Probe(data []byte) (Info, error) {
 	budget := maxBoxes
 	top, err := children(data, &budget)
@@ -90,11 +91,19 @@ func Probe(data []byte) (Info, error) {
 			if err != nil {
 				return Info{}, err
 			}
-			if tkhd, ok := find(track, "tkhd"); ok {
-				info.Width, info.Height, err = size(tkhd)
-				if err != nil {
-					return Info{}, err
-				}
+			if info.Duration <= 0 {
+				return Info{}, errors.New("mp4: video track length rounds to zero")
+			}
+			tkhd, ok := find(track, "tkhd")
+			if !ok {
+				return Info{}, errors.New("mp4: video track has no tkhd box")
+			}
+			info.Width, info.Height, err = size(tkhd)
+			if err != nil {
+				return Info{}, err
+			}
+			if info.Width == 0 || info.Height == 0 {
+				return Info{}, errors.New("mp4: video track has no frame size")
 			}
 		}
 	}

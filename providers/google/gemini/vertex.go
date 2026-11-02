@@ -1,6 +1,8 @@
 package gemini
 
 import (
+	"strings"
+
 	"cloud.google.com/go/auth"
 	"cloud.google.com/go/auth/credentials"
 )
@@ -21,6 +23,22 @@ func vertexHost(location string) string {
 	default:
 		return location + "-aiplatform.googleapis.com"
 	}
+}
+
+// isVertexHost reports whether host is one of the forms vertexHost returns,
+// so Dashi's own ADC token goes to Vertex AI and no other Google service.
+// A host with a port is refused.
+func isVertexHost(host string) bool {
+	switch host {
+	case "aiplatform.googleapis.com",
+		"aiplatform.us.rep.googleapis.com",
+		"aiplatform.eu.rep.googleapis.com":
+		return true
+	}
+	location, ok := strings.CutSuffix(host, "-aiplatform.googleapis.com")
+	return ok && location != "" && !strings.ContainsFunc(location, func(c rune) bool {
+		return c != '-' && (c < 'a' || c > 'z') && (c < '0' || c > '9')
+	})
 }
 
 // vertexCredentials finds Application Default Credentials with the Vertex

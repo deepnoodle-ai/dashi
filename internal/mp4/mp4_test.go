@@ -1,6 +1,7 @@
 package mp4
 
 import (
+	"bytes"
 	"encoding/binary"
 	"testing"
 	"time"
@@ -118,6 +119,20 @@ func TestProbeRejectsBadFiles(t *testing.T) {
 		MovieTimescale: 1000,
 		Tracks:         []mp4test.Track{{Handler: "vide", Timescale: 24, Duration: 0}},
 	})
+	// One unit of a huge timescale is under a nanosecond.
+	roundsToZero := mp4test.Build(mp4test.File{
+		MovieTimescale: 1000,
+		Tracks: []mp4test.Track{{
+			Handler: "vide", Timescale: 0xFFFFFFFE, Duration: 1,
+			Width: 1920, Height: 1080,
+		}},
+	})
+	editRoundsToZero := mp4test.VideoAudio(8, 0, 1920, 1080)
+	editRoundsToZero.MovieTimescale = 0xFFFFFFFE
+	editRoundsToZero.Tracks[0].Edits = []mp4test.Edit{{Segment: 1, MediaTime: 0}}
+	zeroSize := mp4test.Build(mp4test.VideoAudio(8, 0, 0, 0))
+	zeroHeight := mp4test.Build(mp4test.VideoAudio(8, 0, 1920, 0))
+	noTkhd := bytes.ReplaceAll(good, []byte("tkhd"), []byte("xkhd"))
 	tooManyBoxes := make([]byte, 0, 8*(maxBoxes+1))
 	for range maxBoxes + 1 {
 		tooManyBoxes = append(tooManyBoxes, 0, 0, 0, 8, 'f', 'r', 'e', 'e')
@@ -125,14 +140,19 @@ func TestProbeRejectsBadFiles(t *testing.T) {
 	badSize := append([]byte(nil), good...)
 	binary.BigEndian.PutUint32(badSize[0:4], 4)
 	for name, data := range map[string][]byte{
-		"empty":             nil,
-		"truncated":         good[:len(good)-10],
-		"no moov":           {0, 0, 0, 8, 'f', 'r', 'e', 'e'},
-		"audio only":        audioOnly,
-		"zero timescale":    zeroScale,
-		"zero length":       zeroLength,
-		"too many boxes":    tooManyBoxes,
-		"size below header": badSize,
+		"empty":                      nil,
+		"truncated":                  good[:len(good)-10],
+		"no moov":                    {0, 0, 0, 8, 'f', 'r', 'e', 'e'},
+		"audio only":                 audioOnly,
+		"zero timescale":             zeroScale,
+		"zero length":                zeroLength,
+		"length rounds to zero":      roundsToZero,
+		"edit length rounds to zero": mp4test.Build(editRoundsToZero),
+		"zero frame size":            zeroSize,
+		"zero frame height":          zeroHeight,
+		"no tkhd":                    noTkhd,
+		"too many boxes":             tooManyBoxes,
+		"size below header":          badSize,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Probe(data); err == nil {

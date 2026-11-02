@@ -146,6 +146,18 @@ func TestVertexVideoConstruction(t *testing.T) {
 			Provider: "p", Project: "proj",
 			Endpoint: "https://evil.example/v1/projects/proj/locations/us-central1/publishers/google/models/{model}:predictLongRunning",
 		},
+		"other Google service without client": {
+			Provider: "p", Project: "proj",
+			Endpoint: "https://storage.googleapis.com/bucket/v1/projects/proj/locations/us-central1/publishers/google/models/{model}:predictLongRunning",
+		},
+		"Vertex look-alike without client": {
+			Provider: "p", Project: "proj",
+			Endpoint: "https://evil.us-central1-aiplatform.googleapis.com/v1/projects/proj/locations/us-central1/publishers/google/models/{model}:predictLongRunning",
+		},
+		"Vertex host with port without client": {
+			Provider: "p", Project: "proj",
+			Endpoint: "https://us-central1-aiplatform.googleapis.com:8443/v1/projects/proj/locations/us-central1/publishers/google/models/{model}:predictLongRunning",
+		},
 		"look-alike host without client": {
 			Provider: "p", Project: "proj",
 			Endpoint: "https://googleapis.com.evil.example/v1/projects/proj/locations/us-central1/publishers/google/models/{model}:predictLongRunning",
@@ -181,6 +193,20 @@ func TestVertexVideoConstruction(t *testing.T) {
 				t.Fatal("bad config accepted")
 			}
 		})
+	}
+	// A custom endpoint on a Vertex host gets the ADC token.
+	for _, host := range []string{
+		"aiplatform.googleapis.com",
+		"us-central1-aiplatform.googleapis.com",
+		"aiplatform.us.rep.googleapis.com",
+	} {
+		p, err := NewVertexVideoJobs(VertexVideoConfig{
+			Provider: "p", Project: "proj",
+			Endpoint: "https://" + host + "/v1beta1/projects/proj/locations/us-central1/publishers/google/models/{model}:predictLongRunning",
+		})
+		if err != nil || !p.adc {
+			t.Errorf("Vertex host %s: %v", host, err)
+		}
 	}
 	// A custom host is fine with a Client, which supplies its own
 	// credentials.
@@ -495,35 +521,72 @@ func TestVertexVideoOperationNames(t *testing.T) {
 		vertexOperation("proj"),
 		vertexOperation("123456789012"),
 		"projects/proj/locations/us-central1/publishers/google/models/" + m + "/operations/a1_B-2",
+		// Vertex may name the model by the ID it resolved an alias to.
+		strings.Replace(vertexOperation("proj"), m, "veo-3.1-generate-001", 1),
+		strings.Replace(vertexOperation("proj"), m, "imagegeneration@006", 1),
+		// The ID only goes into the poll's JSON body, so any printable
+		// ASCII without spaces or slashes is fine.
+		strings.Replace(vertexOperation("proj"), "op-1", "op.1%2F~1?x=1", 1),
 	} {
-		if err := p.checkOperation(m, name); err != nil {
+		if err := p.checkOperation(name); err != nil {
 			t.Errorf("rejected %s: %v", name, err)
 		}
 	}
 	for _, name := range []string{
 		"",
 		strings.Replace(vertexOperation("proj"), "us-central1", "europe-west4", 1),
-		strings.Replace(vertexOperation("proj"), m, "veo-3.1-generate-001", 1),
 		vertexOperation("proj") + "/extra",
 		"/" + vertexOperation("proj"),
 		vertexOperation("proj/../other"),
-		strings.Replace(vertexOperation("proj"), "op-1", "op%2F1", 1),
-		strings.Replace(vertexOperation("proj"), "op-1", "op-1?x=1", 1),
+		vertexOperation("proj.x"),
+		vertexOperation(""),
+		strings.Replace(vertexOperation("proj"), m, "veo 3", 1),
+		strings.Replace(vertexOperation("proj"), m, "", 1),
+		strings.Replace(vertexOperation("proj"), "op-1", "op 1", 1),
+		strings.Replace(vertexOperation("proj"), "op-1", "op\n1", 1),
+		strings.Replace(vertexOperation("proj"), "op-1", "", 1),
+		strings.Replace(vertexOperation("proj"), "op-1", "op-\u00e91", 1),
 		strings.Replace(vertexOperation("proj"), "publishers/google", "publishers/evil", 1),
 		"models/" + m + "/operations/op-1",
 		"operations/op-1",
 	} {
-		if err := p.checkOperation(m, name); err == nil {
+		if err := p.checkOperation(name); err == nil {
 			t.Errorf("accepted %q", name)
 		}
+	}
+	// A job whose operation names a resolved model ID is still polled at the
+	// configured model's URL and returns the paid video.
+	resolvedName := strings.Replace(vertexOperation("proj"), m, "veo-3.1-fast-generate-002", 1)
+	resolved := &vertexServer{
+		t:      t,
+		submit: fmt.Sprintf(`{"name":%q}`, resolvedName),
+		polls: []string{doneWithVideo(
+			resolvedName,
+			mp4test.Build(mp4test.VideoAudio(8, 0, 1920, 1080)),
+		)},
+	}
+	server3 := httptest.NewServer(resolved)
+	defer server3.Close()
+	p3 := newVertexFixture(t, server3)
+	request, _ := p3.PrepareVideo(t.Context(), vertexInput(media.VideoSettings{}))
+	submission, err := p3.SubmitVideo(t.Context(), request)
+	if err != nil || submission.State != media.SubmissionAccepted {
+		t.Fatalf("resolved model submission = %+v, %v", submission, err)
+	}
+	poll, err := p3.PollVideo(t.Context(), *submission.Job)
+	if err != nil || poll.State != media.JobSucceeded {
+		t.Fatalf("resolved model poll = %+v, %v", poll, err)
+	}
+	if result, err := p3.FetchVideo(t.Context(), poll); err != nil || len(result.VideoUsage) != 1 {
+		t.Fatalf("resolved model fetch = %+v, %v", result, err)
 	}
 	// A bad name from Vertex leaves the submission unknown, never accepted.
 	handler := &vertexServer{t: t, submit: `{"name":"operations/op-1"}`}
 	server2 := httptest.NewServer(handler)
 	defer server2.Close()
 	p2 := newVertexFixture(t, server2)
-	request, _ := p2.PrepareVideo(t.Context(), vertexInput(media.VideoSettings{}))
-	submission, err := p2.SubmitVideo(t.Context(), request)
+	request, _ = p2.PrepareVideo(t.Context(), vertexInput(media.VideoSettings{}))
+	submission, err = p2.SubmitVideo(t.Context(), request)
 	if err == nil || submission.State != media.SubmissionUnknown || submission.Job != nil {
 		t.Fatalf("bad name submission = %+v, %v", submission, err)
 	}

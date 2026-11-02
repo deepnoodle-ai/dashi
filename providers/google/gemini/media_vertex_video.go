@@ -45,6 +45,8 @@ type VertexVideoConfig struct {
 	// then "us-central1", the only region Google documents for Veo. A value
 	// that resolves to "global" becomes "us-central1", so a location shared
 	// with model calls still works; any other value is used as given.
+	// Veo is documented only in us-central1; set Location if your
+	// environment names another region.
 	Location string
 	// CredentialScope names the credential principal in request origins
 	// without storing the credential. It defaults to "project:" + Project.
@@ -55,7 +57,9 @@ type VertexVideoConfig struct {
 	Endpoint string
 	// Client supplies transport and credentials. When it is set, Dashi adds
 	// no token. When it is nil, Dashi sends an ADC token with the
-	// cloud-platform scope, and only to an https *.googleapis.com endpoint.
+	// cloud-platform scope, and only to an https Vertex AI host:
+	// aiplatform.googleapis.com, {location}-aiplatform.googleapis.com, or
+	// aiplatform.{us,eu}.rep.googleapis.com.
 	Client *http.Client
 	// VideoModels adds to and replaces the built-in model info. Evidence must
 	// name the model's resolved endpoint and VideoAPI.
@@ -128,9 +132,8 @@ func NewVertexVideoJobs(config VertexVideoConfig) (*VertexVideoJobClient, error)
 	if !strings.HasSuffix(u.Path, scopePath) {
 		return nil, errors.New("gemini: Vertex video endpoint does not match project and location")
 	}
-	if config.Client == nil && (u.Scheme != "https" ||
-		!strings.HasSuffix(u.Hostname(), ".googleapis.com")) {
-		return nil, errors.New("gemini: Vertex video endpoint outside https *.googleapis.com requires a Client")
+	if config.Client == nil && (u.Scheme != "https" || !isVertexHost(u.Host)) {
+		return nil, errors.New("gemini: Vertex video endpoint outside an https Vertex AI host requires a Client")
 	}
 	if !config.CapabilityPolicy.Valid() {
 		return nil, errors.New("gemini: invalid unknown media capability policy")
@@ -417,7 +420,7 @@ func (p *VertexVideoJobClient) SubmitVideo(
 				err,
 			)
 	}
-	if err := p.checkOperation(in.Model, response.Name); err != nil {
+	if err := p.checkOperation(response.Name); err != nil {
 		return media.Submission{State: media.SubmissionUnknown}, err
 	}
 	job := media.Job{
@@ -442,7 +445,7 @@ func (p *VertexVideoJobClient) PollVideo(
 			"video job belongs to another destination",
 		)
 	}
-	if err := p.checkOperation(job.Origin.Model, job.ID); err != nil {
+	if err := p.checkOperation(job.ID); err != nil {
 		return media.JobPoll{}, err
 	}
 	header, err := p.header(ctx)
@@ -663,35 +666,52 @@ func (p *VertexVideoJobClient) header(ctx context.Context) (http.Header, error) 
 
 // checkOperation accepts only
 // projects/{project}/locations/{location}/publishers/google/models/{model}/operations/{id}.
-// Vertex may name the project by number, so that segment is not matched.
-func (p *VertexVideoJobClient) checkOperation(name, operation string) error {
+// The location must match. The project, model, and ID are checked by format
+// only: Vertex may name the project by number or the model by the ID it
+// resolved, and a paid job must stay pollable. The name only goes into the
+// poll's JSON body; the poll URL always comes from the configuration.
+func (p *VertexVideoJobClient) checkOperation(operation string) error {
 	parts := strings.Split(operation, "/")
 	if len(parts) != 10 ||
-		parts[0] != "projects" || !operationSegment(parts[1]) ||
+		parts[0] != "projects" || !projectSegment(parts[1]) ||
 		parts[2] != "locations" || parts[3] != p.config.Location ||
 		parts[4] != "publishers" || parts[5] != "google" ||
-		parts[6] != "models" || parts[7] != name ||
+		parts[6] != "models" || !modelSegment(parts[7]) ||
 		parts[8] != "operations" || !operationSegment(parts[9]) {
 		return p.failure(
 			media.ErrorProtocol,
-			"Vertex Veo operation %q does not belong to this location and model",
+			"Vertex Veo operation %q does not belong to this location",
 			operation,
 		)
 	}
 	return nil
 }
 
+// projectSegment accepts a project ID or number.
+func projectSegment(s string) bool {
+	return s != "" && !strings.ContainsFunc(s, func(c rune) bool {
+		return c != '-' && c != '_' && !isASCIIAlnum(c)
+	})
+}
+
+// modelSegment accepts a model ID such as veo-3.1-generate-001 or
+// imagegeneration@006.
+func modelSegment(s string) bool {
+	return s != "" && !strings.ContainsFunc(s, func(c rune) bool {
+		return c != '-' && c != '_' && c != '.' && c != '@' && !isASCIIAlnum(c)
+	})
+}
+
+// operationSegment accepts any printable ASCII ID without spaces; the split
+// on "/" already removed slashes.
 func operationSegment(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, c := range s {
-		if c != '-' && c != '_' &&
-			(c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
-			return false
-		}
-	}
-	return true
+	return s != "" && !strings.ContainsFunc(s, func(c rune) bool {
+		return c <= ' ' || c > '~'
+	})
+}
+
+func isASCIIAlnum(c rune) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
 
 func (p *VertexVideoJobClient) videoURL(name string) string {

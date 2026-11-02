@@ -12,9 +12,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   project's Application Default Credentials and no API key. It covers
   `veo-3.1-generate-001`, `veo-3.1-fast-generate-001`, and
   `veo-3.1-lite-generate-001`, defaults to `us-central1`, and returns the
-  video bytes from the finished job.
+  video bytes from the finished job. Without a supplied `Client`, it sends
+  its ADC token only to Vertex AI hosts.
 - `media.Result.VideoUsage` reports, per video, the length, frame size,
-  resolution tier, and audio track measured from the MP4, for billing.
+  resolution tier, and audio track measured from the MP4, for billing. It
+  describes the file as produced; compare it with the request when billing
+  policy needs it.
 - `media.VideoSettings.DisableAudio` asks for a video without audio. Vertex
   Veo sends `generateAudio: false` and Grok sends `generate_audio: false`; the
   Gemini API Veo route and the Interactions video clients reject it.

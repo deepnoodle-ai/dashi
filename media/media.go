@@ -294,7 +294,10 @@ type Result struct {
 
 // VideoUsage describes one generated video in the units that video APIs bill
 // by, as measured from the file. ContentIndex names its block in
-// Result.Content.
+// Result.Content. It describes the file as produced, not what was requested
+// or what the provider charged: when billing policy needs it, compare it with
+// the recorded request (VideoRequest.Effective), for example to bill the
+// lower of the two or to flag a mismatch.
 type VideoUsage struct {
 	ContentIndex int `json:"content_index"`
 	// Duration is the video track's length with its edit list applied. A
