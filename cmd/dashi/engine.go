@@ -34,7 +34,7 @@ type EngineConfig struct {
 	Preferences *cliPreferences
 	Resources   *resourceManager
 	MCP         *mcpRuntime
-	// ModelCalls is the per-turn model-call limit; zero means 40.
+	// ModelCalls is the per-turn model-call limit; zero means 100.
 	ModelCalls int
 	// CompactionThreshold is the token count at which history is compacted;
 	// zero means the compaction default.
