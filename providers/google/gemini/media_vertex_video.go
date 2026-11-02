@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -44,7 +45,9 @@ type VertexVideoConfig struct {
 	// Location defaults to GOOGLE_CLOUD_LOCATION, then GOOGLE_CLOUD_REGION,
 	// then "us-central1", the only region Google documents for Veo. A value
 	// that resolves to "global" becomes "us-central1", so a location shared
-	// with model calls still works; any other value is used as given.
+	// with model calls still works, and PrepareVideo records the change as
+	// an Adjustment; any other value is used as given. gemini.New keeps its
+	// own "global" default for model calls.
 	// Veo is documented only in us-central1; set Location if your
 	// environment names another region.
 	Location string
@@ -75,6 +78,8 @@ type VertexVideoJobClient struct {
 	models map[string]media.ModelInfo
 	// adc is true when Dashi attaches its own ADC token.
 	adc bool
+	// globalAdjusted is true when a "global" location became us-central1.
+	globalAdjusted bool
 	// client is the HTTP client for sends; nil means doGeminiMedia's default.
 	client *http.Client
 	detect func() (*auth.Credentials, error)
@@ -101,7 +106,8 @@ func NewVertexVideoJobs(config VertexVideoConfig) (*VertexVideoJobClient, error)
 		os.Getenv("GOOGLE_CLOUD_REGION"),
 		vertexVideoLocation,
 	)
-	if config.Location == "global" {
+	globalAdjusted := config.Location == "global"
+	if globalAdjusted {
 		config.Location = vertexVideoLocation
 	}
 	if config.CredentialScope == "" {
@@ -139,10 +145,11 @@ func NewVertexVideoJobs(config VertexVideoConfig) (*VertexVideoJobClient, error)
 		return nil, errors.New("gemini: invalid unknown media capability policy")
 	}
 	p := &VertexVideoJobClient{
-		config: config,
-		models: map[string]media.ModelInfo{},
-		adc:    config.Client == nil,
-		detect: vertexCredentials,
+		config:         config,
+		models:         map[string]media.ModelInfo{},
+		adc:            config.Client == nil,
+		globalAdjusted: globalAdjusted,
+		detect:         vertexCredentials,
 	}
 	if config.Client != nil {
 		client := *config.Client
@@ -358,10 +365,25 @@ func (p *VertexVideoJobClient) PrepareVideo(
 		Effective:        in.Settings,
 		Body:             body,
 		ContentType:      "application/json",
+		Adjustments:      p.adjustments(),
 		ModelInfo:        info,
 		CapabilityPolicy: p.config.CapabilityPolicy,
 		Unverified:       unverified,
 	})
+}
+
+// adjustments records the location change, so a host sees that a "global"
+// location was sent to us-central1.
+func (p *VertexVideoJobClient) adjustments() []media.Adjustment {
+	if !p.globalAdjusted {
+		return nil
+	}
+	return []media.Adjustment{{
+		Setting:   "location",
+		Requested: "global",
+		Effective: vertexVideoLocation,
+		Reason:    "Google documents Veo on Vertex AI only in us-central1",
+	}}
 }
 
 // SubmitVideo sends the prepared job once. A missing credential returns
@@ -408,19 +430,27 @@ func (p *VertexVideoJobClient) SubmitVideo(
 		}
 		return media.Submission{State: media.SubmissionUnknown}, err
 	}
+	// A 2xx reply means Google may have accepted and billed the job, so an
+	// unusable reply is unknown, never rejected. The error keeps the raw
+	// reply in Body so the host can reconcile the job by hand.
 	var response struct {
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(raw, &response); err != nil || response.Name == "" {
-		return media.Submission{
-				State: media.SubmissionUnknown,
-			}, p.failure(
-				media.ErrorProtocol,
+		return media.Submission{State: media.SubmissionUnknown}, &media.Error{
+			Provider: p.Provider(),
+			Category: media.ErrorProtocol,
+			Body:     raw,
+			Cause: fmt.Errorf(
 				"Vertex Veo accepted response has no operation name: %v",
 				err,
-			)
+			),
+		}
 	}
 	if err := p.checkOperation(response.Name); err != nil {
+		if providerErr, ok := errors.AsType[*media.Error](err); ok {
+			providerErr.Body = raw
+		}
 		return media.Submission{State: media.SubmissionUnknown}, err
 	}
 	job := media.Job{
@@ -495,11 +525,19 @@ func (p *VertexVideoJobClient) PollVideo(
 			err,
 		)
 	}
-	if response.Name != "" && response.Name != job.ID {
-		return media.JobPoll{}, p.failure(
-			media.ErrorProtocol,
-			"Vertex Veo operation identity changed",
-		)
+	// The reply may name the project by number or the model by a resolved
+	// ID, so only the location (checked by format) and operation ID must
+	// match the job.
+	if response.Name != "" {
+		if err := p.checkOperation(response.Name); err != nil {
+			return media.JobPoll{}, err
+		}
+		if path.Base(response.Name) != path.Base(job.ID) {
+			return media.JobPoll{}, p.failure(
+				media.ErrorProtocol,
+				"Vertex Veo operation identity changed",
+			)
+		}
 	}
 	poll := media.JobPoll{Job: job.Clone(), State: media.JobPending}
 	if !response.Done {

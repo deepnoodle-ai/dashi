@@ -113,8 +113,9 @@ func Probe(data []byte) (Info, error) {
 	return info, nil
 }
 
-// trackDuration sums the non-empty edits in movie timescale units. Without an
-// edit list, or with one that has no non-empty edit, it uses the media
+// trackDuration sums every edit's segment duration in movie timescale units.
+// An empty edit (media time -1) is a gap in the track's timeline, so it counts.
+// Without an edit list, or with one that sums to zero, it uses the media
 // duration from mdhd.
 func trackDuration(
 	track, media []box,
@@ -174,16 +175,10 @@ func editTotal(elst []byte) (uint64, error) {
 	for i := 0; i < int(count); i++ {
 		entry := rest[i*entrySize:]
 		var segment uint64
-		var empty bool
 		if version == 1 {
 			segment = binary.BigEndian.Uint64(entry[0:8])
-			empty = int64(binary.BigEndian.Uint64(entry[8:16])) == -1
 		} else {
 			segment = uint64(binary.BigEndian.Uint32(entry[0:4]))
-			empty = int32(binary.BigEndian.Uint32(entry[4:8])) == -1
-		}
-		if empty {
-			continue
 		}
 		if total+segment < total {
 			return 0, errors.New("mp4: edit list overflows")

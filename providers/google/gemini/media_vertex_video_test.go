@@ -69,12 +69,14 @@ func TestVertexVideoConstruction(t *testing.T) {
 		config   VertexVideoConfig
 		env      map[string]string
 		endpoint string
+		adjusted bool
 	}{
 		{
 			"defaults",
 			VertexVideoConfig{Project: "proj"},
 			nil,
 			"https://us-central1-aiplatform.googleapis.com/v1/projects/proj/locations/us-central1/publishers/google/models/{model}:predictLongRunning",
+			false,
 		},
 		{
 			"env project and location",
@@ -84,30 +86,35 @@ func TestVertexVideoConstruction(t *testing.T) {
 				"GOOGLE_CLOUD_LOCATION": "europe-west4",
 			},
 			"https://europe-west4-aiplatform.googleapis.com/v1/projects/env-proj/locations/europe-west4/publishers/google/models/{model}:predictLongRunning",
+			false,
 		},
 		{
 			"region fallback",
 			VertexVideoConfig{Project: "proj"},
 			map[string]string{"GOOGLE_CLOUD_REGION": "us-east5"},
 			"https://us-east5-aiplatform.googleapis.com/v1/projects/proj/locations/us-east5/publishers/google/models/{model}:predictLongRunning",
+			false,
 		},
 		{
 			"global in config",
 			VertexVideoConfig{Project: "proj", Location: "global"},
 			nil,
 			"https://us-central1-aiplatform.googleapis.com/v1/projects/proj/locations/us-central1/publishers/google/models/{model}:predictLongRunning",
+			true,
 		},
 		{
 			"global in env",
 			VertexVideoConfig{Project: "proj"},
 			map[string]string{"GOOGLE_CLOUD_LOCATION": "global"},
 			"https://us-central1-aiplatform.googleapis.com/v1/projects/proj/locations/us-central1/publishers/google/models/{model}:predictLongRunning",
+			true,
 		},
 		{
 			"multi-region",
 			VertexVideoConfig{Project: "proj", Location: "us"},
 			nil,
 			"https://aiplatform.us.rep.googleapis.com/v1/projects/proj/locations/us/publishers/google/models/{model}:predictLongRunning",
+			false,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -125,6 +132,22 @@ func TestVertexVideoConstruction(t *testing.T) {
 			}
 			if p.config.CredentialScope != "project:"+p.config.Project {
 				t.Fatalf("credential scope = %q", p.config.CredentialScope)
+			}
+			// The global adjustment is recorded on every prepared request.
+			request, err := p.PrepareVideo(t.Context(), vertexInput(media.VideoSettings{}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			adjustments := request.Snapshot().Adjustments
+			want := media.Adjustment{
+				Setting:   "location",
+				Requested: "global",
+				Effective: "us-central1",
+				Reason:    "Google documents Veo on Vertex AI only in us-central1",
+			}
+			if tc.adjusted != (len(adjustments) == 1) ||
+				tc.adjusted && adjustments[0] != want || len(adjustments) > 1 {
+				t.Fatalf("adjustments = %+v", adjustments)
 			}
 		})
 	}
@@ -587,8 +610,25 @@ func TestVertexVideoOperationNames(t *testing.T) {
 	p2 := newVertexFixture(t, server2)
 	request, _ = p2.PrepareVideo(t.Context(), vertexInput(media.VideoSettings{}))
 	submission, err = p2.SubmitVideo(t.Context(), request)
-	if err == nil || submission.State != media.SubmissionUnknown || submission.Job != nil {
+	providerErr, ok := errors.AsType[*media.Error](err)
+	if !ok || submission.State != media.SubmissionUnknown || submission.Job != nil ||
+		providerErr.Category != media.ErrorProtocol ||
+		!strings.Contains(string(providerErr.Body), "operations/op-1") ||
+		!strings.Contains(err.Error(), "operations/op-1") {
 		t.Fatalf("bad name submission = %+v, %v", submission, err)
+	}
+	// So does a 2xx reply that does not decode or has no name.
+	for _, body := range []string{`{"name":`, `{}`} {
+		server := httptest.NewServer(&vertexServer{t: t, submit: body})
+		p := newVertexFixture(t, server)
+		request, _ := p.PrepareVideo(t.Context(), vertexInput(media.VideoSettings{}))
+		submission, err := p.SubmitVideo(t.Context(), request)
+		server.Close()
+		providerErr, ok := errors.AsType[*media.Error](err)
+		if !ok || submission.State != media.SubmissionUnknown || submission.Job != nil ||
+			providerErr.Category != media.ErrorProtocol || string(providerErr.Body) != body {
+			t.Fatalf("submit reply %s = %+v, %v", body, submission, err)
+		}
 	}
 	// A forged job ID is refused before anything is sent.
 	job := media.Job{ID: "operations/op-1", Kind: media.KindVideo, Origin: p2.origin(m)}
@@ -661,6 +701,9 @@ func TestVertexVideoPollOutcomes(t *testing.T) {
 			"", "", "no inline bytes"},
 		{"no videos", `{"name":"` + name + `","done":true,"response":{}}`, "", "", "no generated video"},
 		{"other name", strings.Replace(doneWithVideo(name, []byte("v")), "op-1", "op-2", 1), "", "", "identity"},
+		{"other location", strings.Replace(doneWithVideo(name, []byte("v")), "us-central1", "europe-west4", 1), "", "", "does not belong"},
+		// Vertex may name the project by number in the reply.
+		{"project number", `{"name":"` + vertexOperation("123456789012") + `","done":false}`, media.JobPending, "", ""},
 		{"not video", `{"name":"` + name + `","done":true,"response":{"videos":[{"bytesBase64Encoded":"dg==","mimeType":"image/png"}]}}`,
 			"", "", "non-video"},
 		{"undecodable", `{"name":`, "", "", "decode"},

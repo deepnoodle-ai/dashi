@@ -60,16 +60,18 @@ func TestProbe(t *testing.T) {
 			Info{Duration: 8 * time.Second, Width: 1920, Height: 1080, Audio: true},
 		},
 		{
-			"empty edit counts no time",
+			// A leading empty edit delays the media; the gap is part of
+			// the track's timeline, so it counts toward the length.
+			"leading empty edit counts",
 			func() mp4test.File {
 				f := mp4test.VideoAudio(8, 0, 1920, 1080)
 				f.Tracks[0].Edits = []mp4test.Edit{
 					{Segment: 500, MediaTime: -1},
-					{Segment: 7958, MediaTime: 0},
+					{Segment: 7500, MediaTime: 0},
 				}
 				return f
 			}(),
-			Info{Duration: 7958 * time.Millisecond, Width: 1920, Height: 1080, Audio: true},
+			Info{Duration: 8 * time.Second, Width: 1920, Height: 1080, Audio: true},
 		},
 		{
 			"64-bit boxes",

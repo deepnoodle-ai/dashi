@@ -108,7 +108,8 @@ type JobState string
 const (
 	// JobPending means the provider has not finished the operation.
 	JobPending JobState = "pending"
-	// JobSucceeded means output is available for a separate fetch step.
+	// JobSucceeded means the provider finished with output. The poll may
+	// already carry the output; the fetch step returns it either way.
 	JobSucceeded JobState = "succeeded"
 	// JobFailed means the provider completed without usable output.
 	JobFailed JobState = "failed"
@@ -116,12 +117,11 @@ const (
 	JobExpired JobState = "expired"
 )
 
-// JobPoll records one provider status observation. Content holds output
-// references when a provider returns them; a fetch step resolves those refs or
-// retrieves the output from the job ID. Some providers return the output
-// bytes inline in the finished status, and then Content holds them; persist
-// the Job for restart, not a succeeded poll. Failure is provider-reported
-// detail.
+// JobPoll records one provider status observation. On success, Content holds
+// either output references, which the fetch step resolves, or the output bytes
+// themselves when the provider returns them inline in the finished status.
+// Persist the Job for restart, not a succeeded poll, which may hold the bytes.
+// Failure is provider-reported detail.
 type JobPoll struct {
 	Job     Job             `json:"job"`
 	State   JobState        `json:"state"`
