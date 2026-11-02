@@ -46,8 +46,7 @@ customer for the video actually made.
 - **Vertex video client:** a Veo job client for one Vertex project and
   location. It uses the same credentials as a Vertex `gemini.Config`.
 - **Audio off:** a video setting. By default a video has audio when the
-  model can make it. The caller turns audio off to get a silent, cheaper
-  video.
+  model can make it. The caller turns audio off to get a silent video.
 - **Video usage:** for each video in a result, the length of its video
   track (edit list applied, so an audio track that runs longer does not
   count), frame size, resolution tier ("720p", "1080p", "4k"), and
