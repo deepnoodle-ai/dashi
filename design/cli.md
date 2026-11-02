@@ -111,7 +111,7 @@ prompt for when the turn ends. When a command ends with prompts still queued,
 the screen says how many. Quitting, `/new`, and `/sessions` warn once before
 they drop them.
 
-**Limit stop.** The CLI sets `Limits.ModelCalls` to 40. Enter or
+**Limit stop.** The CLI sets `Limits.ModelCalls` to 100. Enter or
 `/continue` continues the same turn with a limit twice as high. It adds no
 user line. A new prompt closes the limited turn instead.
 
@@ -176,7 +176,7 @@ providers.
 1. **New PRD, not the item 14 draft.** That draft is a library `HistoryRef`.
    The CLI owns history through turn records and needs no ref.
 2. **Turn records are the only history store**, built in `History`.
-3. **The model-call limit is 40.** Coding reads many files.
+3. **The model-call limit is 100.** Coding reads many files.
 4. **Use `workspace` directly**, with its approval types.
 5. **Libraries export plain tools and hooks.** The CLI has a small adapter.
 6. **Approval is inline.** It has three input modes and a quit path.
@@ -185,7 +185,7 @@ providers.
 8. **Enter during a turn is a steer; `!` is urgent.** A slash command waits.
 9. **`/sessions` lists this directory only.**
 10. **The limit stop does not end the turn** (library decision 34). The same
-    turn continues with a raised limit, doubling each time (40, 80, 160).
+    turn continues with a raised limit, doubling each time (100, 200, 400).
 11. **The `Controller` holds modes and commands.** The screen, line mode, and
     `dashi run` are thin `UI` values, so tests drive every mode without a terminal.
 12. **Line mode** runs when stdin or stdout is not a terminal, or with
