@@ -44,3 +44,6 @@ __pycache__/
 
 # GoReleaser output
 /dist/
+
+# Local evidence (videos, transcripts) for PRs; never committed
+/.evidence/

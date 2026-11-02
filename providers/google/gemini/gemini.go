@@ -110,19 +110,9 @@ func New(config Config) (*Client, error) {
 			config.APIKey != "" {
 			return nil, errors.New("gemini: Vertex requires project and credential scope, without API key")
 		}
-		// The hosts follow the Google GenAI SDK: global has no regional
-		// prefix, and the multi-regions us and eu use regional endpoints.
-		host := "aiplatform.googleapis.com"
-		switch config.Location {
-		case "global":
-		case "us", "eu":
-			host = "aiplatform." + config.Location + ".rep.googleapis.com"
-		default:
-			host = config.Location + "-aiplatform.googleapis.com"
-		}
 		defaultEndpoint = fmt.Sprintf(
 			"https://%s/v1/projects/%s/locations/%s/publishers/google/models/{model}:generateContent",
-			host,
+			vertexHost(config.Location),
 			url.PathEscape(config.Project),
 			url.PathEscape(config.Location),
 		)

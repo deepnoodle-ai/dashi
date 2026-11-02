@@ -1,7 +1,7 @@
 # Make Veo videos on Vertex AI and bill them by the video produced
 
-Status: Draft\
-PRD PR: #371  Implementation PR: TBD  Updated: 2026-11-02\
+Status: Approved\
+PRD PR: #371  Implementation PR: #373  Updated: 2026-11-02\
 Spec: [design/vertex-veo.md](../design/vertex-veo.md)
 
 ## Problem
@@ -186,13 +186,13 @@ live test passes; Gemini API clients behave as before.
 
 - Operation names may hold the project number, not the ID. The check
   matches the location and checks the other segments by format only, and
-  polls always call the configured endpoint. The live test shows the real
-  form.
+  polls always call the configured endpoint. The live test (2026-11-02)
+  returned the project ID.
 - Google states no retention period for a done operation. Hosts fetch
   promptly after success and treat a not-found re-poll as lost output.
 - An audio track can be present but silent, or Google may bill audio
   that a safety filter removed. Usage reports the track. The live test
-  shows a track for an audio request.
+  returned an AAC track for an audio request.
 - A 4k inline response can be near 100 MB of base64, under the existing
   512 MiB video limit.
 - If Vertex returns only `gcsUri` without `storageUri`, the poll fails

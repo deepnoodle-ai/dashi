@@ -1,6 +1,6 @@
 # Vertex Veo video jobs
 
-**Status:** Draft · **Author:** Claude · **Date:** 2026-11-02\
+**Status:** Approved · **Author:** Claude · **Date:** 2026-11-02\
 **PRD:** [vertex-veo](../prds/vertex-veo.md)
 
 ## Context
@@ -109,7 +109,8 @@ The body sends `sampleCount: 1` (one video, one charge), `generateAudio:
 when set. `PrepareVideo` rejects, with `ErrorUnsupported` and a message
 naming the value: an operation other than generate, `Size`, more than one
 frame, aspect ratios other than 16:9 and 9:16, durations other than 4, 6,
-or 8 s, and resolutions other than 720p, 1080p, and 4k. It does not apply
+or 8 s, resolutions other than 720p, 1080p, and 4k, and `DisableAudio` on
+a `veo-2` model, which rejects `generateAudio`. It does not apply
 the Gemini API rule "1080p and 4k need 8 s". Then the model info check runs.
 
 | Model | Resolutions | Frames | Evidence |
@@ -182,6 +183,13 @@ from fixtures, and the token headers. Fixture MP4s are built in the tests by
 `internal/mp4/mp4test`; no third-party files are checked in. `internal/mp4`
 also has a fuzz test. One live test (`//go:build live`, about $0.96) makes
 an 8 s 1080p Fast video with audio and checks the usage.
+
+**Live result (2026-11-02):** passed in 94 s. The operation name used the
+project ID. The done operation held inline bytes. Usage: 8 s, 1920×1080,
+"1080p", audio true; ffprobe agrees (h264 8.000 s, AAC 8.000 s). The run
+used a gcloud access token in a supplied `Client`, because the local ADC
+needed reauthentication; Dashi's ADC token path is covered by contract
+tests only.
 
 ## Tradeoffs
 

@@ -161,6 +161,10 @@ type VideoSettings struct {
 	Size        Size          `json:"size,omitzero"`
 	Resolution  string        `json:"resolution,omitempty"`
 	AspectRatio string        `json:"aspect_ratio,omitempty"`
+	// DisableAudio asks for a video without audio. False means the model's
+	// default, which is audio for models that make it. An adapter that cannot
+	// send this choice rejects it during preparation.
+	DisableAudio bool `json:"disable_audio,omitempty"`
 }
 
 // Validate checks provider-independent setting invariants.
@@ -282,6 +286,31 @@ type Result struct {
 	// RawUsage preserves provider-reported usage without claiming shared billing
 	// units across image and video APIs. Nil means the provider did not report it.
 	RawUsage json.RawMessage `json:"raw_usage,omitempty"`
+	// VideoUsage has one entry for each video that the adapter could measure.
+	// A video with no entry was not measured; bill it from the recorded
+	// request.
+	VideoUsage []VideoUsage `json:"video_usage,omitempty"`
+}
+
+// VideoUsage describes one generated video in the units that video APIs bill
+// by, as measured from the file. ContentIndex names its block in
+// Result.Content. It describes the file as produced, not what was requested
+// or what the provider charged: when billing policy needs it, compare it with
+// the recorded request (VideoRequest.Effective), for example to bill the
+// lower of the two or to flag a mismatch.
+type VideoUsage struct {
+	ContentIndex int `json:"content_index"`
+	// Duration is the video track's length with its edit list applied. A
+	// longer audio track does not extend it. It is not rounded; the host
+	// chooses how to round it for billing.
+	Duration time.Duration `json:"duration"`
+	Width    int           `json:"width"`
+	Height   int           `json:"height"`
+	// Resolution is the tier of the shorter edge: "720p", "1080p", or "4k".
+	// It is empty for any other size.
+	Resolution string `json:"resolution,omitempty"`
+	// Audio reports an audio track in the file. The track may be silent.
+	Audio bool `json:"audio"`
 }
 
 // Validate requires at least one block of the declared medium and requested
@@ -319,7 +348,7 @@ func (r Result) Validate() error {
 	); err != nil {
 		return err
 	}
-	return nil
+	return validateVideoUsage(r.VideoUsage, r.Content)
 }
 
 // Clone detaches result content and its nested bytes.
@@ -327,7 +356,26 @@ func (r Result) Clone() Result {
 	r.Content = cloneBlocks(r.Content)
 	r.StoredOutputs = cloneStoredOutputs(r.StoredOutputs)
 	r.RawUsage = slices.Clone(r.RawUsage)
+	r.VideoUsage = slices.Clone(r.VideoUsage)
 	return r
+}
+
+func validateVideoUsage(usage []VideoUsage, blocks []content.Block) error {
+	seen := make(map[int]bool, len(usage))
+	for _, u := range usage {
+		if u.ContentIndex < 0 || u.ContentIndex >= len(blocks) ||
+			blocks[u.ContentIndex].Kind != content.KindVideo {
+			return errors.New("media: video usage must name a video block")
+		}
+		if seen[u.ContentIndex] {
+			return errors.New("media: video usage names a block twice")
+		}
+		seen[u.ContentIndex] = true
+		if u.Duration < 0 || u.Width < 0 || u.Height < 0 {
+			return errors.New("media: video usage cannot be negative")
+		}
+	}
+	return nil
 }
 
 // ReportedUsage returns a copy of a provider's raw usage value for RawUsage.
