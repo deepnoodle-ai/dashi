@@ -25,9 +25,10 @@ func (r *runtime) beforeModel(
 	input *llm.Input,
 	finalReplyOnly bool,
 	purpose ModelPurpose,
-) ([]ContextItem, []string, *Stop, *RunResult) {
+) ([]ContextItem, []string, map[string]string, *Stop, *RunResult) {
 	var deliver []ContextItem
 	var hidden []string
+	var replies map[string]string
 	ignored := hideIgnored{}
 	bound := map[string]bool{}
 	for _, def := range input.Tools {
@@ -79,7 +80,7 @@ func (r *runtime) beforeModel(
 			if r.ctx.Err() != nil {
 				r.dropHooks(mark)
 				o := r.contextStop()
-				return nil, nil, nil, &o
+				return nil, nil, nil, nil, &o
 			}
 			r.hookFailed(HookBeforeModel, h.Name, err, true)
 			continue
@@ -97,7 +98,7 @@ func (r *runtime) beforeModel(
 				limit := *stop.Limit
 				stop.Limit = &limit
 			}
-			return nil, nil, &stop, nil
+			return nil, nil, nil, &stop, nil
 		}
 		ignored.merge(hookIgnored)
 		r.pendingWarnings = append(r.pendingWarnings, warnings...)
@@ -118,6 +119,14 @@ func (r *runtime) beforeModel(
 		}
 		input.Settings = candidate.Settings
 		input.Tools = candidate.Tools
+		if d.HiddenReply != "" {
+			for _, name := range candidateHidden[len(hidden):] {
+				if replies == nil {
+					replies = map[string]string{}
+				}
+				replies[name] = d.HiddenReply
+			}
+		}
 		hidden = candidateHidden
 		for i, item := range d.AddMessages {
 			item = cloneContextItem(item)
@@ -137,7 +146,7 @@ func (r *runtime) beforeModel(
 	if w, ok := ignored.warning(); ok {
 		r.pendingWarnings = append(r.pendingWarnings, w)
 	}
-	return deliver, hidden, nil, nil
+	return deliver, hidden, replies, nil, nil
 }
 
 // hookItemID names the i-th item without an ID that hook h adds for the
@@ -286,6 +295,9 @@ func validModelDecision(d ModelDecision, input llm.Input) error {
 		if err := input.Validate(); err != nil {
 			return fmt.Errorf("invalid settings or hide: %w", err)
 		}
+	}
+	if len(d.HiddenReply) > maxHiddenReply {
+		return fmt.Errorf("hidden reply is longer than %d bytes", maxHiddenReply)
 	}
 	if d.Stop != nil && !validHookStop(*d.Stop) {
 		return errors.New(

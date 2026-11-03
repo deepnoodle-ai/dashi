@@ -298,6 +298,12 @@ type ModelDecision struct {
 	// again. Changing the offered tools resets the whole cached prompt,
 	// not only the tools, so keep hides stable.
 	Hide []string `json:"hide,omitempty"`
+	// HiddenReply, when set, is the tool result a call to a tool this hook
+	// hid gets, in place of "This tool is not available now." It applies
+	// only to the names this hook hid, not ones an earlier hook hid, and is
+	// recorded in ModelFact.HiddenReplies. Use it to tell the model how to
+	// get the tool, such as a search that loads it. At most 4 KiB.
+	HiddenReply string `json:"hidden_reply,omitempty"`
 	// Stop ends this run before a model call when non-nil. Its kind must be
 	// StopRefused, StopFailed, or StopLimited with a host, cost or token
 	// Limit; other stops could end the turn for good by accident.

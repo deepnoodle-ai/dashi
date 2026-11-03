@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `ModelDecision.HiddenReply`: the tool result a call to a tool this hook
+  hid gets, in place of "This tool is not available now." It applies only to
+  the names that hook hid, is recorded in the new `ModelFact.HiddenReplies`,
+  and is at most 4 KiB. Use it to tell the model how to load a deferred tool.
+
 ## [0.18.1] - 2026-11-03
 
 This is the first published release with the 0.18.0 changes. 0.18.0 was

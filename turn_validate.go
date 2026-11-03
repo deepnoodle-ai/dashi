@@ -77,7 +77,8 @@ func (a ActiveHooks) validate() error {
 }
 
 // validateHidden checks the tools recorded as hidden from a model call:
-// named once each, never the submit tool, and not also offered. The
+// named once each, never the submit tool, and not also offered. A hidden
+// reply must name a hidden tool and be non-empty and bounded. The
 // reserved final-reply call runs no hides, so it records none.
 func validateHidden(fact *ModelFact) error {
 	if fact.FinalReplyOnly && len(fact.Hidden) > 0 {
@@ -92,6 +93,11 @@ func validateHidden(fact *ModelFact) error {
 			return errors.New("invalid hidden tools")
 		}
 		seen[name] = true
+	}
+	for name, reply := range fact.HiddenReplies {
+		if !seen[name] || reply == "" || len(reply) > maxHiddenReply {
+			return errors.New("invalid hidden replies")
+		}
 	}
 	return nil
 }

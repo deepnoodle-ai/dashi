@@ -66,7 +66,10 @@ that names a tool any hook hid: the choice is cleared, with a
 `WarningToolChoiceCleared`. If no tools are left, the tool choice and
 parallel-tools setting are cleared too. The hidden names are recorded in the
 `ModelFact.Hidden` of the call's `model_call_started` step, and a call to a
-hidden tool is not run and reads "This tool is not available now."
+hidden tool is not run and reads "This tool is not available now." A hook can
+set `HiddenReply` to answer calls to the tools it hid with its own text, such
+as how to load a deferred tool. That text is recorded in
+`ModelFact.HiddenReplies`.
 
 A hide shapes the offer only: a failing hook is skipped and offers the tools
 again. To fail closed, handle errors inside the hook and return the hide, or

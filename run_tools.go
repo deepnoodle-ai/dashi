@@ -148,7 +148,7 @@ func (r *runtime) tools(s *replayState) (RunResult, bool) {
 				// hid, is unavailable rather than unknown.
 				text, reason := "Unknown tool.", "unknown tool"
 				if state.hiddenAt(id, v.Call.Name) {
-					text, reason = "This tool is not available now.", "tool unavailable"
+					text, reason = state.hiddenReplyAt(id, v.Call.Name), "tool unavailable"
 				}
 				o := tool.Outcome{
 					State:  tool.StateNotExecuted,
