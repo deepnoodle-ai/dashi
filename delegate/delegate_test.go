@@ -574,6 +574,19 @@ func (h *harness) next(t *testing.T, kind delegate.TaskEventKind) delegate.TaskE
 	}
 }
 
+// drainTaskEvents returns the task events received so far.
+func (h *harness) drainTaskEvents() []delegate.TaskEvent {
+	var out []delegate.TaskEvent
+	for {
+		select {
+		case e := <-h.taskEvents:
+			out = append(out, e)
+		default:
+			return out
+		}
+	}
+}
+
 // none fails if a task event of kind arrives within a short time.
 func (h *harness) none(t *testing.T, kind delegate.TaskEventKind) {
 	t.Helper()
@@ -999,13 +1012,16 @@ func TestKilledInsideTaskCallHoldsOneChild(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		trigger func(*testing.T, *harness, dashi.CommitRequest) bool
+		// unsaved is set when the crash comes before the child's record
+		// holds it.
+		unsaved bool
 	}{
 		{"before the child is saved", func(_ *testing.T, _ *harness, r dashi.CommitRequest) bool {
 			return isChild(r) && r.Step.Kind == dashi.StepTurnStarted
-		}},
+		}, true},
 		{"after the child started", func(_ *testing.T, _ *harness, r dashi.CommitRequest) bool {
 			return isChild(r) && r.Step.Kind == dashi.StepModelCallStarted
-		}},
+		}, false},
 		{"before the call settled", func(t *testing.T, h *harness, r dashi.CommitRequest) bool {
 			if isChild(r) || r.Step.Kind != dashi.StepToolFinished {
 				return false
@@ -1015,26 +1031,59 @@ func TestKilledInsideTaskCallHoldsOneChild(t *testing.T) {
 			// (#84: a child still running must repeat an unfinished call).
 			h.waitStop(t, childTurnID(), dashi.StopCompleted)
 			return true
-		}},
+		}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var crash *crashRecorder
 			var h *harness
-			h = newHarness(t, script("answer"), delegate.Config{},
+			// The child runs beside the parent, so the parent's next model
+			// call waits for the crash. Otherwise the parent could finish
+			// before the child's crashing commit.
+			crashed := make(chan struct{})
+			var once sync.Once
+			model := scripted(answers("answer"))
+			waitCrash := func(ctx context.Context, in llm.Input) (llm.Result, error) {
+				if role(in) == "parent" && len(in.Messages) > 1 {
+					select {
+					case <-crashed:
+					case <-ctx.Done():
+						return llm.Result{}, ctx.Err()
+					case <-time.After(5 * time.Second):
+						return llm.Result{}, errors.New("the crash never came")
+					}
+				}
+				return model(ctx, in)
+			}
+			h = newHarness(t, waitCrash, delegate.Config{},
 				func(m *dashi.MemoryRecorder) dashi.Recorder {
 					crash = &crashRecorder{Recorder: m, trigger: func(
 						r dashi.CommitRequest,
 					) bool {
-						return tc.trigger(t, h, r)
+						if !tc.trigger(t, h, r) {
+							return false
+						}
+						once.Do(func() { close(crashed) })
+						return true
 					}}
 					return crash
 				})
 			if _, err := h.start(t.Context()); err == nil {
 				t.Fatal("the crash did not stop the run")
 			}
+			// A new Tasks closes the old one, which waits for its child
+			// goroutine, so nothing of the crashed process runs after this.
+			h.newTasks(t)
 			crash.trigger = nil
 			crash.dead.Store(false)
-			h.newTasks(t)
+			// The crashed process may have reported the child's failed end,
+			// but not of a child its record never held: the task call's
+			// error said so. The checks below are about the restarted
+			// process's events.
+			for _, e := range h.drainTaskEvents() {
+				if tc.unsaved && e.Kind == delegate.TaskEnded {
+					t.Fatalf("an unsaved child reported its end: %+v", e.Task)
+				}
+			}
 			if err := h.recoverTasks(t); err != nil {
 				t.Fatal(err)
 			}
