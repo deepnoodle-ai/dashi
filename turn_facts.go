@@ -184,9 +184,14 @@ type ModelFact struct {
 	Tools                []tool.Definition    `json:"tools,omitempty"`
 	// Hidden names the tools BeforeModel hooks removed from this call. A
 	// call to one of them finishes as not available, by this record.
-	Hidden []string    `json:"hidden,omitempty"`
-	Result *llm.Result `json:"result,omitempty"`
-	Error  string      `json:"error,omitempty"`
+	Hidden []string `json:"hidden,omitempty"`
+	// HiddenReplies holds, by tool name, the result a call to a hidden tool
+	// gets in place of "This tool is not available now.", from the
+	// ModelDecision.HiddenReply of the hook that hid it. Absent names use
+	// the default.
+	HiddenReplies map[string]string `json:"hidden_replies,omitempty"`
+	Result        *llm.Result       `json:"result,omitempty"`
+	Error         string            `json:"error,omitempty"`
 	// ErrorReason is a stable, optional model failure code. It is absent on
 	// older records and does not replace the human-readable Error.
 	ErrorReason llm.ErrorReason `json:"error_reason,omitempty"`

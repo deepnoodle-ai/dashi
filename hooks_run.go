@@ -14,6 +14,9 @@ const maxHookError = 4 << 10
 // record keeps.
 const maxHookReason = 1 << 10
 
+// maxHiddenReply bounds a ModelDecision.HiddenReply.
+const maxHiddenReply = 4 << 10
+
 // maxRewrites is how many BeforeTool rewrites one call may take before it is
 // denied; rewrites must converge.
 const maxRewrites = 3

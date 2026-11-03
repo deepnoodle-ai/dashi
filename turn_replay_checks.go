@@ -606,6 +606,18 @@ func (s *replayState) hiddenAt(id, name string) bool {
 	return callStart != nil && slices.Contains(callStart.Hidden, name)
 }
 
+// hiddenReplyAt is the result for call id to hidden tool name: the hiding
+// hook's HiddenReply as recorded, or the default.
+func (s *replayState) hiddenReplyAt(id, name string) string {
+	callStart := s.startedModelCalls[s.modelCallOfTool[id]]
+	if callStart != nil {
+		if reply := callStart.HiddenReplies[name]; reply != "" {
+			return reply
+		}
+	}
+	return "This tool is not available now."
+}
+
 // roomForAnyCall reports whether one more model call fits ModelCalls,
 // the reserved final-reply call included. A call in flight counts as used.
 func (s *replayState) roomForAnyCall() bool {

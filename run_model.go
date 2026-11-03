@@ -146,7 +146,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 	// A request abandoned for an urgent steer before it is sent drops the
 	// hook decisions of this pass; the next pass asks the hooks again.
 	mark := r.hookMark()
-	deliver, hidden, hookStop, ctxStop := r.beforeModel(s, &input, finalReplyOnly, purpose)
+	deliver, hidden, hiddenReplies, hookStop, ctxStop := r.beforeModel(s, &input, finalReplyOnly, purpose)
 	// The model_call_started step records the tools offered, after any
 	// hides, and the names hidden, so a call to a hidden tool is handled
 	// from the record.
@@ -339,6 +339,7 @@ func (r *runtime) modelPurpose(s *replayState, purpose ModelPurpose, plan *Conte
 		Unverified:           snapshot.Unverified,
 		Tools:                defs,
 		Hidden:               hidden,
+		HiddenReplies:        hiddenReplies,
 	}
 	if o := r.commit(Step{
 		Kind:     StepModelCallStarted,

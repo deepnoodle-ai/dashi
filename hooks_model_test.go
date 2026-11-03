@@ -464,6 +464,81 @@ func TestFailingHideHookOffersTheTools(t *testing.T) {
 	}
 }
 
+// A hook's HiddenReply answers calls to the tools that hook hid, and only
+// those: a tool another hook hid keeps the default answer.
+func TestHiddenReplyAnswersCallsToTheToolsItsHookHid(t *testing.T) {
+	const reply = "Not loaded. Search for it with find_tools, then call it."
+	deferred := ModelHook{Name: "deferred", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		return ModelDecision{Hide: []string{"write"}, HiddenReply: reply}, nil
+	}}
+	calls := llm.Result{
+		Message: llm.AssistantMessage(
+			llm.Content{Kind: llm.ContentToolCall, ToolCall: &tool.Call{ID: "deferred", Name: "write", Args: []byte(`{}`)}},
+			llm.Content{Kind: llm.ContentToolCall, ToolCall: &tool.Call{ID: "policy", Name: "bash", Args: []byte(`{}`)}},
+		),
+		Stop:      llm.Stop{Kind: llm.StopToolUse},
+		Requested: llm.ModelRef{Provider: "test", Model: "fixture"},
+	}
+	client := &scriptedClient{results: []llm.Result{calls, final("done")}}
+	out := runAgent(
+		t,
+		testAgent(),
+		client,
+		tool.List{namedTool("read", nil), namedTool("write", nil), namedTool("bash", nil)},
+		Hooks{BeforeModel: []ModelHook{deferred, hideHook("policy", "bash")}},
+	)
+	if out.Stop.Kind != StopCompleted {
+		t.Fatalf("stop = %+v", out.Stop)
+	}
+	if got := callStartOf(t, out.Turn, 1).HiddenReplies; len(got) != 1 || got["write"] != reply {
+		t.Fatalf("hidden replies = %v", got)
+	}
+	if got := toolResultText(t, out.Turn, "deferred"); got != reply {
+		t.Fatalf("deferred call result = %q", got)
+	}
+	if got := toolResultText(t, out.Turn, "policy"); got != "This tool is not available now." {
+		t.Fatalf("policy call result = %q", got)
+	}
+}
+
+func TestOversizedHiddenReplySkipsTheHook(t *testing.T) {
+	big := ModelHook{Name: "big", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		return ModelDecision{Hide: []string{"write"}, HiddenReply: strings.Repeat("x", maxHiddenReply+1)}, nil
+	}}
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	out := runAgent(t, testAgent(), client,
+		tool.List{namedTool("read", nil), namedTool("write", nil)}, big.Hooks())
+	if !hasWarning(out, WarningHookFailed) {
+		t.Fatalf("warnings = %+v", out.Warnings)
+	}
+	if got := toolNames(client.inputs[0].Tools); !slices.Equal(got, []string{"read", "write"}) {
+		t.Fatalf("offered %v", got)
+	}
+}
+
+func TestReplayRejectsInvalidHiddenReplies(t *testing.T) {
+	client := &scriptedClient{results: []llm.Result{final("done")}}
+	out := runAgent(t, testAgent(), client, tool.List{namedTool("read", nil)}, Hooks{})
+	for name, replies := range map[string]map[string]string{
+		"not hidden": {"read": "search first"},
+		"empty":      {"x": ""},
+		"oversized":  {"x": strings.Repeat("x", maxHiddenReply+1)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			turn := cloneTurn(out.Turn)
+			for i, step := range turn.Steps {
+				if step.Kind == StepModelCallStarted {
+					turn.Steps[i].Model.Hidden = []string{"x"}
+					turn.Steps[i].Model.HiddenReplies = replies
+				}
+			}
+			if _, err := turn.View(); !errors.Is(err, ErrInvalidTurn) {
+				t.Fatalf("replay err = %v", err)
+			}
+		})
+	}
+}
+
 func TestReplayRejectsInvalidHiddenTools(t *testing.T) {
 	client := &scriptedClient{results: []llm.Result{final("done")}}
 	out := runAgent(t, testAgent(), client, tool.List{namedTool("read", nil)}, Hooks{})
