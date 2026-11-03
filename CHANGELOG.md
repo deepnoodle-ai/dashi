@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-03
+
 ### Added
 
 - `ModelDecision.HiddenReply`: the tool result a call to a tool this hook
