@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-11-02
+
 ### Fixed
 
 - `delegate`: a child that fails before its record holds it no longer
