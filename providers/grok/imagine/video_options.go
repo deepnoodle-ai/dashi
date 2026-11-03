@@ -25,7 +25,6 @@ type VideoOptions struct {
 	LastFrame       *content.Block  `json:"last_frame,omitempty"`
 	Keyframes       []VideoKeyframe `json:"keyframes,omitempty"`
 	ReferenceVoices []string        `json:"reference_voices,omitempty"`
-	GenerateAudio   *bool           `json:"generate_audio,omitempty"`
 }
 
 // VideoKeyframe pins an image at a moment strictly inside the clip. Timestamp
@@ -39,8 +38,7 @@ type VideoKeyframe struct {
 func optionsHasValues(options VideoOptions) bool {
 	return options.SourceVideo != nil || options.Storage != nil ||
 		len(options.ReferenceImages) > 0 || options.LastFrame != nil ||
-		len(options.Keyframes) > 0 || len(options.ReferenceVoices) > 0 ||
-		options.GenerateAudio != nil
+		len(options.Keyframes) > 0 || len(options.ReferenceVoices) > 0
 }
 
 func videoTransformWireBody(
@@ -57,7 +55,7 @@ func videoTransformWireBody(
 	}
 	if len(input.ReferenceFrames) > 0 || len(options.ReferenceImages) > 0 ||
 		options.LastFrame != nil || len(options.Keyframes) > 0 ||
-		len(options.ReferenceVoices) > 0 || options.GenerateAudio != nil {
+		len(options.ReferenceVoices) > 0 || input.Settings.DisableAudio {
 		return nil, errors.New("imagine: video edit and extension cannot combine generation inputs")
 	}
 	if input.Settings.Size != (media.Size{}) || input.Settings.Resolution != "" ||
@@ -158,7 +156,7 @@ func addVideoOptions(
 	}
 	if (options.LastFrame != nil || len(options.Keyframes) > 0 ||
 		len(options.ReferenceVoices) > 0 ||
-		options.GenerateAudio != nil) &&
+		input.Settings.DisableAudio) &&
 		!videoModel15(input.Model) {
 		return errors.New("imagine: last frame, keyframes, voices, and audio control require grok-imagine-video-1.5")
 	}
@@ -244,8 +242,9 @@ func addVideoOptions(
 		}
 		body["reference_audios"] = voices
 	}
-	if options.GenerateAudio != nil {
-		body["generate_audio"] = *options.GenerateAudio
+	// Unset leaves audio to xAI's default; only a request for silence is sent.
+	if input.Settings.DisableAudio {
+		body["generate_audio"] = false
 	}
 	return nil
 }

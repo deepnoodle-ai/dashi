@@ -464,7 +464,7 @@ func (p *InteractionsVideoJobClient) getFile(
 	return doGeminiMedia(
 		ctx,
 		p.Provider(),
-		p.client.config.APIKey,
+		apiKeyHeader(p.client.config.APIKey),
 		p.client.config.Client,
 		http.MethodGet,
 		endpoint,

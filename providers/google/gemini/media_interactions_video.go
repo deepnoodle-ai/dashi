@@ -66,6 +66,12 @@ func (p *InteractionsMediaClient) prepareVideo(
 			in.Model,
 		)
 	}
+	if in.Settings.DisableAudio {
+		return media.VideoRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Omni video cannot turn audio off",
+		)
+	}
 	if in.Settings.Size.Width != 0 ||
 		in.Settings.Duration != 0 ||
 		len(in.ReferenceFrames) > 1 {

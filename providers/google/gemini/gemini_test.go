@@ -399,6 +399,22 @@ func TestVertexDefaultEndpointForLocation(t *testing.T) {
 	}
 }
 
+// Vertex model calls keep their "global" default; only the Veo video client
+// defaults to, and adjusts global to, us-central1.
+func TestVertexModelCallsDefaultToGlobal(t *testing.T) {
+	for _, name := range []string{"GOOGLE_CLOUD_LOCATION", "GOOGLE_CLOUD_REGION"} {
+		t.Setenv(name, "")
+	}
+	p, err := New(Config{Vertex: true, Project: "project", CredentialScope: "principal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://aiplatform.googleapis.com/v1/projects/project/locations/global/"
+	if p.config.Location != "global" || !strings.HasPrefix(p.config.Endpoint, want) {
+		t.Fatalf("location = %q, endpoint = %s", p.config.Location, p.config.Endpoint)
+	}
+}
+
 // Gemini needs each function call answered before the next model turn. The
 // answers may span several user messages, as Dashi records one per result.
 func TestPrepareRejectsCallsUnansweredBeforeNextModelTurn(t *testing.T) {

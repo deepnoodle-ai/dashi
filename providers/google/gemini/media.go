@@ -69,9 +69,9 @@ var (
 	_ media.VideoJobClient = (*MediaClient)(nil)
 )
 
-// NewMedia validates endpoint scope and snapshots model evidence. The Gemini
-// API-key route is supported here; Vertex needs a separately qualified media
-// destination and credential path.
+// NewMedia validates endpoint scope and snapshots model evidence for the
+// Gemini API-key route. Google shut down Veo 3.1 on the Gemini API on
+// 2026-10-22; for Veo videos use NewVertexVideoJobs.
 func NewMedia(config MediaConfig) (*MediaClient, error) {
 	if config.ImageEndpoint == "" {
 		config.ImageEndpoint = DefaultImageEndpoint
@@ -119,7 +119,7 @@ func NewMedia(config MediaConfig) (*MediaClient, error) {
 		videoModels: make(map[string]media.ModelInfo, len(config.VideoModels)),
 	}
 	for name, info := range config.ImageModels {
-		if err := p.validateModelInfo(
+		if err := validateMediaModelInfo(
 			name,
 			info,
 			ImageAPI,
@@ -131,7 +131,7 @@ func NewMedia(config MediaConfig) (*MediaClient, error) {
 		p.imageModels[name] = info.Clone()
 	}
 	for name, info := range config.VideoModels {
-		if err := p.validateModelInfo(
+		if err := validateMediaModelInfo(
 			name,
 			info,
 			VideoAPI,
@@ -162,7 +162,7 @@ func validateMediaEndpoint(endpoint, suffix string) error {
 	return nil
 }
 
-func (p *MediaClient) validateModelInfo(
+func validateMediaModelInfo(
 	name string,
 	info media.ModelInfo,
 	api, endpoint string,
@@ -271,7 +271,7 @@ func (p *MediaClient) do(
 	return doGeminiMedia(
 		ctx,
 		p.Provider(),
-		p.config.APIKey,
+		apiKeyHeader(p.config.APIKey),
 		p.config.Client,
 		method,
 		endpoint,
@@ -282,9 +282,12 @@ func (p *MediaClient) do(
 	)
 }
 
+// doGeminiMedia sends one media request with header, which carries the
+// credential, and maps the HTTP status to a media.Error.
 func doGeminiMedia(
 	ctx context.Context,
-	provider, apiKey string,
+	provider string,
+	header http.Header,
 	configuredClient *http.Client,
 	method, endpoint string,
 	body []byte,
@@ -327,7 +330,9 @@ func doGeminiMedia(
 	if err != nil {
 		return nil, mediaFailure(provider, media.ErrorInvalidRequest, "%w", err)
 	}
-	req.Header.Set("X-Goog-Api-Key", apiKey)
+	for name, values := range header {
+		req.Header[name] = slices.Clone(values)
+	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -393,6 +398,11 @@ func doGeminiMedia(
 		}
 	}
 	return raw, nil
+}
+
+// apiKeyHeader returns the Gemini API key header.
+func apiKeyHeader(key string) http.Header {
+	return http.Header{"X-Goog-Api-Key": {key}}
 }
 
 // publicGeminiHost reports whether endpoint is on Google's public Gemini API

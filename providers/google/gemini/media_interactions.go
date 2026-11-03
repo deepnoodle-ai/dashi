@@ -217,7 +217,7 @@ func (p *InteractionsMediaClient) do(
 	return doGeminiMedia(
 		ctx,
 		p.Provider(),
-		p.config.APIKey,
+		apiKeyHeader(p.config.APIKey),
 		p.config.Client,
 		http.MethodPost,
 		p.config.Endpoint,

@@ -236,7 +236,9 @@ type VideoCallClient interface {
 
 // VideoJobClient separates submission, polling, and output retrieval. A
 // SubmitVideo transport error may accompany SubmissionUnknown; callers must
-// record that the result is unknown rather than resubmit automatically.
+// record that the result is unknown rather than resubmit automatically. A
+// succeeded poll may already carry the output; FetchVideo then returns it
+// without another request, and otherwise retrieves it.
 type VideoJobClient interface {
 	PrepareVideo(context.Context, VideoInput) (VideoRequest, error)
 	SubmitVideo(context.Context, VideoRequest) (Submission, error)

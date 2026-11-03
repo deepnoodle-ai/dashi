@@ -58,13 +58,16 @@ func TestVideoOptionsCaptureDocumentedGenerationModes(t *testing.T) {
 	last := content.ImageBlock(content.Source{
 		URL: "https://example.test/last.png",
 	})
-	silent := false
 	input := media.VideoInput{
 		Model: "grok-imagine-video-1.5",
 		ReferenceFrames: []content.Block{
 			content.ImageBlock(content.Source{URL: "https://example.test/first.png"}),
 		},
-		Settings: media.VideoSettings{Duration: 6 * time.Second, Resolution: "720p"},
+		Settings: media.VideoSettings{
+			Duration:     6 * time.Second,
+			Resolution:   "720p",
+			DisableAudio: true,
+		},
 	}
 	options := VideoOptions{
 		ReferenceImages: []content.Block{
@@ -80,7 +83,6 @@ func TestVideoOptionsCaptureDocumentedGenerationModes(t *testing.T) {
 			},
 		},
 		ReferenceVoices: []string{"eve"},
-		GenerateAudio:   &silent,
 	}
 	request, err := client.PrepareVideoWithOptions(
 		t.Context(),
@@ -149,6 +151,13 @@ func TestVideoOptionsRejectInvalidModeCombinations(t *testing.T) {
 			func(in *media.VideoInput, opts *VideoOptions) {
 				in.Model = "grok-imagine-video"
 				opts.LastFrame = &frame
+			},
+		},
+		{
+			"classic audio off",
+			func(in *media.VideoInput, _ *VideoOptions) {
+				in.Model = "grok-imagine-video"
+				in.Settings.DisableAudio = true
 			},
 		},
 		{
@@ -322,6 +331,12 @@ func TestVideoTransformRejectsUnsupportedSettings(t *testing.T) {
 			func(in *media.VideoInput, _ *VideoOptions) {
 				in.Operation = media.VideoExtend
 				in.Settings.AspectRatio = "16:9"
+			},
+		},
+		{
+			"edit audio off",
+			func(in *media.VideoInput, _ *VideoOptions) {
+				in.Settings.DisableAudio = true
 			},
 		},
 		{
