@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-11-03
+
+This is the first published release with the 0.18.0 changes. 0.18.0 was
+tagged but never published, so 0.18.1 includes everything listed under it.
+
+### Changed (breaking)
+
+- Grok's `imagine.VideoOptions.GenerateAudio` is removed (from 0.18.0). Set
+  `media.VideoSettings.DisableAudio` instead.
+
 ### Fixed
 
 - `delegate`: a child that fails before its record holds it no longer
