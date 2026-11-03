@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	cloud.google.com/go/auth v0.24.0
-	github.com/deepnoodle-ai/dashi v0.17.0
+	github.com/deepnoodle-ai/dashi v0.18.0
 	google.golang.org/genai v1.71.0
 )
 
