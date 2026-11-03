@@ -133,7 +133,9 @@ again each message of a finished call that the parent's record lacks.
 
 ## When a result arrives
 
-Each child turn that ends calls `Config.OnTask` once with `TaskEnded`. With
+Each child turn that ends calls `Config.OnTask` once with `TaskEnded`. A
+first turn that fails before its record is saved is the exception: the `task`
+call's error is its only report, and it sends no `TaskEnded`. With
 `Config.Session` set, `Tasks` first puts the turn's notice on that session
 itself; without it, the host decides what to do. `TaskView.Notice()` gives
 the message: `Text()` for display, and `Item()` and `Steer()` to send it to

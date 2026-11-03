@@ -1147,6 +1147,13 @@ func (ts *Tasks) endTurn(t *task, id string, out dashi.RunResult, err error) {
 		c.suppressed = !c.reported
 		c.notified, c.reported = true, true
 	}
+	if c == t.turns[0] && len(c.steps) == 0 && c.final == nil && !c.notified {
+		// The child failed before its record held it. The task call
+		// reports that as its error (see startTask); the record holds no
+		// task, so no end is reported. Marking it here, before run's
+		// notifyEnded can see it, keeps that from depending on timing.
+		ts.reportedLocked(c, false)
+	}
 	ts.changedLocked()
 	ts.mu.Unlock()
 }
@@ -1479,10 +1486,8 @@ func (ts *Tasks) startTask(
 	defer ts.mu.Unlock()
 	if first := t.turns[0]; first.state != TaskRunning &&
 		len(first.steps) == 0 && first.final == nil {
-		// The run failed before it recorded the child.
-		if !first.notified {
-			ts.reportedLocked(first, false)
-		}
+		// The run failed before it recorded the child. endTurn marked
+		// the turn reported, so no TaskEnded follows this error.
 		return TaskView{}, tool.Fatal(fmt.Errorf(
 			"delegate: start subagent: %s", cmp.Or(first.reason, string(first.state)),
 		))

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `delegate`: a child that fails before its record holds it no longer
+  sometimes also reports a `TaskEnded` event (and a notice to
+  `Config.Session`). The `task` call's error is the only report, every time.
+
 ## [0.18.0] - 2026-11-02
 
 ### Added
