@@ -771,6 +771,10 @@ func TestSteerThatMissesAFailedTurnStartsTheNextTurn(t *testing.T) {
 type failRecorder struct {
 	dashi.Recorder
 	fail atomic.Pointer[func(dashi.CommitRequest) bool]
+	// landed makes a failing commit write through and then report an
+	// unknown outcome (NothingWritten unset), as a lost acknowledgement
+	// does.
+	landed bool
 }
 
 func (f *failRecorder) Load(ctx context.Context, id string) (dashi.Turn, error) {
@@ -779,6 +783,12 @@ func (f *failRecorder) Load(ctx context.Context, id string) (dashi.Turn, error) 
 
 func (f *failRecorder) Commit(ctx context.Context, req dashi.CommitRequest) error {
 	if fail := f.fail.Load(); fail != nil && (*fail)(req) {
+		if f.landed {
+			if err := f.Recorder.Commit(ctx, req); err != nil {
+				return err
+			}
+			return &dashi.CommitError{Err: errors.New("acknowledgement lost")}
+		}
 		return &dashi.CommitError{NothingWritten: true, Err: errors.New("store down")}
 	}
 	return f.Recorder.Commit(ctx, req)
@@ -820,6 +830,38 @@ func TestSendWhoseTurnFailsToStartIsNotSent(t *testing.T) {
 	if e := h.next(t, delegate.TaskEnded); e.Task.TurnID != childTurn(2) ||
 		e.Task.Reply != "read: second try" {
 		t.Fatalf("ended=%+v", e.Task)
+	}
+}
+
+// A message whose turn's first commit has an unknown outcome, and landed,
+// started a turn the record holds: task_send reports it sent, and the turn
+// reports its end.
+func TestSendWhoseTurnStartIsUnknownIsSent(t *testing.T) {
+	var store *failRecorder
+	h := newHarness(t, scripted(follows), delegate.Config{},
+		func(m *dashi.MemoryRecorder) dashi.Recorder {
+			store = &failRecorder{Recorder: m, landed: true}
+			return store
+		})
+	if _, err := h.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	h.next(t, delegate.TaskEnded)
+	fail := func(r dashi.CommitRequest) bool {
+		return r.Step.TurnID == childTurn(2) && r.Step.Kind == dashi.StepTurnStarted
+	}
+	store.fail.Store(&fail)
+	out := h.send(t, sendArgs("first try", ""))
+	store.fail.Store(nil)
+	if got := sent(t, out.TurnView, 1); !strings.Contains(got, "starts turn 2") {
+		t.Fatalf("result=%q", got)
+	}
+	if e := h.next(t, delegate.TaskEnded); e.Task.TurnID != childTurn(2) ||
+		e.Task.State != delegate.TaskState(dashi.StopFailed) {
+		t.Fatalf("ended=%+v", e.Task)
+	}
+	if v := h.tasks.List()[0]; v.Turns != 2 {
+		t.Fatalf("view=%+v", v)
 	}
 }
 

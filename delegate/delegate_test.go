@@ -1112,6 +1112,48 @@ func TestKilledInsideTaskCallHoldsOneChild(t *testing.T) {
 	}
 }
 
+// A first commit whose outcome is unknown, and that landed, recorded the
+// child: the task call reports the task, not a failed start, its failure is
+// reported as an end, and Recover resumes the child it named.
+func TestUnknownFirstCommitReportsTheRecordedChild(t *testing.T) {
+	var store *failRecorder
+	h := newHarness(t, script("answer"), delegate.Config{},
+		func(m *dashi.MemoryRecorder) dashi.Recorder {
+			store = &failRecorder{Recorder: m, landed: true}
+			return store
+		})
+	var once atomic.Bool
+	fail := func(r dashi.CommitRequest) bool {
+		return r.Step.TurnID == childTurnID() &&
+			r.Step.Kind == dashi.StepTurnStarted && once.CompareAndSwap(false, true)
+	}
+	store.fail.Store(&fail)
+	out, err := h.start(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := toolResult(t, out.TurnView); !strings.Contains(got, taskID()) ||
+		strings.Contains(got, "start subagent") {
+		t.Fatalf("task result=%q", got)
+	}
+	ended := h.next(t, delegate.TaskEnded)
+	if ended.Task.State != delegate.TaskState(dashi.StopFailed) {
+		t.Fatalf("ended=%+v", ended.Task)
+	}
+	h.newTasks(t)
+	h.drainTaskEvents()
+	if err := h.recoverTasks(t); err != nil {
+		t.Fatal(err)
+	}
+	if e := h.next(t, delegate.TaskEnded); e.Task.ID != taskID() ||
+		e.Task.State != delegate.TaskState(dashi.StopCompleted) {
+		t.Fatalf("ended after Recover=%+v", e.Task)
+	}
+	if n := len(h.tasks.List()); n != 1 {
+		t.Fatalf("tasks=%d, want 1", n)
+	}
+}
+
 func TestStopCancelsTheChildForGood(t *testing.T) {
 	g := newGate()
 	h := newHarness(t, scripted(gated(g, "never")), delegate.Config{}, nil)

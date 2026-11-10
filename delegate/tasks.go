@@ -1117,8 +1117,17 @@ var errCanceled = errors.New("stopped on request")
 // caused it.
 func (ts *Tasks) endTurn(t *task, id string, out dashi.RunResult, err error) {
 	deferred := ts.deferNotice(out.Turn)
+	held := ts.reloadUnknown(t, id, err)
 	ts.mu.Lock()
 	c := t.turn(id)
+	if len(c.steps) == 0 && c.final == nil && len(held) > 0 {
+		// The record holds the turn though its first commit failed: it
+		// is a turn that started and then failed, not one that never was.
+		for _, step := range held {
+			t.heldLocked(step)
+		}
+		c.steps, c.origin = held, turnOrigin(held[0])
+	}
 	if err != nil && ts.dropUnrecordedLocked(t, c, err) {
 		ts.changedLocked()
 		ts.mu.Unlock()
@@ -1163,6 +1172,40 @@ func (ts *Tasks) endTurn(t *task, id string, out dashi.RunResult, err error) {
 	}
 	ts.changedLocked()
 	ts.mu.Unlock()
+}
+
+// reloadUnknown returns the steps the record holds for turn id when err is
+// a commit whose outcome is unknown (CommitError.NothingWritten unset). Such
+// a commit may have landed, so a turn that observed no step may still be in
+// the record, and Recover would resume it. It returns nil for any other
+// error, or when the record cannot be read.
+//
+// Control also reloads after a failed command, but it then keeps a pending
+// fence keyed on the command's id and receipt hash. A sent message has no
+// such receipt, so this check is one read. The Recorder contract only says
+// to load the turn; it does not promise that a write still in flight at a
+// remote recorder has landed by then. If one lands after this read, the turn
+// counts as never started and its sender may send the message again. That
+// window is accepted: it needs a recorder that reports a failure for a write
+// it later applies, and Recover resumes the recorded turn after a restart.
+func (ts *Tasks) reloadUnknown(t *task, id string, err error) []dashi.Step {
+	var commitErr *dashi.CommitError
+	if !errors.As(err, &commitErr) || commitErr.NothingWritten {
+		return nil
+	}
+	loader, ok := t.session.Runner.Recorder.(dashi.Loader)
+	if !ok {
+		return nil
+	}
+	turn, loadErr := loader.Load(context.Background(), id)
+	if loadErr != nil {
+		if !errors.Is(loadErr, dashi.ErrTurnNotFound) {
+			slog.Warn("delegate: could not check whether a failed task turn was recorded",
+				"task", t.id, "turn", id, "error", loadErr)
+		}
+		return nil
+	}
+	return turn.Steps
 }
 
 // dropUnrecordedLocked removes a later turn of t that failed before the
@@ -1494,7 +1537,9 @@ func (ts *Tasks) startTask(
 	if first := t.turns[0]; first.state != TaskRunning &&
 		len(first.steps) == 0 && first.final == nil {
 		// The run failed before it recorded the child. endTurn marked
-		// the turn reported, so no TaskEnded follows this error.
+		// the turn reported, so no TaskEnded follows this error. After
+		// an unknown commit, endTurn reloaded the record first, so a
+		// turn the record holds has steps and does not reach here.
 		return TaskView{}, tool.Fatal(fmt.Errorf(
 			"delegate: start subagent: %s", cmp.Or(first.reason, string(first.state)),
 		))
