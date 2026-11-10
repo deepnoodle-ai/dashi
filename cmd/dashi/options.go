@@ -350,12 +350,13 @@ func themeSyntax(value string) error {
 // flag, such as --plain in `dashi --model --plain`: the parser gives a value
 // flag its next word even when that word starts with "-". A value that
 // starts with "-" and a space or a digit, such as "- be brief", still passes.
+// A value that looks like a flag is rejected in every form, --name=--x too.
 func needsValue(value string) error {
 	if strings.TrimSpace(value) == "" {
 		return errors.New("needs a value")
 	}
 	if looksLikeFlag(value) {
-		return fmt.Errorf("needs a value, got the flag %s; write --name=%s to use it as the value", value, value)
+		return fmt.Errorf("needs a value, got the flag %s", value)
 	}
 	return nil
 }
