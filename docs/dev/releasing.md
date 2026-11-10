@@ -52,7 +52,7 @@ as `chore(release): prepare v0.2.0`. The notes get reviewed alongside the code.
 After the PR merges, from an updated `main`:
 
 ```sh
-git tag v0.2.0
+git tag -s -m v0.2.0 v0.2.0
 make tag-modules VERSION=v0.2.0
 git push origin mcp/v0.2.0 providers/google/gemini/v0.2.0 cmd/dashi/v0.2.0
 git push origin v0.2.0
@@ -60,6 +60,10 @@ git push origin v0.2.0
 
 Push the root tag on its own, last. GitHub starts no workflow for tags pushed
 more than three at a time, and the root tag starts the release workflow.
+
+Every tag is signed with your git signing key (SSH): `tag-modules` signs the
+sub-module tags, and `git tag -s` the root tag. Check them with
+`git tag -v v0.2.0` before pushing.
 
 Every tag must point at a commit whose `go.mod` files name the release version.
 `tag-modules` tags the sub-modules only, never the root, and re-runs the

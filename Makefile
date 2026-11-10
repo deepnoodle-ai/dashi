@@ -101,7 +101,7 @@ endif
 	@python3 scripts/sync_module_versions.py $(VERSION) --check
 	@for mod in $(SUB_MODULES); do \
 		echo "Tagging $$mod/$(VERSION)"; \
-		git tag "$$mod/$(VERSION)" || exit 1; \
+		git tag -s -m "$$mod/$(VERSION)" "$$mod/$(VERSION)" || exit 1; \
 	done
 	@echo ""
 	@echo "Tags created. Push the sub-module tags, then the root tag alone:"
