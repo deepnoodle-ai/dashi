@@ -268,7 +268,7 @@ func TestThreeStreamingTaskPanesKeepTypingResponsive(t *testing.T) {
 		pane := taskPaneID(ids[name])
 		waitFor(5*time.Second, "pane "+name+" loaded", func(s *screen) bool {
 			p := s.panes.get(pane)
-			return p != nil && p.feed != nil && !p.feed.replaying
+			return p != nil && p.watch != nil && !p.watch.loading
 		})
 	}
 	waitFor(5*time.Second, "four panes", func(s *screen) bool { return len(s.paneList()) == 4 })
@@ -282,7 +282,7 @@ func TestThreeStreamingTaskPanesKeepTypingResponsive(t *testing.T) {
 			if step < threeTaskSteps {
 				want := fmt.Sprintf("%s step %d of %d.", name, step+1, threeTaskSteps)
 				waitFor(5*time.Second, want, func(s *screen) bool {
-					return strings.Contains(paneText(s.panes.get(taskPaneID(ids[name])).feed), want)
+					return strings.Contains(paneText(s.panes.get(taskPaneID(ids[name])).watch), want)
 				})
 				select {
 				case <-client.waiting[name]:
@@ -296,10 +296,10 @@ func TestThreeStreamingTaskPanesKeepTypingResponsive(t *testing.T) {
 		pane := taskPaneID(ids[name])
 		waitFor(10*time.Second, name+" ended", func(s *screen) bool {
 			p := s.panes.get(pane)
-			return p.ended && strings.Contains(paneText(p.feed), name+" finished its work.")
+			return p.ended && strings.Contains(paneText(p.watch), name+" finished its work.")
 		})
 		var text string
-		probe(func(s *screen) { text = paneText(s.panes.get(pane).feed) })
+		probe(func(s *screen) { text = paneText(s.panes.get(pane).watch) })
 		for i := 1; i <= threeTaskSteps; i++ {
 			if n := strings.Count(text, fmt.Sprintf("%s step %d of %d.", name, i, threeTaskSteps)); n != 1 {
 				t.Errorf("%s step %d shows %d times:\n%s", name, i, n, text)

@@ -272,3 +272,41 @@ holds a child's call for approval ends the task in state `waiting`.
 `Config.OnChild` receives every child event: committed steps, model deltas,
 and tool progress, with the parent link and the subagent name. It runs on the
 child's observer goroutine and must return quickly.
+
+### Watching one task
+
+To show one task live, as a task pane does, range over `Tasks.Watch`. It
+yields the task's record first, then its live events, each step once and in
+order:
+
+```go
+for u, err := range tasks.Watch(ctx, id) {
+	if err != nil {
+		return err // delegate.ErrUnknownTask
+	}
+	switch u.Kind {
+	case delegate.TaskUpdateTurn:
+		showRecorded(*u.Turn) // one per recorded child Turn
+	case delegate.TaskUpdateRecordEnd:
+		// The record is done; live events follow.
+	case delegate.TaskUpdateEvent:
+		show(u.Event) // a step, delta, tool progress, or gap
+	case delegate.TaskUpdateMissingSteps:
+		warn(u.TurnID, u.Err) // the watch continues from the next step
+	}
+}
+```
+
+`Watch` listens before it loads the record, so nothing falls between them.
+It drops steps it already yielded, holds a step that arrives after a missing
+one, and holds a later Turn's events while an earlier Turn misses a step. A
+missing step that has not arrived after 100 ms is loaded from the record; if
+the record lacks it too, `TaskUpdateMissingSteps` says so. A preview comes
+after the step it belongs after, and one whose message or tool call has
+finished is dropped. A gap means the message lost deltas: drop its preview
+text; `Watch` drops its later deltas.
+
+The watch outlives the task's Turns, since `task_send` can start another:
+it ends when `ctx` ends, when the loop breaks, or on `Close`. Loads need a
+child recorder that implements `dashi.Loader`. Several watches of one task
+may run at once, alongside `OnChild`.

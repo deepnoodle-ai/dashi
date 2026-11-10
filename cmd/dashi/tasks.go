@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,17 +36,6 @@ type taskHost struct {
 	problems     map[string]string
 	wake         func()
 	observedSeq  map[string]int64
-	// watchers holds the one watcher of each watched task, by task ID (see
-	// Engine.WatchTask).
-	watchers map[string]taskWatcher
-	watchSeq uint64
-}
-
-// taskWatcher is the function that receives a watched task's child events.
-// n tells one watch of a task from a later one.
-type taskWatcher struct {
-	n  uint64
-	fn func(delegate.ChildEvent)
 }
 
 func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentResolver) *taskHost {
@@ -71,14 +61,8 @@ func (e *Engine) newTaskHost(chat *session.Session, resolver *engineAttachmentRe
 		Session: chat,
 		OnChild: func(event delegate.ChildEvent) {
 			id := delegate.TaskID(delegate.ChildID(event.Parent.TurnID, event.Parent.CallID))
-			host.mu.Lock()
-			watcher := host.watchers[id].fn
-			host.mu.Unlock()
-			// The watcher gets every event, steps and previews alike, and
-			// orders them itself; observedSeq only spares status lines.
-			if watcher != nil {
-				defer watcher(event)
-			}
+			// observedSeq spares repeated status lines; task panes watch
+			// through Tasks.Watch.
 			if event.Event.Step != nil {
 				host.mu.Lock()
 				seq := host.observedSeq[event.Event.TurnID]
@@ -262,51 +246,51 @@ func (e *Engine) closeTasks() error {
 		return fmt.Errorf("task shutdown unresolved; session stays owned: %w", err)
 	}
 	host.inputs.close()
-	host.mu.Lock()
-	host.watchers = nil
-	host.mu.Unlock()
 	return nil
 }
 
-// WatchTask calls fn with each child event of task id until unwatch runs.
-// fn runs on the child's observer goroutine and must return promptly. A
-// task has one watcher: a second watch replaces the first, and the first's
-// unwatch then does nothing. Closing the task host drops every watcher.
-func (e *Engine) WatchTask(id string, fn func(delegate.ChildEvent)) (unwatch func()) {
-	host := e.taskHost()
-	if host == nil {
-		return func() {}
-	}
-	host.mu.Lock()
-	host.watchSeq++
-	n := host.watchSeq
-	if host.watchers == nil {
-		host.watchers = map[string]taskWatcher{}
-	}
-	host.watchers[id] = taskWatcher{n: n, fn: fn}
-	host.mu.Unlock()
-	return func() {
-		host.mu.Lock()
-		defer host.mu.Unlock()
-		if host.watchers[id].n == n {
-			delete(host.watchers, id)
+// WatchTask yields the updates of task id, as delegate.Tasks.Watch does. A
+// task only the record knows, whose recovery failed, yields its recorded
+// Turns and then waits for ctx, since it has no live events.
+func (e *Engine) WatchTask(ctx context.Context, id string) iter.Seq2[delegate.TaskUpdate, error] {
+	return func(yield func(delegate.TaskUpdate, error) bool) {
+		host := e.taskHost()
+		if host == nil {
+			yield(delegate.TaskUpdate{}, errors.New("no task host is open"))
+			return
+		}
+		for update, err := range host.tasks.Watch(ctx, id) {
+			if !errors.Is(err, delegate.ErrUnknownTask) {
+				if !yield(update, err) {
+					return
+				}
+				continue
+			}
+			snapshot, err := e.inspectTask(ctx, id)
+			if err != nil {
+				yield(delegate.TaskUpdate{}, err)
+				return
+			}
+			turns, err := host.loadTurns(ctx, snapshot.Task)
+			if err != nil {
+				yield(delegate.TaskUpdate{Kind: delegate.TaskUpdateMissingSteps, Err: err}, nil)
+			}
+			for i := range turns {
+				if !yield(delegate.TaskUpdate{Kind: delegate.TaskUpdateTurn, Turn: &turns[i]}, nil) {
+					return
+				}
+			}
+			if yield(delegate.TaskUpdate{Kind: delegate.TaskUpdateRecordEnd}, nil) {
+				<-ctx.Done()
+			}
+			return
 		}
 	}
 }
 
-// TaskRecord returns the task's inspection snapshot and its recorded
-// child Turns, as /task ID and /tasks ID load them.
-func (e *Engine) TaskRecord(ctx context.Context, id string) (taskSnapshot, []dashi.Turn, error) {
-	snapshot, err := e.inspectTask(ctx, id)
-	if err != nil {
-		return taskSnapshot{}, nil, err
-	}
-	host := e.taskHost()
-	turns, err := host.loadTurns(ctx, snapshot.Task)
-	if err != nil {
-		return taskSnapshot{}, nil, err
-	}
-	return snapshot, turns, nil
+// TaskFacts returns the task's inspection snapshot, as /tasks ID loads it.
+func (e *Engine) TaskFacts(ctx context.Context, id string) (taskSnapshot, error) {
+	return e.inspectTask(ctx, id)
 }
 
 // loadTurns loads the recorded child Turns of a task, in order. It reads

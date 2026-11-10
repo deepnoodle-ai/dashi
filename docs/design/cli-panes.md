@@ -3,6 +3,10 @@
 Status: In review · Date: 2026-10-31 · PRD PR: #357\
 Requirements: [Watch delegated tasks beside the conversation](../prds/cli-panes.md)
 
+Update (#359): the ordering rules below now live in the library as
+`delegate.Tasks.Watch` (see the delegation guide). The CLI renders its
+updates; `taskFeed`, `WatchTask(id, fn)`, and `TaskRecord` are gone.
+
 ## Context
 
 The [PRD](../prds/cli-panes.md) adds side-by-side panes to the fullscreen

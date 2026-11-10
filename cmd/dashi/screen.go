@@ -79,12 +79,10 @@ type screen struct {
 	transcriptMenuPane string
 	// tasks is where task panes watch and load tasks: the Engine.
 	tasks taskSource
-	// taskOpens numbers task pane opens. gapCheck is set while a flush is
-	// due for a task feed's missing step. clock, if set, replaces
-	// time.Now for the feeds' gap wait, in tests. taskTimeout, if set,
-	// replaces taskLoadTimeout, in tests.
+	// taskOpens numbers task pane opens. clock, if set, replaces
+	// time.Now, in tests. taskTimeout, if set, replaces taskLoadTimeout,
+	// in tests.
 	taskOpens   uint64
-	gapCheck    bool
 	clock       func() time.Time
 	taskTimeout time.Duration
 	// inline is set in inline mode, which has no panes (see Panes).
@@ -103,14 +101,14 @@ type blockShape struct {
 
 func shapeOf(b Block) blockShape { return blockShape{b.Kind, b.State, b.Done} }
 
-// queued is one item of pending work: a block to show, a reset, a child
-// event for a task pane, a task record load result, or content for the
+// queued is one item of pending work: a block to show, a reset, a task
+// pane's watch update, a task facts load result, or content for the
 // details pane.
 type queued struct {
 	block   Block
 	reset   bool
-	child   *taskChildEvent
-	load    *taskLoad
+	update  *taskWatchUpdate
+	load    *taskFactsLoad
 	details *detailsUpdate
 }
 
@@ -406,12 +404,12 @@ func (s *screen) drain() {
 			s.taskHinted = false
 			continue
 		}
-		if q.child != nil {
-			s.taskChild(*q.child)
+		if q.update != nil {
+			s.taskUpdate(*q.update)
 			continue
 		}
 		if q.load != nil {
-			s.taskLoaded(*q.load)
+			s.taskFactsLoaded(*q.load)
 			continue
 		}
 		if q.details != nil {
@@ -427,7 +425,6 @@ func (s *screen) drain() {
 			s.main().apply(Block{Kind: KindHint, Text: taskWatchTip(task), Done: true})
 		}
 	}
-	s.settleTaskFeeds()
 }
 
 // --- events ---
@@ -510,9 +507,6 @@ func (s *screen) HandleEvent(event tui.Event) []tui.Cmd {
 		}
 		s.clearPrompts()
 		return []tui.Cmd{tui.Focus(inputID)}
-	case taskGapEvent:
-		s.gapCheck = false
-		s.drain()
 	}
 	return nil
 }
