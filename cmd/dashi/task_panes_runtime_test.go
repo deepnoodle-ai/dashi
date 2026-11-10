@@ -161,12 +161,17 @@ func TestThreeStreamingTaskPanesKeepTypingResponsive(t *testing.T) {
 	go func() {
 		done <- tui.Run(scr, tui.WithTerminal(tui.NewTestTerminal(width, height, display)), tui.WithInput(keys), tui.WithMouseDrag(true), tui.WithFPS(30))
 	}()
-	rt := <-scr.rt
+	var rt *tui.Runtime
+	runtimeDone := false
 	t.Cleanup(func() {
 		a.ctrl.CancelWork()
 		a.eng.closeTasks()
 		a.ctrl.Wait()
 		keys.Close()
+		if runtimeDone {
+			a.eng.Close()
+			return
+		}
 		select {
 		case err := <-done:
 			if err != nil {
@@ -177,6 +182,14 @@ func TestThreeStreamingTaskPanesKeepTypingResponsive(t *testing.T) {
 		}
 		a.eng.Close()
 	})
+	select {
+	case rt = <-scr.rt:
+	case err := <-done:
+		runtimeDone = true
+		t.Fatalf("runtime stopped before it started: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("runtime did not start")
+	}
 
 	probe := func(fn func(*screen)) {
 		t.Helper()
