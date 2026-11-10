@@ -249,8 +249,8 @@ func TestScheduleCommandLine(t *testing.T) {
 		t.Fatalf("calls %v", f.calls)
 	}
 	for _, args := range [][]string{{"schedule"}, {"schedule", "start"}, {"schedule", "remove", "--archive", archive}} {
-		if r := runCLI(t, args...); r.ExitCode != 1 {
-			t.Errorf("%v: exit %d, want 1", args, r.ExitCode)
+		if r := runCLI(t, args...); r.ExitCode != 2 { // usage errors exit 2
+			t.Errorf("%v: exit %d, want 2", args, r.ExitCode)
 		}
 	}
 }

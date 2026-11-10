@@ -17,6 +17,7 @@ import (
 	"github.com/deepnoodle-ai/decide"
 	"github.com/deepnoodle-ai/decide/decidetest"
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 )
 
 // attackText is a fetched page that tries to take over the agent. It is
@@ -422,7 +423,7 @@ func TestDecideRowNamesEachCheck(t *testing.T) {
 	if !strings.Contains(text, "decide ✓ command\n    decide result: injection 99%, hidden 93% — flagged, agent warned") {
 		t.Fatalf("command passed, result flagged:\n%s", text)
 	}
-	screen := tui.SprintScreen(toolView(row), tui.WithWidth(120), tui.WithHeight(3)).Text()
+	screen := tuitest.Screen(toolView(row), tui.WithWidth(120), tui.WithHeight(3)).Text()
 	mustHave(t, screen, "decide ✓ command")
 	mustHave(t, screen, "decide result: injection 99%")
 }

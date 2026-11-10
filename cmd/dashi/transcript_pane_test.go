@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 )
 
 func paneFixture() *transcriptPane {
@@ -19,7 +20,7 @@ func paneFixture() *transcriptPane {
 
 // drawPane renders the pane alone and returns its rows.
 func drawPane(p *transcriptPane, width, height int) []string {
-	return strings.Split(tui.SprintScreen(tui.Viewport(&p.vp, p).Gap(1), tui.WithWidth(width), tui.WithHeight(height)).Text(), "\n")
+	return strings.Split(tuitest.Screen(tui.Viewport(&p.vp, p).Gap(1), tui.WithWidth(width), tui.WithHeight(height)).Text(), "\n")
 }
 
 func TestTranscriptPaneItems(t *testing.T) {
@@ -138,7 +139,7 @@ func TestScreenHasOneMainPane(t *testing.T) {
 	s.Emit(Block{ID: "a", Kind: KindAssistant, Text: "hello", Done: true})
 	s.drain()
 	// The pane is under the pointer once drawn.
-	tui.SprintScreen(s.paneArea(), tui.WithWidth(40), tui.WithHeight(5))
+	tuitest.Screen(s.paneArea(), tui.WithWidth(40), tui.WithHeight(5))
 	if s.paneAt(1, 0) != s.main() {
 		t.Fatal("the main pane is not under the pointer")
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/deepnoodle-ai/wonton/runewidth"
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 )
 
 func TestMouseWheelScrollsThreeLines(t *testing.T) {
@@ -50,7 +51,7 @@ func TestMouseWheelScrollsOpenDialog(t *testing.T) {
 	}
 	p := &pickerState{title: "Task 1", options: []string{"Close"}, details: []string{"x"}, sessionCards: true, reply: make(chan int, 1)}
 	s.HandleEvent(promptEvent{id: 1, picker: p})
-	tui.SprintScreen(tui.Height(6, tui.Viewport(&p.sessionVP, lines).Gap(0)), tui.WithWidth(40), tui.WithHeight(6))
+	tuitest.Screen(tui.Height(6, tui.Viewport(&p.sessionVP, lines).Gap(0)), tui.WithWidth(40), tui.WithHeight(6))
 	before := p.sessionVP.LinesBelow
 	s.HandleEvent(tui.MouseEvent{Type: tui.MouseScroll, Button: tui.MouseButtonWheelDown, X: 2, Y: 2})
 	if before == 0 || before-p.sessionVP.LinesBelow != wheelStep {
@@ -70,7 +71,7 @@ func TestDragHeldOnTheTopRowScrollsUpAndExtendsTheSelection(t *testing.T) {
 		s.Emit(Block{Kind: KindAssistant, Text: fmt.Sprintf("answer %d", i), Done: true})
 	}
 	s.drain()
-	render := func() { tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24)) }
+	render := func() { tuitest.Screen(s.View(), tui.WithWidth(80), tui.WithHeight(24)) }
 	mouse := func(typ tui.MouseEventType, y int) {
 		s.HandleEvent(tui.MouseEvent{Type: typ, Button: tui.MouseButtonLeft, X: 3, Y: y})
 	}
@@ -129,7 +130,7 @@ func TestDragOnTheLastTranscriptRowScrollsOnlyBelowIt(t *testing.T) {
 		s.Emit(Block{Kind: KindAssistant, Text: fmt.Sprintf("answer %d", i), Done: true})
 	}
 	s.drain()
-	render := func() { tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24)) }
+	render := func() { tuitest.Screen(s.View(), tui.WithWidth(80), tui.WithHeight(24)) }
 	mouse := func(typ tui.MouseEventType, y int) {
 		s.HandleEvent(tui.MouseEvent{Type: typ, Button: tui.MouseButtonLeft, X: 3, Y: y})
 	}
@@ -207,7 +208,7 @@ func TestClickOnMoreBelowReturnsToLiveOutput(t *testing.T) {
 	}
 	s.drain()
 	render := func() string {
-		return tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24)).Text()
+		return tuitest.Screen(s.View(), tui.WithWidth(80), tui.WithHeight(24)).Text()
 	}
 	render()
 	s.main().vp.ScrollBy(-20)
@@ -241,7 +242,7 @@ func TestDragOnTheTopRowAtTheStartSelectsThatRow(t *testing.T) {
 		s.Emit(Block{Kind: KindAssistant, Text: fmt.Sprintf("answer %d", i), Done: true})
 	}
 	s.drain()
-	screen := tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24)).Text()
+	screen := tuitest.Screen(s.View(), tui.WithWidth(80), tui.WithHeight(24)).Text()
 	row := -1
 	for y, line := range strings.Split(screen, "\n") {
 		if strings.Contains(line, "answer 1") {
@@ -293,7 +294,7 @@ func selectionTranscript(t *testing.T) *screenHarness {
 // selectionFrame renders the screen and returns each row's text and the
 // text of its highlighted cells.
 func selectionFrame(s *screen) (rows, lit []string) {
-	frame := tui.SprintScreen(s.View(), tui.WithWidth(selW), tui.WithHeight(selH))
+	frame := tuitest.Screen(s.View(), tui.WithWidth(selW), tui.WithHeight(selH))
 	for y := range selH {
 		var row, hl strings.Builder
 		for x := range selW {
@@ -511,7 +512,7 @@ func TestDragAutoScrollAcrossTurnsKeepsTheAnchor(t *testing.T) {
 		}
 	}
 	s.drain()
-	render := func() string { return tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24)).Text() }
+	render := func() string { return tuitest.Screen(s.View(), tui.WithWidth(80), tui.WithHeight(24)).Text() }
 	rows := strings.Split(render(), "\n")
 	x, y := cellOf(t, rows, "result 4")
 	x += len("result 4")

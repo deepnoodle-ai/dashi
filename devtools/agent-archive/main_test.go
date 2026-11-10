@@ -50,16 +50,19 @@ func TestCommandLine(t *testing.T) {
 		t.Fatalf("rebuild exit %d: %v", r.ExitCode, r.Err)
 	}
 
-	for _, args := range [][]string{
-		{"nope"},
-		{"copy", "--bogus"},
-		{"copy", "-archive", e.opts.ArchiveDir}, // the old single-dash form
-		{"status", "extra"},
-		{"report", "--by", "nope"},
-		{"report", "--since", "yesterday", "--archive", e.opts.ArchiveDir},
+	for _, c := range []struct {
+		args []string
+		want int
+	}{
+		{[]string{"nope"}, 2}, // usage errors exit 2
+		{[]string{"copy", "--bogus"}, 2},
+		{[]string{"copy", "-archive", e.opts.ArchiveDir}, 2}, // the old single-dash form
+		{[]string{"status", "extra"}, 2},
+		{[]string{"report", "--by", "nope"}, 2},
+		{[]string{"report", "--since", "yesterday", "--archive", e.opts.ArchiveDir}, 1},
 	} {
-		if r := runCLI(t, args...); r.ExitCode != 1 {
-			t.Errorf("%v: exit %d, want 1", args, r.ExitCode)
+		if r := runCLI(t, c.args...); r.ExitCode != c.want {
+			t.Errorf("%v: exit %d, want %d", c.args, r.ExitCode, c.want)
 		}
 	}
 	if r := runCLI(t, "--help"); r.ExitCode != 0 || !r.Contains("schedule") {

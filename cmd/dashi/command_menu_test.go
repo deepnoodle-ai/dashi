@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 )
 
 func menuNames(items []commandMenuItem) []string {
@@ -284,7 +285,7 @@ func TestCommandMenuMore(t *testing.T) {
 
 func TestCommandMenuRowTruncates(t *testing.T) {
 	row := commandMenuRow(commandMenuItem{name: "/model", description: "choose the next-turn destination/model"}, 6, true)
-	got := strings.TrimRight(tui.SprintScreen(row, tui.WithWidth(24), tui.WithHeight(1)).Text(), "\n")
+	got := strings.TrimRight(tuitest.Screen(row, tui.WithWidth(24), tui.WithHeight(1)).Text(), "\n")
 	if got != " > /model  Choose the n…" {
 		t.Fatalf("row=%q", got)
 	}

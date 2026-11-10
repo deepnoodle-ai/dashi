@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 )
 
 func TestAttachmentLineBlankConfirmsTextAfterLastDetach(t *testing.T) {
@@ -113,7 +114,7 @@ func TestAttachmentScreenCommandsKeepZeroEntryDraftVisible(t *testing.T) {
 			mustHave(t, h.render(), draft)
 			h.mu.Lock()
 			inline := newInlineScreen(h.scr, &bytes.Buffer{})
-			text := tui.SprintScreen(inline.LiveView(), tui.WithWidth(80), tui.WithHeight(30)).Text()
+			text := tuitest.Screen(inline.LiveView(), tui.WithWidth(80), tui.WithHeight(30)).Text()
 			h.mu.Unlock()
 			mustHave(t, text, draft)
 		})

@@ -6,6 +6,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 )
 
 // renderAt draws the screen at width by height and returns its rows.
@@ -14,7 +15,7 @@ func (h *screenHarness) renderAt(width, height int) []string {
 	defer h.mu.Unlock()
 	h.scr.width, h.scr.height = width, height
 	h.scr.drain()
-	text := tui.SprintScreen(h.scr.View(), tui.WithWidth(width), tui.WithHeight(height)).Text()
+	text := tuitest.Screen(h.scr.View(), tui.WithWidth(width), tui.WithHeight(height)).Text()
 	return strings.Split(strings.TrimRight(text, "\n"), "\n")
 }
 

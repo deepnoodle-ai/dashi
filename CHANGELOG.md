@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- `dashi` CLI: built on Wonton v0.14.0. Command-line usage errors now exit
+  with status 2 instead of 1, and a flag takes its next word as its value even
+  when that word starts with `-`.
+
 ## [0.19.0] - 2026-11-03
 
 ### Added

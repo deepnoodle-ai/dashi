@@ -15,6 +15,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/workspace"
 	"github.com/deepnoodle-ai/wonton/cli"
 	"github.com/deepnoodle-ai/wonton/tui"
+	_ "github.com/deepnoodle-ai/wonton/tui/highlight"
 )
 
 func main() {
