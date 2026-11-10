@@ -8,6 +8,8 @@ import (
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
 
 func TestKnownProviderRejectionCanContinueWithNewModelCall(t *testing.T) {
@@ -277,6 +279,60 @@ func TestMaxTokensPlainContinueEndsWithReminder(t *testing.T) {
 		withoutReminder.Messages = input.Messages[:n-1]
 		if _, err := anthropic.Prepare(t.Context(), withoutReminder); err == nil {
 			t.Fatalf("%s: Prepare accepted a prefill; the test no longer covers the issue", tc.model)
+		}
+	}
+}
+
+// The history of a continued turn holds two assistant messages back to
+// back: the cut-off reply, then the continuation. Each in-repo adapter
+// prepares a later request from that history and sends both replies in
+// order. The Anthropic API joins consecutive same-role turns; OpenAI Chat
+// Completions and Responses accept consecutive assistant items. The Gemini
+// module checks the same shape in its own test.
+func TestMaxTokensContinuedHistoryPrepares(t *testing.T) {
+	history := []llm.Message{
+		llm.UserMessage(llm.Text("hi")),
+		llm.AssistantMessage(llm.Text("partial")),
+		llm.AssistantMessage(llm.Text("continued")),
+	}
+	input := llm.Input{
+		Messages: append(history, llm.UserMessage(llm.Text("next"))),
+		Settings: llm.Settings{MaxTokens: 4096},
+	}
+	anthropic, err := messages.New(messages.Config{APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err := completions.New(completions.Config{APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := responses.New(responses.Config{APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name      string
+		client    llm.Client
+		model     string
+		reasoning *llm.ReasoningSettings
+	}{
+		{name: "anthropic", client: anthropic, model: "claude-opus-5-5"},
+		{name: "anthropic", client: anthropic, model: "claude-sonnet-4-5", reasoning: &llm.ReasoningSettings{BudgetTokens: 2048}},
+		{name: "chat", client: chat, model: "gpt-6-luna"},
+		{name: "responses", client: resp, model: "gpt-6-luna"},
+	} {
+		in := input
+		in.Model = tc.model
+		in.Settings.Reasoning = tc.reasoning
+		req, err := tc.client.Prepare(t.Context(), in)
+		if err != nil {
+			t.Fatalf("%s %s: Prepare rejected the history: %v", tc.name, tc.model, err)
+		}
+		body := string(req.Body())
+		i, j := strings.Index(body, "partial"), strings.Index(body, "continued")
+		if i < 0 || j < i || !strings.Contains(body[j:], "next") {
+			t.Fatalf("%s %s: body lost the replies' order: %s", tc.name, tc.model, body)
 		}
 	}
 }
