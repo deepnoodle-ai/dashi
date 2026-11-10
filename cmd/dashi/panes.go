@@ -67,9 +67,9 @@ type pane struct {
 	closer image.Rectangle
 	// onClose, if set, runs when the pane closes.
 	onClose func()
-	// feed renders a task pane's child events; subagent is its task's
+	// watch renders a task pane's watch updates; subagent is its task's
 	// subagent. Task panes only.
-	feed     *taskFeed
+	watch    *taskWatch
 	subagent string
 }
 

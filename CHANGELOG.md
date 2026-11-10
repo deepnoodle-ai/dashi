@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `delegate.Tasks.Watch(ctx, id)`: an iterator of one task's updates
+  (`TaskUpdate`) that yields its recorded child Turns, then its live child
+  events, each step once and in order. It listens before it loads the record,
+  holds steps that arrive after a missing one, loads a missing step from the
+  record after 100 ms, and reports steps the record lacks too. The `dashi` CLI's
+  task panes now use it.
+
 ### Changed
 
 - `dashi` CLI: built on Wonton v0.14.0. Command-line usage errors now exit

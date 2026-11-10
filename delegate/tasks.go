@@ -152,6 +152,12 @@ type Tasks struct {
 	// record holds (read by Recover), or that Tasks sent or holds for a
 	// notice in this process.
 	parentKnown map[string]bool
+
+	// watches holds the queues of the running watches, by task ID (see
+	// Watch). watchMu guards them, not mu, since child observers fill them.
+	watchMu     sync.Mutex
+	watches     map[string][]*watchQueue
+	watchClosed bool
 }
 
 // task is the mutable record of one child session. Tasks.mu guards every
@@ -483,6 +489,7 @@ func (ts *Tasks) changedLocked() {
 // refuses new tasks. If ctx ends first, Close returns its error and the
 // children keep stopping.
 func (ts *Tasks) Close(ctx context.Context) error {
+	ts.closeWatches()
 	ts.mu.Lock()
 	ts.closed = true
 	for _, t := range ts.tasks {
@@ -1618,22 +1625,21 @@ func (ts *Tasks) childRunner(
 	// Close interrupts and Stop cancels by ending the child's context, and a
 	// resume must find an interrupted record, not a final one.
 	runner.OnContextDone = dashi.ContextInterrupt
+	taskID := TaskID(ChildID(ref.TurnID, ref.CallID))
 	runner.Tools = childTools{
 		parent: parent.Tools,
 		ts:     ts,
-		taskID: TaskID(ChildID(ref.TurnID, ref.CallID)),
+		taskID: taskID,
 	}
 	template := over.Observer
 	onChild := ts.cfg.OnChild
-	runner.Observer = nil
-	if onChild != nil || template != nil {
-		runner.Observer = func(e dashi.Event) {
-			if onChild != nil {
-				onChild(ChildEvent{Parent: ref, Subagent: sub.Name, Event: e})
-			}
-			if template != nil {
-				template(e)
-			}
+	runner.Observer = func(e dashi.Event) {
+		ts.watched(taskID, e)
+		if onChild != nil {
+			onChild(ChildEvent{Parent: ref, Subagent: sub.Name, Event: e})
+		}
+		if template != nil {
+			template(e)
 		}
 	}
 	return runner
