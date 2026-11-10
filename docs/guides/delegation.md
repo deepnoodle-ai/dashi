@@ -287,7 +287,7 @@ for u, err := range tasks.Watch(ctx, id) {
 	switch u.Kind {
 	case delegate.TaskUpdateTurn:
 		showRecorded(*u.Turn) // one per recorded child Turn
-	case delegate.TaskUpdateLive:
+	case delegate.TaskUpdateRecordEnd:
 		// The record is done; live events follow.
 	case delegate.TaskUpdateEvent:
 		show(u.Event) // a step, delta, tool progress, or gap

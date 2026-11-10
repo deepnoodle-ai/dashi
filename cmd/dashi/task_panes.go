@@ -277,7 +277,7 @@ func (w *taskWatch) apply(u delegate.TaskUpdate, err error) {
 	switch u.Kind {
 	case delegate.TaskUpdateTurn:
 		w.replay(*u.Turn)
-	case delegate.TaskUpdateLive:
+	case delegate.TaskUpdateRecordEnd:
 		w.loading = false
 	case delegate.TaskUpdateMissingSteps:
 		if u.TurnID == "" {

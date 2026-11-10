@@ -99,7 +99,7 @@ func TestWatchStartedAfterTheTaskEndsReplaysTheRecord(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	updates, done := watchSteps(ctx, h.tasks, taskID())
 	u := <-updates
-	if live := <-updates; live.Kind != delegate.TaskUpdateLive {
+	if live := <-updates; live.Kind != delegate.TaskUpdateRecordEnd {
 		t.Fatalf("second update=%+v", live)
 	}
 	if u.Kind != delegate.TaskUpdateTurn || u.Turn.ID != childTurnID() {

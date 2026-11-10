@@ -74,7 +74,7 @@ func (f *fakeTaskSource) WatchTask(ctx context.Context, id string) iter.Seq2[del
 				return
 			}
 		}
-		if !yield(delegate.TaskUpdate{Kind: delegate.TaskUpdateLive}, nil) {
+		if !yield(delegate.TaskUpdate{Kind: delegate.TaskUpdateRecordEnd}, nil) {
 			return
 		}
 		for {
@@ -413,7 +413,7 @@ func TestTaskWatchReplaysRecordThenLiveSteps(t *testing.T) {
 	turn := recordedChildTurn(t)
 	w := newTestWatch()
 	w.apply(turnUpdate(dashi.Turn{ID: turn.ID, Steps: turn.Steps[:4]}), nil)
-	w.apply(delegate.TaskUpdate{Kind: delegate.TaskUpdateLive}, nil)
+	w.apply(delegate.TaskUpdate{Kind: delegate.TaskUpdateRecordEnd}, nil)
 	if w.loading {
 		t.Fatal("still loading after the record")
 	}

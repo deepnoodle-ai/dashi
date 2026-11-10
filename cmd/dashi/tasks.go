@@ -280,7 +280,7 @@ func (e *Engine) WatchTask(ctx context.Context, id string) iter.Seq2[delegate.Ta
 					return
 				}
 			}
-			if yield(delegate.TaskUpdate{Kind: delegate.TaskUpdateLive}, nil) {
+			if yield(delegate.TaskUpdate{Kind: delegate.TaskUpdateRecordEnd}, nil) {
 				<-ctx.Done()
 			}
 			return
