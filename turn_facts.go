@@ -425,13 +425,15 @@ const (
 // off. The turn's token Budget is not involved, so Stop.Limit is nil, the
 // stop does not end the turn, and Next is NextFix.
 //
-// The cut-off reply stays in the turn, so a bare Continue sends a request
-// that ends with it: an assistant prefill. Models whose catalog entry lacks
-// assistant prefill, and Anthropic models with reasoning on, reject that
-// request, and the turn stops failed. To go on, record a user message with
-// AddMessages, such as one asking for a shorter answer, and then Continue;
-// a BeforeModel hook can return larger Settings.MaxTokens for that call.
-// Or start a new turn with a larger max_tokens.
+// The cut-off reply stays in the turn. A bare Continue follows it with a
+// short runtime reminder asking the model to continue, so the request ends
+// with a user message rather than an assistant prefill, which many models
+// reject. The reminder is in that request only, not in TurnMessages or
+// BuildHistory. To steer the retry instead, record a user message with
+// AddMessages, such as one asking for a shorter answer, before Continue; then
+// no reminder is added. A BeforeModel hook can return larger
+// Settings.MaxTokens for that call. Or start a new turn with a larger
+// max_tokens.
 const StopReasonMaxTokens = "max_tokens"
 
 // Stop reasons for a StopFailed turn that a content reference stopped. Stop.RefID

@@ -152,6 +152,12 @@ func New(config Config) (*Client, error) {
 		if !strings.HasSuffix(u.Path, scopePath) {
 			return nil, errors.New("gemini: Vertex endpoint does not match project and location")
 		}
+		// Dashi attaches its own ADC token only on an https Vertex AI host,
+		// so a mistyped endpoint never receives a cloud-platform token. The
+		// default endpoint is built by Dashi, so it skips the check.
+		if config.Client == nil && config.Endpoint != defaultEndpoint && (u.Scheme != "https" || !isVertexHost(u.Host)) {
+			return nil, errors.New("gemini: Vertex endpoint outside an https Vertex AI host requires a Client")
+		}
 	}
 	if !config.CapabilityPolicy.Valid() {
 		return nil, errors.New("gemini: invalid capability policy")

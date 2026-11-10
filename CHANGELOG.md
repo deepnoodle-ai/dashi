@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Security
+
+- `gemini.New`: with `Vertex` set and no `Client`, a custom `Endpoint` must be
+  `https` on a Vertex AI host (`aiplatform.googleapis.com`,
+  `{location}-aiplatform.googleapis.com`, or the `us`/`eu` `.rep` hosts).
+  `New` now returns an error for any other endpoint instead of sending it
+  Dashi's Application Default Credentials token. Supply a `Client` to use
+  another host.
+
 ### Changed
 
 - `dashi` CLI: built on Wonton v0.14.0. Command-line usage errors now exit
@@ -16,6 +25,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- A plain `Continue` after a reply cut off at its `max_tokens` setting
+  (`StopReasonMaxTokens`, `NextFix`) no longer fails on models that reject an
+  assistant prefill, such as `claude-opus-5-5`, or on Anthropic models with
+  reasoning on. The next request now follows the cut-off reply with a short
+  runtime reminder, as a user message, asking the model to continue from where
+  it stopped. The reminder goes only into the request for the continued call;
+  `TurnMessages` and `BuildHistory` do not include it, so later turns and
+  earlier records keep their shape. It is derived from the recorded stop, so
+  replay and recovery of that call send the same request. A host that adds its own message with
+  `AddMessages` before `Continue` gets no reminder.
 - `delegate`: a child turn whose first commit has an unknown outcome
   (`CommitError.NothingWritten` unset) is no longer reported as never
   started. Tasks reloads the child's record. If the record holds the turn,

@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
+	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
 
 func TestKnownProviderRejectionCanContinueWithNewModelCall(t *testing.T) {
@@ -197,5 +200,179 @@ func TestMaxTokensReplyStopsLimited(t *testing.T) {
 		last.Role != llm.RoleUser || !strings.Contains(last.Text(), "go on, briefly") {
 		t.Fatalf("second input: max_tokens=%d prev=%s %q last=%s %q",
 			in.Settings.MaxTokens, prev.Role, prev.Text(), last.Role, last.Text())
+	}
+	if hasMaxTokensReminder(in.Messages) {
+		t.Fatalf("a reminder followed the host's message: %+v", in.Messages)
+	}
+}
+
+// A plain Continue after a reply cut off at its max_tokens setting ends the
+// next request with a recorded-derived reminder, not the cut-off reply, so
+// models without assistant prefill and Anthropic with reasoning accept it,
+// and replay gives the same request.
+func TestMaxTokensPlainContinueEndsWithReminder(t *testing.T) {
+	cut := final("partial")
+	cut.Stop = llm.Stop{Kind: llm.StopOutputLimit, Raw: "max_tokens"}
+	client := &scriptedClient{results: []llm.Result{cut, final("done")}}
+	rec := NewMemoryRecorder()
+	runner := Runner{Client: client, Recorder: rec}
+	first, err := start(t, client, nil, rec, Hooks{})
+	if err != nil || first.Next() != NextFix {
+		t.Fatalf("first: stop=%+v err=%v", first.Stop, err)
+	}
+	second, err := runner.Run(t.Context(), first.Turn, Continue{CommandID: "again"})
+	if err != nil || second.Stop.Kind != StopCompleted || client.sends != 2 {
+		t.Fatalf("second: stop=%+v err=%v sends=%d", second.Stop, err, client.sends)
+	}
+	in := client.inputs[1]
+	n := len(in.Messages)
+	prev, last := in.Messages[n-2], in.Messages[n-1]
+	if prev.Role != llm.RoleAssistant || prev.Text() != "partial" ||
+		last.Role != llm.RoleUser || len(last.Content) != 1 ||
+		last.Content[0].Reminder == nil ||
+		last.Content[0].Reminder.Content != maxTokensText {
+		t.Fatalf("second input: prev=%s %q last=%+v", prev.Role, prev.Text(), last)
+	}
+	// The reminder is for the continued call only: the recorded turn, and
+	// the history a later turn builds from it, do not carry it.
+	all, err := TurnMessages(second.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasMaxTokensReminder(all) {
+		t.Fatalf("turn messages carry the reminder: %+v", all)
+	}
+	history, warnings := BuildHistory([]Turn{second.Turn})
+	if len(warnings) != 0 || hasMaxTokensReminder(history) {
+		t.Fatalf("history: %+v warnings=%v", history, warnings)
+	}
+	client.results = append(client.results, final("next done"))
+	third, err := runner.Run(t.Context(), Turn{ID: "t2"}, Start{
+		CommandID: "next",
+		Agent:     testAgent(),
+		History:   history,
+		Input:     []llm.Message{llm.UserMessage(llm.Text("next"))},
+	})
+	if err != nil || third.Stop.Kind != StopCompleted ||
+		hasMaxTokensReminder(client.inputs[2].Messages) {
+		t.Fatalf("new turn: stop=%+v err=%v input=%+v", third.Stop, err, client.inputs[len(client.inputs)-1])
+	}
+
+	anthropic, err := messages.New(messages.Config{APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		model     string
+		reasoning *llm.ReasoningSettings
+	}{
+		{model: "claude-opus-5-5"},
+		{model: "claude-sonnet-4-5", reasoning: &llm.ReasoningSettings{BudgetTokens: 2048}},
+	} {
+		input := in
+		input.Model = tc.model
+		input.Settings = llm.Settings{Reasoning: tc.reasoning}
+		if _, err := anthropic.Prepare(t.Context(), input); err != nil {
+			t.Fatalf("%s: Prepare rejected the request: %v", tc.model, err)
+		}
+		withoutReminder := input
+		withoutReminder.Messages = input.Messages[:n-1]
+		if _, err := anthropic.Prepare(t.Context(), withoutReminder); err == nil {
+			t.Fatalf("%s: Prepare accepted a prefill; the test no longer covers the issue", tc.model)
+		}
+	}
+}
+
+// The history of a continued turn holds two assistant messages back to
+// back: the cut-off reply, then the continuation. Each in-repo adapter
+// prepares a later request from that history and sends both replies in
+// order. The Anthropic API joins consecutive same-role turns; OpenAI Chat
+// Completions and Responses accept consecutive assistant items. The Gemini
+// module checks the same shape in its own test.
+func TestMaxTokensContinuedHistoryPrepares(t *testing.T) {
+	history := []llm.Message{
+		llm.UserMessage(llm.Text("hi")),
+		llm.AssistantMessage(llm.Text("partial")),
+		llm.AssistantMessage(llm.Text("continued")),
+	}
+	input := llm.Input{
+		Messages: append(history, llm.UserMessage(llm.Text("next"))),
+		Settings: llm.Settings{MaxTokens: 4096},
+	}
+	anthropic, err := messages.New(messages.Config{APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err := completions.New(completions.Config{APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := responses.New(responses.Config{APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name      string
+		client    llm.Client
+		model     string
+		reasoning *llm.ReasoningSettings
+	}{
+		{name: "anthropic", client: anthropic, model: "claude-opus-5-5"},
+		{name: "anthropic", client: anthropic, model: "claude-sonnet-4-5", reasoning: &llm.ReasoningSettings{BudgetTokens: 2048}},
+		{name: "chat", client: chat, model: "gpt-6-luna"},
+		{name: "responses", client: resp, model: "gpt-6-luna"},
+	} {
+		in := input
+		in.Model = tc.model
+		in.Settings.Reasoning = tc.reasoning
+		req, err := tc.client.Prepare(t.Context(), in)
+		if err != nil {
+			t.Fatalf("%s %s: Prepare rejected the history: %v", tc.name, tc.model, err)
+		}
+		body := string(req.Body())
+		i, j := strings.Index(body, "partial"), strings.Index(body, "continued")
+		if i < 0 || j < i || !strings.Contains(body[j:], "next") {
+			t.Fatalf("%s %s: body lost the replies' order: %s", tc.name, tc.model, body)
+		}
+	}
+}
+
+func hasMaxTokensReminder(messages []llm.Message) bool {
+	for _, m := range messages {
+		for _, c := range m.Content {
+			if c.Reminder != nil && c.Reminder.Content == maxTokensText {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Cancel after a Continue that dispatched nothing ends the turn, and the
+// ended turn's messages carry no max_tokens reminder.
+func TestMaxTokensCancelAfterUndispatchedContinue(t *testing.T) {
+	cut := final("partial")
+	cut.Stop = llm.Stop{Kind: llm.StopOutputLimit, Raw: "max_tokens"}
+	client := &scriptedClient{results: []llm.Result{cut}}
+	rec := NewMemoryRecorder()
+	runner := Runner{Client: client, Recorder: rec}
+	first, err := start(t, client, nil, rec, Hooks{})
+	if err != nil || first.Next() != NextFix {
+		t.Fatalf("first: stop=%+v err=%v", first.Stop, err)
+	}
+	block := ModelHook{Name: "block", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		return ModelDecision{}, errors.New("blocked")
+	}}
+	second, _ := runner.Run(t.Context(), first.Turn, Continue{CommandID: "again"}, WithHooks(block.Hooks()))
+	if client.sends != 1 {
+		t.Fatalf("continue dispatched a call: sends=%d", client.sends)
+	}
+	cancelled, err := runner.Run(t.Context(), second.Turn, Cancel{CommandID: "stop"})
+	if err != nil || !cancelled.Stop.Ended {
+		t.Fatalf("cancel: stop=%+v err=%v", cancelled.Stop, err)
+	}
+	all, err := TurnMessages(cancelled.Turn)
+	if err != nil || hasMaxTokensReminder(all) {
+		t.Fatalf("turn messages: %+v err=%v", all, err)
 	}
 }
