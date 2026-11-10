@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 )
 
 // openTestPanes opens a task pane and, with details, the details pane, each
@@ -36,8 +37,8 @@ func sidePaneFixture(t *testing.T, width, height int, details bool) *screen {
 // frameText renders the screen twice, so positions from the first frame
 // are current, and returns the second frame's text.
 func frameText(s *screen) string {
-	tui.SprintScreen(s.View(), tui.WithWidth(s.width), tui.WithHeight(s.height))
-	return tui.SprintScreen(s.View(), tui.WithWidth(s.width), tui.WithHeight(s.height)).Text()
+	tuitest.Screen(s.View(), tui.WithWidth(s.width), tui.WithHeight(s.height))
+	return tuitest.Screen(s.View(), tui.WithWidth(s.width), tui.WithHeight(s.height)).Text()
 }
 
 // TestPaneVisualEvidence exports pane frames for review, like
@@ -116,7 +117,7 @@ func TestSideBySidePanesHaveTitlesAndAGutter(t *testing.T) {
 		t.Fatalf("task pane width=%d", w)
 	}
 
-	frame := tui.SprintScreen(s.View(), tui.WithWidth(120), tui.WithHeight(40))
+	frame := tuitest.Screen(s.View(), tui.WithWidth(120), tui.WithHeight(40))
 	tx, ty := cellOf(t, rows, activeMark+" details")
 	mx, my := cellOf(t, rows, "main")
 	active, muted := frame.Cell(tx, ty).Style.Foreground, frame.Cell(mx, my).Style.Foreground
@@ -126,7 +127,7 @@ func TestSideBySidePanesHaveTitlesAndAGutter(t *testing.T) {
 	s.panes.get("task:t_k3f2").waiting = true
 	rows = strings.Split(frameText(s), "\n")
 	wx, wy := cellOf(t, rows, "needs approval")
-	waiting := tui.SprintScreen(s.View(), tui.WithWidth(120), tui.WithHeight(40)).Cell(wx, wy).Style.Foreground
+	waiting := tuitest.Screen(s.View(), tui.WithWidth(120), tui.WithHeight(40)).Cell(wx, wy).Style.Foreground
 	if waiting == active || waiting == muted {
 		t.Fatal("a waiting task's title does not stand out")
 	}
@@ -154,7 +155,7 @@ func TestNarrowModeShowsTabs(t *testing.T) {
 			t.Fatalf("%dx%d tab strip=%q", size[0], size[1], rows[0])
 		}
 		// The active tab is in reverse, the others are not.
-		frame := tui.SprintScreen(s.View(), tui.WithWidth(size[0]), tui.WithHeight(size[1]))
+		frame := tuitest.Screen(s.View(), tui.WithWidth(size[0]), tui.WithHeight(size[1]))
 		dx, _ := cellOf(t, rows, "details")
 		mx, _ := cellOf(t, rows, "main")
 		if !frame.Cell(dx, 0).Style.Reverse || frame.Cell(mx, 0).Style.Reverse {
@@ -204,7 +205,7 @@ func TestPanesKeepNoColorMark(t *testing.T) {
 		s.panes.get("task:t_k3f2").waiting = true
 		s.noColor = true
 		got := frameText(s)
-		frame := tui.SprintScreen(s.View(), tui.WithWidth(size[0]), tui.WithHeight(size[1]))
+		frame := tuitest.Screen(s.View(), tui.WithWidth(size[0]), tui.WithHeight(size[1]))
 		if !strings.Contains(got, "details") || !strings.Contains(got, "needs approval") {
 			t.Fatalf("%dx%d no-color frame lost the mark or the warning:\n%s", size[0], size[1], got)
 		}

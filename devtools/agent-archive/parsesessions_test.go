@@ -272,7 +272,7 @@ func TestParseAllAndConvertCommands(t *testing.T) {
 	if r := runCLI(t, "convert", "--archive", e.opts.ArchiveDir, "--session", "nope"); r.ExitCode != 1 {
 		t.Fatalf("unknown session: exit %d", r.ExitCode)
 	}
-	if r := runCLI(t, "convert", "--archive", e.opts.ArchiveDir); r.ExitCode != 1 {
+	if r := runCLI(t, "convert", "--archive", e.opts.ArchiveDir); r.ExitCode != 2 {
 		t.Fatalf("missing --session: exit %d", r.ExitCode)
 	}
 }

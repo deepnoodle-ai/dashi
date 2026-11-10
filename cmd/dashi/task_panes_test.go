@@ -13,6 +13,7 @@ import (
 	"github.com/deepnoodle-ai/dashi"
 	"github.com/deepnoodle-ai/dashi/delegate"
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 )
 
 // fakeTaskSource stands in for the Engine's task seam.
@@ -234,7 +235,7 @@ func TestTaskPaneTitleFollowsStatusLinesAndApprovals(t *testing.T) {
 		t.Fatalf("running title not drawn:\n%s", rows)
 	}
 	ax, ay := cellOf(t, strings.Split(rows, "\n"), id+" · running")
-	accent := tui.SprintScreen(s.View(), tui.WithWidth(120), tui.WithHeight(40)).Cell(ax, ay).Style.Foreground
+	accent := tuitest.Screen(s.View(), tui.WithWidth(120), tui.WithHeight(40)).Cell(ax, ay).Style.Foreground
 	// A prompt of the task, active or queued, marks it.
 	s.ctrl.broker.mu.Lock()
 	s.ctrl.broker.queued = map[brokerOwner]int{{TaskID: child}: 1}
@@ -243,7 +244,7 @@ func TestTaskPaneTitleFollowsStatusLinesAndApprovals(t *testing.T) {
 	if !p.waiting {
 		t.Fatal("a queued prompt of the task did not mark it")
 	}
-	frame := tui.SprintScreen(s.View(), tui.WithWidth(120), tui.WithHeight(40))
+	frame := tuitest.Screen(s.View(), tui.WithWidth(120), tui.WithHeight(40))
 	x, y := cellOf(t, strings.Split(frame.Text(), "\n"), id+" · needs approval · 3 model calls")
 	if frame.Cell(x, y).Style.Foreground == accent {
 		t.Fatal("needs approval is not in the warning color")

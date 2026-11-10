@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/deepnoodle-ai/dashi/cmd/dashi/sessionstore"
 	"github.com/deepnoodle-ai/wonton/cli"
@@ -345,12 +346,28 @@ func themeSyntax(value string) error {
 	return errors.New("use auto, dark, or light")
 }
 
-// needsValue rejects a blank flag value.
+// needsValue rejects a blank flag value, and a value that looks like a
+// flag, such as --plain in `dashi --model --plain`: the parser gives a value
+// flag its next word even when that word starts with "-". A value that
+// starts with "-" and a space or a digit, such as "- be brief", still passes.
+// A value that looks like a flag is rejected in every form, --name=--x too.
 func needsValue(value string) error {
 	if strings.TrimSpace(value) == "" {
 		return errors.New("needs a value")
 	}
+	if looksLikeFlag(value) {
+		return fmt.Errorf("needs a value, got the flag %s", value)
+	}
 	return nil
+}
+
+// looksLikeFlag reports whether value is a long flag (--name) or a short
+// flag (-x).
+func looksLikeFlag(value string) bool {
+	if strings.HasPrefix(value, "--") {
+		return len(value) > 2
+	}
+	return len(value) > 1 && value[0] == '-' && unicode.IsLetter(rune(value[1]))
 }
 
 // needsValues rejects a blank value of each named repeatable flag.

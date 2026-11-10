@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 )
 
 // menuFixture is a screen with one item of each kind the transcript menu
@@ -55,7 +56,7 @@ func (f *menuFixture) frame() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.scr.drain()
-	return tui.SprintScreen(f.scr.View(), tui.WithWidth(80), tui.WithHeight(50)).Text()
+	return tuitest.Screen(f.scr.View(), tui.WithWidth(80), tui.WithHeight(50)).Text()
 }
 
 func (f *menuFixture) locked(fn func()) {
@@ -306,7 +307,7 @@ func TestRightClickDoesNothingWhileSomethingElseHoldsTheScreen(t *testing.T) {
 			}
 		}},
 		{"drag", func(f *menuFixture) {
-			x, y := cellOf(f.t, strings.Split(tui.SprintScreen(f.scr.View(), tui.WithWidth(80), tui.WithHeight(50)).Text(), "\n"), menuUserText)
+			x, y := cellOf(f.t, strings.Split(tuitest.Screen(f.scr.View(), tui.WithWidth(80), tui.WithHeight(50)).Text(), "\n"), menuUserText)
 			f.scr.HandleEvent(tui.MouseEvent{Type: tui.MousePress, Button: tui.MouseButtonLeft, X: x, Y: y})
 			f.scr.HandleEvent(tui.MouseEvent{Type: tui.MouseDrag, Button: tui.MouseButtonLeft, X: x + 4, Y: y})
 		}},

@@ -14,6 +14,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/filerecorder"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 )
 
 // A small known window and a long recorded turn make compaction eligible.
@@ -133,7 +134,7 @@ func TestAutomaticCompactionInterruptedInputOrder(t *testing.T) {
 // Called under the Wonton loop lock by waitFor.
 func (h *screenHarness) renderUnlocked() string {
 	h.scr.drain()
-	return tui.SprintScreen(h.scr.View(), tui.WithWidth(80), tui.WithHeight(30)).Text()
+	return tuitest.Screen(h.scr.View(), tui.WithWidth(80), tui.WithHeight(30)).Text()
 }
 
 func TestCompactionFailureAndExitWarning(t *testing.T) {
@@ -291,7 +292,7 @@ func saveCompactionScreen(t *testing.T, h *screenHarness, name string) {
 	h.mu.Lock()
 	h.scr.drain()
 	view := h.scr.View()
-	screen := tui.SprintScreen(view, tui.WithWidth(80), tui.WithHeight(30))
+	screen := tuitest.Screen(view, tui.WithWidth(80), tui.WithHeight(30))
 	ansi := tui.Sprint(view, tui.WithWidth(80), tui.WithHeight(30), tui.WithColor(true))
 	cells := make([][]any, 30)
 	for y := range 30 {

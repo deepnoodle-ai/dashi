@@ -23,6 +23,7 @@ import (
 	"github.com/deepnoodle-ai/decide"
 	"github.com/deepnoodle-ai/decide/decidetest"
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 )
 
 // decideHarness is a harness with the command-risk check on, answered by a
@@ -808,7 +809,7 @@ func TestDecideRowMarkAgreesWithOutcome(t *testing.T) {
 	if strings.Contains(denied, "✓") || !strings.Contains(denied, "denied\n    decide command: severe 52% — ok") {
 		t.Fatalf("denied row = %q", denied)
 	}
-	screen := tui.SprintScreen(toolView(Block{Kind: KindTool, Name: "bash", Arg: "rm -rf build/", State: StateDenied, Decide: ok}),
+	screen := tuitest.Screen(toolView(Block{Kind: KindTool, Name: "bash", Arg: "rm -rf build/", State: StateDenied, Decide: ok}),
 		tui.WithWidth(80), tui.WithHeight(2)).Text()
 	if strings.Contains(screen, "✓") || !strings.Contains(screen, "decide command: severe 52% — ok") {
 		t.Fatalf("denied screen row = %q", screen)
@@ -825,7 +826,7 @@ func TestDecideFooterKeepsFlaggedCount(t *testing.T) {
 	}
 	b := Block{Kind: KindFooter, Text: f.String(), Footer: &f, Done: true}
 	for _, width := range []int{100, 80, 60, 40} {
-		got := strings.TrimRight(tui.SprintScreen(footerView(b, width), tui.WithWidth(width), tui.WithHeight(1)).Text(), "\n")
+		got := strings.TrimRight(tuitest.Screen(footerView(b, width), tui.WithWidth(width), tui.WithHeight(1)).Text(), "\n")
 		if !strings.Contains(got, "decide 4 checked, 1 flagged") {
 			t.Errorf("width %d: %q", width, got)
 		}

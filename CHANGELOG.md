@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- `dashi` CLI: built on Wonton v0.14.0. Command-line usage errors now exit
+  with status 2 instead of 1, and a flag takes its next word as its value even
+  when that word starts with `-`. Flags that take a name or text, such as
+  `--model` and `--system-prompt`, reject a value that looks like a flag, so
+  `dashi --model --plain` is a usage error rather than a model named `--plain`.
+
 ## [0.19.0] - 2026-11-03
 
 ### Added

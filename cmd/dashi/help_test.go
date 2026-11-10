@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 )
 
 func helpTitles(h helpDoc) []string {
@@ -88,7 +89,7 @@ func TestHelpBlockRendersStyledWithPlainSource(t *testing.T) {
 	if plain, _ := nativeBlockText(b, 80, false); strings.Contains(plain, "\x1b[") || !strings.Contains(plain, "/status [ID]") {
 		t.Fatalf("no-color text = %q", plain)
 	}
-	if got := tui.SprintScreen(blockView(b), tui.WithWidth(40)).Text(); !strings.Contains(got, "  • /status [ID]  inspect\n\n  • legend") {
+	if got := tuitest.Screen(blockView(b), tui.WithWidth(40)).Text(); !strings.Contains(got, "  • /status [ID]  inspect\n\n  • legend") {
 		t.Fatalf("screen = %q", got)
 	}
 }

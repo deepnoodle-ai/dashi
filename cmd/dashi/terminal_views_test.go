@@ -14,6 +14,7 @@ import (
 	"github.com/deepnoodle-ai/wonton/runewidth"
 	"github.com/deepnoodle-ai/wonton/termtest"
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 	"golang.org/x/term"
 )
 
@@ -80,7 +81,7 @@ func terminalVisualFixture(t *testing.T, state string, width, height int) *scree
 
 func saveTerminalFrame(t *testing.T, dir, name string, view tui.View, width, height int) {
 	t.Helper()
-	frame := tui.SprintScreen(view, tui.WithWidth(width), tui.WithHeight(height))
+	frame := tuitest.Screen(view, tui.WithWidth(width), tui.WithHeight(height))
 	cells := make([][]any, height)
 	for y := range height {
 		for x := range width {
@@ -104,7 +105,7 @@ func saveTerminalFrame(t *testing.T, dir, name string, view tui.View, width, hei
 func TestTerminalUserBandPreservesSource(t *testing.T) {
 	text := "first line\nsecond line with 世界 and a longer explanation that wraps to the next row"
 	view := blockView(Block{Kind: KindUser, Text: text})
-	got := tui.SprintScreen(view, tui.WithWidth(40), tui.WithHeight(8)).Text()
+	got := tuitest.Screen(view, tui.WithWidth(40), tui.WithHeight(8)).Text()
 	for _, word := range []string{"first line", "second line", "世界"} {
 		if !strings.Contains(got, word) {
 			t.Fatalf("missing %q: %s", word, got)
@@ -114,7 +115,7 @@ func TestTerminalUserBandPreservesSource(t *testing.T) {
 
 func TestTerminalBandsStayWithinTheirRows(t *testing.T) {
 	s := terminalVisualFixture(t, "streaming", 80, 24)
-	frame := tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24))
+	frame := tuitest.Screen(s.View(), tui.WithWidth(80), tui.WithHeight(24))
 	lines := strings.Split(frame.Text(), "\n")
 	for y, line := range lines {
 		if strings.Contains(line, "Check the terminal") || strings.Contains(line, "Make copying") || strings.Contains(line, "Ask Dashi") {
@@ -134,7 +135,7 @@ func TestTerminalBandsStayWithinTheirRows(t *testing.T) {
 
 func TestTerminalNarrowApprovalKeepsEveryChoice(t *testing.T) {
 	s := terminalVisualFixture(t, "approval", 40, 16)
-	got := tui.SprintScreen(s.View(), tui.WithWidth(40), tui.WithHeight(16)).Text()
+	got := tuitest.Screen(s.View(), tui.WithWidth(40), tui.WithHeight(16)).Text()
 	for _, want := range []string{"go test ./cmd/dashi", "in ~/projects/dashi", "y Allow once", "a Allow for this Dashi run", "n Deny", "Esc interrupts", "/help"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in narrow approval:\n%s", want, got)
@@ -150,7 +151,7 @@ func TestTerminalNoColorPreservesLabels(t *testing.T) {
 		if inline {
 			view = newInlineScreen(s, io.Discard).LiveView()
 		}
-		frame := tui.SprintScreen(view, tui.WithWidth(40), tui.WithHeight(16))
+		frame := tuitest.Screen(view, tui.WithWidth(40), tui.WithHeight(16))
 		if !strings.Contains(frame.Text(), "n Deny") {
 			t.Fatal("no-color lost approval")
 		}
@@ -243,7 +244,7 @@ func TestTerminalNarrowToolStatesAndChecks(t *testing.T) {
 		t.Run(test.state, func(t *testing.T) {
 			b := Block{Kind: KindTool, Name: "bash", Arg: "curl https://example.com", State: test.state, Elapsed: time.Second,
 				Decide: &decideMark{Check: "command", OK: true}, DecideResult: &decideMark{Check: "result", OK: true}}
-			frame := tui.SprintScreen(toolView(b), tui.WithWidth(40), tui.WithHeight(8)).Text()
+			frame := tuitest.Screen(toolView(b), tui.WithWidth(40), tui.WithHeight(8)).Text()
 			for _, want := range []string{test.label, "decide ✓ command, result"} {
 				if !strings.Contains(frame, want) {
 					t.Fatalf("missing %q at 40 columns:\n%s", want, frame)
@@ -257,7 +258,7 @@ func TestTerminalNarrowToolStatesAndChecks(t *testing.T) {
 	b := Block{Kind: KindTool, Name: "bash", State: StateFailed,
 		Decide:       &decideMark{Check: "command", Flagged: true, Text: "severe 90% — flagged"},
 		DecideResult: &decideMark{Check: "result", Flagged: true, Text: "injection 99% — flagged, agent warned"}}
-	frame := tui.SprintScreen(toolView(b), tui.WithWidth(40), tui.WithHeight(10)).Text()
+	frame := tuitest.Screen(toolView(b), tui.WithWidth(40), tui.WithHeight(10)).Text()
 	words := strings.Join(strings.Fields(frame), " ")
 	for _, want := range []string{"failed", "decide command: severe 90% — flagged", "decide result: injection 99% — flagged, agent warned"} {
 		if !strings.Contains(words, want) {
@@ -406,7 +407,7 @@ func dialogFixtures(t *testing.T, width int) map[string]func() tui.View {
 func TestDialogsDrawOnTheBand(t *testing.T) {
 	const width = 100
 	for name, build := range dialogFixtures(t, width) {
-		frame := tui.SprintScreen(build(), tui.WithWidth(width))
+		frame := tuitest.Screen(build(), tui.WithWidth(width))
 		_, height := frame.Size()
 		onBand := func(x, y int) bool {
 			bg := frame.Cell(x, y).Style.Background
@@ -497,7 +498,7 @@ func TestClickTogglesAToolRow(t *testing.T) {
 	defer h.mu.Unlock()
 	addToolRows(s)
 	frame := func() string {
-		return tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24)).Text()
+		return tuitest.Screen(s.View(), tui.WithWidth(80), tui.WithHeight(24)).Text()
 	}
 	click := func(text string) {
 		x, y := cellOf(t, strings.Split(frame(), "\n"), text)
@@ -564,10 +565,10 @@ func TestBlankRowAboveTheLiveUI(t *testing.T) {
 				s.Emit(Block{Kind: KindAssistant, ID: "after", Text: long, Done: true})
 			}
 			s.drain()
-			screen := tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24))
+			screen := tuitest.Screen(s.View(), tui.WithWidth(80), tui.WithHeight(24))
 			if state == "scrolled" {
 				s.main().vp.ScrollBy(-5)
-				screen = tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24))
+				screen = tuitest.Screen(s.View(), tui.WithWidth(80), tui.WithHeight(24))
 			}
 			rows := strings.Split(screen.Text(), "\n")
 			blank := func(y int) bool {
@@ -611,7 +612,7 @@ func TestBlankRowAboveTheLiveUI(t *testing.T) {
 func TestBlankRowAboveTheSteeringTip(t *testing.T) {
 	s := terminalVisualFixture(t, "streaming", 80, 24)
 	s.drain()
-	rows := strings.Split(tui.SprintScreen(s.View(), tui.WithWidth(80), tui.WithHeight(24)).Text(), "\n")
+	rows := strings.Split(tuitest.Screen(s.View(), tui.WithWidth(80), tui.WithHeight(24)).Text(), "\n")
 	working := transcriptRow(t, strings.Join(rows, "\n"), "Working")
 	tip := transcriptRow(t, strings.Join(rows, "\n"), "Type to steer")
 	if tip != working+2 || strings.TrimSpace(rows[working+1]) != "" {

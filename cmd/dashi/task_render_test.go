@@ -13,6 +13,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/money"
 	"github.com/deepnoodle-ai/dashi/tool"
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 )
 
 func completedTaskView() delegate.TaskView {
@@ -274,7 +275,7 @@ func TestTaskMessageReminderShowsAMessageLine(t *testing.T) {
 func TestTaskMessageLineKeepsToOneRow(t *testing.T) {
 	b := taskMessageBlock("m", MessageToTask, "t_k3f2", strings.Repeat("word ", 40), true)
 	for w := 30; w <= 120; w += 10 {
-		screen := tui.SprintScreen(blockView(b), tui.WithWidth(w), tui.WithHeight(4)).Text()
+		screen := tuitest.Screen(blockView(b), tui.WithWidth(w), tui.WithHeight(4)).Text()
 		lines := strings.Split(strings.TrimRight(screen, "\n "), "\n")
 		if len(lines) != 1 || !strings.HasPrefix(lines[0], "  → t_k3f2 (queued)  word word") {
 			t.Fatalf("width %d:\n%s", w, screen)
@@ -409,7 +410,7 @@ func TestStoppedParentDeliveryNoticeIsPlainAndQuiet(t *testing.T) {
 		t.Fatalf("plain=%q is not indented", plain)
 	}
 	styled := tui.Sprint(blockView(b), tui.WithWidth(100), tui.WithColor(true))
-	text := tui.SprintScreen(blockView(b), tui.WithWidth(100), tui.WithHeight(4)).Text()
+	text := tuitest.Screen(blockView(b), tui.WithWidth(100), tui.WithHeight(4)).Text()
 	if !strings.Contains(styled, "38;5;248m") || !strings.HasPrefix(text, "  T") {
 		t.Fatalf("screen=%q text=%q is not muted and indented", styled, text)
 	}
@@ -429,7 +430,7 @@ func TestTaskLinesKeepTheirSpacesAtEveryWidth(t *testing.T) {
 	result := Block{Kind: KindTaskResult, Arg: "task t_u6d77c (explore)", Name: "completed", Text: "result delivered", State: StateOK}
 	for _, b := range []Block{under.Blocks[0], alone.Blocks[0], result} {
 		for w := 30; w <= 120; w++ {
-			screen := tui.SprintScreen(blockView(b), tui.WithWidth(w), tui.WithHeight(8)).Text()
+			screen := tuitest.Screen(blockView(b), tui.WithWidth(w), tui.WithHeight(8)).Text()
 			for _, bad := range []string{"└c", "d·", "↳t"} {
 				if strings.Contains(screen, bad) {
 					t.Fatalf("width %d has %q:\n%s", w, bad, screen)

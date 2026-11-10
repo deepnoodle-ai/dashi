@@ -10,6 +10,7 @@ import (
 
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/wonton/tui"
+	"github.com/deepnoodle-ai/wonton/tui/tuitest"
 )
 
 // screenHarness runs an app on a screen without a terminal. One goroutine
@@ -97,7 +98,7 @@ func (h *screenHarness) render() string {
 	defer h.mu.Unlock()
 	h.scr.drain()
 	view := h.scr.View()
-	return tui.SprintScreen(view, tui.WithWidth(80), tui.WithHeight(30)).Text()
+	return tuitest.Screen(view, tui.WithWidth(80), tui.WithHeight(30)).Text()
 }
 
 // check runs cond under the loop lock.
@@ -321,7 +322,7 @@ func TestStatusLineRightAlignsHelpHintWhenItFits(t *testing.T) {
 	line := func(width int) string {
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		return strings.TrimRight(tui.SprintScreen(h.scr.statusView(false), tui.WithWidth(width), tui.WithHeight(1)).Text(), " \n")
+		return strings.TrimRight(tuitest.Screen(h.scr.statusView(false), tui.WithWidth(width), tui.WithHeight(1)).Text(), " \n")
 	}
 	wide := line(160)
 	if !strings.HasPrefix(wide, " fixture · ") || !strings.HasSuffix(wide, "/help") || len([]rune(wide)) != 159 {
@@ -347,7 +348,7 @@ func TestFooterBlockRendersAsRule(t *testing.T) {
 	if FormatBlock(b) != "── turn 3 · claude-x · 2 model calls · 12,345 tokens · $0.0421" {
 		t.Fatalf("plain = %q", FormatBlock(b))
 	}
-	got := strings.TrimRight(tui.SprintScreen(blockView(b), tui.WithWidth(70), tui.WithHeight(1)).Text(), "\n")
+	got := strings.TrimRight(tuitest.Screen(blockView(b), tui.WithWidth(70), tui.WithHeight(1)).Text(), "\n")
 	if got != "── turn 3 · claude-x · 2 model calls · 12,345 tokens · $0.0421 ───────" {
 		t.Fatalf("screen = %q", got)
 	}
@@ -411,7 +412,7 @@ func TestComposerDrawsTheCommandHighlight(t *testing.T) {
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		h.scr.input = draft
-		screen := tui.SprintScreen(h.scr.View(), tui.WithWidth(80), tui.WithHeight(24))
+		screen := tuitest.Screen(h.scr.View(), tui.WithWidth(80), tui.WithHeight(24))
 		for y := range 24 {
 			if x := strings.Index(screen.Row(y), "❯ "+draft); x >= 0 {
 				x = utf8.RuneCountInString(screen.Row(y)[:x]) + 2
