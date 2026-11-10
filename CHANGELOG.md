@@ -16,6 +16,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   record after 100 ms, and reports steps the record lacks too. The `dashi` CLI's
   task panes now use it.
 
+### Security
+
+- `gemini.New`: with `Vertex` set and no `Client`, a custom `Endpoint` must be
+  `https` on a Vertex AI host (`aiplatform.googleapis.com`,
+  `{location}-aiplatform.googleapis.com`, or the `us`/`eu` `.rep` hosts).
+  `New` now returns an error for any other endpoint instead of sending it
+  Dashi's Application Default Credentials token. Supply a `Client` to use
+  another host.
+
 ### Changed
 
 - `dashi` CLI: built on Wonton v0.14.0. Command-line usage errors now exit
@@ -23,6 +32,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   when that word starts with `-`. Flags that take a name or text, such as
   `--model` and `--system-prompt`, reject a value that looks like a flag, so
   `dashi --model --plain` is a usage error rather than a model named `--plain`.
+
+### Fixed
+
+- A plain `Continue` after a reply cut off at its `max_tokens` setting
+  (`StopReasonMaxTokens`, `NextFix`) no longer fails on models that reject an
+  assistant prefill, such as `claude-opus-5-5`, or on Anthropic models with
+  reasoning on. The next request now follows the cut-off reply with a short
+  runtime reminder, as a user message, asking the model to continue from where
+  it stopped. The reminder goes only into the request for the continued call;
+  `TurnMessages` and `BuildHistory` do not include it, so later turns and
+  earlier records keep their shape. It is derived from the recorded stop, so
+  replay and recovery of that call send the same request. A host that adds its own message with
+  `AddMessages` before `Continue` gets no reminder.
 
 ## [0.19.0] - 2026-11-03
 

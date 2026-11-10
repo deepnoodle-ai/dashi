@@ -62,13 +62,14 @@ A stop at the output-token cap has `Limit.Kind` `output_tokens` and `Next`
 `NextRaiseBudget`. A single reply cut off at its own `MaxTokens` is different:
 it stops `limited` with reason `max_tokens` (`dashi.StopReasonMaxTokens`), a
 nil `Limit`, and `NextFix`, because no budget was involved. The cut-off reply
-stays in the turn, so a bare `Continue` sends a request that ends with it, an
-assistant prefill. Models without assistant prefill support, and Anthropic
-models with reasoning on, reject that request and the turn stops `failed`. To
-go on, record a user message with `AddMessages` (for example, asking for a
-shorter answer) and then `Continue`; a `BeforeModel` hook can return larger
-`Settings.MaxTokens` for that call. Or start a new turn with a larger
-`MaxTokens`, as the CLI does.
+stays in the turn. A bare `Continue` follows it with a short runtime reminder,
+a user message saying the reply was cut off and asking the model to continue,
+so the request never ends with an assistant prefill, which many models reject.
+The reminder is in that request only, not in `TurnMessages` or `BuildHistory`.
+To steer the retry instead, record a user message with `AddMessages` (for
+example, asking for a shorter answer) before `Continue`; then no reminder is
+added. A `BeforeModel` hook can return larger `Settings.MaxTokens` for that
+call. Or start a new turn with a larger `MaxTokens`, as the CLI does.
 
 `RunResult.Spend` (or `turn.View()` for a loaded turn) contains token
 totals, model costs by currency, a count of calls without final usage, and
