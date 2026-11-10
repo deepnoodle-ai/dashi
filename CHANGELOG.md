@@ -35,6 +35,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   earlier records keep their shape. It is derived from the recorded stop, so
   replay and recovery of that call send the same request. A host that adds its own message with
   `AddMessages` before `Continue` gets no reminder.
+- `delegate`: a child turn whose first commit has an unknown outcome
+  (`CommitError.NothingWritten` unset) is no longer reported as never
+  started. Tasks reloads the child's record. If the record holds the turn,
+  the task call returns the task (or `task_send` reports the message sent),
+  the failure is reported as a `TaskEnded`, and `Recover` resumes the child.
 
 ## [0.19.0] - 2026-11-03
 
