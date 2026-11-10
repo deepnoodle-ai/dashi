@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Security
+
+- `gemini.New`: with `Vertex` set and no `Client`, a custom `Endpoint` must be
+  `https` on a Vertex AI host (`aiplatform.googleapis.com`,
+  `{location}-aiplatform.googleapis.com`, or the `us`/`eu` `.rep` hosts).
+  `New` now returns an error for any other endpoint instead of sending it
+  Dashi's Application Default Credentials token. Supply a `Client` to use
+  another host.
+
 ### Changed
 
 - `dashi` CLI: built on Wonton v0.14.0. Command-line usage errors now exit
