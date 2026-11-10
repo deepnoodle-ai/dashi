@@ -311,3 +311,21 @@ func TestBuildVersionFromLinkTime(t *testing.T) {
 		t.Fatalf("buildVersion() = %q, want 1.2.3", got)
 	}
 }
+
+func TestValueFlagRejectsAFlagAsItsValue(t *testing.T) {
+	for _, args := range [][]string{
+		{"run", "--model", "--yes", "x"},
+		{"run", "--system-prompt", "-y", "x"},
+		{"--provider", "--plain"},
+	} {
+		var out, stderr strings.Builder
+		if code := run(t.Context(), args, strings.NewReader(""), &out, &stderr); code != 2 {
+			t.Errorf("%v: exit %d, want 2; stderr:\n%s", args, code, stderr.String())
+		}
+	}
+	for _, v := range []string{"- be brief", "-0.5", "gpt-5", "-"} {
+		if err := needsValue(v); err != nil {
+			t.Errorf("needsValue(%q) = %v, want nil", v, err)
+		}
+	}
+}
