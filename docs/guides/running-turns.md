@@ -85,8 +85,8 @@ complete. Check `out.Stop` before showing it.
 then `Continue`), `NextContinue`, `NextRaiseBudget` or `NextRaiseModelCalls`
 (`Continue` with a raise), `NextFix` (fix a failure, refusal, or a call whose
 result is unknown, then `Continue`, or `Cancel`; for a reply cut off at its
-`max_tokens` setting, add a user message with `AddMessages` before `Continue`,
-as [budgets](budgets.md) explains), and `NextRecover` (no stop
+`max_tokens` setting, `Continue` adds a reminder to go on, as
+[budgets](budgets.md) explains), and `NextRecover` (no stop
 was recorded, so `out.Stop.Inferred` is true: the worker may have crashed;
 `Continue` resumes it when `ReadyToContinue`, and otherwise resolve
 `out.Pending` first;
