@@ -42,8 +42,8 @@ func trace(updates []TaskUpdate) string {
 		switch u.Kind {
 		case TaskUpdateTurn:
 			parts = append(parts, fmt.Sprintf("T%s:%d", u.Turn.ID, len(u.Turn.Steps)))
-		case TaskUpdateLive:
-			parts = append(parts, "live")
+		case TaskUpdateRecordEnd:
+			parts = append(parts, "record_end")
 		case TaskUpdateMissingSteps:
 			parts = append(parts, "missing "+u.TurnID)
 		case TaskUpdateEvent:
@@ -88,7 +88,7 @@ func TestWatchStateReplaysTheRecordThenHeldLiveEvents(t *testing.T) {
 		t.Fatal("events yielded before the record")
 	}
 	w.opened([]dashi.Turn{{ID: "s-1", Steps: stepsOf(ev[:4])}}, nil)
-	if got, want := trace(w.take()), "Ts-1:4 live s-1#5 s-1#6"; got != want {
+	if got, want := trace(w.take()), "Ts-1:4 record_end s-1#5 s-1#6"; got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 	if len(w.held) != 0 {
@@ -103,7 +103,7 @@ func TestWatchStateOrdersStepsAndDropsDuplicates(t *testing.T) {
 	for _, i := range []int{0, 2, 1, 1, 3, 0, 5, 4} {
 		w.push(ev[i])
 	}
-	if got, want := trace(w.take()), "live s-1#1 s-1#2 s-1#3 s-1#4 s-1#5 s-1#6"; got != want {
+	if got, want := trace(w.take()), "record_end s-1#1 s-1#2 s-1#3 s-1#4 s-1#5 s-1#6"; got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
@@ -130,7 +130,36 @@ func TestWatchStateFillsAGapFromTheRecord(t *testing.T) {
 	w.push(ev[4])
 	w.reloaded("s-1", dashi.Turn{ID: "s-1", Steps: stepsOf(ev[:3])}, nil)
 	w.push(ev[5])
-	if got, want := trace(w.take()), "live s-1#1 s-1#2 s-1#3 s-1#4 s-1#5 s-1#6"; got != want {
+	if got, want := trace(w.take()), "record_end s-1#1 s-1#2 s-1#3 s-1#4 s-1#5 s-1#6"; got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+// Each new gap waits its own watchMissingWait, even when an earlier gap
+// fills while later steps stay held.
+func TestWatchStateNewGapStartsItsOwnWait(t *testing.T) {
+	ev := testSteps("s-1", 8)
+	w := newWatchState()
+	w.opened(nil, nil)
+	w.push(ev[0])
+	w.push(ev[1])
+	w.push(ev[2])
+	w.push(ev[4]) // Step 4 is late.
+	w.push(ev[6]) // Step 6 is late.
+	start := time.Unix(1000, 0)
+	w.checkMissing(start)
+	w.push(ev[3]) // Step 4 arrives; step 5 yields; the gap is now at 6.
+	seen := start.Add(90 * time.Millisecond)
+	if due, next := w.checkMissing(seen); len(due) != 0 || next != watchMissingWait {
+		t.Fatalf("the gap at 6 must start a new wait: due=%v next=%v", due, next)
+	}
+	if due, _ := w.checkMissing(seen.Add(watchMissingWait - time.Millisecond)); len(due) != 0 {
+		t.Fatalf("reloaded early: due=%v", due)
+	}
+	if due, _ := w.checkMissing(seen.Add(watchMissingWait)); len(due) != 1 || due[0] != "s-1" {
+		t.Fatalf("due=%v", due)
+	}
+	if got, want := trace(w.take()), "record_end s-1#1 s-1#2 s-1#3 s-1#4 s-1#5"; got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
@@ -151,7 +180,7 @@ func TestWatchStateReloadKeepsAStepThatArrivesLate(t *testing.T) {
 	for _, e := range ev[5:] {
 		w.push(e)
 	}
-	if got, want := trace(w.take()), "live s-1#1 s-1#2 s-1#3 s-1#4 s-1#5 s-1#6 s-1#7 s-1#8"; got != want {
+	if got, want := trace(w.take()), "record_end s-1#1 s-1#2 s-1#3 s-1#4 s-1#5 s-1#6 s-1#7 s-1#8"; got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
@@ -165,7 +194,7 @@ func TestWatchStateReportsStepsTheRecordLacks(t *testing.T) {
 	w.push(ev[4])
 	reloadDue(w)
 	w.reloaded("s-1", dashi.Turn{ID: "s-1", Steps: stepsOf(ev[:1])}, nil)
-	if got, want := trace(w.take()), "live s-1#1 missing s-1 s-1#4 s-1#5"; got != want {
+	if got, want := trace(w.take()), "record_end s-1#1 missing s-1 s-1#4 s-1#5"; got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 	if due, _ := w.checkMissing(time.Unix(2000, 0)); len(due) != 0 {
@@ -182,7 +211,7 @@ func TestWatchStateFailedReloadContinuesFromTheHeldStep(t *testing.T) {
 	reloadDue(w)
 	w.reloaded("s-1", dashi.Turn{}, errors.New("disk gone"))
 	out := w.take()
-	if got, want := trace(out), "live s-1#1 missing s-1 s-1#4"; got != want || out[2].Err.Error() != "disk gone" {
+	if got, want := trace(out), "record_end s-1#1 missing s-1 s-1#4"; got != want || out[2].Err.Error() != "disk gone" {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
@@ -192,10 +221,10 @@ func TestWatchStateFailedOpenGoesLive(t *testing.T) {
 	w := newWatchState()
 	w.push(ev[3])
 	w.opened(nil, errors.New("record locked"))
-	// A Turn met after the failure starts at its first live step.
+	// A Turn met after the failure starts at its first record_end step.
 	w.push(dashi.Event{TurnID: "s-2", Seq: 7, Step: &dashi.Step{Seq: 7, Kind: dashi.StepMessagesAdded}})
 	out := w.take()
-	if got, want := trace(out), "missing  live s-1#4 s-2#7"; got != want || out[0].Err.Error() != "record locked" {
+	if got, want := trace(out), "missing  record_end s-1#4 s-2#7"; got != want || out[0].Err.Error() != "record locked" {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
@@ -208,7 +237,7 @@ func TestWatchStateLaterTurnWaitsForAnEarlierGap(t *testing.T) {
 	w.push(one[2]) // Step 2 of Turn 1 is late.
 	w.push(two[0])
 	w.push(two[1])
-	if got, want := trace(w.take()), "live s-1#1"; got != want {
+	if got, want := trace(w.take()), "record_end s-1#1"; got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 	// Only the earlier Turn reloads.
@@ -232,7 +261,7 @@ func TestWatchStatePreviewsFollowTheirStep(t *testing.T) {
 	w.push(delta("s-1", " say")) // After the gap: dropped.
 	w.push(ev[2])
 	w.push(delta("s-1", " stale")) // After its message finished.
-	if got, want := trace(w.take()), "live s-1#1 s-1#2 s-1~The notes s-1gap s-1#3"; got != want {
+	if got, want := trace(w.take()), "record_end s-1#1 s-1#2 s-1~The notes s-1gap s-1#3"; got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
@@ -251,7 +280,7 @@ func TestWatchStateCapsHeldPreviews(t *testing.T) {
 	for _, e := range testSteps("s-1", 2) {
 		w.push(e)
 	}
-	if got, want := trace(w.take()), "live s-1#1 s-1#2 s-1gap s-1gap s-1gap"; got != want {
+	if got, want := trace(w.take()), "record_end s-1#1 s-1#2 s-1gap s-1gap s-1gap"; got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }

@@ -25,9 +25,9 @@ const (
 	// TaskUpdateEvent carries one event of a child Turn: a step, a model
 	// delta, tool progress, or a gap.
 	TaskUpdateEvent TaskUpdateKind = "event"
-	// TaskUpdateLive marks the end of the record: every update after it
+	// TaskUpdateRecordEnd marks the end of the record: every update after it
 	// comes from live events. The watch yields it once.
-	TaskUpdateLive TaskUpdateKind = "live"
+	TaskUpdateRecordEnd TaskUpdateKind = "record_end"
 	// TaskUpdateMissingSteps reports steps the watch could not get.
 	TaskUpdateMissingSteps TaskUpdateKind = "missing_steps"
 )
@@ -63,7 +63,7 @@ const watchPreviewLimit = 4096
 
 // Watch yields the updates of task id in order. It first yields one
 // TaskUpdateTurn for each child Turn the record holds and one
-// TaskUpdateLive, then a TaskUpdateEvent for each live child event after them, as Config.OnChild
+// TaskUpdateRecordEnd, then a TaskUpdateEvent for each live child event after them, as Config.OnChild
 // receives them, with these rules:
 //
 //   - Watch listens before it loads the record, so no event falls between
@@ -82,7 +82,7 @@ const watchPreviewLimit = 4096
 //     its preview, and Watch drops its later deltas.
 //
 // When the record fails to load at the start, Watch yields a
-// TaskUpdateMissingSteps with an empty TurnID before TaskUpdateLive, and each Turn starts at the first
+// TaskUpdateMissingSteps with an empty TurnID before TaskUpdateRecordEnd, and each Turn starts at the first
 // step that arrives. It needs a child recorder that implements dashi.Loader
 // to load the record; without one, every load fails this way.
 //
@@ -361,7 +361,7 @@ func (w *watchState) take() []TaskUpdate {
 func (w *watchState) opened(turns []dashi.Turn, err error) {
 	w.loading = false
 	if err != nil {
-		w.out = append(w.out, TaskUpdate{Kind: TaskUpdateMissingSteps, Err: err}, TaskUpdate{Kind: TaskUpdateLive})
+		w.out = append(w.out, TaskUpdate{Kind: TaskUpdateMissingSteps, Err: err}, TaskUpdate{Kind: TaskUpdateRecordEnd})
 		w.resync = true
 		for _, t := range w.turns {
 			t.resync = true
@@ -381,7 +381,7 @@ func (w *watchState) opened(turns []dashi.Turn, err error) {
 		}
 		w.out = append(w.out, TaskUpdate{Kind: TaskUpdateTurn, Turn: &turn})
 	}
-	w.out = append(w.out, TaskUpdate{Kind: TaskUpdateLive})
+	w.out = append(w.out, TaskUpdate{Kind: TaskUpdateRecordEnd})
 	w.settleAll()
 }
 
@@ -538,6 +538,9 @@ func firstStep(held []dashi.Event) int {
 func (w *watchState) step(t *watchTurn, e dashi.Event) {
 	t.lastSeq = e.Seq
 	t.markDone(*e.Step)
+	// A later held step is a new gap, so its wait starts when
+	// checkMissing first sees it.
+	t.missingSince = time.Time{}
 	w.out = append(w.out, TaskUpdate{Kind: TaskUpdateEvent, Event: e})
 }
 
