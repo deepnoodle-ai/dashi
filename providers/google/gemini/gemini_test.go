@@ -382,6 +382,7 @@ func TestVertexDefaultEndpointForLocation(t *testing.T) {
 		"us":          "https://aiplatform.us.rep.googleapis.com/",
 		"eu":          "https://aiplatform.eu.rep.googleapis.com/",
 		"us-central1": "https://us-central1-aiplatform.googleapis.com/",
+		"US-CENTRAL1": "https://US-CENTRAL1-aiplatform.googleapis.com/",
 	} {
 		p, err := New(Config{
 			Vertex:          true,
@@ -452,5 +453,48 @@ func TestPrepareRejectsCallsUnansweredBeforeNextModelTurn(t *testing.T) {
 	}
 	if _, err := p.Prepare(t.Context(), input); err != nil {
 		t.Fatalf("answers in separate user messages: %v", err)
+	}
+}
+
+// Dashi attaches its own ADC token only on an https Vertex AI host. Any other
+// Vertex endpoint needs a caller Client, so a mistyped host never receives
+// the token.
+func TestVertexCustomEndpointHostNeedsClient(t *testing.T) {
+	const path = "/v1/projects/p/locations/us-central1/publishers/google/models/{model}:generateContent"
+	config := func(endpoint string, client *http.Client) Config {
+		return Config{
+			Vertex:          true,
+			Project:         "p",
+			Location:        "us-central1",
+			CredentialScope: "principal",
+			Provider:        "google-vertex",
+			Endpoint:        endpoint,
+			Client:          client,
+		}
+	}
+	for _, endpoint := range []string{
+		"https://example.com" + path,
+		"http://us-central1-aiplatform.googleapis.com" + path,
+		"https://storage.googleapis.com" + path,
+		"https://us-central1-aiplatform.googleapis.com:8443" + path,
+		"https://evil.com/us-central1-aiplatform.googleapis.com" + path,
+	} {
+		if _, err := New(config(endpoint, nil)); err == nil ||
+			!strings.Contains(err.Error(), "requires a Client") {
+			t.Fatalf("%s: err = %v", endpoint, err)
+		}
+		if _, err := New(config(endpoint, &http.Client{})); err != nil {
+			t.Fatalf("%s with Client: %v", endpoint, err)
+		}
+	}
+	for _, host := range []string{
+		"aiplatform.googleapis.com",
+		"us-central1-aiplatform.googleapis.com",
+		"aiplatform.us.rep.googleapis.com",
+		"aiplatform.eu.rep.googleapis.com",
+	} {
+		if _, err := New(config("https://"+host+path, nil)); err != nil {
+			t.Fatalf("%s: %v", host, err)
+		}
 	}
 }
