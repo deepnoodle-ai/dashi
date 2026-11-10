@@ -199,6 +199,9 @@ func TestMaxTokensReplyStopsLimited(t *testing.T) {
 		t.Fatalf("second input: max_tokens=%d prev=%s %q last=%s %q",
 			in.Settings.MaxTokens, prev.Role, prev.Text(), last.Role, last.Text())
 	}
+	if hasMaxTokensReminder(in.Messages) {
+		t.Fatalf("a reminder followed the host's message: %+v", in.Messages)
+	}
 }
 
 // A plain Continue after a reply cut off at its max_tokens setting ends the
@@ -228,15 +231,29 @@ func TestMaxTokensPlainContinueEndsWithReminder(t *testing.T) {
 		last.Content[0].Reminder.Content != maxTokensText {
 		t.Fatalf("second input: prev=%s %q last=%+v", prev.Role, prev.Text(), last)
 	}
-	// The reminder stays between the cut-off reply and the next reply.
+	// The reminder is for the continued call only: the recorded turn, and
+	// the history a later turn builds from it, do not carry it.
 	all, err := TurnMessages(second.Turn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := len(all)
-	if all[m-1].Role != llm.RoleAssistant || all[m-1].Text() != "done" ||
-		all[m-2].Role != llm.RoleUser || all[m-3].Text() != "partial" {
-		t.Fatalf("turn messages: %+v", all)
+	if hasMaxTokensReminder(all) {
+		t.Fatalf("turn messages carry the reminder: %+v", all)
+	}
+	history, warnings := BuildHistory([]Turn{second.Turn})
+	if len(warnings) != 0 || hasMaxTokensReminder(history) {
+		t.Fatalf("history: %+v warnings=%v", history, warnings)
+	}
+	client.results = append(client.results, final("next done"))
+	third, err := runner.Run(t.Context(), Turn{ID: "t2"}, Start{
+		CommandID: "next",
+		Agent:     testAgent(),
+		History:   history,
+		Input:     []llm.Message{llm.UserMessage(llm.Text("next"))},
+	})
+	if err != nil || third.Stop.Kind != StopCompleted ||
+		hasMaxTokensReminder(client.inputs[2].Messages) {
+		t.Fatalf("new turn: stop=%+v err=%v input=%+v", third.Stop, err, client.inputs[len(client.inputs)-1])
 	}
 
 	anthropic, err := messages.New(messages.Config{APIKey: "test"})
@@ -261,5 +278,45 @@ func TestMaxTokensPlainContinueEndsWithReminder(t *testing.T) {
 		if _, err := anthropic.Prepare(t.Context(), withoutReminder); err == nil {
 			t.Fatalf("%s: Prepare accepted a prefill; the test no longer covers the issue", tc.model)
 		}
+	}
+}
+
+func hasMaxTokensReminder(messages []llm.Message) bool {
+	for _, m := range messages {
+		for _, c := range m.Content {
+			if c.Reminder != nil && c.Reminder.Content == maxTokensText {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Cancel after a Continue that dispatched nothing ends the turn, and the
+// ended turn's messages carry no max_tokens reminder.
+func TestMaxTokensCancelAfterUndispatchedContinue(t *testing.T) {
+	cut := final("partial")
+	cut.Stop = llm.Stop{Kind: llm.StopOutputLimit, Raw: "max_tokens"}
+	client := &scriptedClient{results: []llm.Result{cut}}
+	rec := NewMemoryRecorder()
+	runner := Runner{Client: client, Recorder: rec}
+	first, err := start(t, client, nil, rec, Hooks{})
+	if err != nil || first.Next() != NextFix {
+		t.Fatalf("first: stop=%+v err=%v", first.Stop, err)
+	}
+	block := ModelHook{Name: "block", Func: func(context.Context, ModelPlan) (ModelDecision, error) {
+		return ModelDecision{}, errors.New("blocked")
+	}}
+	second, _ := runner.Run(t.Context(), first.Turn, Continue{CommandID: "again"}, WithHooks(block.Hooks()))
+	if client.sends != 1 {
+		t.Fatalf("continue dispatched a call: sends=%d", client.sends)
+	}
+	cancelled, err := runner.Run(t.Context(), second.Turn, Cancel{CommandID: "stop"})
+	if err != nil || !cancelled.Stop.Ended {
+		t.Fatalf("cancel: stop=%+v err=%v", cancelled.Stop, err)
+	}
+	all, err := TurnMessages(cancelled.Turn)
+	if err != nil || hasMaxTokensReminder(all) {
+		t.Fatalf("turn messages: %+v err=%v", all, err)
 	}
 }

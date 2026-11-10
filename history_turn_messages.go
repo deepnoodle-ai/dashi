@@ -146,12 +146,14 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 			// A Continue after a reply cut off at its max_tokens setting
 			// would otherwise send a request that ends with that reply, an
 			// assistant prefill many models reject. The reminder is derived
-			// from the recorded stop, so replay sends the same request, and
-			// it stays in later requests to keep the roles alternating.
+			// from the recorded stop, so replay or recovery of the continued
+			// call sends the same request. It is for that call only: once a
+			// dispatched call follows the Continue, or the turn ended, the
+			// reminder is gone, so TurnMessages and BuildHistory never carry it.
 			if lastStop != nil && lastStop.Kind == StopLimited &&
 				lastStop.Reason == StopReasonMaxTokens &&
 				len(out) > 0 && out[len(out)-1].Message.Role == llm.RoleAssistant &&
-				!(ended && lastDispatched <= step.Seq) {
+				!ended && lastDispatched <= step.Seq {
 				emit(maxTokensReminder())
 			}
 			lastStop = nil

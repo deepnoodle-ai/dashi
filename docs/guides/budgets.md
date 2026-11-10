@@ -65,6 +65,7 @@ nil `Limit`, and `NextFix`, because no budget was involved. The cut-off reply
 stays in the turn. A bare `Continue` follows it with a short runtime reminder,
 a user message saying the reply was cut off and asking the model to continue,
 so the request never ends with an assistant prefill, which many models reject.
+The reminder is in that request only, not in `TurnMessages` or `BuildHistory`.
 To steer the retry instead, record a user message with `AddMessages` (for
 example, asking for a shorter answer) before `Continue`; then no reminder is
 added. A `BeforeModel` hook can return larger `Settings.MaxTokens` for that

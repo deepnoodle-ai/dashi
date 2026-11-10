@@ -428,7 +428,8 @@ const (
 // The cut-off reply stays in the turn. A bare Continue follows it with a
 // short runtime reminder asking the model to continue, so the request ends
 // with a user message rather than an assistant prefill, which many models
-// reject. To steer the retry instead, record a user message with
+// reject. The reminder is in that request only, not in TurnMessages or
+// BuildHistory. To steer the retry instead, record a user message with
 // AddMessages, such as one asking for a shorter answer, before Continue; then
 // no reminder is added. A BeforeModel hook can return larger
 // Settings.MaxTokens for that call. Or start a new turn with a larger
