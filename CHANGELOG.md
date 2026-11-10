@@ -14,6 +14,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `--model` and `--system-prompt`, reject a value that looks like a flag, so
   `dashi --model --plain` is a usage error rather than a model named `--plain`.
 
+### Fixed
+
+- `delegate`: a child turn whose first commit has an unknown outcome
+  (`CommitError.NothingWritten` unset) is no longer reported as never
+  started. Tasks reloads the child's record. If the record holds the turn,
+  the task call returns the task (or `task_send` reports the message sent),
+  the failure is reported as a `TaskEnded`, and `Recover` resumes the child.
+
 ## [0.19.0] - 2026-11-03
 
 ### Added
