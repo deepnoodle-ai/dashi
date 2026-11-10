@@ -6,50 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-10
+
 ### Added
 
-- `delegate.Tasks.Watch(ctx, id)`: an iterator of one task's updates
-  (`TaskUpdate`) that yields its recorded child Turns, then
-  `TaskUpdateRecordEnd`, then its live child events, each step once and in
-  order. It listens before it loads the record,
-  holds steps that arrive after a missing one, loads a missing step from the
-  record after 100 ms, and reports steps the record lacks too. The `dashi` CLI's
-  task panes now use it.
+- `delegate.Tasks.Watch(ctx, id)` yields a task's recorded child Turns, then
+  `TaskUpdateRecordEnd`, then its live events, each step once and in order,
+  reloading missing steps from the record. The `dashi` CLI's task panes use it.
 
 ### Security
 
-- `gemini.New`: with `Vertex` set and no `Client`, a custom `Endpoint` must be
-  `https` on a Vertex AI host (`aiplatform.googleapis.com`,
-  `{location}-aiplatform.googleapis.com`, or the `us`/`eu` `.rep` hosts).
-  `New` now returns an error for any other endpoint instead of sending it
-  Dashi's Application Default Credentials token. Supply a `Client` to use
-  another host.
+- `gemini.New` with `Vertex` and no `Client` rejects a custom `Endpoint` that
+  is not `https` on a Vertex AI host, instead of sending it Dashi's ADC token.
+  Supply a `Client` to use another host.
 
 ### Changed
 
-- `dashi` CLI: built on Wonton v0.14.0. Command-line usage errors now exit
-  with status 2 instead of 1, and a flag takes its next word as its value even
-  when that word starts with `-`. Flags that take a name or text, such as
-  `--model` and `--system-prompt`, reject a value that looks like a flag, so
-  `dashi --model --plain` is a usage error rather than a model named `--plain`.
+- `dashi` CLI: built on Wonton v0.14.0. Usage errors exit 2 instead of 1, and
+  flags that take a name or text, such as `--model`, reject a value that looks
+  like a flag (`dashi --model --plain` is now a usage error).
 
 ### Fixed
 
-- A plain `Continue` after a reply cut off at its `max_tokens` setting
-  (`StopReasonMaxTokens`, `NextFix`) no longer fails on models that reject an
-  assistant prefill, such as `claude-opus-5-5`, or on Anthropic models with
-  reasoning on. The next request now follows the cut-off reply with a short
-  runtime reminder, as a user message, asking the model to continue from where
-  it stopped. The reminder goes only into the request for the continued call;
-  `TurnMessages` and `BuildHistory` do not include it, so later turns and
-  earlier records keep their shape. It is derived from the recorded stop, so
-  replay and recovery of that call send the same request. A host that adds its own message with
-  `AddMessages` before `Continue` gets no reminder.
-- `delegate`: a child turn whose first commit has an unknown outcome
-  (`CommitError.NothingWritten` unset) is no longer reported as never
-  started. Tasks reloads the child's record. If the record holds the turn,
-  the task call returns the task (or `task_send` reports the message sent),
-  the failure is reported as a `TaskEnded`, and `Recover` resumes the child.
+- A plain `Continue` after a `max_tokens` stop no longer fails on models that
+  reject an assistant prefill: the continued call ends with a short runtime
+  reminder, which later turns' history does not include.
+- `delegate`: a child whose first commit has an unknown outcome but landed is
+  reported as a failed run, not as never started, and `Recover` resumes it.
 
 ## [0.19.0] - 2026-11-03
 
