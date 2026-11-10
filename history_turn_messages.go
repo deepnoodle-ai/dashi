@@ -136,10 +136,25 @@ func turnMessagesState(t Turn, history []llm.Message, compact bool, state *repla
 	// all, showed the model nothing.
 	lastDispatched := lastDispatchedCallStart(t)
 	resumed := lastCrashResume(t.Steps)
+	var lastStop *Stop
 	for _, step := range t.Steps {
 		seq, index = step.Seq, 0
 		switch step.Kind {
+		case StepTurnStopped:
+			lastStop = step.Stop
 		case StepTurnContinued:
+			// A Continue after a reply cut off at its max_tokens setting
+			// would otherwise send a request that ends with that reply, an
+			// assistant prefill many models reject. The reminder is derived
+			// from the recorded stop, so replay sends the same request, and
+			// it stays in later requests to keep the roles alternating.
+			if lastStop != nil && lastStop.Kind == StopLimited &&
+				lastStop.Reason == StopReasonMaxTokens &&
+				len(out) > 0 && out[len(out)-1].Message.Role == llm.RoleAssistant &&
+				!(ended && lastDispatched <= step.Seq) {
+				emit(maxTokensReminder())
+			}
+			lastStop = nil
 			// The reminder is for the next dispatched model call only, and
 			// one is enough however many crashes came before that call. An
 			// ended turn makes none. A provider pause that left a provider
@@ -339,6 +354,19 @@ func crashResumeReminder() llm.Message {
 
 const crashResumeText = "The previous worker stopped in the middle of " +
 	"this turn. Check the current state before you repeat any action."
+
+// maxTokensReminder follows a reply cut off at its max_tokens setting when
+// a Continue resumes the turn, so the next request ends with a user message.
+func maxTokensReminder() llm.Message {
+	return llm.ReminderMessage(llm.Reminder{
+		Name:    "reply-cut-off",
+		Tier:    llm.ReminderContextual,
+		Content: maxTokensText,
+	})
+}
+
+const maxTokensText = "Your last reply was cut off at its max_tokens " +
+	"limit. Continue from where it stopped."
 
 // steeredPartial shows a call an urgent steer cut short: its partial
 // text as one assistant message, then a reminder that the user interrupted

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/llm"
+	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
 )
 
 func TestKnownProviderRejectionCanContinueWithNewModelCall(t *testing.T) {
@@ -197,5 +198,68 @@ func TestMaxTokensReplyStopsLimited(t *testing.T) {
 		last.Role != llm.RoleUser || !strings.Contains(last.Text(), "go on, briefly") {
 		t.Fatalf("second input: max_tokens=%d prev=%s %q last=%s %q",
 			in.Settings.MaxTokens, prev.Role, prev.Text(), last.Role, last.Text())
+	}
+}
+
+// A plain Continue after a reply cut off at its max_tokens setting ends the
+// next request with a recorded-derived reminder, not the cut-off reply, so
+// models without assistant prefill and Anthropic with reasoning accept it,
+// and replay gives the same request.
+func TestMaxTokensPlainContinueEndsWithReminder(t *testing.T) {
+	cut := final("partial")
+	cut.Stop = llm.Stop{Kind: llm.StopOutputLimit, Raw: "max_tokens"}
+	client := &scriptedClient{results: []llm.Result{cut, final("done")}}
+	rec := NewMemoryRecorder()
+	runner := Runner{Client: client, Recorder: rec}
+	first, err := start(t, client, nil, rec, Hooks{})
+	if err != nil || first.Next() != NextFix {
+		t.Fatalf("first: stop=%+v err=%v", first.Stop, err)
+	}
+	second, err := runner.Run(t.Context(), first.Turn, Continue{CommandID: "again"})
+	if err != nil || second.Stop.Kind != StopCompleted || client.sends != 2 {
+		t.Fatalf("second: stop=%+v err=%v sends=%d", second.Stop, err, client.sends)
+	}
+	in := client.inputs[1]
+	n := len(in.Messages)
+	prev, last := in.Messages[n-2], in.Messages[n-1]
+	if prev.Role != llm.RoleAssistant || prev.Text() != "partial" ||
+		last.Role != llm.RoleUser || len(last.Content) != 1 ||
+		last.Content[0].Reminder == nil ||
+		last.Content[0].Reminder.Content != maxTokensText {
+		t.Fatalf("second input: prev=%s %q last=%+v", prev.Role, prev.Text(), last)
+	}
+	// The reminder stays between the cut-off reply and the next reply.
+	all, err := TurnMessages(second.Turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := len(all)
+	if all[m-1].Role != llm.RoleAssistant || all[m-1].Text() != "done" ||
+		all[m-2].Role != llm.RoleUser || all[m-3].Text() != "partial" {
+		t.Fatalf("turn messages: %+v", all)
+	}
+
+	anthropic, err := messages.New(messages.Config{APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		model     string
+		reasoning *llm.ReasoningSettings
+	}{
+		{model: "claude-opus-5-5"},
+		{model: "claude-sonnet-4-5", reasoning: &llm.ReasoningSettings{BudgetTokens: 2048}},
+	} {
+		input := in
+		input.Model = tc.model
+		input.Settings = llm.Settings{Reasoning: tc.reasoning}
+		if _, err := anthropic.Prepare(t.Context(), input); err != nil {
+			t.Fatalf("%s: Prepare rejected the request: %v", tc.model, err)
+		}
+		withoutReminder := input
+		withoutReminder.Messages = input.Messages[:n-1]
+		if _, err := anthropic.Prepare(t.Context(), withoutReminder); err == nil {
+			t.Fatalf("%s: Prepare accepted a prefill; the test no longer covers the issue", tc.model)
+		}
 	}
 }
