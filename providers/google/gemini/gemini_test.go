@@ -382,6 +382,7 @@ func TestVertexDefaultEndpointForLocation(t *testing.T) {
 		"us":          "https://aiplatform.us.rep.googleapis.com/",
 		"eu":          "https://aiplatform.eu.rep.googleapis.com/",
 		"us-central1": "https://us-central1-aiplatform.googleapis.com/",
+		"US-CENTRAL1": "https://US-CENTRAL1-aiplatform.googleapis.com/",
 	} {
 		p, err := New(Config{
 			Vertex:          true,
