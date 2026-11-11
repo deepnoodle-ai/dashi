@@ -1312,6 +1312,8 @@ func (ts *Tasks) notifyEnded(t *task, delivered map[string]bool) {
 
 // beforeNotice, when a test sets it, runs just before notifyEnded puts a
 // notice on Config.Session, so the test can choose when the notice lands.
+// It is shared by the whole package, so a test that sets it must not run in
+// parallel with other tests.
 var beforeNotice atomic.Pointer[func()]
 
 // toParent puts a steer on Config.Session, when set: SteerItem reaches a
