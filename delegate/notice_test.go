@@ -77,20 +77,28 @@ type readOrder struct {
 	runs int
 	// first runs in the model call that returns the task_status call.
 	first func(g *gate, ended <-chan delegate.TaskEvent)
+	// answer, when set, runs in the model call that answers after the read.
+	answer func(ended <-chan delegate.TaskEvent)
 }
 
 var readOrders = []readOrder{
 	{"read waits, then the child ends", 1, func(g *gate, _ <-chan delegate.TaskEvent) {
 		go func() { time.Sleep(50 * time.Millisecond); g.open() }()
-	}},
+	}, nil},
 	{"child ends, then the read", 1, func(g *gate, ended <-chan delegate.TaskEvent) {
 		g.open()
-		select {
-		case <-ended:
-		case <-time.After(5 * time.Second):
-		}
-	}},
-	{"race", 10, func(g *gate, _ <-chan delegate.TaskEvent) { go g.open() }},
+		waitEnded(ended)
+	}, nil},
+	{"race", 10, func(g *gate, _ <-chan delegate.TaskEvent) { go g.open() }, nil},
+}
+
+// waitEnded waits for the child's TaskEnded event, which comes after
+// Config.Session, when set, has the notice.
+func waitEnded(ended <-chan delegate.TaskEvent) {
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+	}
 }
 
 // readScript is a parent that starts a task, reads its result with a
@@ -116,6 +124,9 @@ func readScript(
 			o.first(g, ended)
 			return costed(toolCall("status-1", delegate.StatusToolName,
 				`{"task_id":"`+sessionTaskID(*s)+`","wait_seconds":30}`), "1"), nil
+		}
+		if o.answer != nil && calls.Load() == 3 {
+			o.answer(ended)
 		}
 		return costed(text("parent read the status"), "1"), nil
 	}
@@ -185,6 +196,42 @@ func TestStatusReadWithConfigSessionStartsNoTurn(t *testing.T) {
 	}
 }
 
+// With Config.Session, the read can return the result before the notice
+// lands. A notice that lands while the parent answers reaches that turn as
+// a steer, so the model is asked once more within turn 1, and no other
+// turn runs. This holds the order that made the test above flaky (#389).
+func TestStatusReadWithConfigSessionLateNotice(t *testing.T) {
+	answering := make(chan struct{})
+	delegate.SetBeforeNotice(t, func() {
+		select {
+		case <-answering:
+		case <-time.After(5 * time.Second):
+		}
+	})
+	o := readOrder{
+		name:  "the notice lands while the parent answers",
+		first: func(g *gate, _ <-chan delegate.TaskEvent) { go g.open() },
+		answer: func(ended <-chan delegate.TaskEvent) {
+			close(answering)
+			waitEnded(ended)
+		},
+	}
+	g := newGate()
+	var calls, notices atomic.Int32
+	var s *session.Session
+	ended := make(chan delegate.TaskEvent, 1)
+	h := newHarness(t, readScript(g, o, &s, ended, &calls, &notices),
+		delegate.Config{}, nil)
+	s = sessionTasks(t, h)
+	forwardEnded(t, h, ended)
+	s.Runner = h.runner
+	checkOneTurn(t, h, s, &calls, &notices, 1)
+	if calls.Load() != 4 {
+		t.Fatalf("parent calls=%d, want 4: the notice did not land during the answer",
+			calls.Load())
+	}
+}
+
 // checkOneTurn sends turn 1 and checks that the read result started no
 // other turn, carried at most maxNotices notices, and is recorded as
 // delivered, so a reopened host sends nothing either.
@@ -206,7 +253,13 @@ func checkOneTurn(
 	if st, err := s.Open(t.Context()); err != nil || st.Turns != 1 || st.Queued != 0 {
 		t.Fatalf("state=%+v err=%v: the result started another turn", st, err)
 	}
-	if n := notices.Load(); n > maxNotices || calls.Load() != 3 {
+	// A notice that lands while the parent answers (only with
+	// Config.Session) asks the model once more in turn 1. Each call's input
+	// holds the whole conversation, so one notice in four calls means the
+	// fourth call alone carried it.
+	n, c := notices.Load(), calls.Load()
+	late := maxNotices > 0 && c == 4 && n == 1
+	if n > maxNotices || c != 3 && !late {
 		t.Fatalf("notices=%d parent calls=%d", n, calls.Load())
 	}
 	e := h.next(t, delegate.TaskEnded)
