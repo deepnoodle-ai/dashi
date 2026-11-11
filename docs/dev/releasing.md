@@ -65,6 +65,17 @@ Every tag is signed with your git signing key (SSH): `tag-modules` signs the
 sub-module tags, and `git tag -s` the root tag. Check them with
 `git tag -v v0.2.0` before pushing.
 
+Signing needs a one-time SSH setup:
+
+```sh
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/id_ed25519.pub
+echo "$(git config user.email) $(cat ~/.ssh/id_ed25519.pub)" >> ~/.ssh/allowed_signers
+git config --global gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers
+```
+
+`git tag -v` needs the allowed-signers file; without it, verification fails.
+
 Every tag must point at a commit whose `go.mod` files name the release version.
 `tag-modules` tags the sub-modules only, never the root, and re-runs the
 requirement check first so a skipped step 2 stops here.
