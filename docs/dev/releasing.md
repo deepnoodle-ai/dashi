@@ -61,20 +61,9 @@ git push origin v0.2.0
 Push the root tag on its own, last. GitHub starts no workflow for tags pushed
 more than three at a time, and the root tag starts the release workflow.
 
-Every tag is signed with your git signing key (SSH): `tag-modules` signs the
-sub-module tags, and `git tag -s` the root tag. Check them with
-`git tag -v v0.2.0` before pushing.
-
-Signing needs a one-time SSH setup:
-
-```sh
-git config --global gpg.format ssh
-git config --global user.signingkey ~/.ssh/id_ed25519.pub
-echo "$(git config user.email) $(cat ~/.ssh/id_ed25519.pub)" >> ~/.ssh/allowed_signers
-git config --global gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers
-```
-
-`git tag -v` needs the allowed-signers file; without it, verification fails.
+Every tag is signed: `tag-modules` signs the sub-module tags, and
+`git tag -s` the root tag. This needs git commit signing set up
+([GitHub's guide](https://docs.github.com/en/authentication/managing-commit-signature-verification)).
 
 Every tag must point at a commit whose `go.mod` files name the release version.
 `tag-modules` tags the sub-modules only, never the root, and re-runs the
