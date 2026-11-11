@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -1298,6 +1299,9 @@ func (ts *Tasks) notifyEnded(t *task, delivered map[string]bool) {
 		v := ts.viewLocked(t, c)
 		ts.mu.Unlock()
 		ts.flushLater(c)
+		if f := beforeNotice.Load(); f != nil {
+			(*f)()
+		}
 		ts.toParent(v.Notice().Steer())
 		ts.onTask(TaskEnded, v)
 		ts.mu.Lock()
@@ -1305,6 +1309,10 @@ func (ts *Tasks) notifyEnded(t *task, delivered map[string]bool) {
 		ts.mu.Unlock()
 	}
 }
+
+// beforeNotice, when a test sets it, runs just before notifyEnded puts a
+// notice on Config.Session, so the test can choose when the notice lands.
+var beforeNotice atomic.Pointer[func()]
 
 // toParent puts a steer on Config.Session, when set: SteerItem reaches a
 // running turn and queues the item when none runs. A session that refuses
