@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-12
+
 ### Added
 
 - **`gemini-4-carbon` and `gemini-4-hydrogen` in the model catalog,** both
@@ -49,7 +51,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **The catalog's default Google model is `gemini-4-hydrogen`,** which
   Google labels its default general-purpose model and the recommended
   upgrade from `gemini-3.8-flash`, the previous default. It costs twice as
-  much per token as `gemini-3.8-flash` does today and thinks at `high` by
+  much per input and output token as `gemini-3.8-flash` does today and thinks at `high` by
   default. The `dashi` CLI features Carbon, Argon, Hydrogen, and
   `gemini-3.5-flash-lite` for Google.
 - **`glm-5-2` and `zai-glm-5-2` are marked deprecated.** Mistral deprecated
