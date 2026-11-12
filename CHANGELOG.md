@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`zai-glm-5-3`, `zai-glm-5-3-flash`, and `deepseek-v4-1-flash-1017` in the
+  Mistral catalog,** each with a 1,048,576-token context window and a
+  128,000-token output limit. Per MTok: GLM 5.3 costs $1.40 input, $0.14
+  cached input, and $4.40 output; GLM 5.3 Flash $0.15, $0.03, and $0.50; and
+  DeepSeek V4.1 Flash 1017, a preview model, $0.30, $0.007, and $1.20.
+
+### Changed
+
+- **`glm-5-2` and `zai-glm-5-2` are marked deprecated.** Mistral deprecated
+  them on 2026-09-29 and scheduled retirement for 2026-10-31; they still
+  answered on 2026-11-12. Use `zai-glm-5-3`, at the same price.
+- **Mistral Large 4 is generally available in the catalog** (`mistral-large-4`
+  and `mistral-large-4-0`, no longer preview) with a 1,048,576-token context
+  window, up from 524,288, and the current prices of $0.70 input, $0.07 cached
+  input, and $2.10 output per MTok, down from $1.36, $0.14, and $4.18.
+- **`mistral-large-latest` now names Mistral Large 4,** as Mistral's models
+  endpoint does, with Large 4's window and prices instead of Mistral Large 3's.
+- **`mistral-large-2512` (Mistral Large 3) and `mistral-medium-3-5` and
+  `mistral-medium-2604` (Mistral Medium 3.5) are marked deprecated.** Mistral
+  deprecated them on 2026-10-31, retires them on 2027-04-30, and names Mistral
+  Large 4 as the alternative. `mistral-medium-latest`, the Mistral default,
+  still points to Medium 3.5 and stays current; its note records the date.
+
 ## [0.20.0] - 2026-11-10
 
 ### Added
