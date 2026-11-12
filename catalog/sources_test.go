@@ -460,6 +460,24 @@ var claimSources = []claimSource{
 		support: llm.SupportUnsupported,
 	},
 	{
+		// "Remove temperature, top_p, and top_k from your requests. If
+		// provided, they are ignored."
+		url: "https://ai.google.dev/gemini-api/docs/" +
+			"whats-new-gemini-4-carbon",
+		models:  []string{"gemini-4-carbon"},
+		feature: llm.FeatureTemperature,
+		support: llm.SupportUnsupported,
+	},
+	{
+		// "Remove temperature, top_p, and top_k from requests. The server
+		// ignores custom values if sent."
+		url: "https://ai.google.dev/gemini-api/docs/" +
+			"whats-new-gemini-4-hydrogen",
+		models:  []string{"gemini-4-hydrogen"},
+		feature: llm.FeatureTemperature,
+		support: llm.SupportUnsupported,
+	},
+	{
 		// The thinkingBudget table gives a range for 2.5 Pro, 2.5 Flash, and
 		// 2.5 Flash Lite, and "Gemini 2.5 series models don't support
 		// thinkingLevel; use thinkingBudget". Gemini 3 accepts a budget only
@@ -695,6 +713,8 @@ var openAIOutputLimits = map[string]int{
 // googleOutputLimits lists the "Output token limit" each Gemini model page
 // states in its model details table.
 var googleOutputLimits = map[string]int{
+	"gemini-4-carbon":        65_536,
+	"gemini-4-hydrogen":      65_536,
 	"gemini-4-argon":         65_536,
 	"gemini-3.8-flash":       65_536,
 	"gemini-3.7-flash":       65_536,
@@ -835,6 +855,8 @@ var openAIContextWindows = map[string]int{
 // googleContextWindows lists the "Input token limit" each Gemini model page
 // states in its model details table.
 var googleContextWindows = map[string]int{
+	"gemini-4-carbon":        1_048_576,
+	"gemini-4-hydrogen":      1_048_576,
 	"gemini-4-argon":         1_048_576,
 	"gemini-3.8-flash":       1_048_576,
 	"gemini-3.7-flash":       1_048_576,
@@ -1251,6 +1273,8 @@ var (
 	// rows bill "search
 	// requests" at $14 per 1,000.
 	gemini3AndLater = []string{
+		"gemini-4-carbon",
+		"gemini-4-hydrogen",
 		"gemini-4-argon",
 		"gemini-3.8-flash",
 		"gemini-3.7-flash",

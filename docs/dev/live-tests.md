@@ -60,6 +60,16 @@ $0.00772 for 15 input and 383 output tokens, 368 of them reasoning, on Muse
 Wonder. Meta reported service tier `auto`, as it does for Muse Spark, so the
 catalog prices `auto` for Meta.
 
+On 2026-11-12, Gemini API agent turns and structured output passed for
+`gemini-4-carbon` and `gemini-4-hydrogen`. The final-result check did not:
+its 32-token output cap was spent on 29 thinking tokens and 3 text tokens,
+so both calls stopped at `max_tokens` with no text. `gemini-4-argon` still
+passed it that day. Google counts thinking against `max_output_tokens` on
+these models. One plain call each returned usage whose list-price estimate
+matched the catalog by hand: $0.00081 for 38 input and 73 output tokens, 68
+of them thinking, on Carbon, and $0.00030 for 38 input and 33 output tokens,
+28 of them thinking, on Hydrogen.
+
 On 2026-11-12, Mistral's `zai-glm-5-3`, `zai-glm-5-3-flash`, and
 `deepseek-v4-1-flash-1017` each passed three checks through `mistral.New`: a
 plain reply, an agent turn that called a local multiplication tool and then
