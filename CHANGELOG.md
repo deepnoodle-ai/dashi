@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`gemini-4-carbon` and `gemini-4-hydrogen` in the model catalog,** both
+  stable, with a 1,048,576-token context window and a 65,536-token output
+  limit for synchronous calls. Carbon costs $2 input, $10 output, and $0.10
+  cache read per MTok, doubling on 2026-12-01 as Argon does; Hydrogen costs
+  $1.50, $7.50, and $0.075. Both bill $14 per 1,000 search requests and mark
+  temperature unsupported, since Google ignores it.
+
+### Changed
+
+- **The catalog's default Google model is `gemini-4-hydrogen`,** which
+  Google labels its default general-purpose model and the recommended
+  upgrade from `gemini-3.8-flash`, the previous default. It costs twice as
+  much per token as `gemini-3.8-flash` does today and thinks at `high` by
+  default. The `dashi` CLI features Carbon, Argon, Hydrogen, and
+  `gemini-3.5-flash-lite` for Google.
+
 ## [0.20.0] - 2026-11-10
 
 ### Added

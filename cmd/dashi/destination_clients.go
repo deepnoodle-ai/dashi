@@ -30,7 +30,7 @@ func builtinDestinations() map[string]configuredDestination {
 		{"anthropic", messages.API, "https://api.anthropic.com/v1/messages", []string{"ANTHROPIC_API_KEY"},
 			[]string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1", "claude-mythos-5-1"}},
 		{"google", "google.generate_content", "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent", []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
-			[]string{"gemini-4-argon", "gemini-3.8-flash", "gemini-3.5-flash-lite"}},
+			[]string{"gemini-4-carbon", "gemini-4-argon", "gemini-4-hydrogen", "gemini-3.5-flash-lite"}},
 		{"openai", responses.API, "https://api.openai.com/v1/responses", []string{"OPENAI_API_KEY"},
 			[]string{"gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna", "gpt-5.5-pro"}},
 		{"grok", responses.API, grok.DefaultEndpoint, []string{"XAI_API_KEY", "GROK_API_KEY"},
