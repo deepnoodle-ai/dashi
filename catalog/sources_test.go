@@ -522,6 +522,24 @@ var claimSources = []claimSource{
 		support: llm.SupportUnsupported,
 	},
 	{
+		// "Remove temperature, top_p, and top_k from your requests. If
+		// provided, they are ignored."
+		url: "https://ai.google.dev/gemini-api/docs/" +
+			"whats-new-gemini-4-carbon",
+		models:  []string{"gemini-4-carbon"},
+		feature: llm.FeatureTemperature,
+		support: llm.SupportUnsupported,
+	},
+	{
+		// "Remove temperature, top_p, and top_k from requests. The server
+		// ignores custom values if sent."
+		url: "https://ai.google.dev/gemini-api/docs/" +
+			"whats-new-gemini-4-hydrogen",
+		models:  []string{"gemini-4-hydrogen"},
+		feature: llm.FeatureTemperature,
+		support: llm.SupportUnsupported,
+	},
+	{
 		// The thinkingBudget table gives a range for 2.5 Pro, 2.5 Flash, and
 		// 2.5 Flash Lite, and "Gemini 2.5 series models don't support
 		// thinkingLevel; use thinkingBudget". Gemini 3 accepts a budget only
@@ -704,6 +722,23 @@ var outputLimitSources = []outputLimitSource{
 		models: []string{"glm-5-2", "zai-glm-5-2"},
 		limit:  128_000,
 	},
+	{
+		// "Max output 128k", read as 128,000 as above.
+		url:    "https://docs.mistral.ai/models/zai-glm-5-3",
+		models: []string{"zai-glm-5-3"},
+		limit:  128_000,
+	},
+	{
+		url:    "https://docs.mistral.ai/models/zai-glm-5-3-flash",
+		models: []string{"zai-glm-5-3-flash"},
+		limit:  128_000,
+	},
+	{
+		// The page's slug drops the ".1" that the model ID has.
+		url:    "https://docs.mistral.ai/models/deepseek-v4-flash-1017",
+		models: []string{"deepseek-v4-1-flash-1017"},
+		limit:  128_000,
+	},
 }
 
 // openAIOutputLimits lists the "max output tokens" each OpenAI model page
@@ -748,6 +783,8 @@ var openAIOutputLimits = map[string]int{
 // googleOutputLimits lists the "Output token limit" each Gemini model page
 // states in its model details table.
 var googleOutputLimits = map[string]int{
+	"gemini-4-carbon":        65_536,
+	"gemini-4-hydrogen":      65_536,
 	"gemini-4-argon":         65_536,
 	"gemini-3.8-flash":       65_536,
 	"gemini-3.7-flash":       65_536,
@@ -820,20 +857,12 @@ var contextWindowSources = []contextWindowSource{
 			"magistral-small-latest",
 			"mistral-small-2603",
 			"mistral-large-2512",
-			"mistral-large-latest",
 			"ministral-14b-latest",
 			"ministral-14b-2512",
 			"ministral-8b-latest",
 			"ministral-8b-2512",
 		},
 		window: 262_144,
-	},
-	{
-		// The changelog and model page say 1M; the endpoint, which the API
-		// enforces, reports the smaller value.
-		url:    mistralModels,
-		models: []string{"mistral-large-4", "mistral-large-4-0"},
-		window: 524_288,
 	},
 	{
 		url:    mistralModels,
@@ -846,8 +875,17 @@ var contextWindowSources = []contextWindowSource{
 		window: 256_000,
 	},
 	{
-		url:    mistralModels,
-		models: []string{"glm-5-2", "zai-glm-5-2"},
+		url: mistralModels,
+		models: []string{
+			"glm-5-2",
+			"zai-glm-5-2",
+			"zai-glm-5-3",
+			"zai-glm-5-3-flash",
+			"deepseek-v4-1-flash-1017",
+			"mistral-large-4",
+			"mistral-large-4-0",
+			"mistral-large-latest",
+		},
 		window: 1_048_576,
 	},
 }
@@ -894,6 +932,8 @@ var openAIContextWindows = map[string]int{
 // googleContextWindows lists the "Input token limit" each Gemini model page
 // states in its model details table.
 var googleContextWindows = map[string]int{
+	"gemini-4-carbon":        1_048_576,
+	"gemini-4-hydrogen":      1_048_576,
 	"gemini-4-argon":         1_048_576,
 	"gemini-3.8-flash":       1_048_576,
 	"gemini-3.7-flash":       1_048_576,
@@ -1312,6 +1352,8 @@ var (
 	// rows bill "search
 	// requests" at $14 per 1,000.
 	gemini3AndLater = []string{
+		"gemini-4-carbon",
+		"gemini-4-hydrogen",
 		"gemini-4-argon",
 		"gemini-3.8-flash",
 		"gemini-3.7-flash",

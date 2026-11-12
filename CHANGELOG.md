@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **`gemini-4-carbon` and `gemini-4-hydrogen` in the model catalog,** both
+  stable, with a 1,048,576-token context window and a 65,536-token output
+  limit for synchronous calls. Carbon costs $2 input, $10 output, and $0.10
+  cache read per MTok, doubling on 2026-12-01 as Argon does; Hydrogen costs
+  $1.50, $7.50, and $0.075. Both bill $14 per 1,000 search requests and mark
+  temperature unsupported, since Google ignores it.
+- **`zai-glm-5-3`, `zai-glm-5-3-flash`, and `deepseek-v4-1-flash-1017` in the
+  Mistral catalog,** each with a 1,048,576-token context window and a
+  128,000-token output limit. Per MTok: GLM 5.3 costs $1.40 input, $0.14
+  cached input, and $4.40 output; GLM 5.3 Flash $0.15, $0.03, and $0.50; and
+  DeepSeek V4.1 Flash 1017, a preview model, $0.30, $0.007, and $1.20.
 - **`claude-fable-5-2` in the model catalog,** with its 1M-token context
   window, 128K output limit, `low` to `max` effort ladder, task budgets, and
   prices of $8 input, $40 output, $0.20 cache read, $10 five-minute and $16
@@ -29,6 +40,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **The catalog's default Google model is `gemini-4-hydrogen`,** which
+  Google labels its default general-purpose model and the recommended
+  upgrade from `gemini-3.8-flash`, the previous default. It costs twice as
+  much per token as `gemini-3.8-flash` does today and thinks at `high` by
+  default. The `dashi` CLI features Carbon, Argon, Hydrogen, and
+  `gemini-3.5-flash-lite` for Google.
+- **`glm-5-2` and `zai-glm-5-2` are marked deprecated.** Mistral deprecated
+  them on 2026-09-29 and scheduled retirement for 2026-10-31; they still
+  answered on 2026-11-12. Use `zai-glm-5-3`, at the same price.
+- **Mistral Large 4 is generally available in the catalog** (`mistral-large-4`
+  and `mistral-large-4-0`, no longer preview) with a 1,048,576-token context
+  window, up from 524,288, and the current prices of $0.70 input, $0.07 cached
+  input, and $2.10 output per MTok, down from $1.36, $0.14, and $4.18.
+- **`mistral-large-latest` now names Mistral Large 4,** as Mistral's models
+  endpoint does, with Large 4's window and prices instead of Mistral Large 3's.
+- **`mistral-large-2512` (Mistral Large 3) and `mistral-medium-3-5` and
+  `mistral-medium-2604` (Mistral Medium 3.5) are marked deprecated.** Mistral
+  deprecated them on 2026-10-31, retires them on 2027-04-30, and names Mistral
+  Large 4 as the alternative. `mistral-medium-latest`, the Mistral default,
+  still points to Medium 3.5 and stays current; its note records the date.
 - **`catalog.Small("meta")` returns `muse-ember-1.0`.** Meta recommends Muse
   Ember for sub-agents, routing, and high-volume work; before, Meta had no
   small model.

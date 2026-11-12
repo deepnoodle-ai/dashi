@@ -3,6 +3,7 @@ package gemini_test
 import (
 	"testing"
 
+	"github.com/deepnoodle-ai/dashi/catalog"
 	"github.com/deepnoodle-ai/dashi/internal/providertest"
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/providers/google/gemini"
@@ -113,7 +114,11 @@ func TestPublicEndpointUsesCatalogByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	providertest.CatalogDefaults(t, client, "gemini-3.8-flash")
+	model, ok := catalog.Default("google")
+	if !ok || model != "gemini-4-hydrogen" {
+		t.Fatalf("catalog.Default(google) = %q, %v; want gemini-4-hydrogen", model, ok)
+	}
+	providertest.CatalogDefaults(t, client, model)
 }
 
 func TestEveryCatalogModelPreparesPlainRequest(t *testing.T) {

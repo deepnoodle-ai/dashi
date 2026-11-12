@@ -60,6 +60,32 @@ $0.00772 for 15 input and 383 output tokens, 368 of them reasoning, on Muse
 Wonder. Meta reported service tier `auto`, as it does for Muse Spark, so the
 catalog prices `auto` for Meta.
 
+On 2026-11-12, Gemini API agent turns and structured output passed for
+`gemini-4-carbon` and `gemini-4-hydrogen`. The final-result check did not:
+its 32-token output cap was spent on 29 thinking tokens and 3 text tokens,
+so both calls stopped at `max_tokens` with no text. `gemini-4-argon` still
+passed it that day. Google counts thinking against `max_output_tokens` on
+these models. One plain call each returned usage whose list-price estimate
+matched the catalog by hand: $0.00081 for 38 input and 73 output tokens, 68
+of them thinking, on Carbon, and $0.00030 for 38 input and 33 output tokens,
+28 of them thinking, on Hydrogen.
+
+On 2026-11-12, Mistral's `zai-glm-5-3`, `zai-glm-5-3-flash`, and
+`deepseek-v4-1-flash-1017` each passed three checks through `mistral.New`: a
+plain reply, an agent turn that called a local multiplication tool and then
+answered, and a structured-output turn. The first GLM 5.3 tool turn failed
+before any model call was recorded; two reruns passed. Plain-reply usage
+matched the catalog by hand: $0.0001778 for 17 input and 35 output tokens (32
+reasoning) on GLM 5.3, $0.00002105 for 17 and 37 on GLM 5.3 Flash, and
+$0.0000051 for 9 and 2 on DeepSeek. The GLM models reason by default. All
+calls together cost under $0.005.
+
+Also on 2026-11-12, after Mistral Large 4 reached GA, one plain call each to
+`mistral-large-latest` and `mistral-large-4` returned a reply with stop reason
+`stop`. Both reported 18 input and 80 output tokens (67 reasoning), $0.0001806
+each at the catalog's $0.70 / $2.10 per MTok. Two earlier calls capped at 16
+output tokens stopped mid-reasoning; all four cost under $0.0005.
+
 On 2026-11-12, agent turns and agent turn structured output passed for
 `claude-fable-5-2` (Anthropic Messages), `gpt-6.1-terra` (OpenAI Responses),
 and Meta's `muse-ember-1.0` (Responses, through `meta.New` with the same
