@@ -44,6 +44,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `mistral-medium-latest`, which points to the deprecated Mistral Medium 3.5.
   Mistral names Large 4 as Medium 3.5's replacement; it costs $0.70 input and
   $2.10 output per MTok. The `dashi` CLI lists it first for Mistral.
+- **Decide v0.5.0 and Wonton v0.14.2.** Dashi's `decide/` packages and the
+  `dashi` CLI build on the latest releases.
 - **The catalog's default Google model is `gemini-4-hydrogen`,** which
   Google labels its default general-purpose model and the recommended
   upgrade from `gemini-3.8-flash`, the previous default. It costs twice as
