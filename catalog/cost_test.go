@@ -188,9 +188,11 @@ func TestCostServiceTiersPerProvider(t *testing.T) {
 		{"grok", "default", true},
 		{"grok", "priority", false},
 		{"meta", "", true},
-		// Meta reports "auto" on every pay-as-you-go response and prices by
-		// model ID, so "auto" is the standard rate (live, 2026-10-13).
+		// Meta reported "auto" on every pay-as-you-go response on
+		// 2026-10-13 and "default" on 2026-11-12. It prices by model ID, so
+		// both are the standard rate.
 		{"meta", "auto", true},
+		{"meta", "default", true},
 		{"meta", "priority", false},
 		{"mistral", "", true},
 		{"mistral", "unknown", false},

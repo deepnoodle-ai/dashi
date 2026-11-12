@@ -119,6 +119,21 @@ func TestCatalogEstimatesAreExact(t *testing.T) {
 			total: "0.055",
 		},
 		{
+			// 1000×8 + 500×40 + 10000×0.2 + 2000×10 + 1000×16 = 66000,
+			// plus one web search at 0.01. Cache reads are 2.5% of input.
+			provider: "anthropic",
+			model:    "claude-fable-5-2",
+			usage: llm.Usage{
+				InputTokens:                1000,
+				OutputTokens:               500,
+				CacheReadInputTokens:       10000,
+				CacheCreationInputTokens:   3000,
+				CacheCreation1hInputTokens: 1000,
+				Requests:                   map[string]int{"web_search": 1},
+			},
+			total: "0.076",
+		},
+		{
 			// 1000×2 + 500×10 + 10000×0.2 + 2000×2.5 + 1000×4 = 18000,
 			// plus two web searches at 0.01 each.
 			provider: "anthropic",
@@ -175,6 +190,32 @@ func TestCatalogEstimatesAreExact(t *testing.T) {
 			total: "0.0205",
 		},
 		{
+			// 1000×1 + 500×5 + 10000×0.05 + 1000×1.25 = 5250, plus one web
+			// search at 0.01. Cache reads are 5% of input, as on 6.1 Sol.
+			provider: "openai",
+			model:    "gpt-6.1-terra",
+			usage: llm.Usage{
+				InputTokens:              1000,
+				OutputTokens:             500,
+				CacheReadInputTokens:     10000,
+				CacheCreationInputTokens: 1000,
+				Requests:                 map[string]int{"web_search": 1},
+			},
+			total: "0.01525",
+		},
+		{
+			// A 272,001-token prompt, counting cache reads, pays the higher
+			// rates: 262001×2 + 1000×7.5 + 10000×0.1 = 532502.
+			provider: "openai",
+			model:    "gpt-6.1-terra",
+			usage: llm.Usage{
+				InputTokens:          262_001,
+				OutputTokens:         1000,
+				CacheReadInputTokens: 10_000,
+			},
+			total: "0.532502",
+		},
+		{
 			// 1000×2 + 500×10 + 10000×0.1 = 8000, plus one search request
 			// at 0.014. One rate applies at any prompt length.
 			provider: "google",
@@ -199,6 +240,44 @@ func TestCatalogEstimatesAreExact(t *testing.T) {
 				Requests:             map[string]int{llm.MeterWebSearch: 2},
 			},
 			total: "0.021",
+		},
+		{
+			// 1000×0.1 + 500×0.5 + 10000×0.004 = 390, plus one search query
+			// at 0.0025.
+			provider: "meta",
+			model:    "muse-ember-1.0",
+			usage: llm.Usage{
+				InputTokens:          1000,
+				OutputTokens:         500,
+				CacheReadInputTokens: 10_000,
+				Requests:             map[string]int{llm.MeterWebSearch: 1},
+			},
+			total: "0.00289",
+		},
+		{
+			// A 200,000-token prompt, counting cache reads, keeps the base
+			// rates: 190000×0.1 + 1000×0.5 + 10000×0.004 = 19540.
+			provider: "meta",
+			model:    "muse-ember-1.0",
+			usage: llm.Usage{
+				InputTokens:          190_000,
+				OutputTokens:         1000,
+				CacheReadInputTokens: 10_000,
+			},
+			total: "0.01954",
+		},
+		{
+			// A 200,001-token prompt pays the long-context rates for the
+			// whole request: 190000×0.3 + 1000×1.5 + 10001×0.012 =
+			// 58620.012.
+			provider: "meta",
+			model:    "muse-ember-1.0",
+			usage: llm.Usage{
+				InputTokens:          190_000,
+				OutputTokens:         1000,
+				CacheReadInputTokens: 10_001,
+			},
+			total: "0.058620012",
 		},
 		{
 			// 1001×0.75 + 333×3.75 + 7×0.075 = 2000.025

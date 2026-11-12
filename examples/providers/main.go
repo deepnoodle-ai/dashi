@@ -45,7 +45,6 @@ var smallModels = map[string]string{
 	"openrouter": "openai/gpt-5-nano",
 	"ollama":     "llama3.2",
 	"deepinfra":  "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-	"meta":       "muse-spark-1.3",
 }
 
 func main() {

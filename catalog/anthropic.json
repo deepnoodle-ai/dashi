@@ -13,6 +13,56 @@
   ],
   "models": [
     {
+      "model": "claude-fable-5-2",
+      "apis": [
+        "anthropic.messages"
+      ],
+      "note": "Forced tool choice (any or a named tool) is rejected; auto and none work, so tool_choice support is left unknown. A request that sends thinking blocks back after system, tools, or earlier messages change fails Anthropic's prefix check with a 400. Requires 30-day data retention. Fast-mode prices are omitted: Dashi's Messages client does not request fast mode. Documented 2026-11-12: https://platform.claude.com/docs/en/models/fable-5-2/migration-guide.",
+      "qualified_at": "2026-11-12",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "citations": "supported",
+          "task_budget": "supported",
+          "tools": "supported",
+          "temperature": "unsupported",
+          "reasoning_effort": "supported",
+          "reasoning_budget": "unsupported",
+          "max_tokens": "supported",
+          "prompt_cache": "supported",
+          "reasoning_summary": "supported",
+          "assistant_prefill": "unsupported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1000000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-11-12",
+        "reference": "https://platform.claude.com/docs/en/about-claude/pricing.md",
+        "base": {
+          "input": "8",
+          "output": "40",
+          "cache_read": "0.2",
+          "cache_write": "10",
+          "cache_write_1h": "16"
+        },
+        "requests": {
+          "web_fetch": "0",
+          "web_search": "0.01"
+        }
+      }
+    },
+    {
       "model": "claude-fable-5-1",
       "apis": [
         "anthropic.messages"

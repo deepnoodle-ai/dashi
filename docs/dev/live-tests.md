@@ -60,6 +60,18 @@ $0.00772 for 15 input and 383 output tokens, 368 of them reasoning, on Muse
 Wonder. Meta reported service tier `auto`, as it does for Muse Spark, so the
 catalog prices `auto` for Meta.
 
+On 2026-11-12, agent turns and agent turn structured output passed for
+`claude-fable-5-2` (Anthropic Messages), `gpt-6.1-terra` (OpenAI Responses),
+and Meta's `muse-ember-1.0` (Responses, through `meta.New` with the same
+shared checks). One plain call each returned usage whose list-price estimate
+matched the catalog by hand: $0.000984 for 18 input and 21 output tokens on
+Fable 5.2, $0.000038 for 13 input and 5 output tokens on Terra, and $0.000066
+for 15 input and 129 output tokens, 119 of them reasoning, on Ember. Fable 5.2
+rejected forced `tool_choice` and an assistant prefill with unbilled 400s, as
+documented. Meta now reports service tier `default`, for Muse Spark too, so
+the catalog also prices `default` for Meta. The checks made 18 small paid
+calls, an estimated $0.05 in all.
+
 ## Prompt caching
 
 `TestLivePromptCache` in `./providers` sends two calls with a long shared

@@ -65,7 +65,7 @@ func TestEveryEntryBindsToEachDocumentedAPI(t *testing.T) {
 }
 
 func TestEntriesDateEveryClaim(t *testing.T) {
-	today := time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)
+	today := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
 	for _, name := range Providers() {
 		for _, e := range Entries(name) {
 			if e.QualifiedAt.After(today) {
@@ -149,7 +149,7 @@ func TestDefaultModelIsCurrentEntry(t *testing.T) {
 }
 
 func TestSmallModelIsCurrentEntry(t *testing.T) {
-	for _, name := range []string{"anthropic", "google", "grok", "mistral", "openai"} {
+	for _, name := range []string{"anthropic", "google", "grok", "meta", "mistral", "openai"} {
 		model, ok := Small(name)
 		if !ok {
 			t.Fatalf("%s has no small model", name)
@@ -171,9 +171,6 @@ func TestSmallModelIsCurrentEntry(t *testing.T) {
 				name, model, e.Pricing.Base.Input, def, d.Pricing.Base.Input,
 			)
 		}
-	}
-	if model, ok := Small("meta"); ok {
-		t.Fatalf("meta small = %q, want none", model)
 	}
 	if _, ok := Small("no-such-provider"); ok {
 		t.Fatal("unknown provider has a small model")
