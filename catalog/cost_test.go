@@ -8,6 +8,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/llm"
 	"github.com/deepnoodle-ai/dashi/money"
 	"github.com/deepnoodle-ai/dashi/providers/anthropic/messages"
+	"github.com/deepnoodle-ai/dashi/providers/meta"
 	"github.com/deepnoodle-ai/dashi/providers/openai/responses"
 )
 
@@ -66,6 +67,26 @@ func TestCostEstimatesServedCatalogModel(t *testing.T) {
 	}
 	if got := costText(anthropic, snapshot); got != "0.001 USD (list_price_estimate)" {
 		t.Fatalf("documented snapshot cost = %q", got)
+	}
+}
+
+// Meta reported service tier "default" on every pay-as-you-go response on
+// 2026-11-12. The usage is from a live muse-ember-1.0 call that day:
+// 15×0.1 + 129×0.5 = 66.
+func TestCostEstimatesMetaDefaultTier(t *testing.T) {
+	client, err := meta.New(meta.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := llm.Result{
+		Requested:   llm.ModelRef{Provider: "meta", Model: "muse-ember-1.0"},
+		Served:      llm.ModelRef{Provider: "meta", Model: "muse-ember-1.0"},
+		ServiceTier: "default",
+		Usage:       &llm.Usage{InputTokens: 15, OutputTokens: 129},
+	}
+	if got := costText(client, result); got !=
+		"0.000066 USD (list_price_estimate)" {
+		t.Fatalf("meta default tier cost = %q", got)
 	}
 }
 
