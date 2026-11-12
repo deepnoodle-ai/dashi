@@ -1,7 +1,7 @@
 {
   "provider": "mistral",
   "source": "https://docs.mistral.ai/models/overview",
-  "default": "mistral-medium-latest",
+  "default": "mistral-large-4",
   "small": "mistral-small-latest",
   "priced_service_tiers": [""],
   "destinations": [

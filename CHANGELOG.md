@@ -40,6 +40,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **The catalog's default Mistral model is `mistral-large-4`,** in place of
+  `mistral-medium-latest`, which points to the deprecated Mistral Medium 3.5.
+  Mistral names Large 4 as Medium 3.5's replacement; it costs $0.70 input and
+  $2.10 output per MTok. The `dashi` CLI lists it first for Mistral.
 - **The catalog's default Google model is `gemini-4-hydrogen`,** which
   Google labels its default general-purpose model and the recommended
   upgrade from `gemini-3.8-flash`, the previous default. It costs twice as
