@@ -36,7 +36,7 @@ func builtinDestinations() map[string]configuredDestination {
 		{"grok", responses.API, grok.DefaultEndpoint, []string{"XAI_API_KEY", "GROK_API_KEY"},
 			[]string{"grok-4.7", "grok-build-0.1"}},
 		{"mistral", completions.API, mistral.DefaultEndpoint, []string{"MISTRAL_API_KEY"},
-			[]string{"mistral-medium-latest", "mistral-large-4", "mistral-small-latest", "codestral-latest", "ministral-14b-latest", "glm-5-2"}},
+			[]string{"mistral-medium-latest", "mistral-large-4", "mistral-small-latest", "codestral-latest", "ministral-14b-latest", "zai-glm-5-3"}},
 		{"deepinfra", completions.API, deepinfra.DefaultEndpoint, []string{"DEEP_INFRA_API_KEY", "DEEPINFRA_API_KEY", "DEEPINFRA_TOKEN"}, nil},
 		{"meta", responses.API, meta.DefaultEndpoint, []string{"MODEL_API_KEY", "META_API_KEY"},
 			[]string{"muse-spark-1.3", "muse-wonder-1.0"}},

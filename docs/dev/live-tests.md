@@ -70,6 +70,12 @@ reasoning) on GLM 5.3, $0.00002105 for 17 and 37 on GLM 5.3 Flash, and
 $0.0000051 for 9 and 2 on DeepSeek. The GLM models reason by default. All
 calls together cost under $0.005.
 
+Also on 2026-11-12, after Mistral Large 4 reached GA, one plain call each to
+`mistral-large-latest` and `mistral-large-4` returned a reply with stop reason
+`stop`. Both reported 18 input and 80 output tokens (67 reasoning), $0.0001806
+each at the catalog's $0.70 / $2.10 per MTok. Two earlier calls capped at 16
+output tokens stopped mid-reasoning; all four cost under $0.0005.
+
 ## Prompt caching
 
 `TestLivePromptCache` in `./providers` sends two calls with a long shared
