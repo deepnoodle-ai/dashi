@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-12
+
 ### Added
 
 - **`gemini-4-carbon` and `gemini-4-hydrogen` in the model catalog,** both
