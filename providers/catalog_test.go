@@ -66,7 +66,7 @@ func publicClients(t *testing.T) []struct {
 		},
 		{
 			provider: "mistral",
-			model:    "mistral-medium-latest",
+			model:    "mistral-large-4",
 			client:   must(mistral.New(mistral.Config{APIKey: "k"})),
 		},
 	}
