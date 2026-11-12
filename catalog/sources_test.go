@@ -653,6 +653,23 @@ var outputLimitSources = []outputLimitSource{
 		models: []string{"glm-5-2", "zai-glm-5-2"},
 		limit:  128_000,
 	},
+	{
+		// "Max output 128k", read as 128,000 as above.
+		url:    "https://docs.mistral.ai/models/zai-glm-5-3",
+		models: []string{"zai-glm-5-3"},
+		limit:  128_000,
+	},
+	{
+		url:    "https://docs.mistral.ai/models/zai-glm-5-3-flash",
+		models: []string{"zai-glm-5-3-flash"},
+		limit:  128_000,
+	},
+	{
+		// The page's slug drops the ".1" that the model ID has.
+		url:    "https://docs.mistral.ai/models/deepseek-v4-flash-1017",
+		models: []string{"deepseek-v4-1-flash-1017"},
+		limit:  128_000,
+	},
 }
 
 // openAIOutputLimits lists the "max output tokens" each OpenAI model page
@@ -764,20 +781,12 @@ var contextWindowSources = []contextWindowSource{
 			"magistral-small-latest",
 			"mistral-small-2603",
 			"mistral-large-2512",
-			"mistral-large-latest",
 			"ministral-14b-latest",
 			"ministral-14b-2512",
 			"ministral-8b-latest",
 			"ministral-8b-2512",
 		},
 		window: 262_144,
-	},
-	{
-		// The changelog and model page say 1M; the endpoint, which the API
-		// enforces, reports the smaller value.
-		url:    mistralModels,
-		models: []string{"mistral-large-4", "mistral-large-4-0"},
-		window: 524_288,
 	},
 	{
 		url:    mistralModels,
@@ -790,8 +799,17 @@ var contextWindowSources = []contextWindowSource{
 		window: 256_000,
 	},
 	{
-		url:    mistralModels,
-		models: []string{"glm-5-2", "zai-glm-5-2"},
+		url: mistralModels,
+		models: []string{
+			"glm-5-2",
+			"zai-glm-5-2",
+			"zai-glm-5-3",
+			"zai-glm-5-3-flash",
+			"deepseek-v4-1-flash-1017",
+			"mistral-large-4",
+			"mistral-large-4-0",
+			"mistral-large-latest",
+		},
 		window: 1_048_576,
 	},
 }
