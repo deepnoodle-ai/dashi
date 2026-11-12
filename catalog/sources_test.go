@@ -761,20 +761,12 @@ var contextWindowSources = []contextWindowSource{
 			"magistral-small-latest",
 			"mistral-small-2603",
 			"mistral-large-2512",
-			"mistral-large-latest",
 			"ministral-14b-latest",
 			"ministral-14b-2512",
 			"ministral-8b-latest",
 			"ministral-8b-2512",
 		},
 		window: 262_144,
-	},
-	{
-		// The changelog and model page say 1M; the endpoint, which the API
-		// enforces, reports the smaller value.
-		url:    mistralModels,
-		models: []string{"mistral-large-4", "mistral-large-4-0"},
-		window: 524_288,
 	},
 	{
 		url:    mistralModels,
@@ -794,6 +786,9 @@ var contextWindowSources = []contextWindowSource{
 			"zai-glm-5-3",
 			"zai-glm-5-3-flash",
 			"deepseek-v4-1-flash-1017",
+			"mistral-large-4",
+			"mistral-large-4-0",
+			"mistral-large-latest",
 		},
 		window: 1_048_576,
 	},

@@ -17,7 +17,7 @@
         "openai.completions"
       ],
       "snapshot": "mistral-medium-2604",
-      "note": "Points to Mistral Medium 3.5 (mistral-medium-2604).",
+      "note": "Points to Mistral Medium 3.5 (mistral-medium-2604). Mistral deprecated Mistral Medium 3.5 on 2026-10-31 and retires it 2027-04-30, naming mistral-large-4 as the alternative; the alias still pointed to it on 2026-11-12. Documented 2026-11-12: https://docs.mistral.ai/models/overview.",
       "qualified_at": "2026-10-07",
       "capabilities": {
         "features": {
@@ -44,7 +44,7 @@
         "openai.completions"
       ],
       "snapshot": "mistral-medium-2604",
-      "note": "Alias of mistral-medium-latest, which points to Mistral Medium 3.5 (mistral-medium-2604).",
+      "note": "Alias of mistral-medium-latest, which points to Mistral Medium 3.5 (mistral-medium-2604). Mistral deprecated Mistral Medium 3.5 on 2026-10-31 and retires it 2027-04-30, naming mistral-large-4 as the alternative; the alias still pointed to it on 2026-11-12. Documented 2026-11-12: https://docs.mistral.ai/models/overview.",
       "qualified_at": "2026-10-07",
       "capabilities": {
         "features": {
@@ -70,6 +70,8 @@
       "apis": [
         "openai.completions"
       ],
+      "lifecycle": "deprecated",
+      "note": "Mistral Medium 3.5. Deprecated 2026-10-31; retires 2027-04-30. Mistral names mistral-large-4 as the alternative. Documented 2026-11-12: https://docs.mistral.ai/models/overview.",
       "qualified_at": "2026-10-07",
       "capabilities": {
         "features": {
@@ -95,7 +97,8 @@
       "apis": [
         "openai.completions"
       ],
-      "note": "Mistral Medium 3.5; the same model as mistral-medium-2604.",
+      "lifecycle": "deprecated",
+      "note": "Mistral Medium 3.5; the same model as mistral-medium-2604. Deprecated 2026-10-31; retires 2027-04-30. Mistral names mistral-large-4 as the alternative. Documented 2026-11-12: https://docs.mistral.ai/models/overview.",
       "qualified_at": "2026-10-07",
       "capabilities": {
         "features": {
@@ -197,26 +200,25 @@
       "apis": [
         "openai.completions"
       ],
-      "lifecycle": "preview",
       "snapshot": "mistral-large-4-0",
-      "note": "Public Preview. Mistral's changelog and model page state a 1M context window, but the models endpoint reports max_context_length 524,288, the smaller value the catalog records. Prices are the list prices; launch pricing is 50% off ($0.68 input, $0.07 cached input, $2.09 output) for two weeks from 2026-10-06, so until about 2026-10-20 (Mistral states no end date). Alias of mistral-large-4-0.",
-      "qualified_at": "2026-10-07",
+      "note": "Mistral Large 4, generally available since 2026-11-05 after a Public Preview from 2026-10-06. Mistral publishes no max output and no cache-write price; cache_write is set equal to input. Alias of mistral-large-4-0. Documented 2026-11-12: https://docs.mistral.ai/models/mistral-large-4-0.",
+      "qualified_at": "2026-11-12",
       "capabilities": {
         "features": {
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 524288
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-10-06",
+        "updated_at": "2026-11-12",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
-          "input": "1.36",
-          "output": "4.18",
-          "cache_read": "0.14",
-          "cache_write": "1.36"
+          "input": "0.7",
+          "output": "2.1",
+          "cache_read": "0.07",
+          "cache_write": "0.7"
         }
       }
     },
@@ -225,25 +227,24 @@
       "apis": [
         "openai.completions"
       ],
-      "lifecycle": "preview",
-      "note": "Public Preview. Mistral's changelog and model page state a 1M context window, but the models endpoint reports max_context_length 524,288, the smaller value the catalog records. Prices are the list prices; launch pricing is 50% off ($0.68 input, $0.07 cached input, $2.09 output) for two weeks from 2026-10-06, so until about 2026-10-20 (Mistral states no end date).",
-      "qualified_at": "2026-10-07",
+      "note": "Mistral Large 4, generally available since 2026-11-05 after a Public Preview from 2026-10-06. Mistral publishes no max output and no cache-write price; cache_write is set equal to input. Documented 2026-11-12: https://docs.mistral.ai/models/mistral-large-4-0.",
+      "qualified_at": "2026-11-12",
       "capabilities": {
         "features": {
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 524288
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-10-06",
+        "updated_at": "2026-11-12",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
-          "input": "1.36",
-          "output": "4.18",
-          "cache_read": "0.14",
-          "cache_write": "1.36"
+          "input": "0.7",
+          "output": "2.1",
+          "cache_read": "0.07",
+          "cache_write": "0.7"
         }
       }
     },
@@ -252,6 +253,8 @@
       "apis": [
         "openai.completions"
       ],
+      "lifecycle": "deprecated",
+      "note": "Mistral Large 3. Deprecated 2026-10-31; retires 2027-04-30. The replacement is mistral-large-4. Documented 2026-11-12: https://docs.mistral.ai/models/overview.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
@@ -266,23 +269,25 @@
       "apis": [
         "openai.completions"
       ],
-      "qualified_at": "2026-09-27",
+      "snapshot": "mistral-large-4-0",
+      "note": "Mistral Large 4, generally available since 2026-11-05 after a Public Preview from 2026-10-06. Mistral publishes no max output and no cache-write price; cache_write is set equal to input. The models endpoint listed this alias for Mistral Large 4 (mistral-large-4-0) on 2026-11-12; it earlier named Mistral Large 3 (mistral-large-2512). Documented 2026-11-12: https://docs.mistral.ai/models/mistral-large-4-0.",
+      "qualified_at": "2026-11-12",
       "capabilities": {
         "features": {
           "text": "supported",
           "max_tokens": "supported"
         },
-        "context_window": 262144
+        "context_window": 1048576
       },
       "pricing": {
         "currency": "USD",
-        "updated_at": "2026-10-07",
+        "updated_at": "2026-11-12",
         "reference": "https://mistral.ai/pricing/api/",
         "base": {
-          "input": "0.5",
-          "output": "1.5",
-          "cache_read": "0.05",
-          "cache_write": "0.5"
+          "input": "0.7",
+          "output": "2.1",
+          "cache_read": "0.07",
+          "cache_write": "0.7"
         }
       }
     },
