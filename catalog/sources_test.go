@@ -60,6 +60,8 @@ const (
 		"fable-5/migration-guide"
 	anthropicFable51Migration = "https://platform.claude.com/docs/en/models/" +
 		"fable-5-1/migration-guide"
+	anthropicFable52Migration = "https://platform.claude.com/docs/en/models/" +
+		"fable-5-2/migration-guide"
 	anthropicHaiku55Migration = "https://platform.claude.com/docs/en/models/" +
 		"haiku-5-5/migration-guide"
 	anthropicSonnet55Migration = "https://platform.claude.com/docs/en/models/" +
@@ -80,6 +82,7 @@ const (
 
 var (
 	claudeAll = []string{
+		"claude-fable-5-2",
 		"claude-fable-5-1",
 		"claude-mythos-5-1",
 		"claude-fable-5",
@@ -101,6 +104,7 @@ var (
 		"claude-haiku-4-5-20251001",
 	}
 	claudeAdaptiveOnly = []string{
+		"claude-fable-5-2",
 		"claude-fable-5-1",
 		"claude-mythos-5-1",
 		"claude-fable-5",
@@ -160,6 +164,7 @@ var claimSources = []claimSource{
 		// documented as unsupported although it answers 200.
 		url: anthropicTaskBudgets,
 		models: []string{
+			"claude-fable-5-2",
 			"claude-fable-5-1",
 			"claude-mythos-5-1",
 			"claude-fable-5",
@@ -286,6 +291,22 @@ var claimSources = []claimSource{
 		url:     anthropicFable51Migration,
 		models:  []string{"claude-fable-5-1", "claude-mythos-5-1"},
 		feature: llm.FeatureTemperature,
+		support: llm.SupportUnsupported,
+	},
+	{
+		// "Sampling parameters: Omit temperature, top_p, and top_k, as on
+		// Claude Fable 5.1."
+		url:     anthropicFable52Migration,
+		models:  []string{"claude-fable-5-2"},
+		feature: llm.FeatureTemperature,
+		support: llm.SupportUnsupported,
+	},
+	{
+		// "Prefill: Prefilling the assistant message returns a 400 error,
+		// unchanged from Claude Fable 5.1."
+		url:     anthropicFable52Migration,
+		models:  []string{"claude-fable-5-2"},
+		feature: llm.FeatureAssistantPrefill,
 		support: llm.SupportUnsupported,
 	},
 	{
@@ -451,6 +472,47 @@ var claimSources = []claimSource{
 		support: llm.SupportSupported,
 	},
 	{
+		// "Reasoning effort: \"minimal\" to \"max\"; the default is
+		// \"max\""; "none" is "Not supported by Muse Wonder, Muse Spark, or
+		// Muse Ember" on the reasoning page.
+		url:     "https://dev.meta.ai/docs/muse-ember",
+		models:  []string{"muse-ember-1.0"},
+		feature: llm.FeatureReasoningEffort,
+		support: llm.SupportSupported,
+		efforts: []string{
+			"minimal",
+			"low",
+			"medium",
+			"high",
+			"xhigh",
+			"max",
+		},
+	},
+	{
+		// "Input: Text, image, video, audio, and PDF". Meta's model chooser
+		// sends audio understanding to Muse Spark 1.2, so audio is not
+		// claimed.
+		url:     "https://dev.meta.ai/docs/muse-ember",
+		models:  []string{"muse-ember-1.0"},
+		feature: llm.FeatureImage,
+		support: llm.SupportSupported,
+	},
+	{
+		url:     "https://dev.meta.ai/docs/muse-ember",
+		models:  []string{"muse-ember-1.0"},
+		feature: llm.FeatureDocument,
+		support: llm.SupportSupported,
+	},
+	{
+		// "It works with computer use, image understanding, tool calling,
+		// structured output, and search grounding." Structured output stays
+		// unknown: the Meta route rejects a native output schema.
+		url:     "https://dev.meta.ai/docs/muse-ember",
+		models:  []string{"muse-ember-1.0"},
+		feature: llm.FeatureTools,
+		support: llm.SupportSupported,
+	},
+	{
 		// "Remove temperature, top_p, and top_k from your requests. If
 		// provided, they are ignored." Fit omits it with a warning rather
 		// than send a value the model ignores.
@@ -508,6 +570,7 @@ var claimSources = []claimSource{
 var openAIEfforts = map[string][]string{
 	"gpt-6-astra":   {"low", "medium", "high", "xhigh", "max"},
 	"gpt-6.1-sol":   {"low", "medium", "high", "xhigh", "max"},
+	"gpt-6.1-terra": {"none", "low", "medium", "high", "xhigh", "max"},
 	"gpt-6-sol":     {"none", "low", "medium", "high", "xhigh", "max"},
 	"gpt-6-luna":    {"none", "low", "medium", "high", "xhigh", "max"},
 	"gpt-5.6":       {"none", "low", "medium", "high", "xhigh", "max"},
@@ -611,10 +674,16 @@ var maxTokensReference = map[string]string{
 
 // outputLimitSources lists the output limits stated on pages other than the
 // per-model OpenAI and Google pages, which openAIOutputLimits and
-// googleOutputLimits cover. xAI and Meta publish no per-model maximum: the
-// Grok 4.7 page states "No text output limit", and Meta's protocol pages
-// refer only to "the model's configured maximum".
+// googleOutputLimits cover. xAI publishes no per-model maximum: the Grok 4.7
+// page states "No text output limit". Meta states one only for Muse Ember;
+// its protocol pages refer only to "the model's configured maximum".
 var outputLimitSources = []outputLimitSource{
+	{
+		// The "At a glance" table's "Max output" row.
+		url:    "https://dev.meta.ai/docs/muse-ember",
+		models: []string{"muse-ember-1.0"},
+		limit:  524_288,
+	},
 	{
 		// The model comparison table's "Max output" row.
 		url: anthropicOverview,
@@ -677,6 +746,7 @@ var outputLimitSources = []outputLimitSource{
 var openAIOutputLimits = map[string]int{
 	"gpt-6-astra":              128_000,
 	"gpt-6.1-sol":              128_000,
+	"gpt-6.1-terra":            128_000,
 	"gpt-6-sol":                128_000,
 	"gpt-6-luna":               128_000,
 	"gpt-5.6":                  128_000,
@@ -771,6 +841,12 @@ var contextWindowSources = []contextWindowSource{
 		window: 1_048_576,
 	},
 	{
+		// The "At a glance" table's "Context window" row.
+		url:    "https://dev.meta.ai/docs/muse-ember",
+		models: []string{"muse-ember-1.0"},
+		window: 1_048_576,
+	},
+	{
 		url: mistralModels,
 		models: []string{
 			"mistral-medium-latest",
@@ -819,6 +895,7 @@ var contextWindowSources = []contextWindowSource{
 var openAIContextWindows = map[string]int{
 	"gpt-6-astra":              1_050_000,
 	"gpt-6.1-sol":              1_050_000,
+	"gpt-6.1-terra":            1_050_000,
 	"gpt-6-sol":                1_050_000,
 	"gpt-6-luna":               1_050_000,
 	"gpt-5.6":                  1_050_000,
@@ -873,6 +950,7 @@ var googleContextWindows = map[string]int{
 // anthropicContextWindows lists the "Context window" each Claude model page
 // states ("1M tokens", "200K tokens").
 var anthropicContextWindows = map[string]int{
+	"claude-fable-5-2":           1_000_000,
 	"claude-fable-5-1":           1_000_000,
 	"claude-mythos-5-1":          1_000_000,
 	"claude-fable-5":             1_000_000,
@@ -1229,6 +1307,7 @@ var (
 	openAIReasoningPriced = []string{
 		"gpt-6-astra",
 		"gpt-6.1-sol",
+		"gpt-6.1-terra",
 		"gpt-6-sol",
 		"gpt-6-luna",
 		"gpt-5.6",
@@ -1305,6 +1384,7 @@ var (
 		"grok-build-0.1",
 	}
 	museText = []string{
+		"muse-ember-1.0",
 		"muse-wonder-1.0",
 		"muse-spark-1.3",
 		"muse-spark-1.3-contributor",
@@ -1533,9 +1613,9 @@ var requestPriceSources = []requestPriceSource{
 		verified: true,
 	},
 	{
-		// "$2.50 per 1,000 search queries ... on text models such as Muse
-		// Spark", and Muse Wonder. Muse Image includes search in its
-		// per-image price and has no catalog entry.
+		// "$2.50 per 1,000 search queries ... on the reasoning models, Muse
+		// Wonder, Muse Spark, and Muse Ember". Muse Image includes search in
+		// its per-image price and has no catalog entry.
 		provider: "meta",
 		meter:    llm.MeterWebSearch,
 		models:   museText,

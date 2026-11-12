@@ -19,6 +19,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   128,000-token output limit. Per MTok: GLM 5.3 costs $1.40 input, $0.14
   cached input, and $4.40 output; GLM 5.3 Flash $0.15, $0.03, and $0.50; and
   DeepSeek V4.1 Flash 1017, a preview model, $0.30, $0.007, and $1.20.
+- **`claude-fable-5-2` in the model catalog,** with its 1M-token context
+  window, 128K output limit, `low` to `max` effort ladder, task budgets, and
+  prices of $8 input, $40 output, $0.20 cache read, $10 five-minute and $16
+  one-hour cache write per MTok. Like Fable 5.1, it rejects temperature, an
+  assistant prefill, and forced tool choice. The entry notes Anthropic's new
+  prefix check: thinking blocks sent back after `system`, tools, or earlier
+  messages change fail with a 400.
+- **`gpt-6.1-terra` in the model catalog,** with its 1,050,000-token context
+  window, 128,000-token output limit, `none` to `max` effort ladder, and
+  prices of $1 input, $5 output, $0.05 cache read, and $1.25 cache write per
+  MTok, doubled for input and cache and 1.5x for output above 272K input
+  tokens.
+- **`muse-ember-1.0` in the model catalog,** Meta's efficient execution
+  model, with its 1,048,576-token context window, 524,288-token output limit,
+  `minimal` to `max` effort ladder (default `max`), image, PDF, and tool
+  support, and prices of $0.10 input, $0.50 output, and $0.004 cached input
+  per MTok, tripled above 200K input tokens, plus $2.50 per 1,000 search
+  queries.
 
 ### Changed
 
@@ -42,6 +60,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   deprecated them on 2026-10-31, retires them on 2027-04-30, and names Mistral
   Large 4 as the alternative. `mistral-medium-latest`, the Mistral default,
   still points to Medium 3.5 and stays current; its note records the date.
+- **`catalog.Small("meta")` returns `muse-ember-1.0`.** Meta recommends Muse
+  Ember for sub-agents, routing, and high-volume work; before, Meta had no
+  small model.
+
+### Fixed
+
+- **Meta calls get a cost estimate again.** Meta now reports service tier
+  `default` on pay-as-you-go responses, where it reported `auto` before, so
+  `catalog.Cost` estimated nothing for any Muse model. The catalog now prices
+  `default` for Meta at the model's standard rate.
 
 ## [0.20.0] - 2026-11-10
 
