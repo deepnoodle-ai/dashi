@@ -60,6 +60,16 @@ $0.00772 for 15 input and 383 output tokens, 368 of them reasoning, on Muse
 Wonder. Meta reported service tier `auto`, as it does for Muse Spark, so the
 catalog prices `auto` for Meta.
 
+On 2026-11-12, Mistral's `zai-glm-5-3`, `zai-glm-5-3-flash`, and
+`deepseek-v4-1-flash-1017` each passed three checks through `mistral.New`: a
+plain reply, an agent turn that called a local multiplication tool and then
+answered, and a structured-output turn. The first GLM 5.3 tool turn failed
+before any model call was recorded; two reruns passed. Plain-reply usage
+matched the catalog by hand: $0.0001778 for 17 input and 35 output tokens (32
+reasoning) on GLM 5.3, $0.00002105 for 17 and 37 on GLM 5.3 Flash, and
+$0.0000051 for 9 and 2 on DeepSeek. The GLM models reason by default. All
+calls together cost under $0.005.
+
 ## Prompt caching
 
 `TestLivePromptCache` in `./providers` sends two calls with a long shared

@@ -287,10 +287,66 @@
       }
     },
     {
+      "model": "zai-glm-5-3",
+      "apis": [
+        "openai.completions"
+      ],
+      "note": "Z.ai GLM 5.3, a third-party open-weight text model, generally available since 2026-09-28. The models endpoint also lists zai-glm-5 and zai-glm-latest as aliases of it. Mistral publishes no cache-write price; cache_write is set equal to input. Documented 2026-11-12: https://docs.mistral.ai/models/zai-glm-5-3.",
+      "qualified_at": "2026-11-12",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1048576
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-11-12",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": "1.4",
+          "output": "4.4",
+          "cache_read": "0.14",
+          "cache_write": "1.4"
+        }
+      }
+    },
+    {
+      "model": "zai-glm-5-3-flash",
+      "apis": [
+        "openai.completions"
+      ],
+      "note": "Z.ai GLM 5.3 Flash, a third-party multimodal Mixture-of-Experts model released 2026-10-22. Mistral publishes no cache-write price; cache_write is set equal to input. Documented 2026-11-12: https://docs.mistral.ai/models/zai-glm-5-3-flash.",
+      "qualified_at": "2026-11-12",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1048576
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-11-12",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": "0.15",
+          "output": "0.5",
+          "cache_read": "0.03",
+          "cache_write": "0.15"
+        }
+      }
+    },
+    {
       "model": "glm-5-2",
       "apis": [
         "openai.completions"
       ],
+      "lifecycle": "deprecated",
+      "note": "Deprecated 2026-09-29; Mistral scheduled retirement for 2026-10-31, but the API still served it on 2026-11-12. The replacement is zai-glm-5-3, at the same price. Documented 2026-11-12: https://docs.mistral.ai/models/overview.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
@@ -317,7 +373,8 @@
       "apis": [
         "openai.completions"
       ],
-      "note": "Alias of glm-5-2; Mistral's pricing page lists this id.",
+      "lifecycle": "deprecated",
+      "note": "Alias of glm-5-2. Deprecated 2026-09-29; Mistral scheduled retirement for 2026-10-31, but the API still served it on 2026-11-12. The replacement is zai-glm-5-3, at the same price. Documented 2026-11-12: https://docs.mistral.ai/models/overview.",
       "qualified_at": "2026-09-27",
       "capabilities": {
         "features": {
@@ -336,6 +393,34 @@
           "output": "4.4",
           "cache_read": "0.14",
           "cache_write": "1.4"
+        }
+      }
+    },
+    {
+      "model": "deepseek-v4-1-flash-1017",
+      "apis": [
+        "openai.completions"
+      ],
+      "lifecycle": "preview",
+      "note": "Public Preview. DeepSeek V4.1 Flash 1017, a third-party open-weight model with text and image input, released 2026-10-28. Mistral publishes no cache-write price; cache_write is set equal to input. Documented 2026-11-12: https://docs.mistral.ai/models/deepseek-v4-flash-1017.",
+      "qualified_at": "2026-11-12",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "max_tokens": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1048576
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-11-12",
+        "reference": "https://mistral.ai/pricing/api/",
+        "base": {
+          "input": "0.3",
+          "output": "1.2",
+          "cache_read": "0.007",
+          "cache_write": "0.3"
         }
       }
     },

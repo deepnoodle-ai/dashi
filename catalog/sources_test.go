@@ -635,6 +635,23 @@ var outputLimitSources = []outputLimitSource{
 		models: []string{"glm-5-2", "zai-glm-5-2"},
 		limit:  128_000,
 	},
+	{
+		// "Max output 128k", read as 128,000 as above.
+		url:    "https://docs.mistral.ai/models/zai-glm-5-3",
+		models: []string{"zai-glm-5-3"},
+		limit:  128_000,
+	},
+	{
+		url:    "https://docs.mistral.ai/models/zai-glm-5-3-flash",
+		models: []string{"zai-glm-5-3-flash"},
+		limit:  128_000,
+	},
+	{
+		// The page's slug drops the ".1" that the model ID has.
+		url:    "https://docs.mistral.ai/models/deepseek-v4-flash-1017",
+		models: []string{"deepseek-v4-1-flash-1017"},
+		limit:  128_000,
+	},
 }
 
 // openAIOutputLimits lists the "max output tokens" each OpenAI model page
@@ -770,8 +787,14 @@ var contextWindowSources = []contextWindowSource{
 		window: 256_000,
 	},
 	{
-		url:    mistralModels,
-		models: []string{"glm-5-2", "zai-glm-5-2"},
+		url: mistralModels,
+		models: []string{
+			"glm-5-2",
+			"zai-glm-5-2",
+			"zai-glm-5-3",
+			"zai-glm-5-3-flash",
+			"deepseek-v4-1-flash-1017",
+		},
 		window: 1_048_576,
 	},
 }
