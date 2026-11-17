@@ -78,7 +78,7 @@ func decodeImageSource(encoded, imageURL, outputFormat,
 			return content.Source{}, errors.New("images: invalid base64 image data")
 		}
 		detected := http.DetectContentType(data)
-		if !supportedInputMIME(detected) {
+		if !supportedInputMIME(detected) && detected != "image/gif" {
 			return content.Source{}, fmt.Errorf(
 				"images: unsupported response image MIME type %q",
 				detected,
@@ -116,6 +116,8 @@ func formatMIME(format string) (string, error) {
 		return "image/jpeg", nil
 	case "webp":
 		return "image/webp", nil
+	case "gif":
+		return "image/gif", nil
 	}
 	return "", fmt.Errorf("images: unsupported response format %q", format)
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -41,7 +43,7 @@ func (p *MediaClient) PrepareImage(
 	if strings.HasPrefix(in.Model, "imagen-") {
 		return media.ImageRequest{}, p.failure(
 			media.ErrorUnsupported,
-			"Imagen models are retired from the Gemini API",
+			imagenShutDown,
 		)
 	}
 	if in.Mask != nil ||
@@ -183,12 +185,16 @@ func (p *MediaClient) SendImage(
 		return media.Result{}, err
 	}
 	var response struct {
+		PromptFeedback struct {
+			BlockReason string `json:"blockReason"`
+		} `json:"promptFeedback"`
 		ResponseID    string          `json:"responseId"`
 		ModelVersion  string          `json:"modelVersion"`
 		UsageMetadata json.RawMessage `json:"usageMetadata"`
 		Candidates    []struct {
-			FinishReason string `json:"finishReason"`
-			Content      struct {
+			FinishReason  string `json:"finishReason"`
+			FinishMessage string `json:"finishMessage"`
+			Content       struct {
 				Parts []struct {
 					Text       string `json:"text"`
 					Thought    bool   `json:"thought"`
@@ -220,7 +226,11 @@ func (p *MediaClient) SendImage(
 			Model:    response.ModelVersion,
 		}
 	}
+	reason, message := "", ""
 	for _, candidate := range response.Candidates {
+		if reason == "" && candidate.FinishReason != "STOP" {
+			reason, message = candidate.FinishReason, candidate.FinishMessage
+		}
 		for _, part := range candidate.Content.Parts {
 			if part.Thought {
 				continue
@@ -253,8 +263,49 @@ func (p *MediaClient) SendImage(
 			}
 		}
 	}
+	if blocked := response.PromptFeedback.BlockReason; blocked != "" &&
+		len(response.Candidates) == 0 {
+		return result, p.failure(
+			media.ErrorProtocol,
+			"no image in Gemini response (prompt blocked: %s)",
+			blocked,
+		)
+	}
+	if err := noImageError(result, reason, message); err != nil {
+		return result, p.failure(media.ErrorProtocol, "%w", err)
+	}
 	if err := result.Validate(); err != nil {
 		return result, p.failure(media.ErrorProtocol, "%w", err)
 	}
 	return result, nil
+}
+
+// imagenShutDown is the error text for an imagen- model. Google shut Imagen
+// down on the Gemini API on 2026-08-17 and names Nano Banana 2.1 as the
+// replacement (https://aistudio.google.com/docs/deprecations).
+const imagenShutDown = "Imagen was shut down on the Gemini API on 2026-08-17; " +
+	"use gemini-nano-banana-2.1"
+
+// noImageError explains an image response that holds no image. Gemini
+// declines some prompts, for example with finish reason IMAGE_RECITATION or
+// IMAGE_SAFETY, and the reason tells the caller what to change. reason is
+// empty when the response gave none. It returns nil when there is an image.
+func noImageError(result media.Result, reason, message string) error {
+	for _, block := range result.Content {
+		if block.Kind == content.KindImage {
+			return nil
+		}
+	}
+	switch {
+	case reason == "":
+		return errors.New("no image in Gemini response")
+	case message == "":
+		return fmt.Errorf("no image in Gemini response (finish reason %s)", reason)
+	default:
+		return fmt.Errorf(
+			"no image in Gemini response (finish reason %s): %s",
+			reason,
+			message,
+		)
+	}
 }

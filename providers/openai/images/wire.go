@@ -107,8 +107,8 @@ func encodePrompt(blocks []content.Block) (string, error) {
 }
 
 func validateModelOperation(model string, _ media.ImageOperation) error {
-	if model == "dall-e-2" || model == "dall-e-3" {
-		return errors.New("images: DALL-E 2 and DALL-E 3 were retired from the API on 2026-05-12")
+	if message, ok := retiredImageModels[model]; ok {
+		return errors.New(message)
 	}
 	return nil
 }
@@ -166,6 +166,14 @@ func imageFields(
 		if err != nil {
 			return nil, err
 		}
+		if format == "gif" {
+			if known, ok := gptImageModels[input.Model]; ok && !known.gif {
+				return nil, errors.New("images: GIF output requires GPT Image 2.6")
+			}
+			if input.Mask != nil {
+				return nil, errors.New("images: GIF output does not accept a mask")
+			}
+		}
 		fields["output_format"] = format
 	}
 	return fields, nil
@@ -173,21 +181,18 @@ func imageFields(
 
 func validSize(model string, size media.Size) bool {
 	width, height := size.Width, size.Height
-	if knownFlexibleSizeModel(model) {
+	known := gptImageModels[model]
+	if known.flexibleSize {
 		return width%16 == 0 && height%16 == 0 &&
 			width <= 3840 && height <= 3840 &&
 			width*height >= 655_360 && width*height <= 8_294_400 &&
 			width <= 3*height && height <= 3*width
 	}
-	switch model {
-	default:
-		if model == "gpt-image-1" || model == "gpt-image-1-mini" ||
-			model == "gpt-image-1.5" {
-			return width == 1024 && (height == 1024 || height == 1536) ||
-				width == 1536 && height == 1024
-		}
-		return true
+	if known.fixedSizes {
+		return width == 1024 && (height == 1024 || height == 1536) ||
+			width == 1536 && height == 1024
 	}
+	return true
 }
 
 func validQuality(model, quality string) bool {
@@ -197,10 +202,8 @@ func validQuality(model, quality string) bool {
 	case "standard", "hd":
 		return !knownGPTImageModel(model)
 	case "xhigh", "max":
-		if strings.HasPrefix(model, "gpt-image-2.5-") {
-			return true
-		}
-		return !knownGPTImageModel(model)
+		known, ok := gptImageModels[model]
+		return !ok || known.topQuality
 	}
 	return false
 }
@@ -213,6 +216,8 @@ func outputFormat(mimeType string) (string, error) {
 		return "jpeg", nil
 	case "image/webp":
 		return "webp", nil
+	case "image/gif":
+		return "gif", nil
 	}
 	return "", fmt.Errorf("images: unsupported output MIME type %q", mimeType)
 }
@@ -240,6 +245,7 @@ func encodeMultipart(fields map[string]any, refs []content.Block,
 		"moderation",
 		"input_fidelity",
 		"output_compression",
+		"complexity",
 	} {
 		if value, ok := fields[key]; ok {
 			keys = append(keys, key)
@@ -376,28 +382,67 @@ func supportedInputMIME(mimeType string) bool {
 		mimeType == "image/webp"
 }
 
+// gptImageModel records the documented limits of one known GPT Image model
+// (https://developers.openai.com/api/docs/guides/image-generation, read
+// 2026-11-17). Models not listed here are sent as asked, and the capability
+// policy decides about unknown support.
+type gptImageModel struct {
+	// fixedSizes limits sizes to 1024x1024, 1024x1536, and 1536x1024.
+	fixedSizes bool
+	// flexibleSize allows any size within the GPT Image 2 bounds.
+	flexibleSize bool
+	// topQuality adds the xhigh and max quality levels.
+	topQuality bool
+	// fidelity is "" when input_fidelity accepts high and low, "fixed" when
+	// the API does not accept the parameter, and "low" when only low is
+	// accepted.
+	fidelity string
+	// complexity accepts the complexity option.
+	complexity bool
+	// gif accepts GIF output.
+	gif bool
+}
+
+var (
+	image1Fixed = gptImageModel{fixedSizes: true}
+	image2      = gptImageModel{flexibleSize: true, fidelity: "fixed"}
+	image25     = gptImageModel{flexibleSize: true, topQuality: true}
+	image26     = gptImageModel{
+		flexibleSize: true,
+		topQuality:   true,
+		complexity:   true,
+		gif:          true,
+	}
+)
+
+// gptImageModels lists the GPT Image models OpenAI serves. gpt-image-1-mini,
+// gpt-image-1.5, and chatgpt-image-latest shut down on 2026-12-01 and
+// gpt-image-2 on 2027-02-10 (https://developers.openai.com/api/docs/deprecations);
+// they work until then, so Dashi still sends them.
+var gptImageModels = map[string]gptImageModel{
+	"gpt-image-1-mini":                  {fixedSizes: true, fidelity: "low"},
+	"gpt-image-1.5":                     image1Fixed,
+	"gpt-image-1.5-2025-12-16":          image1Fixed,
+	"chatgpt-image-latest":              {},
+	"gpt-image-2":                       image2,
+	"gpt-image-2-2026-04-21":            image2,
+	"gpt-image-2.5-sunburst":            image25,
+	"gpt-image-2.5-sunburst-2026-09-08": image25,
+	"gpt-image-2.5-flare":               image25,
+	"gpt-image-2.5-flare-2026-09-08":    image25,
+	"gpt-image-2.6-sunburst":            image26,
+	"gpt-image-2.6-flare":               image26,
+}
+
+// retiredImageModels maps each image model OpenAI has shut down to the
+// error Dashi returns instead of sending it.
+var retiredImageModels = map[string]string{
+	"dall-e-2":    "images: DALL-E 2 and DALL-E 3 were retired from the API on 2026-05-12",
+	"dall-e-3":    "images: DALL-E 2 and DALL-E 3 were retired from the API on 2026-05-12",
+	"gpt-image-1": "images: gpt-image-1 was retired from the API on 2026-10-23; use gpt-image-2.6-sunburst or gpt-image-2.6-flare",
+}
+
 func knownGPTImageModel(name string) bool {
-	switch name {
-	case "gpt-image-1", "gpt-image-1-mini", "gpt-image-1.5",
-		"chatgpt-image-latest",
-		"gpt-image-2", "gpt-image-2-2026-04-21",
-		"gpt-image-2.5-sunburst", "gpt-image-2.5-sunburst-2026-09-08",
-		"gpt-image-2.5-flare", "gpt-image-2.5-flare-2026-09-08":
-		return true
-	}
-	return false
-}
-
-func knownFlexibleSizeModel(name string) bool {
-	switch name {
-	case "gpt-image-2", "gpt-image-2-2026-04-21",
-		"gpt-image-2.5-sunburst", "gpt-image-2.5-sunburst-2026-09-08",
-		"gpt-image-2.5-flare", "gpt-image-2.5-flare-2026-09-08":
-		return true
-	}
-	return false
-}
-
-func knownImage2Model(name string) bool {
-	return name == "gpt-image-2" || name == "gpt-image-2-2026-04-21"
+	_, ok := gptImageModels[name]
+	return ok
 }

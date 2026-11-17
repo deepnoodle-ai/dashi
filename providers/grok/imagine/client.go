@@ -75,12 +75,25 @@ func (c *Client) PrepareImageWithOptions(
 	if err != nil {
 		return media.ImageRequest{}, c.failure(media.ErrorUnsupported, err)
 	}
+	var adjustments []media.Adjustment
+	if served, ok := retiredImageModels[input.Model]; ok {
+		// xAI still answers a retired model, so the request is sent as asked
+		// and the change is reported.
+		adjustments = append(adjustments, media.Adjustment{
+			Setting:   "model",
+			Requested: input.Model,
+			Effective: served,
+			Reason: "xAI retired " + input.Model + " on 2026-11-02 and serves it with " +
+				served + " at low quality",
+		})
+	}
 	request, err := media.NewImageRequest(media.ImageRequestSnapshot{
 		Origin:           c.origin(ImageAPI, input.Model),
 		Input:            input,
 		Effective:        input.Settings,
 		Body:             body,
 		ContentType:      "application/json",
+		Adjustments:      adjustments,
 		ProviderOptions:  providerOptions,
 		ModelInfo:        info,
 		CapabilityPolicy: c.unknown,
@@ -137,7 +150,7 @@ func (c *Client) PrepareVideo(
 
 // PrepareVideoWithOptions adds xAI-specific reference and frame controls.
 // Settings.DisableAudio sends generate_audio false on
-// grok-imagine-video-1.5. The options and exact wire body are captured in
+// grok-imagine-video-1.5 and grok-imagine-video-1.5-lite. The options and exact wire body are captured in
 // the request.
 func (c *Client) PrepareVideoWithOptions(
 	ctx context.Context,

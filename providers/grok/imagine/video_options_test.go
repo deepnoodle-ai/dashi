@@ -171,10 +171,42 @@ func TestVideoOptionsRejectInvalidModeCombinations(t *testing.T) {
 		{
 			"too many references",
 			func(_ *media.VideoInput, opts *VideoOptions) {
+				opts.ReferenceImages = make([]content.Block, 15)
+				for i := range opts.ReferenceImages {
+					opts.ReferenceImages[i] = frame
+				}
+			},
+		},
+		{
+			"classic too many references",
+			func(in *media.VideoInput, opts *VideoOptions) {
+				in.Model = "grok-imagine-video"
 				opts.ReferenceImages = make([]content.Block, 8)
 				for i := range opts.ReferenceImages {
 					opts.ReferenceImages[i] = frame
 				}
+			},
+		},
+		{
+			"classic references longer than 10 seconds",
+			func(in *media.VideoInput, opts *VideoOptions) {
+				in.Model = "grok-imagine-video"
+				in.Settings.Duration = 12 * time.Second
+				opts.ReferenceImages = []content.Block{frame}
+			},
+		},
+		{
+			"lite last frame",
+			func(in *media.VideoInput, opts *VideoOptions) {
+				in.Model = "grok-imagine-video-1.5-lite"
+				opts.LastFrame = &frame
+			},
+		},
+		{
+			"lite voices",
+			func(in *media.VideoInput, opts *VideoOptions) {
+				in.Model = "grok-imagine-video-1.5-lite"
+				opts.ReferenceVoices = []string{"voice_1"}
 			},
 		},
 		{

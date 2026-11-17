@@ -39,7 +39,7 @@ func (p *InteractionsMediaClient) PrepareImage(
 	if strings.HasPrefix(in.Model, "imagen-") {
 		return media.ImageRequest{}, p.failure(
 			media.ErrorUnsupported,
-			"Imagen models are retired from the Gemini API",
+			imagenShutDown,
 		)
 	}
 	if in.Mask != nil ||
@@ -57,7 +57,8 @@ func (p *InteractionsMediaClient) PrepareImage(
 			"reference images require edit operation",
 		)
 	}
-	if (in.Model == "gemini-3.1-flash-lite-image" ||
+	if (in.Model == "gemini-nano-banana-2.1" ||
+		in.Model == "gemini-3.1-flash-lite-image" ||
 		in.Model == "gemini-3.1-flash-image" ||
 		in.Model == "gemini-3-pro-image") && len(in.ReferenceImages) > 14 {
 		return media.ImageRequest{}, p.failure(
@@ -161,7 +162,10 @@ func (p *InteractionsMediaClient) SendImage(
 }
 
 // validateImageModelResolution applies documented limits of current image
-// models. Unknown models follow capability evidence and the capability policy.
+// models (https://aistudio.google.com/docs/image-generation, read 2026-11-17).
+// Unknown models follow capability evidence and the capability policy.
+// gemini-3.1-flash-image is deprecated in favor of gemini-nano-banana-2.1,
+// with no shutdown date yet; gemini-2.5-flash-image shuts down 2027-03-15.
 func validateImageModelResolution(name, resolution string) error {
 	if resolution == "" {
 		return nil
@@ -176,7 +180,7 @@ func validateImageModelResolution(name, resolution string) error {
 		if resolution != "1K" {
 			return fmt.Errorf("%s supports only 1K image resolution", name)
 		}
-	case "gemini-3-pro-image":
+	case "gemini-3-pro-image", "gemini-nano-banana-2.1":
 		if resolution == "512" {
 			return fmt.Errorf("%s does not support 512 image resolution", name)
 		}

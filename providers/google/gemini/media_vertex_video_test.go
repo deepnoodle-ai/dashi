@@ -336,14 +336,6 @@ func TestVertexVideoRequestBody(t *testing.T) {
 			vertexInput(media.VideoSettings{Duration: 4 * time.Second, Resolution: "1080p"}),
 			`{"instances":[{"prompt":"A cup turns on a table"}],"parameters":{"durationSeconds":4,"generateAudio":true,"resolution":"1080p","sampleCount":1}}`,
 		},
-		{
-			"Veo 2 omits audio",
-			media.VideoInput{
-				Model:  "veo-2.0-generate-001",
-				Prompt: []content.Block{content.TextBlock("A cup")},
-			},
-			`{"instances":[{"prompt":"A cup"}],"parameters":{"sampleCount":1}}`,
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request, err := p.PrepareVideo(t.Context(), tc.input)
@@ -413,11 +405,14 @@ func TestVertexVideoPrepareRejects(t *testing.T) {
 			Model:  "veo-3.1-fast-generate-001",
 			Prompt: []content.Block{content.TextBlock("  ")},
 		}, "nonempty"},
-		{"Veo 2 audio off", media.VideoInput{
-			Model:    "veo-2.0-generate-001",
-			Prompt:   []content.Block{content.TextBlock("A cup")},
-			Settings: media.VideoSettings{DisableAudio: true},
-		}, "DisableAudio"},
+		{"retired Veo 2", media.VideoInput{
+			Model:  "veo-2.0-generate-001",
+			Prompt: []content.Block{content.TextBlock("A cup")},
+		}, "2026-06-30"},
+		{"retired Veo 3.0", media.VideoInput{
+			Model:  "veo-3.0-fast-generate-001",
+			Prompt: []content.Block{content.TextBlock("A cup")},
+		}, "2026-06-30"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := p.PrepareVideo(t.Context(), tc.input)

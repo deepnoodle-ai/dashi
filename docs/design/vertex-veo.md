@@ -104,13 +104,13 @@ comes from the configuration, so a name cannot send the token elsewhere.
 ### 4. Request and model info
 
 The body sends `sampleCount: 1` (one video, one charge), `generateAudio:
-!DisableAudio` for every model not prefixed `veo-2`, and `durationSeconds`,
+!DisableAudio`, and `durationSeconds`,
 `resolution`, `aspectRatio`, and one inline JPEG or PNG first frame only
 when set. `PrepareVideo` rejects, with `ErrorUnsupported` and a message
 naming the value: an operation other than generate, `Size`, more than one
 frame, aspect ratios other than 16:9 and 9:16, durations other than 4, 6,
-or 8 s, resolutions other than 720p, 1080p, and 4k, and `DisableAudio` on
-a `veo-2` model, which rejects `generateAudio`. It does not apply
+or 8 s, resolutions other than 720p, 1080p, and 4k, and the `veo-2.` and
+`veo-3.0-` models Google retired on 2026-06-30. It does not apply
 the Gemini API rule "1080p and 4k need 8 s". Then the model info check runs.
 
 | Model | Resolutions | Frames | Evidence |

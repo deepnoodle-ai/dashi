@@ -247,7 +247,7 @@ func TestInteractionsOmniRejectsUnsupportedShape(t *testing.T) {
 			media.VideoInput{
 				Model:    "gemini-omni-1.1-flash",
 				Prompt:   []content.Block{content.TextBlock("a scene")},
-				Settings: media.VideoSettings{Duration: 6 * time.Second},
+				Settings: media.VideoSettings{Duration: 16 * time.Second},
 			},
 		},
 		{
@@ -375,6 +375,9 @@ func TestVeoRetiredAndLiteModelLimits(t *testing.T) {
 			media.VideoSettings{Duration: 8 * time.Second, Resolution: "4k"},
 		},
 		{"veo-3.1-generate-preview", media.VideoSettings{DisableAudio: true}},
+		{"veo-3.1-generate-preview", media.VideoSettings{}},
+		{"veo-3.1-fast-generate-preview", media.VideoSettings{}},
+		{"veo-3.1-lite-generate-preview", media.VideoSettings{}},
 		{"veo-3.0-generate-001", media.VideoSettings{}},
 		{"veo-3.0-fast-generate-001", media.VideoSettings{}},
 		{"veo-2.0-generate-001", media.VideoSettings{}},

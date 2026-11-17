@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/deepnoodle-ai/dashi/media"
 )
@@ -52,6 +54,12 @@ func (p *InteractionsMediaClient) prepareVideo(
 			in.Operation,
 		)
 	}
+	if in.Model == "gemini-omni-flash-preview" {
+		return media.VideoRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"gemini-omni-flash-preview was shut down on 2026-10-22; use gemini-omni-1.2-flash",
+		)
+	}
 	if strings.HasPrefix(
 		in.Model,
 		"veo-",
@@ -72,12 +80,20 @@ func (p *InteractionsMediaClient) prepareVideo(
 			"Omni video cannot turn audio off",
 		)
 	}
-	if in.Settings.Size.Width != 0 ||
-		in.Settings.Duration != 0 ||
-		len(in.ReferenceFrames) > 1 {
+	if in.Settings.Size.Width != 0 || len(in.ReferenceFrames) > 1 {
 		return media.VideoRequest{}, p.failure(
 			media.ErrorUnsupported,
-			"Omni exact size, explicit duration, or ambiguous multiple reference frames",
+			"Omni exact size or ambiguous multiple reference frames",
+		)
+	}
+	// gemini-omni-1.2-flash takes 3 to 15 s; 1.1 takes up to 10 s until it
+	// routes to 1.2 on 2026-12-03, and the API enforces that.
+	if d := in.Settings.Duration; d != 0 &&
+		(d < 3*time.Second || d > 15*time.Second || d%time.Second != 0) {
+		return media.VideoRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Omni duration %s; use whole seconds from 3 to 15",
+			d,
 		)
 	}
 	if ratio := in.Settings.AspectRatio; ratio != "" &&
@@ -137,6 +153,9 @@ func (p *InteractionsMediaClient) prepareVideo(
 	}
 	if in.Settings.Resolution != "" {
 		format["resolution"] = in.Settings.Resolution
+	}
+	if in.Settings.Duration != 0 {
+		format["duration"] = fmt.Sprintf("%ds", in.Settings.Duration/time.Second)
 	}
 	bodyValue := map[string]any{
 		"model":           in.Model,

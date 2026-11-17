@@ -261,7 +261,22 @@ Selected Gemini image and video routes were also tested live; see
 media tests use `-tags live` with `DASHI_LIVE_MEDIA_TEST=1` and
 `GEMINI_IMAGE_MODEL`, or `DASHI_LIVE_VIDEO_TEST=1` and the selected
 `GEMINI_VIDEO_MODEL`/`GEMINI_OMNI_MODEL`. Filter one test to control paid
-calls.
+calls. `TestLiveImageGeneration` in `providers/openai/images` and
+`providers/grok/imagine` makes one call with `OPENAI_IMAGE_MODEL` or
+`XAI_IMAGE_MODEL`.
+
+On 2026-11-17 (about $0.26 in total), each call returned one image:
+
+| Model | Settings | Result |
+| --- | --- | --- |
+| `gpt-image-2.6-flare`, `-sunburst` | low, 1024x1024, complexity low | PNG, 824 output tokens |
+| `gpt-image-2.6-flare` | low, 816x816, GIF | GIF, 2151 output tokens |
+| `grok-imagine-image-2.0` | low, 1k, 21:9 | JPEG, $0.04 |
+| `grok-imagine-image-quality` | none | JPEG, $0.04, model adjustment logged |
+| `gemini-nano-banana-2.1` | 1K, 1:1, both routes | JPEG 1024x1024 |
+
+GIF frames share one sheet: 1024x1024 GIF output fails with "No supported
+sheet fits 9 GIF frames". No video calls were made.
 
 ## Coding tools
 

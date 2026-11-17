@@ -80,8 +80,15 @@ func imageWireBodyWithOptions(
 			ratio,
 		)
 	}
+	if ratio := input.Settings.AspectRatio; (ratio == "21:9" || ratio == "5:2") &&
+		imageModel1(input.Model) {
+		return nil, "", fmt.Errorf(
+			"imagine: aspect ratio %s requires grok-imagine-image-2.0",
+			ratio,
+		)
+	}
 	if quality := input.Settings.Quality; quality != "" {
-		if input.Model != "grok-imagine-image-2.0" ||
+		if !imageModel2(input.Model) ||
 			(quality != "low" && quality != "medium" && quality != "auto") {
 			return nil, "", fmt.Errorf(
 				"imagine: unsupported image quality %q for %q",
@@ -91,7 +98,7 @@ func imageWireBodyWithOptions(
 		}
 	}
 	if resolution := input.Settings.Resolution; resolution != "" {
-		if input.Model != "grok-imagine-image-2.0" ||
+		if !imageModel2(input.Model) ||
 			(resolution != "1k" && resolution != "2k") {
 			return nil, "", fmt.Errorf(
 				"imagine: unsupported image resolution %q for %q",
@@ -126,8 +133,7 @@ func imageWireBodyWithOptions(
 		if len(input.ReferenceImages) > 5 {
 			return nil, "", errors.New("imagine: xAI accepts at most five edit images")
 		}
-		if len(input.ReferenceImages) > 1 &&
-			input.Model != "grok-imagine-image-2.0" {
+		if len(input.ReferenceImages) > 1 && !imageModel2(input.Model) {
 			return nil, "", errors.New("imagine: multiple edit images require grok-imagine-image-2.0")
 		}
 		inlineBytes := 0
@@ -166,6 +172,26 @@ func boundedJSON(body map[string]any) ([]byte, error) {
 		return nil, errors.New("imagine: prepared JSON body exceeds 24 MiB")
 	}
 	return raw, nil
+}
+
+// imageModel1 reports the original Imagine image model, which lacks the 21:9
+// and 5:2 aspect ratios (https://docs.x.ai/developers/migration/imagine-image-quality-nov-2).
+func imageModel1(name string) bool {
+	return name == "grok-imagine-image" || name == "grok-imagine-image-2026-03-02"
+}
+
+// imageModel2 reports Imagine Image 2.0 and its later versions, which accept
+// quality, resolution, and up to five edit images.
+func imageModel2(name string) bool {
+	return strings.HasPrefix(name, "grok-imagine-image-2.")
+}
+
+// retiredImageModels maps image models xAI has retired but still serves to
+// the model that now serves them
+// (https://docs.x.ai/developers/migration/imagine-image-quality-nov-2).
+var retiredImageModels = map[string]string{
+	"grok-imagine-image-quality": "grok-imagine-image-2.0",
+	"grok-imagine-image-pro":     "grok-imagine-image-2.0",
 }
 
 func imageAspectRatio(ratio string) bool {
