@@ -247,11 +247,12 @@ DASHI_LIVE_THINKING_TEST=1 \
   go test -tags live ./providers/google/gemini -run '^TestLiveThinkingLevels$' -v
 ```
 
-Not yet run: no Gemini key was available when the mapping was added
-(2026-11-17). The ladders and the budget behavior come from Google's thinking
-guide only, and the lowercase level names Dashi sends (`low`, `xhigh`) come
-from its REST examples; the Go SDK spells its enum in capitals and has no
-`xhigh`. Run this check before relying on effort for Gemini.
+On 2026-11-17 all nine passed, so the API accepts the lowercase level names
+Dashi sends (`low`, `xhigh`). Every Hydrogen level answered, with reasoning
+tokens rising from 70 at `low` to 164 at `xhigh`. Argon spent no reasoning
+tokens at `low` or `medium` and 146 at `high`. A `thinkingBudget` alone on
+Hydrogen succeeded with 36 reasoning tokens. The raw `minimal` request got a
+400: "Thinking level MINIMAL is not supported for this model."
 
 ## Media
 
