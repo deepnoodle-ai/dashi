@@ -176,6 +176,58 @@ func TestCatalogEstimatesAreExact(t *testing.T) {
 			total: "0.04800005",
 		},
 		{
+			// 1000×8 + 500×40 + 10000×0.4 + 1000×10 = 42000, plus one web
+			// search at 0.01. Cache reads are 5% of input, as on 6.1 Sol.
+			provider: "openai",
+			model:    "gpt-6.2-astra",
+			usage: llm.Usage{
+				InputTokens:              1000,
+				OutputTokens:             500,
+				CacheReadInputTokens:     10000,
+				CacheCreationInputTokens: 1000,
+				Requests:                 map[string]int{"web_search": 1},
+			},
+			total: "0.052",
+		},
+		{
+			// A 272,001-token prompt, counting cache reads, pays the higher
+			// rates: 262001×16 + 1000×60 + 10000×0.8 = 4260016.
+			provider: "openai",
+			model:    "gpt-6.2-astra",
+			usage: llm.Usage{
+				InputTokens:          262_001,
+				OutputTokens:         1000,
+				CacheReadInputTokens: 10_000,
+			},
+			total: "4.260016",
+		},
+		{
+			// A 272,000-token prompt keeps the base rates:
+			// 262000×2 + 1000×10 + 10000×0.1 = 535000.
+			provider: "openai",
+			model:    "gpt-6.2-sol",
+			usage: llm.Usage{
+				InputTokens:          262_000,
+				OutputTokens:         1000,
+				CacheReadInputTokens: 10_000,
+			},
+			total: "0.535",
+		},
+		{
+			// A 272,001-token prompt, counting cache reads and writes, pays
+			// the higher rates: 261001×4 + 1000×15 + 10000×0.2 + 1000×5 =
+			// 1066004.
+			provider: "openai",
+			model:    "gpt-6.2-sol",
+			usage: llm.Usage{
+				InputTokens:              261_001,
+				OutputTokens:             1000,
+				CacheReadInputTokens:     10_000,
+				CacheCreationInputTokens: 1000,
+			},
+			total: "1.066004",
+		},
+		{
 			// 1000×2 + 500×10 + 10000×0.1 + 1000×2.5 = 10500, plus one web
 			// search at 0.01. Cache reads are 5% of input on this model.
 			provider: "openai",

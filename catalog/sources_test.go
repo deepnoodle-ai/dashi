@@ -78,6 +78,8 @@ const (
 		"build-with-claude/citations"
 	anthropicTaskBudgets = "https://platform.claude.com/docs/en/" +
 		"build-with-claude/task-budgets"
+	openAIReasoningGuide = "https://developers.openai.com/api/docs/guides/" +
+		"reasoning#reasoning-effort"
 )
 
 var (
@@ -563,6 +565,21 @@ var claimSources = []claimSource{
 		feature: llm.FeatureTemperature,
 		support: llm.SupportSupported,
 	},
+	{
+		// The GPT-6.2 model pages state no "reasoning.effort supports" line.
+		// This guide says supported values "can include none, minimal, low,
+		// medium, high, xhigh, and max" and says GPT-6.2 Astra and Sol "reject requests
+		// that set reasoning.effort ... to none"; the latest-model guide
+		// says "If you currently use none or minimal, use low instead".
+		// Live calls on 2026-11-17 confirmed it: both models accepted max,
+		// and minimal and none got an unbilled 400 saying "Supported values
+		// are: 'low', 'medium', 'high', 'xhigh', and 'max'."
+		url:     openAIReasoningGuide,
+		models:  []string{"gpt-6.2-astra", "gpt-6.2-sol"},
+		feature: llm.FeatureReasoningEffort,
+		support: llm.SupportSupported,
+		efforts: []string{"low", "medium", "high", "xhigh", "max"},
+	},
 }
 
 // openAIEfforts lists the ladder each OpenAI model page states in its
@@ -744,6 +761,8 @@ var outputLimitSources = []outputLimitSource{
 // openAIOutputLimits lists the "max output tokens" each OpenAI model page
 // states. gpt-5-codex-mini has no model page, so it has no limit.
 var openAIOutputLimits = map[string]int{
+	"gpt-6.2-astra":            128_000,
+	"gpt-6.2-sol":              128_000,
 	"gpt-6-astra":              128_000,
 	"gpt-6.1-sol":              128_000,
 	"gpt-6.1-terra":            128_000,
@@ -893,6 +912,8 @@ var contextWindowSources = []contextWindowSource{
 // openAIContextWindows lists the "context window" each OpenAI model page
 // states. gpt-5-codex-mini has no model page, so it has no window.
 var openAIContextWindows = map[string]int{
+	"gpt-6.2-astra":            1_050_000,
+	"gpt-6.2-sol":              1_050_000,
 	"gpt-6-astra":              1_050_000,
 	"gpt-6.1-sol":              1_050_000,
 	"gpt-6.1-terra":            1_050_000,
@@ -1305,6 +1326,8 @@ var (
 	// o-series" row covers. The Daybreak aliases point at gpt-5.6 models.
 	// gpt-5-codex-mini is not on the pricing page and has no price sheet.
 	openAIReasoningPriced = []string{
+		"gpt-6.2-astra",
+		"gpt-6.2-sol",
 		"gpt-6-astra",
 		"gpt-6.1-sol",
 		"gpt-6.1-terra",

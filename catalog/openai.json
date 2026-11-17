@@ -16,6 +16,124 @@
   ],
   "models": [
     {
+      "model": "gpt-6.2-astra",
+      "apis": [
+        "openai.responses"
+      ],
+      "note": "Standard tier. Cache reads are 5% of input, as on GPT-6.1 Sol. Above 272K input tokens, input, cache read, and cache write rates double and output is 1.5x. Rejects reasoning effort none and minimal; the model page states no ladder, and the low to max ladder is the one the API's 400 lists (checked live 2026-11-17). Starting with GPT-6.2, the API drops reasoning items when earlier conversation history (the prefix) changes, the model is downgraded, or the end user (safety_identifier) or organization changes; keep the prefix unchanged between responses. Documented 2026-11-17: https://developers.openai.com/api/docs/guides/latest-model.",
+      "qualified_at": "2026-11-17",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
+          "reasoning_effort": "supported",
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1050000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "cache_ttls": [
+          "30m"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-11-17",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": "8",
+          "output": "40",
+          "cache_read": "0.4",
+          "cache_write": "10"
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": "16",
+              "output": "60",
+              "cache_read": "0.8",
+              "cache_write": "20"
+            }
+          }
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
+      }
+    },
+    {
+      "model": "gpt-6.2-sol",
+      "apis": [
+        "openai.responses"
+      ],
+      "note": "Standard tier. Cache reads are 5% of input, as on GPT-6.1 Sol. Above 272K input tokens, input, cache read, and cache write rates double and output is 1.5x. Rejects reasoning effort none and minimal; the model page states no ladder, and the low to max ladder is the one the API's 400 lists (checked live 2026-11-17). Starting with GPT-6.2, the API drops reasoning items when earlier conversation history (the prefix) changes, the model is downgraded, or the end user (safety_identifier) or organization changes; keep the prefix unchanged between responses. Documented 2026-11-17: https://developers.openai.com/api/docs/guides/latest-model.",
+      "qualified_at": "2026-11-17",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
+          "reasoning_effort": "supported",
+          "max_tokens": "supported",
+          "prompt_cache": "supported"
+        },
+        "max_output_tokens": 128000,
+        "context_window": 1050000,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "cache_ttls": [
+          "30m"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-11-17",
+        "reference": "https://developers.openai.com/api/docs/pricing.md",
+        "base": {
+          "input": "2",
+          "output": "10",
+          "cache_read": "0.1",
+          "cache_write": "2.5"
+        },
+        "tiers": [
+          {
+            "min_input_tokens": 272001,
+            "rates": {
+              "input": "4",
+              "output": "15",
+              "cache_read": "0.2",
+              "cache_write": "5"
+            }
+          }
+        ],
+        "requests": {
+          "file_search": "0.0025",
+          "mcp": "0",
+          "web_search": "0.01",
+          "web_search_preview": "0.01"
+        }
+      }
+    },
+    {
       "model": "gpt-6-astra",
       "apis": [
         "openai.responses"

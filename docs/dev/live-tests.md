@@ -98,6 +98,16 @@ documented. Meta now reports service tier `default`, for Muse Spark too, so
 the catalog also prices `default` for Meta. The checks made 18 small paid
 calls, an estimated $0.05 in all.
 
+On 2026-11-17, agent turns and agent turn structured output passed for
+`gpt-6.2-astra` and `gpt-6.2-sol` (OpenAI Responses). One plain call each at
+effort `low` returned 13 input and 5 output tokens at service tier `default`,
+matching the catalog's estimate by hand: $0.000304 on Astra and $0.000076 on
+Sol. Neither model page states an effort ladder, so effort was probed
+directly: both accepted `max`, and `minimal` (both models) and `none` (Sol)
+got unbilled 400s listing `low`, `medium`, `high`, `xhigh`, and `max`, the
+ladder the catalog records. The checks made 12 small paid calls, an estimated
+$0.02 in all.
+
 ## Prompt caching
 
 `TestLivePromptCache` in `./providers` sends two calls with a long shared
