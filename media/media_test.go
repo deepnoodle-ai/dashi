@@ -342,3 +342,66 @@ func TestReportedUsageTreatsNullAsUnreported(t *testing.T) {
 		t.Fatalf("ReportedUsage did not copy: %q", got)
 	}
 }
+
+func TestVideoInputValidateChecksMediaKinds(t *testing.T) {
+	image := content.ImageBlock(content.Source{Data: []byte("png"), MIMEType: "image/png"})
+	video := content.VideoBlock(content.Source{Data: []byte("mp4"), MIMEType: "video/mp4"})
+	valid := VideoInput{
+		Model:           "video-model",
+		Operation:       VideoExtend,
+		SourceVideo:     &video,
+		ReferenceImages: []content.Block{image},
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, in := range map[string]VideoInput{
+		"source video with generate": {
+			Model: "video-model", SourceVideo: &video,
+		},
+		"image as source video": {
+			Model: "video-model", Operation: VideoEdit, SourceVideo: &image,
+		},
+		"video as first frame":     {Model: "video-model", FirstFrame: &video},
+		"video as last frame":      {Model: "video-model", LastFrame: &video},
+		"video as reference image": {Model: "video-model", ReferenceImages: []content.Block{video}},
+		"image as reference video": {Model: "video-model", ReferenceVideos: []content.Block{image}},
+	} {
+		if err := in.Validate(); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
+func TestVideoInputCloneCopiesMediaBytes(t *testing.T) {
+	image := func() *content.Block {
+		b := content.ImageBlock(content.Source{Data: []byte("a"), MIMEType: "image/png"})
+		return &b
+	}
+	video := func() *content.Block {
+		b := content.VideoBlock(content.Source{Data: []byte("a"), MIMEType: "video/mp4"})
+		return &b
+	}
+	in := VideoInput{
+		Model:           "video-model",
+		Operation:       VideoEdit,
+		SourceVideo:     video(),
+		FirstFrame:      image(),
+		LastFrame:       image(),
+		ReferenceImages: []content.Block{*image()},
+		ReferenceVideos: []content.Block{*video()},
+	}
+	clone := in.Clone()
+	clone.SourceVideo.Video.Source.Data[0] = 'x'
+	clone.FirstFrame.Image.Source.Data[0] = 'x'
+	clone.LastFrame.Image.Source.Data[0] = 'x'
+	clone.ReferenceImages[0].Image.Source.Data[0] = 'x'
+	clone.ReferenceVideos[0].Video.Source.Data[0] = 'x'
+	if in.SourceVideo.Video.Source.Data[0] != 'a' ||
+		in.FirstFrame.Image.Source.Data[0] != 'a' ||
+		in.LastFrame.Image.Source.Data[0] != 'a' ||
+		in.ReferenceImages[0].Image.Source.Data[0] != 'a' ||
+		in.ReferenceVideos[0].Video.Source.Data[0] != 'a' {
+		t.Fatal("clone shares media bytes")
+	}
+}

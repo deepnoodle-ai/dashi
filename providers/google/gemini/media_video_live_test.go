@@ -3,10 +3,14 @@
 package gemini
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,7 +48,12 @@ func TestLiveOmniVideoCall(t *testing.T) {
 			Prompt: []content.Block{
 				content.TextBlock("A blue ceramic cup slowly rotates on a plain white table. Steady camera, no people, no text."),
 			},
-			Settings: media.VideoSettings{Resolution: "360p", AspectRatio: "16:9"},
+			// The cheapest Omni output: 360p for 3 s.
+			Settings: media.VideoSettings{
+				Resolution:  "360p",
+				AspectRatio: "16:9",
+				Duration:    3 * time.Second,
+			},
 		},
 	)
 	if err != nil {
@@ -88,7 +97,12 @@ func TestLiveOmniVideoJob(t *testing.T) {
 				Prompt: []content.Block{
 					content.TextBlock("A blue ceramic cup slowly rotates on a plain white table. Steady camera, no people, no text."),
 				},
-				Settings: media.VideoSettings{Resolution: "360p", AspectRatio: "16:9"},
+				// The cheapest Omni output: 360p for 3 s.
+				Settings: media.VideoSettings{
+					Resolution:  "360p",
+					AspectRatio: "16:9",
+					Duration:    3 * time.Second,
+				},
 			},
 		)
 		if err != nil {
@@ -106,6 +120,7 @@ func TestLiveOmniVideoJob(t *testing.T) {
 		if submission.State != media.SubmissionAccepted || submission.Job == nil {
 			t.Fatalf("Omni did not return a Files job: %+v", submission)
 		}
+		t.Logf("submission served %q, usage %s", submission.Served.Model, submission.RawUsage)
 		job = *submission.Job
 	}
 	t.Logf("polling Omni Files job: %s", job.ID)
@@ -197,8 +212,71 @@ func checkLiveVideo(
 			}
 			t.Logf("saved video: %s", path)
 		}
-		t.Logf("generated MP4: %d bytes", len(source.Data))
+		t.Logf(
+			"generated MP4: %d bytes, served %q, usage %s",
+			len(source.Data),
+			result.Served.Model,
+			result.RawUsage,
+		)
 		return
 	}
 	t.Fatal("video result has no video block")
+}
+
+// TestLiveOmniFirstFrameCall makes one paid call that starts from a generated
+// first frame: a blue square on white, 640x360 PNG.
+func TestLiveOmniFirstFrameCall(t *testing.T) {
+	if os.Getenv("DASHI_LIVE_VIDEO_TEST") != "1" {
+		t.Skip("set DASHI_LIVE_VIDEO_TEST=1 to make a paid Omni call")
+	}
+	key, modelName := os.Getenv("GEMINI_API_KEY"), os.Getenv("GEMINI_OMNI_MODEL")
+	if key == "" || modelName == "" {
+		t.Fatal("GEMINI_API_KEY and GEMINI_OMNI_MODEL are required")
+	}
+	client, err := NewInteractionsMedia(InteractionsMediaConfig{
+		APIKey:           key,
+		CapabilityPolicy: model.CapabilityAdjust,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := image.NewRGBA(image.Rect(0, 0, 640, 360))
+	for y := range 360 {
+		for x := range 640 {
+			c := color.RGBA{255, 255, 255, 255}
+			if x >= 260 && x < 380 && y >= 120 && y < 240 {
+				c = color.RGBA{30, 80, 220, 255}
+			}
+			frame.Set(x, y, c)
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, frame); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Minute)
+	defer cancel()
+	request, err := client.PrepareVideo(ctx, media.VideoInput{
+		Model: modelName,
+		Prompt: []content.Block{
+			content.TextBlock("The blue square slowly slides to the right. Steady camera, no people, no text, no dialogue."),
+		},
+		FirstFrame: new(content.ImageBlock(content.Source{
+			Data:     encoded.Bytes(),
+			MIMEType: "image/png",
+		})),
+		Settings: media.VideoSettings{
+			Resolution:  "360p",
+			AspectRatio: "16:9",
+			Duration:    3 * time.Second,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.SendVideo(ctx, request)
+	if err != nil {
+		t.Fatal(liveMediaError(err, key))
+	}
+	checkLiveVideo(t, result, modelName, InteractionsAPI, "omni-first-frame")
 }

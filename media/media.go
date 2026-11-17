@@ -184,13 +184,27 @@ func (s VideoSettings) Validate() error {
 	return nil
 }
 
-// VideoInput holds portable prompt and reference frames. Provider-specific
-// options may carry other inputs such as keyframes or reference audio.
+// VideoInput holds the portable prompt and media inputs for a video request.
+// Provider-specific options may carry other inputs such as keyframes or
+// reference audio. An adapter that cannot send an input rejects it during
+// preparation.
 type VideoInput struct {
-	Model           string          `json:"model"`
-	Operation       VideoOperation  `json:"operation,omitempty"`
-	Prompt          []content.Block `json:"prompt"`
-	ReferenceFrames []content.Block `json:"reference_frames,omitempty"`
+	Model     string          `json:"model"`
+	Operation VideoOperation  `json:"operation,omitempty"`
+	Prompt    []content.Block `json:"prompt"`
+	// SourceVideo is the video to edit or extend. Only the edit and extend
+	// operations use it.
+	SourceVideo *content.Block `json:"source_video,omitempty"`
+	// FirstFrame is an image the generated video starts on.
+	FirstFrame *content.Block `json:"first_frame,omitempty"`
+	// LastFrame is an image the generated video ends on.
+	LastFrame *content.Block `json:"last_frame,omitempty"`
+	// ReferenceImages show subjects, characters, objects, or a style the
+	// video should include. They guide appearance and fix no frame.
+	ReferenceImages []content.Block `json:"reference_images,omitempty"`
+	// ReferenceVideos are short clips that guide subjects or motion in a new
+	// video. They are not edited or extended.
+	ReferenceVideos []content.Block `json:"reference_videos,omitempty"`
 	Settings        VideoSettings   `json:"settings,omitzero"`
 }
 
@@ -207,18 +221,42 @@ func (in VideoInput) Validate() error {
 	if err := validateBlocks(in.Prompt); err != nil {
 		return err
 	}
-	for _, block := range in.ReferenceFrames {
+	if in.SourceVideo != nil {
+		if in.Operation != VideoEdit && in.Operation != VideoExtend {
+			return errors.New("media: source video requires edit or extend operation")
+		}
+		if in.SourceVideo.Kind != content.KindVideo ||
+			in.SourceVideo.Validate() != nil {
+			return errors.New("media: source video requires a valid video block")
+		}
+	}
+	for _, frame := range []*content.Block{in.FirstFrame, in.LastFrame} {
+		if frame != nil &&
+			(frame.Kind != content.KindImage || frame.Validate() != nil) {
+			return errors.New("media: video frames require valid image blocks")
+		}
+	}
+	for _, block := range in.ReferenceImages {
 		if block.Kind != content.KindImage || block.Validate() != nil {
-			return errors.New("media: reference frames require valid image blocks")
+			return errors.New("media: reference images require valid image blocks")
+		}
+	}
+	for _, block := range in.ReferenceVideos {
+		if block.Kind != content.KindVideo || block.Validate() != nil {
+			return errors.New("media: reference videos require valid video blocks")
 		}
 	}
 	return in.Settings.Validate()
 }
 
-// Clone detaches prompt and reference bytes.
+// Clone detaches prompt and media bytes.
 func (in VideoInput) Clone() VideoInput {
 	in.Prompt = cloneBlocks(in.Prompt)
-	in.ReferenceFrames = cloneBlocks(in.ReferenceFrames)
+	in.SourceVideo = cloneBlock(in.SourceVideo)
+	in.FirstFrame = cloneBlock(in.FirstFrame)
+	in.LastFrame = cloneBlock(in.LastFrame)
+	in.ReferenceImages = cloneBlocks(in.ReferenceImages)
+	in.ReferenceVideos = cloneBlocks(in.ReferenceVideos)
 	return in
 }
 
@@ -413,6 +451,14 @@ func validateBlocks(blocks []content.Block) error {
 		}
 	}
 	return nil
+}
+
+func cloneBlock(block *content.Block) *content.Block {
+	if block == nil {
+		return nil
+	}
+	copy := block.Clone()
+	return &copy
 }
 
 func cloneBlocks(blocks []content.Block) []content.Block {

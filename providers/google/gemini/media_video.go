@@ -64,10 +64,17 @@ func (p *MediaClient) PrepareVideo(
 			"Veo on the Gemini API cannot turn audio off",
 		)
 	}
-	if in.Settings.Size.Width != 0 || len(in.ReferenceFrames) > 1 {
+	if in.Settings.Size.Width != 0 {
 		return media.VideoRequest{}, p.failure(
 			media.ErrorUnsupported,
-			"Veo exact size or ambiguous multiple reference frames",
+			"Veo exact size",
+		)
+	}
+	if in.LastFrame != nil || len(in.ReferenceImages) > 0 ||
+		len(in.ReferenceVideos) > 0 {
+		return media.VideoRequest{}, p.failure(
+			media.ErrorUnsupported,
+			"Veo on the Gemini API takes only a first frame",
 		)
 	}
 	if in.Settings.AspectRatio != "" &&
@@ -119,7 +126,7 @@ func (p *MediaClient) PrepareVideo(
 		}
 		prompt = append(prompt, b.Text.Text)
 	}
-	if len(in.ReferenceFrames) == 0 && strings.TrimSpace(strings.Join(
+	if in.FirstFrame == nil && strings.TrimSpace(strings.Join(
 		prompt,
 		"",
 	)) == "" {
@@ -132,8 +139,8 @@ func (p *MediaClient) PrepareVideo(
 	if len(prompt) > 0 {
 		instance["prompt"] = strings.Join(prompt, "\n\n")
 	}
-	if len(in.ReferenceFrames) == 1 {
-		frame, err := p.inlineImage(in.ReferenceFrames[0].Image.Source)
+	if in.FirstFrame != nil {
+		frame, err := p.inlineImage(in.FirstFrame.Image.Source)
 		if err != nil {
 			return media.VideoRequest{}, err
 		}

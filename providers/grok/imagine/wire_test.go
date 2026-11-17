@@ -87,11 +87,9 @@ func TestVideoWireConvertsInitialFrameAndWholeSeconds(t *testing.T) {
 	input := media.VideoInput{
 		Model:  "grok-imagine-video-1.5",
 		Prompt: []content.Block{content.TextBlock("Move slowly")},
-		ReferenceFrames: []content.Block{
-			content.ImageBlock(content.Source{
-				URL: "https://example.test/frame.png",
-			}),
-		},
+		FirstFrame: new(content.ImageBlock(content.Source{
+			URL: "https://example.test/frame.png",
+		})),
 		Settings: media.VideoSettings{
 			Duration:    5 * time.Second,
 			AspectRatio: "16:9",

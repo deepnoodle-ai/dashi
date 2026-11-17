@@ -380,3 +380,48 @@ func (p *InteractionsMediaClient) inputPart(b content.Block) (any, error) {
 		)
 	}
 }
+
+// videoPart encodes a source or reference video. Prompts take no video blocks,
+// so a video's role always comes from its VideoInput field.
+func (p *InteractionsMediaClient) videoPart(b content.Block) (any, error) {
+	source := b.Video.Source.WithDetectedMIMEType("")
+	if source.Data != nil {
+		if !strings.HasPrefix(source.MIMEType, "video/") {
+			return nil, p.failure(
+				media.ErrorUnsupported,
+				"Interactions inline video requires a video MIME type",
+			)
+		}
+		return map[string]any{
+			"type":      "video",
+			"mime_type": source.MIMEType,
+			"data":      base64.StdEncoding.EncodeToString(source.Data),
+		}, nil
+	}
+	// A Files API URI, such as a URI-delivered Omni output. Dashi passes
+	// it through and never fetches it. A URI from another provider's
+	// files would not resolve here.
+	uri := source.URI
+	if uri != "" && source.Origin.Provider != p.Provider() {
+		return nil, p.failure(
+			media.ErrorUnsupported,
+			"Interactions video URI belongs to provider %q",
+			source.Origin.Provider,
+		)
+	}
+	if uri == "" {
+		uri = source.URL
+	}
+	if u, err := url.Parse(uri); err == nil && u.Scheme == "https" &&
+		u.Host != "" && u.User == nil {
+		part := map[string]any{"type": "video", "uri": uri}
+		if source.MIMEType != "" {
+			part["mime_type"] = source.MIMEType
+		}
+		return part, nil
+	}
+	return nil, p.failure(
+		media.ErrorUnsupported,
+		"Interactions video requires inline bytes or an HTTPS Files API URI",
+	)
+}

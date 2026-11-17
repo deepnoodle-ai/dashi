@@ -324,8 +324,8 @@ func TestMediaInlineEditAndInitialFrame(t *testing.T) {
 	video, err := p.PrepareVideo(
 		t.Context(),
 		media.VideoInput{
-			Model:           "veo",
-			ReferenceFrames: []content.Block{image},
+			Model:      "veo",
+			FirstFrame: &image,
 		},
 	)
 	if err != nil {
@@ -474,20 +474,14 @@ func TestMediaRejectsUnsupportedAndForeignOutput(t *testing.T) {
 		media.VideoInput{
 			Model:  "veo",
 			Prompt: []content.Block{content.TextBlock("a sunrise")},
-			ReferenceFrames: []content.Block{
-				content.ImageBlock(content.Source{
-					Data:     []byte("first"),
-					MIMEType: "image/png",
-				}),
-				content.ImageBlock(content.Source{
-					Data:     []byte("second"),
-					MIMEType: "image/png",
-				}),
-			},
+			LastFrame: new(content.ImageBlock(content.Source{
+				Data:     []byte("last"),
+				MIMEType: "image/png",
+			})),
 		},
 	)
-	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
-		t.Fatalf("expected explicit reference-frame rejection, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "only a first frame") {
+		t.Fatalf("expected explicit last-frame rejection, got %v", err)
 	}
 	job := media.Job{
 		ID:     "models/veo/operations/job-1",

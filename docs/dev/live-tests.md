@@ -278,6 +278,19 @@ On 2026-11-17 (about $0.26 in total), each call returned one image:
 GIF frames share one sheet: 1024x1024 GIF output fails with "No supported
 sheet fits 9 GIF frames". No video calls were made.
 
+Later on 2026-11-17, three `gemini-omni-1.2-flash` calls at 360p, 16:9, and
+3 s (the cheapest settings) each returned an MP4 and reported 5,793 video
+output tokens, about $0.075 each and $0.23 in total:
+
+| Test | Input | Result |
+| --- | --- | --- |
+| `TestLiveOmniVideoCall` | text | 1.18 MB MP4, inline, 12 s |
+| `TestLiveOmniVideoJob` | text | 1.19 MB MP4, URI delivery and Files download, 23 s |
+| `TestLiveOmniFirstFrameCall` | text and a 640x360 PNG first frame | 1.09 MB MP4, 1,100 image input tokens, 11 s |
+
+Usage also reports 389 to 715 thinking tokens per call, which Google bills
+as text output.
+
 ## Coding tools
 
 `workspace/live_test.go` runs an OpenAI agent that fixes a failing test in a

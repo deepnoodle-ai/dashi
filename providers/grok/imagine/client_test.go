@@ -382,10 +382,10 @@ func testClient(
 			}
 		} else {
 			info.Video = &media.VideoCapabilities{
-				Generate:        model.SupportSupported,
-				ReferenceFrames: model.SupportSupported,
-				MinDuration:     time.Second,
-				MaxDuration:     15 * time.Second,
+				Generate:    model.SupportSupported,
+				FirstFrame:  model.SupportSupported,
+				MinDuration: time.Second,
+				MaxDuration: 15 * time.Second,
 			}
 		}
 		models[entry.name] = info
