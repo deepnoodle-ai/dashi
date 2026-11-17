@@ -518,7 +518,8 @@ var claimSources = []claimSource{
 		// "Remove temperature, top_p, and top_k from your requests. If
 		// provided, they are ignored." Fit omits it with a warning rather
 		// than send a value the model ignores.
-		url:     "https://ai.google.dev/gemini-api/docs/latest-model",
+		url: "https://ai.google.dev/gemini-api/docs/" +
+			"whats-new-gemini-4-argon",
 		models:  []string{"gemini-4-argon"},
 		feature: llm.FeatureTemperature,
 		support: llm.SupportUnsupported,
@@ -659,18 +660,17 @@ var openAIEfforts = map[string][]string{
 
 // openAINonReasoning names models whose page says they have no reasoning
 // step ("non-reasoning model", "without a reasoning step").
-var openAINonReasoning = []string{"gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"}
+var openAINonReasoning = []string{"gpt-4.1", "gpt-4.1-mini"}
 
 // openAIFeatures lists, for each feature, the models whose page states it:
 // image where "Input modalities" names image, tools where "Supported
 // features" names function_calling, and structured_output where it names
-// structured_outputs. o3-mini takes text input only, the pro models from
-// gpt-5.2-pro to gpt-5.4-pro list no structured_outputs, and
-// gpt-5-codex-mini has no model page; their support stays unknown. Pages
-// name file_uploads without saying which file types, so document stays
-// unknown. Checked 2026-10-13.
+// structured_outputs. The pro models from gpt-5.2-pro to gpt-5.4-pro list
+// no structured_outputs, and gpt-5-codex-mini has no model page; their
+// support stays unknown. Pages name file_uploads without saying which file
+// types, so document stays unknown. Checked 2026-10-13.
 var openAIFeatures = map[llm.Feature][]string{
-	llm.FeatureImage: openAIModelsExcept("o3-mini", "gpt-5-codex-mini"),
+	llm.FeatureImage: openAIModelsExcept("gpt-5-codex-mini"),
 	llm.FeatureTools: openAIModelsExcept("gpt-5-codex-mini"),
 	llm.FeatureStructuredOutput: openAIModelsExcept(
 		"gpt-5.2-pro",
@@ -839,12 +839,9 @@ var openAIOutputLimits = map[string]int{
 	"gpt-5-nano":               128_000,
 	"gpt-4.1":                  32_768,
 	"gpt-4.1-mini":             32_768,
-	"gpt-4.1-nano":             32_768,
 	"gpt-4o":                   16_384,
 	"o3":                       100_000,
 	"o3-pro":                   100_000,
-	"o3-mini":                  100_000,
-	"o4-mini":                  100_000,
 	"gpt-5.3-codex":            128_000,
 }
 
@@ -990,12 +987,9 @@ var openAIContextWindows = map[string]int{
 	"gpt-5-nano":               400_000,
 	"gpt-4.1":                  1_047_576,
 	"gpt-4.1-mini":             1_047_576,
-	"gpt-4.1-nano":             1_047_576,
 	"gpt-4o":                   128_000,
 	"o3":                       200_000,
 	"o3-pro":                   200_000,
-	"o3-mini":                  200_000,
-	"o4-mini":                  200_000,
 	"gpt-5.3-codex":            400_000,
 }
 
@@ -1404,8 +1398,6 @@ var (
 		"gpt-5-nano",
 		"o3",
 		"o3-pro",
-		"o3-mini",
-		"o4-mini",
 		"gpt-5.3-codex",
 	}
 	// openAINonReasoningPriced lists the priced OpenAI entries without a
@@ -1413,7 +1405,6 @@ var (
 	openAINonReasoningPriced = []string{
 		"gpt-4.1",
 		"gpt-4.1-mini",
-		"gpt-4.1-nano",
 		"gpt-4o",
 	}
 	openAIPriced = slices.Concat(

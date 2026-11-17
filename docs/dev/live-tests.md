@@ -68,7 +68,8 @@ passed it that day. Google counts thinking against `max_output_tokens` on
 these models. One plain call each returned usage whose list-price estimate
 matched the catalog by hand: $0.00081 for 38 input and 73 output tokens, 68
 of them thinking, on Carbon, and $0.00030 for 38 input and 33 output tokens,
-28 of them thinking, on Hydrogen.
+28 of them thinking, on Hydrogen. On 2026-11-17 the check's cap was raised
+to 512 tokens, and it passed on both models, blocking and streaming.
 
 On 2026-11-12, Mistral's `zai-glm-5-3`, `zai-glm-5-3-flash`, and
 `deepseek-v4-1-flash-1017` each passed three checks through `mistral.New`: a
