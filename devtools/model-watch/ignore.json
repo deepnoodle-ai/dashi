@@ -1,0 +1,12 @@
+[
+  {
+    "provider": "anthropic",
+    "id": "claude-mythos-5-2",
+    "reason": "Limited-access research preview, not generally available."
+  },
+  {
+    "provider": "mistral",
+    "id": "labs-leanstral-1-5",
+    "reason": "Lean theorem prover, not a general text model."
+  }
+]
