@@ -20,6 +20,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   to `gemini-3.8-flash` and `gemini-3.5-flash-lite`.
 - **The CLI features `gpt-6.2-astra` and `gpt-6.2-sol`** for OpenAI, in
   place of `gpt-6-astra` and `gpt-6.1-sol`.
+- **Dependencies updated,** notably the Google GenAI SDK to v1.77.0 and the
+  MCP Go SDK to v1.8.0.
 
 ## [0.21.0] - 2026-11-12
 
