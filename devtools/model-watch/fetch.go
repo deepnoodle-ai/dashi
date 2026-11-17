@@ -83,8 +83,8 @@ type apiClient struct {
 const maxPages = 20
 
 // get fetches path (with query) and decodes the JSON body into out. It
-// returns the HTTP status; a 404 is returned as status with a nil error so
-// callers can treat it as "not found".
+// returns the HTTP status alongside any error, so a caller can tell a 404
+// from other failures.
 func (c *apiClient) get(path string, query url.Values, out any) (int, error) {
 	if c.provider == "google" {
 		if query == nil {
@@ -122,15 +122,13 @@ func (c *apiClient) get(path string, query url.Values, out any) (int, error) {
 	if err != nil {
 		return resp.StatusCode, fmt.Errorf("GET %s: reading body: %s", path, c.redact(err.Error()))
 	}
-	if resp.StatusCode == http.StatusNotFound {
-		return resp.StatusCode, nil
-	}
 	if resp.StatusCode != http.StatusOK {
-		snippet := strings.Join(strings.Fields(string(body)), " ")
+		// Redact before truncating, so a cut cannot split the key.
+		snippet := c.redact(strings.Join(strings.Fields(string(body)), " "))
 		if len(snippet) > 200 {
 			snippet = snippet[:200] + "..."
 		}
-		return resp.StatusCode, fmt.Errorf("GET %s: HTTP %d: %s", path, resp.StatusCode, c.redact(snippet))
+		return resp.StatusCode, fmt.Errorf("GET %s: HTTP %d: %s", path, resp.StatusCode, snippet)
 	}
 	if err := json.Unmarshal(body, out); err != nil {
 		return resp.StatusCode, fmt.Errorf("GET %s: decoding JSON: %s", path, c.redact(err.Error()))
@@ -217,10 +215,10 @@ func anthropicExists(c *apiClient, id string) (bool, error) {
 		ID string `json:"id"`
 	}
 	status, err := c.get("/v1/models/"+url.PathEscape(id), nil, &resp)
-	if err != nil {
-		return false, err
+	if status == http.StatusNotFound {
+		return false, nil
 	}
-	return status == http.StatusOK, nil
+	return err == nil, err
 }
 
 func listMistral(c *apiClient) ([]listedModel, error) {

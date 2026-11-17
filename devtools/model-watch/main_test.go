@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/wonton/cli"
@@ -74,8 +75,26 @@ func TestJSONReport(t *testing.T) {
 }
 
 func TestFailOnNew(t *testing.T) {
-	if r := runCLI(t, "--fail-on-new"); r.ExitCode != 1 {
-		t.Errorf("exit %d, want 1", r.ExitCode)
+	r := runCLI(t, "--fail-on-new")
+	if r.ExitCode != 1 || r.Err == nil || !strings.Contains(r.Err.Error(), "grok (grok-9)") {
+		t.Errorf("exit %d, err %v", r.ExitCode, r.Err)
+	}
+}
+
+func TestListingErrorExitsOne(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("TEST_GROK_KEY", "k")
+	empty := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	specs := []providerSpec{{Name: "grok", KeyEnv: []string{"TEST_GROK_KEY"}, BaseURL: srv.URL, List: listOpenAIStyle}}
+	r := newApp(specs).Test(t, cli.TestArgs("--env-file", empty, "--fail-on-new"))
+	if r.ExitCode != 1 || r.Err == nil || !strings.Contains(r.Err.Error(), "listing failed: grok") {
+		t.Errorf("exit %d, err %v", r.ExitCode, r.Err)
 	}
 }
 

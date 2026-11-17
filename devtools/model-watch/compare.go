@@ -34,6 +34,9 @@ type report struct {
 	// Resolved are catalog models absent from the list that the provider
 	// still resolves when asked directly (Anthropic aliases).
 	Resolved []string `json:"resolved"`
+	// Unchecked are catalog models absent from the list whose direct check
+	// failed, as "id: error"; they may still be served.
+	Unchecked []string `json:"unchecked"`
 	// Ignored are IDs in ignore.json, in either direction.
 	Ignored []string `json:"ignored"`
 }
@@ -146,7 +149,11 @@ func compare(provider string, listed []listedModel, cat []catalogModel, ignore m
 		default:
 			if exists != nil {
 				ok, err := exists(c.ID)
-				if err == nil && ok {
+				if err != nil {
+					r.Unchecked = append(r.Unchecked, c.ID+": "+err.Error())
+					continue
+				}
+				if ok {
 					r.Resolved = append(r.Resolved, c.ID)
 					continue
 				}
@@ -155,7 +162,7 @@ func compare(provider string, listed []listedModel, cat []catalogModel, ignore m
 		}
 	}
 
-	for _, s := range []*[]string{&r.New, &r.Missing, &r.Snapshots, &r.MediaAndOther, &r.Resolved, &r.Ignored} {
+	for _, s := range []*[]string{&r.New, &r.Missing, &r.Snapshots, &r.MediaAndOther, &r.Resolved, &r.Unchecked, &r.Ignored} {
 		slices.Sort(*s)
 		*s = slices.Compact(*s)
 		if *s == nil {

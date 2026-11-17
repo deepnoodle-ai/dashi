@@ -124,6 +124,26 @@ func TestListOpenAIStyleSkipsFineTunes(t *testing.T) {
 	}
 }
 
+// A key that starts near the 200-byte cut must not leak in part.
+func TestErrorRedactsBeforeTruncating(t *testing.T) {
+	c := testClient(t, "openai", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, strings.Repeat("x", 190)+testKey+" is not valid", http.StatusUnauthorized)
+	})
+	_, err := listOpenAIStyle(c)
+	if err == nil || strings.Contains(err.Error(), testKey[:6]) {
+		t.Errorf("error leaks the key: %v", err)
+	}
+}
+
+// Only the direct Anthropic check treats 404 as "not found"; a list
+// endpoint that 404s is an error, not an empty list.
+func TestListNotFoundIsError(t *testing.T) {
+	c := testClient(t, "openai", http.NotFound)
+	if got, err := listOpenAIStyle(c); err == nil {
+		t.Errorf("got %v and no error", got)
+	}
+}
+
 // Google sends the key in the query string. Neither an HTTP error that
 // echoes it nor a connection error may reveal it or the URL.
 func TestErrorsDoNotLeakKey(t *testing.T) {

@@ -46,7 +46,8 @@ func printText(w io.Writer, reports []report) error {
 		}
 		long("new: listed, not in catalog", r.New)
 		long("missing: in catalog, not listed", r.Missing)
-		if len(r.New) == 0 && len(r.Missing) == 0 {
+		long("unchecked: not listed, and the direct check failed", r.Unchecked)
+		if len(r.New) == 0 && len(r.Missing) == 0 && len(r.Unchecked) == 0 {
 			out.printf("  no new or missing models\n")
 		}
 		short("resolved: unlisted aliases the API still serves", r.Resolved)

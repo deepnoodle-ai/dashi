@@ -1,6 +1,6 @@
 // Command model-watch compares each provider's live model list with Dashi's
 // catalog, so new and vanished models show up in one command. It is a
-// report, not a gate: it exits 0 unless something is broken, or
+// report, not a gate: it exits 1 only when a provider fails to list, or when
 // --fail-on-new is set and a new text model is listed.
 package main
 
@@ -37,7 +37,7 @@ func newApp(specs []providerSpec) *cli.App {
 			cli.String("provider", "p").
 				Help("comma-separated providers to check (default all: "+specNames(specs)+")"),
 			cli.String("env-file", "").
-				Help("load API keys from this .env file (default: ./.env, then ../../.env, when present)"),
+				Help("load API keys from this .env file (default: ./.env and ../../.env, when present; the first to set a variable wins)"),
 			cli.Bool("json").Help("print the reports as JSON"),
 			cli.Bool("no-verify").Help("skip checking unlisted Anthropic catalog IDs one by one"),
 			cli.Bool("fail-on-new").Help("exit 1 when any provider lists a new text model"),
@@ -62,12 +62,30 @@ func newApp(specs []providerSpec) *cli.App {
 			} else if err := printText(ctx.Stdout(), reports); err != nil {
 				return err
 			}
-			if ctx.Bool("fail-on-new") && slices.ContainsFunc(reports, func(r report) bool { return len(r.New) > 0 }) {
-				return cli.Exit(1)
-			}
-			return nil
+			return exitStatus(reports, ctx.Bool("fail-on-new"))
 		})
 	return app
+}
+
+// exitStatus returns an exit-1 error naming the cause when a provider failed
+// to list, or when failOnNew is set and a provider lists a new model.
+func exitStatus(reports []report, failOnNew bool) error {
+	var failed, withNew []string
+	for _, r := range reports {
+		if r.Error != "" {
+			failed = append(failed, r.Provider)
+		}
+		if len(r.New) > 0 {
+			withNew = append(withNew, fmt.Sprintf("%s (%s)", r.Provider, strings.Join(r.New, ", ")))
+		}
+	}
+	switch {
+	case len(failed) > 0:
+		return &cli.ExitError{Code: 1, Message: "listing failed: " + strings.Join(failed, ", ")}
+	case failOnNew && len(withNew) > 0:
+		return &cli.ExitError{Code: 1, Message: "new models: " + strings.Join(withNew, "; ")}
+	}
+	return nil
 }
 
 func specNames(specs []providerSpec) string {
@@ -78,15 +96,18 @@ func specNames(specs []providerSpec) string {
 	return strings.Join(names, ",")
 }
 
-// loadEnv loads keys from a .env file without overriding variables already
-// set. An explicit file must exist; the defaults are optional.
+// loadEnv loads keys from .env files without overriding variables already
+// set. An explicit file must exist. Every default file present is loaded, so
+// the first one that sets a variable wins.
 func loadEnv(path string) error {
 	if path != "" {
 		return env.LoadEnvFile(path)
 	}
 	for _, p := range defaultEnvFiles {
 		if _, err := os.Stat(p); err == nil {
-			return env.LoadEnvFile(p)
+			if err := env.LoadEnvFile(p); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

@@ -4,7 +4,8 @@
 result with Dashi's catalog (the `catalog` package, read from this checkout).
 It shows which listed models the catalog lacks and which cataloged models a
 provider no longer lists. The list calls are free. It is a report, not a gate:
-it exits 0 unless something is broken.
+it exits 1 only when a provider's listing fails, or with `--fail-on-new` when
+a new text model is listed; the error line says which.
 
 ## Run
 
@@ -14,8 +15,9 @@ make model-watch ARGS=--json
 cd devtools/model-watch && go run . --provider openai,google
 ```
 
-Keys come from the environment, or from `.env` in the current directory or
-the repository root (set variables win). A provider without a key is skipped.
+Keys come from the environment, then from `.env` in the current directory,
+then from `.env` at the repository root; the first source to set a variable
+wins. A provider without a key is skipped.
 
 | Provider | Key variable |
 | --- | --- |
@@ -36,6 +38,8 @@ Flags: `--provider`, `--env-file`, `--json`, `--no-verify`, `--fail-on-new`
   remove, or models this key cannot see.
 - **resolved**: cataloged Anthropic aliases absent from the list that
   `GET /v1/models/{id}` still serves (skip the check with `--no-verify`).
+- **unchecked**: as above, but the check failed (for example HTTP 429); the
+  error is shown, and the model may still be served.
 - **snapshots**: dated IDs, such as `gpt-5.4-2026-03-05`, whose undated alias
   is cataloged. A model counts as cataloged also through a catalog entry's
   `snapshot` or a Mistral `aliases` entry.

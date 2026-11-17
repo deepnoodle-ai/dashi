@@ -53,11 +53,11 @@ func TestCompareGroups(t *testing.T) {
 	}
 }
 
-func TestCompareExistsErrorCountsAsMissing(t *testing.T) {
+func TestCompareExistsErrorIsUnchecked(t *testing.T) {
 	r := compare("test", nil, []catalogModel{{ID: "a"}}, nil,
-		func(string) (bool, error) { return false, errors.New("boom") })
-	if !slices.Equal(r.Missing, []string{"a"}) {
-		t.Errorf("Missing = %q", r.Missing)
+		func(string) (bool, error) { return false, errors.New("HTTP 429") })
+	if !slices.Equal(r.Unchecked, []string{"a: HTTP 429"}) || len(r.Missing) != 0 {
+		t.Errorf("Unchecked = %q, Missing = %q", r.Unchecked, r.Missing)
 	}
 	if r.New == nil || r.Snapshots == nil {
 		t.Error("empty groups should be empty slices, so JSON shows [] rather than null")
