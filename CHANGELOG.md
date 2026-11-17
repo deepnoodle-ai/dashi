@@ -23,6 +23,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`gemini-2.5-pro` and `gemini-2.5-flash` are marked deprecated.** Google
   deprecated them on 2026-11-02 and, from 2026-12-01, routes their requests
   to `gemini-3.8-flash` and `gemini-3.5-flash-lite`.
+- **The CLI features `gpt-6.2-astra` and `gpt-6.2-sol`** for OpenAI, in
+  place of `gpt-6-astra` and `gpt-6.1-sol`.
 
 ## [0.21.0] - 2026-11-12
 
