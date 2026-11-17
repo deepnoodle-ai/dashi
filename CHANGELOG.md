@@ -22,6 +22,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   place of `gpt-6-astra` and `gpt-6.1-sol`.
 - **Dependencies updated,** notably the Google GenAI SDK to v1.77.0 and the
   MCP Go SDK to v1.8.0.
+- **Nine OpenAI models are marked deprecated:** `gpt-5`, `gpt-5-mini`,
+  `gpt-5-nano`, `gpt-5-pro`, `o3`, and `o3-pro` shut down 2026-12-11;
+  `gpt-4o`, `gpt-4.1`, and `gpt-4.1-mini` shut down 2027-01-14.
+
+### Removed
+
+- **`gpt-4.1-nano`, `o3-mini`, and `o4-mini` leave the model catalog.**
+  OpenAI shut them down on 2026-10-23.
 
 ## [0.21.0] - 2026-11-12
 

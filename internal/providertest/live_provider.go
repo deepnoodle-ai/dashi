@@ -33,10 +33,13 @@ func LiveFinalFacts(
 	}
 	for _, stream := range []bool{false, true} {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		// Thinking models count thinking against the output cap, so leave
+		// room for it: 32 tokens left no text on Gemini 4 Hydrogen and
+		// Carbon. A short greeting still costs little.
 		input := llm.Input{
 			Model:    model,
 			Stream:   stream,
-			Settings: llm.Settings{MaxTokens: 32},
+			Settings: llm.Settings{MaxTokens: 512},
 			Messages: []llm.Message{
 				llm.UserMessage(llm.Text("Reply with one short greeting.")),
 			},

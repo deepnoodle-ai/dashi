@@ -65,7 +65,9 @@ func TestEveryEntryBindsToEachDocumentedAPI(t *testing.T) {
 }
 
 func TestEntriesDateEveryClaim(t *testing.T) {
-	today := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
+	// A date after today is a typo. The day of slack covers an entry dated
+	// in a time zone that is already a day ahead of UTC.
+	today := time.Now().UTC().Add(24 * time.Hour)
 	for _, name := range Providers() {
 		for _, e := range Entries(name) {
 			if e.QualifiedAt.After(today) {
@@ -244,8 +246,6 @@ func TestOpenAIReasoningModelPricesMatchPricingPage(t *testing.T) {
 	}{
 		{"o3", "2", "0.5", "8"},
 		{"o3-pro", "20", "20", "80"},
-		{"o3-mini", "1.1", "0.55", "4.4"},
-		{"o4-mini", "1.1", "0.275", "4.4"},
 		{"gpt-5-pro", "15", "15", "120"},
 		{"gpt-5.3-codex", "1.75", "0.175", "14"},
 	} {
@@ -500,8 +500,6 @@ func TestSummaryFactsStayAtQualifiedDestinations(t *testing.T) {
 		want                 llm.Support
 	}{
 		{"openai.responses", "https://api.openai.com/v1/responses", "gpt-6-astra", llm.SupportSupported},
-		{"openai.responses", "https://api.openai.com/v1/responses", "o4-mini", llm.SupportSupported},
-		{"openai.completions", "https://api.openai.com/v1/chat/completions", "o4-mini", llm.SupportUnknown},
 		{"openai.responses", "https://proxy.test/responses", "gpt-6-astra", llm.SupportUnknown},
 		{"openai.responses", "https://api.openai.com/v1/responses", "gpt-6-luna", llm.SupportUnknown},
 		{"google.generate_content", "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent", "gemini-3.8-flash", llm.SupportSupported},

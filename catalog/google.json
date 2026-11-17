@@ -109,7 +109,7 @@
       "apis": [
         "google.generate_content"
       ],
-      "note": "Rates billed today. Google lists a scheduled increase to $4.00/$20.00 ($0.20 cache read) on 2026-12-01; revisit then. One rate at any prompt length. Implicit caching only; explicit caching is not supported. The 65,536-token output limit applies to synchronous calls; long decode up to 1,048,576 tokens needs background mode, which Dashi does not use. Thinking cannot be turned off; thinkingLevel accepts low, medium (the default), and high; thinkingBudget is deprecated and maps to the nearest level with a warning. Temperature, top_p, and top_k are ignored. Documented 2026-10-13: https://ai.google.dev/gemini-api/docs/latest-model.",
+      "note": "Rates billed today. Google lists a scheduled increase to $4.00/$20.00 ($0.20 cache read) on 2026-12-01; revisit then. One rate at any prompt length. Implicit caching only; explicit caching is not supported. The 65,536-token output limit applies to synchronous calls; long decode up to 1,048,576 tokens needs background mode, which Dashi does not use. Thinking cannot be turned off; thinkingLevel accepts low, medium (the default), and high; thinkingBudget is deprecated and maps to the nearest level with a warning. Temperature, top_p, and top_k are ignored. Documented 2026-10-13 on the latest-model page, which now covers a newer model; re-checked 2026-11-17: https://ai.google.dev/gemini-api/docs/whats-new-gemini-4-argon and https://ai.google.dev/gemini-api/docs/generate-content/thinking.",
       "qualified_at": "2026-10-13",
       "capabilities": {
         "features": {
