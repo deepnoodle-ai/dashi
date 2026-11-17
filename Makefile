@@ -1,4 +1,4 @@
-.PHONY: help test test-race cover cover-html fmt fmt-check vet build tidy tidy-all release-prep release-notes tag-modules release-notes-test check
+.PHONY: help test test-race cover cover-html fmt fmt-check vet build tidy tidy-all release-prep release-notes tag-modules release-notes-test check model-watch
 
 COVER_PROFILE := cover.out
 
@@ -12,7 +12,7 @@ GO_MODULES := . $(SUB_MODULES)
 
 # Untagged modules: tools for working on Dashi, each with its own go.mod and
 # go.work. They are tested and vetted here but never tagged or released.
-UNTAGGED_MODULES := devtools/agent-archive
+UNTAGGED_MODULES := devtools/agent-archive devtools/model-watch
 
 help:
 	@echo "Available targets:"
@@ -31,6 +31,7 @@ help:
 	@echo "  make release-notes VERSION=v0.2.0 - Draft docs/releases/v0.2.0.md"
 	@echo "  make tag-modules VERSION=v0.2.0 - Tag all sub-modules (not the root)"
 	@echo "  make check       - Run script tests, fmt-check, vet, and test"
+	@echo "  make model-watch - Compare provider model lists with the catalog (ARGS=--json)"
 
 test:
 	@for dir in $(GO_MODULES) $(UNTAGGED_MODULES); do \
@@ -112,3 +113,8 @@ release-notes-test:
 	python3 -B -m unittest -v scripts.test_changelog_section scripts.test_release_notes scripts.test_sync_module_versions
 
 check: release-notes-test fmt-check vet test
+
+# Calls each provider's model-list endpoint (free) with keys from the
+# environment or .env. See devtools/model-watch/README.md.
+model-watch:
+	cd devtools/model-watch && go run . $(ARGS)

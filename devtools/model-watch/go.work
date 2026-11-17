@@ -1,0 +1,10 @@
+go 1.27
+
+// model-watch is a tool for working on Dashi, not part of a release, so it
+// is never tagged. This workspace keeps it apart from the root go.work and
+// builds it against the Dashi checkout two directories up, so it reads the
+// catalog as it is on the current branch.
+use (
+	.
+	../..
+)
