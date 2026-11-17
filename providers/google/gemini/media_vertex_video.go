@@ -188,7 +188,7 @@ func (p *VertexVideoJobClient) builtInModel(name string) media.ModelInfo {
 		Generate:        model.SupportSupported,
 		Edit:            model.SupportUnsupported,
 		Extend:          model.SupportUnsupported,
-		ReferenceFrames: model.SupportSupported,
+		FirstFrame:      model.SupportSupported,
 		Resolutions:     []string{"720p", "1080p", "4k"},
 		Durations:       []time.Duration{4 * time.Second, 6 * time.Second, 8 * time.Second},
 		AspectRatios:    []string{"16:9", "9:16"},
@@ -210,7 +210,7 @@ func (p *VertexVideoJobClient) builtInModel(name string) media.ModelInfo {
 	case "veo-3.1-lite-generate-001":
 		// Lite's page contradicts itself on image input.
 		video.Resolutions = []string{"720p", "1080p"}
-		video.ReferenceFrames = model.SupportUnknown
+		video.FirstFrame = model.SupportUnknown
 	}
 	return media.ModelInfo{Video: video, Evidence: evidence}
 }
@@ -255,11 +255,13 @@ func (p *VertexVideoJobClient) PrepareVideo(
 			in.Settings.Size.Height,
 		)
 	}
-	if len(in.ReferenceFrames) > 1 {
+	// Veo documents lastFrame, referenceImages, and video extension; Dashi
+	// does not send them yet.
+	if in.LastFrame != nil || len(in.ReferenceImages) > 0 ||
+		len(in.ReferenceVideos) > 0 {
 		return media.VideoRequest{}, p.failure(
 			media.ErrorUnsupported,
-			"Vertex Veo takes one first frame, not %d",
-			len(in.ReferenceFrames),
+			"Vertex Veo in Dashi takes only a first frame",
 		)
 	}
 	if ratio := in.Settings.AspectRatio; ratio != "" &&
@@ -314,7 +316,7 @@ func (p *VertexVideoJobClient) PrepareVideo(
 		}
 		prompt = append(prompt, b.Text.Text)
 	}
-	if len(in.ReferenceFrames) == 0 &&
+	if in.FirstFrame == nil &&
 		strings.TrimSpace(strings.Join(prompt, "")) == "" {
 		return media.VideoRequest{}, p.failure(
 			media.ErrorInvalidRequest,
@@ -325,8 +327,8 @@ func (p *VertexVideoJobClient) PrepareVideo(
 	if len(prompt) > 0 {
 		instance["prompt"] = strings.Join(prompt, "\n\n")
 	}
-	if len(in.ReferenceFrames) == 1 {
-		source := in.ReferenceFrames[0].Image.Source.WithDetectedMIMEType("")
+	if in.FirstFrame != nil {
+		source := in.FirstFrame.Image.Source.WithDetectedMIMEType("")
 		if source.Data == nil ||
 			(source.MIMEType != "image/png" && source.MIMEType != "image/jpeg") {
 			return media.VideoRequest{}, p.failure(

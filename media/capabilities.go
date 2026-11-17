@@ -105,13 +105,14 @@ func (c ImageCapabilities) Clone() ImageCapabilities {
 	return c
 }
 
-// VideoCapabilities states known video operation and reference-frame support.
+// VideoCapabilities states known video operation and frame support.
 // A provider may still reject a request for content policy reasons.
 type VideoCapabilities struct {
 	Generate        model.Support   `json:"generate,omitempty"`
 	Edit            model.Support   `json:"edit,omitempty"`
 	Extend          model.Support   `json:"extend,omitempty"`
-	ReferenceFrames model.Support   `json:"reference_frames,omitempty"`
+	FirstFrame      model.Support   `json:"first_frame,omitempty"`
+	LastFrame       model.Support   `json:"last_frame,omitempty"`
 	Sizes           []Size          `json:"sizes,omitempty"`
 	Resolutions     []string        `json:"resolutions,omitempty"`
 	Durations       []time.Duration `json:"durations,omitempty"`
@@ -187,7 +188,8 @@ func (m ModelInfo) Validate() error {
 		if !c.Generate.Valid() ||
 			!c.Edit.Valid() ||
 			!c.Extend.Valid() ||
-			!c.ReferenceFrames.Valid() {
+			!c.FirstFrame.Valid() ||
+			!c.LastFrame.Valid() {
 			return errors.New("media: invalid video capabilities")
 		}
 		for _, size := range c.Sizes {
@@ -332,11 +334,13 @@ func (c VideoCapabilities) Check(
 			return nil, err
 		}
 	}
-	if len(input.ReferenceFrames) > 0 {
-		if err := check.support(
-			"video.reference_frames",
-			c.ReferenceFrames,
-		); err != nil {
+	if input.FirstFrame != nil {
+		if err := check.support("video.first_frame", c.FirstFrame); err != nil {
+			return nil, err
+		}
+	}
+	if input.LastFrame != nil {
+		if err := check.support("video.last_frame", c.LastFrame); err != nil {
 			return nil, err
 		}
 	}

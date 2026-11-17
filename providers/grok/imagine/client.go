@@ -140,7 +140,7 @@ func (c *Client) SendImage(
 }
 
 // PrepareVideo validates an xAI video request and captures its exact JSON
-// submission body. At most one reference frame is accepted as the first frame.
+// submission body. xAI accepts no reference videos.
 func (c *Client) PrepareVideo(
 	ctx context.Context,
 	input media.VideoInput,
@@ -148,10 +148,11 @@ func (c *Client) PrepareVideo(
 	return c.PrepareVideoWithOptions(ctx, input, VideoOptions{})
 }
 
-// PrepareVideoWithOptions adds xAI-specific reference and frame controls.
-// Settings.DisableAudio sends generate_audio false on
-// grok-imagine-video-1.5 and grok-imagine-video-1.5-lite. The options and exact wire body are captured in
-// the request.
+// PrepareVideoWithOptions adds xAI-specific controls: storage, keyframes, and
+// reference voices. The source video, first and last frames, and reference
+// images come from input. Settings.DisableAudio sends generate_audio false on
+// grok-imagine-video-1.5 and grok-imagine-video-1.5-lite. The options and
+// exact wire body are captured in the request.
 func (c *Client) PrepareVideoWithOptions(
 	ctx context.Context,
 	input media.VideoInput,

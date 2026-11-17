@@ -278,7 +278,7 @@ func TestVertexVideoBuiltInModels(t *testing.T) {
 			t.Fatalf("%s: missing or invalid info", name)
 		}
 		if len(info.Video.Resolutions) != want.resolutions ||
-			info.Video.ReferenceFrames != want.frames ||
+			info.Video.FirstFrame != want.frames ||
 			info.Evidence.Method != want.method ||
 			info.Evidence.Endpoint != p.videoURL(name) {
 			t.Fatalf("%s: info = %+v %+v", name, info.Video, info.Evidence)
@@ -324,8 +324,8 @@ func TestVertexVideoRequestBody(t *testing.T) {
 		{
 			"first frame",
 			media.VideoInput{
-				Model:           "veo-3.1-generate-001",
-				ReferenceFrames: []content.Block{frame},
+				Model:      "veo-3.1-generate-001",
+				FirstFrame: &frame,
 			},
 			`{"instances":[{"image":{"bytesBase64Encoded":"cG5n","mimeType":"image/png"}}],"parameters":{"generateAudio":true,"sampleCount":1}}`,
 		},
@@ -374,11 +374,11 @@ func TestVertexVideoPrepareRejects(t *testing.T) {
 		{"exact size", vertexInput(media.VideoSettings{
 			Size: media.Size{Width: 640, Height: 480},
 		}), "640x480"},
-		{"two frames", func() media.VideoInput {
+		{"last frame", func() media.VideoInput {
 			in := vertexInput(media.VideoSettings{})
-			in.ReferenceFrames = []content.Block{png, png}
+			in.LastFrame = &png
 			return in
-		}(), "2"},
+		}(), "only a first frame"},
 		{"square", vertexInput(media.VideoSettings{AspectRatio: "1:1"}), `"1:1"`},
 		{"5 s", vertexInput(media.VideoSettings{Duration: 5 * time.Second}), "5s"},
 		{"480p", vertexInput(media.VideoSettings{Resolution: "480p"}), `"480p"`},
@@ -389,16 +389,12 @@ func TestVertexVideoPrepareRejects(t *testing.T) {
 		}, `"4k"`},
 		{"URL frame", func() media.VideoInput {
 			in := vertexInput(media.VideoSettings{})
-			in.ReferenceFrames = []content.Block{
-				content.ImageBlock(content.Source{URL: "https://example.test/f.png"}),
-			}
+			in.FirstFrame = new(content.ImageBlock(content.Source{URL: "https://example.test/f.png"}))
 			return in
 		}(), "inline"},
 		{"GIF frame", func() media.VideoInput {
 			in := vertexInput(media.VideoSettings{})
-			in.ReferenceFrames = []content.Block{
-				content.ImageBlock(content.Source{Data: []byte("gif"), MIMEType: "image/gif"}),
-			}
+			in.FirstFrame = new(content.ImageBlock(content.Source{Data: []byte("gif"), MIMEType: "image/gif"}))
 			return in
 		}(), "PNG or JPEG"},
 		{"empty prompt", media.VideoInput{

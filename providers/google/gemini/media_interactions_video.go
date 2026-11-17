@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/media"
 )
 
@@ -26,15 +28,27 @@ func (p *InteractionsMediaClient) videoEvidence(
 	return &info, unverified, err
 }
 
-// PrepareVideo encodes a stateless synchronous Omni generation call. A single
-// reference frame means an initial image for image-to-video; other frame roles
-// need explicit provider options and are not inferred from slice order.
+// PrepareVideo encodes a stateless synchronous Omni call. FirstFrame, with an
+// optional LastFrame, makes an image-to-video request; ReferenceImages and
+// ReferenceVideos make a reference-to-video request; SourceVideo with the edit
+// or extend operation makes an edit or an extension.
 func (p *InteractionsMediaClient) PrepareVideo(
 	ctx context.Context,
 	in media.VideoInput,
 ) (media.VideoRequest, error) {
 	return p.prepareVideo(ctx, in, "inline")
 }
+
+// Omni limits from https://aistudio.google.com/docs/omni (2026-11-17).
+const (
+	omniMaxReferenceImages    = 6
+	omniMaxReferenceVideoSpan = 3 * time.Second
+	omniMaxEditSource         = 15 * time.Second
+	omniMaxExtendedVideo      = 30 * time.Second
+	omniDefaultDuration       = 10 * time.Second
+	// The longest output with a last frame, and the most one extension adds.
+	omniMaxShortDuration = 10 * time.Second
+)
 
 func (p *InteractionsMediaClient) prepareVideo(
 	ctx context.Context,
@@ -46,13 +60,6 @@ func (p *InteractionsMediaClient) prepareVideo(
 	}
 	if err := in.Validate(); err != nil {
 		return media.VideoRequest{}, p.failure(media.ErrorInvalidRequest, "%w", err)
-	}
-	if in.Operation != "" && in.Operation != media.VideoGenerate {
-		return media.VideoRequest{}, p.failure(
-			media.ErrorUnsupported,
-			"Interactions video %s requires an explicit video source contract",
-			in.Operation,
-		)
 	}
 	if in.Model == "gemini-omni-flash-preview" {
 		return media.VideoRequest{}, p.failure(
@@ -74,16 +81,17 @@ func (p *InteractionsMediaClient) prepareVideo(
 			in.Model,
 		)
 	}
+	// Omni always makes native audio; only the prompt can ask for quiet.
 	if in.Settings.DisableAudio {
 		return media.VideoRequest{}, p.failure(
 			media.ErrorUnsupported,
-			"Omni video cannot turn audio off",
+			"Omni video cannot turn audio off; describe the sound you want in the prompt",
 		)
 	}
-	if in.Settings.Size.Width != 0 || len(in.ReferenceFrames) > 1 {
+	if in.Settings.Size.Width != 0 {
 		return media.VideoRequest{}, p.failure(
 			media.ErrorUnsupported,
-			"Omni exact size or ambiguous multiple reference frames",
+			"Omni exact size; use resolution and aspect ratio",
 		)
 	}
 	// gemini-omni-1.2-flash takes 3 to 15 s; 1.1 takes up to 10 s until it
@@ -122,30 +130,17 @@ func (p *InteractionsMediaClient) prepareVideo(
 			"Omni high resolution requires URI delivery",
 		)
 	}
-	if len(in.Prompt) == 0 && len(in.ReferenceFrames) == 0 {
-		return media.VideoRequest{}, p.failure(
-			media.ErrorInvalidRequest,
-			"Omni requires a prompt or initial image",
-		)
+	task, err := p.omniTask(in)
+	if err != nil {
+		return media.VideoRequest{}, err
 	}
 	info, unverified, err := p.videoEvidence(in)
 	if err != nil {
 		return media.VideoRequest{}, p.failure(media.ErrorUnsupported, "%w", err)
 	}
-	input := make([]any, 0, len(in.Prompt)+len(in.ReferenceFrames))
-	for _, block := range in.Prompt {
-		part, err := p.inputPart(block)
-		if err != nil {
-			return media.VideoRequest{}, err
-		}
-		input = append(input, part)
-	}
-	for _, block := range in.ReferenceFrames {
-		part, err := p.inputPart(block)
-		if err != nil {
-			return media.VideoRequest{}, err
-		}
-		input = append(input, part)
+	input, err := p.omniInput(in)
+	if err != nil {
+		return media.VideoRequest{}, err
 	}
 	format := map[string]any{"type": "video", "delivery": delivery}
 	if in.Settings.AspectRatio != "" {
@@ -167,9 +162,12 @@ func (p *InteractionsMediaClient) prepareVideo(
 		"store":      delivery == "uri",
 		"stream":     false,
 	}
-	if len(in.ReferenceFrames) == 1 {
+	// Without task, Omni infers each image's role from the prompt. Dashi's
+	// typed inputs already state the role, so task is sent whenever the input
+	// carries media.
+	if task != "" {
 		bodyValue["generation_config"] = map[string]any{
-			"video_config": map[string]any{"task": "image_to_video"},
+			"video_config": map[string]any{"task": task},
 		}
 	}
 	body, err := json.Marshal(bodyValue)
@@ -186,6 +184,159 @@ func (p *InteractionsMediaClient) prepareVideo(
 		CapabilityPolicy: p.config.CapabilityPolicy,
 		Unverified:       unverified,
 	})
+}
+
+// omniTask checks the combination of inputs against Omni's documented limits
+// and returns the video_config task, or "" for text-to-video.
+func (p *InteractionsMediaClient) omniTask(in media.VideoInput) (string, error) {
+	unsupported := func(format string, args ...any) (string, error) {
+		return "", p.failure(media.ErrorUnsupported, format, args...)
+	}
+	if len(in.ReferenceImages) > omniMaxReferenceImages {
+		return unsupported(
+			"Omni takes at most %d reference images, not %d",
+			omniMaxReferenceImages,
+			len(in.ReferenceImages),
+		)
+	}
+	duration := in.Settings.Duration
+	if in.Operation == media.VideoEdit || in.Operation == media.VideoExtend {
+		if in.SourceVideo == nil {
+			return unsupported("Omni video %s requires SourceVideo", in.Operation)
+		}
+		if in.FirstFrame != nil || in.LastFrame != nil ||
+			len(in.ReferenceVideos) > 0 {
+			return unsupported(
+				"Omni video %s takes reference images, not frames or reference videos",
+				in.Operation,
+			)
+		}
+		if in.Settings.AspectRatio != "" {
+			return unsupported("Omni video %s keeps the source aspect ratio", in.Operation)
+		}
+		// Zero when the caller did not record the source length.
+		source := in.SourceVideo.Video.Duration
+		if in.Operation == media.VideoEdit {
+			if duration != 0 {
+				return unsupported("Omni video edit keeps the source duration")
+			}
+			if source > omniMaxEditSource {
+				return unsupported(
+					"Omni edits videos up to %s, not %s",
+					omniMaxEditSource,
+					source,
+				)
+			}
+			return "edit", nil
+		}
+		// For extension, duration is the length added to the source.
+		if duration > omniMaxShortDuration {
+			return unsupported("Omni extension adds 3 to 10 s, not %s", duration)
+		}
+		added := cmp.Or(duration, omniDefaultDuration)
+		if source > 0 && source+added > omniMaxExtendedVideo {
+			return unsupported(
+				"Omni extension of a %s video by %s exceeds %s",
+				source,
+				added,
+				omniMaxExtendedVideo,
+			)
+		}
+		return "extend", nil
+	}
+	if in.LastFrame != nil && in.FirstFrame == nil {
+		return unsupported("Omni last frame requires a first frame")
+	}
+	frames := in.FirstFrame != nil
+	references := len(in.ReferenceImages) > 0 || len(in.ReferenceVideos) > 0
+	if frames && references {
+		// Omni sends every image as a plain part, so it could not tell a
+		// frame from a reference image.
+		return unsupported("Omni cannot combine first or last frames with references")
+	}
+	if !frames &&
+		strings.TrimSpace(resultText(media.Result{Content: in.Prompt})) == "" {
+		return "", p.failure(
+			media.ErrorInvalidRequest,
+			"Omni requires a text prompt or first frame",
+		)
+	}
+	if in.LastFrame != nil && duration > omniMaxShortDuration {
+		return unsupported(
+			"Omni first and last frames take 3 to 10 s, not %s",
+			duration,
+		)
+	}
+	if n := len(in.ReferenceVideos); n > 0 {
+		limit := 3
+		if cmp.Or(duration, omniDefaultDuration) > omniMaxShortDuration {
+			limit = 1
+		}
+		if n > limit {
+			return unsupported(
+				"Omni takes at most %d reference videos at this duration, not %d",
+				limit,
+				n,
+			)
+		}
+		for _, block := range in.ReferenceVideos {
+			if block.Video.Duration > omniMaxReferenceVideoSpan {
+				return unsupported(
+					"Omni reference videos are up to %s, not %s",
+					omniMaxReferenceVideoSpan,
+					block.Video.Duration,
+				)
+			}
+		}
+	}
+	switch {
+	case frames:
+		return "image_to_video", nil
+	case references:
+		return "reference_to_video", nil
+	}
+	return "", nil
+}
+
+// omniInput puts media before the prompt, as Google's examples do. Frame
+// order matters: the first image is the start and the second the end.
+func (p *InteractionsMediaClient) omniInput(in media.VideoInput) ([]any, error) {
+	var input []any
+	add := func(block content.Block, encode func(content.Block) (any, error)) error {
+		part, err := encode(block)
+		if err == nil {
+			input = append(input, part)
+		}
+		return err
+	}
+	if in.SourceVideo != nil {
+		if err := add(*in.SourceVideo, p.videoPart); err != nil {
+			return nil, err
+		}
+	}
+	for _, frame := range []*content.Block{in.FirstFrame, in.LastFrame} {
+		if frame != nil {
+			if err := add(*frame, p.inputPart); err != nil {
+				return nil, err
+			}
+		}
+	}
+	for _, block := range in.ReferenceImages {
+		if err := add(block, p.inputPart); err != nil {
+			return nil, err
+		}
+	}
+	for _, block := range in.ReferenceVideos {
+		if err := add(block, p.videoPart); err != nil {
+			return nil, err
+		}
+	}
+	for _, block := range in.Prompt {
+		if err := add(block, p.inputPart); err != nil {
+			return nil, err
+		}
+	}
+	return input, nil
 }
 
 // SendVideo dispatches one synchronous Interactions video call.

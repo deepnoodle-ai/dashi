@@ -15,14 +15,11 @@ import (
 // the 24 MiB prepared JSON body bound.
 const maxInlineVideoBytes = 16 << 20
 
-// VideoOptions holds xAI generation controls that do not belong to Dashi's
-// provider-independent VideoInput. ReferenceImages guide appearance; unlike
-// VideoInput.ReferenceFrames, they do not pin the first frame.
+// VideoOptions holds xAI video controls that do not belong to Dashi's
+// provider-independent VideoInput. The source video, first and last frames,
+// and reference images come from VideoInput.
 type VideoOptions struct {
-	SourceVideo     *content.Block  `json:"source_video,omitempty"`
 	Storage         *StorageOptions `json:"storage,omitempty"`
-	ReferenceImages []content.Block `json:"reference_images,omitempty"`
-	LastFrame       *content.Block  `json:"last_frame,omitempty"`
 	Keyframes       []VideoKeyframe `json:"keyframes,omitempty"`
 	ReferenceVoices []string        `json:"reference_voices,omitempty"`
 }
@@ -36,9 +33,8 @@ type VideoKeyframe struct {
 }
 
 func optionsHasValues(options VideoOptions) bool {
-	return options.SourceVideo != nil || options.Storage != nil ||
-		len(options.ReferenceImages) > 0 || options.LastFrame != nil ||
-		len(options.Keyframes) > 0 || len(options.ReferenceVoices) > 0
+	return options.Storage != nil || len(options.Keyframes) > 0 ||
+		len(options.ReferenceVoices) > 0
 }
 
 func videoTransformWireBody(
@@ -50,11 +46,11 @@ func videoTransformWireBody(
 		input.Operation != media.VideoExtend {
 		return nil, errors.New("imagine: unsupported video mode")
 	}
-	if options.SourceVideo == nil {
+	if input.SourceVideo == nil {
 		return nil, errors.New("imagine: edit and extension require a source video")
 	}
-	if len(input.ReferenceFrames) > 0 || len(options.ReferenceImages) > 0 ||
-		options.LastFrame != nil || len(options.Keyframes) > 0 ||
+	if input.FirstFrame != nil || len(input.ReferenceImages) > 0 ||
+		input.LastFrame != nil || len(options.Keyframes) > 0 ||
 		len(options.ReferenceVoices) > 0 || input.Settings.DisableAudio {
 		return nil, errors.New("imagine: video edit and extension cannot combine generation inputs")
 	}
@@ -75,11 +71,11 @@ func videoTransformWireBody(
 	if err != nil {
 		return nil, err
 	}
-	video, err := videoInputSource(*options.SourceVideo, files)
+	video, err := videoInputSource(*input.SourceVideo, files)
 	if err != nil {
 		return nil, err
 	}
-	if knownDuration := options.SourceVideo.Video.Duration; knownDuration > 0 {
+	if knownDuration := input.SourceVideo.Video.Duration; knownDuration > 0 {
 		if input.Operation == media.VideoEdit &&
 			knownDuration > 8700*time.Millisecond {
 			return nil, errors.New("imagine: source video for editing exceeds 8.7 seconds")
@@ -143,15 +139,15 @@ func addVideoOptions(
 	options VideoOptions,
 	files content.Origin,
 ) error {
-	hasRefs := len(options.ReferenceImages) > 0 || options.LastFrame != nil ||
+	hasRefs := len(input.ReferenceImages) > 0 || input.LastFrame != nil ||
 		len(options.Keyframes) > 0 || len(options.ReferenceVoices) > 0
-	if len(options.ReferenceImages) > 14 {
+	if len(input.ReferenceImages) > 14 {
 		return errors.New("imagine: video accepts at most 14 reference images")
 	}
-	if input.Model == "grok-imagine-video" && len(options.ReferenceImages) > 7 {
+	if input.Model == "grok-imagine-video" && len(input.ReferenceImages) > 7 {
 		return errors.New("imagine: grok-imagine-video accepts at most seven reference images")
 	}
-	if input.Model == "grok-imagine-video" && len(options.ReferenceImages) > 0 &&
+	if input.Model == "grok-imagine-video" && len(input.ReferenceImages) > 0 &&
 		input.Settings.Duration > 10*time.Second {
 		return errors.New("imagine: grok-imagine-video reference-to-video is limited to 10 seconds")
 	}
@@ -161,7 +157,7 @@ func addVideoOptions(
 	if len(options.Keyframes) > 4 {
 		return errors.New("imagine: video accepts at most four keyframes")
 	}
-	if (options.LastFrame != nil || len(options.Keyframes) > 0 ||
+	if (input.LastFrame != nil || len(options.Keyframes) > 0 ||
 		len(options.ReferenceVoices) > 0) &&
 		!videoModel15(input.Model) {
 		return errors.New("imagine: last frame, keyframes, and voices require grok-imagine-video-1.5")
@@ -170,19 +166,19 @@ func addVideoOptions(
 		input.Model != videoModelLite {
 		return errors.New("imagine: audio control requires grok-imagine-video-1.5 or grok-imagine-video-1.5-lite")
 	}
-	if input.Model == "grok-imagine-video" && len(input.ReferenceFrames) > 0 &&
-		len(options.ReferenceImages) > 0 {
+	if input.Model == "grok-imagine-video" && input.FirstFrame != nil &&
+		len(input.ReferenceImages) > 0 {
 		return errors.New("imagine: grok-imagine-video cannot combine a first frame with references")
 	}
 	if hasRefs && input.Settings.Resolution == "1080p" {
 		return errors.New("imagine: reference-to-video is limited to 720p")
 	}
 	inlineBytes := 0
-	for _, block := range input.ReferenceFrames {
-		inlineBytes += len(block.Image.Source.Data)
+	if input.FirstFrame != nil {
+		inlineBytes += len(input.FirstFrame.Image.Source.Data)
 	}
-	references := make([]map[string]string, 0, len(options.ReferenceImages))
-	for _, block := range options.ReferenceImages {
+	references := make([]map[string]string, 0, len(input.ReferenceImages))
+	for _, block := range input.ReferenceImages {
 		image, err := videoImageSource(block, files)
 		if err != nil {
 			return fmt.Errorf("imagine: reference image: %w", err)
@@ -196,12 +192,12 @@ func addVideoOptions(
 	if len(references) > 0 {
 		body["reference_images"] = references
 	}
-	if options.LastFrame != nil {
-		image, err := videoImageSource(*options.LastFrame, files)
+	if input.LastFrame != nil {
+		image, err := videoImageSource(*input.LastFrame, files)
 		if err != nil {
 			return fmt.Errorf("imagine: last frame: %w", err)
 		}
-		inlineBytes += len(options.LastFrame.Image.Source.Data)
+		inlineBytes += len(input.LastFrame.Image.Source.Data)
 		if inlineBytes > maxInlineImageBytes {
 			return errors.New("imagine: inline image data exceeds 16 MiB per request")
 		}

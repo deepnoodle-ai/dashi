@@ -18,9 +18,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   and 5:2 video, and up to 14 reference images on Imagine Video 1.5.
 - **`gemini-nano-banana-2.1` image limits and Omni durations** of 3 to 15
   seconds.
+- **Gemini Omni 1.2 first and last frames, reference images and videos,
+  edit, and extension,** through new `media.VideoInput` fields
+  `SourceVideo`, `LastFrame`, `ReferenceImages`, and `ReferenceVideos`.
 
 ### Changed
 
+- **`media.VideoInput.ReferenceFrames` is now `FirstFrame`,** a single
+  image. Grok's `VideoOptions` source video, last frame, and reference
+  images moved to `VideoInput`.
 - **Retired media models are rejected before any request:** `gpt-image-1`,
   Imagen (the error names `gemini-nano-banana-2.1`), Veo on the Gemini API,
   and Vertex Veo 2 and 3.0. Retired Grok image models send with a warning.

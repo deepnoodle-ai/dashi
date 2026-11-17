@@ -2,10 +2,12 @@ package imagine
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/media"
+	"github.com/deepnoodle-ai/dashi/model"
 )
 
 func TestVideoLiteAccepts1080pAndSilence(t *testing.T) {
@@ -56,13 +58,26 @@ func TestVideo15AcceptsFourteenReferenceImages(t *testing.T) {
 		})
 	}
 	input := media.VideoInput{
-		Model:  "grok-imagine-video-1.5",
-		Prompt: []content.Block{content.TextBlock("A lake")},
+		Model:           "grok-imagine-video-1.5",
+		Prompt:          []content.Block{content.TextBlock("A lake")},
+		ReferenceImages: references,
 	}
-	if _, err := videoWireBodyWithOptions(
-		input,
-		VideoOptions{ReferenceImages: references},
-	); err != nil {
+	if _, err := videoWireBody(input); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestVideoRejectsReferenceVideos(t *testing.T) {
+	client := testClient(t, "https://example.test/v1", nil, model.CapabilityAdjust)
+	input := media.VideoInput{
+		Model:  "grok-imagine-video-1.5",
+		Prompt: []content.Block{content.TextBlock("Follow this motion")},
+		ReferenceVideos: []content.Block{
+			content.VideoBlock(content.Source{URL: "https://example.test/motion.mp4"}),
+		},
+	}
+	_, err := client.PrepareVideo(t.Context(), input)
+	if err == nil || !strings.Contains(err.Error(), "reference videos") {
+		t.Fatalf("reference video error = %v", err)
 	}
 }

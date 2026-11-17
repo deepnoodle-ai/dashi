@@ -107,8 +107,8 @@ The body sends `sampleCount: 1` (one video, one charge), `generateAudio:
 !DisableAudio`, and `durationSeconds`,
 `resolution`, `aspectRatio`, and one inline JPEG or PNG first frame only
 when set. `PrepareVideo` rejects, with `ErrorUnsupported` and a message
-naming the value: an operation other than generate, `Size`, more than one
-frame, aspect ratios other than 16:9 and 9:16, durations other than 4, 6,
+naming the value: an operation other than generate, `Size`, a last
+frame, reference images or videos, aspect ratios other than 16:9 and 9:16, durations other than 4, 6,
 or 8 s, resolutions other than 720p, 1080p, and 4k, and the `veo-2.` and
 `veo-3.0-` models Google retired on 2026-06-30. It does not apply
 the Gemini API rule "1080p and 4k need 8 s". Then the model info check runs.

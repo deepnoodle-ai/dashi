@@ -28,16 +28,12 @@ func TestVideo15AliasAccepts1080pGeneration(t *testing.T) {
 			if _, err := videoWireBody(input); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := videoWireBodyWithOptions(
-				input,
-				VideoOptions{
-					ReferenceImages: []content.Block{
-						content.ImageBlock(content.Source{
-							URL: "https://example.test/guide.png",
-						}),
-					},
-				},
-			); err == nil {
+			input.ReferenceImages = []content.Block{
+				content.ImageBlock(content.Source{
+					URL: "https://example.test/guide.png",
+				}),
+			}
+			if _, err := videoWireBody(input); err == nil {
 				t.Fatal("reference-to-video accepted 1080p")
 			}
 		})
@@ -60,8 +56,12 @@ func TestVideoOptionsCaptureDocumentedGenerationModes(t *testing.T) {
 	})
 	input := media.VideoInput{
 		Model: "grok-imagine-video-1.5",
-		ReferenceFrames: []content.Block{
-			content.ImageBlock(content.Source{URL: "https://example.test/first.png"}),
+		FirstFrame: new(content.ImageBlock(content.Source{
+			URL: "https://example.test/first.png",
+		})),
+		LastFrame: &last,
+		ReferenceImages: []content.Block{
+			content.ImageBlock(content.Source{URL: "https://example.test/guide.png"}),
 		},
 		Settings: media.VideoSettings{
 			Duration:     6 * time.Second,
@@ -70,10 +70,6 @@ func TestVideoOptionsCaptureDocumentedGenerationModes(t *testing.T) {
 		},
 	}
 	options := VideoOptions{
-		ReferenceImages: []content.Block{
-			content.ImageBlock(content.Source{URL: "https://example.test/guide.png"}),
-		},
-		LastFrame: &last,
 		Keyframes: []VideoKeyframe{
 			{
 				Image: content.ImageBlock(content.Source{
@@ -121,7 +117,7 @@ func TestVideoOptionsCaptureDocumentedGenerationModes(t *testing.T) {
 		!json.Valid(snapshot.ProviderOptions) {
 		t.Fatal("provider options were not recorded")
 	}
-	options.ReferenceImages[0].Image.Source.URL = "https://example.test/changed.png"
+	input.ReferenceImages[0].Image.Source.URL = "https://example.test/changed.png"
 	if string(request.Body()) != string(snapshot.Body) {
 		t.Fatal("caller mutation changed prepared body")
 	}
@@ -148,9 +144,9 @@ func TestVideoOptionsRejectInvalidModeCombinations(t *testing.T) {
 		},
 		{
 			"classic last frame",
-			func(in *media.VideoInput, opts *VideoOptions) {
+			func(in *media.VideoInput, _ *VideoOptions) {
 				in.Model = "grok-imagine-video"
-				opts.LastFrame = &frame
+				in.LastFrame = &frame
 			},
 		},
 		{
@@ -162,44 +158,44 @@ func TestVideoOptionsRejectInvalidModeCombinations(t *testing.T) {
 		},
 		{
 			"classic first and reference",
-			func(in *media.VideoInput, opts *VideoOptions) {
+			func(in *media.VideoInput, _ *VideoOptions) {
 				in.Model = "grok-imagine-video"
-				in.ReferenceFrames = []content.Block{frame}
-				opts.ReferenceImages = []content.Block{frame}
+				in.FirstFrame = &frame
+				in.ReferenceImages = []content.Block{frame}
 			},
 		},
 		{
 			"too many references",
-			func(_ *media.VideoInput, opts *VideoOptions) {
-				opts.ReferenceImages = make([]content.Block, 15)
-				for i := range opts.ReferenceImages {
-					opts.ReferenceImages[i] = frame
+			func(in *media.VideoInput, _ *VideoOptions) {
+				in.ReferenceImages = make([]content.Block, 15)
+				for i := range in.ReferenceImages {
+					in.ReferenceImages[i] = frame
 				}
 			},
 		},
 		{
 			"classic too many references",
-			func(in *media.VideoInput, opts *VideoOptions) {
+			func(in *media.VideoInput, _ *VideoOptions) {
 				in.Model = "grok-imagine-video"
-				opts.ReferenceImages = make([]content.Block, 8)
-				for i := range opts.ReferenceImages {
-					opts.ReferenceImages[i] = frame
+				in.ReferenceImages = make([]content.Block, 8)
+				for i := range in.ReferenceImages {
+					in.ReferenceImages[i] = frame
 				}
 			},
 		},
 		{
 			"classic references longer than 10 seconds",
-			func(in *media.VideoInput, opts *VideoOptions) {
+			func(in *media.VideoInput, _ *VideoOptions) {
 				in.Model = "grok-imagine-video"
 				in.Settings.Duration = 12 * time.Second
-				opts.ReferenceImages = []content.Block{frame}
+				in.ReferenceImages = []content.Block{frame}
 			},
 		},
 		{
 			"lite last frame",
-			func(in *media.VideoInput, opts *VideoOptions) {
+			func(in *media.VideoInput, _ *VideoOptions) {
 				in.Model = "grok-imagine-video-1.5-lite"
-				opts.LastFrame = &frame
+				in.LastFrame = &frame
 			},
 		},
 		{
@@ -236,10 +232,20 @@ func TestVideoOptionsRejectInvalidModeCombinations(t *testing.T) {
 		},
 		{
 			"reference URL userinfo",
-			func(_ *media.VideoInput, opts *VideoOptions) {
-				opts.ReferenceImages = []content.Block{
+			func(in *media.VideoInput, _ *VideoOptions) {
+				in.ReferenceImages = []content.Block{
 					content.ImageBlock(content.Source{
 						URL: "https://user:secret@example.test/frame.png",
+					}),
+				}
+			},
+		},
+		{
+			"reference video",
+			func(in *media.VideoInput, _ *VideoOptions) {
+				in.ReferenceVideos = []content.Block{
+					content.VideoBlock(content.Source{
+						URL: "https://example.test/motion.mp4",
 					}),
 				}
 			},
@@ -298,18 +304,13 @@ func TestVideoEditAndExtendUseSeparateJobEndpoints(t *testing.T) {
 			})
 			source.Video.Duration = 5 * time.Second
 			input := media.VideoInput{
-				Model:     "grok-imagine-video-1.5",
-				Operation: tc.operation,
-				Prompt:    []content.Block{content.TextBlock("Change the scene")},
-				Settings:  media.VideoSettings{Duration: tc.duration},
+				Model:       "grok-imagine-video-1.5",
+				Operation:   tc.operation,
+				Prompt:      []content.Block{content.TextBlock("Change the scene")},
+				SourceVideo: &source,
+				Settings:    media.VideoSettings{Duration: tc.duration},
 			}
-			request, err := client.PrepareVideoWithOptions(
-				t.Context(),
-				input,
-				VideoOptions{
-					SourceVideo: &source,
-				},
-			)
+			request, err := client.PrepareVideo(t.Context(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -330,15 +331,52 @@ func TestVideoTransformRejectsUnsupportedSettings(t *testing.T) {
 	source := content.VideoBlock(content.Source{
 		URL: "https://example.test/source.mp4",
 	})
+	frame := content.ImageBlock(content.Source{
+		URL: "https://example.test/frame.png",
+	})
 	base := media.VideoInput{
-		Model:     "grok-imagine-video",
-		Operation: media.VideoEdit,
-		Prompt:    []content.Block{content.TextBlock("Add a hat")},
+		Model:       "grok-imagine-video",
+		Operation:   media.VideoEdit,
+		Prompt:      []content.Block{content.TextBlock("Add a hat")},
+		SourceVideo: &source,
 	}
 	for _, tc := range []struct {
 		name   string
 		change func(*media.VideoInput, *VideoOptions)
 	}{
+		{
+			"edit first frame",
+			func(in *media.VideoInput, _ *VideoOptions) {
+				in.FirstFrame = &frame
+			},
+		},
+		{
+			"extension last frame",
+			func(in *media.VideoInput, _ *VideoOptions) {
+				in.Operation = media.VideoExtend
+				in.LastFrame = &frame
+			},
+		},
+		{
+			"edit reference images",
+			func(in *media.VideoInput, _ *VideoOptions) {
+				in.ReferenceImages = []content.Block{frame}
+			},
+		},
+		{
+			"edit keyframes",
+			func(_ *media.VideoInput, opts *VideoOptions) {
+				opts.Keyframes = []VideoKeyframe{
+					{Image: frame, Timestamp: time.Second},
+				}
+			},
+		},
+		{
+			"edit reference video",
+			func(in *media.VideoInput, _ *VideoOptions) {
+				in.ReferenceVideos = []content.Block{source}
+			},
+		},
 		{
 			"edit duration",
 			func(in *media.VideoInput, _ *VideoOptions) {
@@ -373,27 +411,27 @@ func TestVideoTransformRejectsUnsupportedSettings(t *testing.T) {
 		},
 		{
 			"source MIME is not mp4",
-			func(_ *media.VideoInput, opts *VideoOptions) {
+			func(in *media.VideoInput, _ *VideoOptions) {
 				bad := content.VideoBlock(content.Source{
 					URL:      "https://example.test/opaque",
 					MIMEType: "video/quicktime",
 				})
-				opts.SourceVideo = &bad
+				in.SourceVideo = &bad
 			},
 		},
 		{
 			"source duration too long",
-			func(in *media.VideoInput, opts *VideoOptions) {
+			func(in *media.VideoInput, _ *VideoOptions) {
 				in.Operation = media.VideoEdit
 				bad := source.Clone()
 				bad.Video.Duration = 9 * time.Second
-				opts.SourceVideo = &bad
+				in.SourceVideo = &bad
 			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			in := base.Clone()
-			opts := VideoOptions{SourceVideo: &source}
+			opts := VideoOptions{}
 			tc.change(&in, &opts)
 			if _, err := videoWireBodyWithOptions(in, opts); err == nil {
 				t.Fatal("unsupported transform request was accepted")
@@ -408,16 +446,12 @@ func TestVideoTransformAcceptsOpaqueSignedMP4URL(t *testing.T) {
 		MIMEType: "video/mp4",
 	})
 	input := media.VideoInput{
-		Model:     "grok-imagine-video",
-		Operation: media.VideoEdit,
-		Prompt:    []content.Block{content.TextBlock("Add rain")},
+		Model:       "grok-imagine-video",
+		Operation:   media.VideoEdit,
+		Prompt:      []content.Block{content.TextBlock("Add rain")},
+		SourceVideo: &source,
 	}
-	body, err := videoWireBodyWithOptions(
-		input,
-		VideoOptions{
-			SourceVideo: &source,
-		},
-	)
+	body, err := videoWireBody(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,16 +482,11 @@ func TestVideoReferenceAndSourceFilesUseBoundFilesOrigin(t *testing.T) {
 		MIMEType: "image/png",
 	})
 	input := media.VideoInput{
-		Model:  "grok-imagine-video-1.5",
-		Prompt: []content.Block{content.TextBlock("Move")},
+		Model:           "grok-imagine-video-1.5",
+		Prompt:          []content.Block{content.TextBlock("Move")},
+		ReferenceImages: []content.Block{image},
 	}
-	request, err := client.PrepareVideoWithOptions(
-		t.Context(),
-		input,
-		VideoOptions{
-			ReferenceImages: []content.Block{image},
-		},
-	)
+	request, err := client.PrepareVideo(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -475,13 +504,9 @@ func TestVideoReferenceAndSourceFilesUseBoundFilesOrigin(t *testing.T) {
 		MIMEType: "video/mp4",
 	})
 	input.Operation = media.VideoEdit
-	request, err = client.PrepareVideoWithOptions(
-		t.Context(),
-		input,
-		VideoOptions{
-			SourceVideo: &source,
-		},
-	)
+	input.ReferenceImages = nil
+	input.SourceVideo = &source
+	request, err = client.PrepareVideo(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -496,13 +521,8 @@ func TestVideoReferenceAndSourceFilesUseBoundFilesOrigin(t *testing.T) {
 	}
 	bad := source.Clone()
 	bad.Video.Source.Origin.Scope = "wrong"
-	if _, err := client.PrepareVideoWithOptions(
-		t.Context(),
-		input,
-		VideoOptions{
-			SourceVideo: &bad,
-		},
-	); err == nil {
+	input.SourceVideo = &bad
+	if _, err := client.PrepareVideo(t.Context(), input); err == nil {
 		t.Fatal("source video file from another scope was accepted")
 	}
 }

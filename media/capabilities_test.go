@@ -157,3 +157,21 @@ func TestImageSizeBoundsCheckFlexibleDimensions(t *testing.T) {
 		t.Fatal("known unsupported size was allowed")
 	}
 }
+
+func TestVideoCapabilitiesCheckFrames(t *testing.T) {
+	frame := content.ImageBlock(content.Source{Data: []byte("png"), MIMEType: "image/png"})
+	input := VideoInput{Model: "video-model", FirstFrame: &frame, LastFrame: &frame}
+	capabilities := VideoCapabilities{
+		Generate:   model.SupportSupported,
+		FirstFrame: model.SupportSupported,
+		LastFrame:  model.SupportUnknown,
+	}
+	unverified, err := capabilities.Check(input, model.CapabilityAdjust)
+	if err != nil || !slices.Equal(unverified, []string{"video.last_frame"}) {
+		t.Fatalf("unknown last frame support = %v, %v", unverified, err)
+	}
+	capabilities.LastFrame = model.SupportUnsupported
+	if _, err := capabilities.Check(input, model.CapabilityAdjust); err == nil {
+		t.Fatal("allowed known unsupported last frame")
+	}
+}

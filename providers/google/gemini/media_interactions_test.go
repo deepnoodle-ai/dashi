@@ -146,12 +146,10 @@ func TestInteractionsOmniVideoCall(t *testing.T) {
 		media.VideoInput{
 			Model:  "gemini-omni-1.1-flash",
 			Prompt: []content.Block{content.TextBlock("animate this")},
-			ReferenceFrames: []content.Block{
-				content.ImageBlock(content.Source{
-					Data:     []byte("frame"),
-					MIMEType: "image/png",
-				}),
-			},
+			FirstFrame: new(content.ImageBlock(content.Source{
+				Data:     []byte("frame"),
+				MIMEType: "image/png",
+			})),
 			Settings: media.VideoSettings{AspectRatio: "9:16", Resolution: "720p"},
 		},
 	)
@@ -267,19 +265,14 @@ func TestInteractionsOmniRejectsUnsupportedShape(t *testing.T) {
 			},
 		},
 		{
-			"ambiguous frames",
+			"last frame without first frame",
 			media.VideoInput{
-				Model: "gemini-omni-1.1-flash",
-				ReferenceFrames: []content.Block{
-					content.ImageBlock(content.Source{
-						Data:     []byte("first"),
-						MIMEType: "image/png",
-					}),
-					content.ImageBlock(content.Source{
-						Data:     []byte("last"),
-						MIMEType: "image/png",
-					}),
-				},
+				Model:  "gemini-omni-1.1-flash",
+				Prompt: []content.Block{content.TextBlock("a scene")},
+				LastFrame: new(content.ImageBlock(content.Source{
+					Data:     []byte("last"),
+					MIMEType: "image/png",
+				})),
 			},
 		},
 	} {

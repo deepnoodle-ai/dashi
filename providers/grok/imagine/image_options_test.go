@@ -113,10 +113,11 @@ func TestFileIDInputsRequireMatchingFilesOrigin(t *testing.T) {
 	); err != nil || imageWire.Image["file_id"] != "file_123" {
 		t.Fatalf("file image was not encoded: %s, %v", request.Body(), err)
 	}
+	frame := content.ImageBlock(file)
 	videoInput := media.VideoInput{
-		Model:           "grok-imagine-video-1.5",
-		Prompt:          []content.Block{content.TextBlock("Animate")},
-		ReferenceFrames: []content.Block{content.ImageBlock(file)},
+		Model:      "grok-imagine-video-1.5",
+		Prompt:     []content.Block{content.TextBlock("Animate")},
+		FirstFrame: &frame,
 	}
 	videoRequest, err := client.PrepareVideo(t.Context(), videoInput)
 	if err != nil {
@@ -147,7 +148,7 @@ func TestFileIDInputsRequireMatchingFilesOrigin(t *testing.T) {
 	); err == nil {
 		t.Fatal("image file from another credential scope was accepted")
 	}
-	videoInput.ReferenceFrames[0].Image.Source.Origin = other.FileOrigin()
+	videoInput.FirstFrame.Image.Source.Origin = other.FileOrigin()
 	if _, err := client.PrepareVideo(
 		t.Context(),
 		videoInput,
@@ -195,9 +196,9 @@ func TestInlineImageRejectsNonImageMIME(t *testing.T) {
 		t.Fatal("non-image inline bytes were accepted for image edit")
 	}
 	video := media.VideoInput{
-		Model:           "grok-imagine-video-1.5",
-		Prompt:          []content.Block{content.TextBlock("Animate")},
-		ReferenceFrames: []content.Block{bad},
+		Model:      "grok-imagine-video-1.5",
+		Prompt:     []content.Block{content.TextBlock("Animate")},
+		FirstFrame: &bad,
 	}
 	if _, err := videoWireBody(video); err == nil {
 		t.Fatal("non-image inline bytes were accepted as video frame")

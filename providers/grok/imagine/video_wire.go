@@ -40,11 +40,14 @@ func videoWireBodyWithOptions(
 	if len(fileOrigin) == 1 {
 		files = fileOrigin[0]
 	}
+	if len(input.ReferenceVideos) > 0 {
+		return nil, errors.New("imagine: xAI video does not accept reference videos")
+	}
 	if input.Operation == media.VideoEdit ||
 		input.Operation == media.VideoExtend {
 		return videoTransformWireBody(input, options, files)
 	}
-	if options.SourceVideo != nil {
+	if input.SourceVideo != nil {
 		return nil, errors.New("imagine: source video requires edit or extend operation")
 	}
 	if input.Settings.Size != (media.Size{}) {
@@ -85,22 +88,19 @@ func videoWireBodyWithOptions(
 		return nil, errors.New("imagine: video prompt exceeds 24 MiB prepared-body bound")
 	}
 	if prompt == "" &&
-		len(input.ReferenceFrames) == 0 &&
-		len(options.ReferenceImages) == 0 &&
-		options.LastFrame == nil &&
+		input.FirstFrame == nil &&
+		len(input.ReferenceImages) == 0 &&
+		input.LastFrame == nil &&
 		len(options.Keyframes) == 0 &&
 		len(options.ReferenceVoices) == 0 {
 		return nil, errors.New("imagine: video requires text, a frame, or a reference")
-	}
-	if len(input.ReferenceFrames) > 1 {
-		return nil, errors.New("imagine: only one initial video frame is supported")
 	}
 	body := map[string]any{"model": input.Model}
 	if prompt != "" {
 		body["prompt"] = prompt
 	}
-	if len(input.ReferenceFrames) == 1 {
-		frame, err := videoImageSource(input.ReferenceFrames[0], files)
+	if input.FirstFrame != nil {
+		frame, err := videoImageSource(*input.FirstFrame, files)
 		if err != nil {
 			return nil, err
 		}
