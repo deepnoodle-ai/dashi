@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -496,5 +497,165 @@ func TestVertexCustomEndpointHostNeedsClient(t *testing.T) {
 		if _, err := New(config("https://"+host+path, nil)); err != nil {
 			t.Fatalf("%s: %v", host, err)
 		}
+	}
+}
+
+// prepareThinking prepares a reasoning request and returns it with its wire
+// thinkingConfig. The public endpoint gives catalog models their documented
+// thinking levels; another endpoint gets no catalog facts.
+func prepareThinking(
+	t *testing.T,
+	endpoint string,
+	model string,
+	reasoning llm.ReasoningSettings,
+) (llm.Request, map[string]any, error) {
+	t.Helper()
+	client, err := New(Config{
+		Provider: "google",
+		APIKey:   "test",
+		Endpoint: endpoint,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := sampleInput(false)
+	input.Model = model
+	input.Settings.Reasoning = &reasoning
+	request, err := client.Prepare(t.Context(), input)
+	if err != nil {
+		return request, nil, err
+	}
+	var body struct {
+		GenerationConfig struct {
+			ThinkingConfig map[string]any `json:"thinkingConfig"`
+		} `json:"generationConfig"`
+	}
+	if err := json.Unmarshal(request.Body(), &body); err != nil {
+		t.Fatal(err)
+	}
+	return request, body.GenerationConfig.ThinkingConfig, nil
+}
+
+func TestPrepareSendsEffortAsThinkingLevel(t *testing.T) {
+	for _, test := range []struct {
+		model  string
+		effort string
+	}{
+		{"gemini-4-hydrogen", "low"},
+		{"gemini-4-hydrogen", "medium"},
+		{"gemini-4-hydrogen", "high"},
+		{"gemini-4-hydrogen", "xhigh"},
+		{"gemini-4-carbon", "high"},
+		{"gemini-3.6-flash", "minimal"},
+	} {
+		t.Run(test.model+"/"+test.effort, func(t *testing.T) {
+			request, thinking, err := prepareThinking(
+				t,
+				DefaultEndpoint,
+				test.model,
+				llm.ReasoningSettings{Effort: test.effort},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if thinking["thinkingLevel"] != test.effort {
+				t.Fatalf("thinkingConfig = %v, want level %q", thinking, test.effort)
+			}
+			if _, ok := thinking["thinkingBudget"]; ok {
+				t.Fatalf("thinkingConfig = %v sends a budget beside the level", thinking)
+			}
+			if warnings := request.Warnings(); len(warnings) != 0 {
+				t.Fatalf("documented level warned: %+v", warnings)
+			}
+		})
+	}
+}
+
+// An effort the model does not list is sent as the nearest listed level with
+// a warning, as on the other providers.
+func TestPrepareFitsUnlistedEffortToNearestThinkingLevel(t *testing.T) {
+	for _, test := range []struct {
+		model  string
+		effort string
+		want   string
+	}{
+		{"gemini-4-hydrogen", "minimal", "low"},
+		{"gemini-4-hydrogen", "max", "xhigh"},
+		{"gemini-4-carbon", "xhigh", "high"},
+		{"gemini-3.8-flash", "minimal", "low"},
+	} {
+		t.Run(test.model+"/"+test.effort, func(t *testing.T) {
+			request, thinking, err := prepareThinking(
+				t,
+				DefaultEndpoint,
+				test.model,
+				llm.ReasoningSettings{Effort: test.effort},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if thinking["thinkingLevel"] != test.want {
+				t.Fatalf("thinkingConfig = %v, want level %q", thinking, test.want)
+			}
+			warnings := request.Warnings()
+			if len(warnings) != 1 ||
+				warnings[0].Code != llm.WarningSettingClamped ||
+				warnings[0].Field != llm.SettingReasoning {
+				t.Fatalf("unlisted level recorded as %+v", warnings)
+			}
+		})
+	}
+}
+
+func TestPrepareRejectsEffortOnGemini25(t *testing.T) {
+	_, _, err := prepareThinking(
+		t,
+		DefaultEndpoint,
+		"gemini-2.5-flash",
+		llm.ReasoningSettings{Effort: "high"},
+	)
+	failure, ok := errors.AsType[*llm.Error](err)
+	if !ok || failure.Category != llm.ErrorUnsupported ||
+		!strings.Contains(err.Error(), "reasoning budget") {
+		t.Fatalf("Gemini 2.5 effort error = %v", err)
+	}
+}
+
+// A model with no evidence, such as one at a custom endpoint, gets the level
+// it asked for, recorded as unverified.
+func TestPrepareSendsUnverifiedThinkingLevelForUnknownModel(t *testing.T) {
+	request, thinking, err := prepareThinking(
+		t,
+		"https://example.test/v1beta/models/{model}:generateContent",
+		"gemini-4-hydrogen",
+		llm.ReasoningSettings{Effort: "xhigh"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if thinking["thinkingLevel"] != "xhigh" {
+		t.Fatalf("thinkingConfig = %v", thinking)
+	}
+	if !slices.Contains(request.Snapshot().Unverified, llm.FeatureReasoningEffort) {
+		t.Fatalf("unverified = %v", request.Snapshot().Unverified)
+	}
+}
+
+// Gemini 4 still accepts a budget alone and maps it to a level itself.
+func TestPrepareSendsBudgetWithoutThinkingLevelOnGemini4(t *testing.T) {
+	_, thinking, err := prepareThinking(
+		t,
+		DefaultEndpoint,
+		"gemini-4-hydrogen",
+		llm.ReasoningSettings{BudgetTokens: 2048},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if thinking["thinkingBudget"] != float64(2048) {
+		t.Fatalf("thinkingConfig = %v", thinking)
+	}
+	if _, ok := thinking["thinkingLevel"]; ok {
+		t.Fatalf("thinkingConfig = %v sends a level beside the budget", thinking)
 	}
 }

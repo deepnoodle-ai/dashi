@@ -16,7 +16,7 @@
       "apis": [
         "google.generate_content"
       ],
-      "note": "Rates billed today. Google lists a scheduled increase to $4.00/$20.00 ($0.20 cache read) on 2026-12-01; revisit then. Paid tier only. One rate at any prompt length. Implicit caching only; explicit caching is not supported. The 65,536-token output limit applies to synchronous calls; long decode up to 1,048,576 tokens needs background mode, which Dashi does not use. max_output_tokens covers thinking and output; Google recommends at least 32,768. thinking_level accepts low, medium (the default), and high. Uses more thinking per turn than gemini-4-argon. Temperature, top_p, and top_k are ignored. Documented 2026-11-12: https://ai.google.dev/gemini-api/docs/whats-new-gemini-4-carbon.",
+      "note": "Rates billed today. Google lists a scheduled increase to $4.00/$20.00 ($0.20 cache read) on 2026-12-01; revisit then. Paid tier only. One rate at any prompt length. Implicit caching only; explicit caching is not supported. The 65,536-token output limit applies to synchronous calls; long decode up to 1,048,576 tokens needs background mode, which Dashi does not use. max_output_tokens covers thinking and output; Google recommends at least 32,768. thinking_level accepts low, medium (the default), and high. thinkingBudget is deprecated: alone it maps to the nearest level with a warning, and with thinkingLevel it returns a 400 (https://ai.google.dev/gemini-api/docs/generate-content/thinking#set-budget, 2026-11-17). Uses more thinking per turn than gemini-4-argon. Temperature, top_p, and top_k are ignored. Documented 2026-11-12: https://ai.google.dev/gemini-api/docs/whats-new-gemini-4-carbon.",
       "qualified_at": "2026-11-12",
       "capabilities": {
         "features": {
@@ -27,10 +27,16 @@
           "tools": "supported",
           "structured_output": "supported",
           "max_tokens": "supported",
-          "temperature": "unsupported"
+          "temperature": "unsupported",
+          "reasoning_effort": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1048576
+        "context_window": 1048576,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ]
       },
       "pricing": {
         "currency": "USD",
@@ -56,7 +62,7 @@
       "apis": [
         "google.generate_content"
       ],
-      "note": "One rate at any prompt length; no scheduled change listed. Implicit caching only; explicit caching is not supported. The 65,536-token output limit applies to synchronous calls; long decode up to 1,048,576 tokens needs background mode, which Dashi does not use. max_output_tokens covers thinking and output. thinking_level accepts low, medium, high (the default), and xhigh, and rejects minimal with an error. Google labels it the default general-purpose model and the recommended upgrade from gemini-3.8-flash. Temperature, top_p, and top_k are ignored. Documented 2026-11-12: https://ai.google.dev/gemini-api/docs/whats-new-gemini-4-hydrogen.",
+      "note": "One rate at any prompt length; no scheduled change listed. Implicit caching only; explicit caching is not supported. The 65,536-token output limit applies to synchronous calls; long decode up to 1,048,576 tokens needs background mode, which Dashi does not use. max_output_tokens covers thinking and output. thinking_level accepts low, medium, high (the default), and xhigh, and rejects minimal with an error. thinkingBudget is deprecated: alone it maps to the nearest level with a warning, and with thinkingLevel it returns a 400 (https://ai.google.dev/gemini-api/docs/generate-content/thinking#set-budget, 2026-11-17). Google labels it the default general-purpose model and the recommended upgrade from gemini-3.8-flash. Temperature, top_p, and top_k are ignored. Documented 2026-11-12: https://ai.google.dev/gemini-api/docs/whats-new-gemini-4-hydrogen.",
       "qualified_at": "2026-11-12",
       "capabilities": {
         "features": {
@@ -67,10 +73,17 @@
           "tools": "supported",
           "structured_output": "supported",
           "max_tokens": "supported",
-          "temperature": "unsupported"
+          "temperature": "unsupported",
+          "reasoning_effort": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1048576
+        "context_window": 1048576,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
       },
       "pricing": {
         "currency": "USD",
@@ -107,10 +120,16 @@
           "tools": "supported",
           "structured_output": "supported",
           "max_tokens": "supported",
-          "temperature": "unsupported"
+          "temperature": "unsupported",
+          "reasoning_effort": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1048576
+        "context_window": 1048576,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ]
       },
       "pricing": {
         "currency": "USD",
@@ -147,10 +166,16 @@
           "tools": "supported",
           "structured_output": "supported",
           "max_tokens": "supported",
-          "reasoning_summary": "supported"
+          "reasoning_summary": "supported",
+          "reasoning_effort": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1048576
+        "context_window": 1048576,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ]
       },
       "pricing": {
         "currency": "USD",
@@ -228,10 +253,17 @@
           "tools": "supported",
           "structured_output": "supported",
           "max_tokens": "supported",
-          "reasoning_summary": "supported"
+          "reasoning_summary": "supported",
+          "reasoning_effort": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1048576
+        "context_window": 1048576,
+        "reasoning_efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ]
       },
       "pricing": {
         "currency": "USD",
@@ -308,10 +340,17 @@
           "tools": "supported",
           "structured_output": "supported",
           "max_tokens": "supported",
-          "reasoning_summary": "supported"
+          "reasoning_summary": "supported",
+          "reasoning_effort": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1048576
+        "context_window": 1048576,
+        "reasoning_efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ]
       },
       "pricing": {
         "currency": "USD",
@@ -350,10 +389,16 @@
           "tools": "supported",
           "structured_output": "supported",
           "max_tokens": "supported",
-          "reasoning_summary": "supported"
+          "reasoning_summary": "supported",
+          "reasoning_effort": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1048576
+        "context_window": 1048576,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high"
+        ]
       },
       "pricing": {
         "currency": "USD",
@@ -453,10 +498,17 @@
           "tools": "supported",
           "structured_output": "supported",
           "max_tokens": "supported",
-          "reasoning_summary": "supported"
+          "reasoning_summary": "supported",
+          "reasoning_effort": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1048576
+        "context_window": 1048576,
+        "reasoning_efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ]
       },
       "pricing": {
         "currency": "USD",
@@ -501,10 +553,17 @@
           "tools": "supported",
           "structured_output": "supported",
           "max_tokens": "supported",
-          "reasoning_summary": "supported"
+          "reasoning_summary": "supported",
+          "reasoning_effort": "supported"
         },
         "max_output_tokens": 65536,
-        "context_window": 1048576
+        "context_window": 1048576,
+        "reasoning_efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ]
       },
       "pricing": {
         "currency": "USD",
@@ -552,7 +611,8 @@
           "structured_output": "supported",
           "reasoning_budget": "supported",
           "max_tokens": "supported",
-          "reasoning_summary": "supported"
+          "reasoning_summary": "supported",
+          "reasoning_effort": "unsupported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576
@@ -603,7 +663,8 @@
           "structured_output": "supported",
           "reasoning_budget": "supported",
           "max_tokens": "supported",
-          "reasoning_summary": "supported"
+          "reasoning_summary": "supported",
+          "reasoning_effort": "unsupported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576
@@ -652,7 +713,8 @@
           "structured_output": "supported",
           "reasoning_budget": "supported",
           "max_tokens": "supported",
-          "reasoning_summary": "supported"
+          "reasoning_summary": "supported",
+          "reasoning_effort": "unsupported"
         },
         "max_output_tokens": 65536,
         "context_window": 1048576

@@ -321,13 +321,13 @@ func (p *Client) Prepare(
 		}
 	}
 	if reasoning := input.Settings.Reasoning; reasoning != nil {
+		// Effort and budget exclude each other, so this never sends both
+		// fields, which Gemini 4 rejects with a 400.
 		if reasoning.Effort != "" {
-			return llm.Request{}, wire.unsupported(
-				"reasoning effort requires model-specific Gemini level evidence; " +
-					"use a reasoning budget",
-			)
+			thinking["thinkingLevel"] = reasoning.Effort
+		} else {
+			thinking["thinkingBudget"] = reasoning.BudgetTokens
 		}
-		thinking["thinkingBudget"] = reasoning.BudgetTokens
 	}
 	if len(thinking) > 0 {
 		config["thinkingConfig"] = thinking
@@ -456,22 +456,27 @@ func (p *Client) Prepare(
 	})
 }
 
+// thinkingLevels are the thinkingConfig.thinkingLevel values the Gemini API
+// accepts from some model. An effort is sent as the level of the same name;
+// Fit narrows these to a known model's catalog reasoning_efforts
+// (https://ai.google.dev/gemini-api/docs/generate-content/thinking).
+var thinkingLevels = []string{"minimal", "low", "medium", "high", "xhigh"}
+
 // apiLimits states what this Gemini encoding accepts from any model. It has
-// no parallel tool control, since Gemini decides that itself, and it maps
-// reasoning only from token budgets. The API documents maxOutputTokens for
-// every model and temperature as 0 to 2
+// no parallel tool control, since Gemini decides that itself. The API
+// documents maxOutputTokens for every model and temperature as 0 to 2
 // (https://ai.google.dev/api/generate-content).
 var apiLimits = llm.Capabilities{
 	Features: map[llm.Feature]llm.Support{
-		llm.FeatureCitations:       llm.SupportUnsupported,
-		llm.FeatureTaskBudget:      llm.SupportUnsupported,
-		llm.FeatureMaxTokens:       llm.SupportSupported,
-		llm.FeatureParallelTools:   llm.SupportUnsupported,
-		llm.FeatureReasoningEffort: llm.SupportUnsupported,
+		llm.FeatureCitations:     llm.SupportUnsupported,
+		llm.FeatureTaskBudget:    llm.SupportUnsupported,
+		llm.FeatureMaxTokens:     llm.SupportSupported,
+		llm.FeatureParallelTools: llm.SupportUnsupported,
 		// Implicit caching has no request field and cannot be turned off.
 		llm.FeaturePromptCache: llm.SupportUnsupported,
 	},
-	MaxTemperature: 2,
+	ReasoningEfforts: thinkingLevels,
+	MaxTemperature:   2,
 }
 
 // limits adds the per-request thinking cap to apiLimits. Gemini counts

@@ -234,6 +234,26 @@ DASHI_LIVE_IMAGE_INPUT_TEST=1 GEMINI_MODEL=gemini-2.5-flash \
 The full test makes four paid LLM calls and temporarily uploads one PNG; filter
 a subtest to run one route.
 
+## Gemini thinking levels
+
+Reasoning effort on the Gemini API is sent as `thinkingConfig.thinkingLevel`.
+The check sends each documented level to `gemini-4-hydrogen` (`low` to
+`xhigh`) and `gemini-4-argon` (`low` to `high`), a `thinkingBudget` alone to
+`gemini-4-hydrogen`, and a raw `minimal` level to `gemini-4-hydrogen`, which
+Google documents as an error. It makes nine small paid calls:
+
+```sh
+DASHI_LIVE_THINKING_TEST=1 \
+  go test -tags live ./providers/google/gemini -run '^TestLiveThinkingLevels$' -v
+```
+
+On 2026-11-17 all nine passed, so the API accepts the lowercase level names
+Dashi sends (`low`, `xhigh`). Every Hydrogen level answered, with reasoning
+tokens rising from 70 at `low` to 164 at `xhigh`. Argon spent no reasoning
+tokens at `low` or `medium` and 146 at `high`. A `thinkingBudget` alone on
+Hydrogen succeeded with 36 reasoning tokens. The raw `minimal` request got a
+400: "Thinking level MINIMAL is not supported for this model."
+
 ## Media
 
 Selected Gemini image and video routes were also tested live; see
