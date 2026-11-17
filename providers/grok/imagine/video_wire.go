@@ -61,8 +61,9 @@ func videoWireBodyWithOptions(
 				resolution,
 			)
 		}
-		if resolution == "1080p" && !videoModel15(input.Model) {
-			return nil, errors.New("imagine: 1080p requires grok-imagine-video-1.5")
+		if resolution == "1080p" && !videoModel15(input.Model) &&
+			input.Model != videoModelLite {
+			return nil, errors.New("imagine: 1080p requires grok-imagine-video-1.5 or grok-imagine-video-1.5-lite")
 		}
 	}
 	if input.Settings.Duration > 0 {
@@ -123,6 +124,10 @@ func videoWireBodyWithOptions(
 	return boundedJSON(body)
 }
 
+// videoModelLite upscales 720p to reach 1080p and takes text and image input
+// only (https://docs.x.ai/developers/model-capabilities/video/generation).
+const videoModelLite = "grok-imagine-video-1.5-lite"
+
 func videoModel15(name string) bool {
 	switch name {
 	case "grok-imagine-video-1.5", "grok-imagine-video-1.5-preview", "grok-imagine-video-1.5-2026-05-30":
@@ -134,7 +139,7 @@ func videoModel15(name string) bool {
 
 func videoAspectRatio(ratio string) bool {
 	switch ratio {
-	case "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3":
+	case "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9", "5:2":
 		return true
 	default:
 		return false

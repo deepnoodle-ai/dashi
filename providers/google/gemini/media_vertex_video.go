@@ -286,11 +286,12 @@ func (p *VertexVideoJobClient) PrepareVideo(
 			resolution,
 		)
 	}
-	// Veo 2 rejects generateAudio, so Dashi cannot send the choice.
-	if in.Settings.DisableAudio && strings.HasPrefix(in.Model, "veo-2") {
+	// https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions
+	if strings.HasPrefix(in.Model, "veo-2.") ||
+		strings.HasPrefix(in.Model, "veo-3.0-") {
 		return media.VideoRequest{}, p.failure(
 			media.ErrorUnsupported,
-			"Vertex %s does not take DisableAudio",
+			"Vertex %s was retired on 2026-06-30; use a veo-3.1 model",
 			in.Model,
 		)
 	}
@@ -345,10 +346,9 @@ func (p *VertexVideoJobClient) PrepareVideo(
 		}
 	}
 	// One sample means one video and one charge.
-	parameters := map[string]any{"sampleCount": 1}
-	// Veo 2 rejects generateAudio; every later model takes it.
-	if !strings.HasPrefix(in.Model, "veo-2") {
-		parameters["generateAudio"] = !in.Settings.DisableAudio
+	parameters := map[string]any{
+		"sampleCount":   1,
+		"generateAudio": !in.Settings.DisableAudio,
 	}
 	if in.Settings.AspectRatio != "" {
 		parameters["aspectRatio"] = in.Settings.AspectRatio

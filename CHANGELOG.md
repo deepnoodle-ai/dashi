@@ -12,8 +12,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `max` effort. The API now drops reasoning items when earlier history changes.
 - **Reasoning effort on Gemini,** sent as `thinkingLevel` for models with a
   documented ladder. Unlisted levels adjust to the nearest one with a warning.
+- **GPT Image 2.6 Sunburst and Flare,** with GIF output and `Complexity`
+  (`openai/images`).
+- **`grok-imagine-video-1.5-lite` and Imagine Image 1.0 limits,** plus 21:9
+  and 5:2 video, and up to 14 reference images on Imagine Video 1.5.
+- **`gemini-nano-banana-2.1` image limits and Omni durations** of 3 to 15
+  seconds.
 
 ### Changed
+
+- **Retired media models are rejected before any request:** `gpt-image-1`,
+  Imagen (the error names `gemini-nano-banana-2.1`), Veo on the Gemini API,
+  and Vertex Veo 2 and 3.0. Retired Grok image models send with a warning.
+- **Gemini image errors name the finish reason,** such as
+  `IMAGE_RECITATION`, when no image comes back.
 
 - **`gemini-2.5-pro` and `gemini-2.5-flash` are marked deprecated.** Google
   deprecated them on 2026-11-02 and, from 2026-12-01, routes their requests

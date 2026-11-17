@@ -15,15 +15,18 @@ model calls. Current documented routes include:
 
 | Provider | Image | Video |
 | --- | --- | --- |
-| OpenAI | [Images API](https://developers.openai.com/api/docs/guides/image-generation) with GPT Image 2.5 Sunburst/Flare; Responses image generation provider tool | [Videos API shut down](https://developers.openai.com/api/docs/deprecations) September 24, 2026 |
-| Grok | [Imagine 2.0](https://docs.x.ai/developers/model-capabilities/images/generation) generate/edit; Responses [image generation provider tool](https://docs.x.ai/developers/tools/image-generation) | [Imagine Video 1.5](https://docs.x.ai/developers/model-capabilities/video/generation) generation, edit, and extension jobs |
-| Gemini | [Nano Banana](https://ai.google.dev/gemini-api/docs/image-generation) via Interactions, plus GenerateContent | [Omni Flash](https://ai.google.dev/gemini-api/docs/omni) inline calls and URI-delivered jobs; [Veo 3.1 on Vertex AI](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/veo/3-1-generate) jobs (`NewVertexVideoJobs`); the Gemini API Veo route lost Veo 3.1 on 2026-10-22 |
+| OpenAI | [Images API](https://developers.openai.com/api/docs/guides/image-generation) with GPT Image 2.6 Sunburst/Flare (GIF output, `Complexity`) and earlier GPT Image models; Responses image generation provider tool | [Videos API shut down](https://developers.openai.com/api/docs/deprecations) September 24, 2026 |
+| Grok | [Imagine 2.0](https://docs.x.ai/developers/model-capabilities/images/generation) and 1.0 generate/edit; Responses [image generation provider tool](https://docs.x.ai/developers/tools/image-generation) | [Imagine Video 1.5, 1.5 Lite, and classic](https://docs.x.ai/developers/model-capabilities/video/generation) generation, edit, and extension jobs |
+| Gemini | [Nano Banana](https://aistudio.google.com/docs/image-generation), including Nano Banana 2.1, via Interactions, plus GenerateContent; Imagen shut down 2026-08-17 | [Omni 1.2 Flash](https://aistudio.google.com/docs/omni) inline calls and URI-delivered jobs, 3 to 15 s; [Veo 3.1 on Vertex AI](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/veo/3-1-generate) jobs (`NewVertexVideoJobs`); the Gemini API serves no Veo model since 2026-10-22 |
 
 Gemini conversational editing still needs a qualified history and video-source
 contract. Veo supports the basic generation job; frame-role controls are not
 yet represented. Grok supports scoped Files IDs as inputs and optional
 [provider-side output storage](https://docs.x.ai/developers/model-capabilities/imagine/files/outputs).
-OpenAI's retired DALL-E models are rejected.
+Retired models (DALL-E, `gpt-image-1`, Imagen, Veo on the Gemini API, Vertex
+Veo 2 and 3.0) are rejected before any request. xAI serves the retired
+`grok-imagine-image-quality` and `-pro` with Imagine 2.0, so Dashi sends them
+and records a model adjustment.
 
 Preparation snapshots the caller's input, effective settings, exact JSON or
 multipart body, content type, destination scope, model evidence, typed provider
@@ -77,7 +80,8 @@ MP4 video through both inline and URI-delivered paths. URI delivery requires
 `store=true` and creates provider-owned state; the host still owns downloaded
 artifacts. The opt-in tests are in `providers/google/gemini/*_live_test.go`.
 Other Gemini API models, higher resolutions, and conversational editing
-remain unqualified.
+remain unqualified. On 2026-11-17, `gemini-nano-banana-2.1` returned a
+1024×1024 JPEG through both GenerateContent and Interactions.
 
 On 2026-11-02, `veo-3.1-fast-generate-001` on Vertex (us-central1) completed
 an 8 s 1080p job with audio through submit, `fetchPredictOperation`, and the

@@ -49,16 +49,13 @@ func (p *MediaClient) PrepareVideo(
 			in.Operation,
 		)
 	}
-	if strings.HasPrefix(
-		in.Model,
-		"veo-3.0-",
-	) || strings.HasPrefix(
-		in.Model,
-		"veo-2.0-",
-	) {
+	if strings.HasPrefix(in.Model, "veo-2.0-") ||
+		strings.HasPrefix(in.Model, "veo-3.0-") ||
+		strings.HasPrefix(in.Model, "veo-3.1-") {
 		return media.VideoRequest{}, p.failure(
 			media.ErrorUnsupported,
-			"Veo 2 and Veo 3 models are retired from the Gemini API",
+			"Veo models are retired from the Gemini API (Veo 3.1 on 2026-10-22); "+
+				"use NewVertexVideoJobs for Veo or gemini-omni-1.2-flash",
 		)
 	}
 	if in.Settings.DisableAudio {
@@ -106,13 +103,6 @@ func (p *MediaClient) PrepareVideo(
 		return media.VideoRequest{}, p.failure(
 			media.ErrorUnsupported,
 			"Veo high resolution requires an explicit eight-second duration",
-		)
-	}
-	if in.Model == "veo-3.1-lite-generate-preview" &&
-		in.Settings.Resolution == "4k" {
-		return media.VideoRequest{}, p.failure(
-			media.ErrorUnsupported,
-			"Veo 3.1 Lite does not support 4k",
 		)
 	}
 	info, unverified, err := p.videoEvidence(in)

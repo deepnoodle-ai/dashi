@@ -319,10 +319,31 @@ func (p *InteractionsMediaClient) decode(
 			response.Status,
 		)
 	}
+	if kind == media.KindImage {
+		// Interactions reports no finish reason; any text the model wrote in
+		// place of the image is the best explanation it gives.
+		if err := noImageError(result, "", ""); err != nil {
+			if text := resultText(result); text != "" {
+				return result, p.failure(media.ErrorProtocol, "%w: %s", err, text)
+			}
+			return result, p.failure(media.ErrorProtocol, "%w", err)
+		}
+	}
 	if err := result.Validate(); err != nil {
 		return result, p.failure(media.ErrorProtocol, "%w", err)
 	}
 	return result, nil
+}
+
+// resultText joins the text blocks of a media result.
+func resultText(result media.Result) string {
+	var parts []string
+	for _, block := range result.Content {
+		if block.Kind == content.KindText && block.Text != nil && block.Text.Text != "" {
+			parts = append(parts, block.Text.Text)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func (p *InteractionsMediaClient) inputPart(b content.Block) (any, error) {

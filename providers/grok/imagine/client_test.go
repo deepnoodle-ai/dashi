@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -448,6 +449,26 @@ func TestVideoSubmitBeforeDispatchIsRejected(t *testing.T) {
 	client.noKey = errors.New("no key")
 	if sub, err := client.SubmitVideo(t.Context(), request); err == nil || sub.State != media.SubmissionRejected {
 		t.Fatalf("keyless submission %+v, err %v", sub, err)
+	}
+}
+
+func TestPrepareReportsRetiredImageModel(t *testing.T) {
+	client := testClient(t, "https://api.x.ai/v1", nil, model.CapabilityAdjust)
+	request, err := client.PrepareImage(t.Context(), media.ImageInput{
+		Operation: media.ImageGenerate,
+		Model:     "grok-imagine-image-quality",
+		Prompt:    []content.Block{content.TextBlock("A lake")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adjustments := request.Snapshot().Adjustments
+	if len(adjustments) != 1 || adjustments[0].Setting != "model" ||
+		adjustments[0].Effective != "grok-imagine-image-2.0" {
+		t.Fatalf("adjustments = %+v", adjustments)
+	}
+	if !strings.Contains(string(request.Body()), `"grok-imagine-image-quality"`) {
+		t.Fatalf("retired model was not sent as asked: %s", request.Body())
 	}
 }
 

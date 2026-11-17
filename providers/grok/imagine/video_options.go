@@ -145,8 +145,15 @@ func addVideoOptions(
 ) error {
 	hasRefs := len(options.ReferenceImages) > 0 || options.LastFrame != nil ||
 		len(options.Keyframes) > 0 || len(options.ReferenceVoices) > 0
-	if len(options.ReferenceImages) > 7 {
-		return errors.New("imagine: video accepts at most seven reference images")
+	if len(options.ReferenceImages) > 14 {
+		return errors.New("imagine: video accepts at most 14 reference images")
+	}
+	if input.Model == "grok-imagine-video" && len(options.ReferenceImages) > 7 {
+		return errors.New("imagine: grok-imagine-video accepts at most seven reference images")
+	}
+	if input.Model == "grok-imagine-video" && len(options.ReferenceImages) > 0 &&
+		input.Settings.Duration > 10*time.Second {
+		return errors.New("imagine: grok-imagine-video reference-to-video is limited to 10 seconds")
 	}
 	if len(options.ReferenceVoices) > 3 {
 		return errors.New("imagine: video accepts at most three reference voices")
@@ -155,10 +162,13 @@ func addVideoOptions(
 		return errors.New("imagine: video accepts at most four keyframes")
 	}
 	if (options.LastFrame != nil || len(options.Keyframes) > 0 ||
-		len(options.ReferenceVoices) > 0 ||
-		input.Settings.DisableAudio) &&
+		len(options.ReferenceVoices) > 0) &&
 		!videoModel15(input.Model) {
-		return errors.New("imagine: last frame, keyframes, voices, and audio control require grok-imagine-video-1.5")
+		return errors.New("imagine: last frame, keyframes, and voices require grok-imagine-video-1.5")
+	}
+	if input.Settings.DisableAudio && !videoModel15(input.Model) &&
+		input.Model != videoModelLite {
+		return errors.New("imagine: audio control requires grok-imagine-video-1.5 or grok-imagine-video-1.5-lite")
 	}
 	if input.Model == "grok-imagine-video" && len(input.ReferenceFrames) > 0 &&
 		len(options.ReferenceImages) > 0 {

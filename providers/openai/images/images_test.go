@@ -711,7 +711,7 @@ func TestDecodeImageResponseTreatsNullUsageAsUnreported(t *testing.T) {
 }
 
 func TestNewRejectsModelWithoutImageCapabilities(t *testing.T) {
-	name := "sora-2"
+	name := "video-only-model"
 	_, err := New(Config{
 		APIKey: "test-key",
 		Models: map[string]media.ModelInfo{

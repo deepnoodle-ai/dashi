@@ -150,7 +150,7 @@ func TestImagesMissingKeyFailsAtSend(t *testing.T) {
 		t.Fatalf("New without a key: %v", err)
 	}
 	request, err := client.PrepareImage(t.Context(), media.ImageInput{
-		Model:     "gpt-image-1",
+		Model:     "gpt-image-2.6-flare",
 		Operation: media.ImageGenerate,
 		Prompt:    []content.Block{content.TextBlock("a cat")},
 	})
@@ -239,7 +239,7 @@ func TestProviderKeysNeverReachOtherDestinations(t *testing.T) {
 			t.Fatal(err)
 		}
 		request, err := client.PrepareImage(t.Context(), media.ImageInput{
-			Model:     "gpt-image-1",
+			Model:     "gpt-image-2.6-flare",
 			Operation: media.ImageGenerate,
 			Prompt:    []content.Block{content.TextBlock("a cat")},
 		})
