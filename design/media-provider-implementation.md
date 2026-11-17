@@ -21,7 +21,8 @@ model calls. Current documented routes include:
 
 `VideoInput` names each input's role: `SourceVideo` (edit or extend),
 `FirstFrame`, `LastFrame`, `ReferenceImages`, and `ReferenceVideos`. Omni
-takes them all; Omni edits by resending the source video, not by chaining
+takes each of them, but not frames together with references, which it could
+not tell apart. Omni edits by resending the source video, not by chaining
 interactions ([design note](../docs/design/omni-interaction-chaining.md)).
 Vertex Veo sends only `FirstFrame` so far, though its API has fields for the
 rest. Grok supports scoped Files IDs as inputs and optional

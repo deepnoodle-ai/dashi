@@ -399,15 +399,20 @@ func (p *InteractionsMediaClient) videoPart(b content.Block) (any, error) {
 		}, nil
 	}
 	// A Files API URI, such as a URI-delivered Omni output. Dashi passes
-	// it through and never fetches it. A URI from another provider's
-	// files would not resolve here.
+	// it through and never fetches it. The URI must belong to this
+	// destination and credential, or the request would send another key's
+	// file under this one. Origin.Model is optional and not compared.
 	uri := source.URI
-	if uri != "" && source.Origin.Provider != p.Provider() {
-		return nil, p.failure(
-			media.ErrorUnsupported,
-			"Interactions video URI belongs to provider %q",
-			source.Origin.Provider,
-		)
+	if uri != "" {
+		own := p.origin("")
+		if source.Origin.Provider != own.Provider ||
+			source.Origin.API != own.API ||
+			source.Origin.Scope != own.Scope {
+			return nil, p.failure(
+				media.ErrorUnsupported,
+				"Interactions video URI belongs to another destination",
+			)
+		}
 	}
 	if uri == "" {
 		uri = source.URL

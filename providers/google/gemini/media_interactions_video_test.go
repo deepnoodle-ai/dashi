@@ -326,7 +326,16 @@ func TestOmniEdit(t *testing.T) {
 					Scope:    "scope",
 				},
 			}))
-		}, `provider "other"`},
+		}, "another destination"},
+		{"another key's file", func(in *media.VideoInput) {
+			origin := p.origin(in.Model)
+			origin.Scope = "other-credential"
+			in.SourceVideo = new(content.VideoBlock(content.Source{
+				URI:      "https://example.test/files/abc",
+				MIMEType: "video/mp4",
+				Origin:   origin,
+			}))
+		}, "another destination"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			changed := in.Clone()
