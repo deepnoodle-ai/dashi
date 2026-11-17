@@ -226,7 +226,7 @@ func (p *MediaClient) SendImage(
 			Model:    response.ModelVersion,
 		}
 	}
-	reason, message := response.PromptFeedback.BlockReason, ""
+	reason, message := "", ""
 	for _, candidate := range response.Candidates {
 		if reason == "" && candidate.FinishReason != "STOP" {
 			reason, message = candidate.FinishReason, candidate.FinishMessage
@@ -262,6 +262,14 @@ func (p *MediaClient) SendImage(
 				)
 			}
 		}
+	}
+	if blocked := response.PromptFeedback.BlockReason; blocked != "" &&
+		len(response.Candidates) == 0 {
+		return result, p.failure(
+			media.ErrorProtocol,
+			"no image in Gemini response (prompt blocked: %s)",
+			blocked,
+		)
 	}
 	if err := noImageError(result, reason, message); err != nil {
 		return result, p.failure(media.ErrorProtocol, "%w", err)

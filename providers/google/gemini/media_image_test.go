@@ -29,7 +29,7 @@ func TestImageErrorNamesFinishReason(t *testing.T) {
 		{
 			"blocked prompt",
 			`{"promptFeedback":{"blockReason":"PROHIBITED_CONTENT"}}`,
-			"finish reason PROHIBITED_CONTENT)",
+			"prompt blocked: PROHIBITED_CONTENT)",
 		},
 		{
 			"no reason",
