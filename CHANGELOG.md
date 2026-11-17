@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`gpt-6.2-astra` and `gpt-6.2-sol` in the model catalog,** each with a
+  1,050,000-token context window, 128,000-token output limit, `low` to `max`
+  effort ladder (the API rejects `none` and `minimal`), image, tools,
+  structured output, and a 30-minute cache. Astra costs $8 input, $40 output,
+  $0.40 cache read, and $10 cache write per MTok; Sol costs $2, $10, $0.10,
+  and $2.50. Above 272K input tokens, input and cache rates double and output
+  is 1.5x. The entries note that from GPT-6.2 the API drops reasoning items
+  when earlier history changes, the model is downgraded, or the end user or
+  organization changes.
+
+### Changed
+
+- **`gemini-2.5-pro` and `gemini-2.5-flash` are marked deprecated.** Google
+  deprecated them on 2026-11-02 and, from 2026-12-01, routes their requests
+  to `gemini-3.8-flash` and `gemini-3.5-flash-lite`.
+
 ## [0.21.0] - 2026-11-12
 
 ### Added

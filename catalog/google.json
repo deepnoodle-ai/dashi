@@ -539,7 +539,8 @@
       "apis": [
         "google.generate_content"
       ],
-      "note": "Input $1.25 up to 200K tokens, $2.50 above; output $10.00 up to 200K tokens, $15.00 above. Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries.",
+      "lifecycle": "deprecated",
+      "note": "Deprecated 2026-11-02; API access is limited to existing users, and from the 2026-12-01 shutdown date Google routes API requests for gemini-2.5-pro to gemini-3.8-flash, the replacement, billed at Gemini 3.8 Flash rates. Documented 2026-11-17: https://ai.google.dev/gemini-api/docs/deprecations. Input $1.25 up to 200K tokens, $2.50 above; output $10.00 up to 200K tokens, $15.00 above. Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries.",
       "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
@@ -591,6 +592,7 @@
       "apis": [
         "google.generate_content"
       ],
+      "lifecycle": "deprecated",
       "qualified_at": "2026-09-30",
       "capabilities": {
         "features": {
@@ -632,7 +634,7 @@
           "web_search": "0"
         }
       },
-      "note": "Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries."
+      "note": "Deprecated 2026-11-02; API access is limited to existing users, and from the 2026-12-01 shutdown date Google routes API requests for gemini-2.5-flash to gemini-3.5-flash-lite, the replacement, billed at Gemini 3.5 Flash-Lite rates. Documented 2026-11-17: https://ai.google.dev/gemini-api/docs/deprecations. Public summary request documented 2026-09-30: https://ai.google.dev/gemini-api/docs/generate-content/thinking#thought-summaries."
     },
     {
       "model": "gemini-2.5-flash-lite",

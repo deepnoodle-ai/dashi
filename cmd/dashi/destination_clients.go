@@ -32,7 +32,7 @@ func builtinDestinations() map[string]configuredDestination {
 		{"google", "google.generate_content", "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent", []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
 			[]string{"gemini-4-carbon", "gemini-4-argon", "gemini-4-hydrogen", "gemini-3.5-flash-lite"}},
 		{"openai", responses.API, "https://api.openai.com/v1/responses", []string{"OPENAI_API_KEY"},
-			[]string{"gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna", "gpt-5.5-pro"}},
+			[]string{"gpt-6.2-astra", "gpt-6.2-sol", "gpt-6-luna", "gpt-5.5-pro"}},
 		{"grok", responses.API, grok.DefaultEndpoint, []string{"XAI_API_KEY", "GROK_API_KEY"},
 			[]string{"grok-4.7", "grok-build-0.1"}},
 		{"mistral", completions.API, mistral.DefaultEndpoint, []string{"MISTRAL_API_KEY"},

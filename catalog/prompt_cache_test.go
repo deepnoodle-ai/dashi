@@ -32,6 +32,8 @@ var (
 	// GPT-5.6: one 30-minute lifetime, writes at 1.25x, and a key that
 	// separates accounting.
 	openAIThirtyMinuteCache = []string{
+		"gpt-6.2-astra",
+		"gpt-6.2-sol",
 		"gpt-6-astra",
 		"gpt-6.1-sol",
 		"gpt-6.1-terra",
