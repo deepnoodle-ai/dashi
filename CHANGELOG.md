@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-17
+
 ### Added
 
 - **`gpt-6.2-astra` and `gpt-6.2-sol` in the model catalog,** with `low` to
@@ -32,7 +34,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   and Vertex Veo 2 and 3.0. Retired Grok image models send with a warning.
 - **Gemini image errors name the finish reason,** such as
   `IMAGE_RECITATION`, when no image comes back.
-
 - **`gemini-2.5-pro` and `gemini-2.5-flash` are marked deprecated.** Google
   deprecated them on 2026-11-02 and, from 2026-12-01, routes their requests
   to `gemini-3.8-flash` and `gemini-3.5-flash-lite`.
