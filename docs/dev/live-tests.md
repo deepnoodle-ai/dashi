@@ -234,6 +234,23 @@ DASHI_LIVE_IMAGE_INPUT_TEST=1 GEMINI_MODEL=gemini-2.5-flash \
 The full test makes four paid LLM calls and temporarily uploads one PNG; filter
 a subtest to run one route.
 
+## Gemini thinking levels
+
+Reasoning effort on the Gemini API is sent as `thinkingConfig.thinkingLevel`.
+The check sends each documented level to `gemini-4-hydrogen` (`low` to
+`xhigh`) and `gemini-4-argon` (`low` to `high`), a `thinkingBudget` alone to
+`gemini-4-hydrogen`, and a raw `minimal` level to `gemini-4-hydrogen`, which
+Google documents as an error. It makes nine small paid calls:
+
+```sh
+DASHI_LIVE_THINKING_TEST=1 \
+  go test -tags live ./providers/google/gemini -run '^TestLiveThinkingLevels$' -v
+```
+
+Not yet run: no Gemini key was available when the mapping was added
+(2026-11-17). The ladders and the budget behavior come from Google's thinking
+guide only.
+
 ## Media
 
 Selected Gemini image and video routes were also tested live; see

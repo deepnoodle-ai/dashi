@@ -552,6 +552,55 @@ var claimSources = []claimSource{
 		support: llm.SupportSupported,
 	},
 	{
+		// Same page: "Gemini 2.5 series models don't support
+		// thinkingLevel; use thinkingBudget instead."
+		url:     "https://ai.google.dev/gemini-api/docs/generate-content/thinking",
+		models:  gemini25,
+		feature: llm.FeatureReasoningEffort,
+		support: llm.SupportUnsupported,
+	},
+	{
+		// The "Levels supported" column of the thinkingLevel table:
+		// "gemini-4-hydrogen | On (high) | low, medium, high, xhigh". The
+		// Hydrogen launch notes add that it "rejects minimal with an
+		// error".
+		url:     "https://ai.google.dev/gemini-api/docs/generate-content/thinking",
+		models:  []string{"gemini-4-hydrogen"},
+		feature: llm.FeatureReasoningEffort,
+		support: llm.SupportSupported,
+		efforts: []string{"low", "medium", "high", "xhigh"},
+	},
+	{
+		// Same table: "low, medium, high" for each of these. "minimal" is
+		// "Not supported on Gemini 4 models or gemini-3.8-flash".
+		url: "https://ai.google.dev/gemini-api/docs/generate-content/thinking",
+		models: []string{
+			"gemini-4-carbon",
+			"gemini-4-argon",
+			"gemini-3.8-flash",
+			"gemini-3.1-pro-preview",
+		},
+		feature: llm.FeatureReasoningEffort,
+		support: llm.SupportSupported,
+		efforts: []string{"low", "medium", "high"},
+	},
+	{
+		// Same table: "minimal, low, medium, high" for each of these.
+		// gemini-3.7-flash, gemini-3.5-flash, and
+		// gemini-3.1-pro-preview-customtools have no row, so they stay
+		// unknown.
+		url: "https://ai.google.dev/gemini-api/docs/generate-content/thinking",
+		models: []string{
+			"gemini-3.6-flash",
+			"gemini-3.5-flash-lite",
+			"gemini-3.1-flash-lite",
+			"gemini-3-flash-preview",
+		},
+		feature: llm.FeatureReasoningEffort,
+		support: llm.SupportSupported,
+		efforts: []string{"minimal", "low", "medium", "high"},
+	},
+	{
 		// "Muse Spark is tuned to run at the default of 1.0 and performs
 		// best there".
 		url: "https://dev.meta.ai/docs/protocols/chat-completions",

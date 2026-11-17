@@ -17,6 +17,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   is 1.5x. The entries note that from GPT-6.2 the API drops reasoning items
   when earlier history changes, the model is downgraded, or the end user or
   organization changes.
+- **Reasoning effort on the Gemini API.** `Settings.Reasoning.Effort` is sent
+  as `thinkingConfig.thinkingLevel` instead of failing. The catalog records
+  each documented level ladder: `low` to `xhigh` for `gemini-4-hydrogen`;
+  `low`, `medium`, and `high` for `gemini-4-carbon`, `gemini-4-argon`,
+  `gemini-3.8-flash`, and `gemini-3.1-pro-preview`; and `minimal` to `high`
+  for `gemini-3.6-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`,
+  and `gemini-3-flash-preview`. An effort a model does not list is sent as the
+  nearest listed level with a warning, as on other providers. Gemini 2.5
+  models reject an effort with an error that suggests a reasoning budget, as
+  Google documents. Models without a documented ladder, and models at Vertex
+  or custom endpoints, send the requested level as unverified. A reasoning
+  budget is still sent as `thinkingBudget`, which Gemini 4 maps to a level
+  itself.
 
 ### Changed
 
