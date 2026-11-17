@@ -249,7 +249,9 @@ DASHI_LIVE_THINKING_TEST=1 \
 
 Not yet run: no Gemini key was available when the mapping was added
 (2026-11-17). The ladders and the budget behavior come from Google's thinking
-guide only.
+guide only, and the lowercase level names Dashi sends (`low`, `xhigh`) come
+from its REST examples; the Go SDK spells its enum in capitals and has no
+`xhigh`. Run this check before relying on effort for Gemini.
 
 ## Media
 
