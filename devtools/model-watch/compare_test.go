@@ -82,20 +82,26 @@ func TestSnapshotBase(t *testing.T) {
 
 func TestIsNotText(t *testing.T) {
 	for id, want := range map[string]bool{
-		"gpt-4o-mini-tts":        true,
-		"text-embedding-3-small": true,
-		"omni-moderation-latest": true,
-		"gpt-realtime-mini":      true,
-		"dall-e-3":               true,
-		"mistral-ocr-latest":     true,
-		"imagen-4.0-generate":    true,
-		"grok-imagine-video":     true,
-		"gemini-2.5-flash-image": true,
-		"gpt-5.4":                false,
-		"claude-opus-4-5":        false,
-		"computer-use-preview":   false,
-		"gemini-3-pro-preview":   false,
-		"codestral-latest":       false,
+		"gpt-4o-mini-tts":            true,
+		"text-embedding-3-small":     true,
+		"omni-moderation-latest":     true,
+		"gpt-realtime-mini":          true,
+		"dall-e-3":                   true,
+		"mistral-ocr-latest":         true,
+		"imagen-4.0-generate":        true,
+		"grok-imagine-video":         true,
+		"gemini-2.5-flash-image":     true,
+		"gemini-omni-1.1-flash":      true,
+		"gemini-omni-flash-preview":  true,
+		"omni-moderation-2024-09-26": true,
+		"gpt-4o":                     false, // "o" for omni, but not the word
+		"gpt-4o-mini":                false,
+		"o4-mini":                    false,
+		"gpt-5.4":                    false,
+		"claude-opus-4-5":            false,
+		"computer-use-preview":       false,
+		"gemini-3-pro-preview":       false,
+		"codestral-latest":           false,
 	} {
 		if got := isNotText(listedModel{ID: id}); got != want {
 			t.Errorf("isNotText(%q) = %v, want %v", id, got, want)

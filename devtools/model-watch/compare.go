@@ -86,6 +86,8 @@ var notTextPattern = regexp.MustCompile(`(?i)(^|[-_.])(` + strings.Join([]string
 	"tts", "transcribe", "whisper", "speech", "audio", "realtime", "live", "voxtral",
 	"lyria", "embed", "embedding", "embeddings", "moderation", "ocr", "aqa",
 	"babbage", "davinci", "imagine", "nano-banana", "sam",
+	"omni", // Google's gemini-omni video models; OpenAI's omni-moderation is media anyway
+
 }, "|") + `)([-_.]|\d|$)`)
 
 func isNotText(m listedModel) bool {
