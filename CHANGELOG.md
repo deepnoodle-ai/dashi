@@ -8,28 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- **`gpt-6.2-astra` and `gpt-6.2-sol` in the model catalog,** each with a
-  1,050,000-token context window, 128,000-token output limit, `low` to `max`
-  effort ladder (the API rejects `none` and `minimal`), image, tools,
-  structured output, and a 30-minute cache. Astra costs $8 input, $40 output,
-  $0.40 cache read, and $10 cache write per MTok; Sol costs $2, $10, $0.10,
-  and $2.50. Above 272K input tokens, input and cache rates double and output
-  is 1.5x. The entries note that from GPT-6.2 the API drops reasoning items
-  when earlier history changes, the model is downgraded, or the end user or
-  organization changes.
-- **Reasoning effort on the Gemini API.** `Settings.Reasoning.Effort` is sent
-  as `thinkingConfig.thinkingLevel` instead of failing. The catalog records
-  each documented level ladder: `low` to `xhigh` for `gemini-4-hydrogen`;
-  `low`, `medium`, and `high` for `gemini-4-carbon`, `gemini-4-argon`,
-  `gemini-3.8-flash`, and `gemini-3.1-pro-preview`; and `minimal` to `high`
-  for `gemini-3.6-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`,
-  and `gemini-3-flash-preview`. An effort a model does not list is sent as the
-  nearest listed level with a warning, as on other providers. Gemini 2.5
-  models reject an effort with an error that suggests a reasoning budget, as
-  Google documents. Models without a documented ladder, and models at Vertex
-  or custom endpoints, send the requested level as unverified. A reasoning
-  budget is still sent as `thinkingBudget`, which Gemini 4 maps to a level
-  itself.
+- **`gpt-6.2-astra` and `gpt-6.2-sol` in the model catalog,** with `low` to
+  `max` effort. The API now drops reasoning items when earlier history changes.
+- **Reasoning effort on Gemini,** sent as `thinkingLevel` for models with a
+  documented ladder. Unlisted levels adjust to the nearest one with a warning.
 
 ### Changed
 
