@@ -58,6 +58,53 @@
       }
     },
     {
+      "model": "gemini-4-neon",
+      "apis": [
+        "google.generate_content"
+      ],
+      "note": "Paid tier only. One rate at any prompt length; no scheduled change listed. Implicit caching only; explicit caching is not supported. The 65,536-token output limit applies to synchronous calls; long decode up to 1,048,576 tokens needs background mode, which Dashi does not use. max_output_tokens covers thinking and output. thinking_level accepts low, medium, high (the default), and xhigh, and rejects minimal with an error. thinkingBudget is deprecated: alone it maps to the nearest level with a warning, and with thinkingLevel it returns a 400 (https://ai.google.dev/gemini-api/docs/generate-content/thinking#set-budget). Temperature, top_p, and top_k are ignored when in range and return 400 when out of range. Documented 2026-11-19: https://ai.google.dev/gemini-api/docs/whats-new-gemini-4-neon.",
+      "qualified_at": "2026-11-19",
+      "capabilities": {
+        "features": {
+          "text": "supported",
+          "image": "supported",
+          "document": "supported",
+          "audio": "supported",
+          "tools": "supported",
+          "structured_output": "supported",
+          "max_tokens": "supported",
+          "temperature": "unsupported",
+          "reasoning_effort": "supported"
+        },
+        "max_output_tokens": 65536,
+        "context_window": 1048576,
+        "reasoning_efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ]
+      },
+      "pricing": {
+        "currency": "USD",
+        "updated_at": "2026-11-19",
+        "reference": "https://ai.google.dev/gemini-api/docs/pricing",
+        "base": {
+          "input": "3",
+          "output": "15",
+          "cache_read": "0.15",
+          "cache_write": "3"
+        },
+        "requests": {
+          "code_execution": "0",
+          "file_search": "0",
+          "grounded_prompt": "0",
+          "url_context": "0",
+          "web_search": "0.014"
+        }
+      }
+    },
+    {
       "model": "gemini-4-hydrogen",
       "apis": [
         "google.generate_content"

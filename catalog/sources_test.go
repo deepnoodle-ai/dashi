@@ -535,6 +535,16 @@ var claimSources = []claimSource{
 	},
 	{
 		// "Remove temperature, top_p, and top_k from requests. The server
+		// ignores in-range custom values if sent. Out-of-range values return
+		// a 400 validation error."
+		url: "https://ai.google.dev/gemini-api/docs/" +
+			"whats-new-gemini-4-neon",
+		models:  []string{"gemini-4-neon"},
+		feature: llm.FeatureTemperature,
+		support: llm.SupportUnsupported,
+	},
+	{
+		// "Remove temperature, top_p, and top_k from requests. The server
 		// ignores custom values if sent."
 		url: "https://ai.google.dev/gemini-api/docs/" +
 			"whats-new-gemini-4-hydrogen",
@@ -562,11 +572,11 @@ var claimSources = []claimSource{
 	},
 	{
 		// The "Levels supported" column of the thinkingLevel table:
-		// "gemini-4-hydrogen | On (high) | low, medium, high, xhigh". The
-		// Hydrogen launch notes add that it "rejects minimal with an
-		// error".
+		// "gemini-4-neon | On (high) | low, medium, high, xhigh" and
+		// "gemini-4-hydrogen | On (high) | low, medium, high, xhigh". Both
+		// launch notes add that they reject minimal with an error.
 		url:     "https://ai.google.dev/gemini-api/docs/generate-content/thinking",
-		models:  []string{"gemini-4-hydrogen"},
+		models:  []string{"gemini-4-neon", "gemini-4-hydrogen"},
 		feature: llm.FeatureReasoningEffort,
 		support: llm.SupportSupported,
 		efforts: []string{"low", "medium", "high", "xhigh"},
@@ -849,6 +859,7 @@ var openAIOutputLimits = map[string]int{
 // states in its model details table.
 var googleOutputLimits = map[string]int{
 	"gemini-4-carbon":        65_536,
+	"gemini-4-neon":          65_536,
 	"gemini-4-hydrogen":      65_536,
 	"gemini-4-argon":         65_536,
 	"gemini-3.8-flash":       65_536,
@@ -997,6 +1008,7 @@ var openAIContextWindows = map[string]int{
 // states in its model details table.
 var googleContextWindows = map[string]int{
 	"gemini-4-carbon":        1_048_576,
+	"gemini-4-neon":          1_048_576,
 	"gemini-4-hydrogen":      1_048_576,
 	"gemini-4-argon":         1_048_576,
 	"gemini-3.8-flash":       1_048_576,
@@ -1416,6 +1428,7 @@ var (
 	// requests" at $14 per 1,000.
 	gemini3AndLater = []string{
 		"gemini-4-carbon",
+		"gemini-4-neon",
 		"gemini-4-hydrogen",
 		"gemini-4-argon",
 		"gemini-3.8-flash",
