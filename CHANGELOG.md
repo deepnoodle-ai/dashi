@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-19
+
 ### Added
 
 - **`gemini-4-neon` in the model catalog,** stable, with a 1M window, 65,536
