@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`gemini-4-neon` in the model catalog,** stable, with a 1M window, 65,536
+  synchronous output limit, `low` to `xhigh` effort (default `high`),
+  unsupported temperature, and $3/$15/$0.15 cache read per MTok.
+
+### Changed
+
+- **The CLI features `gemini-4-neon`** for Google in place of `gemini-4-argon`.
+
 ## [0.22.0] - 2026-11-17
 
 ### Added

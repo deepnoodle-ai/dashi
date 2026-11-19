@@ -281,6 +281,19 @@ func TestCatalogEstimatesAreExact(t *testing.T) {
 			total: "0.022",
 		},
 		{
+			// 1000×3 + 500×15 + 10000×0.15 = 12000, plus one search request
+			// at 0.014. One rate applies at any prompt length.
+			provider: "google",
+			model:    "gemini-4-neon",
+			usage: llm.Usage{
+				InputTokens:          1000,
+				OutputTokens:         500,
+				CacheReadInputTokens: 10_000,
+				Requests:             map[string]int{llm.MeterWebSearch: 1},
+			},
+			total: "0.026",
+		},
+		{
 			// 1000×1.5 + 500×7.5 + 10000×0.075 = 6000, plus one search
 			// request at 0.014. One rate applies at any prompt length.
 			provider: "google",

@@ -109,6 +109,12 @@ got unbilled 400s listing `low`, `medium`, `high`, `xhigh`, and `max`, the
 ladder the catalog records. The checks made 12 small paid calls, an estimated
 $0.02 in all.
 
+On 2026-11-19, Gemini API final facts (blocking and streaming), agent turns,
+and structured output passed for `gemini-4-neon`. Two plain calls at efforts
+`low` and `xhigh` both answered and matched the catalog's list-price estimate
+by hand: $0.002571 for 47 input and 162 output tokens (155 thinking) at `low`,
+and $0.002856 for 47 input and 181 output tokens (174 thinking) at `xhigh`.
+
 ## Prompt caching
 
 `TestLivePromptCache` in `./providers` sends two calls with a long shared
