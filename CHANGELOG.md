@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **Meta Muse Image (`muse-image-1.0`) generation and editing** in the new
+  `providers/meta/images` package, with up to 10 edit images (inline,
+  URL, or Meta file ID), WebP/PNG/JPEG output, and typed `Options` for
+  reasoning strength, temperature, built-in planning tools, and end-user ID.
+  Muse reads size only as an aspect ratio, so the prepared request records an
+  adjustment.
+- **Vertex Veo last frames, reference images, and extension**
+  (`gemini.NewVertexVideoJobs`): `LastFrame` with a first frame, up to three
+  `ReferenceImages` (8 s, not on Lite), and `SourceVideo` with
+  `media.VideoExtend`, which adds 7 s. Inputs may be inline bytes or `gs://`
+  URLs, which Vertex reads and Dashi never fetches.
+- **GPT Image 2.6 SVG output** (`OutputMIMEType: "image/svg+xml"`), with the
+  SVG author model and effort in the new `images.Options.SVG`, which SVG
+  output requires. The author's `svg_usage` is kept in `RawUsage`.
+- **Markup-guided editing on GPT Image 2.5 and 2.6** through
+  `images.Options.Markup`, a transparent PNG over the first image.
+- **GIF frame controls** `images.Options.FrameCount` and `FrameDurationMS`.
+
+### Changed
+
+- **`images.Options.Background: "transparent"` now also rejects GIF and SVG
+  output,** not only JPEG.
+
 ## [0.22.0] - 2026-11-17
 
 ### Added

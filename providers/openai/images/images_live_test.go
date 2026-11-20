@@ -4,6 +4,7 @@ package images
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"os"
@@ -17,7 +18,9 @@ import (
 
 // Run with DASHI_LIVE_MEDIA_TEST=1, OPENAI_API_KEY, and OPENAI_IMAGE_MODEL.
 // The test makes one paid low-quality call. OPENAI_IMAGE_FORMAT
-// (png, jpeg, webp, or gif) and OPENAI_IMAGE_COMPLEXITY are optional.
+// (png, jpeg, webp, gif, or svg) and OPENAI_IMAGE_COMPLEXITY are optional.
+// SVG output uses OPENAI_SVG_MODEL (default gpt-5.4-mini) and
+// OPENAI_SVG_EFFORT as its author.
 func TestLiveImageGeneration(t *testing.T) {
 	if os.Getenv("DASHI_LIVE_MEDIA_TEST") != "1" {
 		t.Skip("set DASHI_LIVE_MEDIA_TEST=1 to make paid image calls")
@@ -41,10 +44,20 @@ func TestLiveImageGeneration(t *testing.T) {
 			Quality: "low",
 		},
 	}
-	if format := os.Getenv("OPENAI_IMAGE_FORMAT"); format != "" {
+	switch format := os.Getenv("OPENAI_IMAGE_FORMAT"); format {
+	case "":
+	case "svg":
+		input.Settings.OutputMIMEType = "image/svg+xml"
+	default:
 		input.Settings.OutputMIMEType = "image/" + format
 	}
 	options := Options{Complexity: os.Getenv("OPENAI_IMAGE_COMPLEXITY")}
+	if input.Settings.OutputMIMEType == "image/svg+xml" {
+		options.SVG = &SVGOptions{
+			Model:           cmp.Or(os.Getenv("OPENAI_SVG_MODEL"), "gpt-5.4-mini"),
+			ReasoningEffort: os.Getenv("OPENAI_SVG_EFFORT"),
+		}
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
 	request, err := client.PrepareImageWithOptions(ctx, input, options)

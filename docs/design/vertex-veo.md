@@ -105,15 +105,28 @@ comes from the configuration, so a name cannot send the token elsewhere.
 
 The body sends `sampleCount: 1` (one video, one charge), `generateAudio:
 !DisableAudio`, and `durationSeconds`,
-`resolution`, `aspectRatio`, and one inline JPEG or PNG first frame only
-when set. `PrepareVideo` rejects, with `ErrorUnsupported` and a message
-naming the value: an operation other than generate, `Size`, a last
-frame, reference images or videos, aspect ratios other than 16:9 and 9:16, durations other than 4, 6,
-or 8 s, resolutions other than 720p, 1080p, and 4k, and the `veo-2.` and
-`veo-3.0-` models Google retired on 2026-06-30. It does not apply
-the Gemini API rule "1080p and 4k need 8 s". Then the model info check runs.
+`resolution`, `aspectRatio`, and the inputs below only when set.
+`PrepareVideo` rejects, with `ErrorUnsupported` and a message naming the
+value: the edit operation, `Size`, reference videos, aspect ratios other
+than 16:9 and 9:16, durations other than 4, 6, or 8 s, resolutions other
+than 720p, 1080p, and 4k, and the `veo-2.` and `veo-3.0-` models Google
+retired on 2026-06-30. It does not apply the Gemini API rule "1080p and 4k
+need 8 s". Then the model info check runs.
 
-| Model | Resolutions | Frames | Evidence |
+**Inputs (added 2026-11-17).** Following the `VideoGenerationModelInstance`
+reference, `FirstFrame` is `image`, `LastFrame` is `lastFrame` (it needs a
+first frame), `ReferenceImages` are up to three `referenceImages` of type
+`asset` (they need a prompt and exclude frames; 8 s only; not on Lite), and
+extend's `SourceVideo` is `video` (MP4, 1 to 30 s when the caller records
+its length). Each is inline bytes (`bytesBase64Encoded`) or a `gs://` URL
+with a MIME type (`gcsUri`); other URLs are refused, and Dashi fetches
+nothing. Images are PNG or JPEG up to 20 MB. Extension adds a fixed 7 s,
+and the docs send no `durationSeconds`, so Dashi refuses `Duration` and
+`AspectRatio` on extend. Style references are not sent, because
+`VideoInput` cannot mark one. These inputs are covered by contract tests
+only.
+
+| Model | Resolutions | Frames, extend | Evidence |
 | --- | --- | --- | --- |
 | `veo-3.1-generate-001` | 720p, 1080p, 4k | supported | documentation |
 | `veo-3.1-fast-generate-001` | 720p, 1080p, 4k | supported | inference; 4k untested |

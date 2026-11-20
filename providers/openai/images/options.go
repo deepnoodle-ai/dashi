@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/media"
 )
 
@@ -18,12 +19,51 @@ type Options struct {
 	// Complexity is "low", "medium", or "high" and sets how much detail
 	// GPT Image 2.6 plans into the image. OpenAI defaults to high.
 	Complexity string `json:"complexity,omitempty"`
+	// FrameCount is the number of GIF frames, 2 to 16 (OpenAI default 9).
+	// It requires GIF output.
+	FrameCount *int `json:"frame_count,omitempty"`
+	// FrameDurationMS is how long each GIF frame shows, at least 20 ms
+	// (OpenAI default 200). It requires GIF output.
+	FrameDurationMS *int `json:"frame_duration_ms,omitempty"`
+	// SVG chooses the model that writes SVG output and its reasoning effort.
+	// SVG output requires it, and it requires SVG output.
+	SVG *SVGOptions `json:"svg,omitempty"`
+	// Markup is a transparent PNG drawn over the first reference image to
+	// show where and how to edit it. It must match that image's size, is
+	// for edits only, and cannot be combined with a mask.
+	Markup *content.Block `json:"markup,omitempty"`
+}
+
+// SVGOptions selects how OpenAI authors SVG output. The image model in the
+// request still renders the reference image the SVG is drawn from.
+type SVGOptions struct {
+	// Model names the model that writes the SVG, such as gpt-5.5.
+	Model string `json:"model"`
+	// ReasoningEffort is "none", "minimal", "low", "medium", "high",
+	// "xhigh", or "max". Empty uses the author model's default.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 func (o Options) clone() Options {
 	if o.OutputCompression != nil {
 		value := *o.OutputCompression
 		o.OutputCompression = &value
+	}
+	if o.FrameCount != nil {
+		value := *o.FrameCount
+		o.FrameCount = &value
+	}
+	if o.FrameDurationMS != nil {
+		value := *o.FrameDurationMS
+		o.FrameDurationMS = &value
+	}
+	if o.SVG != nil {
+		value := *o.SVG
+		o.SVG = &value
+	}
+	if o.Markup != nil {
+		value := o.Markup.Clone()
+		o.Markup = &value
 	}
 	return o
 }
@@ -34,7 +74,9 @@ func (o Options) fields(input media.ImageInput) (map[string]any, error) {
 	case "":
 	case "auto", "opaque", "transparent":
 		if o.Background == "transparent" &&
-			input.Settings.OutputMIMEType == "image/jpeg" {
+			input.Settings.OutputMIMEType != "" &&
+			input.Settings.OutputMIMEType != "image/png" &&
+			input.Settings.OutputMIMEType != "image/webp" {
 			return nil, errors.New("images: transparent background requires PNG or WebP output")
 		}
 		fields["background"] = o.Background
@@ -92,5 +134,98 @@ func (o Options) fields(input media.ImageInput) (map[string]any, error) {
 		}
 		fields["output_compression"] = *o.OutputCompression
 	}
+	if err := o.gifFields(input, fields); err != nil {
+		return nil, err
+	}
+	if err := o.svgFields(input, fields); err != nil {
+		return nil, err
+	}
+	if err := o.markupFields(input, fields); err != nil {
+		return nil, err
+	}
 	return fields, nil
+}
+
+func (o Options) gifFields(input media.ImageInput, fields map[string]any) error {
+	gif := input.Settings.OutputMIMEType == "image/gif"
+	if o.FrameCount != nil {
+		if !gif {
+			return errors.New("images: frame count requires GIF output")
+		}
+		if *o.FrameCount < 2 || *o.FrameCount > 16 {
+			return errors.New("images: frame count must be between 2 and 16")
+		}
+		fields["frame_count"] = *o.FrameCount
+	}
+	if o.FrameDurationMS != nil {
+		if !gif {
+			return errors.New("images: frame duration requires GIF output")
+		}
+		if *o.FrameDurationMS < 20 {
+			return errors.New("images: frame duration must be at least 20 ms")
+		}
+		fields["frame_duration_ms"] = *o.FrameDurationMS
+	}
+	return nil
+}
+
+func (o Options) svgFields(input media.ImageInput, fields map[string]any) error {
+	svgOutput := input.Settings.OutputMIMEType == svgMIMEType
+	if o.SVG == nil {
+		if svgOutput {
+			// The API answers missing_required_parameter for svg.model.
+			return errors.New("images: SVG output requires SVG options with an author model")
+		}
+		return nil
+	}
+	if !svgOutput {
+		return errors.New("images: SVG options require SVG output")
+	}
+	if o.SVG.Model == "" {
+		return errors.New("images: SVG options require an author model")
+	}
+	svg := map[string]any{"model": o.SVG.Model}
+	switch o.SVG.ReasoningEffort {
+	case "":
+	case "none", "minimal", "low", "medium", "high", "xhigh", "max":
+		svg["reasoning"] = map[string]any{"effort": o.SVG.ReasoningEffort}
+	default:
+		return fmt.Errorf(
+			"images: unsupported SVG reasoning effort %q",
+			o.SVG.ReasoningEffort,
+		)
+	}
+	fields["svg"] = svg
+	return nil
+}
+
+func (o Options) markupFields(input media.ImageInput, fields map[string]any) error {
+	if o.Markup == nil {
+		return nil
+	}
+	if input.Operation != media.ImageEdit {
+		return errors.New("images: markup requires an image edit")
+	}
+	if input.Mask != nil {
+		return errors.New("images: markup cannot be combined with a mask")
+	}
+	if known, ok := gptImageModels[input.Model]; ok && !known.markup {
+		return errors.New("images: markup requires GPT Image 2.5 or 2.6")
+	}
+	if o.Markup.Kind != content.KindImage || o.Markup.Image == nil {
+		return errors.New("images: markup must be an image block")
+	}
+	if o.Markup.Image.Detail != "" {
+		return errors.New("images: markup does not accept image detail")
+	}
+	source := o.Markup.Image.Source.WithDetectedMIMEType("")
+	if source.MIMEType != "" && source.MIMEType != "image/png" {
+		return errors.New("images: markup must be a transparent PNG")
+	}
+	ref, err := jsonReference(*o.Markup)
+	if err != nil {
+		return err
+	}
+	fields["markup"] = ref
+	return nil
 }

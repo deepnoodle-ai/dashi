@@ -67,7 +67,10 @@ func encodeImage(input media.ImageInput, prompt string,
 		len(input.ReferenceImages) > maxReferenceCount {
 		return nil, "", errors.New("images: at most 16 reference images are supported")
 	}
-	if allInline(input.ReferenceImages, input.Mask) {
+	// markup and svg are objects, which only the JSON body can carry.
+	_, markup := fields["markup"]
+	_, svg := fields["svg"]
+	if !markup && !svg && allInline(input.ReferenceImages, input.Mask) {
 		return encodeMultipart(fields, input.ReferenceImages, input.Mask)
 	}
 	refs := make([]map[string]string, 0, len(input.ReferenceImages))
@@ -174,6 +177,11 @@ func imageFields(
 				return nil, errors.New("images: GIF output does not accept a mask")
 			}
 		}
+		if format == "svg" {
+			if err := validateSVG(input); err != nil {
+				return nil, err
+			}
+		}
 		fields["output_format"] = format
 	}
 	return fields, nil
@@ -218,8 +226,28 @@ func outputFormat(mimeType string) (string, error) {
 		return "webp", nil
 	case "image/gif":
 		return "gif", nil
+	case svgMIMEType:
+		return "svg", nil
 	}
 	return "", fmt.Errorf("images: unsupported output MIME type %q", mimeType)
+}
+
+const svgMIMEType = "image/svg+xml"
+
+// validateSVG applies OpenAI's SVG rules: one image and no mask. The guide
+// says generations only, but the Images API reference lists SVG on edits and
+// a live 2.6 edit returned SVG on 2026-11-17, so edits are allowed.
+func validateSVG(input media.ImageInput) error {
+	if known, ok := gptImageModels[input.Model]; ok && !known.svg {
+		return errors.New("images: SVG output requires GPT Image 2.6")
+	}
+	if input.Settings.Count > 1 {
+		return errors.New("images: SVG output requires a count of one")
+	}
+	if input.Mask != nil {
+		return errors.New("images: SVG output does not accept a mask")
+	}
+	return nil
 }
 
 func allInline(refs []content.Block, mask *content.Block) bool {
@@ -246,6 +274,8 @@ func encodeMultipart(fields map[string]any, refs []content.Block,
 		"input_fidelity",
 		"output_compression",
 		"complexity",
+		"frame_count",
+		"frame_duration_ms",
 	} {
 		if value, ok := fields[key]; ok {
 			keys = append(keys, key)
@@ -401,17 +431,23 @@ type gptImageModel struct {
 	complexity bool
 	// gif accepts GIF output.
 	gif bool
+	// svg accepts SVG output.
+	svg bool
+	// markup accepts a markup overlay on edits.
+	markup bool
 }
 
 var (
 	image1Fixed = gptImageModel{fixedSizes: true}
 	image2      = gptImageModel{flexibleSize: true, fidelity: "fixed"}
-	image25     = gptImageModel{flexibleSize: true, topQuality: true}
+	image25     = gptImageModel{flexibleSize: true, topQuality: true, markup: true}
 	image26     = gptImageModel{
 		flexibleSize: true,
 		topQuality:   true,
 		complexity:   true,
 		gif:          true,
+		svg:          true,
+		markup:       true,
 	}
 )
 

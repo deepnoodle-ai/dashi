@@ -285,6 +285,13 @@ func TestVertexVideoBuiltInModels(t *testing.T) {
 		}
 	}
 	fast, _ := p.VideoModelInfo("veo-3.1-fast-generate-001")
+	lite, _ := p.VideoModelInfo("veo-3.1-lite-generate-001")
+	if fast.Video.Extend != model.SupportSupported ||
+		fast.Video.LastFrame != model.SupportSupported ||
+		lite.Video.Extend != model.SupportUnknown ||
+		lite.Video.LastFrame != model.SupportUnknown {
+		t.Fatalf("extend and last frame: fast %+v, lite %+v", fast.Video, lite.Video)
+	}
 	if !strings.Contains(fast.Evidence.Source, "untested") {
 		t.Fatalf("Fast 4k is not marked untested: %q", fast.Evidence.Source)
 	}
@@ -330,6 +337,55 @@ func TestVertexVideoRequestBody(t *testing.T) {
 			`{"instances":[{"image":{"bytesBase64Encoded":"cG5n","mimeType":"image/png"}}],"parameters":{"generateAudio":true,"sampleCount":1}}`,
 		},
 		{
+			"first and last frames",
+			media.VideoInput{
+				Model:      "veo-3.1-generate-001",
+				Prompt:     []content.Block{content.TextBlock("A cup turns")},
+				FirstFrame: &frame,
+				LastFrame: new(content.ImageBlock(content.Source{
+					URL: "gs://bucket/last.jpg", MIMEType: "image/jpeg",
+				})),
+			},
+			`{"instances":[{"image":{"bytesBase64Encoded":"cG5n","mimeType":"image/png"},"lastFrame":{"gcsUri":"gs://bucket/last.jpg","mimeType":"image/jpeg"},"prompt":"A cup turns"}],"parameters":{"generateAudio":true,"sampleCount":1}}`,
+		},
+		{
+			"reference images",
+			media.VideoInput{
+				Model:  "veo-3.1-fast-generate-001",
+				Prompt: []content.Block{content.TextBlock("The mug on a desk")},
+				ReferenceImages: []content.Block{
+					frame,
+					content.ImageBlock(content.Source{URL: "gs://bucket/mug.png", MIMEType: "image/png"}),
+				},
+				Settings: media.VideoSettings{Duration: 8 * time.Second},
+			},
+			`{"instances":[{"prompt":"The mug on a desk","referenceImages":[{"image":{"bytesBase64Encoded":"cG5n","mimeType":"image/png"},"referenceType":"asset"},{"image":{"gcsUri":"gs://bucket/mug.png","mimeType":"image/png"},"referenceType":"asset"}]}],"parameters":{"durationSeconds":8,"generateAudio":true,"sampleCount":1}}`,
+		},
+		{
+			"extend inline",
+			media.VideoInput{
+				Model:     "veo-3.1-generate-001",
+				Operation: media.VideoExtend,
+				Prompt:    []content.Block{content.TextBlock("The cup keeps turning")},
+				SourceVideo: new(content.VideoBlock(content.Source{
+					Data: []byte("mp4"), MIMEType: "video/mp4",
+				})),
+				Settings: media.VideoSettings{Resolution: "1080p"},
+			},
+			`{"instances":[{"prompt":"The cup keeps turning","video":{"bytesBase64Encoded":"bXA0","mimeType":"video/mp4"}}],"parameters":{"generateAudio":true,"resolution":"1080p","sampleCount":1}}`,
+		},
+		{
+			"extend Cloud Storage without prompt",
+			media.VideoInput{
+				Model:     "veo-3.1-fast-generate-001",
+				Operation: media.VideoExtend,
+				SourceVideo: new(content.VideoBlock(content.Source{
+					URL: "gs://bucket/in.mp4", MIMEType: "video/mp4",
+				})),
+			},
+			`{"instances":[{"video":{"gcsUri":"gs://bucket/in.mp4","mimeType":"video/mp4"}}],"parameters":{"generateAudio":true,"sampleCount":1}}`,
+		},
+		{
 			// Dashi leaves the Gemini API's 8 s rule for high resolution
 			// to Vertex.
 			"4 s at 1080p",
@@ -361,6 +417,13 @@ func TestVertexVideoPrepareRejects(t *testing.T) {
 	defer server.Close()
 	p := newVertexFixture(t, server)
 	png := content.ImageBlock(content.Source{Data: []byte("png"), MIMEType: "image/png"})
+	mp4 := content.VideoBlock(content.Source{Data: []byte("mp4"), MIMEType: "video/mp4"})
+	extendInput := func(settings media.VideoSettings) media.VideoInput {
+		in := vertexInput(settings)
+		in.Operation = media.VideoExtend
+		in.SourceVideo = new(mp4)
+		return in
+	}
 	for _, tc := range []struct {
 		name  string
 		input media.VideoInput
@@ -374,11 +437,79 @@ func TestVertexVideoPrepareRejects(t *testing.T) {
 		{"exact size", vertexInput(media.VideoSettings{
 			Size: media.Size{Width: 640, Height: 480},
 		}), "640x480"},
-		{"last frame", func() media.VideoInput {
+		{"last frame alone", func() media.VideoInput {
 			in := vertexInput(media.VideoSettings{})
 			in.LastFrame = &png
 			return in
-		}(), "only a first frame"},
+		}(), "requires a first frame"},
+		{"URL last frame", func() media.VideoInput {
+			in := vertexInput(media.VideoSettings{})
+			in.FirstFrame = &png
+			in.LastFrame = new(content.ImageBlock(content.Source{URL: "https://example.test/l.png"}))
+			return in
+		}(), "last frame requires inline bytes or a gs:// URL"},
+		{"gs:// frame without MIME type", func() media.VideoInput {
+			in := vertexInput(media.VideoSettings{})
+			in.FirstFrame = new(content.ImageBlock(content.Source{URL: "gs://bucket/f"}))
+			return in
+		}(), "requires MIME type"},
+		{"gs:// bucket only", func() media.VideoInput {
+			in := vertexInput(media.VideoSettings{})
+			in.FirstFrame = new(content.ImageBlock(content.Source{URL: "gs://bucket/", MIMEType: "image/png"}))
+			return in
+		}(), "gs:// URL"},
+		{"reference videos", func() media.VideoInput {
+			in := vertexInput(media.VideoSettings{})
+			in.ReferenceVideos = []content.Block{mp4}
+			return in
+		}(), "reference videos"},
+		{"four reference images", func() media.VideoInput {
+			in := vertexInput(media.VideoSettings{})
+			in.ReferenceImages = []content.Block{png, png, png, png}
+			return in
+		}(), "at most 3"},
+		{"reference images with frame", func() media.VideoInput {
+			in := vertexInput(media.VideoSettings{})
+			in.FirstFrame = &png
+			in.ReferenceImages = []content.Block{png}
+			return in
+		}(), "cannot combine"},
+		{"reference images at 4 s", func() media.VideoInput {
+			in := vertexInput(media.VideoSettings{Duration: 4 * time.Second})
+			in.ReferenceImages = []content.Block{png}
+			return in
+		}(), "8 s videos"},
+		{"reference images without prompt", media.VideoInput{
+			Model:           "veo-3.1-fast-generate-001",
+			ReferenceImages: []content.Block{png},
+		}, "require a nonempty text prompt"},
+		{"Lite reference images", media.VideoInput{
+			Model:           "veo-3.1-lite-generate-001",
+			Prompt:          []content.Block{content.TextBlock("A cup")},
+			ReferenceImages: []content.Block{png},
+		}, "does not take reference images"},
+		{"extend without source", func() media.VideoInput {
+			in := vertexInput(media.VideoSettings{})
+			in.Operation = media.VideoExtend
+			return in
+		}(), "requires SourceVideo"},
+		{"extend with frame", func() media.VideoInput {
+			in := extendInput(media.VideoSettings{})
+			in.FirstFrame = &png
+			return in
+		}(), "only a source video"},
+		{"extend duration", extendInput(media.VideoSettings{Duration: 8 * time.Second}), "7 s"},
+		{"extend aspect ratio", extendInput(media.VideoSettings{AspectRatio: "9:16"}), "source aspect ratio"},
+		{"extend 31 s source", func() media.VideoInput {
+			in := extendInput(media.VideoSettings{})
+			in.SourceVideo.Video.Duration = 31 * time.Second
+			return in
+		}(), "1 to 30 s"},
+		{"extend MOV source", func() media.VideoInput {
+			in := extendInput(media.VideoSettings{})
+			in.SourceVideo = new(content.VideoBlock(content.Source{Data: []byte("mov"), MIMEType: "video/quicktime"}))
+			return in
+		}(), "video/mp4"},
 		{"square", vertexInput(media.VideoSettings{AspectRatio: "1:1"}), `"1:1"`},
 		{"5 s", vertexInput(media.VideoSettings{Duration: 5 * time.Second}), "5s"},
 		{"480p", vertexInput(media.VideoSettings{Resolution: "480p"}), `"480p"`},
@@ -396,7 +527,7 @@ func TestVertexVideoPrepareRejects(t *testing.T) {
 			in := vertexInput(media.VideoSettings{})
 			in.FirstFrame = new(content.ImageBlock(content.Source{Data: []byte("gif"), MIMEType: "image/gif"}))
 			return in
-		}(), "PNG or JPEG"},
+		}(), "image/png or image/jpeg"},
 		{"empty prompt", media.VideoInput{
 			Model:  "veo-3.1-fast-generate-001",
 			Prompt: []content.Block{content.TextBlock("  ")},

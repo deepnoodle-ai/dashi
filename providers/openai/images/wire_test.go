@@ -2,6 +2,7 @@ package images
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -105,5 +106,112 @@ func TestGIFOutputRequiresGPTImage26(t *testing.T) {
 	edit.Mask = &mask
 	if _, err := imageFields(edit, "a spinning top"); err == nil {
 		t.Fatal("GIF output accepted a mask")
+	}
+}
+
+func TestSVGOutputRules(t *testing.T) {
+	input := imageInput(media.ImageGenerate)
+	input.Model = "gpt-image-2.6-flare"
+	input.Settings.OutputMIMEType = "image/svg+xml"
+	input.Settings.Count = 1
+	fields, err := imageFields(input, "a logo")
+	if err != nil || fields["output_format"] != "svg" {
+		t.Fatalf("SVG generation: %#v, %v", fields, err)
+	}
+	input.Settings.Count = 2
+	if _, err := imageFields(input, "a logo"); err == nil {
+		t.Error("SVG output accepted a count of two")
+	}
+	input.Settings.Count = 1
+	input.Model = "gpt-image-2.5-flare"
+	if _, err := imageFields(input, "a logo"); err == nil {
+		t.Error("GPT Image 2.5 accepted SVG output")
+	}
+	input.Model = "future-image-model"
+	if _, err := imageFields(input, "a logo"); err != nil {
+		t.Errorf("unknown model SVG output was rejected: %v", err)
+	}
+	edit := imageInput(media.ImageEdit)
+	edit.Model = "gpt-image-2.6-flare"
+	edit.Settings.OutputMIMEType = "image/svg+xml"
+	edit.ReferenceImages = []content.Block{
+		content.ImageBlock(content.Source{Data: tinyPNG, MIMEType: "image/png"}),
+	}
+	if _, err := imageFields(edit, "a logo"); err != nil {
+		t.Errorf("GPT Image 2.6 SVG edit: %v", err)
+	}
+	mask := content.ImageBlock(content.Source{Data: tinyPNG, MIMEType: "image/png"})
+	edit.Mask = &mask
+	if _, err := imageFields(edit, "a logo"); err == nil {
+		t.Error("SVG edit accepted a mask")
+	}
+	compression := 50
+	if _, err := (Options{OutputCompression: &compression}).fields(input); err == nil {
+		t.Error("SVG output accepted output compression")
+	}
+}
+
+func TestMarkupEditUsesJSONBody(t *testing.T) {
+	client, err := New(Config{
+		APIKey:           "test",
+		CapabilityPolicy: model.CapabilityAdjust,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := imageInput(media.ImageEdit)
+	input.Model = "gpt-image-2.6-sunburst"
+	input.ReferenceImages = []content.Block{
+		content.ImageBlock(content.Source{Data: tinyPNG, MIMEType: "image/png"}),
+	}
+	markup := content.ImageBlock(content.Source{Data: tinyPNG, MIMEType: "image/png"})
+	request, err := client.PrepareImageWithOptions(
+		t.Context(),
+		input,
+		Options{Markup: &markup},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.ContentType() != "application/json" {
+		t.Fatalf("content type %q", request.ContentType())
+	}
+	var body struct {
+		Images []map[string]string `json:"images"`
+		Markup map[string]string   `json:"markup"`
+	}
+	if err := json.Unmarshal(request.Body(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Images) != 1 ||
+		!strings.HasPrefix(body.Markup["image_url"], "data:image/png;base64,") {
+		t.Fatalf("markup body: %s", request.Body())
+	}
+}
+
+func TestSVGGenerationBody(t *testing.T) {
+	client, err := New(Config{
+		APIKey:           "test",
+		CapabilityPolicy: model.CapabilityAdjust,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := imageInput(media.ImageGenerate)
+	input.Model = "gpt-image-2.6-flare"
+	input.Settings.OutputMIMEType = "image/svg+xml"
+	request, err := client.PrepareImageWithOptions(
+		t.Context(),
+		input,
+		Options{SVG: &SVGOptions{Model: "gpt-5.5", ReasoningEffort: "minimal"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `"svg":{"model":"gpt-5.5","reasoning":{"effort":"minimal"}}`
+	if !strings.Contains(string(request.Body()), want) ||
+		!strings.Contains(string(request.Body()), `"output_format":"svg"`) ||
+		!strings.Contains(string(request.Body()), `"n":1`) {
+		t.Fatalf("SVG body: %s", request.Body())
 	}
 }

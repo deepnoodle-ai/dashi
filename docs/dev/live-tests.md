@@ -264,7 +264,8 @@ media tests use `-tags live` with `DASHI_LIVE_MEDIA_TEST=1` and
 `GEMINI_VIDEO_MODEL`/`GEMINI_OMNI_MODEL`. Filter one test to control paid
 calls. `TestLiveImageGeneration` in `providers/openai/images` and
 `providers/grok/imagine` makes one call with `OPENAI_IMAGE_MODEL` or
-`XAI_IMAGE_MODEL`.
+`XAI_IMAGE_MODEL`; in `providers/meta/images` it generates and then edits
+with `muse-image-1.0`.
 
 On 2026-11-17 (about $0.26 in total), each call returned one image:
 
@@ -279,6 +280,11 @@ On 2026-11-17 (about $0.26 in total), each call returned one image:
 GIF frames share one sheet: 1024x1024 GIF output fails with "No supported
 sheet fits 9 GIF frames". No video calls were made.
 
+Later on 2026-11-17, `muse-image-1.0` with low reasoning strength generated a
+16:9 PNG (2048x1152, 7 s) and edited it into a JPEG (2096x1184, 12 s), at
+$0.01 per image. Meta reports token usage (about 4,000 input and 450 output
+tokens per call) but bills per image.
+
 Later on 2026-11-17, three `gemini-omni-1.2-flash` calls at 360p, 16:9, and
 3 s (the cheapest settings) each returned an MP4 and reported 5,793 video
 output tokens, about $0.075 each and $0.23 in total:
@@ -291,6 +297,13 @@ output tokens, about $0.075 each and $0.23 in total:
 
 Usage also reports 389 to 715 thinking tokens per call, which Google bills
 as text output.
+
+Also on 2026-11-17, `gpt-image-2.6-flare` with `OPENAI_IMAGE_FORMAT=svg`,
+low quality, 1024x1024, and `gpt-5.4-mini` at low effort as the SVG author
+returned 4,570 bytes of SVG: 824 image output tokens plus `svg_usage` of
+3,508 author tokens. Without `svg.model` the API answers
+`missing_required_parameter`. A direct JSON edit request with SVG output on
+the same model also returned SVG, so Dashi allows SVG edits.
 
 ## Coding tools
 

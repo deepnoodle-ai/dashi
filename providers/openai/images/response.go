@@ -1,12 +1,14 @@
 package images
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"unicode/utf8"
 
 	"github.com/deepnoodle-ai/dashi/content"
 	"github.com/deepnoodle-ai/dashi/media"
@@ -16,6 +18,7 @@ import (
 type imageResponse struct {
 	OutputFormat string          `json:"output_format"`
 	Usage        json.RawMessage `json:"usage"`
+	SVGUsage     json.RawMessage `json:"svg_usage"`
 	Data         []struct {
 		Base64 string `json:"b64_json"`
 		URL    string `json:"url"`
@@ -53,12 +56,35 @@ func decodeImageResponse(raw []byte, input media.ImageInput,
 		},
 		API:        API,
 		ResponseID: responseID,
-		RawUsage:   media.ReportedUsage(response.Usage),
 	}
+	usage, err := rawUsage(response.Usage, response.SVGUsage)
+	if err != nil {
+		return media.Result{}, err
+	}
+	result.RawUsage = usage
 	if err := result.Validate(); err != nil {
 		return media.Result{}, err
 	}
 	return result, nil
+}
+
+// rawUsage keeps the response's usage object. SVG output also reports the
+// SVG author's tokens in a separate svg_usage object, which is added to the
+// raw usage under the same key so neither bill is lost.
+func rawUsage(usage, svgUsage json.RawMessage) (json.RawMessage, error) {
+	usage = media.ReportedUsage(usage)
+	svgUsage = media.ReportedUsage(svgUsage)
+	if svgUsage == nil {
+		return usage, nil
+	}
+	fields := map[string]json.RawMessage{}
+	if usage != nil {
+		if err := json.Unmarshal(usage, &fields); err != nil {
+			return nil, fmt.Errorf("images: invalid usage object: %w", err)
+		}
+	}
+	fields["svg_usage"] = svgUsage
+	return json.Marshal(fields)
 }
 
 func decodeImageSource(encoded, imageURL, outputFormat,
@@ -76,6 +102,12 @@ func decodeImageSource(encoded, imageURL, outputFormat,
 		data, err := base64.StdEncoding.DecodeString(encoded)
 		if err != nil || len(data) == 0 {
 			return content.Source{}, errors.New("images: invalid base64 image data")
+		}
+		if mimeType == svgMIMEType {
+			if !looksLikeSVG(data) {
+				return content.Source{}, errors.New("images: SVG response is not SVG text")
+			}
+			return content.Source{Data: data, MIMEType: mimeType}, nil
 		}
 		detected := http.DetectContentType(data)
 		if !supportedInputMIME(detected) && detected != "image/gif" {
@@ -118,6 +150,14 @@ func formatMIME(format string) (string, error) {
 		return "image/webp", nil
 	case "gif":
 		return "image/gif", nil
+	case "svg":
+		return svgMIMEType, nil
 	}
 	return "", fmt.Errorf("images: unsupported response format %q", format)
+}
+
+// looksLikeSVG checks that SVG output is UTF-8 text with an svg element.
+// Content sniffing calls SVG text/xml, so it cannot confirm the format.
+func looksLikeSVG(data []byte) bool {
+	return utf8.Valid(data) && bytes.Contains(data, []byte("<svg"))
 }

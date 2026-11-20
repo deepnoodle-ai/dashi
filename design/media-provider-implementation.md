@@ -15,8 +15,9 @@ model calls. Current documented routes include:
 
 | Provider | Image | Video |
 | --- | --- | --- |
-| OpenAI | [Images API](https://developers.openai.com/api/docs/guides/image-generation) with GPT Image 2.6 Sunburst/Flare (GIF output, `Complexity`) and earlier GPT Image models; Responses image generation provider tool | [Videos API shut down](https://developers.openai.com/api/docs/deprecations) September 24, 2026 |
+| OpenAI | [Images API](https://developers.openai.com/api/docs/guides/image-generation) with GPT Image 2.6 Sunburst/Flare (GIF and SVG output, `Complexity`), markup-guided edits on 2.5 and 2.6, and earlier GPT Image models; Responses image generation provider tool | [Videos API shut down](https://developers.openai.com/api/docs/deprecations) September 24, 2026 |
 | Grok | [Imagine 2.0](https://docs.x.ai/developers/model-capabilities/images/generation) and 1.0 generate/edit; Responses [image generation provider tool](https://docs.x.ai/developers/tools/image-generation) | [Imagine Video 1.5, 1.5 Lite, and classic](https://docs.x.ai/developers/model-capabilities/video/generation) generation, edit, and extension jobs |
+| Meta | [Muse Image 1.0](https://dev.meta.ai/docs/image-generation) generate and edit (up to 10 images, no mask); size sets only the aspect ratio | None served |
 | Gemini | [Nano Banana](https://aistudio.google.com/docs/image-generation), including Nano Banana 2.1, via Interactions, plus GenerateContent; Imagen shut down 2026-08-17 | [Omni 1.2 Flash](https://aistudio.google.com/docs/omni) inline calls and URI-delivered jobs, 3 to 15 s, with first and last frames, reference images and videos, edit, and extension; [Veo 3.1 on Vertex AI](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/veo/3-1-generate) jobs (`NewVertexVideoJobs`); the Gemini API serves no Veo model since 2026-10-22 |
 
 `VideoInput` names each input's role: `SourceVideo` (edit or extend),
@@ -24,8 +25,10 @@ model calls. Current documented routes include:
 takes each of them, but not frames together with references, which it could
 not tell apart. Omni edits by resending the source video, not by chaining
 interactions ([design note](../docs/design/omni-interaction-chaining.md)).
-Vertex Veo sends only `FirstFrame` so far, though its API has fields for the
-rest. Grok supports scoped Files IDs as inputs and optional
+Vertex Veo sends a first frame with an optional last frame, up to three
+reference images, or a source video to extend by 7 s, as inline bytes or
+`gs://` URLs ([design](../docs/design/vertex-veo.md)). Grok supports scoped
+Files IDs as inputs and optional
 [provider-side output storage](https://docs.x.ai/developers/model-capabilities/imagine/files/outputs).
 Retired models (DALL-E, `gpt-image-1`, Imagen, Veo on the Gemini API, Vertex
 Veo 2 and 3.0) are rejected before any request. xAI serves the retired

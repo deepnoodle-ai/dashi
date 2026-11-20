@@ -13,6 +13,7 @@ import (
 	"github.com/deepnoodle-ai/dashi/providers/deepinfra"
 	"github.com/deepnoodle-ai/dashi/providers/grok"
 	"github.com/deepnoodle-ai/dashi/providers/meta"
+	metaimages "github.com/deepnoodle-ai/dashi/providers/meta/images"
 	"github.com/deepnoodle-ai/dashi/providers/mistral"
 	"github.com/deepnoodle-ai/dashi/providers/ollama"
 	"github.com/deepnoodle-ai/dashi/providers/openai/completions"
@@ -151,6 +152,27 @@ func TestImagesMissingKeyFailsAtSend(t *testing.T) {
 	}
 	request, err := client.PrepareImage(t.Context(), media.ImageInput{
 		Model:     "gpt-image-2.6-flare",
+		Operation: media.ImageGenerate,
+		Prompt:    []content.Block{content.TextBlock("a cat")},
+	})
+	if err != nil {
+		t.Fatalf("PrepareImage without a key: %v", err)
+	}
+	_, err = client.SendImage(t.Context(), request)
+	if !errors.Is(err, llm.ErrNoAPIKey) {
+		t.Fatalf("SendImage error = %v, want ErrNoAPIKey", err)
+	}
+}
+
+func TestMetaImagesMissingKeyFailsAtSend(t *testing.T) {
+	t.Setenv("MODEL_API_KEY", "")
+	t.Setenv("META_API_KEY", "")
+	client, err := metaimages.New(metaimages.Config{})
+	if err != nil {
+		t.Fatalf("New without a key: %v", err)
+	}
+	request, err := client.PrepareImage(t.Context(), media.ImageInput{
+		Model:     "muse-image-1.0",
 		Operation: media.ImageGenerate,
 		Prompt:    []content.Block{content.TextBlock("a cat")},
 	})

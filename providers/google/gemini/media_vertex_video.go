@@ -27,8 +27,18 @@ import (
 // vertexVideoLocation is the only region Google documents for Veo on Vertex.
 const vertexVideoLocation = "us-central1"
 
-// maxVertexFrameBytes is Vertex's documented limit for an inline first frame.
+// maxVertexFrameBytes is Vertex's documented limit for an inline input image.
 const maxVertexFrameBytes = 20 << 20
+
+// Veo limits from Google's reference-image and extension guides
+// (https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-references
+// and .../extend-videos, read 2026-11-17).
+const (
+	vertexMaxReferenceImages = 3
+	vertexReferenceDuration  = 8 * time.Second
+	vertexMinExtendSource    = time.Second
+	vertexMaxExtendSource    = 30 * time.Second
+)
 
 // maxVertexOperationBytes bounds a done operation, which holds the video as
 // base64: four bytes for every three, plus room for the JSON around it.
@@ -187,8 +197,9 @@ func (p *VertexVideoJobClient) builtInModel(name string) media.ModelInfo {
 	video := &media.VideoCapabilities{
 		Generate:        model.SupportSupported,
 		Edit:            model.SupportUnsupported,
-		Extend:          model.SupportUnsupported,
+		Extend:          model.SupportSupported,
 		FirstFrame:      model.SupportSupported,
+		LastFrame:       model.SupportSupported,
 		Resolutions:     []string{"720p", "1080p", "4k"},
 		Durations:       []time.Duration{4 * time.Second, 6 * time.Second, 8 * time.Second},
 		AspectRatios:    []string{"16:9", "9:16"},
@@ -208,9 +219,12 @@ func (p *VertexVideoJobClient) builtInModel(name string) media.ModelInfo {
 		evidence.Method = model.EvidenceInference
 		evidence.Source += " (4k from price-list copies, untested)"
 	case "veo-3.1-lite-generate-001":
-		// Lite's page contradicts itself on image input.
+		// Lite's page contradicts itself on image input, and its REST
+		// steps for frames and extension name only the other two models.
 		video.Resolutions = []string{"720p", "1080p"}
 		video.FirstFrame = model.SupportUnknown
+		video.LastFrame = model.SupportUnknown
+		video.Extend = model.SupportUnknown
 	}
 	return media.ModelInfo{Video: video, Evidence: evidence}
 }
@@ -226,10 +240,14 @@ func (p *VertexVideoJobClient) VideoModelInfo(name string) (media.ModelInfo, boo
 	return info.Clone(), ok
 }
 
-// PrepareVideo encodes a Veo text or first-frame request without sending it.
-// Audio is on unless Settings.DisableAudio is set, and the request always
-// says which, because Google has changed its default before. Dashi does not
-// apply the Gemini API's rule that 1080p and 4k need 8 s; Vertex decides.
+// PrepareVideo encodes a Veo request without sending it. It sends text, a
+// first frame with an optional last frame, up to three asset reference
+// images, or a source video to extend by 7 s. Images and videos are inline
+// bytes or gs:// URLs, which Vertex reads with the project's own access;
+// Dashi never fetches them. Audio is on unless Settings.DisableAudio is set,
+// and the request always says which, because Google has changed its default
+// before. Dashi does not apply the Gemini API's rule that 1080p and 4k need
+// 8 s; Vertex decides.
 func (p *VertexVideoJobClient) PrepareVideo(
 	ctx context.Context,
 	in media.VideoInput,
@@ -240,7 +258,7 @@ func (p *VertexVideoJobClient) PrepareVideo(
 	if err := in.Validate(); err != nil {
 		return media.VideoRequest{}, p.failure(media.ErrorInvalidRequest, "%w", err)
 	}
-	if in.Operation != "" && in.Operation != media.VideoGenerate {
+	if in.Operation == media.VideoEdit {
 		return media.VideoRequest{}, p.failure(
 			media.ErrorUnsupported,
 			"Vertex Veo %s is not supported",
@@ -255,14 +273,8 @@ func (p *VertexVideoJobClient) PrepareVideo(
 			in.Settings.Size.Height,
 		)
 	}
-	// Veo documents lastFrame, referenceImages, and video extension; Dashi
-	// does not send them yet.
-	if in.LastFrame != nil || len(in.ReferenceImages) > 0 ||
-		len(in.ReferenceVideos) > 0 {
-		return media.VideoRequest{}, p.failure(
-			media.ErrorUnsupported,
-			"Vertex Veo in Dashi takes only a first frame",
-		)
+	if err := p.checkVideoInputs(in); err != nil {
+		return media.VideoRequest{}, err
 	}
 	if ratio := in.Settings.AspectRatio; ratio != "" &&
 		ratio != "16:9" && ratio != "9:16" {
@@ -316,8 +328,14 @@ func (p *VertexVideoJobClient) PrepareVideo(
 		}
 		prompt = append(prompt, b.Text.Text)
 	}
-	if in.FirstFrame == nil &&
-		strings.TrimSpace(strings.Join(prompt, "")) == "" {
+	hasPrompt := strings.TrimSpace(strings.Join(prompt, "")) != ""
+	switch {
+	case len(in.ReferenceImages) > 0 && !hasPrompt:
+		return media.VideoRequest{}, p.failure(
+			media.ErrorInvalidRequest,
+			"Vertex Veo reference images require a nonempty text prompt",
+		)
+	case !hasPrompt && in.FirstFrame == nil && in.SourceVideo == nil:
 		return media.VideoRequest{}, p.failure(
 			media.ErrorInvalidRequest,
 			"Vertex Veo requires a nonempty text prompt or first frame",
@@ -327,25 +345,50 @@ func (p *VertexVideoJobClient) PrepareVideo(
 	if len(prompt) > 0 {
 		instance["prompt"] = strings.Join(prompt, "\n\n")
 	}
-	if in.FirstFrame != nil {
-		source := in.FirstFrame.Image.Source.WithDetectedMIMEType("")
-		if source.Data == nil ||
-			(source.MIMEType != "image/png" && source.MIMEType != "image/jpeg") {
-			return media.VideoRequest{}, p.failure(
-				media.ErrorUnsupported,
-				"Vertex Veo first frame requires inline PNG or JPEG bytes",
-			)
+	for _, field := range []struct {
+		name  string
+		role  string
+		frame *content.Block
+	}{
+		{"image", "first frame", in.FirstFrame},
+		{"lastFrame", "last frame", in.LastFrame},
+	} {
+		if field.frame == nil {
+			continue
 		}
-		if len(source.Data) > maxVertexFrameBytes {
-			return media.VideoRequest{}, p.failure(
-				media.ErrorUnsupported,
-				"Vertex Veo first frame exceeds 20 MB",
-			)
+		encoded, err := p.vertexImage(*field.frame, field.role)
+		if err != nil {
+			return media.VideoRequest{}, err
 		}
-		instance["image"] = map[string]any{
-			"bytesBase64Encoded": base64.StdEncoding.EncodeToString(source.Data),
-			"mimeType":           source.MIMEType,
+		instance[field.name] = encoded
+	}
+	if len(in.ReferenceImages) > 0 {
+		references := make([]any, 0, len(in.ReferenceImages))
+		for _, block := range in.ReferenceImages {
+			encoded, err := p.vertexImage(block, "reference image")
+			if err != nil {
+				return media.VideoRequest{}, err
+			}
+			// Veo also takes one "style" image; VideoInput cannot say which
+			// kind a reference is, so Dashi sends subjects only.
+			references = append(references, map[string]any{
+				"image":         encoded,
+				"referenceType": "asset",
+			})
 		}
+		instance["referenceImages"] = references
+	}
+	if in.SourceVideo != nil {
+		encoded, err := p.vertexMedia(
+			in.SourceVideo.Video.Source,
+			"source video",
+			[]string{"video/mp4"},
+			maxVideoBytes,
+		)
+		if err != nil {
+			return media.VideoRequest{}, err
+		}
+		instance["video"] = encoded
 	}
 	// One sample means one video and one charge.
 	parameters := map[string]any{
@@ -379,6 +422,143 @@ func (p *VertexVideoJobClient) PrepareVideo(
 		CapabilityPolicy: p.config.CapabilityPolicy,
 		Unverified:       unverified,
 	})
+}
+
+// checkVideoInputs applies Veo's rules for combining inputs, from the
+// VideoGenerationModelInstance reference: a first frame excludes a video and
+// reference images, a last frame needs a first frame, and reference images
+// exclude both frames and a video.
+func (p *VertexVideoJobClient) checkVideoInputs(in media.VideoInput) error {
+	unsupported := func(format string, args ...any) error {
+		return p.failure(media.ErrorUnsupported, format, args...)
+	}
+	if len(in.ReferenceVideos) > 0 {
+		return unsupported("Vertex Veo does not take reference videos")
+	}
+	if in.Operation == media.VideoExtend {
+		if in.SourceVideo == nil {
+			return p.failure(
+				media.ErrorInvalidRequest,
+				"Vertex Veo extension requires SourceVideo",
+			)
+		}
+		if in.FirstFrame != nil || in.LastFrame != nil ||
+			len(in.ReferenceImages) > 0 {
+			return unsupported("Vertex Veo extension takes only a source video")
+		}
+		// Google documents a fixed 7 s extension and no durationSeconds,
+		// so Dashi sends none and refuses a requested length.
+		if in.Settings.Duration != 0 {
+			return unsupported("Vertex Veo extension always adds 7 s; leave Duration unset")
+		}
+		if in.Settings.AspectRatio != "" {
+			return unsupported("Vertex Veo extension keeps the source aspect ratio")
+		}
+		// Zero when the caller did not record the source length.
+		if d := in.SourceVideo.Video.Duration; d != 0 &&
+			(d < vertexMinExtendSource || d > vertexMaxExtendSource) {
+			return unsupported("Vertex Veo extends videos of 1 to 30 s, not %s", d)
+		}
+		return nil
+	}
+	if in.LastFrame != nil && in.FirstFrame == nil {
+		return unsupported("Vertex Veo last frame requires a first frame")
+	}
+	if n := len(in.ReferenceImages); n > 0 {
+		if in.FirstFrame != nil {
+			return unsupported("Vertex Veo cannot combine reference images with frames")
+		}
+		if n > vertexMaxReferenceImages {
+			return unsupported(
+				"Vertex Veo takes at most %d reference images, not %d",
+				vertexMaxReferenceImages,
+				n,
+			)
+		}
+		if in.Model == "veo-3.1-lite-generate-001" {
+			return unsupported("%s does not take reference images", in.Model)
+		}
+		if d := in.Settings.Duration; d != 0 && d != vertexReferenceDuration {
+			return unsupported("Vertex Veo reference images make 8 s videos, not %s", d)
+		}
+	}
+	return nil
+}
+
+// vertexImage encodes a PNG or JPEG input image of at most 20 MB.
+func (p *VertexVideoJobClient) vertexImage(
+	block content.Block,
+	role string,
+) (map[string]any, error) {
+	return p.vertexMedia(
+		block.Image.Source,
+		role,
+		[]string{"image/png", "image/jpeg"},
+		maxVertexFrameBytes,
+	)
+}
+
+// vertexMedia encodes inline bytes as bytesBase64Encoded or a gs:// URL as
+// gcsUri. It refuses other URLs, provider files, and application refs:
+// Vertex reads only Cloud Storage, and Dashi never fetches inputs.
+func (p *VertexVideoJobClient) vertexMedia(
+	source content.Source,
+	role string,
+	mimeTypes []string,
+	maxBytes int,
+) (map[string]any, error) {
+	source = source.WithDetectedMIMEType("")
+	kinds := strings.Join(mimeTypes, " or ")
+	switch {
+	case source.Data != nil:
+		if !slices.Contains(mimeTypes, source.MIMEType) {
+			return nil, p.failure(
+				media.ErrorUnsupported,
+				"Vertex Veo %s requires %s, not %q",
+				role,
+				kinds,
+				source.MIMEType,
+			)
+		}
+		if len(source.Data) > maxBytes {
+			return nil, p.failure(
+				media.ErrorUnsupported,
+				"Vertex Veo %s exceeds %d MB",
+				role,
+				maxBytes>>20,
+			)
+		}
+		return map[string]any{
+			"bytesBase64Encoded": base64.StdEncoding.EncodeToString(source.Data),
+			"mimeType":           source.MIMEType,
+		}, nil
+	case isCloudStorageURL(source.URL):
+		if !slices.Contains(mimeTypes, source.MIMEType) {
+			return nil, p.failure(
+				media.ErrorUnsupported,
+				"Vertex Veo %s gs:// URL requires MIME type %s",
+				role,
+				kinds,
+			)
+		}
+		return map[string]any{
+			"gcsUri":   source.URL,
+			"mimeType": source.MIMEType,
+		}, nil
+	}
+	return nil, p.failure(
+		media.ErrorUnsupported,
+		"Vertex Veo %s requires inline bytes or a gs:// URL",
+		role,
+	)
+}
+
+// isCloudStorageURL reports whether raw names a Cloud Storage object.
+func isCloudStorageURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "gs" && u.Host != "" &&
+		len(u.Path) > 1 && u.User == nil && u.RawQuery == "" &&
+		u.Fragment == ""
 }
 
 // adjustments records the location change, so a host sees that a "global"

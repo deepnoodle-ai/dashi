@@ -67,7 +67,8 @@ conversations.
 - Google Gemini API and Vertex (a separate module:
   `go get github.com/deepnoodle-ai/dashi/providers/google/gemini`)
 - xAI (Grok) conversations, images, and video
-- Configured destinations: DeepInfra, Mistral, OpenRouter, Meta, and Ollama
+- Meta conversations and Muse Image images (`providers/meta/images`)
+- Configured destinations: DeepInfra, Mistral, OpenRouter, and Ollama
 
 ## Status
 

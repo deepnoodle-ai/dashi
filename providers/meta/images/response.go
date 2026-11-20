@@ -1,0 +1,111 @@
+package images
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+
+	"github.com/deepnoodle-ai/dashi/content"
+	"github.com/deepnoodle-ai/dashi/media"
+	"github.com/deepnoodle-ai/dashi/model"
+)
+
+type imageResponse struct {
+	OutputFormat string          `json:"output_format"`
+	Usage        json.RawMessage `json:"usage"`
+	Data         []struct {
+		Base64 string `json:"b64_json"`
+		URL    string `json:"url"`
+	} `json:"data"`
+}
+
+// decodeImageResponse reads one block per data item. Meta bills per image,
+// so the token usage it reports is kept raw for reference only.
+func decodeImageResponse(raw []byte, input media.ImageInput,
+	origin content.Origin, responseID string) (media.Result, error) {
+	var response imageResponse
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return media.Result{}, fmt.Errorf("images: invalid response JSON: %w", err)
+	}
+	if len(response.Data) == 0 {
+		return media.Result{}, errors.New("images: response contains no images")
+	}
+	mimeType, err := formatMIME(response.OutputFormat)
+	if err != nil {
+		return media.Result{}, err
+	}
+	blocks := make([]content.Block, 0, len(response.Data))
+	for _, item := range response.Data {
+		source, err := decodeImageSource(item.Base64, item.URL, mimeType)
+		if err != nil {
+			return media.Result{}, err
+		}
+		blocks = append(blocks, content.ImageBlock(source))
+	}
+	result := media.Result{
+		Kind:    media.KindImage,
+		Content: blocks,
+		Requested: model.ModelRef{
+			Provider: origin.Provider,
+			Model:    input.Model,
+		},
+		API:        API,
+		ResponseID: responseID,
+		RawUsage:   media.ReportedUsage(response.Usage),
+	}
+	if err := result.Validate(); err != nil {
+		return media.Result{}, err
+	}
+	return result, nil
+}
+
+func decodeImageSource(encoded, imageURL, mimeType string) (content.Source, error) {
+	if (encoded == "") == (imageURL == "") {
+		return content.Source{}, errors.New(
+			"images: response image requires exactly one of base64 or URL",
+		)
+	}
+	if encoded != "" {
+		data, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil || len(data) == 0 {
+			return content.Source{}, errors.New("images: invalid base64 image data")
+		}
+		detected := http.DetectContentType(data)
+		if !supportedInputMIME(detected) {
+			return content.Source{}, fmt.Errorf(
+				"images: unsupported response image MIME type %q",
+				detected,
+			)
+		}
+		if mimeType != "" && mimeType != detected {
+			return content.Source{}, errors.New(
+				"images: declared image format differs from returned bytes",
+			)
+		}
+		return content.Source{Data: data, MIMEType: detected}, nil
+	}
+	parsed, err := url.Parse(imageURL)
+	if err != nil || parsed.Host == "" ||
+		(parsed.Scheme != "https" && parsed.Scheme != "http") ||
+		parsed.User != nil {
+		return content.Source{}, errors.New("images: response image requires an HTTP URL")
+	}
+	return content.Source{URL: imageURL, MIMEType: mimeType}, nil
+}
+
+func formatMIME(format string) (string, error) {
+	switch format {
+	case "":
+		return "", nil
+	case "webp":
+		return "image/webp", nil
+	case "png":
+		return "image/png", nil
+	case "jpeg":
+		return "image/jpeg", nil
+	}
+	return "", fmt.Errorf("images: unsupported response format %q", format)
+}
